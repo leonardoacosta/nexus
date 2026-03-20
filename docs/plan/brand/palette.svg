@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 200" width="960" height="200">
+  <style>
+    text { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .name { fill: #C0C0C0; font-size: 10px; font-weight: 500; }
+    .hex { fill: #666666; font-size: 9px; }
+  </style>
+
+  <!-- Background -->
+  <rect width="960" height="200" fill="#0D0D0D" rx="4"/>
+
+  <!-- Primary -->
+  <rect x="20" y="20" width="100" height="100" rx="2" fill="#00D26A"/>
+  <text class="name" x="20" y="140">Primary</text>
+  <text class="hex" x="20" y="155">#00D26A</text>
+
+  <!-- Primary Bright -->
+  <rect x="130" y="20" width="100" height="100" rx="2" fill="#39FF14"/>
+  <text class="name" x="130" y="140">Bright</text>
+  <text class="hex" x="130" y="155">#39FF14</text>
+
+  <!-- Primary Dim -->
+  <rect x="240" y="20" width="100" height="100" rx="2" fill="#0A4A2A"/>
+  <text class="name" x="240" y="140">Dim</text>
+  <text class="hex" x="240" y="155">#0A4A2A</text>
+
+  <!-- Secondary -->
+  <rect x="370" y="20" width="100" height="100" rx="2" fill="#00CED1"/>
+  <text class="name" x="370" y="140">Secondary</text>
+  <text class="hex" x="370" y="155">#00CED1</text>
+
+  <!-- Warning -->
+  <rect x="480" y="20" width="100" height="100" rx="2" fill="#FFB700"/>
+  <text class="name" x="480" y="140">Warning</text>
+  <text class="hex" x="480" y="155">#FFB700</text>
+
+  <!-- Error -->
+  <rect x="590" y="20" width="100" height="100" rx="2" fill="#FF3B3B"/>
+  <text class="name" x="590" y="140">Error</text>
+  <text class="hex" x="590" y="155">#FF3B3B</text>
+
+  <!-- Text -->
+  <rect x="720" y="20" width="100" height="45" rx="2" fill="#C0C0C0"/>
+  <text class="name" x="720" y="86">Text</text>
+  <text class="hex" x="720" y="101">#C0C0C0</text>
+
+  <!-- Text Dim -->
+  <rect x="720" y="75" width="100" height="45" rx="2" fill="#666666"/>
+  <text class="name" x="720" y="140">Dim</text>
+  <text class="hex" x="720" y="155">#666666</text>
+
+  <!-- Surface -->
+  <rect x="840" y="20" width="100" height="30" rx="2" fill="#1A1A1A" stroke="#333333" stroke-width="1"/>
+  <rect x="840" y="55" width="100" height="30" rx="2" fill="#2A2A2A" stroke="#333333" stroke-width="1"/>
+  <rect x="840" y="90" width="100" height="30" rx="2" fill="#333333"/>
+  <text class="name" x="840" y="140">Surfaces</text>
+  <text class="hex" x="840" y="155">#1A · #2A · #33</text>
+
+  <!-- Title -->
+  <text x="20" y="190" fill="#00D26A" font-size="11" font-weight="600" letter-spacing="0.15em">NEXUS</text>
+  <text x="80" y="190" fill="#666666" font-size="9">PALETTE v1.0 · DARK ONLY</text>
+</svg>

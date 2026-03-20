@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — TUI Component Samples</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --primary: #00D26A;
+    --primary-bright: #39FF14;
+    --primary-dim: #0A4A2A;
+    --secondary: #00CED1;
+    --warning: #FFB700;
+    --error: #FF3B3B;
+    --text: #C0C0C0;
+    --text-bright: #E0E0E0;
+    --text-dim: #666666;
+    --text-muted: #444444;
+    --bg: #0D0D0D;
+    --surface: #1A1A1A;
+    --surface-hl: #2A2A2A;
+    --surface-sel: #0A4A2A;
+    --border: #333333;
+    --border-active: #00D26A;
+    --border-dim: #1F1F1F;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    text-align: center;
+    color: var(--primary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    margin-bottom: 0.5rem;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.65rem;
+    margin-bottom: 3rem;
+  }
+
+  .component {
+    margin-bottom: 3rem;
+  }
+  .component__title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 1rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .component__title::before { content: '┌─ '; color: var(--text-dim); }
+  .component__desc {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+  }
+
+  /* ─── TUI Panel ──────────────────────────── */
+  .tui {
+    background: var(--bg);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    white-space: pre;
+    padding: 0;
+    overflow-x: auto;
+  }
+  .tui pre {
+    margin: 0;
+    padding: 1rem;
+    font-family: inherit;
+  }
+  .g { color: var(--primary); }
+  .gb { color: var(--primary-bright); }
+  .c { color: var(--secondary); }
+  .w { color: var(--warning); }
+  .r { color: var(--error); }
+  .d { color: var(--text-dim); }
+  .t { color: var(--text); }
+  .tb { color: var(--text-bright); font-weight: 600; }
+  .sel { background: var(--surface-sel); display: inline; }
+  .hl { background: var(--surface-hl); display: inline; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .panel {
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .panel--active { border-color: var(--primary); }
+  .panel__header {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .panel--active .panel__header {
+    color: var(--primary);
+    border-color: var(--primary-dim);
+  }
+  .panel__body {
+    padding: 0.8rem;
+    font-size: 0.75rem;
+    min-height: 60px;
+  }
+</style>
+</head>
+<body>
+
+<h1>TUI Component Samples</h1>
+<p class="subtitle">ratatui widget patterns rendered in brand colors</p>
+
+<!-- ═══ 1. Tabbed Navigation ═════════════════ -->
+<div class="component">
+  <div class="component__title">Tabbed Navigation</div>
+  <div class="component__desc">Screen switching via number keys or tab. Active tab is bright green, others dim.</div>
+  <div class="tui"><pre><span class="d">┌────────────────────────────────────────────────────────────────────┐</span>
+<span class="d">│</span> <span class="g tb">[1] Dashboard</span>  <span class="d">[2] Detail</span>  <span class="d">[3] Health</span>  <span class="d">[4] Projects</span>  <span class="d">[5] Search</span> <span class="d">│</span>
+<span class="d">└────────────────────────────────────────────────────────────────────┘</span></pre></div>
+</div>
+
+<!-- ═══ 2. Session Table ═════════════════════ -->
+<div class="component">
+  <div class="component__title">Session Table</div>
+  <div class="component__desc">Dense table with status dots, sparklines, and selected row highlight. Column headers are dim uppercase.</div>
+  <div class="tui"><pre><span class="d">  STATUS  PROJECT    BRANCH       AGENT           ACTIVITY        AGE</span>
+<span class="d">  ──────  ─────────  ───────────  ──────────────  ──────────────  ───</span>
+<span class="sel">  <span class="g">●</span>       <span class="t">oo</span>         <span class="t">main</span>         <span class="t">api-engineer</span>    <span class="gb">⣿⣸⣰⠸⣰⣸⣿⣿⣸⣰</span>  <span class="t">12m</span> </span>
+  <span class="g">●</span>       <span class="t">oo</span>         <span class="t">feat/auth</span>    <span class="t">ui-engineer</span>     <span class="gb">⠸⣰⣸⣿⣿⣸⣰⠸⠰⠠</span>  <span class="t">45m</span>
+  <span class="w">○</span>       <span class="t">tc</span>         <span class="t">main</span>         <span class="d">—</span>               <span class="d">⠀⠀⠠⠰⠠⠀⠀⠀⠀⠀</span>  <span class="t">2h</span>
+  <span class="g">●</span>       <span class="t">mv</span>         <span class="t">dev</span>          <span class="t">db-engineer</span>     <span class="gb">⣰⣸⣿⣿⣸⣰⠸⠰⠠⠰</span>  <span class="t">8m</span>
+  <span class="d">◌</span>       <span class="d">ss</span>         <span class="d">main</span>         <span class="d">—</span>               <span class="d">⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀</span>  <span class="d">6h</span>
+  <span class="r">✖</span>       <span class="d">tl</span>         <span class="d">main</span>         <span class="d">—</span>               <span class="d">⠀</span>              <span class="d">—</span></pre></div>
+</div>
+
+<!-- ═══ 3. Key-Value Detail ══════════════════ -->
+<div class="component">
+  <div class="component__title">Key-Value Detail Panel</div>
+  <div class="component__desc">Session detail view. Labels are dim, values are bright. Status uses semantic color.</div>
+  <div class="grid-2">
+    <div class="panel panel--active">
+      <div class="panel__header">Session Detail</div>
+      <div class="panel__body">
+<pre style="font-family:inherit;font-size:inherit;margin:0"><span class="d">id:</span>       <span class="t">a7f2c891-4e3d-4b1a</span>
+<span class="d">project:</span>  <span class="tb">otaku-odyssey</span>
+<span class="d">branch:</span>   <span class="t">main</span>
+<span class="d">agent:</span>    <span class="c">api-engineer</span>
+<span class="d">command:</span>  <span class="t">/apply add-stripe-webhooks</span>
+<span class="d">status:</span>   <span class="g">● active</span>
+<span class="d">pid:</span>      <span class="t">48291</span>
+<span class="d">started:</span>  <span class="t">2026-03-20 14:32:01</span>
+<span class="d">uptime:</span>   <span class="t">12m 34s</span>
+<span class="d">tmux:</span>     <span class="t">oo-main</span></pre>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel__header">Agent Activity</div>
+      <div class="panel__body">
+<pre style="font-family:inherit;font-size:inherit;margin:0"><span class="d">14:44</span> <span class="t">Edit packages/api/src/stripe.ts</span>
+<span class="d">14:43</span> <span class="t">Read packages/db/src/schemas/invoice.ts</span>
+<span class="d">14:42</span> <span class="g">Task db-engineer completed</span>
+<span class="d">14:41</span> <span class="t">Bash cargo test -p nexus-core</span>
+<span class="d">14:40</span> <span class="t">Grep "webhook" packages/api/</span>
+<span class="d">14:39</span> <span class="c">Agent spawned: api-engineer</span>
+<span class="d">14:38</span> <span class="t">Read openspec/changes/add-stripe/tasks.md</span></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 4. Health Gauges ═════════════════════ -->
+<div class="component">
+  <div class="component__title">Health Gauges</div>
+  <div class="component__desc">Machine health metrics. Bar fills use primary green, warnings amber, critical red.</div>
+  <div class="tui"><pre><span class="c">homelab</span> <span class="d">·</span> <span class="t">Linux 6.18.1</span> <span class="d">·</span> <span class="t">uptime 14d 6h</span>
+
+<span class="d">CPU</span>  <span class="g">████████████</span><span class="d">░░░░░░░░░░░░░░░░░░░░</span> <span class="t"> 23%</span>
+<span class="d">MEM</span>  <span class="g">█████████</span><span class="d">░░░░░░░░░░░░░░░░░░░░░░░</span> <span class="t"> 14.2 / 64.0 GB</span>
+<span class="d">DISK</span> <span class="w">█████████████████████████</span><span class="d">░░░░░░░</span> <span class="w"> 78%</span>  <span class="d">412 / 530 GB</span>
+<span class="d">LOAD</span> <span class="t">2.14  1.87  1.52</span>
+
+<span class="d">DOCKER</span>  <span class="g">●</span> <span class="t">postgres</span>  <span class="g">●</span> <span class="t">redis</span>  <span class="g">●</span> <span class="t">caddy</span>  <span class="r">✖</span> <span class="d">grafana</span></pre></div>
+</div>
+
+<!-- ═══ 5. Project Overview Table ════════════ -->
+<div class="component">
+  <div class="component__title">Project Overview</div>
+  <div class="component__desc">Aggregated project view with session counts and deploy status.</div>
+  <div class="tui"><pre><span class="d">  PROJECT          SESSIONS    ACTIVE  DEPLOY       LAST PUSH</span>
+<span class="d">  ───────────────  ──────────  ──────  ───────────  ─────────</span>
+<span class="sel">  <span class="tb">otaku-odyssey</span>    <span class="t">4 sessions</span>  <span class="g">3</span>       <span class="g">● deployed</span>   <span class="t">2h ago</span>   </span>
+  <span class="t">tribal-cities</span>    <span class="t">2 sessions</span>  <span class="w">0</span>       <span class="g">● deployed</span>   <span class="t">1d ago</span>
+  <span class="t">modern-visa</span>      <span class="t">3 sessions</span>  <span class="g">2</span>       <span class="w">● building</span>   <span class="t">15m ago</span>
+  <span class="t">styles-silas</span>     <span class="t">1 session</span>   <span class="d">0</span>       <span class="g">● deployed</span>   <span class="t">3d ago</span>
+  <span class="d">tavern-ledger</span>    <span class="d">0 sessions</span>  <span class="d">0</span>       <span class="r">✖ failed</span>    <span class="d">5d ago</span>
+  <span class="t">nexus</span>            <span class="t">2 sessions</span>  <span class="g">2</span>       <span class="d">— n/a</span>       <span class="t">now</span></pre></div>
+</div>
+
+<!-- ═══ 6. Command Palette ═══════════════════ -->
+<div class="component">
+  <div class="component__title">Command Palette / Fuzzy Search</div>
+  <div class="component__desc">Vim-style fuzzy finder. Input at top, matched results below. Match characters highlighted in bright green.</div>
+  <div class="tui"><pre><span class="g">┌─ Search ─────────────────────────────────────────┐</span>
+<span class="g">│</span> <span class="g">▸</span> <span class="t">oo ma</span><span class="d">█</span>                                        <span class="g">│</span>
+<span class="g">├──────────────────────────────────────────────────┤</span>
+<span class="g">│</span><span class="sel"> <span class="g">●</span> <span class="gb">o</span>taku-<span class="gb">o</span>dyssey · <span class="gb">ma</span>in · api-engineer        12m </span><span class="g">│</span>
+<span class="g">│</span> <span class="g">●</span> <span class="gb">o</span>taku-<span class="gb">o</span>dyssey · <span class="gb">ma</span>in · — (idle)              2h  <span class="g">│</span>
+<span class="g">│</span> <span class="g">●</span> <span class="gb">o</span>taku-<span class="gb">o</span>dyssey · feat/auth · ui-engineer     45m <span class="g">│</span>
+<span class="g">│</span> <span class="w">○</span> m<span class="gb">o</span>dern-visa · <span class="gb">ma</span>in · db-engineer           8m  <span class="g">│</span>
+<span class="g">│</span>                                                  <span class="g">│</span>
+<span class="g">│</span> <span class="d">4 matches · enter: select · esc: close</span>          <span class="g">│</span>
+<span class="g">└──────────────────────────────────────────────────┘</span></pre></div>
+</div>
+
+<!-- ═══ 7. Alerts / Notifications ════════════ -->
+<div class="component">
+  <div class="component__title">Alerts & Notifications</div>
+  <div class="component__desc">Inline alerts for connection issues, stale sessions, etc. Color-coded by severity.</div>
+  <div class="grid-3">
+    <div class="panel" style="border-color: var(--primary-dim);">
+      <div class="panel__header" style="color:var(--primary);">Info</div>
+      <div class="panel__body">
+        <pre style="font-family:inherit;font-size:0.7rem;margin:0"><span class="g">ℹ</span> <span class="t">Agent discovered via</span>
+  <span class="t">mDNS: macbook.ts.net</span>
+  <span class="d">added to registry</span></pre>
+      </div>
+    </div>
+    <div class="panel" style="border-color: var(--warning); border-opacity: 0.5;">
+      <div class="panel__header" style="color:var(--warning);">Warning</div>
+      <div class="panel__body">
+        <pre style="font-family:inherit;font-size:0.7rem;margin:0"><span class="w">⚠</span> <span class="t">2 sessions stale on</span>
+  <span class="t">homelab (>5m no hb)</span>
+  <span class="d">press 'r' to refresh</span></pre>
+      </div>
+    </div>
+    <div class="panel" style="border-color: var(--error);">
+      <div class="panel__header" style="color:var(--error);">Error</div>
+      <div class="panel__body">
+        <pre style="font-family:inherit;font-size:0.7rem;margin:0"><span class="r">✖</span> <span class="t">macbook: connection</span>
+  <span class="t">refused (port 7400)</span>
+  <span class="d">retry in 10s...</span></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 8. Status Bar ════════════════════════ -->
+<div class="component">
+  <div class="component__title">Status Bar</div>
+  <div class="component__desc">Bottom bar showing aggregate status and keybindings. Always visible.</div>
+  <div class="tui"><pre><span class="d" style="background:var(--surface);display:block;padding:0.3rem 0.8rem"><span class="g">●</span> <span class="t">3 agents</span> <span class="d">·</span> <span class="t">12 sessions</span> <span class="d">·</span> <span class="g">7 active</span> <span class="d">·</span> <span class="w">3 idle</span> <span class="d">·</span> <span class="d">2 stale</span>          <span class="d">↑ 2s</span>  <span class="d">q:quit  ?:help</span></span></pre></div>
+</div>
+
+<!-- ═══ 9. Loading / Connection States ═══════ -->
+<div class="component">
+  <div class="component__title">Loading & Connection States</div>
+  <div class="component__desc">Spinner, progress, and disconnected states.</div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel__header">Connecting</div>
+      <div class="panel__body" style="text-align:center;padding:1.5rem">
+        <pre style="font-family:inherit;font-size:inherit;margin:0"><span class="g">⠋</span> <span class="t">connecting to homelab:7400...</span></pre>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel__header">Disconnected</div>
+      <div class="panel__body" style="text-align:center;padding:1.5rem">
+        <pre style="font-family:inherit;font-size:inherit;margin:0"><span class="r">✖</span> <span class="d">macbook offline</span>
+<span class="d">   last seen 4m ago</span></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 10. Attach Mode ══════════════════════ -->
+<div class="component">
+  <div class="component__title">Attach Mode Indicator</div>
+  <div class="component__desc">Shows current attach mode when viewing a session. Stream (read-only) or full (terminal).</div>
+  <div class="tui"><pre><span class="g">┌─ oo#1 · main · api-engineer ────────── STREAM (read-only) ──┐</span>
+<span class="g">│</span>                                                             <span class="g">│</span>
+<span class="g">│</span> <span class="d">14:44:32</span> <span class="c">[agent]</span> <span class="t">Edit packages/api/src/stripe.ts</span>          <span class="g">│</span>
+<span class="g">│</span> <span class="d">14:44:28</span> <span class="c">[agent]</span> <span class="t">Read packages/db/src/schemas/invoice.ts</span>  <span class="g">│</span>
+<span class="g">│</span> <span class="d">14:44:15</span> <span class="c">[agent]</span> <span class="t">Bash cargo test -p nexus-core</span>            <span class="g">│</span>
+<span class="g">│</span> <span class="d">14:44:01</span> <span class="g">[done]</span> <span class="t">Task db-engineer completed</span>              <span class="g">│</span>
+<span class="g">│</span> <span class="d">14:43:45</span> <span class="c">[agent]</span> <span class="t">Grep "webhook" packages/api/</span>            <span class="g">│</span>
+<span class="g">│</span>                                                             <span class="g">│</span>
+<span class="g">├─────────────────────────────────────────────────────────────┤</span>
+<span class="g">│</span> <span class="d">a: stream (current) · A: full attach (SSH+tmux) · q: back</span>  <span class="g">│</span>
+<span class="g">└─────────────────────────────────────────────────────────────┘</span></pre></div>
+</div>
+
+</body>
+</html>

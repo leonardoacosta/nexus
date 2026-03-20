@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Logo Concepts</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --primary: #00D26A;
+    --primary-bright: #39FF14;
+    --primary-dim: #0A4A2A;
+    --secondary: #00CED1;
+    --text: #C0C0C0;
+    --text-dim: #666666;
+    --bg: #0D0D0D;
+    --surface: #1A1A1A;
+    --border: #333333;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    text-align: center;
+    color: var(--primary);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    margin-bottom: 0.5rem;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    margin-bottom: 3rem;
+  }
+
+  .option {
+    margin-bottom: 4rem;
+    border: 1px solid var(--border);
+    padding: 2rem;
+  }
+  .option__header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .option__letter {
+    color: var(--primary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+  }
+  .option__name {
+    color: var(--text);
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .option__desc {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    margin-bottom: 2rem;
+    padding-left: calc(0.7rem + 1rem + 0.3rem);
+  }
+
+  .size-row {
+    display: flex;
+    gap: 3rem;
+    align-items: flex-end;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+  .size-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .size-label {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+  }
+
+  .bg-row {
+    display: flex;
+    gap: 2rem;
+    margin-top: 1.5rem;
+  }
+  .bg-panel {
+    flex: 1;
+    padding: 2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 1px solid var(--border);
+    min-height: 120px;
+  }
+  .bg-panel--dark { background: var(--bg); }
+  .bg-panel--light { background: #F0F0F0; }
+  .bg-panel__label {
+    position: relative;
+  }
+
+  /* ─── Option A: Wordmark ─────────────────── */
+  .wordmark {
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .wordmark--32 { font-size: 16px; }
+  .wordmark--64 { font-size: 32px; }
+  .wordmark--128 { font-size: 64px; text-shadow: 0 0 40px rgba(0, 210, 106, 0.3); }
+  .wordmark--256 { font-size: 100px; text-shadow: 0 0 60px rgba(0, 210, 106, 0.25), 0 0 120px rgba(0, 210, 106, 0.1); }
+  .wordmark .accent { color: var(--primary-bright); }
+
+  /* Invert for light bg */
+  .bg-panel--light .wordmark { color: #0A4A2A; text-shadow: none; }
+
+  /* ─── Option B: Icon + Wordmark ──────────── */
+  .icon-wordmark {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .nx-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    color: var(--bg);
+    background: var(--primary);
+    border-radius: 3px;
+    margin-right: 0.4em;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .nx-icon--32 { width: 18px; height: 18px; font-size: 10px; }
+  .nx-icon--64 { width: 36px; height: 36px; font-size: 20px; }
+  .nx-icon--128 { width: 64px; height: 64px; font-size: 36px; border-radius: 5px; }
+  .nx-icon--256 { width: 100px; height: 100px; font-size: 56px; border-radius: 8px; box-shadow: 0 0 40px rgba(0, 210, 106, 0.3); }
+
+  .nx-text {
+    font-weight: 600;
+    color: var(--primary);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .nx-text--32 { font-size: 14px; }
+  .nx-text--64 { font-size: 28px; }
+  .nx-text--128 { font-size: 48px; }
+  .nx-text--256 { font-size: 72px; }
+
+  .bg-panel--light .nx-text { color: #0A4A2A; }
+  .bg-panel--light .nx-icon { background: #0A4A2A; color: #F0F0F0; }
+
+  /* ─── Option C: Lettermark ───────────────── */
+  .lettermark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    font-weight: 700;
+    line-height: 1;
+    position: relative;
+  }
+  .lettermark--32 { width: 28px; height: 28px; font-size: 14px; border-width: 1.5px; }
+  .lettermark--64 { width: 52px; height: 52px; font-size: 26px; border-width: 2px; }
+  .lettermark--128 { width: 96px; height: 96px; font-size: 48px; border-width: 3px; box-shadow: 0 0 30px rgba(0, 210, 106, 0.2); }
+  .lettermark--256 {
+    width: 160px; height: 160px; font-size: 80px; border-width: 4px;
+    box-shadow: 0 0 50px rgba(0, 210, 106, 0.25), 0 0 100px rgba(0, 210, 106, 0.1);
+  }
+  .lettermark::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: -1px; right: -1px; bottom: -1px;
+  }
+  .lettermark .dot {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    background: var(--primary-bright);
+    border-radius: 50%;
+  }
+  .lettermark--128 .dot { width: 10px; height: 10px; bottom: 8px; right: 8px; }
+  .lettermark--256 .dot { width: 14px; height: 14px; bottom: 12px; right: 12px; }
+
+  .bg-panel--light .lettermark { border-color: #0A4A2A; color: #0A4A2A; }
+  .bg-panel--light .lettermark .dot { background: #0A4A2A; }
+
+  /* ─── Terminal favicon ───────────────────── */
+  .terminal-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    color: var(--bg);
+    font-weight: 800;
+    border-radius: 2px;
+    line-height: 1;
+  }
+  .terminal-icon--16 { width: 16px; height: 16px; font-size: 9px; border-radius: 1px; }
+  .terminal-icon--32 { width: 32px; height: 32px; font-size: 18px; border-radius: 2px; }
+
+  .favicons {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .favicons__label {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    margin-right: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Logo Concepts</h1>
+<p class="subtitle">3 directions · 4 sizes each · light + dark backgrounds</p>
+
+<!-- ═══ Option A: Wordmark ═══════════════════ -->
+<div class="option">
+  <div class="option__header">
+    <span class="option__letter">OPTION A</span>
+    <span class="option__name">Wordmark</span>
+  </div>
+  <p class="option__desc">
+    Pure typography. Heavy weight, wide tracking, green glow on dark.
+    The X gets a bright accent to suggest the "cross-machine" connection.
+  </p>
+
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">32px</span>
+      <span class="wordmark wordmark--32">NE<span class="accent">X</span>US</span>
+    </div>
+    <div class="size-item">
+      <span class="size-label">64px</span>
+      <span class="wordmark wordmark--64">NE<span class="accent">X</span>US</span>
+    </div>
+    <div class="size-item">
+      <span class="size-label">128px</span>
+      <span class="wordmark wordmark--128">NE<span class="accent">X</span>US</span>
+    </div>
+  </div>
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">256px</span>
+      <span class="wordmark wordmark--256">NE<span class="accent">X</span>US</span>
+    </div>
+  </div>
+
+  <div class="bg-row">
+    <div class="bg-panel bg-panel--dark">
+      <span class="wordmark wordmark--64">NE<span class="accent">X</span>US</span>
+    </div>
+    <div class="bg-panel bg-panel--light">
+      <span class="wordmark wordmark--64">NE<span class="accent">X</span>US</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Option B: Icon + Wordmark ════════════ -->
+<div class="option">
+  <div class="option__header">
+    <span class="option__letter">OPTION B</span>
+    <span class="option__name">Icon + Wordmark</span>
+  </div>
+  <p class="option__desc">
+    Green square with "nx" monogram, paired with wordmark.
+    Icon works standalone at small sizes (favicons, menubar).
+    Evokes a terminal prompt / status indicator.
+  </p>
+
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">32px</span>
+      <div class="icon-wordmark">
+        <span class="nx-icon nx-icon--32">nx</span>
+        <span class="nx-text nx-text--32">NEXUS</span>
+      </div>
+    </div>
+    <div class="size-item">
+      <span class="size-label">64px</span>
+      <div class="icon-wordmark">
+        <span class="nx-icon nx-icon--64">nx</span>
+        <span class="nx-text nx-text--64">NEXUS</span>
+      </div>
+    </div>
+  </div>
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">128px</span>
+      <div class="icon-wordmark">
+        <span class="nx-icon nx-icon--128">nx</span>
+        <span class="nx-text nx-text--128">NEXUS</span>
+      </div>
+    </div>
+  </div>
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">256px (icon only)</span>
+      <span class="nx-icon nx-icon--256">nx</span>
+    </div>
+  </div>
+
+  <div class="bg-row">
+    <div class="bg-panel bg-panel--dark">
+      <div class="icon-wordmark">
+        <span class="nx-icon nx-icon--64">nx</span>
+        <span class="nx-text nx-text--64">NEXUS</span>
+      </div>
+    </div>
+    <div class="bg-panel bg-panel--light">
+      <div class="icon-wordmark">
+        <span class="nx-icon nx-icon--64">nx</span>
+        <span class="nx-text nx-text--64">NEXUS</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="favicons">
+    <span class="favicons__label">Favicon sizes:</span>
+    <span class="terminal-icon terminal-icon--16">nx</span>
+    <span class="terminal-icon terminal-icon--32">nx</span>
+  </div>
+</div>
+
+<!-- ═══ Option C: Lettermark ═════════════════ -->
+<div class="option">
+  <div class="option__header">
+    <span class="option__letter">OPTION C</span>
+    <span class="option__name">Lettermark</span>
+  </div>
+  <p class="option__desc">
+    Single "N" in a bordered square. Green activity dot in corner
+    echoes the status indicator language (● active). Minimal,
+    works at any size, strong at small scales.
+  </p>
+
+  <div class="size-row">
+    <div class="size-item">
+      <span class="size-label">32px</span>
+      <span class="lettermark lettermark--32">N<span class="dot"></span></span>
+    </div>
+    <div class="size-item">
+      <span class="size-label">64px</span>
+      <span class="lettermark lettermark--64">N<span class="dot"></span></span>
+    </div>
+    <div class="size-item">
+      <span class="size-label">128px</span>
+      <span class="lettermark lettermark--128">N<span class="dot"></span></span>
+    </div>
+    <div class="size-item">
+      <span class="size-label">256px</span>
+      <span class="lettermark lettermark--256">N<span class="dot"></span></span>
+    </div>
+  </div>
+
+  <div class="bg-row">
+    <div class="bg-panel bg-panel--dark">
+      <span class="lettermark lettermark--128">N<span class="dot"></span></span>
+    </div>
+    <div class="bg-panel bg-panel--light">
+      <span class="lettermark lettermark--128">N<span class="dot"></span></span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

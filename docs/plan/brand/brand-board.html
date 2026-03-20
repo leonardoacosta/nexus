@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Brand Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --primary: #00D26A;
+    --primary-bright: #39FF14;
+    --primary-dim: #0A4A2A;
+    --primary-ghost: #0D2E1A;
+    --secondary: #00CED1;
+    --secondary-dim: #0A3A3B;
+    --warning: #FFB700;
+    --error: #FF3B3B;
+    --text: #C0C0C0;
+    --text-bright: #E0E0E0;
+    --text-dim: #666666;
+    --text-muted: #444444;
+    --bg: #0D0D0D;
+    --surface: #1A1A1A;
+    --surface-hl: #2A2A2A;
+    --surface-sel: #0A4A2A;
+    --border: #333333;
+    --border-active: #00D26A;
+    --border-dim: #1F1F1F;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* ─── Header ─────────────────────────────── */
+  .header {
+    text-align: center;
+    padding: 3rem 0 2rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 3rem;
+  }
+  .header__logo {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    text-shadow: 0 0 30px rgba(0, 210, 106, 0.3), 0 0 60px rgba(0, 210, 106, 0.1);
+  }
+  .header__tagline {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+    font-weight: 300;
+  }
+  .header__version {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.2rem 0.8rem;
+    border: 1px solid var(--primary-dim);
+    color: var(--primary);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+  }
+
+  /* ─── Section ────────────────────────────── */
+  .section {
+    margin-bottom: 3rem;
+  }
+  .section__title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .section__title::before {
+    content: '┌─ ';
+    color: var(--text-dim);
+  }
+  .section__title::after {
+    content: ' ─────────────────────────────────';
+    color: var(--border-dim);
+  }
+
+  /* ─── Color Palette ──────────────────────── */
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+  }
+  .swatch {
+    border: 1px solid var(--border);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color var(--transition-base, 200ms) ease;
+  }
+  .swatch:hover {
+    border-color: var(--primary);
+  }
+  .swatch__color {
+    height: 60px;
+    position: relative;
+  }
+  .swatch__color::after {
+    content: attr(data-contrast);
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.7);
+    mix-blend-mode: difference;
+  }
+  .swatch__info {
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+  }
+  .swatch__name {
+    font-size: 0.7rem;
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+  .swatch__hex {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .swatch__copied {
+    display: none;
+    font-size: 0.6rem;
+    color: var(--primary);
+  }
+
+  /* ─── Typography ─────────────────────────── */
+  .type-scale {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 2rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .type-row__label {
+    flex: 0 0 120px;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .type-row__sample {
+    flex: 1;
+  }
+  .type--title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .type--section {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--primary);
+    opacity: 0.7;
+  }
+  .type--label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .type--value {
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+  .type--status {
+    font-weight: 600;
+  }
+
+  /* ─── Status Indicators ──────────────────── */
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+  .status-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .status-card__header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .status-card__dot {
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+  .status-card__name {
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .status-card__sparkline {
+    font-size: 1.4rem;
+    letter-spacing: 0.05em;
+    line-height: 1;
+  }
+  .status-card__desc {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+  .st-active { color: var(--primary); }
+  .st-active .status-card__sparkline { color: var(--primary-bright); }
+  .st-idle { color: var(--warning); }
+  .st-stale { color: var(--text-dim); }
+  .st-error { color: var(--error); }
+
+  /* ─── Box Drawing Demo ──────────────────── */
+  .tui-demo {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 0;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .tui-demo pre {
+    margin: 0;
+    padding: 1rem;
+    white-space: pre;
+    font-family: inherit;
+  }
+  .tui-demo .green { color: var(--primary); }
+  .tui-demo .bright { color: var(--primary-bright); }
+  .tui-demo .cyan { color: var(--secondary); }
+  .tui-demo .amber { color: var(--warning); }
+  .tui-demo .red { color: var(--error); }
+  .tui-demo .dim { color: var(--text-dim); }
+  .tui-demo .text { color: var(--text); }
+  .tui-demo .sel { background: var(--surface-sel); display: inline; }
+
+  /* ─── Voice Examples ─────────────────────── */
+  .voice-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .voice-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1rem;
+  }
+  .voice-card__label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  .voice-card--good .voice-card__label { color: var(--primary); }
+  .voice-card--bad .voice-card__label { color: var(--error); }
+  .voice-card__text {
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }
+  .voice-card--bad .voice-card__text {
+    text-decoration: line-through;
+    opacity: 0.5;
+  }
+
+  /* ─── Personality ────────────────────────── */
+  .personality {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .trait {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 0.6rem 1.2rem;
+    font-size: 0.75rem;
+    color: var(--primary);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    position: relative;
+  }
+  .trait::before {
+    content: '>';
+    margin-right: 0.5rem;
+    color: var(--text-dim);
+  }
+
+  /* ─── Spacing Reference ──────────────────── */
+  .spacing-ref {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .spacing-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .spacing-row__label {
+    flex: 0 0 80px;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .spacing-row__bar {
+    height: 8px;
+    background: var(--primary-dim);
+    border-left: 2px solid var(--primary);
+  }
+  .spacing-row__value {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  /* ─── Footer ─────────────────────────────── */
+  .footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-dim);
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+
+  /* ─── Copy toast ─────────────────────────── */
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface-sel);
+    color: var(--primary);
+    padding: 0.5rem 1.5rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--primary-dim);
+    opacity: 0;
+    transition: all 200ms ease;
+    pointer-events: none;
+  }
+  .toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ Header ═══════════════════════════════ -->
+<div class="header">
+  <div class="header__logo">NEXUS</div>
+  <div class="header__tagline">Every agent, every machine, one view.</div>
+  <div class="header__version">BRAND BOARD v1.0</div>
+</div>
+
+<!-- ═══ Color Palette ════════════════════════ -->
+<div class="section">
+  <div class="section__title">Color Palette</div>
+  <div class="palette">
+    <div class="swatch" onclick="copyHex('#00D26A')">
+      <div class="swatch__color" style="background:#00D26A" data-contrast="8.2:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Primary</div>
+        <div class="swatch__hex">#00D26A</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#39FF14')">
+      <div class="swatch__color" style="background:#39FF14" data-contrast="11.4:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Primary Bright</div>
+        <div class="swatch__hex">#39FF14</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#0A4A2A')">
+      <div class="swatch__color" style="background:#0A4A2A" data-contrast="2.1:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Primary Dim</div>
+        <div class="swatch__hex">#0A4A2A</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#00CED1')">
+      <div class="swatch__color" style="background:#00CED1" data-contrast="8.8:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Secondary (Cyan)</div>
+        <div class="swatch__hex">#00CED1</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#FFB700')">
+      <div class="swatch__color" style="background:#FFB700" data-contrast="9.6:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Warning (Amber)</div>
+        <div class="swatch__hex">#FFB700</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#FF3B3B')">
+      <div class="swatch__color" style="background:#FF3B3B" data-contrast="5.3:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Error (Red)</div>
+        <div class="swatch__hex">#FF3B3B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#C0C0C0')">
+      <div class="swatch__color" style="background:#C0C0C0" data-contrast="10.1:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Text</div>
+        <div class="swatch__hex">#C0C0C0</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#666666')">
+      <div class="swatch__color" style="background:#666666" data-contrast="4.0:1"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Text Dim</div>
+        <div class="swatch__hex">#666666</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#0D0D0D')">
+      <div class="swatch__color" style="background:#0D0D0D;border-bottom:1px solid #333" data-contrast="bg"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Background</div>
+        <div class="swatch__hex">#0D0D0D</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#1A1A1A')">
+      <div class="swatch__color" style="background:#1A1A1A;border-bottom:1px solid #333" data-contrast="surface"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Surface</div>
+        <div class="swatch__hex">#1A1A1A</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#2A2A2A')">
+      <div class="swatch__color" style="background:#2A2A2A;border-bottom:1px solid #333" data-contrast="highlight"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Surface Highlight</div>
+        <div class="swatch__hex">#2A2A2A</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copyHex('#333333')">
+      <div class="swatch__color" style="background:#333333" data-contrast="border"></div>
+      <div class="swatch__info">
+        <div class="swatch__name">Border</div>
+        <div class="swatch__hex">#333333</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Typography ═══════════════════════════ -->
+<div class="section">
+  <div class="section__title">Typography Scale</div>
+  <div class="type-scale">
+    <div class="type-row">
+      <div class="type-row__label">Title</div>
+      <div class="type-row__sample type--title">SESSION DASHBOARD</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Section</div>
+      <div class="type-row__sample type--section">Machine Health</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Label</div>
+      <div class="type-row__sample type--label">project: &nbsp; branch: &nbsp; agent: &nbsp; status:</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Value</div>
+      <div class="type-row__sample type--value">otaku-odyssey &nbsp; main &nbsp; api-engineer &nbsp; 3m ago</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Status Active</div>
+      <div class="type-row__sample type--status" style="color:var(--primary)">● Active &nbsp; 8 sessions</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Status Idle</div>
+      <div class="type-row__sample type--status" style="color:var(--warning)">○ Idle &nbsp; awaiting input</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Status Error</div>
+      <div class="type-row__sample type--status" style="color:var(--error)">✖ Error &nbsp; connection refused</div>
+    </div>
+    <div class="type-row">
+      <div class="type-row__label">Sparkline</div>
+      <div class="type-row__sample" style="color:var(--primary-bright);font-size:1.2rem">⠀⠀⠠⠰⠸⣸⣿⣿⣸⣰⠸⠰⠠⠀⠀⠀⠠⠰⠸⣰⣸⣿⣿⣿⣸⣰⠸⠰⠠⠀</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Status Indicators ════════════════════ -->
+<div class="section">
+  <div class="section__title">Status Indicators</div>
+  <div class="status-grid">
+    <div class="status-card st-active">
+      <div class="status-card__header">
+        <span class="status-card__dot">●</span>
+        <span class="status-card__name">Active</span>
+      </div>
+      <div class="status-card__sparkline">⠀⠠⠰⠸⣰⣸⣿⣿⣸⣰⠸⣰⣸⣿</div>
+      <div class="status-card__desc">heartbeat &lt; 60s · agent executing</div>
+    </div>
+    <div class="status-card st-idle">
+      <div class="status-card__header">
+        <span class="status-card__dot">○</span>
+        <span class="status-card__name">Idle</span>
+      </div>
+      <div class="status-card__sparkline">⠀⠀⠀⠠⠰⠠⠀⠀⠀⠀⠠⠀⠀⠀</div>
+      <div class="status-card__desc">heartbeat &lt; 300s · awaiting input</div>
+    </div>
+    <div class="status-card st-stale">
+      <div class="status-card__header">
+        <span class="status-card__dot">◌</span>
+        <span class="status-card__name">Stale</span>
+      </div>
+      <div class="status-card__sparkline">⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀</div>
+      <div class="status-card__desc">heartbeat &gt; 300s · no activity</div>
+    </div>
+    <div class="status-card st-error">
+      <div class="status-card__header">
+        <span class="status-card__dot">✖</span>
+        <span class="status-card__name">Error</span>
+      </div>
+      <div class="status-card__sparkline">⠀</div>
+      <div class="status-card__desc">process dead or disconnected</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TUI Mockup ═══════════════════════════ -->
+<div class="section">
+  <div class="section__title">TUI Dashboard Mockup</div>
+  <div class="tui-demo"><pre><span class="green">┌─ SESSION DASHBOARD ──────────────────────────────────────────────────┐</span>
+<span class="green">│</span> <span class="dim">3 agents · 12 sessions · 2 stale</span>                         <span class="dim">↑ 2s ago</span> <span class="green">│</span>
+<span class="green">├──────────────────────────────────────────────────────────────────────┤</span>
+<span class="green">│</span>                                                                    <span class="green">│</span>
+<span class="green">│</span> <span class="cyan">homelab</span> <span class="dim">·</span> <span class="text">8 sessions</span> <span class="dim">· cpu 23% · mem 14.2/64G</span>                    <span class="green">│</span>
+<span class="green">│</span> <span class="dim">─────────────────────────────────────────────────────────────────</span> <span class="green">│</span>
+<span class="green">│</span> <span class="dim">PROJECT    BRANCH      AGENT           STATUS    ACTIVITY</span>       <span class="green">│</span>
+<span class="green">│</span><span class="sel"> <span class="green">●</span> <span class="text">oo</span>        <span class="text">main</span>        <span class="text">api-engineer</span>    <span class="green">active</span>    <span class="bright">⣿⣸⣰⠸⣰⣸⣿</span> </span><span class="green">│</span>
+<span class="green">│</span> <span class="green">●</span> <span class="text">oo</span>        <span class="text">feat/auth</span>   <span class="text">ui-engineer</span>     <span class="green">active</span>    <span class="bright">⠸⣰⣸⣿⣿⣸⣰</span> <span class="green">│</span>
+<span class="green">│</span> <span class="amber">○</span> <span class="text">tc</span>        <span class="text">main</span>        <span class="dim">—</span>               <span class="amber">idle</span>      <span class="dim">⠀⠀⠠⠰⠠⠀⠀</span> <span class="green">│</span>
+<span class="green">│</span> <span class="green">●</span> <span class="text">mv</span>        <span class="text">dev</span>         <span class="text">db-engineer</span>     <span class="green">active</span>    <span class="bright">⣰⣸⣿⣿⣸⣰⠸</span> <span class="green">│</span>
+<span class="green">│</span> <span class="dim">◌</span> <span class="dim">ss</span>        <span class="dim">main</span>        <span class="dim">—</span>               <span class="dim">stale</span>     <span class="dim">⠀⠀⠀⠀⠀⠀⠀</span> <span class="green">│</span>
+<span class="green">│</span>                                                                    <span class="green">│</span>
+<span class="green">│</span> <span class="cyan">macbook</span> <span class="dim">·</span> <span class="text">4 sessions</span> <span class="dim">· cpu 45% · mem 8.1/16G</span>                     <span class="green">│</span>
+<span class="green">│</span> <span class="dim">─────────────────────────────────────────────────────────────────</span> <span class="green">│</span>
+<span class="green">│</span> <span class="green">●</span> <span class="text">nx</span>        <span class="text">main</span>        <span class="text">plan</span>            <span class="green">active</span>    <span class="bright">⣸⣿⣿⣸⣰⠸⠰</span> <span class="green">│</span>
+<span class="green">│</span> <span class="green">●</span> <span class="text">co</span>        <span class="text">main</span>        <span class="text">explore</span>         <span class="green">active</span>    <span class="bright">⠰⠸⣰⣸⣿⣸⣰</span> <span class="green">│</span>
+<span class="green">│</span> <span class="amber">○</span> <span class="text">cl</span>        <span class="text">dev</span>         <span class="dim">—</span>               <span class="amber">idle</span>      <span class="dim">⠀⠠⠰⠠⠀⠀⠀</span> <span class="green">│</span>
+<span class="green">│</span> <span class="red">✖</span> <span class="dim">tl</span>        <span class="dim">main</span>        <span class="dim">—</span>               <span class="red">error</span>     <span class="dim">⠀</span>           <span class="green">│</span>
+<span class="green">│</span>                                                                    <span class="green">│</span>
+<span class="green">├──────────────────────────────────────────────────────────────────────┤</span>
+<span class="green">│</span> <span class="dim">j/k: nav · enter: detail · a: stream · A: attach · /: search · q</span> <span class="green">│</span>
+<span class="green">└──────────────────────────────────────────────────────────────────────┘</span></pre></div>
+</div>
+
+<!-- ═══ Voice & Personality ═══════════════════ -->
+<div class="section">
+  <div class="section__title">Voice & Personality</div>
+
+  <div class="personality" style="margin-bottom: 1.5rem;">
+    <div class="trait">direct</div>
+    <div class="trait">precise</div>
+    <div class="trait">technical</div>
+    <div class="trait">understated</div>
+    <div class="trait">fast</div>
+  </div>
+
+  <div class="voice-grid">
+    <div class="voice-card voice-card--good">
+      <div class="voice-card__label">✓ On-brand</div>
+      <div class="voice-card__text">
+        3 agents · 12 sessions · 2 stale<br>
+        homelab: 8 sess (3 active, 4 idle, 1 stale)<br>
+        attach oo#1 → ssh nyaptor@homelab -t 'tmux a -t oo-main'
+      </div>
+    </div>
+    <div class="voice-card voice-card--bad">
+      <div class="voice-card__label">✗ Off-brand</div>
+      <div class="voice-card__text">
+        You have 3 agents connected with 12 total sessions! 🎉<br>
+        Oops, looks like the homelab agent isn't responding.<br>
+        Successfully attached to session #1 in the oo project.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Box Drawing Convention ════════════════ -->
+<div class="section">
+  <div class="section__title">Box Drawing Convention</div>
+  <div class="tui-demo"><pre><span class="green">┌─ Active Panel ──────────────┐</span>  <span class="dim">┌─ Inactive Panel ────────────┐</span>
+<span class="green">│</span> <span class="text">Content with data values</span>    <span class="green">│</span>  <span class="dim">│</span> <span class="dim">Dimmed content area</span>         <span class="dim">│</span>
+<span class="green">│</span> <span class="text">that the user is viewing</span>    <span class="green">│</span>  <span class="dim">│</span> <span class="dim">not currently focused</span>       <span class="dim">│</span>
+<span class="green">├────────────────────────────┤</span>  <span class="dim">│</span>                              <span class="dim">│</span>
+<span class="green">│</span> <span class="dim">Section divider above</span>      <span class="green">│</span>  <span class="dim">└─────────────────────────────┘</span>
+<span class="green">└────────────────────────────┘</span></pre></div>
+</div>
+
+<!-- ═══ Spacing Reference ════════════════════ -->
+<div class="section">
+  <div class="section__title">Spacing Reference</div>
+  <div class="spacing-ref">
+    <div class="spacing-row">
+      <div class="spacing-row__label">1 ch</div>
+      <div class="spacing-row__bar" style="width:14px"></div>
+      <div class="spacing-row__value">Inline padding (label: value)</div>
+    </div>
+    <div class="spacing-row">
+      <div class="spacing-row__label">2 ch</div>
+      <div class="spacing-row__bar" style="width:28px"></div>
+      <div class="spacing-row__value">Column gap, panel padding</div>
+    </div>
+    <div class="spacing-row">
+      <div class="spacing-row__label">4 ch</div>
+      <div class="spacing-row__bar" style="width:56px"></div>
+      <div class="spacing-row__value">Section spacing, table indent</div>
+    </div>
+    <div class="spacing-row">
+      <div class="spacing-row__label">8 ch</div>
+      <div class="spacing-row__bar" style="width:112px"></div>
+      <div class="spacing-row__value">Panel separation, major groups</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Footer ═══════════════════════════════ -->
+<div class="footer">
+  NEXUS BRAND BOARD · v1.0 · 2026-03-20 · dark mode only
+</div>
+
+<!-- ═══ Toast ═════════════════════════════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+function copyHex(hex) {
+  navigator.clipboard.writeText(hex).then(() => {
+    const toast = document.getElementById('toast');
+    toast.textContent = 'Copied: ' + hex;
+    toast.classList.add('visible');
+    setTimeout(() => toast.classList.remove('visible'), 1200);
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+/*
+ * Nexus Design Tokens
+ *
+ * CSS representation of the terminal color palette.
+ * Source of truth for the HTML brand board.
+ * The actual TUI uses ratatui Color values — see theme.rs.
+ */
+
+:root {
+  /* ─── Primary (Cyber Green) ────────────────── */
+  --color-primary: #00D26A;
+  --color-primary-bright: #39FF14;
+  --color-primary-dim: #0A4A2A;
+  --color-primary-ghost: #0D2E1A;
+
+  /* ─── Secondary (Cyan) ─────────────────────── */
+  --color-secondary: #00CED1;
+  --color-secondary-dim: #0A3A3B;
+
+  /* ─── Semantic ─────────────────────────────── */
+  --color-success: #00D26A;
+  --color-warning: #FFB700;
+  --color-error: #FF3B3B;
+  --color-info: #00CED1;
+
+  /* ─── Neutral ──────────────────────────────── */
+  --color-text: #C0C0C0;
+  --color-text-bright: #E0E0E0;
+  --color-text-dim: #666666;
+  --color-text-muted: #444444;
+
+  /* ─── Surfaces ─────────────────────────────── */
+  --color-bg: #0D0D0D;
+  --color-surface: #1A1A1A;
+  --color-surface-highlight: #2A2A2A;
+  --color-surface-selected: #0A4A2A;
+
+  /* ─── Borders ──────────────────────────────── */
+  --color-border: #333333;
+  --color-border-active: #00D26A;
+  --color-border-dim: #1F1F1F;
+
+  /* ─── Spacing (character-based) ────────────── */
+  --space-1: 0.5ch;
+  --space-2: 1ch;
+  --space-4: 2ch;
+  --space-8: 4ch;
+
+  /* ─── Font ─────────────────────────────────── */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
+  --font-size-xs: 0.7rem;
+  --font-size-sm: 0.8rem;
+  --font-size-base: 0.9rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.2rem;
+
+  /* ─── Transitions ──────────────────────────── */
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+}
+
+/* Dark mode is the ONLY mode */
