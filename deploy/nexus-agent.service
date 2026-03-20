@@ -1,0 +1,14 @@
+[Unit]
+Description=Nexus Agent — per-machine daemon for Claude Code session tracking
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/nexus-agent
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
