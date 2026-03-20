@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Full Attach: Architectural Approaches</title>
+<style>
+  :root {
+    --bg: #0D0D0D;
+    --surface: #1A1A1A;
+    --surface-2: #242424;
+    --surface-3: #2E2E2E;
+    --text: #C0C0C0;
+    --text-dim: #808080;
+    --text-bright: #E0E0E0;
+    --green: #00D26A;
+    --cyan: #00CED1;
+    --amber: #FFB700;
+    --red: #FF3B3B;
+    --border: #333333;
+    --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 32px 48px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-bright);
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: var(--green); }
+  .header .subtitle {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .header .context {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .header .context strong { color: var(--text); }
+
+  /* Approach sections */
+  .approach {
+    margin-bottom: 48px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .approach-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .approach-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .approach-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .approach-tag {
+    margin-left: auto;
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .approach-body {
+    padding: 20px;
+    background: var(--surface);
+  }
+  .approach-desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+    line-height: 1.7;
+  }
+
+  /* Flow diagrams */
+  .flow-section {
+    margin-bottom: 20px;
+  }
+  .flow-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    padding: 16px;
+    background: var(--bg);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  .flow-row:last-child { margin-bottom: 0; }
+
+  .flow-box {
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    border: 1px solid;
+    flex-shrink: 0;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .flow-box.green {
+    background: rgba(0, 210, 106, 0.08);
+    border-color: rgba(0, 210, 106, 0.3);
+    color: var(--green);
+  }
+  .flow-box.amber {
+    background: rgba(255, 183, 0, 0.08);
+    border-color: rgba(255, 183, 0, 0.3);
+    color: var(--amber);
+  }
+  .flow-box.red {
+    background: rgba(255, 59, 59, 0.08);
+    border-color: rgba(255, 59, 59, 0.3);
+    color: var(--red);
+  }
+  .flow-box.cyan {
+    background: rgba(0, 206, 209, 0.08);
+    border-color: rgba(0, 206, 209, 0.3);
+    color: var(--cyan);
+  }
+  .flow-box.neutral {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    color: var(--text-dim);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .flow-arrow::after {
+    content: '\2192';
+    font-size: 14px;
+  }
+  .flow-arrow-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+  .flow-arrow-label .label {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .flow-arrow-label .arrow {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .flow-divider {
+    width: 100%;
+    border-top: 1px dashed var(--border);
+    margin: 12px 0;
+    position: relative;
+  }
+  .flow-divider-label {
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    background: var(--bg);
+    padding: 0 8px;
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Pros/Cons grid */
+  .tradeoffs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .tradeoff-col {
+    padding: 12px 16px;
+    background: var(--bg);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .tradeoff-col h4 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .tradeoff-col.pros h4 { color: var(--green); }
+  .tradeoff-col.cons h4 { color: var(--red); }
+  .tradeoff-col ul {
+    list-style: none;
+    padding: 0;
+  }
+  .tradeoff-col ul li {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.5;
+  }
+  .tradeoff-col.pros ul li::before {
+    content: '+';
+    position: absolute;
+    left: 0;
+    color: var(--green);
+    font-weight: 700;
+  }
+  .tradeoff-col.cons ul li::before {
+    content: '\2013';
+    position: absolute;
+    left: 0;
+    color: var(--red);
+    font-weight: 700;
+  }
+
+  /* Key insight callout */
+  .insight {
+    margin-top: 16px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .insight.warn {
+    background: rgba(255, 183, 0, 0.06);
+    border: 1px solid rgba(255, 183, 0, 0.2);
+    color: var(--amber);
+  }
+  .insight.danger {
+    background: rgba(255, 59, 59, 0.06);
+    border: 1px solid rgba(255, 59, 59, 0.2);
+    color: var(--red);
+  }
+  .insight.info {
+    background: rgba(0, 206, 209, 0.06);
+    border: 1px solid rgba(0, 206, 209, 0.2);
+    color: var(--cyan);
+  }
+  .insight strong { color: inherit; }
+
+  /* Comparison matrix */
+  .matrix-section {
+    margin-top: 48px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .matrix-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .matrix-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .matrix-wrap {
+    overflow-x: auto;
+  }
+  table.matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  table.matrix th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  table.matrix th:first-child {
+    width: 200px;
+    min-width: 180px;
+  }
+  table.matrix td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  table.matrix tr:last-child td { border-bottom: none; }
+  table.matrix td:first-child {
+    color: var(--text);
+    font-weight: 500;
+  }
+  table.matrix .cell-yes {
+    color: var(--green);
+    font-weight: 600;
+  }
+  table.matrix .cell-no {
+    color: var(--red);
+    font-weight: 600;
+  }
+  table.matrix .cell-partial {
+    color: var(--amber);
+    font-weight: 600;
+  }
+  table.matrix .cell-na {
+    color: var(--text-dim);
+  }
+  table.matrix .cell-low { color: var(--green); }
+  table.matrix .cell-med { color: var(--amber); }
+  table.matrix .cell-high { color: var(--red); }
+
+  /* Recommendation */
+  .recommendation {
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--surface);
+    border: 1px solid rgba(0, 206, 209, 0.3);
+    border-radius: 6px;
+  }
+  .recommendation h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cyan);
+    margin-bottom: 12px;
+  }
+  .recommendation p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 8px;
+  }
+  .recommendation p:last-child { margin-bottom: 0; }
+  .recommendation strong { color: var(--text); }
+  .recommendation code {
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--cyan);
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================== HEADER ============================== -->
+<div class="header">
+  <h1><span>nexus</span> // full attach models</h1>
+  <div class="subtitle">4 architectural approaches to terminal session attach &mdash; trade-off analysis for Leo</div>
+  <div class="context">
+    <strong>Problem:</strong> CC sessions are bare processes on PTY devices &mdash; they do NOT run inside tmux.
+    <code>ssh + tmux attach</code> does not work out of the box.<br>
+    <strong>Topology:</strong> TUI on Mac &rarr; Tailscale &rarr; Agents on Linux homelab + Mac.<br>
+    <strong>Goal:</strong> Let users jump into a running CC session from the TUI with full terminal interaction.
+  </div>
+</div>
+
+<!-- ==================== APPROACH 1: NEXUS-MANAGED ==================== -->
+<div class="approach">
+  <div class="approach-header" style="background: var(--surface);">
+    <div class="approach-num" style="background: rgba(0, 210, 106, 0.15); color: var(--green);">1</div>
+    <h2>Nexus-Managed Sessions</h2>
+    <span class="approach-tag" style="background: rgba(255, 183, 0, 0.12); color: var(--amber);">Medium Scope</span>
+  </div>
+  <div class="approach-body">
+    <div class="approach-desc">
+      Nexus-agent spawns CC inside tmux: <code style="background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--green);">tmux new-session -d -s nx-&lt;id&gt; -- claude</code>.
+      Full attach works for nexus-started sessions. Ad-hoc sessions (Cursor, manual terminal) are stream-only.
+      Creates a two-tier experience: managed sessions get full terminal, everything else gets read-only logs.
+    </div>
+
+    <!-- Flow: Managed session path -->
+    <div class="flow-section">
+      <div class="flow-label">Path A &mdash; Managed Session (started via nexus)</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box green">TUI: Start Session</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green">Agent: tmux new-session<br>-d -s nx-abc -- claude</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green">CC runs inside tmux<br>on remote machine</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green">TUI: press 'A'</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green">ssh user@host -t<br>'tmux a -t nx-abc'</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green" style="border-color: var(--green);">Full Terminal<br>Attached</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-label">Path B &mdash; Ad-hoc Session (started from Cursor / manual)</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box neutral">CC started manually<br>on pts/N</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box neutral">Agent detects via<br>sessions.json watch</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">No tmux session<br>exists</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">TUI: press 'a'</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">gRPC StreamEvents<br>read-only log</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber" style="border-width: 2px;">Stream Only<br>(degraded)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tradeoffs">
+      <div class="tradeoff-col pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>Full terminal for managed sessions &mdash; proven tmux pattern</li>
+          <li>Session lifecycle management (start, stop, restart) from TUI</li>
+          <li>tmux is battle-tested and cross-platform</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>Two-tier UX: managed sessions are first-class, ad-hoc are second-class</li>
+          <li>Scope creep: nexus becomes a session orchestrator, not just visibility+attach</li>
+          <li>Need new UI to start/manage sessions from TUI</li>
+          <li>Users must change workflow to get full attach</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="insight warn">
+      <strong>Key trade-off:</strong> Nexus was designed as a visibility and attach layer.
+      This approach pulls it into session lifecycle management &mdash; a fundamentally different scope.
+      The two-tier UX means most real-world sessions (Cursor, manual) remain stream-only.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== APPROACH 2: STREAM-ONLY ==================== -->
+<div class="approach">
+  <div class="approach-header" style="background: var(--surface);">
+    <div class="approach-num" style="background: rgba(0, 206, 209, 0.15); color: var(--cyan);">2</div>
+    <h2>Stream-Only (Drop Full Attach from MVP)</h2>
+    <span class="approach-tag" style="background: rgba(0, 210, 106, 0.12); color: var(--green);">Low Scope</span>
+  </div>
+  <div class="approach-body">
+    <div class="approach-desc">
+      All sessions get gRPC stream attach only. Press <code style="background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--cyan);">'a'</code>
+      to stream events as a rendered read-only log. No tmux, no terminal takeover, no session management.
+      Full attach deferred to post-MVP.
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-label">Single path &mdash; all sessions equal</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box cyan">Any CC session<br>(nexus or ad-hoc)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box cyan">Agent tracks via<br>sessions.json watch</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box cyan">TUI: press 'a'</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box cyan">gRPC StreamEvents</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box cyan" style="border-width: 2px;">Read-Only<br>Log View</div>
+        </div>
+        <div class="flow-divider" style="margin-top: 16px;">
+          <span class="flow-divider-label">to interact: manual SSH required</span>
+        </div>
+        <div class="flow-row" style="margin-top: 16px;">
+          <div class="flow-box neutral">User needs to<br>intervene</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">Manually SSH<br>to host</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">Find correct<br>terminal / pts</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber" style="border-width: 2px;">Manual<br>Interaction</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tradeoffs">
+      <div class="tradeoff-col pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>Simplest MVP &mdash; least implementation effort</li>
+          <li>No scope creep: nexus stays as visibility layer</li>
+          <li>All sessions are treated equally (no two-tier UX)</li>
+          <li>No tmux dependency, no session lifecycle management</li>
+          <li>Can layer full attach on later without rework</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>No terminal interaction from TUI &mdash; read-only only</li>
+          <li>Manual SSH still required to intervene in a session</li>
+          <li>TUI is less useful without attach capability</li>
+          <li>Defers the hard problem, doesn't solve it</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="insight info">
+      <strong>MVP calculus:</strong> If 80% of the value is visibility (seeing all sessions, their status, activity)
+      and only 20% is attach (jumping in to interact), this approach ships the 80% first.
+      Full attach can be added in a later iteration without reworking the core.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== APPROACH 3: HOOK WRAP ==================== -->
+<div class="approach">
+  <div class="approach-header" style="background: var(--surface);">
+    <div class="approach-num" style="background: rgba(255, 183, 0, 0.15); color: var(--amber);">3</div>
+    <h2>Hybrid &mdash; tmux Wrap on Launch Hook</h2>
+    <span class="approach-tag" style="background: rgba(255, 59, 59, 0.12); color: var(--red);">High Risk</span>
+  </div>
+  <div class="approach-body">
+    <div class="approach-desc">
+      A CC SessionStart hook detects new sessions and attempts to wrap them in tmux retroactively.
+      The fundamental problem: CC is <strong>already running</strong> when the hook fires &mdash;
+      you cannot reparent a live process into a tmux session.
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-label">Attempted flow &mdash; retroactive tmux wrap</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box neutral">CC starts in<br>any terminal</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box neutral">SessionStart hook<br>fires</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">CC already running<br>as PID on pts/N</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">Hook creates tmux<br>new-session -d -s nx-&lt;id&gt;</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red" style="border-width: 2px;">PROBLEM</div>
+        </div>
+        <div class="flow-divider" style="margin-top: 16px;">
+          <span class="flow-divider-label">the reparenting problem</span>
+        </div>
+        <div class="flow-row" style="margin-top: 16px;">
+          <div class="flow-box red">Original CC on pts/N</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red">tmux is on new pts/M</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red">Can't move running<br>process into tmux</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red">Must start NEW CC<br>+ kill original</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red" style="border-width: 2px;">Lost context<br>Race conditions</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tradeoffs">
+      <div class="tradeoff-col pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>Would work for ALL sessions if it worked</li>
+          <li>No two-tier UX (uniform behavior)</li>
+          <li>Hook-based &mdash; no user workflow change</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>Cannot retroactively wrap a running process in tmux</li>
+          <li>Killing original + restarting loses CC context and session state</li>
+          <li>Race conditions between hook, original process, and new tmux session</li>
+          <li>Fragile: depends on CC hook timing and lifecycle</li>
+          <li>User confusion: session restarts mid-work</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="insight danger">
+      <strong>Fundamental blocker:</strong> Unix does not support reparenting a process's controlling terminal
+      after it has started. The only workaround (kill + restart) destroys the CC session context,
+      which defeats the purpose. This approach is architecturally broken.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== APPROACH 4: PTY RELAY ==================== -->
+<div class="approach">
+  <div class="approach-header" style="background: var(--surface);">
+    <div class="approach-num" style="background: rgba(255, 59, 59, 0.15); color: var(--red);">4</div>
+    <h2>PTY Relay via /proc</h2>
+    <span class="approach-tag" style="background: rgba(255, 59, 59, 0.12); color: var(--red);">High Complexity</span>
+  </div>
+  <div class="approach-body">
+    <div class="approach-desc">
+      Agent captures the session's PTY output directly via <code style="background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--red);">/proc/&lt;pid&gt;/fd</code>
+      and relays it over a bidirectional gRPC stream. TUI renders full terminal output and sends keystrokes back.
+      No tmux needed. Works for all sessions &mdash; but only on Linux.
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-label">Bidirectional PTY relay</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box neutral">CC running as<br>PID 12345 on pts/N</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">Agent reads<br>/proc/12345/fd/1<br>(stdout)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">gRPC bidirectional<br>stream</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">TUI renders<br>terminal output</div>
+        </div>
+        <div class="flow-divider" style="margin-top: 16px;">
+          <span class="flow-divider-label">input injection (reverse path)</span>
+        </div>
+        <div class="flow-row" style="margin-top: 16px;">
+          <div class="flow-box amber">TUI captures<br>keystrokes</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">gRPC stream<br>(reverse)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red">Agent writes<br>/proc/12345/fd/0<br>(stdin injection)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red" style="border-width: 2px;">CC receives input<br>(fragile PTY semantics)</div>
+        </div>
+        <div class="flow-divider" style="margin-top: 16px;">
+          <span class="flow-divider-label">platform gap</span>
+        </div>
+        <div class="flow-row" style="margin-top: 16px;">
+          <div class="flow-box amber">Linux agent</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box amber">/proc filesystem<br>available</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box green">Works</div>
+          <div style="width: 32px;"></div>
+          <div class="flow-box amber">macOS agent</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red">No /proc filesystem</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box red" style="border-width: 2px;">Broken</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tradeoffs">
+      <div class="tradeoff-col pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>Works for ALL sessions (no two-tier UX)</li>
+          <li>No tmux dependency</li>
+          <li>No hook changes or session management needed</li>
+          <li>No user workflow changes</li>
+        </ul>
+      </div>
+      <div class="tradeoff-col cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>Linux-only &mdash; /proc does not exist on macOS</li>
+          <li>PTY semantics are deeply complex (line discipline, signal handling, terminal modes)</li>
+          <li>Security: reading another process's fd requires same-user or root</li>
+          <li>Raw PTY output needs a terminal emulator in the TUI (vte crate)</li>
+          <li>Writing to stdin fd is unreliable for interactive programs</li>
+          <li>No macOS path without fundamentally different approach</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="insight danger">
+      <strong>Platform blocker:</strong> The TUI runs on Mac, and macOS agents have no <code>/proc</code>.
+      This approach only works for Linux homelab agents. The TUI would need to handle two completely
+      different attach codepaths per platform &mdash; or accept that Mac-hosted sessions can't be attached.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== COMPARISON MATRIX ==================== -->
+<div class="matrix-section">
+  <div class="matrix-header" style="background: var(--surface);">
+    <h2>Comparison Matrix</h2>
+  </div>
+  <div class="matrix-wrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th>Criterion</th>
+          <th style="color: var(--green);">1. Managed</th>
+          <th style="color: var(--cyan);">2. Stream-Only</th>
+          <th style="color: var(--amber);">3. Hook Wrap</th>
+          <th style="color: var(--red);">4. PTY Relay</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Works for ad-hoc sessions</td>
+          <td class="cell-partial">Stream only</td>
+          <td class="cell-yes">Yes (stream)</td>
+          <td class="cell-partial">Fragile</td>
+          <td class="cell-yes">Yes</td>
+        </tr>
+        <tr>
+          <td>Works for managed sessions</td>
+          <td class="cell-yes">Yes (full)</td>
+          <td class="cell-yes">Yes (stream)</td>
+          <td class="cell-na">N/A</td>
+          <td class="cell-yes">Yes</td>
+        </tr>
+        <tr>
+          <td>Full terminal attach</td>
+          <td class="cell-partial">Managed only</td>
+          <td class="cell-no">No</td>
+          <td class="cell-no">Broken</td>
+          <td class="cell-yes">Yes (Linux)</td>
+        </tr>
+        <tr>
+          <td>MVP complexity</td>
+          <td class="cell-med">Medium</td>
+          <td class="cell-low">Low</td>
+          <td class="cell-high">High</td>
+          <td class="cell-high">High</td>
+        </tr>
+        <tr>
+          <td>Scope creep risk</td>
+          <td class="cell-high">High</td>
+          <td class="cell-low">None</td>
+          <td class="cell-med">Medium</td>
+          <td class="cell-low">Low</td>
+        </tr>
+        <tr>
+          <td>Cross-platform</td>
+          <td class="cell-yes">Yes</td>
+          <td class="cell-yes">Yes</td>
+          <td class="cell-yes">Yes</td>
+          <td class="cell-no">Linux only</td>
+        </tr>
+        <tr>
+          <td>tmux dependency</td>
+          <td class="cell-partial">Yes</td>
+          <td class="cell-yes">None</td>
+          <td class="cell-partial">Yes</td>
+          <td class="cell-yes">None</td>
+        </tr>
+        <tr>
+          <td>Session lifecycle mgmt</td>
+          <td class="cell-high">Required</td>
+          <td class="cell-low">Not needed</td>
+          <td class="cell-med">Partial</td>
+          <td class="cell-low">Not needed</td>
+        </tr>
+        <tr>
+          <td>User workflow change</td>
+          <td class="cell-high">Must use nexus to start</td>
+          <td class="cell-low">None</td>
+          <td class="cell-low">None (hook)</td>
+          <td class="cell-low">None</td>
+        </tr>
+        <tr>
+          <td>Rework risk for future</td>
+          <td class="cell-med">Medium</td>
+          <td class="cell-low">Low</td>
+          <td class="cell-high">High (dead end)</td>
+          <td class="cell-med">Medium</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== RECOMMENDATION ==================== -->
+<div class="recommendation">
+  <h3>Decision Framework</h3>
+  <p>
+    <strong>Approach 3 (Hook Wrap)</strong> is architecturally broken &mdash; eliminate it.
+    You cannot retroactively reparent a process's controlling terminal.
+  </p>
+  <p>
+    <strong>Approach 4 (PTY Relay)</strong> is technically interesting but platform-blocked.
+    The TUI runs on Mac, macOS agents have no <code>/proc</code>, and PTY stdin injection is
+    unreliable. Defer unless you want to invest in a terminal emulator (<code>vte</code> crate)
+    and accept Linux-only full attach.
+  </p>
+  <p>
+    The real decision is between <strong>Approach 1 (Managed)</strong> and <strong>Approach 2 (Stream-Only)</strong>:
+  </p>
+  <p>
+    &bull; If nexus should be a <strong>session manager</strong> (start, stop, restart CC from TUI), go with <strong>Approach 1</strong>.
+    Accept the two-tier UX and the increased scope. Full attach works for nexus-managed sessions; ad-hoc sessions are stream-only.
+  </p>
+  <p>
+    &bull; If nexus should stay a <strong>visibility + monitoring layer</strong>, go with <strong>Approach 2</strong> for MVP.
+    Ship stream attach first, then layer full attach later once the right mechanism is clear.
+    No rework required &mdash; stream attach is additive infrastructure regardless of which full-attach model you pick later.
+  </p>
+  <p>
+    <strong>Hybrid path:</strong> Start with Approach 2 (stream-only MVP), then add Approach 1 (managed sessions)
+    as an opt-in feature post-MVP. Users who want full attach can start sessions via nexus; everyone else gets
+    stream attach. This avoids scope creep in MVP while leaving the door open.
+  </p>
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<div class="footer">
+  <span>nexus // attach architecture analysis</span>
+  <span>2026-03-20</span>
+</div>
+
+</body>
+</html>
