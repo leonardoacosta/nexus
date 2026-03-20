@@ -1,0 +1,14 @@
+# Nexus Agent Configuration
+# Copy to ~/.config/nexus/agents.toml and customize.
+
+[[agents]]
+name = "homelab"
+host = "homelab"          # Tailscale MagicDNS hostname
+port = 7400
+user = "nyaptor"          # SSH user for full attach
+
+[[agents]]
+name = "macbook"
+host = "macbook"          # Tailscale MagicDNS hostname
+port = 7400
+user = "nyaptor"

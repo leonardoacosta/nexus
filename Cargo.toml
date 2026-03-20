@@ -1,0 +1,56 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/leonardoacosta/nexus"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server
+axum = { version = "0.8", features = ["ws"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config
+toml = "0.8"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# WebSocket
+tokio-tungstenite = "0.26"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Unique IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# System info
+sysinfo = "0.33"
+
+# File watching
+notify = "7"
+
+# Shared crate
+nexus-core = { path = "crates/nexus-core" }
