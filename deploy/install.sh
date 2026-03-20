@@ -18,6 +18,10 @@ if ! command -v tmux &>/dev/null; then
     error "tmux is required but not found on PATH. Install it first (e.g. apt install tmux / brew install tmux)."
 fi
 
+if ! command -v protoc &>/dev/null; then
+    error "protoc is required but not found on PATH. Install it first (e.g. apt install protobuf-compiler / brew install protobuf)."
+fi
+
 OS="$(uname -s)"
 case "$OS" in
     Linux)  PLATFORM="linux" ;;

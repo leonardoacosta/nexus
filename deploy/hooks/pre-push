@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Nexus Agent — pre-push hook
-# Builds release on pushes to main. Aborts push on build failure.
-# Skip with: SKIP_DEPLOY=1 git push
+# Builds release on pushes to main, installs, and enables service.
+# Aborts push on build failure. Skip with: SKIP_DEPLOY=1 git push
 
 GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
@@ -36,10 +36,24 @@ if [[ "$PUSHING_MAIN" -eq 0 ]]; then
     exit 0
 fi
 
+# ── Ensure protoc is available (required by prost-build) ─────────
+
+if ! command -v protoc &>/dev/null; then
+    info "protoc not found, installing..."
+    case "$(uname -s)" in
+        Darwin) brew install protobuf ;;
+        Linux)  sudo apt-get install -y protobuf-compiler ;;
+    esac
+fi
+
 # ── Build release ─────────────────────────────────────────────────
 
 BIN_DIR="$HOME/.local/bin"
-mkdir -p "$BIN_DIR"
+CONFIG_DIR="$HOME/.config/nexus"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DEPLOY_DIR="$REPO_DIR/deploy"
+
+mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
 info "building release..."
 START=$(date +%s)
@@ -53,21 +67,46 @@ info "built in ${ELAPSED}s"
 
 # ── Install binaries ──────────────────────────────────────────────
 
-cp target/release/nexus-agent "$BIN_DIR/nexus-agent"
-cp target/release/nexus "$BIN_DIR/nexus"
+install -m 755 target/release/nexus-agent "$BIN_DIR/nexus-agent"
+install -m 755 target/release/nexus "$BIN_DIR/nexus"
 info "binaries installed to $BIN_DIR/"
 
-# ── Restart service ───────────────────────────────────────────────
+# ── Configure agents.toml ─────────────────────────────────────────
+
+if [[ ! -f "$CONFIG_DIR/agents.toml" ]]; then
+    LOCAL_HOST="$(hostname -s)"
+    LOCAL_USER="$(whoami)"
+    info "seeding default agents.toml (local agent: $LOCAL_HOST)"
+    cat > "$CONFIG_DIR/agents.toml" <<EOF
+[[agents]]
+name = "$LOCAL_HOST"
+host = "localhost"
+port = 7400
+user = "$LOCAL_USER"
+EOF
+fi
+
+# ── Install and enable service ────────────────────────────────────
 
 OS="$(uname -s)"
 case "$OS" in
     Linux)
-        systemctl --user restart nexus-agent 2>/dev/null || true
-        info "systemd service restarted"
+        SYSTEMD_DIR="$HOME/.config/systemd/user"
+        mkdir -p "$SYSTEMD_DIR"
+        install -m 644 "$DEPLOY_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
+        systemctl --user daemon-reload
+        systemctl --user enable --now nexus-agent
+        info "systemd service enabled and started"
         ;;
     Darwin)
-        launchctl kickstart -k "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
-        info "launchd agent restarted"
+        LAUNCH_DIR="$HOME/Library/LaunchAgents"
+        PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
+        mkdir -p "$LAUNCH_DIR"
+        sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
+        # Unload first if already loaded (idempotent restart)
+        launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
+        launchctl load "$PLIST"
+        info "launchd agent loaded and running"
         ;;
 esac
 

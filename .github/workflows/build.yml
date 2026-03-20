@@ -26,6 +26,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build
         run: cargo build --workspace
 
@@ -61,6 +66,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build release binaries
         run: cargo build --workspace --release --target ${{ matrix.target }}
