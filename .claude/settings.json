@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -d .beads ] && bd sync --flush-only 2>/dev/null || true",
+            "timeout": 5000,
+            "continueOnError": true
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/scripts/hooks/session-telemetry.sh nx",
+            "timeout": 5000,
+            "continueOnError": true
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(rustup:*)",
+      "Bash(bd:*)",
+      "Bash(git:*)",
+      "Write(.claude/*)",
+      "Edit(*)"
+    ]
+  }
+}
