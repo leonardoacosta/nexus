@@ -1,0 +1,2163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>claude-tui — Session Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ─── Catppuccin Mocha Palette ─── */
+  :root {
+    --crust: #11111b;
+    --mantle: #181825;
+    --base: #1e1e2e;
+    --surface0: #313244;
+    --surface1: #45475a;
+    --surface2: #585b70;
+    --overlay0: #6c7086;
+    --overlay1: #7f849c;
+    --subtext0: #a6adc8;
+    --subtext1: #bac2de;
+    --text: #cdd6f4;
+    --blue: #89b4fa;
+    --green: #a6e3a1;
+    --yellow: #f9e2af;
+    --red: #f38ba8;
+    --mauve: #cba6f7;
+    --peach: #fab387;
+    --teal: #94e2d5;
+    --lavender: #b4befe;
+    --rosewater: #f5e0dc;
+    --flamingo: #f2cdcd;
+    --pink: #f5c2e7;
+    --sky: #89dceb;
+    --sapphire: #74c7ec;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+    background-color: var(--crust);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* ─── CRT / Terminal Glow ─── */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 999;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 60%,
+      rgba(0, 0, 0, 0.3) 100%
+    );
+  }
+
+  /* ─── Terminal Frame ─── */
+  .terminal {
+    width: 780px;
+    max-width: 95vw;
+    height: 680px;
+    max-height: 95vh;
+    background: var(--base);
+    border: 1px solid var(--surface1);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    box-shadow:
+      0 0 40px rgba(137, 180, 250, 0.05),
+      0 0 80px rgba(30, 30, 46, 0.8),
+      inset 0 1px 0 rgba(205, 214, 244, 0.03);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ─── Title Bar ─── */
+  .title-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--mantle);
+    border-bottom: 1px solid var(--surface0);
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .title-bar .dots {
+    display: flex;
+    gap: 6px;
+  }
+
+  .title-bar .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .title-bar .dot.red { background: var(--red); }
+  .title-bar .dot.yellow { background: var(--yellow); }
+  .title-bar .dot.green { background: var(--green); }
+
+  .title-bar .title {
+    flex: 1;
+    text-align: center;
+    color: var(--subtext0);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── Tab Bar ─── */
+  .tab-bar {
+    display: flex;
+    background: var(--mantle);
+    border-bottom: 1px solid var(--surface0);
+    flex-shrink: 0;
+    overflow-x: auto;
+  }
+
+  .tab {
+    padding: 7px 14px;
+    cursor: pointer;
+    color: var(--overlay1);
+    font-size: 12px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tab:hover {
+    color: var(--text);
+    background: rgba(69, 71, 90, 0.3);
+  }
+
+  .tab.active {
+    color: var(--blue);
+    border-bottom-color: var(--blue);
+    background: rgba(137, 180, 250, 0.05);
+  }
+
+  .tab .shortcut {
+    font-size: 10px;
+    color: var(--surface2);
+    background: var(--surface0);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+
+  .tab.active .shortcut {
+    color: var(--blue);
+    background: rgba(137, 180, 250, 0.12);
+  }
+
+  /* ─── Header Bar (per screen) ─── */
+  .header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--surface0);
+    background: var(--base);
+    flex-shrink: 0;
+  }
+
+  .header-bar .left {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .header-bar .right {
+    color: var(--subtext0);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .header-bar .right .indicator {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* ─── Screen Content ─── */
+  .screen {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .screen.active {
+    display: flex;
+  }
+
+  .screen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+  }
+
+  .screen-body::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .screen-body::-webkit-scrollbar-track {
+    background: var(--mantle);
+  }
+
+  .screen-body::-webkit-scrollbar-thumb {
+    background: var(--surface1);
+    border-radius: 3px;
+  }
+
+  .screen-body::-webkit-scrollbar-thumb:hover {
+    background: var(--surface2);
+  }
+
+  /* ─── Footer / Keybindings ─── */
+  .footer {
+    padding: 8px 16px;
+    border-top: 1px solid var(--surface0);
+    background: var(--mantle);
+    color: var(--overlay1);
+    font-size: 11px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .footer .key {
+    color: var(--lavender);
+    background: var(--surface0);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .footer .binding {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* ─── Status Dots ─── */
+  .status-dot {
+    display: inline-block;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .status-dot.active {
+    color: var(--green);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .status-dot.idle-short {
+    color: var(--yellow);
+  }
+
+  .status-dot.idle-long {
+    color: var(--overlay0);
+  }
+
+  .status-dot.error {
+    color: var(--red);
+    animation: pulse-error 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  @keyframes pulse-error {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* ─── Project Groups ─── */
+  .project-group {
+    margin-bottom: 12px;
+  }
+
+  .project-group-header {
+    color: var(--mauve);
+    font-weight: 600;
+    font-size: 12px;
+    padding: 6px 10px;
+    background: rgba(203, 166, 247, 0.06);
+    border: 1px solid var(--surface0);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .project-group-header .code {
+    color: var(--blue);
+    font-weight: 700;
+  }
+
+  .project-group-body {
+    border: 1px solid var(--surface0);
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+  }
+
+  .session-row {
+    display: grid;
+    grid-template-columns: 36px 24px 100px 72px 1fr 24px;
+    align-items: center;
+    padding: 7px 10px;
+    cursor: pointer;
+    transition: background 0.1s ease;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.5);
+    gap: 4px;
+  }
+
+  .session-row:last-child {
+    border-bottom: none;
+  }
+
+  .session-row:hover {
+    background: rgba(137, 180, 250, 0.05);
+  }
+
+  .session-row.selected {
+    background: rgba(137, 180, 250, 0.1);
+    border-left: 2px solid var(--blue);
+    padding-left: 8px;
+  }
+
+  .session-row .id {
+    color: var(--overlay1);
+    font-size: 11px;
+  }
+
+  .session-row .branch {
+    color: var(--teal);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-row .idle {
+    color: var(--subtext0);
+    font-size: 11px;
+  }
+
+  .session-row .command {
+    color: var(--text);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-row .arrow {
+    color: var(--overlay0);
+    text-align: right;
+    font-size: 12px;
+  }
+
+  /* ─── Panels / Boxes ─── */
+  .panel {
+    border: 1px solid var(--surface0);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--mauve);
+    background: rgba(203, 166, 247, 0.06);
+    border-bottom: 1px solid var(--surface0);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-header .count {
+    color: var(--overlay1);
+    font-weight: 400;
+    font-size: 11px;
+  }
+
+  .panel-body {
+    padding: 8px 10px;
+  }
+
+  /* ─── Detail View ─── */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 4px 12px;
+    padding: 8px 10px;
+  }
+
+  .detail-label {
+    color: var(--overlay1);
+    font-size: 12px;
+    text-align: right;
+  }
+
+  .detail-value {
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .detail-value.highlight {
+    color: var(--blue);
+  }
+
+  .detail-value.teal {
+    color: var(--teal);
+  }
+
+  /* ─── Agent Activity ─── */
+  .agent-row {
+    display: grid;
+    grid-template-columns: 48px 120px 1fr 40px auto;
+    align-items: center;
+    padding: 5px 0;
+    gap: 8px;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+  }
+
+  .agent-row:last-child {
+    border-bottom: none;
+  }
+
+  .agent-row .time {
+    color: var(--overlay1);
+    font-size: 11px;
+  }
+
+  .agent-row .name {
+    color: var(--peach);
+    font-weight: 500;
+  }
+
+  .progress-bar {
+    height: 6px;
+    background: var(--surface0);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-bar .fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+
+  .progress-bar .fill.active {
+    background: linear-gradient(90deg, var(--blue), var(--lavender));
+    animation: progress-shimmer 2s ease-in-out infinite;
+  }
+
+  .progress-bar .fill.done {
+    background: var(--green);
+  }
+
+  @keyframes progress-shimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .agent-row .pct {
+    color: var(--subtext0);
+    font-size: 11px;
+    text-align: right;
+  }
+
+  .agent-row .desc {
+    color: var(--subtext0);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ─── Bead Row ─── */
+  .bead-row {
+    display: grid;
+    grid-template-columns: 72px 90px 1fr;
+    align-items: center;
+    padding: 4px 0;
+    gap: 8px;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+  }
+
+  .bead-row:last-child {
+    border-bottom: none;
+  }
+
+  .bead-row .bead-id {
+    color: var(--peach);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .bead-row .bead-status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    display: inline-block;
+  }
+
+  .bead-status.in-progress {
+    color: var(--blue);
+    background: rgba(137, 180, 250, 0.12);
+  }
+
+  .bead-status.open {
+    color: var(--yellow);
+    background: rgba(249, 226, 175, 0.12);
+  }
+
+  .bead-row .bead-title {
+    color: var(--text);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ─── TTS Row ─── */
+  .tts-row {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    padding: 3px 0;
+    gap: 8px;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+  }
+
+  .tts-row:last-child {
+    border-bottom: none;
+  }
+
+  .tts-row .time {
+    color: var(--overlay1);
+    font-size: 11px;
+  }
+
+  .tts-row .message {
+    color: var(--subtext0);
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  /* ─── Health Screen ─── */
+  .metric-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+
+  .metric-bar .label {
+    width: 48px;
+    color: var(--overlay1);
+    text-align: right;
+  }
+
+  .meter {
+    flex: 1;
+    height: 10px;
+    background: var(--surface0);
+    border-radius: 2px;
+    overflow: hidden;
+    max-width: 260px;
+  }
+
+  .meter .fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  .meter .fill.ok { background: var(--green); }
+  .meter .fill.warn { background: var(--yellow); }
+  .meter .fill.danger { background: var(--red); }
+
+  .metric-bar .value {
+    color: var(--subtext0);
+    font-size: 11px;
+    min-width: 120px;
+  }
+
+  .docker-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px 16px;
+  }
+
+  .docker-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .docker-item .dot {
+    font-size: 10px;
+  }
+
+  .docker-item .dot.running { color: var(--green); }
+  .docker-item .dot.stopped { color: var(--overlay0); }
+
+  .deploy-row {
+    display: grid;
+    grid-template-columns: 32px 88px 72px 1fr;
+    align-items: center;
+    padding: 4px 0;
+    gap: 8px;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+  }
+
+  .deploy-row:last-child {
+    border-bottom: none;
+  }
+
+  .deploy-row .proj {
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  .deploy-row .env {
+    color: var(--subtext0);
+  }
+
+  .deploy-row .ago {
+    color: var(--overlay1);
+    font-size: 11px;
+  }
+
+  .deploy-row .health {
+    font-size: 12px;
+  }
+
+  .health-ok { color: var(--green); }
+  .health-warn { color: var(--yellow); }
+
+  /* ─── Daemon Status Row ─── */
+  .status-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 4px 12px;
+    padding: 3px 0;
+    font-size: 12px;
+  }
+
+  .status-row .label {
+    color: var(--overlay1);
+    text-align: right;
+  }
+
+  .status-row .value {
+    color: var(--text);
+  }
+
+  .load-values {
+    color: var(--subtext0);
+    font-size: 12px;
+    padding: 4px 0;
+  }
+
+  /* ─── Projects Table ─── */
+  .project-table {
+    width: 100%;
+  }
+
+  .project-table-header {
+    display: grid;
+    grid-template-columns: 40px 1fr 80px 64px 48px 72px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--overlay1);
+    border-bottom: 1px solid var(--surface1);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    gap: 8px;
+  }
+
+  .project-table-divider {
+    border-bottom: 1px solid var(--surface0);
+    margin: 2px 0;
+  }
+
+  .project-table-row {
+    display: grid;
+    grid-template-columns: 40px 1fr 80px 64px 48px 72px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s ease;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+    gap: 8px;
+    align-items: center;
+  }
+
+  .project-table-row:hover {
+    background: rgba(137, 180, 250, 0.05);
+  }
+
+  .project-table-row.selected {
+    background: rgba(137, 180, 250, 0.1);
+    border-left: 2px solid var(--blue);
+    padding-left: 8px;
+  }
+
+  .project-table-row .code {
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  .project-table-row .name {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-table-row .sessions {
+    color: var(--green);
+    font-size: 11px;
+  }
+
+  .project-table-row .sessions.none {
+    color: var(--overlay0);
+  }
+
+  .project-table-row .deploy-type {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .deploy-type.vercel {
+    color: var(--blue);
+    background: rgba(137, 180, 250, 0.12);
+  }
+
+  .deploy-type.docker {
+    color: var(--teal);
+    background: rgba(148, 226, 213, 0.12);
+  }
+
+  .deploy-type.none {
+    color: var(--overlay0);
+    background: rgba(108, 112, 134, 0.1);
+  }
+
+  .project-table-row .port {
+    color: var(--overlay1);
+    font-size: 11px;
+  }
+
+  .project-table-row .beads {
+    color: var(--peach);
+    font-size: 11px;
+  }
+
+  .project-table-row .beads.zero {
+    color: var(--overlay0);
+  }
+
+  .project-table-summary {
+    padding: 10px;
+    font-size: 11px;
+    color: var(--subtext0);
+    border-top: 1px solid var(--surface1);
+    display: flex;
+    gap: 16px;
+  }
+
+  .project-table-summary span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .project-table-summary .num {
+    color: var(--lavender);
+    font-weight: 600;
+  }
+
+  /* ─── Command Palette / Quick Actions ─── */
+  .palette-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(17, 17, 27, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    padding-top: 100px;
+    z-index: 50;
+  }
+
+  .palette-box {
+    width: 440px;
+    max-width: 90%;
+    background: var(--base);
+    border: 1px solid var(--surface1);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    height: fit-content;
+    max-height: 420px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .palette-input-wrap {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--surface0);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .palette-input-wrap .prompt {
+    color: var(--mauve);
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .palette-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    caret-color: var(--blue);
+  }
+
+  .palette-input::placeholder {
+    color: var(--overlay0);
+  }
+
+  .palette-results {
+    overflow-y: auto;
+    padding: 6px 0;
+    flex: 1;
+  }
+
+  .palette-item {
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.1s ease;
+  }
+
+  .palette-item:hover {
+    background: rgba(137, 180, 250, 0.08);
+  }
+
+  .palette-item.selected {
+    background: rgba(137, 180, 250, 0.12);
+    border-left: 2px solid var(--blue);
+    padding-left: 12px;
+  }
+
+  .palette-item .icon {
+    color: var(--overlay1);
+    width: 16px;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  .palette-item .label {
+    flex: 1;
+  }
+
+  .palette-item .hint {
+    color: var(--overlay0);
+    font-size: 11px;
+  }
+
+  .palette-section {
+    padding: 6px 14px 4px;
+    font-size: 10px;
+    color: var(--overlay0);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  .palette-item .match {
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 800px) {
+    .terminal {
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+
+    .session-row {
+      grid-template-columns: 32px 20px 80px 60px 1fr 20px;
+    }
+
+    .docker-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .project-table-header,
+    .project-table-row {
+      grid-template-columns: 36px 1fr 72px 56px 44px 64px;
+      font-size: 11px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="terminal" id="terminal">
+  <!-- Title Bar -->
+  <div class="title-bar">
+    <div class="dots">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+    </div>
+    <div class="title">claude-tui — session dashboard</div>
+    <div style="width: 50px;"></div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab active" data-screen="dashboard" onclick="switchScreen('dashboard')">
+      Dashboard <span class="shortcut">1</span>
+    </div>
+    <div class="tab" data-screen="detail" onclick="switchScreen('detail')">
+      Detail <span class="shortcut">2</span>
+    </div>
+    <div class="tab" data-screen="health" onclick="switchScreen('health')">
+      Health <span class="shortcut">3</span>
+    </div>
+    <div class="tab" data-screen="projects" onclick="switchScreen('projects')">
+      Projects <span class="shortcut">4</span>
+    </div>
+    <div class="tab" data-screen="actions" onclick="switchScreen('actions')">
+      Actions <span class="shortcut">5</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCREEN 1: Dashboard                                     -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="screen active" id="screen-dashboard">
+    <div class="header-bar">
+      <div class="left">claude-tui <span style="color:var(--overlay1);font-weight:400;">v0.1.0</span></div>
+      <div class="right">
+        <div class="indicator">
+          <span class="status-dot active" style="font-size:10px;">&#9679;</span>
+          <span>daemon: connected</span>
+        </div>
+        <div class="indicator">
+          <span style="color:var(--lavender);">&#9650;</span>
+          <span>5 sessions</span>
+        </div>
+      </div>
+    </div>
+    <div class="screen-body" id="dashboard-body">
+      <!-- OO Group -->
+      <div class="project-group">
+        <div class="project-group-header">
+          <span class="code">OO</span> otaku-odyssey
+        </div>
+        <div class="project-group-body">
+          <div class="session-row" data-session="oo-1" onclick="selectSession(this); switchToDetail('oo', 1);">
+            <span class="id">#1</span>
+            <span class="status-dot idle-short">&#9679;</span>
+            <span class="branch">main</span>
+            <span class="idle">idle 2m</span>
+            <span class="command">/apply stripe-webhook</span>
+            <span class="arrow">&#9656;</span>
+          </div>
+          <div class="session-row selected" data-session="oo-2" onclick="selectSession(this); switchToDetail('oo', 2);">
+            <span class="id">#2</span>
+            <span class="status-dot active">&#9673;</span>
+            <span class="branch">feat/dash</span>
+            <span class="idle">active</span>
+            <span class="command">/feature dashboard-redesign</span>
+            <span class="arrow">&#9656;</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TC Group -->
+      <div class="project-group">
+        <div class="project-group-header">
+          <span class="code">TC</span> tribal-cities
+        </div>
+        <div class="project-group-body">
+          <div class="session-row" data-session="tc-1" onclick="selectSession(this); switchToDetail('tc', 1);">
+            <span class="id">#1</span>
+            <span class="status-dot active">&#9673;</span>
+            <span class="branch">main</span>
+            <span class="idle">active</span>
+            <span class="command">/ci:gh --fix</span>
+            <span class="arrow">&#9656;</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CC Group -->
+      <div class="project-group">
+        <div class="project-group-header">
+          <span class="code">CC</span> central-claude
+        </div>
+        <div class="project-group-body">
+          <div class="session-row" data-session="cc-1" onclick="selectSession(this); switchToDetail('cc', 1);">
+            <span class="id">#1</span>
+            <span class="status-dot idle-long">&#9675;</span>
+            <span class="branch">main</span>
+            <span class="idle">idle 15m</span>
+            <span class="command">(interactive)</span>
+            <span class="arrow">&#9656;</span>
+          </div>
+          <div class="session-row" data-session="cc-2" onclick="selectSession(this); switchToDetail('cc', 2);">
+            <span class="id">#2</span>
+            <span class="status-dot idle-short">&#9679;</span>
+            <span class="branch">main</span>
+            <span class="idle">idle 5m</span>
+            <span class="command">/recon opensessions</span>
+            <span class="arrow">&#9656;</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <span class="binding"><span class="key">j/k</span> navigate</span>
+      <span class="binding"><span class="key">enter</span> switch</span>
+      <span class="binding"><span class="key">s</span> stop</span>
+      <span class="binding"><span class="key">a</span> attach</span>
+      <span class="binding"><span class="key">/</span> search</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCREEN 2: Session Detail                                -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-detail">
+    <div class="header-bar">
+      <div class="left">Session: <span style="color:var(--peach);" id="detail-session-id">oo-session-abc123</span></div>
+      <div class="right">
+        <span style="cursor:pointer;color:var(--blue);" onclick="switchScreen('dashboard')">[esc] back</span>
+      </div>
+    </div>
+    <div class="screen-body">
+      <!-- Info Grid -->
+      <div class="panel">
+        <div class="panel-body">
+          <div class="detail-grid">
+            <span class="detail-label">Project</span>
+            <span class="detail-value" id="detail-project">otaku-odyssey (oo)</span>
+            <span class="detail-label">Branch</span>
+            <span class="detail-value teal" id="detail-branch">feat/dashboard-redesign</span>
+            <span class="detail-label">PID</span>
+            <span class="detail-value" id="detail-pid">48291</span>
+            <span class="detail-label">CWD</span>
+            <span class="detail-value" id="detail-cwd">~/dev/oo</span>
+            <span class="detail-label">Started</span>
+            <span class="detail-value" id="detail-started">2h 14m ago (2026-03-20 09:35:12)</span>
+            <span class="detail-label">Idle</span>
+            <span class="detail-value highlight" id="detail-idle">0m (actively running)</span>
+            <span class="detail-label">Spec</span>
+            <span class="detail-value" id="detail-spec">dashboard-redesign</span>
+            <span class="detail-label">Command</span>
+            <span class="detail-value" id="detail-command">/feature dashboard-redesign</span>
+            <span class="detail-label">Queue</span>
+            <span class="detail-value" id="detail-queue">2 pending commands</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Activity -->
+      <div class="panel">
+        <div class="panel-header">Agent Activity</div>
+        <div class="panel-body" id="detail-agents">
+          <div class="agent-row">
+            <span class="time">11:42</span>
+            <span class="name">ui-engineer</span>
+            <div class="progress-bar"><div class="fill active" style="width:78%;"></div></div>
+            <span class="pct">78%</span>
+            <span class="desc">Building components</span>
+          </div>
+          <div class="agent-row">
+            <span class="time">11:38</span>
+            <span class="name">api-engineer</span>
+            <div class="progress-bar"><div class="fill done" style="width:100%;"></div></div>
+            <span class="pct">done</span>
+            <span class="desc">tRPC router</span>
+          </div>
+          <div class="agent-row">
+            <span class="time">11:35</span>
+            <span class="name">db-engineer</span>
+            <div class="progress-bar"><div class="fill done" style="width:100%;"></div></div>
+            <span class="pct">done</span>
+            <span class="desc">Schema migration</span>
+          </div>
+          <div class="agent-row">
+            <span class="time">11:30</span>
+            <span class="name">explore</span>
+            <div class="progress-bar"><div class="fill done" style="width:100%;"></div></div>
+            <span class="pct">done</span>
+            <span class="desc">Codebase scan</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Beads -->
+      <div class="panel">
+        <div class="panel-header">
+          Beads <span class="count" id="detail-beads-count">(3 active)</span>
+        </div>
+        <div class="panel-body" id="detail-beads">
+          <div class="bead-row">
+            <span class="bead-id">cc-4f2a</span>
+            <span class="bead-status in-progress">in_progress</span>
+            <span class="bead-title">Add dashboard stats panel</span>
+          </div>
+          <div class="bead-row">
+            <span class="bead-id">cc-7b1c</span>
+            <span class="bead-status in-progress">in_progress</span>
+            <span class="bead-title">Create session timeline component</span>
+          </div>
+          <div class="bead-row">
+            <span class="bead-id">cc-9d3e</span>
+            <span class="bead-status open">open</span>
+            <span class="bead-title">Wire up WebSocket live updates</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent TTS -->
+      <div class="panel">
+        <div class="panel-header">Recent TTS</div>
+        <div class="panel-body" id="detail-tts">
+          <div class="tts-row">
+            <span class="time">11:42</span>
+            <span class="message">"Starting UI batch — 3 components to build"</span>
+          </div>
+          <div class="tts-row">
+            <span class="time">11:38</span>
+            <span class="message">"API router complete, 4 procedures added"</span>
+          </div>
+          <div class="tts-row">
+            <span class="time">11:35</span>
+            <span class="message">"Schema migration applied, 2 tables created"</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <span class="binding"><span class="key">s</span> stop</span>
+      <span class="binding"><span class="key">a</span> attach terminal</span>
+      <span class="binding"><span class="key">l</span> view logs</span>
+      <span class="binding"><span class="key">esc</span> back</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCREEN 3: Health Overview                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-health">
+    <div class="header-bar">
+      <div class="left">System Health</div>
+      <div class="right">
+        <span id="health-updated">updated 5s ago</span>
+      </div>
+    </div>
+    <div class="screen-body">
+      <!-- Daemon -->
+      <div class="panel">
+        <div class="panel-header">Daemon</div>
+        <div class="panel-body">
+          <div class="status-row">
+            <span class="label">Status</span>
+            <span class="value"><span class="status-dot active" style="font-size:10px;">&#9679;</span> connected <span style="color:var(--overlay1);">(uptime: 3d 14h)</span></span>
+          </div>
+          <div class="status-row">
+            <span class="label">WebSocket</span>
+            <span class="value"><span class="status-dot active" style="font-size:10px;">&#9679;</span> connected to CO</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Sessions</span>
+            <span class="value">5 active across 3 projects</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Events</span>
+            <span class="value">142 today <span style="color:var(--overlay1);">(avg 28/hr)</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Server -->
+      <div class="panel">
+        <div class="panel-header">Server (homelab)</div>
+        <div class="panel-body">
+          <div class="metric-bar">
+            <span class="label">CPU</span>
+            <div class="meter"><div class="fill ok" style="width:38%;"></div></div>
+            <span class="value">38%</span>
+          </div>
+          <div class="metric-bar">
+            <span class="label">RAM</span>
+            <div class="meter"><div class="fill warn" style="width:68%;"></div></div>
+            <span class="value">68% — 21.8 / 32.0 GB</span>
+          </div>
+          <div class="metric-bar">
+            <span class="label">Disk</span>
+            <div class="meter"><div class="fill warn" style="width:58%;"></div></div>
+            <span class="value">58% — 465 / 800 GB</span>
+          </div>
+          <div class="load-values" style="padding-left:60px;">
+            Load: <span style="color:var(--text);">2.14</span>&nbsp;&nbsp;<span style="color:var(--text);">1.87</span>&nbsp;&nbsp;<span style="color:var(--text);">1.52</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Docker -->
+      <div class="panel">
+        <div class="panel-header">
+          Docker <span class="count">(12 containers)</span>
+        </div>
+        <div class="panel-body">
+          <div class="docker-grid">
+            <div class="docker-item"><span class="dot running">&#9679;</span> claude-orchestrator</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> postgres</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> redis</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> central-leo</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> central-wholesale</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> nginx-proxy</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> watchtower</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> prometheus</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> grafana</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> loki</div>
+            <div class="docker-item"><span class="dot running">&#9679;</span> homeassistant</div>
+            <div class="docker-item"><span class="dot stopped">&#9675;</span> <span style="color:var(--overlay1);">backup-service</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vercel Deployments -->
+      <div class="panel">
+        <div class="panel-header">Vercel Deployments <span class="count">(recent)</span></div>
+        <div class="panel-body">
+          <div class="deploy-row">
+            <span class="proj">oo</span>
+            <span class="env"><span class="status-dot active" style="font-size:8px;">&#9679;</span> production</span>
+            <span class="ago">3h ago</span>
+            <span class="health health-ok">&#10003; healthy</span>
+          </div>
+          <div class="deploy-row">
+            <span class="proj">tc</span>
+            <span class="env"><span class="status-dot active" style="font-size:8px;">&#9679;</span> preview</span>
+            <span class="ago">45m ago</span>
+            <span class="health health-ok">&#10003; healthy</span>
+          </div>
+          <div class="deploy-row">
+            <span class="proj">tl</span>
+            <span class="env"><span class="status-dot active" style="font-size:8px;">&#9679;</span> production</span>
+            <span class="ago">2d ago</span>
+            <span class="health health-ok">&#10003; healthy</span>
+          </div>
+          <div class="deploy-row">
+            <span class="proj">mv</span>
+            <span class="env"><span class="status-dot idle-long" style="font-size:8px;">&#9675;</span> production</span>
+            <span class="ago">5d ago</span>
+            <span class="health health-warn">&#9888; stale</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <span class="binding"><span class="key">r</span> refresh</span>
+      <span class="binding"><span class="key">d</span> docker details</span>
+      <span class="binding"><span class="key">v</span> vercel details</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCREEN 4: Project Overview                              -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-projects">
+    <div class="header-bar">
+      <div class="left">Projects <span style="color:var(--overlay1);font-weight:400;">(27 registered)</span></div>
+      <div class="right">
+        <span style="color:var(--blue);cursor:pointer;" onclick="switchScreen('actions')">[/] search</span>
+      </div>
+    </div>
+    <div class="screen-body">
+      <div class="project-table">
+        <div class="project-table-header">
+          <span>Code</span>
+          <span>Name</span>
+          <span>Sessions</span>
+          <span>Deploy</span>
+          <span>Port</span>
+          <span>Beads</span>
+        </div>
+
+        <!-- T3 / Vercel Projects -->
+        <div class="project-table-row selected" data-project="oo">
+          <span class="code">oo</span>
+          <span class="name">otaku-odyssey</span>
+          <span class="sessions">2 active</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3100</span>
+          <span class="beads">12 open</span>
+        </div>
+        <div class="project-table-row" data-project="tc">
+          <span class="code">tc</span>
+          <span class="name">tribal-cities</span>
+          <span class="sessions">1 active</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3101</span>
+          <span class="beads">5 open</span>
+        </div>
+        <div class="project-table-row" data-project="tl">
+          <span class="code">tl</span>
+          <span class="name">tavern-ledger</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3102</span>
+          <span class="beads">3 open</span>
+        </div>
+        <div class="project-table-row" data-project="mv">
+          <span class="code">mv</span>
+          <span class="name">modern-visa</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3103</span>
+          <span class="beads">8 open</span>
+        </div>
+        <div class="project-table-row" data-project="ss">
+          <span class="code">ss</span>
+          <span class="name">styles-silas</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3104</span>
+          <span class="beads">1 open</span>
+        </div>
+
+        <div class="project-table-divider"></div>
+
+        <!-- Docker Projects -->
+        <div class="project-table-row" data-project="cl">
+          <span class="code">cl</span>
+          <span class="name">central-leo</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type docker">docker</span></span>
+          <span class="port">3105</span>
+          <span class="beads">2 open</span>
+        </div>
+        <div class="project-table-row" data-project="co">
+          <span class="code">co</span>
+          <span class="name">claude-orchestrator</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type docker">docker</span></span>
+          <span class="port">3106</span>
+          <span class="beads">4 open</span>
+        </div>
+        <div class="project-table-row" data-project="cw">
+          <span class="code">cw</span>
+          <span class="name">central-wholesale</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type docker">docker</span></span>
+          <span class="port">3107</span>
+          <span class="beads zero">0</span>
+        </div>
+
+        <div class="project-table-divider"></div>
+
+        <!-- Other Projects -->
+        <div class="project-table-row" data-project="cc">
+          <span class="code">cc</span>
+          <span class="name">central-claude</span>
+          <span class="sessions">2 active</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads">7 open</span>
+        </div>
+        <div class="project-table-row" data-project="la">
+          <span class="code">la</span>
+          <span class="name">la-app</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type vercel">vercel</span></span>
+          <span class="port">3108</span>
+          <span class="beads zero">0</span>
+        </div>
+        <div class="project-table-row" data-project="hl">
+          <span class="code">hl</span>
+          <span class="name">homelab</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads">1 open</span>
+        </div>
+        <div class="project-table-row" data-project="if">
+          <span class="code">if</span>
+          <span class="name">if-project</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads zero">0</span>
+        </div>
+        <div class="project-table-row" data-project="dc">
+          <span class="code">dc</span>
+          <span class="name">dc-project</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads zero">0</span>
+        </div>
+        <div class="project-table-row" data-project="tree">
+          <span class="code">tree</span>
+          <span class="name">tree</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads zero">0</span>
+        </div>
+        <div class="project-table-row" data-project="tm">
+          <span class="code">tm</span>
+          <span class="name">terraform-modules</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads zero">0</span>
+        </div>
+        <div class="project-table-row" data-project="cx">
+          <span class="code">cx</span>
+          <span class="name">cx-project</span>
+          <span class="sessions none">&mdash;</span>
+          <span><span class="deploy-type none">&mdash;</span></span>
+          <span class="port">&mdash;</span>
+          <span class="beads zero">0</span>
+        </div>
+
+        <div class="project-table-summary">
+          <span><span class="num">5</span> sessions</span>
+          <span><span class="num">43</span> open beads</span>
+          <span><span class="num">6</span> Vercel</span>
+          <span><span class="num">3</span> Docker</span>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <span class="binding"><span class="key">enter</span> open project</span>
+      <span class="binding"><span class="key">n</span> new session</span>
+      <span class="binding"><span class="key">b</span> beads</span>
+      <span class="binding"><span class="key">j/k</span> navigate</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCREEN 5: Quick Actions                                 -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-actions">
+    <div class="header-bar" style="opacity: 0.3;">
+      <div class="left">claude-tui <span style="color:var(--overlay1);font-weight:400;">v0.1.0</span></div>
+      <div class="right">
+        <div class="indicator">
+          <span class="status-dot active" style="font-size:10px;">&#9679;</span>
+          <span>daemon: connected</span>
+        </div>
+      </div>
+    </div>
+    <div class="screen-body" style="position:relative; display:flex; justify-content:center; padding-top:40px; background:rgba(17,17,27,0.5);">
+      <div class="palette-box">
+        <div class="palette-input-wrap">
+          <span class="prompt">&gt;</span>
+          <input
+            type="text"
+            class="palette-input"
+            id="palette-input"
+            placeholder="Type a command or search..."
+            value="switch to oo"
+            oninput="filterPalette(this.value)"
+            autocomplete="off"
+            spellcheck="false"
+          >
+        </div>
+        <div class="palette-results" id="palette-results">
+          <!-- Filtered results -->
+          <div class="palette-item selected" data-action="switch-oo-1">
+            <span class="icon">&#9656;</span>
+            <span class="label">Switch to <span class="match">oo</span> #1 <span style="color:var(--overlay0);">(main, idle 2m)</span></span>
+          </div>
+          <div class="palette-item" data-action="switch-oo-2">
+            <span class="icon">&#9656;</span>
+            <span class="label">Switch to <span class="match">oo</span> #2 <span style="color:var(--overlay0);">(feat/dash, active)</span></span>
+          </div>
+          <div class="palette-item" data-action="new-oo">
+            <span class="icon">+</span>
+            <span class="label">New session in <span class="match">oo</span></span>
+          </div>
+          <div class="palette-item" data-action="stop-oo">
+            <span class="icon" style="color:var(--red);">&#10005;</span>
+            <span class="label">Stop all <span class="match">oo</span> sessions</span>
+          </div>
+          <div class="palette-item" data-action="beads-oo">
+            <span class="icon" style="color:var(--peach);">&#9670;</span>
+            <span class="label">View <span class="match">oo</span> beads</span>
+            <span class="hint">12 open</span>
+          </div>
+
+          <div class="palette-section">Recent</div>
+          <div class="palette-item" data-action="switch-tc-1">
+            <span class="icon" style="color:var(--overlay0);">&#8634;</span>
+            <span class="label">Switch to tc #1</span>
+          </div>
+          <div class="palette-item" data-action="apply-all">
+            <span class="icon" style="color:var(--overlay0);">&#8634;</span>
+            <span class="label">/apply:all</span>
+            <span class="hint">last run 2h ago</span>
+          </div>
+          <div class="palette-item" data-action="ci-oo">
+            <span class="icon" style="color:var(--overlay0);">&#8634;</span>
+            <span class="label">/ci:gh oo</span>
+            <span class="hint">last run 45m ago</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <span class="binding"><span class="key">&#8593;/&#8595;</span> navigate</span>
+      <span class="binding"><span class="key">enter</span> execute</span>
+      <span class="binding"><span class="key">esc</span> close</span>
+      <span class="binding"><span class="key">ctrl+p</span> toggle palette</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ─── Session Data ───
+  const sessionDetails = {
+    'oo-1': {
+      id: 'oo-session-f7e421',
+      project: 'otaku-odyssey (oo)',
+      branch: 'main',
+      pid: '51023',
+      cwd: '~/dev/oo',
+      started: '45m ago (2026-03-20 11:05:33)',
+      idle: '2m (waiting for input)',
+      spec: 'stripe-webhook',
+      command: '/apply stripe-webhook',
+      queue: '0 pending commands',
+      agents: [
+        { time: '11:48', name: 'api-engineer', pct: 100, desc: 'Webhook handler', done: true },
+        { time: '11:42', name: 'db-engineer', pct: 100, desc: 'Event schema', done: true },
+        { time: '11:38', name: 'explore', pct: 100, desc: 'Stripe SDK scan', done: true },
+      ],
+      beads: [
+        { id: 'cc-a12f', status: 'in_progress', title: 'Implement webhook signature verification' },
+        { id: 'cc-b34d', status: 'open', title: 'Add idempotency key tracking' },
+      ],
+      tts: [
+        { time: '11:48', msg: '"Webhook handler complete, awaiting review"' },
+        { time: '11:42', msg: '"Event schema migration applied"' },
+        { time: '11:38', msg: '"Starting Stripe SDK analysis"' },
+      ]
+    },
+    'oo-2': {
+      id: 'oo-session-abc123',
+      project: 'otaku-odyssey (oo)',
+      branch: 'feat/dashboard-redesign',
+      pid: '48291',
+      cwd: '~/dev/oo',
+      started: '2h 14m ago (2026-03-20 09:35:12)',
+      idle: '0m (actively running)',
+      spec: 'dashboard-redesign',
+      command: '/feature dashboard-redesign',
+      queue: '2 pending commands',
+      agents: [
+        { time: '11:42', name: 'ui-engineer', pct: 78, desc: 'Building components', done: false },
+        { time: '11:38', name: 'api-engineer', pct: 100, desc: 'tRPC router', done: true },
+        { time: '11:35', name: 'db-engineer', pct: 100, desc: 'Schema migration', done: true },
+        { time: '11:30', name: 'explore', pct: 100, desc: 'Codebase scan', done: true },
+      ],
+      beads: [
+        { id: 'cc-4f2a', status: 'in_progress', title: 'Add dashboard stats panel' },
+        { id: 'cc-7b1c', status: 'in_progress', title: 'Create session timeline component' },
+        { id: 'cc-9d3e', status: 'open', title: 'Wire up WebSocket live updates' },
+      ],
+      tts: [
+        { time: '11:42', msg: '"Starting UI batch \u2014 3 components to build"' },
+        { time: '11:38', msg: '"API router complete, 4 procedures added"' },
+        { time: '11:35', msg: '"Schema migration applied, 2 tables created"' },
+      ]
+    },
+    'tc-1': {
+      id: 'tc-session-d9c872',
+      project: 'tribal-cities (tc)',
+      branch: 'main',
+      pid: '49102',
+      cwd: '~/dev/tc',
+      started: '28m ago (2026-03-20 11:22:45)',
+      idle: '0m (actively running)',
+      spec: '',
+      command: '/ci:gh --fix',
+      queue: '0 pending commands',
+      agents: [
+        { time: '11:48', name: 'ralph-loop', pct: 45, desc: 'Fixing type errors', done: false },
+        { time: '11:40', name: 'ci-analyst', pct: 100, desc: 'Triage CI failure', done: true },
+        { time: '11:35', name: 'explore', pct: 100, desc: 'Build log analysis', done: true },
+      ],
+      beads: [
+        { id: 'tc-e12a', status: 'in_progress', title: 'Fix TS2345 in EventCard component' },
+        { id: 'tc-f34b', status: 'open', title: 'Update event query return type' },
+      ],
+      tts: [
+        { time: '11:48', msg: '"Found 3 type errors, fixing now"' },
+        { time: '11:40', msg: '"CI failure triaged: TypeScript compilation"' },
+        { time: '11:35', msg: '"Analyzing build logs from GitHub Actions"' },
+      ]
+    },
+    'cc-1': {
+      id: 'cc-session-e4a019',
+      project: 'central-claude (cc)',
+      branch: 'main',
+      pid: '47583',
+      cwd: '~/.claude',
+      started: '1h 32m ago (2026-03-20 10:18:00)',
+      idle: '15m (stale)',
+      spec: '',
+      command: '(interactive)',
+      queue: '0 pending commands',
+      agents: [],
+      beads: [
+        { id: 'cc-1a2b', status: 'open', title: 'Audit agent skill mappings' },
+      ],
+      tts: [
+        { time: '10:35', msg: '"Session started, ready for commands"' },
+      ]
+    },
+    'cc-2': {
+      id: 'cc-session-7fb342',
+      project: 'central-claude (cc)',
+      branch: 'main',
+      pid: '50112',
+      cwd: '~/.claude',
+      started: '22m ago (2026-03-20 11:28:00)',
+      idle: '5m (waiting for input)',
+      spec: '',
+      command: '/recon opensessions',
+      queue: '0 pending commands',
+      agents: [
+        { time: '11:45', name: 'explore', pct: 100, desc: 'Session enumeration', done: true },
+      ],
+      beads: [],
+      tts: [
+        { time: '11:45', msg: '"Found 5 active sessions across 3 projects"' },
+        { time: '11:43', msg: '"Starting session reconnaissance"' },
+      ]
+    },
+  };
+
+  // ─── Palette Data ───
+  const allPaletteItems = [
+    { icon: '\u25B8', label: 'Switch to oo #1', detail: '(main, idle 2m)', category: 'switch', keywords: 'oo otaku switch session' },
+    { icon: '\u25B8', label: 'Switch to oo #2', detail: '(feat/dash, active)', category: 'switch', keywords: 'oo otaku switch session' },
+    { icon: '+', label: 'New session in oo', detail: '', category: 'new', keywords: 'oo otaku new create session' },
+    { icon: '\u2715', label: 'Stop all oo sessions', detail: '', category: 'stop', keywords: 'oo otaku stop kill', iconColor: 'var(--red)' },
+    { icon: '\u25C6', label: 'View oo beads', detail: '12 open', category: 'beads', keywords: 'oo otaku beads issues', iconColor: 'var(--peach)' },
+    { icon: '\u25B8', label: 'Switch to tc #1', detail: '(main, active)', category: 'switch', keywords: 'tc tribal switch session' },
+    { icon: '+', label: 'New session in tc', detail: '', category: 'new', keywords: 'tc tribal new create session' },
+    { icon: '\u25B8', label: 'Switch to cc #1', detail: '(main, idle 15m)', category: 'switch', keywords: 'cc claude central switch session' },
+    { icon: '\u25B8', label: 'Switch to cc #2', detail: '(main, idle 5m)', category: 'switch', keywords: 'cc claude central switch session' },
+    { icon: '+', label: 'New session in tl', detail: '', category: 'new', keywords: 'tl tavern new create session' },
+    { icon: '+', label: 'New session in mv', detail: '', category: 'new', keywords: 'mv modern new create session' },
+    { icon: '\u25B6', label: '/apply:all', detail: '', category: 'command', keywords: 'apply all specs execute' },
+    { icon: '\u25B6', label: '/ci:gh oo', detail: '', category: 'command', keywords: 'ci github actions fix oo' },
+    { icon: '\u25B6', label: '/ci:gh tc', detail: '', category: 'command', keywords: 'ci github actions fix tc' },
+    { icon: '\u25B6', label: '/feature', detail: '', category: 'command', keywords: 'feature new spec discovery' },
+    { icon: '\u25B6', label: '/recon', detail: '', category: 'command', keywords: 'recon explore scan' },
+    { icon: '\u25B6', label: '/workflow:evolve', detail: '', category: 'command', keywords: 'workflow evolve audit' },
+    { icon: '\u25B6', label: '/project:standup', detail: '', category: 'command', keywords: 'standup status project' },
+    { icon: '\u2715', label: 'Stop all sessions', detail: '', category: 'stop', keywords: 'stop kill all sessions', iconColor: 'var(--red)' },
+    { icon: '\u25C6', label: 'View all beads', detail: '43 open', category: 'beads', keywords: 'beads issues all', iconColor: 'var(--peach)' },
+  ];
+
+  const recentItems = [
+    { icon: '\u21BA', label: 'Switch to tc #1', detail: '', category: 'recent', keywords: '', iconColor: 'var(--overlay0)' },
+    { icon: '\u21BA', label: '/apply:all', detail: 'last run 2h ago', category: 'recent', keywords: '', iconColor: 'var(--overlay0)' },
+    { icon: '\u21BA', label: '/ci:gh oo', detail: 'last run 45m ago', category: 'recent', keywords: '', iconColor: 'var(--overlay0)' },
+  ];
+
+  // ─── Screen Switching ───
+  function switchScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+    document.getElementById('screen-' + name).classList.add('active');
+    document.querySelector('.tab[data-screen="' + name + '"]').classList.add('active');
+
+    if (name === 'actions') {
+      setTimeout(() => {
+        const input = document.getElementById('palette-input');
+        if (input) input.focus();
+      }, 50);
+    }
+  }
+
+  // ─── Session Selection (Dashboard) ───
+  let selectedSessionIdx = 1;
+  function selectSession(el) {
+    document.querySelectorAll('.session-row').forEach(r => r.classList.remove('selected'));
+    el.classList.add('selected');
+    const rows = Array.from(document.querySelectorAll('.session-row'));
+    selectedSessionIdx = rows.indexOf(el);
+  }
+
+  function getSessionRows() {
+    return Array.from(document.querySelectorAll('#dashboard-body .session-row'));
+  }
+
+  // ─── Detail View Population ───
+  function switchToDetail(project, num) {
+    const key = project + '-' + num;
+    const data = sessionDetails[key];
+    if (!data) return;
+
+    document.getElementById('detail-session-id').textContent = data.id;
+    document.getElementById('detail-project').textContent = data.project;
+    document.getElementById('detail-branch').textContent = data.branch;
+    document.getElementById('detail-pid').textContent = data.pid;
+    document.getElementById('detail-cwd').textContent = data.cwd;
+    document.getElementById('detail-started').textContent = data.started;
+    document.getElementById('detail-idle').textContent = data.idle;
+    document.getElementById('detail-spec').textContent = data.spec || '(none)';
+    document.getElementById('detail-command').textContent = data.command;
+    document.getElementById('detail-queue').textContent = data.queue;
+
+    // Agents
+    const agentContainer = document.getElementById('detail-agents');
+    if (data.agents.length === 0) {
+      agentContainer.innerHTML = '<div style="color:var(--overlay0);font-size:12px;padding:4px 0;">No agent activity</div>';
+    } else {
+      agentContainer.innerHTML = data.agents.map(a => `
+        <div class="agent-row">
+          <span class="time">${a.time}</span>
+          <span class="name">${a.name}</span>
+          <div class="progress-bar"><div class="fill ${a.done ? 'done' : 'active'}" style="width:${a.pct}%;"></div></div>
+          <span class="pct">${a.done ? 'done' : a.pct + '%'}</span>
+          <span class="desc">${a.desc}</span>
+        </div>
+      `).join('');
+    }
+
+    // Beads
+    const beadContainer = document.getElementById('detail-beads');
+    const beadCount = document.getElementById('detail-beads-count');
+    if (data.beads.length === 0) {
+      beadContainer.innerHTML = '<div style="color:var(--overlay0);font-size:12px;padding:4px 0;">No active beads</div>';
+      beadCount.textContent = '(0)';
+    } else {
+      beadCount.textContent = '(' + data.beads.length + ' active)';
+      beadContainer.innerHTML = data.beads.map(b => `
+        <div class="bead-row">
+          <span class="bead-id">${b.id}</span>
+          <span class="bead-status ${b.status === 'in_progress' ? 'in-progress' : b.status}">${b.status}</span>
+          <span class="bead-title">${b.title}</span>
+        </div>
+      `).join('');
+    }
+
+    // TTS
+    const ttsContainer = document.getElementById('detail-tts');
+    ttsContainer.innerHTML = data.tts.map(t => `
+      <div class="tts-row">
+        <span class="time">${t.time}</span>
+        <span class="message">${t.msg}</span>
+      </div>
+    `).join('');
+
+    switchScreen('detail');
+  }
+
+  // ─── Project Selection ───
+  let selectedProjectIdx = 0;
+  function selectProject(el) {
+    document.querySelectorAll('.project-table-row').forEach(r => r.classList.remove('selected'));
+    el.classList.add('selected');
+    const rows = Array.from(document.querySelectorAll('.project-table-row'));
+    selectedProjectIdx = rows.indexOf(el);
+  }
+
+  document.querySelectorAll('.project-table-row').forEach(row => {
+    row.addEventListener('click', function() {
+      selectProject(this);
+    });
+  });
+
+  // ─── Palette Filtering ───
+  function filterPalette(query) {
+    const results = document.getElementById('palette-results');
+    const q = query.toLowerCase().trim();
+
+    if (!q) {
+      // Show all + recent
+      renderPaletteItems(allPaletteItems.slice(0, 8), recentItems);
+      return;
+    }
+
+    const filtered = allPaletteItems.filter(item => {
+      const searchable = (item.label + ' ' + item.keywords).toLowerCase();
+      return q.split(/\s+/).every(word => searchable.includes(word));
+    });
+
+    renderPaletteItems(filtered.slice(0, 8), q.length < 2 ? recentItems : []);
+  }
+
+  function renderPaletteItems(items, recent) {
+    const results = document.getElementById('palette-results');
+    let html = '';
+
+    items.forEach((item, i) => {
+      const iconStyle = item.iconColor ? `color:${item.iconColor};` : 'color:var(--overlay1);';
+      const selectedClass = i === 0 ? ' selected' : '';
+      html += `<div class="palette-item${selectedClass}">
+        <span class="icon" style="${iconStyle}">${item.icon}</span>
+        <span class="label">${highlightMatch(item.label, document.getElementById('palette-input').value)}</span>
+        ${item.detail ? `<span class="hint">${item.detail}</span>` : ''}
+      </div>`;
+    });
+
+    if (recent && recent.length > 0) {
+      html += '<div class="palette-section">Recent</div>';
+      recent.forEach(item => {
+        const iconStyle = item.iconColor ? `color:${item.iconColor};` : 'color:var(--overlay1);';
+        html += `<div class="palette-item">
+          <span class="icon" style="${iconStyle}">${item.icon}</span>
+          <span class="label">${item.label}</span>
+          ${item.detail ? `<span class="hint">${item.detail}</span>` : ''}
+        </div>`;
+      });
+    }
+
+    if (!items.length && (!recent || !recent.length)) {
+      html = '<div style="padding:16px;text-align:center;color:var(--overlay0);font-size:12px;">No results found</div>';
+    }
+
+    results.innerHTML = html;
+
+    // Re-add hover listeners
+    results.querySelectorAll('.palette-item').forEach(el => {
+      el.addEventListener('mouseenter', function() {
+        results.querySelectorAll('.palette-item').forEach(p => p.classList.remove('selected'));
+        this.classList.add('selected');
+      });
+    });
+  }
+
+  function highlightMatch(text, query) {
+    if (!query) return text;
+    const words = query.toLowerCase().trim().split(/\s+/);
+    let result = text;
+    words.forEach(word => {
+      if (word.length < 2) return;
+      const regex = new RegExp('(' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      result = result.replace(regex, '<span class="match">$1</span>');
+    });
+    return result;
+  }
+
+  // ─── Palette navigation ───
+  let paletteSelectedIdx = 0;
+  function navigatePalette(direction) {
+    const items = document.querySelectorAll('#palette-results .palette-item');
+    if (items.length === 0) return;
+    items[paletteSelectedIdx]?.classList.remove('selected');
+    paletteSelectedIdx = Math.max(0, Math.min(items.length - 1, paletteSelectedIdx + direction));
+    items[paletteSelectedIdx]?.classList.add('selected');
+    items[paletteSelectedIdx]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  // ─── Keyboard Navigation ───
+  document.addEventListener('keydown', function(e) {
+    const activeScreen = document.querySelector('.screen.active')?.id;
+
+    // Tab switching: 1-5
+    if (e.key >= '1' && e.key <= '5' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (activeScreen === 'screen-actions' && document.activeElement === document.getElementById('palette-input')) {
+        return; // Don't switch tabs when typing in palette
+      }
+      const screens = ['dashboard', 'detail', 'health', 'projects', 'actions'];
+      switchScreen(screens[parseInt(e.key) - 1]);
+      e.preventDefault();
+      return;
+    }
+
+    // Screen-specific keys
+    switch (activeScreen) {
+      case 'screen-dashboard':
+        handleDashboardKeys(e);
+        break;
+      case 'screen-detail':
+        handleDetailKeys(e);
+        break;
+      case 'screen-health':
+        handleHealthKeys(e);
+        break;
+      case 'screen-projects':
+        handleProjectKeys(e);
+        break;
+      case 'screen-actions':
+        handleActionsKeys(e);
+        break;
+    }
+  });
+
+  function handleDashboardKeys(e) {
+    const rows = getSessionRows();
+    if (!rows.length) return;
+
+    switch (e.key) {
+      case 'j':
+      case 'ArrowDown':
+        e.preventDefault();
+        selectedSessionIdx = Math.min(rows.length - 1, selectedSessionIdx + 1);
+        selectSession(rows[selectedSessionIdx]);
+        rows[selectedSessionIdx].scrollIntoView({ block: 'nearest' });
+        break;
+      case 'k':
+      case 'ArrowUp':
+        e.preventDefault();
+        selectedSessionIdx = Math.max(0, selectedSessionIdx - 1);
+        selectSession(rows[selectedSessionIdx]);
+        rows[selectedSessionIdx].scrollIntoView({ block: 'nearest' });
+        break;
+      case 'Enter':
+        e.preventDefault();
+        rows[selectedSessionIdx]?.click();
+        break;
+      case '/':
+        e.preventDefault();
+        switchScreen('actions');
+        break;
+    }
+  }
+
+  function handleDetailKeys(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      switchScreen('dashboard');
+    }
+  }
+
+  function handleHealthKeys(e) {
+    if (e.key === 'r') {
+      e.preventDefault();
+      const el = document.getElementById('health-updated');
+      el.textContent = 'refreshing...';
+      el.style.color = 'var(--blue)';
+      setTimeout(() => {
+        el.textContent = 'updated just now';
+        el.style.color = '';
+      }, 800);
+    }
+  }
+
+  function handleProjectKeys(e) {
+    const rows = Array.from(document.querySelectorAll('.project-table-row'));
+    if (!rows.length) return;
+
+    switch (e.key) {
+      case 'j':
+      case 'ArrowDown':
+        e.preventDefault();
+        selectedProjectIdx = Math.min(rows.length - 1, selectedProjectIdx + 1);
+        selectProject(rows[selectedProjectIdx]);
+        rows[selectedProjectIdx].scrollIntoView({ block: 'nearest' });
+        break;
+      case 'k':
+      case 'ArrowUp':
+        e.preventDefault();
+        selectedProjectIdx = Math.max(0, selectedProjectIdx - 1);
+        selectProject(rows[selectedProjectIdx]);
+        rows[selectedProjectIdx].scrollIntoView({ block: 'nearest' });
+        break;
+      case '/':
+        e.preventDefault();
+        switchScreen('actions');
+        break;
+    }
+  }
+
+  function handleActionsKeys(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      switchScreen('dashboard');
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      paletteSelectedIdx++;
+      navigatePalette(0);
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      paletteSelectedIdx--;
+      navigatePalette(0);
+      return;
+    }
+  }
+
+  // ─── Initialize ───
+  // Set initial palette items
+  filterPalette('switch to oo');
+
+  // Add hover to palette items
+  document.querySelectorAll('#palette-results .palette-item').forEach(el => {
+    el.addEventListener('mouseenter', function() {
+      document.querySelectorAll('#palette-results .palette-item').forEach(p => p.classList.remove('selected'));
+      this.classList.add('selected');
+    });
+  });
+
+  // Animate health metrics (subtle)
+  function animateMetrics() {
+    const fills = document.querySelectorAll('#screen-health .meter .fill');
+    fills.forEach(fill => {
+      const baseWidth = parseFloat(fill.style.width);
+      const variation = (Math.random() - 0.5) * 4;
+      const newWidth = Math.max(5, Math.min(95, baseWidth + variation));
+      fill.style.width = newWidth + '%';
+
+      // Update threshold class
+      if (newWidth > 80) {
+        fill.className = 'fill danger';
+      } else if (newWidth > 55) {
+        fill.className = 'fill warn';
+      } else {
+        fill.className = 'fill ok';
+      }
+    });
+  }
+
+  setInterval(animateMetrics, 3000);
+
+  // Update health timestamp
+  let healthAge = 5;
+  setInterval(() => {
+    healthAge += 5;
+    const el = document.getElementById('health-updated');
+    if (el && !el.textContent.includes('refreshing') && !el.textContent.includes('just now')) {
+      el.textContent = 'updated ' + healthAge + 's ago';
+    } else if (el && el.textContent.includes('just now')) {
+      healthAge = 0;
+    }
+  }, 5000);
+
+  // Simulate agent progress animation
+  function animateAgentProgress() {
+    const activeScreen = document.querySelector('.screen.active')?.id;
+    if (activeScreen !== 'screen-detail') return;
+
+    const activeFills = document.querySelectorAll('#detail-agents .fill.active');
+    activeFills.forEach(fill => {
+      const current = parseFloat(fill.style.width) || 0;
+      if (current < 98) {
+        fill.style.width = Math.min(98, current + Math.random() * 2) + '%';
+        const pctEl = fill.closest('.agent-row')?.querySelector('.pct');
+        if (pctEl) {
+          pctEl.textContent = Math.round(parseFloat(fill.style.width)) + '%';
+        }
+      }
+    });
+  }
+
+  setInterval(animateAgentProgress, 2000);
+</script>
+</body>
+</html>
