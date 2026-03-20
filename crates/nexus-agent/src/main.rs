@@ -1,9 +1,32 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Result;
+use axum::{Json, Router, extract::State, routing::get};
+use nexus_core::api::HealthResponse;
+use nexus_core::proto::nexus_agent_server::NexusAgentServer;
+use tonic::transport::Server;
 use tracing_subscriber::EnvFilter;
 
+mod events;
+mod grpc;
+mod health;
 mod registry;
-mod routes;
 mod watcher;
+
+use grpc::NexusAgentService;
+use health::HealthCollector;
+use registry::SessionRegistry;
+
+/// Shared state passed to axum HTTP handlers.
+#[derive(Clone)]
+struct AppState {
+    registry: Arc<SessionRegistry>,
+    health: HealthCollector,
+    agent_name: String,
+    agent_host: String,
+    started_at: std::time::Instant,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,12 +34,110 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env().add_directive("nexus_agent=info".parse()?))
         .init();
 
-    tracing::info!("nexus-agent starting on port 7400");
+    tracing::info!("nexus-agent starting");
 
-    // TODO: Initialize session registry
-    // TODO: Start sessions.json file watcher
-    // TODO: Start HTTP server with axum
-    // TODO: Start system health monitor
+    // Resolve agent identity from hostname.
+    let agent_host = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    let agent_name = agent_host.clone();
 
+    // Initialize the event broadcast channel (capacity 256).
+    let event_broadcaster = Arc::new(events::EventBroadcaster::new(256));
+
+    // Initialize session registry with a reference to the broadcaster.
+    let registry = Arc::new(SessionRegistry::new(Arc::clone(&event_broadcaster)));
+
+    // Start the sessions.json file watcher as a background task.
+    watcher::start_session_watcher(Arc::clone(&registry)).await?;
+
+    // Start the health collector with a 5-second refresh interval.
+    let health_collector = HealthCollector::spawn(Duration::from_secs(5));
+
+    let started_at = std::time::Instant::now();
+
+    // Build the gRPC service.
+    let service = NexusAgentService::new(
+        Arc::clone(&registry),
+        Arc::clone(&event_broadcaster),
+        agent_name.clone(),
+        agent_host.clone(),
+    );
+
+    let grpc_addr = "0.0.0.0:7400".parse()?;
+    tracing::info!("gRPC server listening on {}", grpc_addr);
+
+    let grpc_server = Server::builder()
+        .add_service(NexusAgentServer::new(service))
+        .serve_with_shutdown(grpc_addr, shutdown_signal());
+
+    // Build the HTTP health server on port 7401.
+    let app_state = AppState {
+        registry,
+        health: health_collector,
+        agent_name,
+        agent_host,
+        started_at,
+    };
+
+    let http_app = Router::new()
+        .route("/health", get(health_handler))
+        .with_state(app_state);
+
+    let http_addr: std::net::SocketAddr = "0.0.0.0:7401".parse()?;
+    let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
+    tracing::info!("HTTP health server listening on {}", http_addr);
+
+    // Run both servers concurrently. If either exits, the other will be dropped.
+    tokio::select! {
+        result = grpc_server => {
+            if let Err(e) = result {
+                tracing::error!("gRPC server error: {}", e);
+            }
+        }
+        result = axum::serve(http_listener, http_app).into_future() => {
+            if let Err(e) = result {
+                tracing::error!("HTTP health server error: {}", e);
+            }
+        }
+    }
+
+    tracing::info!("nexus-agent shutting down");
     Ok(())
+}
+
+/// GET /health — return JSON HealthResponse with cached machine metrics.
+async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
+    let machine = state.health.get().await;
+    let sessions = state.registry.get_all().await;
+
+    Json(HealthResponse {
+        agent_name: state.agent_name.clone(),
+        agent_host: state.agent_host.clone(),
+        uptime_seconds: state.started_at.elapsed().as_secs(),
+        session_count: sessions.len(),
+        machine: Some(machine),
+    })
+}
+
+/// Wait for SIGTERM or Ctrl+C to trigger graceful shutdown.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+
+        tokio::select! {
+            _ = ctrl_c => tracing::info!("received Ctrl+C, shutting down"),
+            _ = sigterm.recv() => tracing::info!("received SIGTERM, shutting down"),
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        ctrl_c.await.ok();
+        tracing::info!("received Ctrl+C, shutting down");
+    }
 }
