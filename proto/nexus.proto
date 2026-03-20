@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum SessionStatus {
+  SESSION_STATUS_UNKNOWN = 0;
+  SESSION_STATUS_ACTIVE = 1;
+  SESSION_STATUS_IDLE = 2;
+  SESSION_STATUS_STALE = 3;
+  SESSION_STATUS_ERRORED = 4;
+}
+
+enum SessionType {
+  SESSION_TYPE_UNSPECIFIED = 0;
+  SESSION_TYPE_MANAGED = 1;
+  SESSION_TYPE_AD_HOC = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Session messages
+// ---------------------------------------------------------------------------
+
+message Session {
+  string id = 1;
+  uint32 pid = 2;
+  optional string project = 3;
+  string cwd = 4;
+  optional string branch = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp last_heartbeat = 7;
+  SessionStatus status = 8;
+  SessionType session_type = 9;
+  optional string spec = 10;
+  optional string command = 11;
+  optional string agent = 12;
+  optional string tmux_session = 13;
+}
+
+message SessionId {
+  string id = 1;
+}
+
+message SessionFilter {
+  optional SessionStatus status = 1;
+  optional string project = 2;
+  optional SessionType session_type = 3;
+}
+
+message SessionList {
+  repeated Session sessions = 1;
+  string agent_name = 2;
+  string agent_host = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Session lifecycle RPCs
+// ---------------------------------------------------------------------------
+
+message StartSessionRequest {
+  string project = 1;
+  string cwd = 2;
+  repeated string args = 3;
+}
+
+message StartSessionResponse {
+  string session_id = 1;
+  string tmux_session = 2;
+  SessionType session_type = 3;
+}
+
+message StopResult {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming events
+// ---------------------------------------------------------------------------
+
+message EventFilter {
+  optional string session_id = 1;
+}
+
+message SessionEvent {
+  string session_id = 1;
+  google.protobuf.Timestamp ts = 2;
+  oneof payload {
+    SessionStarted started = 3;
+    HeartbeatReceived heartbeat = 4;
+    StatusChanged status_changed = 5;
+    SessionStopped stopped = 6;
+  }
+}
+
+message SessionStarted {
+  Session session = 1;
+}
+
+message HeartbeatReceived {
+  google.protobuf.Timestamp last_heartbeat = 1;
+}
+
+message StatusChanged {
+  SessionStatus old_status = 1;
+  SessionStatus new_status = 2;
+}
+
+message SessionStopped {
+  string reason = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
+message ContainerStatus {
+  string name = 1;
+  bool running = 2;
+}
+
+message MachineHealth {
+  float cpu_percent = 1;
+  float memory_used_gb = 2;
+  float memory_total_gb = 3;
+  float disk_used_gb = 4;
+  float disk_total_gb = 5;
+  repeated float load_avg = 6;
+  uint64 uptime_seconds = 7;
+  repeated ContainerStatus docker_containers = 8;
+}
+
+message HealthResponse {
+  string agent_name = 1;
+  string agent_host = 2;
+  uint64 uptime_seconds = 3;
+  uint32 session_count = 4;
+  optional MachineHealth machine = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+service NexusAgent {
+  rpc GetSessions(SessionFilter) returns (SessionList);
+  rpc GetSession(SessionId) returns (Session);
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+  rpc StreamEvents(EventFilter) returns (stream SessionEvent);
+  rpc StopSession(SessionId) returns (StopResult);
+}

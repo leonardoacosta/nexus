@@ -52,5 +52,20 @@ sysinfo = "0.33"
 # File watching
 notify = "7"
 
+# gRPC / Protobuf
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+prost-types = "0.14"
+tonic-build = "0.14"
+tonic-prost-build = "0.14"
+prost-build = "0.14"
+
+# Streaming
+tokio-stream = "0.1"
+
+# Hostname
+hostname = "0.4"
+
 # Shared crate
 nexus-core = { path = "crates/nexus-core" }
