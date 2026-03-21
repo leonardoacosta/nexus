@@ -284,6 +284,7 @@ impl NexusAgent for NexusAgentService {
             let is_managed = session.pid == 0;
             let mut cmd = tokio::process::Command::new("claude");
             cmd.arg("-p")
+                .arg("--bare")
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose")
