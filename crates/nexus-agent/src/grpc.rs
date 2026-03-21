@@ -204,10 +204,12 @@ impl NexusAgent for NexusAgentService {
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
                 tracing::warn!(
                     session_id = %session_id,
                     exit_code = output.status.code().unwrap_or(-1),
                     stderr = %stderr,
+                    stdout = %stdout,
                     "bootstrap prompt failed — session registered but may not be resumable"
                 );
             }
@@ -266,7 +268,9 @@ impl NexusAgent for NexusAgentService {
                 session_id = %sid,
                 resume_id = %resume_id,
                 cwd = %cwd,
-                "send_command: spawning claude process"
+                prompt = %req.prompt,
+                "send_command: spawning claude -p --resume {} --output-format stream-json --include-partial-messages --dangerously-skip-permissions \"{}\" (cwd={})",
+                resume_id, req.prompt, cwd,
             );
 
             // 4. Spawn the claude child process.
@@ -327,7 +331,7 @@ impl NexusAgent for NexusAgentService {
                         if line.trim().is_empty() {
                             continue;
                         }
-                        tracing::debug!(session_id = %sid, "stream-json line: {}", line);
+                        tracing::info!(session_id = %sid, "stream-json line: {}", &line[..line.len().min(200)]);
 
                         if let Some(output) = parser::parse_stream_json_line(&sid, &line) {
                             // Track if we got a Done message from the parser.

@@ -143,7 +143,31 @@ fn parse_tool_result(v: &serde_json::Value) -> Option<proto::command_output::Con
 }
 
 /// Final result event indicating the command is complete.
+/// Also handles error results: `{"type":"result","subtype":"error_during_execution","errors":[...]}`
 fn parse_result(v: &serde_json::Value) -> Option<proto::command_output::Content> {
+    // Check for error results first.
+    let is_error = v
+        .get("is_error")
+        .and_then(|e| e.as_bool())
+        .unwrap_or(false);
+
+    if is_error {
+        let errors = v
+            .get("errors")
+            .and_then(|e| e.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_else(|| "unknown error".to_string());
+        return Some(proto::command_output::Content::Error(proto::CommandError {
+            message: errors,
+            exit_code: 1,
+        }));
+    }
+
     let duration = v
         .get("duration_ms")
         .and_then(|d| d.as_u64())
