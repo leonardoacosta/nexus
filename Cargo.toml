@@ -49,9 +49,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # System info
 sysinfo = "0.33"
 
-# File watching
-notify = "7"
-
 # gRPC / Protobuf
 tonic = "0.14"
 tonic-prost = "0.14"

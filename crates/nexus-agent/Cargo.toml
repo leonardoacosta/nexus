@@ -22,7 +22,6 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sysinfo = { workspace = true }
-notify = { workspace = true }
 prost-types = { workspace = true }
 tokio-stream = { workspace = true }
 hostname = { workspace = true }

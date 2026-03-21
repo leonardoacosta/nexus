@@ -12,7 +12,6 @@ mod events;
 mod grpc;
 mod health;
 mod registry;
-mod watcher;
 
 use grpc::NexusAgentService;
 use health::HealthCollector;
@@ -48,9 +47,6 @@ async fn main() -> Result<()> {
     // Initialize session registry with a reference to the broadcaster.
     let registry = Arc::new(SessionRegistry::new(Arc::clone(&event_broadcaster)));
 
-    // Start the sessions.json file watcher as a background task.
-    watcher::start_session_watcher(Arc::clone(&registry)).await?;
-
     // Start the health collector with a 5-second refresh interval.
     let health_collector = HealthCollector::spawn(Duration::from_secs(5));
 
@@ -70,6 +66,19 @@ async fn main() -> Result<()> {
     let grpc_server = Server::builder()
         .add_service(NexusAgentServer::new(service))
         .serve_with_shutdown(grpc_addr, shutdown_signal());
+
+    // Start stale session detection background task (30s interval).
+    let stale_registry = Arc::clone(&registry);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            stale_registry.detect_stale(
+                std::time::Duration::from_secs(300),   // 5min → Stale
+                std::time::Duration::from_secs(900),   // 15min → Remove
+            ).await;
+        }
+    });
 
     // Build the HTTP health server on port 7401.
     let app_state = AppState {
