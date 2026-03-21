@@ -79,6 +79,36 @@ message StopResult {
   optional string message = 2;
 }
 
+message RegisterSessionRequest {
+  string session_id = 1;
+  uint32 pid = 2;
+  string cwd = 3;
+  optional string project = 4;
+  optional string branch = 5;
+  optional string command = 6;
+}
+
+message RegisterSessionResponse {
+  string session_id = 1;
+  bool created = 2;
+}
+
+message UnregisterSessionRequest {
+  string session_id = 1;
+}
+
+message UnregisterSessionResponse {
+  bool found = 1;
+}
+
+message HeartbeatRequest {
+  string session_id = 1;
+}
+
+message HeartbeatResponse {
+  bool found = 1;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming events
 // ---------------------------------------------------------------------------
@@ -153,4 +183,7 @@ service NexusAgent {
   rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
   rpc StreamEvents(EventFilter) returns (stream SessionEvent);
   rpc StopSession(SessionId) returns (StopResult);
+  rpc RegisterSession(RegisterSessionRequest) returns (RegisterSessionResponse);
+  rpc UnregisterSession(UnregisterSessionRequest) returns (UnregisterSessionResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
