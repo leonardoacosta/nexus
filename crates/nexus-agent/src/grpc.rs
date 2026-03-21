@@ -142,75 +142,80 @@ impl NexusAgent for NexusAgentService {
         request: Request<proto::StartSessionRequest>,
     ) -> Result<Response<proto::StartSessionResponse>, Status> {
         let req = request.into_inner();
-
-        // Validate tmux is on PATH.
-        let tmux_check = std::process::Command::new("which")
-            .arg("tmux")
-            .output()
-            .map_err(|e| Status::internal(format!("failed to check for tmux: {e}")))?;
-
-        if !tmux_check.status.success() {
-            return Err(Status::failed_precondition(
-                "tmux is not installed or not on PATH",
-            ));
-        }
-
         let session_id = Uuid::new_v4().to_string();
-        let short_id = &session_id[..8];
-        let tmux_session_name = format!("nx-{short_id}");
 
-        // Build the claude command with any extra args.
-        let mut tmux_args = vec![
-            "new-session".to_string(),
-            "-d".to_string(),
-            "-s".to_string(),
-            tmux_session_name.clone(),
-            "-c".to_string(),
-            req.cwd.clone(),
-            "--".to_string(),
-            "claude".to_string(),
-        ];
-        for arg in &req.args {
-            tmux_args.push(arg.clone());
-        }
+        let project_name = if req.project.is_empty() {
+            "unknown".to_string()
+        } else {
+            req.project.clone()
+        };
 
         tracing::info!(
-            "starting managed session {} (tmux: {}, cwd: {})",
-            session_id,
-            tmux_session_name,
-            req.cwd,
+            session_id = %session_id,
+            project = %project_name,
+            cwd = %req.cwd,
+            "starting managed session (bootstrap prompt)",
         );
 
-        let spawn_result = std::process::Command::new("tmux")
-            .args(&tmux_args)
-            .status()
-            .map_err(|e| Status::internal(format!("failed to spawn tmux session: {e}")))?;
-
-        if !spawn_result.success() {
-            return Err(Status::internal(format!(
-                "tmux new-session exited with {}",
-                spawn_result
-            )));
-        }
-
-        // Get the PID of the tmux session leader.
-        let pid = get_tmux_session_pid(&tmux_session_name).unwrap_or(0);
-
         // Register the managed session in the registry.
-        let mut session = Session::new(pid, req.cwd);
+        let mut session = Session::new(0, req.cwd.clone());
         session.id = session_id.clone();
+        session.cc_session_id = Some(session_id.clone());
         session.project = if req.project.is_empty() {
             None
         } else {
             Some(req.project)
         };
-        session.tmux_session = Some(tmux_session_name.clone());
+        session.tmux_session = None;
 
         self.registry.register_managed(session).await;
 
+        // Run a bootstrap command to establish the CC conversation.
+        let bootstrap_prompt = format!(
+            "You are starting a new session in project {project_name}. Acknowledge with: Ready."
+        );
+
+        let bootstrap_result = tokio::process::Command::new("claude")
+            .arg("-p")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg("--session-id")
+            .arg(&session_id)
+            .arg("--cwd")
+            .arg(&req.cwd)
+            .arg("--dangerously-skip-permissions")
+            .arg(&bootstrap_prompt)
+            .output()
+            .await;
+
+        match bootstrap_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!(
+                    session_id = %session_id,
+                    "bootstrap prompt completed successfully"
+                );
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    session_id = %session_id,
+                    exit_code = output.status.code().unwrap_or(-1),
+                    stderr = %stderr,
+                    "bootstrap prompt failed — session registered but may not be resumable"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to spawn bootstrap prompt — session registered but may not be resumable"
+                );
+            }
+        }
+
         Ok(Response::new(proto::StartSessionResponse {
             session_id,
-            tmux_session: tmux_session_name,
+            tmux_session: String::new(),
             session_type: proto::SessionType::Managed.into(),
         }))
     }
@@ -595,21 +600,3 @@ impl NexusAgent for NexusAgentService {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Get the PID of the first process running inside a tmux session.
-fn get_tmux_session_pid(session_name: &str) -> Option<u32> {
-    let output = std::process::Command::new("tmux")
-        .args(["list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout.lines().next()?.trim().parse().ok()
-}
