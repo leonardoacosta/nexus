@@ -1,10 +1,33 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, colors};
+use crate::app::{App, LineStyle, colors};
+
+/// Map a `LineStyle` to the ratatui `Style` using the brand color palette.
+fn line_style_to_ratatui(style: LineStyle) -> Style {
+    match style {
+        LineStyle::UserPrompt => Style::default().fg(colors::PRIMARY),
+        LineStyle::AssistantText => Style::default().fg(Color::White),
+        LineStyle::ToolHeader => Style::default()
+            .fg(colors::SECONDARY)
+            .add_modifier(Modifier::BOLD),
+        LineStyle::ToolInput => Style::default()
+            .fg(colors::TEXT_DIM)
+            .add_modifier(Modifier::DIM),
+        LineStyle::ToolResult => Style::default()
+            .fg(colors::TEXT_DIM)
+            .add_modifier(Modifier::DIM),
+        LineStyle::ToolError => Style::default().fg(colors::ERROR),
+        LineStyle::Error => Style::default().fg(colors::ERROR),
+        LineStyle::DoneSummary => Style::default()
+            .fg(colors::PRIMARY_DIM)
+            .add_modifier(Modifier::DIM),
+        LineStyle::Plain => Style::default().fg(colors::TEXT),
+    }
+}
 
 /// Render the stream attach view.
 pub fn render_stream(frame: &mut Frame, app: &mut App) {
@@ -89,10 +112,10 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .skip(sv.scroll_offset)
         .take(visible_height)
-        .map(|line| {
+        .map(|styled_line| {
             Line::from(Span::styled(
-                line.clone(),
-                Style::default().fg(colors::TEXT),
+                styled_line.text.clone(),
+                line_style_to_ratatui(styled_line.style),
             ))
         })
         .collect();
@@ -107,15 +130,19 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
         .border_style(Style::default().fg(colors::TEXT_DIM));
 
     if app.stream_executing {
-        // Show spinner during execution.
+        // Show spinner during execution with elapsed time.
         let spinner_chars = [
             '\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}',
             '\u{2827}', '\u{2807}', '\u{280F}',
         ];
         let idx = (app.tick_count / 3) % spinner_chars.len();
         let spinner = spinner_chars[idx];
+        let elapsed = app
+            .stream_exec_start
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
         let content = Paragraph::new(Line::from(vec![Span::styled(
-            format!(" {spinner} executing..."),
+            format!(" {spinner} executing... ({elapsed:.1}s)"),
             Style::default().fg(colors::WARNING),
         )]))
         .block(block);

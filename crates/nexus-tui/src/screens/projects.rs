@@ -57,7 +57,15 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
 
     // Table header.
     let header = Row::new(vec![
-        "", "PROJECT", "SESSIONS", "ACTIVE", "IDLE", "STALE", "ERROR", "LAST ACTIVITY", "AGENTS",
+        "",
+        "PROJECT",
+        "SESSIONS",
+        "ACTIVE",
+        "IDLE",
+        "STALE",
+        "ERROR",
+        "LAST ACTIVITY",
+        "AGENTS",
     ])
     .style(
         Style::default()
@@ -120,7 +128,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Length(6),  // stale
         Constraint::Length(6),  // error
         Constraint::Length(14), // last activity
-        Constraint::Fill(1),   // agents
+        Constraint::Fill(1),    // agents
     ];
 
     let table = Table::new(rows, widths).header(header).column_spacing(1);
@@ -150,10 +158,8 @@ pub fn render_scratchpad(frame: &mut Frame, app: &App) {
     let overlay_width = (area.width * 60 / 100).max(30).min(area.width);
     let overlay_height = (area.height * 50 / 100).max(10).min(area.height);
 
-    let horizontal =
-        Layout::horizontal([Constraint::Length(overlay_width)]).flex(Flex::Center);
-    let vertical =
-        Layout::vertical([Constraint::Length(overlay_height)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([Constraint::Length(overlay_width)]).flex(Flex::Center);
+    let vertical = Layout::vertical([Constraint::Length(overlay_height)]).flex(Flex::Center);
 
     let [h_area] = horizontal.areas(area);
     let [overlay_area] = vertical.areas(h_area);
@@ -161,10 +167,7 @@ pub fn render_scratchpad(frame: &mut Frame, app: &App) {
     // Clear the area behind the overlay.
     frame.render_widget(Clear, overlay_area);
 
-    let project_name = app
-        .scratchpad_project
-        .as_deref()
-        .unwrap_or("(no project)");
+    let project_name = app.scratchpad_project.as_deref().unwrap_or("(no project)");
 
     let title = format!(" Notes: {project_name} ");
 

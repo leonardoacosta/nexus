@@ -29,6 +29,40 @@ pub mod colors {
 }
 
 // ---------------------------------------------------------------------------
+// Line style metadata for stream view
+// ---------------------------------------------------------------------------
+
+/// Semantic style for a single line in the stream view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineStyle {
+    UserPrompt,
+    AssistantText,
+    ToolHeader,
+    ToolInput,
+    ToolResult,
+    ToolError,
+    Error,
+    DoneSummary,
+    Plain,
+}
+
+/// A single log line with associated style metadata.
+#[derive(Debug, Clone)]
+pub struct StyledLine {
+    pub text: String,
+    pub style: LineStyle,
+}
+
+impl StyledLine {
+    pub fn new(text: impl Into<String>, style: LineStyle) -> Self {
+        Self {
+            text: text.into(),
+            style,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Screen enum
 // ---------------------------------------------------------------------------
 
@@ -229,6 +263,9 @@ pub struct App {
     /// Whether a command is currently executing.
     pub stream_executing: bool,
 
+    /// When the current command execution started (for elapsed time display).
+    pub stream_exec_start: Option<Instant>,
+
     /// Frame counter for animations (spinner, etc.). Incremented each render tick.
     pub tick_count: usize,
 
@@ -262,6 +299,7 @@ impl App {
             stream_view: None,
             stream_input: String::new(),
             stream_executing: false,
+            stream_exec_start: None,
             tick_count: 0,
             scratchpad_text: String::new(),
             project_notes: ProjectNotes::load(),
@@ -398,11 +436,7 @@ impl App {
     /// Open the scratchpad overlay for a given project.
     pub fn open_scratchpad(&mut self, project: &str) {
         self.scratchpad_project = Some(project.to_string());
-        self.scratchpad_text = self
-            .project_notes
-            .get(project)
-            .cloned()
-            .unwrap_or_default();
+        self.scratchpad_text = self.project_notes.get(project).cloned().unwrap_or_default();
         self.input_mode = InputMode::ScratchpadEdit;
     }
 
@@ -794,7 +828,7 @@ pub struct StreamViewState {
     pub session_id: String,
     pub session_label: String,
     pub agent_name: String,
-    pub lines: Vec<String>,
+    pub lines: Vec<StyledLine>,
     pub scroll_offset: usize,
     pub auto_scroll: bool,
     /// Buffer for accumulating partial text chunks.
@@ -835,8 +869,8 @@ impl StreamViewState {
         }
     }
 
-    /// Append a formatted event line, maintaining the bounded buffer.
-    pub fn push_line(&mut self, line: String) {
+    /// Append a styled event line, maintaining the bounded buffer.
+    pub fn push_line(&mut self, line: StyledLine) {
         self.lines.push(line);
         if self.lines.len() > MAX_STREAM_LINES {
             let excess = self.lines.len() - MAX_STREAM_LINES;
@@ -910,7 +944,7 @@ impl StreamViewState {
                         let line = self.partial_buf[..nl_pos].to_string();
                         self.partial_buf = self.partial_buf[nl_pos + 1..].to_string();
                         for wrapped in textwrap_simple(&line, 120) {
-                            self.push_line(wrapped);
+                            self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
                         }
                     }
                 } else {
@@ -918,34 +952,40 @@ impl StreamViewState {
                     self.flush_partial_buf();
                     for line in chunk.text.lines() {
                         for wrapped in textwrap_simple(line, 120) {
-                            self.push_line(wrapped);
+                            self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
                         }
                     }
                 }
             }
             Some(Content::ToolUse(info)) => {
                 self.flush_partial_buf();
-                let line = format!("[tool] {}: {}", info.tool_name, info.input_preview);
-                for wrapped in textwrap_simple(&line, 120) {
-                    self.push_line(wrapped);
+                // Header: ⏺ {tool_name}
+                let header = format!("\u{23FA} {}", info.tool_name);
+                for wrapped in textwrap_simple(&header, 120) {
+                    self.push_line(StyledLine::new(wrapped, LineStyle::ToolHeader));
+                }
+                // Indented input preview: "  $ {input_preview}"
+                let input = format!("  $ {}", info.input_preview);
+                for wrapped in textwrap_simple(&input, 120) {
+                    self.push_line(StyledLine::new(wrapped, LineStyle::ToolInput));
                 }
             }
             Some(Content::ToolResult(result)) => {
                 self.flush_partial_buf();
-                let icon = if result.success {
-                    "\u{2713}"
+                let (icon, style) = if result.success {
+                    ("\u{2713}", LineStyle::ToolResult) // ✓
                 } else {
-                    "\u{2717}"
+                    ("\u{2717}", LineStyle::ToolError) // ✗
                 };
                 let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
                 for wrapped in textwrap_simple(&line, 120) {
-                    self.push_line(wrapped);
+                    self.push_line(StyledLine::new(wrapped, style));
                 }
             }
             Some(Content::Error(err)) => {
                 self.flush_partial_buf();
                 let line = format!("ERROR: {} (exit {})", err.message, err.exit_code);
-                self.push_line(line);
+                self.push_line(StyledLine::new(line, LineStyle::Error));
             }
             Some(Content::Done(done)) => {
                 self.flush_partial_buf();
@@ -954,7 +994,7 @@ impl StreamViewState {
                     done.duration_ms as f64 / 1000.0,
                     done.tool_calls
                 );
-                self.push_line(line);
+                self.push_line(StyledLine::new(line, LineStyle::DoneSummary));
             }
             None => {}
         }
@@ -966,7 +1006,7 @@ impl StreamViewState {
             let buf = std::mem::take(&mut self.partial_buf);
             for line in buf.lines() {
                 for wrapped in textwrap_simple(line, 120) {
-                    self.push_line(wrapped);
+                    self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
                 }
             }
         }

@@ -14,7 +14,7 @@ mod notifications;
 mod screens;
 mod stream;
 
-use app::{AgentData, App, InputMode, PaletteAction, Screen};
+use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StyledLine};
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
 use stream::{AlertEvent, StreamLine};
@@ -160,8 +160,7 @@ fn run_loop(
             }
 
             // Scratchpad overlay on Projects screen.
-            if app.current_screen == Screen::Projects
-                && app.input_mode == InputMode::ScratchpadEdit
+            if app.current_screen == Screen::Projects && app.input_mode == InputMode::ScratchpadEdit
             {
                 screens::projects::render_scratchpad(frame, app);
             }
@@ -221,6 +220,7 @@ fn run_loop(
                 }
                 RpcResult::CommandStreamDone => {
                     app.stream_executing = false;
+                    app.stream_exec_start = None;
                     // Ensure input mode stays in StreamInput so user can type next command.
                     if app.current_screen == Screen::StreamAttach {
                         app.input_mode = InputMode::StreamInput;
@@ -256,7 +256,7 @@ fn run_loop(
         if let Some(rx) = stream_rx.as_mut() {
             while let Ok(line) = rx.try_recv() {
                 if let Some(sv) = app.stream_view.as_mut() {
-                    sv.push_line(line.text);
+                    sv.push_line(StyledLine::new(line.text, LineStyle::Plain));
                 }
             }
         }
@@ -377,12 +377,13 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
                         let prompt = app.stream_input.clone();
                         app.stream_input.clear();
                         app.stream_executing = true;
+                        app.stream_exec_start = Some(std::time::Instant::now());
 
                         // Echo the prompt to the stream view so user sees what they sent.
                         if let Some(sv) = &mut app.stream_view {
-                            sv.lines.push("── you ──".to_string());
-                            sv.lines.push(prompt.clone());
-                            sv.lines.push(String::new());
+                            sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
+                            sv.push_line(StyledLine::new(prompt.clone(), LineStyle::UserPrompt));
+                            sv.push_line(StyledLine::new("", LineStyle::Plain));
                         }
 
                         // Get session ID from stream view and dispatch RPC.

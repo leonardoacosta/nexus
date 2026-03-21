@@ -428,7 +428,10 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
     let (rate_limit_utilization, rate_limit_type, total_cost_usd, model) =
         if let Some(ref telemetry) = proto.telemetry {
             let (rl_util, rl_type) = if let Some(ref rl) = telemetry.rate_limit {
-                (Some(rl.utilization_percent), Some(rl.rate_limit_type.clone()))
+                (
+                    Some(rl.utilization_percent),
+                    Some(rl.rate_limit_type.clone()),
+                )
             } else {
                 (None, None)
             };
