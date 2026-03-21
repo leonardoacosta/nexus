@@ -84,8 +84,9 @@ case "$OS" in
         mkdir -p "$SYSTEMD_DIR"
         install -m 644 "$DEPLOY_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
         systemctl --user daemon-reload
-        systemctl --user enable --now nexus-agent
-        info "systemd service enabled and started"
+        systemctl --user enable nexus-agent
+        systemctl --user restart nexus-agent
+        info "systemd service enabled and restarted"
         ;;
     Darwin)
         LAUNCH_DIR="$HOME/Library/LaunchAgents"
