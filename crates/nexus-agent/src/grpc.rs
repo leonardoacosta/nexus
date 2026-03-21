@@ -601,6 +601,22 @@ impl NexusAgent for NexusAgentService {
         Ok(Response::new(proto::HeartbeatResponse { found }))
     }
 
+    async fn list_projects(
+        &self,
+        _request: Request<proto::ListProjectsRequest>,
+    ) -> Result<Response<proto::ListProjectsResponse>, Status> {
+        let sessions = self.registry.get_all().await;
+
+        let projects: Vec<String> = sessions
+            .iter()
+            .filter_map(|s| s.project.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        Ok(Response::new(proto::ListProjectsResponse { projects }))
+    }
+
     async fn stop_session(
         &self,
         request: Request<proto::SessionId>,

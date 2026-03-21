@@ -110,6 +110,12 @@ message HeartbeatResponse {
   bool found = 1;
 }
 
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated string projects = 1;
+}
+
 // ---------------------------------------------------------------------------
 // Command broker
 // ---------------------------------------------------------------------------
@@ -237,4 +243,5 @@ service NexusAgent {
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc SendCommand(CommandRequest) returns (stream CommandOutput);
   rpc GetHealth(HealthRequest) returns (HealthResponse);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
 }
