@@ -11,6 +11,7 @@ use tracing_subscriber::EnvFilter;
 mod events;
 mod grpc;
 mod health;
+mod parser;
 mod registry;
 
 use grpc::NexusAgentService;

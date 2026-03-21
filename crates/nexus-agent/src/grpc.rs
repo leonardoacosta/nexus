@@ -293,6 +293,7 @@ impl NexusAgent for NexusAgentService {
         session.project = req.project;
         session.branch = req.branch;
         session.command = req.command;
+        session.cc_session_id = Some(req.session_id.clone());
 
         let created = self.registry.register_adhoc(session).await;
 
