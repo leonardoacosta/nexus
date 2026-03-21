@@ -9,7 +9,6 @@ use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 
 mod app;
-mod attach;
 mod client;
 mod notifications;
 mod screens;
@@ -33,11 +32,6 @@ enum RpcCommand {
     StopSession {
         session_id: String,
     },
-    FullAttach {
-        agent_host: String,
-        agent_user: String,
-        tmux_session: String,
-    },
     SendCommand {
         session_id: String,
         prompt: String,
@@ -49,8 +43,6 @@ enum RpcResult {
     StartErr(String),
     StopOk,
     StopErr(String),
-    AttachOk,
-    AttachErr(String),
     CommandOutput(nexus_core::proto::CommandOutput),
     CommandStreamDone,
 }
@@ -202,15 +194,6 @@ fn run_loop(
                 }
                 RpcResult::StopErr(e) => {
                     app.status_message = Some(format!("stop failed: {e}"));
-                }
-                RpcResult::AttachOk => {
-                    // Terminal has been restored by attach_full.
-                    // Force a full redraw.
-                    let _ = terminal.clear();
-                }
-                RpcResult::AttachErr(e) => {
-                    app.status_message = Some(format!("attach failed: {e}"));
-                    let _ = terminal.clear();
                 }
                 RpcResult::CommandOutput(output) => {
                     if let Some(sv) = &mut app.stream_view {
@@ -384,7 +367,7 @@ fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComm
 }
 
 /// Key handling for list-based screens (Dashboard, Health, Projects).
-fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+fn handle_list_key(app: &mut App, key: KeyEvent, _rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -459,29 +442,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
             false
         }
         KeyCode::Char('A') => {
-            // Full attach: managed sessions only.
-            if app.current_screen == Screen::Dashboard {
-                let sessions = app.all_sessions();
-                if let Some(row) = sessions.get(app.selected_index) {
-                    if let Some(tmux_session) = row.session.tmux_session.clone() {
-                        // Find agent data for SSH user.
-                        if let Some(agent_data) =
-                            app.agents.iter().find(|a| a.info.name == row.agent_name)
-                        {
-                            let _ = rpc_tx.try_send(RpcCommand::FullAttach {
-                                agent_host: agent_data.info.host.clone(),
-                                agent_user: agent_data.user.clone(),
-                                tmux_session,
-                            });
-                        }
-                    } else {
-                        app.status_message = Some(
-                            "ad-hoc session -- stream only (start via nexus for full attach)"
-                                .to_string(),
-                        );
-                    }
-                }
-            }
+            app.status_message = Some("use 'a' for interactive stream".to_string());
             false
         }
         _ => false,
@@ -757,13 +718,6 @@ async fn background_task(
                             Ok(true) => RpcResult::StopOk,
                             Ok(false) => RpcResult::StopErr("agent reported failure".to_string()),
                             Err(e) => RpcResult::StopErr(e.to_string()),
-                        };
-                        let _ = rpc_result_tx.send(result).await;
-                    }
-                    Some(RpcCommand::FullAttach { agent_host, agent_user, tmux_session }) => {
-                        let result = match attach::attach_full(&agent_host, &agent_user, &tmux_session).await {
-                            Ok(()) => RpcResult::AttachOk,
-                            Err(e) => RpcResult::AttachErr(e.to_string()),
                         };
                         let _ = rpc_result_tx.send(result).await;
                     }
