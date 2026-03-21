@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
     // Set up terminal.
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
+    crossterm::execute!(stdout, EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
 
     // Restore terminal.
     terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen, crossterm::event::DisableMouseCapture)?;
     terminal.show_cursor()?;
 
     result
@@ -274,12 +274,19 @@ fn run_loop(
         // Increment frame counter for animations (spinner, etc.).
         app.tick_count = app.tick_count.wrapping_add(1);
 
-        // Poll for keyboard events with 200ms timeout.
-        if event::poll(Duration::from_millis(200))?
-            && let Event::Key(key) = event::read()?
-            && handle_key(app, key, rpc_tx)
-        {
-            break;
+        // Poll for keyboard and mouse events with 200ms timeout.
+        if event::poll(Duration::from_millis(200))? {
+            match event::read()? {
+                Event::Key(key) => {
+                    if handle_key(app, key, rpc_tx) {
+                        break;
+                    }
+                }
+                Event::Mouse(mouse) => {
+                    handle_mouse(app, mouse);
+                }
+                _ => {}
+            }
         }
 
         if app.should_quit {
@@ -365,6 +372,47 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             }
             false
         }
+    }
+}
+
+/// Handle mouse events (scroll wheel for navigation).
+fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
+    use crossterm::event::MouseEventKind;
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            match app.current_screen {
+                Screen::StreamAttach => {
+                    if let Some(sv) = &mut app.stream_view {
+                        sv.auto_scroll = false;
+                        sv.scroll_offset = sv.scroll_offset.saturating_sub(3);
+                    }
+                }
+                _ => {
+                    app.selected_index = app.selected_index.saturating_sub(1);
+                }
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            match app.current_screen {
+                Screen::StreamAttach => {
+                    if let Some(sv) = &mut app.stream_view {
+                        sv.auto_scroll = false;
+                        sv.scroll_offset = sv.scroll_offset.saturating_add(3);
+                        // Clamp to max.
+                        let max = sv.lines.len().saturating_sub(1);
+                        if sv.scroll_offset >= max {
+                            sv.scroll_offset = max;
+                            sv.auto_scroll = true;
+                        }
+                    }
+                }
+                _ => {
+                    let max = app.session_count().saturating_sub(1);
+                    app.selected_index = (app.selected_index + 1).min(max);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
