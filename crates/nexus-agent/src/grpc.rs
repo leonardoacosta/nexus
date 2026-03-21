@@ -283,8 +283,9 @@ impl NexusAgent for NexusAgentService {
             // We mark managed sessions by setting pid=0 at creation time.
             let is_managed = session.pid == 0;
             let mut cmd = tokio::process::Command::new("claude");
+            // Set NEXUS_SUBPROCESS=1 so our hooks skip registration for this process.
+            cmd.env("NEXUS_SUBPROCESS", "1");
             cmd.arg("-p")
-                .arg("--bare")
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose")
