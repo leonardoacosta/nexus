@@ -66,13 +66,41 @@ pub fn render_stream(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let label = app
-        .stream_view
-        .as_ref()
-        .map(|sv| sv.session_label.as_str())
-        .unwrap_or("?");
+    let sv = app.stream_view.as_ref();
+    let label = sv.map(|s| s.session_label.as_str()).unwrap_or("?");
 
-    let title = Paragraph::new(Line::from(vec![
+    // Build the heartbeat badge spans (dot + session type label).
+    let badge_spans: Vec<Span<'_>> = if let Some(sv) = sv {
+        if let Some(ref stype) = sv.session_type {
+            let (dot, dot_style) = if sv.heartbeat_alive {
+                // Pulse: alternate between filled (●) and hollow (○) every 10 ticks.
+                if (app.tick_count / 10).is_multiple_of(2) {
+                    ("\u{25CF}", Style::default().fg(colors::PRIMARY)) // ●
+                } else {
+                    ("\u{25CB}", Style::default().fg(colors::PRIMARY_DIM)) // ○
+                }
+            } else {
+                // Stale — static dim hollow dot.
+                ("\u{25CB}", Style::default().fg(colors::TEXT_DIM)) // ○
+            };
+            vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(dot, dot_style),
+                Span::styled(
+                    format!(" {stype}"),
+                    Style::default()
+                        .fg(colors::TEXT_DIM)
+                        .add_modifier(Modifier::DIM),
+                ),
+            ]
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    let mut spans = vec![
         Span::styled(
             "STREAM ATTACH",
             Style::default()
@@ -85,12 +113,14 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(colors::SECONDARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "  q: back  j/k: scroll  End: follow  Enter: expand/collapse",
-            Style::default().fg(colors::TEXT_DIM),
-        ),
-    ]))
-    .block(
+    ];
+    spans.extend(badge_spans);
+    spans.push(Span::styled(
+        "  q: back  j/k: scroll  End: follow  Enter: expand/collapse",
+        Style::default().fg(colors::TEXT_DIM),
+    ));
+
+    let title = Paragraph::new(Line::from(spans)).block(
         Block::default()
             .borders(Borders::BOTTOM)
             .border_style(Style::default().fg(colors::TEXT_DIM)),

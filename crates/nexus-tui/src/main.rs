@@ -17,7 +17,7 @@ mod stream;
 use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StyledLine};
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
-use stream::{AlertEvent, StreamLine as NetStreamLine};
+use stream::{AlertEvent, StreamMessage};
 
 // ---------------------------------------------------------------------------
 // Key handler return value
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
     let mut alert_rx = stream::subscribe_alert_stream(&agent_endpoints);
 
     // Channel for stream attach events (created on demand, reused here as Option).
-    let mut stream_rx: Option<mpsc::Receiver<NetStreamLine>> = None;
+    let mut stream_rx: Option<mpsc::Receiver<StreamMessage>> = None;
 
     // Main event loop.
     let result = run_loop(
@@ -155,7 +155,7 @@ fn run_loop(
     rpc_tx: &mpsc::Sender<RpcCommand>,
     rpc_result_rx: &mut mpsc::Receiver<RpcResult>,
     alert_rx: &mut mpsc::Receiver<AlertEvent>,
-    stream_rx: &mut Option<mpsc::Receiver<NetStreamLine>>,
+    stream_rx: &mut Option<mpsc::Receiver<StreamMessage>>,
     agent_endpoints: &[(String, u16)],
 ) -> Result<()> {
     loop {
@@ -270,9 +270,36 @@ fn run_loop(
 
         // Check for stream attach events (non-blocking).
         if let Some(rx) = stream_rx.as_mut() {
-            while let Ok(line) = rx.try_recv() {
-                if let Some(sv) = app.stream_view.as_mut() {
-                    sv.push_line(StyledLine::new(line.text, LineStyle::Plain));
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    StreamMessage::Line(line) => {
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.push_line(StyledLine::new(line.text, LineStyle::Plain));
+                        }
+                    }
+                    StreamMessage::SessionMeta {
+                        session_type,
+                        status: _,
+                    } => {
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.session_type = Some(session_type);
+                        }
+                    }
+                    StreamMessage::Heartbeat { timestamp } => {
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            let was_alive = sv.heartbeat_alive;
+                            sv.last_heartbeat_ts = Some(timestamp.clone());
+                            sv.last_heartbeat_tick = app.tick_count;
+                            if !was_alive {
+                                // Heartbeat resumed after being stale.
+                                sv.push_line(StyledLine::new(
+                                    format!("\u{2713} heartbeat resumed at {timestamp}"),
+                                    LineStyle::DoneSummary,
+                                ));
+                            }
+                            sv.heartbeat_alive = true;
+                        }
+                    }
                 }
             }
         }
@@ -313,6 +340,23 @@ fn run_loop(
 
         // Increment frame counter for animations (spinner, etc.).
         app.tick_count = app.tick_count.wrapping_add(1);
+
+        // Heartbeat staleness check: if alive but no heartbeat for ~10 seconds
+        // (>50 ticks at ~5 ticks/sec), mark stale and emit a warning line.
+        if let Some(sv) = app.stream_view.as_mut()
+            && sv.heartbeat_alive
+            && app.tick_count.wrapping_sub(sv.last_heartbeat_tick) > 50
+        {
+            sv.heartbeat_alive = false;
+            let ts = sv
+                .last_heartbeat_ts
+                .clone()
+                .unwrap_or_else(|| "??:??:??".to_string());
+            sv.push_line(StyledLine::new(
+                format!("\u{26A0} heartbeat lost at {ts}"),
+                LineStyle::Error,
+            ));
+        }
 
         // Poll for keyboard and mouse events with 200ms timeout.
         if event::poll(Duration::from_millis(200))? {

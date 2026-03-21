@@ -12,6 +12,25 @@ pub struct StreamLine {
     pub text: String,
 }
 
+/// A message sent from the background stream task to the main event loop.
+#[derive(Debug, Clone)]
+pub enum StreamMessage {
+    /// A regular log line.
+    Line(StreamLine),
+    /// Initial session metadata, sent once after the snapshot fetch.
+    SessionMeta {
+        session_type: String,
+        /// Current session status string (e.g. "Active", "Idle"). Carried for
+        /// future use; not yet displayed in the TUI.
+        #[allow(dead_code)]
+        status: String,
+    },
+    /// Heartbeat signal — not displayed as a log line.
+    Heartbeat {
+        timestamp: String, // HH:MM:SS format
+    },
+}
+
 /// A notification-worthy event detected from the background alert stream.
 #[derive(Debug, Clone)]
 pub struct AlertEvent {
@@ -27,8 +46,8 @@ pub struct AlertEvent {
 pub fn subscribe_session_stream(
     agents: &[(String, u16)], // (host, port) pairs
     session_id: String,
-) -> mpsc::Receiver<StreamLine> {
-    let (tx, rx) = mpsc::channel::<StreamLine>(256);
+) -> mpsc::Receiver<StreamMessage> {
+    let (tx, rx) = mpsc::channel::<StreamMessage>(256);
     let agents = agents.to_vec();
     let sid = session_id.clone();
 
@@ -76,7 +95,7 @@ pub fn subscribe_session_stream(
 async fn run_session_stream(
     channel: Channel,
     session_id: &str,
-    tx: &mpsc::Sender<StreamLine>,
+    tx: &mpsc::Sender<StreamMessage>,
 ) -> anyhow::Result<()> {
     let mut client = NexusAgentClient::new(channel);
     let request = tonic::Request::new(EventFilter {
@@ -96,6 +115,15 @@ async fn run_session_stream(
         } else {
             "ad-hoc"
         };
+
+        // Send session metadata so the title bar can display a type badge.
+        let _ = tx
+            .send(StreamMessage::SessionMeta {
+                session_type: session_type.to_string(),
+                status: status.to_string(),
+            })
+            .await;
+
         let line = format!(
             "[now]    {} ACTIVE   project={} type={} pid={}",
             &session_id[..session_id.len().min(8)],
@@ -104,15 +132,17 @@ async fn run_session_stream(
             session.pid,
         );
         let _ = tx
-            .send(StreamLine {
+            .send(StreamMessage::Line(StreamLine {
                 text: format!("── session snapshot ({status}) ──"),
-            })
+            }))
             .await;
-        let _ = tx.send(StreamLine { text: line }).await;
         let _ = tx
-            .send(StreamLine {
+            .send(StreamMessage::Line(StreamLine { text: line }))
+            .await;
+        let _ = tx
+            .send(StreamMessage::Line(StreamLine {
                 text: "── live events ──".to_string(),
-            })
+            }))
             .await;
     }
 
@@ -126,20 +156,47 @@ async fn run_session_stream(
         match result {
             Ok(event) => {
                 event_count += 1;
-                let payload_type = match &event.payload {
-                    Some(nexus_core::proto::session_event::Payload::Started(_)) => "Started",
-                    Some(nexus_core::proto::session_event::Payload::Heartbeat(_)) => "Heartbeat",
-                    Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => {
-                        "StatusChanged"
+                let is_heartbeat = matches!(
+                    &event.payload,
+                    Some(nexus_core::proto::session_event::Payload::Heartbeat(_))
+                );
+                debug!(
+                    %session_id,
+                    event_count,
+                    is_heartbeat,
+                    "stream: received event"
+                );
+
+                if is_heartbeat {
+                    // Extract the heartbeat timestamp and send as a Heartbeat message
+                    // (no log line emitted — title bar indicator handles display).
+                    let ts = event
+                        .ts
+                        .as_ref()
+                        .map(|t| {
+                            chrono::DateTime::from_timestamp(t.seconds, t.nanos as u32)
+                                .map(|dt| dt.format("%H:%M:%S").to_string())
+                                .unwrap_or_else(|| "??:??:??".to_string())
+                        })
+                        .unwrap_or_else(|| "??:??:??".to_string());
+                    if tx
+                        .send(StreamMessage::Heartbeat { timestamp: ts })
+                        .await
+                        .is_err()
+                    {
+                        debug!("stream: receiver dropped (view closed)");
+                        break;
                     }
-                    Some(nexus_core::proto::session_event::Payload::Stopped(_)) => "Stopped",
-                    None => "None",
-                };
-                debug!(%session_id, event_count, payload_type, "stream: received event");
-                let line = format_event(&event);
-                if tx.send(StreamLine { text: line }).await.is_err() {
-                    debug!("stream: receiver dropped (view closed)");
-                    break;
+                } else {
+                    let line = format_event(&event);
+                    if tx
+                        .send(StreamMessage::Line(StreamLine { text: line }))
+                        .await
+                        .is_err()
+                    {
+                        debug!("stream: receiver dropped (view closed)");
+                        break;
+                    }
                 }
             }
             Err(e) => {

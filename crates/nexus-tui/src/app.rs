@@ -875,6 +875,18 @@ pub struct StreamViewState {
     pub rate_limit_utilization: Option<f32>,
     pub total_cost_usd: Option<f64>,
 
+    // Session metadata (populated from the initial SessionMeta message).
+    /// "ad-hoc" or "managed".
+    pub session_type: Option<String>,
+
+    // Heartbeat tracking.
+    /// HH:MM:SS timestamp of the last received heartbeat.
+    pub last_heartbeat_ts: Option<String>,
+    /// True while the heartbeat is considered alive (recently received).
+    pub heartbeat_alive: bool,
+    /// tick_count value at the time of the last heartbeat.
+    pub last_heartbeat_tick: usize,
+
     // Input history (per-session, not persisted to disk).
     /// Previously sent prompts, newest at the end. Capped at 50 entries.
     pub input_history: Vec<String>,
@@ -909,6 +921,10 @@ impl StreamViewState {
             model: None,
             rate_limit_utilization: None,
             total_cost_usd: None,
+            session_type: None,
+            last_heartbeat_ts: None,
+            heartbeat_alive: false,
+            last_heartbeat_tick: 0,
             input_history: Vec::new(),
             history_index: None,
         }
