@@ -4,7 +4,7 @@ use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, info, warn};
 
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
-use nexus_core::proto::{EventFilter, SessionEvent};
+use nexus_core::proto::{EventFilter, SessionEvent, SessionId};
 
 /// A formatted event line received from the stream.
 #[derive(Debug, Clone)]
@@ -82,6 +82,39 @@ async fn run_session_stream(
     let request = tonic::Request::new(EventFilter {
         session_id: Some(session_id.to_string()),
     });
+
+    // Fetch current session state to show immediately (before waiting for events).
+    let snapshot_request = tonic::Request::new(SessionId {
+        id: session_id.to_string(),
+    });
+    if let Ok(response) = client.get_session(snapshot_request).await {
+        let session = response.into_inner();
+        let project = session.project.as_deref().unwrap_or("-");
+        let status = status_name(session.status);
+        let session_type = if session.tmux_session.is_some() {
+            "managed"
+        } else {
+            "ad-hoc"
+        };
+        let line = format!(
+            "[now]    {} ACTIVE   project={} type={} pid={}",
+            &session_id[..session_id.len().min(8)],
+            project,
+            session_type,
+            session.pid,
+        );
+        let _ = tx
+            .send(StreamLine {
+                text: format!("── session snapshot ({status}) ──"),
+            })
+            .await;
+        let _ = tx.send(StreamLine { text: line }).await;
+        let _ = tx
+            .send(StreamLine {
+                text: "── live events ──".to_string(),
+            })
+            .await;
+    }
 
     debug!(%session_id, "stream: calling StreamEvents RPC");
     let response = client.stream_events(request).await?;
