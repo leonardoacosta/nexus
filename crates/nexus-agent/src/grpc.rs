@@ -157,8 +157,16 @@ impl NexusAgent for NexusAgentService {
             "starting managed session (bootstrap prompt)",
         );
 
+        // Expand ~ in cwd to the actual home directory.
+        let cwd = if req.cwd.starts_with("~/") {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            format!("{}/{}", home, &req.cwd[2..])
+        } else {
+            req.cwd.clone()
+        };
+
         // Register the managed session in the registry.
-        let mut session = Session::new(0, req.cwd.clone());
+        let mut session = Session::new(0, cwd.clone());
         session.id = session_id.clone();
         session.cc_session_id = Some(session_id.clone());
         session.project = if req.project.is_empty() {
@@ -181,9 +189,8 @@ impl NexusAgent for NexusAgentService {
             .arg("stream-json")
             .arg("--session-id")
             .arg(&session_id)
-            .arg("--cwd")
-            .arg(&req.cwd)
             .arg("--dangerously-skip-permissions")
+            .current_dir(&cwd)
             .arg(&bootstrap_prompt)
             .output()
             .await;
@@ -243,8 +250,13 @@ impl NexusAgent for NexusAgentService {
             .clone()
             .unwrap_or_else(|| session.id.clone());
 
-        // 3. Get the working directory.
-        let cwd = session.cwd.clone();
+        // 3. Get the working directory (expand ~ if needed).
+        let cwd = if session.cwd.starts_with("~/") {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            format!("{}/{}", home, &session.cwd[2..])
+        } else {
+            session.cwd.clone()
+        };
 
         let (tx, rx) = mpsc::channel::<Result<proto::CommandOutput, Status>>(64);
 
