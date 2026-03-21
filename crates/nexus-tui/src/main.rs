@@ -202,6 +202,10 @@ fn run_loop(
                 }
                 RpcResult::CommandStreamDone => {
                     app.stream_executing = false;
+                    // Ensure input mode stays in StreamInput so user can type next command.
+                    if app.current_screen == Screen::StreamAttach {
+                        app.input_mode = InputMode::StreamInput;
+                    }
                 }
             }
         }
