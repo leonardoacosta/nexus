@@ -792,7 +792,6 @@ fn results_to_agent_data(
                 connected: conn.status == ConnectionStatus::Connected,
                 last_seen: conn.last_seen,
                 last_error: conn.last_error.clone(),
-                user: conn.config.user.clone(),
             }
         })
         .collect()

@@ -118,8 +118,6 @@ pub struct AgentData {
     pub connected: bool,
     pub last_seen: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
-    /// SSH user for full attach (from agent config).
-    pub user: String,
 }
 
 // ---------------------------------------------------------------------------
