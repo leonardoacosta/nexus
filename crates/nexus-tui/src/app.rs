@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use ratatui::style::Color;
 
 use nexus_core::agent::AgentInfo;
+use nexus_core::notes::ProjectNotes;
 use nexus_core::session::{Session, SessionStatus};
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ pub enum InputMode {
     StartSessionProjectSelect,
     StartSessionCwd,
     StreamInput,
+    ScratchpadEdit,
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,43 @@ pub struct SessionRow {
 }
 
 // ---------------------------------------------------------------------------
+// Activity status for project badges
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityStatus {
+    Active,  // at least one Active session
+    Idle,    // all sessions Idle
+    Stale,   // all sessions Stale
+    Errored, // any session Errored
+    None,    // no sessions
+}
+
+impl ActivityStatus {
+    /// Return the brand color for this activity status.
+    pub fn color(self) -> Color {
+        match self {
+            ActivityStatus::Active => colors::PRIMARY,
+            ActivityStatus::Idle => colors::WARNING,
+            ActivityStatus::Stale => colors::TEXT_DIM,
+            ActivityStatus::Errored => colors::ERROR,
+            ActivityStatus::None => colors::TEXT_DIM,
+        }
+    }
+
+    /// Return a status dot character for this activity status.
+    pub fn dot(self) -> &'static str {
+        match self {
+            ActivityStatus::Active => "\u{25CF}",  // ●
+            ActivityStatus::Idle => "\u{25CB}",    // ○
+            ActivityStatus::Stale => "\u{25CC}",   // ◌
+            ActivityStatus::Errored => "\u{2716}", // ✖
+            ActivityStatus::None => "\u{25CC}",    // ◌
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Project summary for projects screen
 // ---------------------------------------------------------------------------
 
@@ -144,6 +183,8 @@ pub struct ProjectSummary {
     pub stale: usize,
     pub errored: usize,
     pub agents: Vec<String>,
+    pub activity_status: ActivityStatus,
+    pub last_activity: Option<DateTime<Utc>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +231,11 @@ pub struct App {
 
     /// Frame counter for animations (spinner, etc.). Incremented each render tick.
     pub tick_count: usize,
+
+    // Scratchpad state
+    pub scratchpad_text: String,
+    pub project_notes: ProjectNotes,
+    pub scratchpad_project: Option<String>,
 }
 
 impl App {
@@ -217,6 +263,9 @@ impl App {
             stream_input: String::new(),
             stream_executing: false,
             tick_count: 0,
+            scratchpad_text: String::new(),
+            project_notes: ProjectNotes::load(),
+            scratchpad_project: None,
         }
     }
 
@@ -302,6 +351,8 @@ impl App {
                     stale: 0,
                     errored: 0,
                     agents: Vec::new(),
+                    activity_status: ActivityStatus::None,
+                    last_activity: None,
                 });
                 entry.total += 1;
                 match session.status {
@@ -313,10 +364,59 @@ impl App {
                 if !entry.agents.contains(&agent.info.name) {
                     entry.agents.push(agent.info.name.clone());
                 }
+                // Track last_activity as the max last_heartbeat across sessions.
+                let hb = session.last_heartbeat;
+                entry.last_activity = Some(match entry.last_activity {
+                    Some(prev) => prev.max(hb),
+                    None => hb,
+                });
             }
         }
 
+        // Compute activity_status per project (priority: Errored > Active > Idle > Stale > None).
+        for entry in map.values_mut() {
+            entry.activity_status = if entry.errored > 0 {
+                ActivityStatus::Errored
+            } else if entry.active > 0 {
+                ActivityStatus::Active
+            } else if entry.idle > 0 {
+                ActivityStatus::Idle
+            } else if entry.stale > 0 {
+                ActivityStatus::Stale
+            } else {
+                ActivityStatus::None
+            };
+        }
+
         map.into_values().collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Scratchpad helpers
+    // -----------------------------------------------------------------------
+
+    /// Open the scratchpad overlay for a given project.
+    pub fn open_scratchpad(&mut self, project: &str) {
+        self.scratchpad_project = Some(project.to_string());
+        self.scratchpad_text = self
+            .project_notes
+            .get(project)
+            .cloned()
+            .unwrap_or_default();
+        self.input_mode = InputMode::ScratchpadEdit;
+    }
+
+    /// Save the scratchpad text and close the overlay.
+    pub fn close_scratchpad(&mut self) {
+        if let Some(project) = self.scratchpad_project.take() {
+            self.project_notes
+                .set(project, self.scratchpad_text.clone());
+            if let Err(e) = self.project_notes.save() {
+                self.status_message = Some(format!("notes save failed: {e}"));
+            }
+        }
+        self.scratchpad_text.clear();
+        self.input_mode = InputMode::Normal;
     }
 
     // -----------------------------------------------------------------------

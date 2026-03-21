@@ -159,6 +159,13 @@ fn run_loop(
                 Screen::StreamAttach => screens::stream::render_stream(frame, app),
             }
 
+            // Scratchpad overlay on Projects screen.
+            if app.current_screen == Screen::Projects
+                && app.input_mode == InputMode::ScratchpadEdit
+            {
+                screens::projects::render_scratchpad(frame, app);
+            }
+
             // Start session wizard overlays on top of whatever screen.
             if matches!(
                 app.input_mode,
@@ -345,6 +352,24 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             handle_cwd_input_key(app, key, rpc_tx);
             false
         }
+        InputMode::ScratchpadEdit => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.close_scratchpad();
+                }
+                KeyCode::Enter => {
+                    app.scratchpad_text.push('\n');
+                }
+                KeyCode::Backspace => {
+                    app.scratchpad_text.pop();
+                }
+                KeyCode::Char(c) => {
+                    app.scratchpad_text.push(c);
+                }
+                _ => {}
+            }
+            false
+        }
         InputMode::StreamInput => {
             match key.code {
                 KeyCode::Enter => {
@@ -510,6 +535,17 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     let label = format!("{project}#{short_id}");
                     app.open_stream_attach(session_id, label, agent_name);
                     app.input_mode = InputMode::StreamInput;
+                }
+            }
+            false
+        }
+        KeyCode::Char('e') => {
+            // Open scratchpad for selected project on Projects screen.
+            if app.current_screen == Screen::Projects {
+                let summaries = app.project_summaries();
+                if let Some(p) = summaries.get(app.selected_index) {
+                    let name = p.name.clone();
+                    app.open_scratchpad(&name);
                 }
             }
             false
