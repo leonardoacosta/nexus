@@ -181,19 +181,21 @@ fn render_agent_cards(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let connected = app.connected_agent_count();
-    let total = app.agent_count();
-    let disconnected = total - connected;
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
 
-    let mut spans = vec![Span::styled(
-        format!(" {connected}/{total} agents connected"),
-        Style::default().fg(colors::TEXT_DIM),
-    )];
-
-    if disconnected > 0 {
+    for (i, agent) in app.agents.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" ", Style::default().fg(colors::TEXT_DIM)));
+        }
+        let dot_color = if agent.connected {
+            colors::PRIMARY
+        } else {
+            colors::ERROR
+        };
+        spans.push(Span::styled("\u{25CF} ", Style::default().fg(dot_color)));
         spans.push(Span::styled(
-            format!("  \u{2716} {disconnected} unreachable"),
-            Style::default().fg(colors::ERROR),
+            agent.info.name.clone(),
+            Style::default().fg(colors::TEXT_DIM),
         ));
     }
 

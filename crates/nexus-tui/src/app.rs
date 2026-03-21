@@ -449,13 +449,6 @@ impl App {
             .sum()
     }
 
-    pub fn agent_count(&self) -> usize {
-        self.agents.len()
-    }
-
-    pub fn connected_agent_count(&self) -> usize {
-        self.agents.iter().filter(|a| a.connected).count()
-    }
 
     /// Replace agent data from a poll, preserving selected_index by session ID
     /// when possible.

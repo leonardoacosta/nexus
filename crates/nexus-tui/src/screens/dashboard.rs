@@ -180,22 +180,33 @@ fn render_session_list(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let agents = app.agent_count();
-    let connected = app.connected_agent_count();
     let sessions = app.session_count();
     let uptime = app.uptime_string();
 
-    let agent_str = if connected == agents {
-        format!("{agents} agents")
-    } else {
-        format!("{connected}/{agents} agents")
-    };
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
 
-    let bar = Paragraph::new(Line::from(vec![Span::styled(
-        format!(" {agent_str} \u{00B7} {sessions} sessions \u{00B7} \u{2191}{uptime}"),
+    for (i, agent) in app.agents.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" ", Style::default().fg(colors::TEXT_DIM)));
+        }
+        let dot_color = if agent.connected {
+            colors::PRIMARY
+        } else {
+            colors::ERROR
+        };
+        spans.push(Span::styled("\u{25CF} ", Style::default().fg(dot_color)));
+        spans.push(Span::styled(
+            agent.info.name.clone(),
+            Style::default().fg(colors::TEXT_DIM),
+        ));
+    }
+
+    spans.push(Span::styled(
+        format!(" \u{00B7} {sessions} sessions \u{00B7} \u{2191}{uptime}"),
         Style::default().fg(colors::TEXT_DIM),
-    )]))
-    .style(Style::default().bg(colors::SURFACE));
+    ));
+
+    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(colors::SURFACE));
 
     frame.render_widget(bar, area);
 }
