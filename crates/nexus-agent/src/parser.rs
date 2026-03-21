@@ -29,24 +29,34 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::Com
                     "content_block_delta" => {
                         // Unwrap: delta is inside event.delta
                         if let Some(delta) = inner.get("delta") {
-                            let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let delta_type =
+                                delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             match delta_type {
                                 "text_delta" => {
-                                    let text = delta.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                                    if text.is_empty() { None } else {
-                                        Some(proto::command_output::Content::Text(proto::TextChunk {
-                                            text: text.to_string(),
-                                            partial: true,
-                                        }))
+                                    let text =
+                                        delta.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                                    if text.is_empty() {
+                                        None
+                                    } else {
+                                        Some(proto::command_output::Content::Text(
+                                            proto::TextChunk {
+                                                text: text.to_string(),
+                                                partial: true,
+                                            },
+                                        ))
                                     }
                                 }
                                 _ => None, // input_json_delta, thinking_delta etc — skip
                             }
-                        } else { None }
+                        } else {
+                            None
+                        }
                     }
                     _ => None, // message_start, message_stop, etc — skip
                 }
-            } else { None }
+            } else {
+                None
+            }
         }
         _ => None,
     };
@@ -155,10 +165,7 @@ fn parse_tool_result(v: &serde_json::Value) -> Option<proto::command_output::Con
 
     let output_preview = truncate_string(&output, 500);
 
-    let success = !v
-        .get("is_error")
-        .and_then(|e| e.as_bool())
-        .unwrap_or(false);
+    let success = !v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
 
     Some(proto::command_output::Content::ToolResult(
         proto::ToolResult {
@@ -173,10 +180,7 @@ fn parse_tool_result(v: &serde_json::Value) -> Option<proto::command_output::Con
 /// Also handles error results: `{"type":"result","subtype":"error_during_execution","errors":[...]}`
 fn parse_result(v: &serde_json::Value) -> Option<proto::command_output::Content> {
     // Check for error results first.
-    let is_error = v
-        .get("is_error")
-        .and_then(|e| e.as_bool())
-        .unwrap_or(false);
+    let is_error = v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
 
     if is_error {
         let errors = v
@@ -195,15 +199,9 @@ fn parse_result(v: &serde_json::Value) -> Option<proto::command_output::Content>
         }));
     }
 
-    let duration = v
-        .get("duration_ms")
-        .and_then(|d| d.as_u64())
-        .unwrap_or(0);
+    let duration = v.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0);
 
-    let turns = v
-        .get("num_turns")
-        .and_then(|t| t.as_u64())
-        .unwrap_or(0) as u32;
+    let turns = v.get("num_turns").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
 
     Some(proto::command_output::Content::Done(proto::CommandDone {
         duration_ms: duration,
@@ -271,7 +269,8 @@ mod tests {
 
     #[test]
     fn parse_tool_use_nested_format() {
-        let line = r#"{"type":"tool_use","tool":{"name":"Bash","input":{"command":"cargo build"}}}"#;
+        let line =
+            r#"{"type":"tool_use","tool":{"name":"Bash","input":{"command":"cargo build"}}}"#;
         let output = parse_stream_json_line("sess-1", line).unwrap();
         match output.content.unwrap() {
             proto::command_output::Content::ToolUse(info) => {

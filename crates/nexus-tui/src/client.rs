@@ -145,10 +145,7 @@ impl NexusClient {
                                 .get_health(tonic::Request::new(HealthRequest {}))
                                 .await
                             {
-                                Ok(resp) => resp
-                                    .into_inner()
-                                    .machine
-                                    .map(proto_to_machine_health),
+                                Ok(resp) => resp.into_inner().machine.map(proto_to_machine_health),
                                 Err(e) => {
                                     warn!(
                                         agent = %agent.config.name,
@@ -278,6 +275,37 @@ impl NexusClient {
                     agent = %agent.config.name,
                     error = %e,
                     "failed to start session"
+                );
+                agent.status = ConnectionStatus::Disconnected;
+                agent.last_error = Some(e.to_string());
+                Err(e.into())
+            }
+        }
+    }
+
+    /// List projects from the specified agent.
+    pub async fn list_projects(&mut self, agent_name: &str) -> Result<Vec<String>> {
+        let agent = self
+            .agents
+            .iter_mut()
+            .find(|a| a.config.name == agent_name && a.client.is_some())
+            .ok_or_else(|| anyhow::anyhow!("agent {agent_name} not connected"))?;
+
+        let client = agent.client.as_mut().unwrap();
+        let request = tonic::Request::new(nexus_core::proto::ListProjectsRequest {});
+
+        match client.list_projects(request).await {
+            Ok(response) => {
+                agent.last_seen = Some(Utc::now());
+                agent.status = ConnectionStatus::Connected;
+                agent.last_error = None;
+                Ok(response.into_inner().projects)
+            }
+            Err(e) => {
+                warn!(
+                    agent = %agent.config.name,
+                    error = %e,
+                    "failed to list projects"
                 );
                 agent.status = ConnectionStatus::Disconnected;
                 agent.last_error = Some(e.to_string());

@@ -12,7 +12,7 @@ pub fn render_stream(frame: &mut Frame, app: &mut App) {
 
     let chunks = Layout::vertical([
         Constraint::Length(3), // title bar
-        Constraint::Min(1),   // log view
+        Constraint::Min(1),    // log view
         Constraint::Length(3), // input bar
         Constraint::Length(1), // status bar
     ])
@@ -123,14 +123,8 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         let content = Paragraph::new(Line::from(vec![
             Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
-            Span::styled(
-                &app.stream_input,
-                Style::default().fg(colors::TEXT),
-            ),
-            Span::styled(
-                "\u{2588}",
-                Style::default().fg(colors::PRIMARY),
-            ),
+            Span::styled(&app.stream_input, Style::default().fg(colors::TEXT)),
+            Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
         ]))
         .block(block);
         frame.render_widget(content, area);

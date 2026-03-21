@@ -112,9 +112,7 @@ pub fn render_start_session(frame: &mut Frame, app: &App) {
 
     match app.input_mode {
         InputMode::StartSessionAgent => render_agent_select(frame, panel_area, app),
-        InputMode::StartSessionProject => {
-            render_text_prompt(frame, panel_area, "project:", &app.start_project)
-        }
+        InputMode::StartSessionProjectSelect => render_project_select(frame, panel_area, app),
         InputMode::StartSessionCwd => render_text_prompt(frame, panel_area, "cwd:", &app.start_cwd),
         _ => {}
     }
@@ -153,6 +151,67 @@ fn render_agent_select(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(colors::TEXT_DIM).bg(bg),
             ),
         ]));
+    }
+
+    let paragraph = Paragraph::new(lines).style(Style::default().bg(colors::SURFACE));
+    frame.render_widget(paragraph, area);
+}
+
+fn render_project_select(frame: &mut Frame, area: Rect, app: &App) {
+    let filtered = app.filtered_projects();
+    let mut lines: Vec<Line<'_>> = Vec::new();
+
+    // Title line with filter display.
+    if app.start_project_filter.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            " select project (j/k, Enter, type to filter):",
+            Style::default()
+                .fg(colors::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )]));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled(
+                " select project [",
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                app.start_project_filter.clone(),
+                Style::default().fg(colors::TEXT),
+            ),
+            Span::styled(
+                "]:",
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+
+    if filtered.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  no matches",
+            Style::default().fg(colors::TEXT_DIM),
+        )]));
+    } else {
+        for (idx, project) in filtered.iter().enumerate() {
+            let is_selected = idx == app.start_project_idx;
+            let bg = if is_selected {
+                colors::PRIMARY_DIM
+            } else {
+                colors::SURFACE
+            };
+            let indicator = if is_selected { "\u{25B6} " } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(" {indicator}"),
+                    Style::default().fg(colors::PRIMARY).bg(bg),
+                ),
+                Span::styled((*project).clone(), Style::default().fg(colors::TEXT).bg(bg)),
+            ]));
+        }
     }
 
     let paragraph = Paragraph::new(lines).style(Style::default().bg(colors::SURFACE));

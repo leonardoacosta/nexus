@@ -343,7 +343,9 @@ impl NexusAgent for NexusAgentService {
             let stderr_handle = tokio::spawn(async move {
                 let mut stderr_reader = tokio::io::BufReader::new(stderr);
                 let mut stderr_buf = String::new();
-                let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr_reader, &mut stderr_buf).await;
+                let _ =
+                    tokio::io::AsyncReadExt::read_to_string(&mut stderr_reader, &mut stderr_buf)
+                        .await;
                 stderr_buf
             });
 
@@ -605,14 +607,62 @@ impl NexusAgent for NexusAgentService {
         &self,
         _request: Request<proto::ListProjectsRequest>,
     ) -> Result<Response<proto::ListProjectsResponse>, Status> {
-        let sessions = self.registry.get_all().await;
+        use std::collections::BTreeSet;
 
-        let projects: Vec<String> = sessions
-            .iter()
-            .filter_map(|s| s.project.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
+        let mut project_names = BTreeSet::new();
+
+        // 1. Scan ~/.claude/projects/ for project directories.
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let projects_dir = std::path::PathBuf::from(&home).join(".claude/projects");
+
+        match std::fs::read_dir(&projects_dir) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+
+                    // Skip hidden directories.
+                    if name.starts_with('.') {
+                        continue;
+                    }
+
+                    // Only consider directories.
+                    if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                        continue;
+                    }
+
+                    // Extract project name: last segment after "-dev-".
+                    if let Some(pos) = name.rfind("-dev-") {
+                        let project = &name[pos + 5..];
+                        if !project.is_empty() {
+                            project_names.insert(project.to_string());
+                        }
+                    } else {
+                        // No "-dev-" segment — use directory name as-is.
+                        project_names.insert(name);
+                    }
+                }
+            }
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        path = %projects_dir.display(),
+                        error = %e,
+                        "failed to read projects directory"
+                    );
+                }
+                // Return empty on not-found or permission errors.
+            }
+        }
+
+        // 2. Also add projects from active sessions (registry).
+        let sessions = self.registry.get_all().await;
+        for session in &sessions {
+            if let Some(ref project) = session.project {
+                project_names.insert(project.clone());
+            }
+        }
+
+        let projects: Vec<String> = project_names.into_iter().collect();
 
         Ok(Response::new(proto::ListProjectsResponse { projects }))
     }
@@ -708,4 +758,3 @@ impl NexusAgent for NexusAgentService {
         }))
     }
 }
-

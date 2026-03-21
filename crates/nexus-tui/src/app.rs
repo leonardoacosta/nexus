@@ -76,7 +76,7 @@ pub enum InputMode {
     Normal,
     PaletteInput,
     StartSessionAgent,
-    StartSessionProject,
+    StartSessionProjectSelect,
     StartSessionCwd,
     StreamInput,
 }
@@ -170,6 +170,9 @@ pub struct App {
     pub start_agent_idx: usize,
     pub start_project: String,
     pub start_cwd: String,
+    pub start_projects: Vec<String>,
+    pub start_project_idx: usize,
+    pub start_project_filter: String,
 
     // Status message (shown in status bar, cleared on next action).
     pub status_message: Option<String>,
@@ -205,6 +208,9 @@ impl App {
             start_agent_idx: 0,
             start_project: String::new(),
             start_cwd: String::new(),
+            start_projects: Vec::new(),
+            start_project_idx: 0,
+            start_project_filter: String::new(),
             status_message: None,
             notifications: NotificationManager::new(),
             stream_view: None,
@@ -412,7 +418,12 @@ impl App {
     // -----------------------------------------------------------------------
 
     /// Enter stream attach view for a given session.
-    pub fn open_stream_attach(&mut self, session_id: String, session_label: String, agent_name: String) {
+    pub fn open_stream_attach(
+        &mut self,
+        session_id: String,
+        session_label: String,
+        agent_name: String,
+    ) {
         self.stream_view = Some(StreamViewState::new(session_id, session_label, agent_name));
         self.current_screen = Screen::StreamAttach;
     }
@@ -428,21 +439,42 @@ impl App {
     // -----------------------------------------------------------------------
 
     /// Begin the start-session flow.
-    pub fn begin_start_session(&mut self) {
+    ///
+    /// Returns `Some(agent_name)` when the project list RPC should be triggered
+    /// (single agent auto-selected), or `None` when agent selection is needed first.
+    pub fn begin_start_session(&mut self) -> Option<String> {
         let connected: Vec<_> = self.agents.iter().filter(|a| a.connected).collect();
         if connected.is_empty() {
             self.status_message = Some("no connected agents".to_string());
-            return;
+            return None;
         }
         self.start_project.clear();
         self.start_cwd.clear();
+        self.start_projects.clear();
+        self.start_project_idx = 0;
+        self.start_project_filter.clear();
         self.start_agent_idx = 0;
 
         if connected.len() == 1 {
-            // Skip agent selection.
-            self.input_mode = InputMode::StartSessionProject;
+            // Skip agent selection, transition directly to project select.
+            self.input_mode = InputMode::StartSessionProjectSelect;
+            Some(connected[0].info.name.clone())
         } else {
             self.input_mode = InputMode::StartSessionAgent;
+            None
+        }
+    }
+
+    /// Return filtered projects based on current type-ahead filter.
+    pub fn filtered_projects(&self) -> Vec<&String> {
+        if self.start_project_filter.is_empty() {
+            self.start_projects.iter().collect()
+        } else {
+            let filter = self.start_project_filter.to_ascii_lowercase();
+            self.start_projects
+                .iter()
+                .filter(|p| p.to_ascii_lowercase().contains(&filter))
+                .collect()
         }
     }
 
@@ -458,7 +490,6 @@ impl App {
             .map(|a| a.sessions.len())
             .sum()
     }
-
 
     /// Replace agent data from a poll, preserving selected_index by session ID
     /// when possible.
@@ -781,7 +812,11 @@ impl StreamViewState {
             }
             Some(Content::ToolResult(result)) => {
                 self.flush_partial_buf();
-                let icon = if result.success { "\u{2713}" } else { "\u{2717}" };
+                let icon = if result.success {
+                    "\u{2713}"
+                } else {
+                    "\u{2717}"
+                };
                 let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
                 for wrapped in textwrap_simple(&line, 120) {
                     self.push_line(wrapped);

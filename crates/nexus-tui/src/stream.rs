@@ -129,7 +129,9 @@ async fn run_session_stream(
                 let payload_type = match &event.payload {
                     Some(nexus_core::proto::session_event::Payload::Started(_)) => "Started",
                     Some(nexus_core::proto::session_event::Payload::Heartbeat(_)) => "Heartbeat",
-                    Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => "StatusChanged",
+                    Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => {
+                        "StatusChanged"
+                    }
                     Some(nexus_core::proto::session_event::Payload::Stopped(_)) => "Stopped",
                     None => "None",
                 };

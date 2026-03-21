@@ -75,10 +75,12 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
             interval.tick().await;
-            stale_registry.detect_stale(
-                std::time::Duration::from_secs(300),   // 5min → Stale
-                std::time::Duration::from_secs(900),   // 15min → Remove
-            ).await;
+            stale_registry
+                .detect_stale(
+                    std::time::Duration::from_secs(300), // 5min → Stale
+                    std::time::Duration::from_secs(900), // 15min → Remove
+                )
+                .await;
         }
     });
 

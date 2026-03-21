@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "nexus-register", about = "Register CC sessions with nexus-agent")]
+#[command(
+    name = "nexus-register",
+    about = "Register CC sessions with nexus-agent"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

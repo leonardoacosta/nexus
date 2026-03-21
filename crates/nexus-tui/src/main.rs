@@ -36,6 +36,9 @@ enum RpcCommand {
         session_id: String,
         prompt: String,
     },
+    ListProjects {
+        agent_name: String,
+    },
 }
 
 enum RpcResult {
@@ -45,6 +48,7 @@ enum RpcResult {
     StopErr(String),
     CommandOutput(nexus_core::proto::CommandOutput),
     CommandStreamDone,
+    ProjectList(Vec<String>),
 }
 
 #[tokio::main]
@@ -78,7 +82,11 @@ async fn main() -> Result<()> {
     // Set up terminal.
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
+    crossterm::execute!(
+        stdout,
+        EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -112,7 +120,11 @@ async fn main() -> Result<()> {
 
     // Restore terminal.
     terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen, crossterm::event::DisableMouseCapture)?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     result
@@ -151,7 +163,7 @@ fn run_loop(
             if matches!(
                 app.input_mode,
                 InputMode::StartSessionAgent
-                    | InputMode::StartSessionProject
+                    | InputMode::StartSessionProjectSelect
                     | InputMode::StartSessionCwd
             ) {
                 screens::palette::render_start_session(frame, app);
@@ -206,6 +218,11 @@ fn run_loop(
                     if app.current_screen == Screen::StreamAttach {
                         app.input_mode = InputMode::StreamInput;
                     }
+                }
+                RpcResult::ProjectList(projects) => {
+                    app.start_projects = projects;
+                    app.start_project_idx = 0;
+                    app.start_project_filter.clear();
                 }
             }
         }
@@ -317,15 +334,15 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             false
         }
         InputMode::StartSessionAgent => {
-            handle_agent_select_key(app, key);
+            handle_agent_select_key(app, key, rpc_tx);
             false
         }
-        InputMode::StartSessionProject => {
-            handle_text_input_key(app, key, TextInputTarget::Project, rpc_tx);
+        InputMode::StartSessionProjectSelect => {
+            handle_project_select_key(app, key, rpc_tx);
             false
         }
         InputMode::StartSessionCwd => {
-            handle_text_input_key(app, key, TextInputTarget::Cwd, rpc_tx);
+            handle_cwd_input_key(app, key, rpc_tx);
             false
         }
         InputMode::StreamInput => {
@@ -338,7 +355,7 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
 
                         // Echo the prompt to the stream view so user sees what they sent.
                         if let Some(sv) = &mut app.stream_view {
-                            sv.lines.push(format!("── you ──"));
+                            sv.lines.push("── you ──".to_string());
                             sv.lines.push(prompt.clone());
                             sv.lines.push(String::new());
                         }
@@ -346,10 +363,7 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
                         // Get session ID from stream view and dispatch RPC.
                         if let Some(sv) = &app.stream_view {
                             let session_id = sv.session_id.clone();
-                            let _ = rpc_tx.try_send(RpcCommand::SendCommand {
-                                session_id,
-                                prompt,
-                            });
+                            let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
                         }
                     }
                 }
@@ -379,19 +393,17 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
 fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
     use crossterm::event::MouseEventKind;
     match mouse.kind {
-        MouseEventKind::ScrollUp => {
-            match app.current_screen {
-                Screen::StreamAttach => {
-                    if let Some(sv) = &mut app.stream_view {
-                        sv.auto_scroll = false;
-                        sv.scroll_offset = sv.scroll_offset.saturating_sub(3);
-                    }
-                }
-                _ => {
-                    app.selected_index = app.selected_index.saturating_sub(1);
+        MouseEventKind::ScrollUp => match app.current_screen {
+            Screen::StreamAttach => {
+                if let Some(sv) = &mut app.stream_view {
+                    sv.auto_scroll = false;
+                    sv.scroll_offset = sv.scroll_offset.saturating_sub(3);
                 }
             }
-        }
+            _ => {
+                app.selected_index = app.selected_index.saturating_sub(1);
+            }
+        },
         MouseEventKind::ScrollDown => {
             match app.current_screen {
                 Screen::StreamAttach => {
@@ -426,7 +438,7 @@ fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComm
 }
 
 /// Key handling for list-based screens (Dashboard, Health, Projects).
-fn handle_list_key(app: &mut App, key: KeyEvent, _rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -479,8 +491,10 @@ fn handle_list_key(app: &mut App, key: KeyEvent, _rpc_tx: &mpsc::Sender<RpcComma
             false
         }
         KeyCode::Char('n') => {
-            if app.current_screen == Screen::Dashboard {
-                app.begin_start_session();
+            if app.current_screen == Screen::Dashboard
+                && let Some(agent_name) = app.begin_start_session()
+            {
+                let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
             }
             false
         }
@@ -645,7 +659,9 @@ fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_tx: &mpsc::S
             app.selected_index = 0;
         }
         PaletteAction::StartSession => {
-            app.begin_start_session();
+            if let Some(agent_name) = app.begin_start_session() {
+                let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
+            }
         }
         PaletteAction::StopSession { session_id } => {
             let _ = rpc_tx.try_send(RpcCommand::StopSession { session_id });
@@ -654,7 +670,7 @@ fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_tx: &mpsc::S
 }
 
 /// Key handling for agent selection in start-session wizard.
-fn handle_agent_select_key(app: &mut App, key: KeyEvent) {
+fn handle_agent_select_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
     let count = app.connected_agents().len();
     match key.code {
         KeyCode::Esc => {
@@ -671,75 +687,100 @@ fn handle_agent_select_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Enter => {
-            // Move to project input.
-            app.input_mode = InputMode::StartSessionProject;
+            // Move to project select and trigger ListProjects RPC.
+            let connected = app.connected_agents();
+            if let Some(agent) = connected.get(app.start_agent_idx) {
+                let agent_name = agent.info.name.clone();
+                let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
+            }
+            app.input_mode = InputMode::StartSessionProjectSelect;
         }
         _ => {}
     }
 }
 
-enum TextInputTarget {
-    Project,
-    Cwd,
+/// Key handling for project selection in start-session wizard.
+fn handle_project_select_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.start_project.clear();
+            app.start_cwd.clear();
+            app.start_projects.clear();
+            app.start_project_filter.clear();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let count = app.filtered_projects().len();
+            if count > 0 {
+                app.start_project_idx = (app.start_project_idx + 1).min(count - 1);
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.start_project_idx > 0 {
+                app.start_project_idx -= 1;
+            }
+        }
+        KeyCode::Enter => {
+            let filtered = app.filtered_projects();
+            if let Some(project) = filtered.get(app.start_project_idx).cloned().cloned() {
+                app.start_project = project.clone();
+                app.start_cwd = format!("~/dev/{project}");
+                app.start_projects.clear();
+                app.start_project_filter.clear();
+                app.input_mode = InputMode::StartSessionCwd;
+            }
+        }
+        KeyCode::Backspace => {
+            app.start_project_filter.pop();
+            app.start_project_idx = 0;
+        }
+        KeyCode::Char(c) => {
+            // j/k are handled above for navigation; all other chars filter.
+            // (j/k are caught by the KeyCode::Char('j') | KeyCode::Char('k') arms above.)
+            app.start_project_filter.push(c);
+            app.start_project_idx = 0;
+        }
+        _ => {}
+    }
+    // Suppress unused variable warning — rpc_tx reserved for future use.
+    let _ = rpc_tx;
 }
 
-/// Key handling for text input fields in the start-session wizard.
-fn handle_text_input_key(
-    app: &mut App,
-    key: KeyEvent,
-    target: TextInputTarget,
-    rpc_tx: &mpsc::Sender<RpcCommand>,
-) {
+/// Key handling for cwd text input in the start-session wizard.
+fn handle_cwd_input_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
             app.start_project.clear();
             app.start_cwd.clear();
         }
-        KeyCode::Backspace => match target {
-            TextInputTarget::Project => {
-                app.start_project.pop();
-            }
-            TextInputTarget::Cwd => {
-                app.start_cwd.pop();
-            }
-        },
-        KeyCode::Char(c) => match target {
-            TextInputTarget::Project => app.start_project.push(c),
-            TextInputTarget::Cwd => app.start_cwd.push(c),
-        },
+        KeyCode::Backspace => {
+            app.start_cwd.pop();
+        }
+        KeyCode::Char(c) => {
+            app.start_cwd.push(c);
+        }
         KeyCode::Enter => {
-            match target {
-                TextInputTarget::Project => {
-                    // Default cwd based on project.
-                    if app.start_cwd.is_empty() {
-                        app.start_cwd = format!("~/dev/{}", app.start_project);
-                    }
-                    app.input_mode = InputMode::StartSessionCwd;
-                }
-                TextInputTarget::Cwd => {
-                    // Submit: send RPC.
-                    let connected = app.connected_agents();
-                    let agent_name = connected
-                        .get(app.start_agent_idx)
-                        .map(|a| a.info.name.clone())
-                        .unwrap_or_default();
-                    let project = app.start_project.clone();
-                    let cwd = app.start_cwd.clone();
+            // Submit: send RPC.
+            let connected = app.connected_agents();
+            let agent_name = connected
+                .get(app.start_agent_idx)
+                .map(|a| a.info.name.clone())
+                .unwrap_or_default();
+            let project = app.start_project.clone();
+            let cwd = app.start_cwd.clone();
 
-                    let _ = rpc_tx.try_send(RpcCommand::StartSession {
-                        agent_name,
-                        project,
-                        cwd,
-                    });
+            let _ = rpc_tx.try_send(RpcCommand::StartSession {
+                agent_name,
+                project,
+                cwd,
+            });
 
-                    app.status_message = Some("starting session...".to_string());
-                    // Stay in current mode until we get the result.
-                    app.input_mode = InputMode::Normal;
-                    app.start_project.clear();
-                    app.start_cwd.clear();
-                }
-            }
+            app.status_message = Some("starting session...".to_string());
+            // Stay in current mode until we get the result.
+            app.input_mode = InputMode::Normal;
+            app.start_project.clear();
+            app.start_cwd.clear();
         }
         _ => {}
     }
@@ -805,6 +846,16 @@ async fn background_task(
                                 let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
                             }
                         }
+                    }
+                    Some(RpcCommand::ListProjects { agent_name }) => {
+                        let projects = match client.list_projects(&agent_name).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!(%e, "list_projects failed");
+                                Vec::new()
+                            }
+                        };
+                        let _ = rpc_result_tx.send(RpcResult::ProjectList(projects)).await;
                     }
                     None => break,
                 }
