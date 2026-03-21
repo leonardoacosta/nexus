@@ -874,6 +874,13 @@ pub struct StreamViewState {
     pub model: Option<String>,
     pub rate_limit_utilization: Option<f32>,
     pub total_cost_usd: Option<f64>,
+
+    // Input history (per-session, not persisted to disk).
+    /// Previously sent prompts, newest at the end. Capped at 50 entries.
+    pub input_history: Vec<String>,
+    /// Current position in history during Up/Down navigation.
+    /// `None` means the user is editing the live buffer (not navigating history).
+    pub history_index: Option<usize>,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -902,7 +909,24 @@ impl StreamViewState {
             model: None,
             rate_limit_utilization: None,
             total_cost_usd: None,
+            input_history: Vec::new(),
+            history_index: None,
         }
+    }
+
+    /// Record a sent prompt in input history (max 50 entries, newest at end).
+    ///
+    /// Resets `history_index` to `None` after recording.
+    pub fn push_history(&mut self, prompt: String) {
+        if !prompt.is_empty() {
+            self.input_history.push(prompt);
+            const MAX_HISTORY: usize = 50;
+            if self.input_history.len() > MAX_HISTORY {
+                let excess = self.input_history.len() - MAX_HISTORY;
+                self.input_history.drain(0..excess);
+            }
+        }
+        self.history_index = None;
     }
 
     /// Append a styled line, wrapping it in `StreamLine::Styled` and maintaining the bounded buffer.

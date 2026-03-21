@@ -20,6 +20,22 @@ use nexus_core::config::NexusConfig;
 use stream::{AlertEvent, StreamLine as NetStreamLine};
 
 // ---------------------------------------------------------------------------
+// Key handler return value
+// ---------------------------------------------------------------------------
+
+/// The result of processing a single key event.
+enum KeyAction {
+    /// Continue the event loop normally.
+    Continue,
+    /// The app should quit.
+    Quit,
+    /// Open `$EDITOR` (or fallback) with a temp file; send the result as a
+    /// prompt when the editor exits.  The caller must handle terminal teardown
+    /// and restoration.
+    OpenEditor,
+}
+
+// ---------------------------------------------------------------------------
 // RPC commands sent from the event handler to the async runtime
 // ---------------------------------------------------------------------------
 
@@ -301,11 +317,13 @@ fn run_loop(
         // Poll for keyboard and mouse events with 200ms timeout.
         if event::poll(Duration::from_millis(200))? {
             match event::read()? {
-                Event::Key(key) => {
-                    if handle_key(app, key, rpc_tx) {
-                        break;
+                Event::Key(key) => match handle_key(app, key, rpc_tx) {
+                    KeyAction::Quit => break,
+                    KeyAction::OpenEditor => {
+                        launch_editor(terminal, app, rpc_tx)?;
                     }
-                }
+                    KeyAction::Continue => {}
+                },
                 Event::Mouse(mouse) => {
                     handle_mouse(app, mouse);
                 }
@@ -321,8 +339,113 @@ fn run_loop(
     Ok(())
 }
 
-/// Handle a key event. Returns true if the app should quit.
-fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+/// Leave alternate screen, spawn $EDITOR (with vi/nano fallback) on a temp
+/// file, read the result, re-enter alternate screen, then send the prompt.
+fn launch_editor(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> Result<()> {
+    // Resolve editor binary: $EDITOR → vi → nano.
+    let editor = std::env::var("EDITOR")
+        .ok()
+        .filter(|e| !e.is_empty())
+        .or_else(|| which_bin("vi"))
+        .or_else(|| which_bin("nano"));
+
+    let Some(editor) = editor else {
+        app.status_message = Some("no editor found: set $EDITOR or install vi/nano".to_string());
+        return Ok(());
+    };
+
+    // Write current input buffer to a temp file so the user can edit it.
+    let tmp_path = std::env::temp_dir().join("nexus-editor-prompt.txt");
+    std::fs::write(&tmp_path, &app.stream_input)?;
+
+    // Leave TUI alternate screen.
+    terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    // Spawn editor and wait for it to exit.
+    let status = std::process::Command::new(&editor).arg(&tmp_path).status();
+
+    // Re-enter TUI alternate screen regardless of editor outcome.
+    terminal::enable_raw_mode()?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
+    terminal.clear()?;
+
+    match status {
+        Err(e) => {
+            app.status_message = Some(format!("editor launch failed: {e}"));
+            return Ok(());
+        }
+        Ok(s) if !s.success() => {
+            app.status_message = Some(format!(
+                "editor exited with status: {}",
+                s.code().unwrap_or(-1)
+            ));
+            return Ok(());
+        }
+        Ok(_) => {}
+    }
+
+    // Read back the file contents.
+    let content = match std::fs::read_to_string(&tmp_path) {
+        Ok(c) => c,
+        Err(e) => {
+            app.status_message = Some(format!("failed to read editor output: {e}"));
+            return Ok(());
+        }
+    };
+
+    // Trim trailing newline that most editors append.
+    let prompt = content.trim_end_matches('\n').to_string();
+
+    if prompt.is_empty() {
+        app.status_message = Some("editor: empty input, prompt aborted".to_string());
+        return Ok(());
+    }
+
+    // Send the prompt.
+    app.stream_input.clear();
+    app.stream_executing = true;
+    app.stream_exec_start = Some(std::time::Instant::now());
+
+    if let Some(sv) = &mut app.stream_view {
+        sv.push_history(prompt.clone());
+        sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
+        for line in prompt.lines() {
+            sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
+        }
+        sv.push_line(StyledLine::new("", LineStyle::Plain));
+    }
+
+    if let Some(sv) = &app.stream_view {
+        let session_id = sv.session_id.clone();
+        let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
+    }
+
+    Ok(())
+}
+
+/// Return the path to `bin` if it exists somewhere on `$PATH`, else `None`.
+fn which_bin(bin: &str) -> Option<String> {
+    std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).any(|dir| dir.join(bin).exists()))
+        .and_then(|found| if found { Some(bin.to_string()) } else { None })
+}
+
+/// Handle a key event. Returns the appropriate `KeyAction`.
+fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
     // Clear status message and dismiss notifications on any key press.
     app.status_message = None;
     app.notifications.dismiss_all();
@@ -330,7 +453,7 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
     // Ctrl+C always quits.
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.should_quit = true;
-        return true;
+        return KeyAction::Quit;
     }
 
     // Dispatch based on input mode.
@@ -338,19 +461,19 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
         InputMode::Normal => handle_normal_key(app, key, rpc_tx),
         InputMode::PaletteInput => {
             handle_palette_key(app, key, rpc_tx);
-            false
+            KeyAction::Continue
         }
         InputMode::StartSessionAgent => {
             handle_agent_select_key(app, key, rpc_tx);
-            false
+            KeyAction::Continue
         }
         InputMode::StartSessionProjectSelect => {
             handle_project_select_key(app, key, rpc_tx);
-            false
+            KeyAction::Continue
         }
         InputMode::StartSessionCwd => {
             handle_cwd_input_key(app, key, rpc_tx);
-            false
+            KeyAction::Continue
         }
         InputMode::ScratchpadEdit => {
             match key.code {
@@ -368,51 +491,147 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
                 }
                 _ => {}
             }
-            false
+            KeyAction::Continue
         }
-        InputMode::StreamInput => {
-            match key.code {
-                KeyCode::Enter => {
-                    if !app.stream_input.is_empty() && !app.stream_executing {
-                        let prompt = app.stream_input.clone();
-                        app.stream_input.clear();
-                        app.stream_executing = true;
-                        app.stream_exec_start = Some(std::time::Instant::now());
-
-                        // Echo the prompt to the stream view so user sees what they sent.
-                        if let Some(sv) = &mut app.stream_view {
-                            sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
-                            sv.push_line(StyledLine::new(prompt.clone(), LineStyle::UserPrompt));
-                            sv.push_line(StyledLine::new("", LineStyle::Plain));
-                        }
-
-                        // Get session ID from stream view and dispatch RPC.
-                        if let Some(sv) = &app.stream_view {
-                            let session_id = sv.session_id.clone();
-                            let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
-                        }
-                    }
-                }
-                KeyCode::Char(c) => {
-                    if !app.stream_executing {
-                        app.stream_input.push(c);
-                    }
-                }
-                KeyCode::Backspace => {
-                    if !app.stream_executing {
-                        app.stream_input.pop();
-                    }
-                }
-                KeyCode::Esc => {
-                    // Exit stream input, go back to normal stream view.
-                    app.input_mode = InputMode::Normal;
-                    app.stream_input.clear();
-                }
-                _ => {}
-            }
-            false
-        }
+        InputMode::StreamInput => handle_stream_input_key(app, key, rpc_tx),
     }
+}
+
+/// Key handling for the stream input bar.
+///
+/// - Enter (without Shift): send the buffer as a prompt.
+/// - Shift+Enter or Ctrl+J: insert newline.
+/// - Ctrl+E: open external editor.
+/// - Up/Down: navigate history (only when input is empty).
+/// - Backspace: delete last character.
+/// - Esc: exit stream input mode.
+/// - Any other char: append to buffer.
+fn handle_stream_input_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
+    // All input is blocked while a command is executing, except Esc.
+    if app.stream_executing {
+        if key.code == KeyCode::Esc {
+            app.input_mode = InputMode::Normal;
+            app.stream_input.clear();
+        }
+        return KeyAction::Continue;
+    }
+
+    // Ctrl+E — open external editor.
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
+        return KeyAction::OpenEditor;
+    }
+
+    // Ctrl+J — insert newline (alternative to Shift+Enter).
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('j') {
+        app.stream_input.push('\n');
+        // Reset history navigation when editing.
+        if let Some(sv) = &mut app.stream_view {
+            sv.history_index = None;
+        }
+        return KeyAction::Continue;
+    }
+
+    match key.code {
+        // Shift+Enter inserts a newline into the buffer.
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            app.stream_input.push('\n');
+            if let Some(sv) = &mut app.stream_view {
+                sv.history_index = None;
+            }
+        }
+
+        // Plain Enter sends the buffer.
+        KeyCode::Enter => {
+            if !app.stream_input.is_empty() {
+                let prompt = app.stream_input.clone();
+                app.stream_input.clear();
+                app.stream_executing = true;
+                app.stream_exec_start = Some(std::time::Instant::now());
+
+                if let Some(sv) = &mut app.stream_view {
+                    sv.push_history(prompt.clone());
+                    sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
+                    for line in prompt.lines() {
+                        sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
+                    }
+                    sv.push_line(StyledLine::new("", LineStyle::Plain));
+                }
+
+                if let Some(sv) = &app.stream_view {
+                    let session_id = sv.session_id.clone();
+                    let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
+                }
+            }
+        }
+
+        // Up — navigate backward in history (only when input is empty).
+        KeyCode::Up if app.stream_input.is_empty() => {
+            if let Some(sv) = &mut app.stream_view {
+                if sv.input_history.is_empty() {
+                    return KeyAction::Continue;
+                }
+                let new_idx = match sv.history_index {
+                    None => sv.input_history.len() - 1,
+                    Some(0) => 0,
+                    Some(i) => i - 1,
+                };
+                sv.history_index = Some(new_idx);
+                app.stream_input = sv.input_history[new_idx].clone();
+            }
+        }
+
+        // Down — navigate forward in history (only when input is empty or navigating).
+        KeyCode::Down => {
+            if let Some(sv) = &mut app.stream_view {
+                match sv.history_index {
+                    None => {} // Not navigating; do nothing.
+                    Some(i) if i + 1 >= sv.input_history.len() => {
+                        // Past the end: clear input and exit history navigation.
+                        sv.history_index = None;
+                        app.stream_input.clear();
+                    }
+                    Some(i) => {
+                        let new_idx = i + 1;
+                        sv.history_index = Some(new_idx);
+                        app.stream_input = sv.input_history[new_idx].clone();
+                    }
+                }
+            }
+        }
+
+        KeyCode::Char(c) => {
+            app.stream_input.push(c);
+            // Any typing exits history navigation.
+            if let Some(sv) = &mut app.stream_view {
+                sv.history_index = None;
+            }
+        }
+
+        KeyCode::Backspace => {
+            app.stream_input.pop();
+            // Backspace also exits history navigation.
+            if let Some(sv) = &mut app.stream_view {
+                sv.history_index = None;
+            }
+        }
+
+        KeyCode::Esc => {
+            // Exit stream input, go back to normal stream view.
+            app.input_mode = InputMode::Normal;
+            app.stream_input.clear();
+            if let Some(sv) = &mut app.stream_view {
+                sv.history_index = None;
+            }
+        }
+
+        _ => {}
+    }
+
+    KeyAction::Continue
 }
 
 /// Handle mouse events (scroll wheel for navigation).
@@ -455,7 +674,7 @@ fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
 }
 
 /// Normal mode key handling.
-fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
     match app.current_screen {
         Screen::Detail => handle_detail_key(app, key, rpc_tx),
         Screen::StreamAttach => handle_stream_key(app, key),
@@ -464,27 +683,27 @@ fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComm
 }
 
 /// Key handling for list-based screens (Dashboard, Health, Projects).
-fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
-            true
+            KeyAction::Quit
         }
         KeyCode::Tab => {
             app.next_screen();
-            false
+            KeyAction::Continue
         }
         KeyCode::BackTab => {
             app.prev_screen();
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('j') | KeyCode::Down => {
             app.move_down();
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('k') | KeyCode::Up => {
             app.move_up();
-            false
+            KeyAction::Continue
         }
         KeyCode::Enter => {
             // On Dashboard: open detail for selected session.
@@ -510,11 +729,11 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     app.open_detail(session, agent_info);
                 }
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char(':') | KeyCode::Char('/') => {
             app.open_palette();
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('n') => {
             if app.current_screen == Screen::Dashboard
@@ -522,7 +741,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
             {
                 let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('a') => {
             // Stream attach: works for all sessions (managed and ad-hoc).
@@ -538,7 +757,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     app.input_mode = InputMode::StreamInput;
                 }
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('e') => {
             // Open scratchpad for selected project on Projects screen.
@@ -549,22 +768,22 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     app.open_scratchpad(&name);
                 }
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('A') => {
             app.status_message = Some("use 'a' for interactive stream".to_string());
-            false
+            KeyAction::Continue
         }
-        _ => false,
+        _ => KeyAction::Continue,
     }
 }
 
 /// Key handling for the detail screen.
-fn handle_detail_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> bool {
+fn handle_detail_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.close_detail();
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('s') => {
             // Stop the currently viewed session.
@@ -572,18 +791,18 @@ fn handle_detail_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComm
                 let id = session.id.clone();
                 let _ = rpc_tx.try_send(RpcCommand::StopSession { session_id: id });
             }
-            false
+            KeyAction::Continue
         }
-        _ => false,
+        _ => KeyAction::Continue,
     }
 }
 
 /// Key handling for the stream attach view.
-fn handle_stream_key(app: &mut App, key: KeyEvent) -> bool {
+fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.close_stream_attach();
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('j') | KeyCode::Down => {
             if let Some(sv) = app.stream_view.as_mut() {
@@ -591,43 +810,43 @@ fn handle_stream_key(app: &mut App, key: KeyEvent) -> bool {
                 // only known at render time. 20 is a safe lower bound.
                 sv.scroll_down(20);
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('k') | KeyCode::Up => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.scroll_up();
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::PageUp => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.page_up(20);
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::PageDown => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.page_down(20);
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::End => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.scroll_to_end();
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Enter => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.toggle_block_at_scroll(20);
             }
-            false
+            KeyAction::Continue
         }
         KeyCode::Char('i') => {
             app.input_mode = InputMode::StreamInput;
-            false
+            KeyAction::Continue
         }
-        _ => false,
+        _ => KeyAction::Continue,
     }
 }
 

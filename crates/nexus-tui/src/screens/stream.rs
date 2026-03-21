@@ -29,15 +29,33 @@ fn line_style_to_ratatui(style: LineStyle) -> Style {
     }
 }
 
+/// Compute the height in terminal rows for the input bar based on the number
+/// of newlines in the stream input buffer.
+///
+/// The bar always shows at least 1 content line (plus 1 for the border = 2
+/// minimum rows, but we keep the block border so add 1). Cap at 5 content
+/// lines (6 rows total).
+fn input_bar_height(stream_input: &str) -> u16 {
+    let line_count = stream_input.lines().count().max(1);
+    let clamped = line_count.min(5) as u16;
+    clamped + 1 // +1 for the TOP border drawn by the block
+}
+
 /// Render the stream attach view.
 pub fn render_stream(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
+    let bar_height = if app.stream_executing {
+        2 // executing spinner: 1 content line + 1 border
+    } else {
+        input_bar_height(&app.stream_input)
+    };
+
     let chunks = Layout::vertical([
-        Constraint::Length(3), // title bar
-        Constraint::Min(1),    // log view
-        Constraint::Length(3), // input bar
-        Constraint::Length(1), // status bar
+        Constraint::Length(3),          // title bar
+        Constraint::Min(1),             // log view
+        Constraint::Length(bar_height), // input bar (dynamic)
+        Constraint::Length(1),          // status bar
     ])
     .split(area);
 
@@ -181,13 +199,62 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
         )]))
         .block(block);
         frame.render_widget(content, area);
-    } else {
+    } else if app.stream_input.is_empty() {
+        // Show placeholder text when the buffer is empty and not executing.
         let content = Paragraph::new(Line::from(vec![
             Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
-            Span::styled(&app.stream_input, Style::default().fg(colors::TEXT)),
-            Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
+            Span::styled(
+                "type a prompt, Ctrl+E for editor",
+                Style::default()
+                    .fg(colors::TEXT_DIM)
+                    .add_modifier(Modifier::DIM),
+            ),
         ]))
         .block(block);
+        frame.render_widget(content, area);
+    } else {
+        // Multi-line input: render each line of the buffer with the prompt prefix
+        // on the first line and a continuation marker on subsequent lines.
+        // Show a block cursor after the last character on the last line.
+        let input_lines: Vec<&str> = app.stream_input.split('\n').collect();
+        let line_count = input_lines.len();
+
+        // Only render up to 5 lines (the layout already caps height to 5+1).
+        let visible_lines: Vec<Line<'_>> = input_lines
+            .iter()
+            .enumerate()
+            .take(5)
+            .map(|(i, text)| {
+                let is_last = i == line_count - 1;
+                if i == 0 {
+                    if is_last {
+                        Line::from(vec![
+                            Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
+                            Span::styled(*text, Style::default().fg(colors::TEXT)),
+                            Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
+                            Span::styled(*text, Style::default().fg(colors::TEXT)),
+                        ])
+                    }
+                } else if is_last {
+                    Line::from(vec![
+                        Span::styled(" | ", Style::default().fg(colors::TEXT_DIM)),
+                        Span::styled(*text, Style::default().fg(colors::TEXT)),
+                        Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::styled(" | ", Style::default().fg(colors::TEXT_DIM)),
+                        Span::styled(*text, Style::default().fg(colors::TEXT)),
+                    ])
+                }
+            })
+            .collect();
+
+        let content = Paragraph::new(visible_lines).block(block);
         frame.render_widget(content, area);
     }
 }
