@@ -1,0 +1,17 @@
+[package]
+name = "nexus-register"
+description = "Lightweight CLI to register Claude Code sessions with nexus-agent via gRPC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nexus-register"
+path = "src/main.rs"
+
+[dependencies]
+nexus-core = { workspace = true }
+tonic = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+anyhow = { workspace = true }
