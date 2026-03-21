@@ -9,6 +9,7 @@ ExecStart=%h/.local/bin/nexus-agent
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
