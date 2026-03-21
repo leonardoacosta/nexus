@@ -187,6 +187,7 @@ impl NexusAgent for NexusAgentService {
             .arg("-p")
             .arg("--output-format")
             .arg("stream-json")
+            .arg("--verbose")
             .arg("--session-id")
             .arg(&session_id)
             .arg("--dangerously-skip-permissions")
@@ -274,14 +275,27 @@ impl NexusAgent for NexusAgentService {
             );
 
             // 4. Spawn the claude child process.
-            let child = tokio::process::Command::new("claude")
-                .arg("-p")
-                .arg("--resume")
-                .arg(&resume_id)
+            // Use --resume for managed sessions (nexus controls the session),
+            // --session-id for ad-hoc (start fresh conversation in same project context).
+            let is_managed = session.tmux_session.is_some()
+                || session.cc_session_id.as_deref() == Some(&session.id);
+            let mut cmd = tokio::process::Command::new("claude");
+            cmd.arg("-p")
                 .arg("--output-format")
                 .arg("stream-json")
+                .arg("--verbose")
                 .arg("--include-partial-messages")
-                .arg("--dangerously-skip-permissions")
+                .arg("--dangerously-skip-permissions");
+
+            if is_managed {
+                cmd.arg("--resume").arg(&resume_id);
+            } else {
+                // Ad-hoc: fresh conversation per command in same project dir.
+                let new_uuid = Uuid::new_v4().to_string();
+                cmd.arg("--session-id").arg(&new_uuid);
+            }
+
+            let child = cmd
                 .arg(&req.prompt)
                 .current_dir(&cwd)
                 .stdout(std::process::Stdio::piped())
