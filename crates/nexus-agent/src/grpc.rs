@@ -220,6 +220,10 @@ impl NexusAgent for NexusAgentService {
         request: Request<proto::EventFilter>,
     ) -> Result<Response<Self::StreamEventsStream>, Status> {
         let filter = request.into_inner();
+        tracing::info!(
+            session_filter = ?filter.session_id,
+            "stream_events: new subscriber"
+        );
         let mut broadcast_rx = self.events.subscribe();
 
         // Use an mpsc channel between the broadcast receiver and the gRPC

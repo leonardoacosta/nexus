@@ -237,12 +237,27 @@ fn run_loop(
         }
 
         // If we just opened a stream attach but don't have a receiver yet, create one.
+        // Connect only to the agent that owns the session, not all agents.
         if app.current_screen == Screen::StreamAttach
             && stream_rx.is_none()
             && let Some(sv) = &app.stream_view
         {
+            let target_endpoint: Option<(String, u16)> = app
+                .agents
+                .iter()
+                .find(|a| a.info.name == sv.agent_name)
+                .map(|a| (a.info.host.clone(), a.info.port));
+
+            let endpoints = match target_endpoint {
+                Some(ep) => vec![ep],
+                None => {
+                    tracing::warn!(agent = %sv.agent_name, "stream: owning agent not found, trying all");
+                    agent_endpoints.to_vec()
+                }
+            };
+
             *stream_rx = Some(stream::subscribe_session_stream(
-                agent_endpoints,
+                &endpoints,
                 sv.session_id.clone(),
             ));
         }
@@ -379,10 +394,11 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                 let sessions = app.all_sessions();
                 if let Some(row) = sessions.get(app.selected_index) {
                     let session_id = row.session.id.clone();
+                    let agent_name = row.agent_name.clone();
                     let project = row.session.project.as_deref().unwrap_or("?");
                     let short_id = &session_id[..session_id.len().min(4)];
                     let label = format!("{project}#{short_id}");
-                    app.open_stream_attach(session_id, label);
+                    app.open_stream_attach(session_id, label, agent_name);
                 }
             }
             false

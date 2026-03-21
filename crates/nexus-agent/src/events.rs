@@ -27,6 +27,20 @@ impl EventBroadcaster {
     /// broadcast channel behaviour). A `SendError` only occurs when the
     /// receiver count is zero, which is not an error condition for us.
     pub fn emit(&self, event: SessionEvent) {
+        let receiver_count = self.tx.receiver_count();
+        let payload_type = match &event.payload {
+            Some(nexus_core::proto::session_event::Payload::Started(_)) => "Started",
+            Some(nexus_core::proto::session_event::Payload::Heartbeat(_)) => "Heartbeat",
+            Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => "StatusChanged",
+            Some(nexus_core::proto::session_event::Payload::Stopped(_)) => "Stopped",
+            None => "None",
+        };
+        tracing::debug!(
+            session_id = %event.session_id,
+            payload_type,
+            receiver_count,
+            "event: emitting"
+        );
         // send() returns Err when there are no active receivers — that is fine.
         let _ = self.tx.send(event);
     }

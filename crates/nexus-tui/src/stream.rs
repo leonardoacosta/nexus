@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
 use nexus_core::proto::{EventFilter, SessionEvent};
@@ -33,15 +33,20 @@ pub fn subscribe_session_stream(
     let sid = session_id.clone();
 
     tokio::spawn(async move {
+        info!(session_id = %sid, agent_count = agents.len(), "stream: subscribing to session events");
         for (host, port) in &agents {
             let endpoint = format!("http://{host}:{port}");
+            debug!(%endpoint, session_id = %sid, "stream: attempting connection");
             let channel = match Endpoint::from_shared(endpoint.clone()) {
                 Ok(ep) => match ep
                     .connect_timeout(std::time::Duration::from_secs(2))
                     .connect()
                     .await
                 {
-                    Ok(ch) => ch,
+                    Ok(ch) => {
+                        info!(%endpoint, "stream: connected successfully");
+                        ch
+                    }
                     Err(e) => {
                         warn!(%endpoint, %e, "stream: failed to connect");
                         continue;
@@ -55,6 +60,8 @@ pub fn subscribe_session_stream(
 
             if let Err(e) = run_session_stream(channel, &sid, &tx).await {
                 warn!(%e, "stream: session stream ended");
+            } else {
+                debug!("stream: session stream ended cleanly (no more events)");
             }
             // If stream ends, we don't reconnect — the view will show
             // what was collected.
@@ -76,15 +83,27 @@ async fn run_session_stream(
         session_id: Some(session_id.to_string()),
     });
 
+    debug!(%session_id, "stream: calling StreamEvents RPC");
     let response = client.stream_events(request).await?;
+    info!(%session_id, "stream: RPC connected, waiting for events");
     let mut stream = response.into_inner();
+    let mut event_count: u64 = 0;
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(event) => {
+                event_count += 1;
+                let payload_type = match &event.payload {
+                    Some(nexus_core::proto::session_event::Payload::Started(_)) => "Started",
+                    Some(nexus_core::proto::session_event::Payload::Heartbeat(_)) => "Heartbeat",
+                    Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => "StatusChanged",
+                    Some(nexus_core::proto::session_event::Payload::Stopped(_)) => "Stopped",
+                    None => "None",
+                };
+                debug!(%session_id, event_count, payload_type, "stream: received event");
                 let line = format_event(&event);
                 if tx.send(StreamLine { text: line }).await.is_err() {
-                    // Receiver dropped (view closed).
+                    debug!("stream: receiver dropped (view closed)");
                     break;
                 }
             }
@@ -95,6 +114,7 @@ async fn run_session_stream(
         }
     }
 
+    info!(%session_id, event_count, "stream: stream ended");
     Ok(())
 }
 

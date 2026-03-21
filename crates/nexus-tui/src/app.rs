@@ -402,8 +402,8 @@ impl App {
     // -----------------------------------------------------------------------
 
     /// Enter stream attach view for a given session.
-    pub fn open_stream_attach(&mut self, session_id: String, session_label: String) {
-        self.stream_view = Some(StreamViewState::new(session_id, session_label));
+    pub fn open_stream_attach(&mut self, session_id: String, session_label: String, agent_name: String) {
+        self.stream_view = Some(StreamViewState::new(session_id, session_label, agent_name));
         self.current_screen = Screen::StreamAttach;
     }
 
@@ -640,6 +640,7 @@ impl NotificationManager {
 pub struct StreamViewState {
     pub session_id: String,
     pub session_label: String,
+    pub agent_name: String,
     pub lines: Vec<String>,
     pub scroll_offset: usize,
     pub auto_scroll: bool,
@@ -659,10 +660,11 @@ impl std::fmt::Debug for StreamViewState {
 const MAX_STREAM_LINES: usize = 1000;
 
 impl StreamViewState {
-    pub fn new(session_id: String, session_label: String) -> Self {
+    pub fn new(session_id: String, session_label: String, agent_name: String) -> Self {
         Self {
             session_id,
             session_label,
+            agent_name,
             lines: Vec::new(),
             scroll_offset: 0,
             auto_scroll: true,
