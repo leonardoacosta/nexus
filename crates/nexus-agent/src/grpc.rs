@@ -240,7 +240,9 @@ impl NexusAgent for NexusAgentService {
         let req = request.into_inner();
         let session_id = req.session_id.clone();
 
-        // 1. Look up the session in the registry.
+        // 1. Look up the session in the registry and refresh its heartbeat
+        //    so stale detection doesn't reap it while a command is executing.
+        self.registry.heartbeat(&session_id).await;
         let session = self
             .registry
             .get_by_id(&session_id)
