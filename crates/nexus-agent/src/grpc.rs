@@ -277,8 +277,11 @@ impl NexusAgent for NexusAgentService {
             // 4. Spawn the claude child process.
             // Use --resume for managed sessions (nexus controls the session),
             // --session-id for ad-hoc (start fresh conversation in same project context).
-            let is_managed = session.tmux_session.is_some()
-                || session.cc_session_id.as_deref() == Some(&session.id);
+            // Managed sessions are created via StartSession RPC and have
+            // a bootstrap conversation we can --resume. Ad-hoc sessions are
+            // running CC instances we can't resume — use fresh --session-id.
+            // We mark managed sessions by setting pid=0 at creation time.
+            let is_managed = session.pid == 0;
             let mut cmd = tokio::process::Command::new("claude");
             cmd.arg("-p")
                 .arg("--output-format")
