@@ -17,7 +17,7 @@ mod stream;
 use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StyledLine};
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
-use stream::{AlertEvent, StreamLine};
+use stream::{AlertEvent, StreamLine as NetStreamLine};
 
 // ---------------------------------------------------------------------------
 // RPC commands sent from the event handler to the async runtime
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
     let mut alert_rx = stream::subscribe_alert_stream(&agent_endpoints);
 
     // Channel for stream attach events (created on demand, reused here as Option).
-    let mut stream_rx: Option<mpsc::Receiver<StreamLine>> = None;
+    let mut stream_rx: Option<mpsc::Receiver<NetStreamLine>> = None;
 
     // Main event loop.
     let result = run_loop(
@@ -139,7 +139,7 @@ fn run_loop(
     rpc_tx: &mpsc::Sender<RpcCommand>,
     rpc_result_rx: &mut mpsc::Receiver<RpcResult>,
     alert_rx: &mut mpsc::Receiver<AlertEvent>,
-    stream_rx: &mut Option<mpsc::Receiver<StreamLine>>,
+    stream_rx: &mut Option<mpsc::Receiver<NetStreamLine>>,
     agent_endpoints: &[(String, u16)],
 ) -> Result<()> {
     loop {
@@ -436,8 +436,8 @@ fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
                     if let Some(sv) = &mut app.stream_view {
                         sv.auto_scroll = false;
                         sv.scroll_offset = sv.scroll_offset.saturating_add(3);
-                        // Clamp to max.
-                        let max = sv.lines.len().saturating_sub(1);
+                        // Clamp to max using total display lines.
+                        let max = sv.total_display_lines().saturating_sub(1);
                         if sv.scroll_offset >= max {
                             sv.scroll_offset = max;
                             sv.auto_scroll = true;
@@ -614,6 +614,12 @@ fn handle_stream_key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::End => {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.scroll_to_end();
+            }
+            false
+        }
+        KeyCode::Enter => {
+            if let Some(sv) = app.stream_view.as_mut() {
+                sv.toggle_block_at_scroll(20);
             }
             false
         }

@@ -62,6 +62,42 @@ impl StyledLine {
     }
 }
 
+/// A single entry in the stream view log — either a plain styled line or a
+/// collapsible block of tool output.
+#[derive(Debug, Clone)]
+pub enum StreamLine {
+    /// A single styled line rendered as-is.
+    Styled(StyledLine),
+    /// A collapsible block with a header and zero or more body lines.
+    CollapsibleBlock {
+        header: StyledLine,
+        lines: Vec<StyledLine>,
+        expanded: bool,
+    },
+}
+
+impl StreamLine {
+    /// Number of display lines this entry occupies.
+    ///
+    /// - `Styled`: always 1
+    /// - `CollapsibleBlock` (collapsed): 1 (header only)
+    /// - `CollapsibleBlock` (expanded): 1 (header) + body line count
+    pub fn display_lines(&self) -> usize {
+        match self {
+            StreamLine::Styled(_) => 1,
+            StreamLine::CollapsibleBlock {
+                lines, expanded, ..
+            } => {
+                if *expanded {
+                    1 + lines.len()
+                } else {
+                    1
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Screen enum
 // ---------------------------------------------------------------------------
@@ -828,7 +864,7 @@ pub struct StreamViewState {
     pub session_id: String,
     pub session_label: String,
     pub agent_name: String,
-    pub lines: Vec<StyledLine>,
+    pub lines: Vec<StreamLine>,
     pub scroll_offset: usize,
     pub auto_scroll: bool,
     /// Buffer for accumulating partial text chunks.
@@ -869,14 +905,27 @@ impl StreamViewState {
         }
     }
 
-    /// Append a styled event line, maintaining the bounded buffer.
+    /// Append a styled line, wrapping it in `StreamLine::Styled` and maintaining the bounded buffer.
     pub fn push_line(&mut self, line: StyledLine) {
-        self.lines.push(line);
+        self.push_stream_line(StreamLine::Styled(line));
+    }
+
+    /// Append a `StreamLine` entry, maintaining the bounded buffer.
+    ///
+    /// The buffer cap (`MAX_STREAM_LINES`) is counted in `StreamLine` entries,
+    /// not display lines.
+    pub fn push_stream_line(&mut self, entry: StreamLine) {
+        self.lines.push(entry);
         if self.lines.len() > MAX_STREAM_LINES {
             let excess = self.lines.len() - MAX_STREAM_LINES;
             self.lines.drain(0..excess);
             self.scroll_offset = self.scroll_offset.saturating_sub(excess);
         }
+    }
+
+    /// Total number of display lines across all entries (accounts for expanded blocks).
+    pub fn total_display_lines(&self) -> usize {
+        self.lines.iter().map(|l| l.display_lines()).sum()
     }
 
     /// Scroll up by one line.
@@ -889,7 +938,8 @@ impl StreamViewState {
 
     /// Scroll down by one line.
     pub fn scroll_down(&mut self, visible_height: usize) {
-        let max = self.lines.len().saturating_sub(visible_height);
+        let total = self.total_display_lines();
+        let max = total.saturating_sub(visible_height);
         if self.scroll_offset < max {
             self.scroll_offset += 1;
         }
@@ -907,7 +957,8 @@ impl StreamViewState {
 
     /// Scroll down by a page.
     pub fn page_down(&mut self, visible_height: usize) {
-        let max = self.lines.len().saturating_sub(visible_height);
+        let total = self.total_display_lines();
+        let max = total.saturating_sub(visible_height);
         self.scroll_offset = (self.scroll_offset + visible_height).min(max);
         if self.scroll_offset >= max {
             self.auto_scroll = true;
@@ -922,7 +973,35 @@ impl StreamViewState {
     /// Update scroll offset for auto-scroll mode.
     pub fn update_auto_scroll(&mut self, visible_height: usize) {
         if self.auto_scroll {
-            self.scroll_offset = self.lines.len().saturating_sub(visible_height);
+            let total = self.total_display_lines();
+            self.scroll_offset = total.saturating_sub(visible_height);
+        }
+    }
+
+    /// Toggle the `expanded` state of the `CollapsibleBlock` entry that
+    /// contains display line `scroll_offset`. After toggling, re-applies
+    /// auto-scroll if it was active.
+    pub fn toggle_block_at_scroll(&mut self, visible_height: usize) {
+        let target = self.scroll_offset;
+        let mut display_pos: usize = 0;
+        for entry in self.lines.iter_mut() {
+            let entry_display = entry.display_lines();
+            if display_pos + entry_display > target {
+                // This entry contains the target display line.
+                if let StreamLine::CollapsibleBlock { expanded, .. } = entry {
+                    *expanded = !*expanded;
+                }
+                break;
+            }
+            display_pos += entry_display;
+        }
+        // Clamp scroll offset after a collapse (content may have shrunk).
+        let total = self.total_display_lines();
+        let max = total.saturating_sub(visible_height);
+        if self.auto_scroll {
+            self.scroll_offset = max;
+        } else {
+            self.scroll_offset = self.scroll_offset.min(max);
         }
     }
 
@@ -977,9 +1056,34 @@ impl StreamViewState {
                 } else {
                     ("\u{2717}", LineStyle::ToolError) // ✗
                 };
-                let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
-                for wrapped in textwrap_simple(&line, 120) {
-                    self.push_line(StyledLine::new(wrapped, style));
+
+                // Count newlines in the output preview to decide collapsibility.
+                let line_count = result.output_preview.lines().count();
+                if line_count > 5 {
+                    // Build the body lines from the full output preview.
+                    let body_lines: Vec<StyledLine> = result
+                        .output_preview
+                        .lines()
+                        .flat_map(|l| textwrap_simple(l, 116))
+                        .map(|l| StyledLine::new(format!("    {l}"), style))
+                        .collect();
+
+                    let header_text = format!(
+                        "  {icon} {} [+{} lines] [Enter] to expand",
+                        result.tool_name,
+                        body_lines.len()
+                    );
+                    let header = StyledLine::new(header_text, style);
+                    self.push_stream_line(StreamLine::CollapsibleBlock {
+                        header,
+                        lines: body_lines,
+                        expanded: false,
+                    });
+                } else {
+                    let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
+                    for wrapped in textwrap_simple(&line, 120) {
+                        self.push_line(StyledLine::new(wrapped, style));
+                    }
                 }
             }
             Some(Content::Error(err)) => {

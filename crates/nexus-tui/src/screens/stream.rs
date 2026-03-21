@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, LineStyle, colors};
+use crate::app::{App, LineStyle, StreamLine, colors};
 
 /// Map a `LineStyle` to the ratatui `Style` using the brand color palette.
 fn line_style_to_ratatui(style: LineStyle) -> Style {
@@ -68,7 +68,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  q: back  j/k: scroll  End: follow",
+            "  q: back  j/k: scroll  End: follow  Enter: expand/collapse",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))
@@ -107,17 +107,51 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
-    let visible_lines: Vec<Line<'_>> = sv
-        .lines
-        .iter()
+    // Expand all StreamLine entries into individual display lines, then
+    // apply scroll offset and take only what fits in the viewport.
+    let mut display_lines: Vec<Line<'_>> = Vec::new();
+    for entry in &sv.lines {
+        match entry {
+            StreamLine::Styled(s) => {
+                display_lines.push(Line::from(Span::styled(
+                    s.text.clone(),
+                    line_style_to_ratatui(s.style),
+                )));
+            }
+            StreamLine::CollapsibleBlock {
+                header,
+                lines,
+                expanded,
+            } => {
+                if *expanded {
+                    // Header rendered with normal (non-dim) color.
+                    display_lines.push(Line::from(Span::styled(
+                        header.text.clone(),
+                        line_style_to_ratatui(header.style),
+                    )));
+                    for body_line in lines {
+                        display_lines.push(Line::from(Span::styled(
+                            body_line.text.clone(),
+                            line_style_to_ratatui(body_line.style),
+                        )));
+                    }
+                } else {
+                    // Collapsed: header only, rendered dim.
+                    display_lines.push(Line::from(Span::styled(
+                        header.text.clone(),
+                        Style::default()
+                            .fg(colors::TEXT_DIM)
+                            .add_modifier(Modifier::DIM),
+                    )));
+                }
+            }
+        }
+    }
+
+    let visible_lines: Vec<Line<'_>> = display_lines
+        .into_iter()
         .skip(sv.scroll_offset)
         .take(visible_height)
-        .map(|styled_line| {
-            Line::from(Span::styled(
-                styled_line.text.clone(),
-                line_style_to_ratatui(styled_line.style),
-            ))
-        })
         .collect();
 
     let paragraph = Paragraph::new(visible_lines);
@@ -160,7 +194,7 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let sv = app.stream_view.as_ref();
-    let line_count = sv.map(|s| s.lines.len()).unwrap_or(0);
+    let line_count = sv.map(|s| s.total_display_lines()).unwrap_or(0);
     let auto_scroll = sv.is_some_and(|s| s.auto_scroll);
 
     let scroll_indicator = if auto_scroll {
