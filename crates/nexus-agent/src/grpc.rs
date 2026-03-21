@@ -9,6 +9,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::events::EventBroadcaster;
+use crate::health::HealthCollector;
 use crate::parser;
 use crate::registry::SessionRegistry;
 
@@ -16,6 +17,7 @@ use crate::registry::SessionRegistry;
 pub struct NexusAgentService {
     registry: Arc<SessionRegistry>,
     events: Arc<EventBroadcaster>,
+    health: HealthCollector,
     agent_name: String,
     agent_host: String,
 }
@@ -24,12 +26,14 @@ impl NexusAgentService {
     pub fn new(
         registry: Arc<SessionRegistry>,
         events: Arc<EventBroadcaster>,
+        health: HealthCollector,
         agent_name: String,
         agent_host: String,
     ) -> Self {
         Self {
             registry,
             events,
+            health,
             agent_name,
             agent_host,
         }
@@ -462,6 +466,41 @@ impl NexusAgent for NexusAgentService {
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,
         )))
+    }
+
+    async fn get_health(
+        &self,
+        _request: Request<proto::HealthRequest>,
+    ) -> Result<Response<proto::HealthResponse>, Status> {
+        let machine = self.health.get().await;
+        let sessions = self.registry.get_all().await;
+
+        let health_response = proto::HealthResponse {
+            agent_name: self.agent_name.clone(),
+            agent_host: self.agent_host.clone(),
+            uptime_seconds: 0, // TODO: pass started_at if needed
+            session_count: sessions.len() as u32,
+            machine: Some(proto::MachineHealth {
+                cpu_percent: machine.cpu_percent,
+                memory_used_gb: machine.memory_used_gb,
+                memory_total_gb: machine.memory_total_gb,
+                disk_used_gb: machine.disk_used_gb,
+                disk_total_gb: machine.disk_total_gb,
+                load_avg: machine.load_avg.to_vec(),
+                uptime_seconds: machine.uptime_seconds,
+                docker_containers: machine
+                    .docker_containers
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|c| proto::ContainerStatus {
+                        name: c.name,
+                        running: c.running,
+                    })
+                    .collect(),
+            }),
+        };
+
+        Ok(Response::new(health_response))
     }
 
     type StreamEventsStream =

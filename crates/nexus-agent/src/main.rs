@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
     let service = NexusAgentService::new(
         Arc::clone(&registry),
         Arc::clone(&event_broadcaster),
+        health_collector.clone(),
         agent_name.clone(),
         agent_host.clone(),
     );

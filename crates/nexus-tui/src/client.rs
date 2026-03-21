@@ -7,8 +7,9 @@ use tracing::warn;
 
 use nexus_core::agent::AgentInfo;
 use nexus_core::config::{AgentConfig, NexusConfig};
+use nexus_core::health::MachineHealth;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
-use nexus_core::proto::{SessionFilter, SessionId};
+use nexus_core::proto::{HealthRequest, SessionFilter, SessionId};
 use nexus_core::session::{Session, SessionStatus};
 
 /// Connection timeout for each agent.
@@ -121,7 +122,7 @@ impl NexusClient {
         let mut results = Vec::with_capacity(self.agents.len());
 
         for agent in &mut self.agents {
-            let (sessions, connected) = match agent.client.as_mut() {
+            let (sessions, connected, health) = match agent.client.as_mut() {
                 Some(client) => {
                     let request = tonic::Request::new(SessionFilter {
                         status: None,
@@ -138,7 +139,27 @@ impl NexusClient {
                             let list = response.into_inner();
                             let sessions =
                                 list.sessions.into_iter().map(proto_to_session).collect();
-                            (sessions, true)
+
+                            // Fetch health data from the same agent.
+                            let health = match client
+                                .get_health(tonic::Request::new(HealthRequest {}))
+                                .await
+                            {
+                                Ok(resp) => resp
+                                    .into_inner()
+                                    .machine
+                                    .map(proto_to_machine_health),
+                                Err(e) => {
+                                    warn!(
+                                        agent = %agent.config.name,
+                                        error = %e,
+                                        "failed to fetch health"
+                                    );
+                                    None
+                                }
+                            };
+
+                            (sessions, true, health)
                         }
                         Err(e) => {
                             warn!(
@@ -148,11 +169,11 @@ impl NexusClient {
                             );
                             agent.status = ConnectionStatus::Disconnected;
                             agent.last_error = Some(e.to_string());
-                            (Vec::new(), false)
+                            (Vec::new(), false, None)
                         }
                     }
                 }
-                None => (Vec::new(), false),
+                None => (Vec::new(), false, None),
             };
 
             let info = AgentInfo {
@@ -161,7 +182,7 @@ impl NexusClient {
                 port: agent.config.port,
                 os: String::new(),
                 sessions: sessions.clone(),
-                health: None,
+                health,
                 connected,
             };
 
@@ -395,4 +416,39 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
 /// Convert a protobuf `Timestamp` to a `chrono::DateTime<Utc>`.
 fn proto_timestamp_to_datetime(ts: prost_types::Timestamp) -> DateTime<Utc> {
     DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_else(Utc::now)
+}
+
+/// Convert a protobuf `MachineHealth` message into the core `MachineHealth` type.
+fn proto_to_machine_health(proto: nexus_core::proto::MachineHealth) -> MachineHealth {
+    let load_avg = if proto.load_avg.len() >= 3 {
+        [proto.load_avg[0], proto.load_avg[1], proto.load_avg[2]]
+    } else {
+        [0.0; 3]
+    };
+
+    let docker_containers = if proto.docker_containers.is_empty() {
+        None
+    } else {
+        Some(
+            proto
+                .docker_containers
+                .into_iter()
+                .map(|c| nexus_core::health::ContainerStatus {
+                    name: c.name,
+                    running: c.running,
+                })
+                .collect(),
+        )
+    };
+
+    MachineHealth {
+        cpu_percent: proto.cpu_percent,
+        memory_used_gb: proto.memory_used_gb,
+        memory_total_gb: proto.memory_total_gb,
+        disk_used_gb: proto.disk_used_gb,
+        disk_total_gb: proto.disk_total_gb,
+        load_avg,
+        uptime_seconds: proto.uptime_seconds,
+        docker_containers,
+    }
 }
