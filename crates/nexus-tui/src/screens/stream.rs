@@ -11,15 +11,17 @@ pub fn render_stream(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(1),
-        Constraint::Length(1),
+        Constraint::Length(3), // title bar
+        Constraint::Min(1),   // log view
+        Constraint::Length(3), // input bar
+        Constraint::Length(1), // status bar
     ])
     .split(area);
 
     render_title_bar(frame, chunks[0], app);
     render_log_view(frame, chunks[1], app);
-    render_status_bar(frame, chunks[2], app);
+    render_input_bar(frame, chunks[2], app);
+    render_status_bar(frame, chunks[3], app);
 }
 
 fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -97,6 +99,42 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let paragraph = Paragraph::new(visible_lines);
     frame.render_widget(paragraph, area);
+}
+
+fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(colors::TEXT_DIM));
+
+    if app.stream_executing {
+        // Show spinner during execution.
+        let spinner_chars = [
+            '\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}',
+            '\u{2827}', '\u{2807}', '\u{280F}',
+        ];
+        let idx = (app.tick_count / 3) % spinner_chars.len();
+        let spinner = spinner_chars[idx];
+        let content = Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {spinner} executing..."),
+            Style::default().fg(colors::WARNING),
+        )]))
+        .block(block);
+        frame.render_widget(content, area);
+    } else {
+        let content = Paragraph::new(Line::from(vec![
+            Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
+            Span::styled(
+                &app.stream_input,
+                Style::default().fg(colors::TEXT),
+            ),
+            Span::styled(
+                "\u{2588}",
+                Style::default().fg(colors::PRIMARY),
+            ),
+        ]))
+        .block(block);
+        frame.render_widget(content, area);
+    }
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {

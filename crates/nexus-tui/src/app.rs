@@ -78,6 +78,7 @@ pub enum InputMode {
     StartSessionAgent,
     StartSessionProject,
     StartSessionCwd,
+    StreamInput,
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +181,14 @@ pub struct App {
 
     // Stream attach view
     pub stream_view: Option<StreamViewState>,
+
+    /// Input buffer for the stream view command input bar.
+    pub stream_input: String,
+    /// Whether a command is currently executing.
+    pub stream_executing: bool,
+
+    /// Frame counter for animations (spinner, etc.). Incremented each render tick.
+    pub tick_count: usize,
 }
 
 impl App {
@@ -201,6 +210,9 @@ impl App {
             status_message: None,
             notifications: NotificationManager::new(),
             stream_view: None,
+            stream_input: String::new(),
+            stream_executing: false,
+            tick_count: 0,
         }
     }
 
@@ -727,4 +739,53 @@ impl StreamViewState {
             self.scroll_offset = self.lines.len().saturating_sub(visible_height);
         }
     }
+
+    /// Format and append a CommandOutput message to the log.
+    pub fn push_command_output(&mut self, output: &nexus_core::proto::CommandOutput) {
+        use nexus_core::proto::command_output::Content;
+
+        let line = match &output.content {
+            Some(Content::Text(chunk)) => {
+                if chunk.partial {
+                    return; // Skip partial chunks for now
+                }
+                chunk.text.clone()
+            }
+            Some(Content::ToolUse(info)) => {
+                format!("[tool] {}: {}", info.tool_name, info.input_preview)
+            }
+            Some(Content::ToolResult(result)) => {
+                let icon = if result.success { "\u{2713}" } else { "\u{2717}" };
+                format!("  {icon} {}: {}", result.tool_name, result.output_preview)
+            }
+            Some(Content::Error(err)) => {
+                format!("ERROR: {} (exit {})", err.message, err.exit_code)
+            }
+            Some(Content::Done(done)) => {
+                format!(
+                    "\u{2500}\u{2500} done ({:.1}s, {} tool calls) \u{2500}\u{2500}",
+                    done.duration_ms as f64 / 1000.0,
+                    done.tool_calls
+                )
+            }
+            None => return,
+        };
+
+        // Wrap long lines and push into the bounded buffer.
+        for wrapped in textwrap_simple(&line, 120) {
+            self.push_line(wrapped);
+        }
+    }
+}
+
+/// Simple character-boundary line wrapping for stream output.
+fn textwrap_simple(text: &str, width: usize) -> Vec<String> {
+    if text.len() <= width {
+        return vec![text.to_string()];
+    }
+    text.chars()
+        .collect::<Vec<_>>()
+        .chunks(width)
+        .map(|c| c.iter().collect::<String>())
+        .collect()
 }

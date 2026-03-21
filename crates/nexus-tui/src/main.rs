@@ -270,6 +270,9 @@ fn run_loop(
         // Tick notification manager (remove expired).
         app.notifications.tick();
 
+        // Increment frame counter for animations (spinner, etc.).
+        app.tick_count = app.tick_count.wrapping_add(1);
+
         // Poll for keyboard events with 200ms timeout.
         if event::poll(Duration::from_millis(200))?
             && let Event::Key(key) = event::read()?
@@ -315,6 +318,10 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
         }
         InputMode::StartSessionCwd => {
             handle_text_input_key(app, key, TextInputTarget::Cwd, rpc_tx);
+            false
+        }
+        InputMode::StreamInput => {
+            // Handled by task [3.3] — stream input bar key handling.
             false
         }
     }

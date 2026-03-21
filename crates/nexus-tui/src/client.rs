@@ -307,6 +307,48 @@ impl NexusClient {
 
         anyhow::bail!("session {id} not found on any connected agent")
     }
+
+    /// Send a command to a session via the broker. Returns a streaming receiver
+    /// of CommandOutput messages. Tries each connected agent until one owns the session.
+    pub async fn send_command(
+        &mut self,
+        session_id: &str,
+        prompt: &str,
+    ) -> anyhow::Result<tonic::Streaming<nexus_core::proto::CommandOutput>> {
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let request = tonic::Request::new(nexus_core::proto::CommandRequest {
+                session_id: session_id.to_string(),
+                prompt: prompt.to_string(),
+            });
+
+            match client.send_command(request).await {
+                Ok(response) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    return Ok(response.into_inner());
+                }
+                Err(e) => {
+                    if e.code() == tonic::Code::NotFound {
+                        continue; // Try next agent
+                    }
+                    warn!(
+                        agent = %agent.config.name,
+                        session_id = %session_id,
+                        error = %e,
+                        "error sending command"
+                    );
+                    return Err(e.into());
+                }
+            }
+        }
+        anyhow::bail!("session {session_id} not found on any connected agent")
+    }
 }
 
 // ---------------------------------------------------------------------------
