@@ -329,6 +329,13 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
                         app.stream_input.clear();
                         app.stream_executing = true;
 
+                        // Echo the prompt to the stream view so user sees what they sent.
+                        if let Some(sv) = &mut app.stream_view {
+                            sv.lines.push(format!("── you ──"));
+                            sv.lines.push(prompt.clone());
+                            sv.lines.push(String::new());
+                        }
+
                         // Get session ID from stream view and dispatch RPC.
                         if let Some(sv) = &app.stream_view {
                             let session_id = sv.session_id.clone();
