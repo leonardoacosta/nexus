@@ -424,6 +424,24 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
         _ => SessionStatus::Active,
     };
 
+    // Extract telemetry fields from the proto.
+    let (rate_limit_utilization, rate_limit_type, total_cost_usd, model) =
+        if let Some(ref telemetry) = proto.telemetry {
+            let (rl_util, rl_type) = if let Some(ref rl) = telemetry.rate_limit {
+                (Some(rl.utilization_percent), Some(rl.rate_limit_type.clone()))
+            } else {
+                (None, None)
+            };
+            (
+                rl_util,
+                rl_type,
+                telemetry.total_cost_usd.map(|c| c as f64),
+                telemetry.model.clone(),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
     Session {
         id: proto.id,
         pid: proto.pid,
@@ -438,6 +456,10 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
         agent: proto.agent,
         tmux_session: proto.tmux_session,
         cc_session_id: proto.cc_session_id,
+        rate_limit_utilization,
+        rate_limit_type,
+        total_cost_usd,
+        model,
     }
 }
 

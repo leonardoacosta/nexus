@@ -505,6 +505,18 @@ impl App {
 
         self.agents = data;
 
+        // Sync telemetry into the stream view from the matching session.
+        if let Some(ref mut sv) = self.stream_view {
+            for agent in &self.agents {
+                if let Some(session) = agent.sessions.iter().find(|s| s.id == sv.session_id) {
+                    sv.model = session.model.clone();
+                    sv.rate_limit_utilization = session.rate_limit_utilization;
+                    sv.total_cost_usd = session.total_cost_usd;
+                    break;
+                }
+            }
+        }
+
         // Try to restore selection by session ID.
         if let Some(id) = selected_session_id {
             let sessions = self.all_sessions();
@@ -687,6 +699,11 @@ pub struct StreamViewState {
     pub auto_scroll: bool,
     /// Buffer for accumulating partial text chunks.
     pub partial_buf: String,
+
+    // Telemetry fields (updated from session data on poll).
+    pub model: Option<String>,
+    pub rate_limit_utilization: Option<f32>,
+    pub total_cost_usd: Option<f64>,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -712,6 +729,9 @@ impl StreamViewState {
             scroll_offset: 0,
             auto_scroll: true,
             partial_buf: String::new(),
+            model: None,
+            rate_limit_utilization: None,
+            total_cost_usd: None,
         }
     }
 

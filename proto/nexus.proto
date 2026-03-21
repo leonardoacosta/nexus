@@ -23,6 +23,22 @@ enum SessionType {
 }
 
 // ---------------------------------------------------------------------------
+// Telemetry messages
+// ---------------------------------------------------------------------------
+
+message RateLimitInfo {
+  float utilization_percent = 1;
+  string rate_limit_type = 2;
+  bool surpassed_threshold = 3;
+}
+
+message SessionTelemetry {
+  optional RateLimitInfo rate_limit = 1;
+  optional float total_cost_usd = 2;
+  optional string model = 3;
+}
+
+// ---------------------------------------------------------------------------
 // Session messages
 // ---------------------------------------------------------------------------
 
@@ -41,6 +57,7 @@ message Session {
   optional string agent = 12;
   optional string tmux_session = 13;
   optional string cc_session_id = 14;
+  optional SessionTelemetry telemetry = 15;
 }
 
 message SessionId {
@@ -226,6 +243,7 @@ message HealthResponse {
   uint64 uptime_seconds = 3;
   uint32 session_count = 4;
   optional MachineHealth machine = 5;
+  optional RateLimitInfo latest_rate_limit = 6;
 }
 
 // ---------------------------------------------------------------------------

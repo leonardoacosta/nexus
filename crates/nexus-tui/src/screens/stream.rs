@@ -142,11 +142,46 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         "\u{25B2} scrolled" // ▲ scrolled
     };
 
-    let bar = Paragraph::new(Line::from(vec![Span::styled(
+    let mut spans: Vec<Span<'_>> = vec![Span::styled(
         format!(" {line_count} events \u{00B7} {scroll_indicator}"),
         Style::default().fg(colors::TEXT_DIM),
-    )]))
-    .style(Style::default().bg(colors::SURFACE));
+    )];
+
+    if let Some(sv) = sv {
+        // Model name
+        if let Some(ref model) = sv.model {
+            spans.push(Span::styled(
+                format!(" \u{00B7} {model}"),
+                Style::default().fg(colors::SECONDARY),
+            ));
+        }
+
+        // Rate limit utilization with color coding
+        if let Some(rl) = sv.rate_limit_utilization {
+            let pct = (rl * 100.0).round() as u32;
+            let rl_color = if rl < 0.50 {
+                colors::PRIMARY // green
+            } else if rl < 0.80 {
+                colors::WARNING // yellow
+            } else {
+                colors::ERROR // red
+            };
+            spans.push(Span::styled(
+                format!(" \u{00B7} RL: {pct}%"),
+                Style::default().fg(rl_color),
+            ));
+        }
+
+        // Total cost
+        if let Some(cost) = sv.total_cost_usd {
+            spans.push(Span::styled(
+                format!(" \u{00B7} ${cost:.2}"),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
+        }
+    }
+
+    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(colors::SURFACE));
 
     frame.render_widget(bar, area);
 }

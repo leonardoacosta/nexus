@@ -1,12 +1,45 @@
 use nexus_core::proto;
 
-/// Parse a single line of CC stream-json output into a CommandOutput proto message.
+// ---------------------------------------------------------------------------
+// Telemetry types (side-channel data from CC stream-json)
+// ---------------------------------------------------------------------------
+
+/// Rate limit data extracted from `rate_limit_event` lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RateLimitData {
+    pub utilization: f32,
+    pub rate_limit_type: String,
+    pub surpassed_threshold: bool,
+}
+
+/// Side-channel telemetry that accompanies stream events but is not part of
+/// the `CommandOutput` content oneof.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TelemetryUpdate {
+    pub rate_limit: Option<RateLimitData>,
+    pub cost_usd: Option<f64>,
+    pub model: Option<String>,
+}
+
+/// Unified parse result: either a `CommandOutput` to forward on the gRPC
+/// stream, a telemetry update to persist in the registry, or both.
+#[derive(Debug)]
+pub enum ParsedEvent {
+    /// A regular command output message (text, tool use, tool result, done, error).
+    Command(proto::CommandOutput),
+    /// Side-channel telemetry (rate limit, cost, model).
+    Telemetry(TelemetryUpdate),
+    /// A result event that carries both a CommandOutput (Done/Error) and telemetry.
+    CommandWithTelemetry(proto::CommandOutput, TelemetryUpdate),
+}
+
+/// Parse a single line of CC stream-json output.
 ///
 /// CC with `--output-format stream-json --include-partial-messages` emits one JSON object
-/// per line. We map each relevant event type to its corresponding `CommandOutput` variant.
+/// per line. We map each relevant event type to its corresponding `ParsedEvent` variant.
 ///
 /// Returns `None` for lines we don't care about (system messages, metadata, malformed JSON).
-pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::CommandOutput> {
+pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<ParsedEvent> {
     let line = line.trim();
     if line.is_empty() {
         return None;
@@ -15,12 +48,37 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::Com
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     let event_type = v.get("type")?.as_str()?;
 
-    let content = match event_type {
-        "assistant" => parse_assistant(&v),
-        "content_block_delta" => parse_content_block_delta(&v),
-        "tool_use" => parse_tool_use(&v),
-        "tool_result" => parse_tool_result(&v),
-        "result" => parse_result(&v),
+    match event_type {
+        "assistant" => {
+            let content = parse_assistant(&v)?;
+            Some(ParsedEvent::Command(proto::CommandOutput {
+                session_id: session_id.to_string(),
+                content: Some(content),
+            }))
+        }
+        "content_block_delta" => {
+            let content = parse_content_block_delta(&v)?;
+            Some(ParsedEvent::Command(proto::CommandOutput {
+                session_id: session_id.to_string(),
+                content: Some(content),
+            }))
+        }
+        "tool_use" => {
+            let content = parse_tool_use(&v)?;
+            Some(ParsedEvent::Command(proto::CommandOutput {
+                session_id: session_id.to_string(),
+                content: Some(content),
+            }))
+        }
+        "tool_result" => {
+            let content = parse_tool_result(&v)?;
+            Some(ParsedEvent::Command(proto::CommandOutput {
+                session_id: session_id.to_string(),
+                content: Some(content),
+            }))
+        }
+        "result" => parse_result_event(session_id, &v),
+        "rate_limit_event" => parse_rate_limit_event(&v),
         // stream_event wraps inner events — unwrap and parse the inner event.
         "stream_event" => {
             if let Some(inner) = v.get("event") {
@@ -38,12 +96,17 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::Com
                                     if text.is_empty() {
                                         None
                                     } else {
-                                        Some(proto::command_output::Content::Text(
-                                            proto::TextChunk {
-                                                text: text.to_string(),
-                                                partial: true,
-                                            },
-                                        ))
+                                        Some(ParsedEvent::Command(proto::CommandOutput {
+                                            session_id: session_id.to_string(),
+                                            content: Some(
+                                                proto::command_output::Content::Text(
+                                                    proto::TextChunk {
+                                                        text: text.to_string(),
+                                                        partial: true,
+                                                    },
+                                                ),
+                                            ),
+                                        }))
                                     }
                                 }
                                 _ => None, // input_json_delta, thinking_delta etc — skip
@@ -59,12 +122,7 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::Com
             }
         }
         _ => None,
-    };
-
-    content.map(|c| proto::CommandOutput {
-        session_id: session_id.to_string(),
-        content: Some(c),
-    })
+    }
 }
 
 /// Full assistant message: extract text from the content array.
@@ -178,11 +236,14 @@ fn parse_tool_result(v: &serde_json::Value) -> Option<proto::command_output::Con
 
 /// Final result event indicating the command is complete.
 /// Also handles error results: `{"type":"result","subtype":"error_during_execution","errors":[...]}`
-fn parse_result(v: &serde_json::Value) -> Option<proto::command_output::Content> {
+///
+/// Extracts `total_cost_usd` and `model` from the result event when present, returning
+/// them as side-channel telemetry alongside the `CommandOutput`.
+fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedEvent> {
     // Check for error results first.
     let is_error = v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
 
-    if is_error {
+    let content = if is_error {
         let errors = v
             .get("errors")
             .and_then(|e| e.as_array())
@@ -193,19 +254,79 @@ fn parse_result(v: &serde_json::Value) -> Option<proto::command_output::Content>
                     .join("; ")
             })
             .unwrap_or_else(|| "unknown error".to_string());
-        return Some(proto::command_output::Content::Error(proto::CommandError {
+        proto::command_output::Content::Error(proto::CommandError {
             message: errors,
             exit_code: 1,
-        }));
+        })
+    } else {
+        let duration = v.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0);
+        let turns = v.get("num_turns").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+        proto::command_output::Content::Done(proto::CommandDone {
+            duration_ms: duration,
+            tool_calls: turns,
+        })
+    };
+
+    // Extract telemetry from the result event.
+    let cost_usd = v.get("total_cost_usd").and_then(|c| c.as_f64());
+    let model = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .map(String::from);
+
+    let output = proto::CommandOutput {
+        session_id: session_id.to_string(),
+        content: Some(content),
+    };
+
+    if cost_usd.is_some() || model.is_some() {
+        let telemetry = TelemetryUpdate {
+            rate_limit: None,
+            cost_usd,
+            model,
+        };
+        Some(ParsedEvent::CommandWithTelemetry(output, telemetry))
+    } else {
+        Some(ParsedEvent::Command(output))
     }
+}
 
-    let duration = v.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0);
+/// Parse a `rate_limit_event` into a `Telemetry` variant.
+///
+/// CC format: `{"type":"rate_limit_event","rate_limit_info":{"utilization":0.91,"rateLimitType":"seven_day","surpassedThreshold":0.75}}`
+fn parse_rate_limit_event(v: &serde_json::Value) -> Option<ParsedEvent> {
+    let info = v.get("rate_limit_info")?;
 
-    let turns = v.get("num_turns").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+    let utilization = info
+        .get("utilization")
+        .and_then(|u| u.as_f64())
+        .unwrap_or(0.0) as f32;
 
-    Some(proto::command_output::Content::Done(proto::CommandDone {
-        duration_ms: duration,
-        tool_calls: turns,
+    let rate_limit_type = info
+        .get("rateLimitType")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // surpassedThreshold can be a float (threshold value) or bool.
+    // Treat any non-zero/non-false value as surpassed.
+    let surpassed_threshold = info
+        .get("surpassedThreshold")
+        .map(|s| match s {
+            serde_json::Value::Bool(b) => *b,
+            serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0) > 0.0,
+            _ => false,
+        })
+        .unwrap_or(false);
+
+    Some(ParsedEvent::Telemetry(TelemetryUpdate {
+        rate_limit: Some(RateLimitData {
+            utilization,
+            rate_limit_type,
+            surpassed_threshold,
+        }),
+        cost_usd: None,
+        model: None,
     }))
 }
 
@@ -234,10 +355,19 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 mod tests {
     use super::*;
 
+    /// Helper: extract the CommandOutput from a ParsedEvent, panicking on Telemetry-only.
+    fn unwrap_command(event: ParsedEvent) -> proto::CommandOutput {
+        match event {
+            ParsedEvent::Command(output) => output,
+            ParsedEvent::CommandWithTelemetry(output, _) => output,
+            ParsedEvent::Telemetry(_) => panic!("expected Command, got Telemetry"),
+        }
+    }
+
     #[test]
     fn parse_assistant_message() {
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         assert_eq!(output.session_id, "sess-1");
         match output.content.unwrap() {
             proto::command_output::Content::Text(chunk) => {
@@ -257,7 +387,7 @@ mod tests {
     #[test]
     fn parse_content_block_delta() {
         let line = r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"partial output"}}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::Text(chunk) => {
                 assert_eq!(chunk.text, "partial output");
@@ -271,7 +401,7 @@ mod tests {
     fn parse_tool_use_nested_format() {
         let line =
             r#"{"type":"tool_use","tool":{"name":"Bash","input":{"command":"cargo build"}}}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolUse(info) => {
                 assert_eq!(info.tool_name, "Bash");
@@ -284,7 +414,7 @@ mod tests {
     #[test]
     fn parse_tool_use_flat_format() {
         let line = r#"{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/test.rs"}}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolUse(info) => {
                 assert_eq!(info.tool_name, "Read");
@@ -297,7 +427,7 @@ mod tests {
     #[test]
     fn parse_tool_result_with_content_string() {
         let line = r#"{"type":"tool_result","tool":{"name":"Bash"},"content":"Build succeeded","is_error":false}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolResult(result) => {
                 assert_eq!(result.tool_name, "Bash");
@@ -311,7 +441,7 @@ mod tests {
     #[test]
     fn parse_tool_result_error() {
         let line = r#"{"type":"tool_result","tool":{"name":"Bash"},"content":"command not found","is_error":true}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolResult(result) => {
                 assert!(!result.success);
@@ -323,7 +453,7 @@ mod tests {
     #[test]
     fn parse_result_done() {
         let line = r#"{"type":"result","result":"Final message","duration_ms":3200,"num_turns":5}"#;
-        let output = parse_stream_json_line("sess-1", line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::Done(done) => {
                 assert_eq!(done.duration_ms, 3200);
@@ -357,7 +487,7 @@ mod tests {
             r#"{{"type":"tool_use","name":"Write","input":{{"content":"{}"}}}}"#,
             long_input
         );
-        let output = parse_stream_json_line("sess-1", &line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", &line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolUse(info) => {
                 // 200 chars + "..." suffix
@@ -375,13 +505,142 @@ mod tests {
             r#"{{"type":"tool_result","tool":{{"name":"Bash"}},"content":"{}"}}"#,
             long_output
         );
-        let output = parse_stream_json_line("sess-1", &line).unwrap();
+        let output = unwrap_command(parse_stream_json_line("sess-1", &line).unwrap());
         match output.content.unwrap() {
             proto::command_output::Content::ToolResult(result) => {
                 assert!(result.output_preview.len() <= 510);
                 assert!(result.output_preview.ends_with("..."));
             }
             other => panic!("expected ToolResult, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rate limit event tests (task 2.4)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_rate_limit_event_valid() {
+        let line = r#"{"type":"rate_limit_event","rate_limit_info":{"utilization":0.91,"rateLimitType":"seven_day","surpassedThreshold":0.75}}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::Telemetry(t) => {
+                let rl = t.rate_limit.unwrap();
+                assert!((rl.utilization - 0.91).abs() < 0.001);
+                assert_eq!(rl.rate_limit_type, "seven_day");
+                assert!(rl.surpassed_threshold);
+            }
+            other => panic!("expected Telemetry, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_rate_limit_event_surpassed_bool_false() {
+        let line = r#"{"type":"rate_limit_event","rate_limit_info":{"utilization":0.3,"rateLimitType":"daily","surpassedThreshold":false}}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::Telemetry(t) => {
+                let rl = t.rate_limit.unwrap();
+                assert!((rl.utilization - 0.3).abs() < 0.001);
+                assert_eq!(rl.rate_limit_type, "daily");
+                assert!(!rl.surpassed_threshold);
+            }
+            other => panic!("expected Telemetry, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_rate_limit_event_missing_info_returns_none() {
+        let line = r#"{"type":"rate_limit_event"}"#;
+        assert!(parse_stream_json_line("sess-1", line).is_none());
+    }
+
+    #[test]
+    fn parse_rate_limit_event_missing_fields_uses_defaults() {
+        let line = r#"{"type":"rate_limit_event","rate_limit_info":{}}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::Telemetry(t) => {
+                let rl = t.rate_limit.unwrap();
+                assert!((rl.utilization - 0.0).abs() < 0.001);
+                assert_eq!(rl.rate_limit_type, "unknown");
+                assert!(!rl.surpassed_threshold);
+            }
+            other => panic!("expected Telemetry, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Cost/model extraction from result events (task 2.5)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_result_with_cost_and_model() {
+        let line = r#"{"type":"result","duration_ms":5000,"num_turns":3,"total_cost_usd":0.42,"model":"claude-opus-4-6"}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::CommandWithTelemetry(output, telemetry) => {
+                match output.content.unwrap() {
+                    proto::command_output::Content::Done(done) => {
+                        assert_eq!(done.duration_ms, 5000);
+                        assert_eq!(done.tool_calls, 3);
+                    }
+                    other => panic!("expected Done, got {:?}", other),
+                }
+                assert!((telemetry.cost_usd.unwrap() - 0.42).abs() < 0.001);
+                assert_eq!(telemetry.model.as_deref(), Some("claude-opus-4-6"));
+                assert!(telemetry.rate_limit.is_none());
+            }
+            other => panic!("expected CommandWithTelemetry, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_result_with_zero_cost() {
+        let line =
+            r#"{"type":"result","duration_ms":100,"num_turns":1,"total_cost_usd":0.0}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::CommandWithTelemetry(_, telemetry) => {
+                assert!((telemetry.cost_usd.unwrap() - 0.0).abs() < 0.001);
+                assert!(telemetry.model.is_none());
+            }
+            other => panic!("expected CommandWithTelemetry, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_result_without_cost_or_model() {
+        let line = r#"{"type":"result","duration_ms":1000,"num_turns":2}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::Command(output) => {
+                match output.content.unwrap() {
+                    proto::command_output::Content::Done(done) => {
+                        assert_eq!(done.duration_ms, 1000);
+                        assert_eq!(done.tool_calls, 2);
+                    }
+                    other => panic!("expected Done, got {:?}", other),
+                }
+            }
+            other => panic!("expected Command (no telemetry), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_result_with_model_only() {
+        let line =
+            r#"{"type":"result","duration_ms":800,"num_turns":1,"model":"claude-sonnet-4-20250514"}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        match event {
+            ParsedEvent::CommandWithTelemetry(_, telemetry) => {
+                assert!(telemetry.cost_usd.is_none());
+                assert_eq!(
+                    telemetry.model.as_deref(),
+                    Some("claude-sonnet-4-20250514")
+                );
+            }
+            other => panic!("expected CommandWithTelemetry, got {:?}", other),
         }
     }
 }

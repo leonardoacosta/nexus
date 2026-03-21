@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 
 use crate::events::EventBroadcaster;
 use crate::grpc::{datetime_to_timestamp, session_status_to_proto, session_to_proto};
+use crate::parser::TelemetryUpdate;
 
 /// In-memory store of active Claude Code sessions on this machine.
 /// Populated by watching sessions.json (MVP) or receiving direct hook events (target).
@@ -171,6 +172,31 @@ impl SessionRegistry {
         ));
 
         true
+    }
+
+    /// Update telemetry fields on a session.
+    ///
+    /// Only overwrites fields that are `Some` in the update — existing values
+    /// are preserved for fields not included in this update.
+    pub async fn update_telemetry(&self, id: &str, telemetry: &TelemetryUpdate) {
+        let mut map = self.sessions.write().await;
+
+        let Some(session) = map.get_mut(id) else {
+            return;
+        };
+
+        if let Some(ref rl) = telemetry.rate_limit {
+            session.rate_limit_utilization = Some(rl.utilization);
+            session.rate_limit_type = Some(rl.rate_limit_type.clone());
+        }
+
+        if let Some(cost) = telemetry.cost_usd {
+            session.total_cost_usd = Some(cost);
+        }
+
+        if let Some(ref model) = telemetry.model {
+            session.model = Some(model.clone());
+        }
     }
 
     /// Periodic stale detection for ad-hoc sessions.

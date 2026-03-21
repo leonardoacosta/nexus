@@ -61,6 +61,29 @@ pub fn datetime_to_timestamp(dt: &chrono::DateTime<chrono::Utc>) -> Option<prost
 }
 
 pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Session {
+    // Build telemetry sub-message if any telemetry fields are populated.
+    let telemetry = if session.rate_limit_utilization.is_some()
+        || session.total_cost_usd.is_some()
+        || session.model.is_some()
+    {
+        let rate_limit = session.rate_limit_utilization.map(|util| proto::RateLimitInfo {
+            utilization_percent: util,
+            rate_limit_type: session
+                .rate_limit_type
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            surpassed_threshold: util >= 0.75,
+        });
+
+        Some(proto::SessionTelemetry {
+            rate_limit,
+            total_cost_usd: session.total_cost_usd.map(|c| c as f32),
+            model: session.model.clone(),
+        })
+    } else {
+        None
+    };
+
     proto::Session {
         id: session.id.clone(),
         pid: session.pid,
@@ -76,6 +99,7 @@ pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Sessio
         agent: session.agent.clone(),
         tmux_session: session.tmux_session.clone(),
         cc_session_id: session.cc_session_id.clone(),
+        telemetry,
     }
 }
 
@@ -270,6 +294,7 @@ impl NexusAgent for NexusAgentService {
         let (tx, rx) = mpsc::channel::<Result<proto::CommandOutput, Status>>(64);
 
         let sid = session_id.clone();
+        let registry = Arc::clone(&self.registry);
         tokio::spawn(async move {
             tracing::info!(
                 session_id = %sid,
@@ -360,23 +385,49 @@ impl NexusAgent for NexusAgentService {
                         }
                         tracing::info!(session_id = %sid, "stream-json line: {}", &line[..line.len().min(200)]);
 
-                        if let Some(output) = parser::parse_stream_json_line(&sid, &line) {
-                            // Track if we got a Done message from the parser.
-                            if matches!(
-                                &output.content,
-                                Some(proto::command_output::Content::Done(_))
-                            ) {
-                                done_sent = true;
-                            }
+                        if let Some(event) = parser::parse_stream_json_line(&sid, &line) {
+                            match event {
+                                parser::ParsedEvent::Telemetry(telemetry) => {
+                                    // Side-channel telemetry — persist but don't forward on stream.
+                                    registry.update_telemetry(&sid, &telemetry).await;
+                                }
+                                parser::ParsedEvent::Command(output) => {
+                                    if matches!(
+                                        &output.content,
+                                        Some(proto::command_output::Content::Done(_))
+                                    ) {
+                                        done_sent = true;
+                                    }
 
-                            if tx.send(Ok(output)).await.is_err() {
-                                tracing::debug!(
-                                    session_id = %sid,
-                                    "send_command: client disconnected"
-                                );
-                                // Kill the child since nobody is listening.
-                                let _ = child.kill().await;
-                                return;
+                                    if tx.send(Ok(output)).await.is_err() {
+                                        tracing::debug!(
+                                            session_id = %sid,
+                                            "send_command: client disconnected"
+                                        );
+                                        let _ = child.kill().await;
+                                        return;
+                                    }
+                                }
+                                parser::ParsedEvent::CommandWithTelemetry(output, telemetry) => {
+                                    // Persist telemetry, then forward the command output.
+                                    registry.update_telemetry(&sid, &telemetry).await;
+
+                                    if matches!(
+                                        &output.content,
+                                        Some(proto::command_output::Content::Done(_))
+                                    ) {
+                                        done_sent = true;
+                                    }
+
+                                    if tx.send(Ok(output)).await.is_err() {
+                                        tracing::debug!(
+                                            session_id = %sid,
+                                            "send_command: client disconnected"
+                                        );
+                                        let _ = child.kill().await;
+                                        return;
+                                    }
+                                }
                             }
                         }
                     }
@@ -477,6 +528,25 @@ impl NexusAgent for NexusAgentService {
         let machine = self.health.get().await;
         let sessions = self.registry.get_all().await;
 
+        // Find the highest rate limit utilization across all sessions.
+        let latest_rate_limit = sessions
+            .iter()
+            .filter_map(|s| {
+                s.rate_limit_utilization.map(|util| proto::RateLimitInfo {
+                    utilization_percent: util,
+                    rate_limit_type: s
+                        .rate_limit_type
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    surpassed_threshold: util >= 0.75,
+                })
+            })
+            .max_by(|a, b| {
+                a.utilization_percent
+                    .partial_cmp(&b.utilization_percent)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
         let health_response = proto::HealthResponse {
             agent_name: self.agent_name.clone(),
             agent_host: self.agent_host.clone(),
@@ -500,6 +570,7 @@ impl NexusAgent for NexusAgentService {
                     })
                     .collect(),
             }),
+            latest_rate_limit,
         };
 
         Ok(Response::new(health_response))

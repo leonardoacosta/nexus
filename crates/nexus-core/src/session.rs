@@ -18,6 +18,12 @@ pub struct Session {
     pub agent: Option<String>,
     pub tmux_session: Option<String>,
     pub cc_session_id: Option<String>,
+
+    // Telemetry fields (populated from CC stream-json events).
+    pub rate_limit_utilization: Option<f32>,
+    pub rate_limit_type: Option<String>,
+    pub total_cost_usd: Option<f64>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +56,10 @@ impl Session {
             agent: None,
             tmux_session: None,
             cc_session_id: None,
+            rate_limit_utilization: None,
+            rate_limit_type: None,
+            total_cost_usd: None,
+            model: None,
         }
     }
 
