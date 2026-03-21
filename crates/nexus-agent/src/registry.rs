@@ -147,6 +147,149 @@ impl SessionRegistry {
         let max_age_secs = max_age.as_secs() as i64;
         map.retain(|_, session| session.idle_seconds() < max_age_secs);
     }
+
+    /// Register an ad-hoc session (discovered via CC hook, not managed by tmux).
+    ///
+    /// Idempotent: if a session with the same ID already exists, it is updated
+    /// in place without emitting `SessionStarted`. Returns `true` if the session
+    /// was newly created, `false` if an existing entry was updated.
+    pub async fn register_adhoc(&self, mut session: Session) -> bool {
+        // Ad-hoc sessions never have a tmux_session.
+        session.tmux_session = None;
+
+        let id = session.id.clone();
+        let mut map = self.sessions.write().await;
+
+        if map.contains_key(&id) {
+            // Update existing session without emitting SessionStarted.
+            map.insert(id, session);
+            false
+        } else {
+            self.events.emit(make_event(
+                &id,
+                Payload::Started(proto::SessionStarted {
+                    session: Some(session_to_proto(&session)),
+                }),
+            ));
+            map.insert(id, session);
+            true
+        }
+    }
+
+    /// Remove a session by ID without killing the process.
+    ///
+    /// Idempotent: returns `true` if the session was found and removed,
+    /// `false` if it did not exist. Emits `SessionStopped` only when a
+    /// session was actually removed.
+    pub async fn unregister(&self, id: &str) -> bool {
+        let mut map = self.sessions.write().await;
+        let removed = map.remove(id);
+
+        if removed.is_some() {
+            self.events.emit(make_event(
+                id,
+                Payload::Stopped(proto::SessionStopped {
+                    reason: "session ended".into(),
+                }),
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Update the heartbeat timestamp for a session.
+    ///
+    /// If the session is currently `Stale`, revives it to `Active` and emits
+    /// a `StatusChanged` event. A `HeartbeatReceived` event is always emitted
+    /// for known sessions. Returns `true` if the session was found.
+    pub async fn heartbeat(&self, id: &str) -> bool {
+        let mut map = self.sessions.write().await;
+
+        let Some(session) = map.get_mut(id) else {
+            return false;
+        };
+
+        let now = chrono::Utc::now();
+        session.last_heartbeat = now;
+
+        // Revive stale sessions.
+        if session.status == nexus_core::session::SessionStatus::Stale {
+            let old_status = session_status_to_proto(&session.status);
+            session.status = nexus_core::session::SessionStatus::Active;
+            let new_status = session_status_to_proto(&session.status);
+
+            self.events.emit(make_event(
+                id,
+                Payload::StatusChanged(proto::StatusChanged {
+                    old_status,
+                    new_status,
+                }),
+            ));
+        }
+
+        self.events.emit(make_event(
+            id,
+            Payload::Heartbeat(proto::HeartbeatReceived {
+                last_heartbeat: datetime_to_timestamp(&session.last_heartbeat),
+            }),
+        ));
+
+        true
+    }
+
+    /// Periodic stale detection for ad-hoc sessions.
+    ///
+    /// - Sessions idle longer than `remove_threshold` are removed with a
+    ///   `SessionStopped` event.
+    /// - Sessions idle longer than `stale_threshold` (but below remove) are
+    ///   marked `Stale` with a `StatusChanged` event.
+    /// - Managed sessions (those with `tmux_session` set) are skipped.
+    pub async fn detect_stale(&self, stale_threshold: Duration, remove_threshold: Duration) {
+        let stale_secs = stale_threshold.as_secs() as i64;
+        let remove_secs = remove_threshold.as_secs() as i64;
+
+        let mut map = self.sessions.write().await;
+
+        // Collect IDs to remove first to avoid borrow issues.
+        let to_remove: Vec<String> = map
+            .iter()
+            .filter(|(_, s)| s.tmux_session.is_none() && s.idle_seconds() > remove_secs)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &to_remove {
+            map.remove(id);
+            self.events.emit(make_event(
+                id,
+                Payload::Stopped(proto::SessionStopped {
+                    reason: "stale session removed".into(),
+                }),
+            ));
+        }
+
+        // Mark remaining ad-hoc sessions as stale if over threshold.
+        for (id, session) in map.iter_mut() {
+            if session.tmux_session.is_some() {
+                continue;
+            }
+            if session.idle_seconds() > stale_secs
+                && session.status != nexus_core::session::SessionStatus::Stale
+            {
+                let old_status = session_status_to_proto(&session.status);
+                session.status = nexus_core::session::SessionStatus::Stale;
+                let new_status = session_status_to_proto(&session.status);
+
+                self.events.emit(make_event(
+                    id,
+                    Payload::StatusChanged(proto::StatusChanged {
+                        old_status,
+                        new_status,
+                    }),
+                ));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

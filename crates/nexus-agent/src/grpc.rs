@@ -265,6 +265,46 @@ impl NexusAgent for NexusAgentService {
         )))
     }
 
+    async fn register_session(
+        &self,
+        request: Request<proto::RegisterSessionRequest>,
+    ) -> Result<Response<proto::RegisterSessionResponse>, Status> {
+        let req = request.into_inner();
+
+        let mut session = Session::new(req.pid, req.cwd);
+        session.id = req.session_id.clone();
+        session.project = req.project;
+        session.branch = req.branch;
+        session.command = req.command;
+
+        let created = self.registry.register_adhoc(session).await;
+
+        Ok(Response::new(proto::RegisterSessionResponse {
+            session_id: req.session_id,
+            created,
+        }))
+    }
+
+    async fn unregister_session(
+        &self,
+        request: Request<proto::UnregisterSessionRequest>,
+    ) -> Result<Response<proto::UnregisterSessionResponse>, Status> {
+        let session_id = request.into_inner().session_id;
+        let found = self.registry.unregister(&session_id).await;
+
+        Ok(Response::new(proto::UnregisterSessionResponse { found }))
+    }
+
+    async fn heartbeat(
+        &self,
+        request: Request<proto::HeartbeatRequest>,
+    ) -> Result<Response<proto::HeartbeatResponse>, Status> {
+        let session_id = request.into_inner().session_id;
+        let found = self.registry.heartbeat(&session_id).await;
+
+        Ok(Response::new(proto::HeartbeatResponse { found }))
+    }
+
     async fn stop_session(
         &self,
         request: Request<proto::SessionId>,
