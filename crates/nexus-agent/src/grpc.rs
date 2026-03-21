@@ -3,11 +3,13 @@ use std::time::Duration;
 
 use nexus_core::proto::{self, nexus_agent_server::NexusAgent};
 use nexus_core::session::Session;
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::events::EventBroadcaster;
+use crate::parser;
 use crate::registry::SessionRegistry;
 
 /// gRPC service implementation for the NexusAgent service.
@@ -218,11 +220,189 @@ impl NexusAgent for NexusAgentService {
 
     async fn send_command(
         &self,
-        _request: Request<proto::CommandRequest>,
+        request: Request<proto::CommandRequest>,
     ) -> Result<Response<Self::SendCommandStream>, Status> {
-        Err(Status::unimplemented(
-            "SendCommand not yet implemented — see session-broker spec task [3.x]",
-        ))
+        let req = request.into_inner();
+        let session_id = req.session_id.clone();
+
+        // 1. Look up the session in the registry.
+        let session = self
+            .registry
+            .get_by_id(&session_id)
+            .await
+            .ok_or_else(|| Status::not_found(format!("session not found: {session_id}")))?;
+
+        // 2. Determine the CC session ID for --resume.
+        let resume_id = session
+            .cc_session_id
+            .clone()
+            .unwrap_or_else(|| session.id.clone());
+
+        // 3. Get the working directory.
+        let cwd = session.cwd.clone();
+
+        let (tx, rx) = mpsc::channel::<Result<proto::CommandOutput, Status>>(64);
+
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            tracing::info!(
+                session_id = %sid,
+                resume_id = %resume_id,
+                cwd = %cwd,
+                "send_command: spawning claude process"
+            );
+
+            // 4. Spawn the claude child process.
+            let child = tokio::process::Command::new("claude")
+                .arg("-p")
+                .arg("--resume")
+                .arg(&resume_id)
+                .arg("--output-format")
+                .arg("stream-json")
+                .arg("--include-partial-messages")
+                .arg("--dangerously-skip-permissions")
+                .arg("--cwd")
+                .arg(&cwd)
+                .arg(&req.prompt)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+
+            let mut child = match child {
+                Ok(c) => c,
+                Err(e) => {
+                    let msg = format!("failed to spawn claude process: {e}");
+                    tracing::error!(session_id = %sid, "{}", msg);
+                    let _ = tx
+                        .send(Ok(proto::CommandOutput {
+                            session_id: sid,
+                            content: Some(proto::command_output::Content::Error(
+                                proto::CommandError {
+                                    message: msg,
+                                    exit_code: -1,
+                                },
+                            )),
+                        }))
+                        .await;
+                    return;
+                }
+            };
+
+            // 5. Read stdout line by line.
+            let stdout = child.stdout.take().expect("stdout was piped");
+            let reader = tokio::io::BufReader::new(stdout);
+            let mut lines = reader.lines();
+
+            let mut done_sent = false;
+
+            // 6. Parse each line and forward via the gRPC stream.
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        tracing::debug!(session_id = %sid, "stream-json line: {}", line);
+
+                        if let Some(output) = parser::parse_stream_json_line(&sid, &line) {
+                            // Track if we got a Done message from the parser.
+                            if matches!(
+                                &output.content,
+                                Some(proto::command_output::Content::Done(_))
+                            ) {
+                                done_sent = true;
+                            }
+
+                            if tx.send(Ok(output)).await.is_err() {
+                                tracing::debug!(
+                                    session_id = %sid,
+                                    "send_command: client disconnected"
+                                );
+                                // Kill the child since nobody is listening.
+                                let _ = child.kill().await;
+                                return;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // EOF — process closed stdout.
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            session_id = %sid,
+                            "send_command: error reading stdout: {e}"
+                        );
+                        break;
+                    }
+                }
+            }
+
+            // 7. Wait for process exit and handle non-zero exit codes.
+            match child.wait().await {
+                Ok(status) => {
+                    if !status.success() {
+                        let code = status.code().unwrap_or(-1);
+                        let msg =
+                            format!("claude process exited with code {code}");
+                        tracing::warn!(session_id = %sid, "{}", msg);
+                        let _ = tx
+                            .send(Ok(proto::CommandOutput {
+                                session_id: sid.clone(),
+                                content: Some(proto::command_output::Content::Error(
+                                    proto::CommandError {
+                                        message: msg,
+                                        exit_code: code,
+                                    },
+                                )),
+                            }))
+                            .await;
+                    }
+
+                    // Send a final CommandDone if the parser didn't emit one.
+                    if !done_sent {
+                        let _ = tx
+                            .send(Ok(proto::CommandOutput {
+                                session_id: sid.clone(),
+                                content: Some(proto::command_output::Content::Done(
+                                    proto::CommandDone {
+                                        duration_ms: 0,
+                                        tool_calls: 0,
+                                    },
+                                )),
+                            }))
+                            .await;
+                    }
+
+                    tracing::info!(
+                        session_id = %sid,
+                        exit_code = status.code().unwrap_or(-1),
+                        "send_command: claude process finished"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %sid,
+                        "send_command: failed to wait on claude process: {e}"
+                    );
+                    let _ = tx
+                        .send(Ok(proto::CommandOutput {
+                            session_id: sid,
+                            content: Some(proto::command_output::Content::Error(
+                                proto::CommandError {
+                                    message: format!("failed to wait on process: {e}"),
+                                    exit_code: -1,
+                                },
+                            )),
+                        }))
+                        .await;
+                }
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     type StreamEventsStream =
