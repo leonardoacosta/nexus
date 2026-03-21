@@ -24,75 +24,6 @@ impl SessionRegistry {
         }
     }
 
-    /// Bulk-replace all sessions from a file watcher parse.
-    ///
-    /// Diffs the incoming set against the existing map and emits:
-    /// - `SessionStarted` for new session IDs
-    /// - `StatusChanged` when a session's status differs
-    /// - `HeartbeatReceived` for sessions that still exist (heartbeat updated)
-    /// - `SessionStopped` for session IDs that disappeared
-    pub async fn upsert_sessions(&self, sessions: Vec<Session>) {
-        let mut map = self.sessions.write().await;
-
-        let new_ids: HashMap<String, &Session> =
-            sessions.iter().map(|s| (s.id.clone(), s)).collect();
-
-        // Detect removed sessions (present in old map but absent from new set).
-        let removed: Vec<(String, Session)> = map
-            .iter()
-            .filter(|(id, _)| !new_ids.contains_key(*id))
-            .map(|(id, s)| (id.clone(), s.clone()))
-            .collect();
-
-        for (id, _old) in &removed {
-            map.remove(id);
-            self.events.emit(make_event(
-                id,
-                Payload::Stopped(proto::SessionStopped {
-                    reason: "session disappeared".into(),
-                }),
-            ));
-        }
-
-        // Process new and updated sessions.
-        for session in sessions {
-            let id = session.id.clone();
-            match map.get(&id) {
-                None => {
-                    // New session.
-                    self.events.emit(make_event(
-                        &id,
-                        Payload::Started(proto::SessionStarted {
-                            session: Some(session_to_proto(&session)),
-                        }),
-                    ));
-                }
-                Some(existing) => {
-                    // Existing session — check for status transition.
-                    if existing.status != session.status {
-                        self.events.emit(make_event(
-                            &id,
-                            Payload::StatusChanged(proto::StatusChanged {
-                                old_status: session_status_to_proto(&existing.status),
-                                new_status: session_status_to_proto(&session.status),
-                            }),
-                        ));
-                    }
-
-                    // Emit heartbeat for every update (heartbeat timestamp changed).
-                    self.events.emit(make_event(
-                        &id,
-                        Payload::Heartbeat(proto::HeartbeatReceived {
-                            last_heartbeat: datetime_to_timestamp(&session.last_heartbeat),
-                        }),
-                    ));
-                }
-            }
-
-            map.insert(id, session);
-        }
-    }
-
     /// Return all tracked sessions.
     pub async fn get_all(&self) -> Vec<Session> {
         let map = self.sessions.read().await;
@@ -160,19 +91,23 @@ impl SessionRegistry {
         let id = session.id.clone();
         let mut map = self.sessions.write().await;
 
-        if map.contains_key(&id) {
-            // Update existing session without emitting SessionStarted.
-            map.insert(id, session);
-            false
-        } else {
-            self.events.emit(make_event(
-                &id,
-                Payload::Started(proto::SessionStarted {
-                    session: Some(session_to_proto(&session)),
-                }),
-            ));
-            map.insert(id, session);
-            true
+        use std::collections::hash_map::Entry;
+        match map.entry(id) {
+            Entry::Occupied(mut entry) => {
+                // Update existing session without emitting SessionStarted.
+                entry.insert(session);
+                false
+            }
+            Entry::Vacant(entry) => {
+                self.events.emit(make_event(
+                    entry.key(),
+                    Payload::Started(proto::SessionStarted {
+                        session: Some(session_to_proto(&session)),
+                    }),
+                ));
+                entry.insert(session);
+                true
+            }
         }
     }
 
