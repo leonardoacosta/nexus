@@ -38,6 +38,10 @@ enum RpcCommand {
         agent_user: String,
         tmux_session: String,
     },
+    SendCommand {
+        session_id: String,
+        prompt: String,
+    },
 }
 
 enum RpcResult {
@@ -47,6 +51,8 @@ enum RpcResult {
     StopErr(String),
     AttachOk,
     AttachErr(String),
+    CommandOutput(nexus_core::proto::CommandOutput),
+    CommandStreamDone,
 }
 
 #[tokio::main]
@@ -206,6 +212,14 @@ fn run_loop(
                     app.status_message = Some(format!("attach failed: {e}"));
                     let _ = terminal.clear();
                 }
+                RpcResult::CommandOutput(output) => {
+                    if let Some(sv) = &mut app.stream_view {
+                        sv.push_command_output(&output);
+                    }
+                }
+                RpcResult::CommandStreamDone => {
+                    app.stream_executing = false;
+                }
             }
         }
 
@@ -321,7 +335,40 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             false
         }
         InputMode::StreamInput => {
-            // Handled by task [3.3] — stream input bar key handling.
+            match key.code {
+                KeyCode::Enter => {
+                    if !app.stream_input.is_empty() && !app.stream_executing {
+                        let prompt = app.stream_input.clone();
+                        app.stream_input.clear();
+                        app.stream_executing = true;
+
+                        // Get session ID from stream view and dispatch RPC.
+                        if let Some(sv) = &app.stream_view {
+                            let session_id = sv.session_id.clone();
+                            let _ = rpc_tx.try_send(RpcCommand::SendCommand {
+                                session_id,
+                                prompt,
+                            });
+                        }
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if !app.stream_executing {
+                        app.stream_input.push(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if !app.stream_executing {
+                        app.stream_input.pop();
+                    }
+                }
+                KeyCode::Esc => {
+                    // Exit stream input, go back to normal stream view.
+                    app.input_mode = InputMode::Normal;
+                    app.stream_input.clear();
+                }
+                _ => {}
+            }
             false
         }
     }
@@ -406,6 +453,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     let short_id = &session_id[..session_id.len().min(4)];
                     let label = format!("{project}#{short_id}");
                     app.open_stream_attach(session_id, label, agent_name);
+                    app.input_mode = InputMode::StreamInput;
                 }
             }
             false
@@ -496,6 +544,10 @@ fn handle_stream_key(app: &mut App, key: KeyEvent) -> bool {
             if let Some(sv) = app.stream_view.as_mut() {
                 sv.scroll_to_end();
             }
+            false
+        }
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::StreamInput;
             false
         }
         _ => false,
@@ -714,6 +766,32 @@ async fn background_task(
                             Err(e) => RpcResult::AttachErr(e.to_string()),
                         };
                         let _ = rpc_result_tx.send(result).await;
+                    }
+                    Some(RpcCommand::SendCommand { session_id, prompt }) => {
+                        match client.send_command(&session_id, &prompt).await {
+                            Ok(mut stream) => {
+                                loop {
+                                    match stream.message().await {
+                                        Ok(Some(output)) => {
+                                            let _ = rpc_result_tx.send(RpcResult::CommandOutput(output)).await;
+                                        }
+                                        Ok(None) => {
+                                            let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(%e, "send_command stream error");
+                                            let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(%e, "send_command failed");
+                                let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
+                            }
+                        }
                     }
                     None => break,
                 }
