@@ -40,6 +40,7 @@ message Session {
   optional string command = 11;
   optional string agent = 12;
   optional string tmux_session = 13;
+  optional string cc_session_id = 14;
 }
 
 message SessionId {
@@ -107,6 +108,52 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {
   bool found = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Command broker
+// ---------------------------------------------------------------------------
+
+message CommandRequest {
+  string session_id = 1;
+  string prompt = 2;
+}
+
+message CommandOutput {
+  string session_id = 1;
+  oneof content {
+    TextChunk text = 2;
+    ToolUseInfo tool_use = 3;
+    ToolResult tool_result = 4;
+    CommandError error = 5;
+    CommandDone done = 6;
+  }
+}
+
+message TextChunk {
+  string text = 1;
+  bool partial = 2;
+}
+
+message ToolUseInfo {
+  string tool_name = 1;
+  string input_preview = 2;
+}
+
+message ToolResult {
+  string tool_name = 1;
+  string output_preview = 2;
+  bool success = 3;
+}
+
+message CommandError {
+  string message = 1;
+  int32 exit_code = 2;
+}
+
+message CommandDone {
+  uint64 duration_ms = 1;
+  uint32 tool_calls = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,4 +233,5 @@ service NexusAgent {
   rpc RegisterSession(RegisterSessionRequest) returns (RegisterSessionResponse);
   rpc UnregisterSession(UnregisterSessionRequest) returns (UnregisterSessionResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc SendCommand(CommandRequest) returns (stream CommandOutput);
 }

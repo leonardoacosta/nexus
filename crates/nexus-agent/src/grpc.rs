@@ -69,6 +69,7 @@ pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Sessio
         command: session.command.clone(),
         agent: session.agent.clone(),
         tmux_session: session.tmux_session.clone(),
+        cc_session_id: session.cc_session_id.clone(),
     }
 }
 
@@ -210,6 +211,18 @@ impl NexusAgent for NexusAgentService {
             tmux_session: tmux_session_name,
             session_type: proto::SessionType::Managed.into(),
         }))
+    }
+
+    type SendCommandStream =
+        tokio_stream::wrappers::ReceiverStream<Result<proto::CommandOutput, Status>>;
+
+    async fn send_command(
+        &self,
+        _request: Request<proto::CommandRequest>,
+    ) -> Result<Response<Self::SendCommandStream>, Status> {
+        Err(Status::unimplemented(
+            "SendCommand not yet implemented — see session-broker spec task [3.x]",
+        ))
     }
 
     type StreamEventsStream =

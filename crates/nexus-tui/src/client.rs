@@ -346,6 +346,7 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
         command: proto.command,
         agent: proto.agent,
         tmux_session: proto.tmux_session,
+        cc_session_id: proto.cc_session_id,
     }
 }
 

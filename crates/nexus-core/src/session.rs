@@ -17,6 +17,7 @@ pub struct Session {
     pub command: Option<String>,
     pub agent: Option<String>,
     pub tmux_session: Option<String>,
+    pub cc_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,7 @@ impl Session {
             command: None,
             agent: None,
             tmux_session: None,
+            cc_session_id: None,
         }
     }
 
