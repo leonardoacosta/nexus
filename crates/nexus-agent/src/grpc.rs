@@ -266,11 +266,10 @@ impl NexusAgent for NexusAgentService {
                 .arg("stream-json")
                 .arg("--include-partial-messages")
                 .arg("--dangerously-skip-permissions")
-                .arg("--cwd")
-                .arg(&cwd)
                 .arg(&req.prompt)
+                .current_dir(&cwd)
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
                 .spawn();
 
             let mut child = match child {
@@ -293,10 +292,19 @@ impl NexusAgent for NexusAgentService {
                 }
             };
 
-            // 5. Read stdout line by line.
+            // 5. Read stdout line by line, capture stderr for error reporting.
             let stdout = child.stdout.take().expect("stdout was piped");
+            let stderr = child.stderr.take().expect("stderr was piped");
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = reader.lines();
+
+            // Spawn stderr reader to capture error output.
+            let stderr_handle = tokio::spawn(async move {
+                let mut stderr_reader = tokio::io::BufReader::new(stderr);
+                let mut stderr_buf = String::new();
+                let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr_reader, &mut stderr_buf).await;
+                stderr_buf
+            });
 
             let mut done_sent = false;
 
@@ -348,8 +356,17 @@ impl NexusAgent for NexusAgentService {
                 Ok(status) => {
                     if !status.success() {
                         let code = status.code().unwrap_or(-1);
-                        let msg =
-                            format!("claude process exited with code {code}");
+                        let stderr_output = stderr_handle.await.unwrap_or_default();
+                        let stderr_preview = if stderr_output.len() > 200 {
+                            format!("{}...", &stderr_output[..200])
+                        } else {
+                            stderr_output
+                        };
+                        let msg = if stderr_preview.is_empty() {
+                            format!("claude process exited with code {code}")
+                        } else {
+                            format!("claude exited {code}: {}", stderr_preview.trim())
+                        };
                         tracing::warn!(session_id = %sid, "{}", msg);
                         let _ = tx
                             .send(Ok(proto::CommandOutput {
