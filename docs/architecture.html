@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus Architecture — Single Host</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0D0D0D;
+    --surface: #1A1A1A;
+    --surface-hi: #2A2A2A;
+    --primary: #00D26A;
+    --primary-bright: #39FF14;
+    --primary-dim: #0A4A2A;
+    --secondary: #00CED1;
+    --warning: #FFB700;
+    --error: #FF3B3B;
+    --text: #C0C0C0;
+    --text-dim: #666666;
+    --border: #333333;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 1.8rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.5rem;
+    border-bottom: 2px solid var(--primary-dim);
+    padding-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 3rem;
+    font-family: var(--mono);
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 3rem 0 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  h2 .num {
+    background: var(--primary-dim);
+    color: var(--primary);
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 1rem 0 2rem;
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .diagram::before {
+    content: attr(data-label);
+    position: absolute;
+    top: -10px;
+    left: 16px;
+    background: var(--surface);
+    padding: 0 8px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--text);
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .g { color: var(--primary); }
+  .gb { color: var(--primary-bright); }
+  .c { color: var(--secondary); }
+  .w { color: var(--warning); }
+  .r { color: var(--error); }
+  .d { color: var(--text-dim); }
+  .t { color: var(--text); }
+  .b { font-weight: 600; }
+
+  .legend {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .meta-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    margin: 1rem 0;
+  }
+
+  .meta-table th {
+    text-align: left;
+    color: var(--primary);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.7rem;
+  }
+
+  .meta-table td {
+    padding: 0.4rem 1rem;
+    border-bottom: 1px solid var(--surface-hi);
+    vertical-align: top;
+  }
+
+  .meta-table td:first-child {
+    color: var(--secondary);
+    white-space: nowrap;
+  }
+
+  .meta-table tr:hover td {
+    background: var(--surface-hi);
+  }
+
+  .note {
+    background: var(--primary-dim);
+    border-left: 3px solid var(--primary);
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.82rem;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .note code {
+    background: rgba(0,210,106,0.15);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--primary-bright);
+  }
+
+  .cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 800px) {
+    .cols { grid-template-columns: 1fr; }
+    body { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Nexus Architecture</h1>
+<p class="subtitle">Single-host topology &mdash; homelab (omarchy) &mdash; March 2026</p>
+
+<!-- ================================================================== -->
+<h2><span class="num">1</span> Service Topology</h2>
+<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
+  What runs on the homelab, what ports, how processes connect.
+</p>
+
+<div class="diagram" data-label="processes &amp; ports">
+<pre>
+<span class="d">  ┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="d">  │</span> <span class="g b">HOMELAB (omarchy)</span>                                                   <span class="d">│</span>
+<span class="d">  │</span>                                                                     <span class="d">│</span>
+<span class="d">  │</span>  <span class="c b">nexus-agent</span>  <span class="d">(systemd user service, always-on)</span>                    <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> gRPC  <span class="g">0.0.0.0:7400</span>  <span class="d">── all session/command RPCs</span>              <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> HTTP  <span class="g">0.0.0.0:7401</span>  <span class="d">── GET /health (JSON)</span>                   <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> <span class="w">SessionRegistry</span>    <span class="d">── in-memory HashMap&lt;String, Session&gt;</span>    <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> <span class="w">EventBroadcaster</span>   <span class="d">── broadcast channel (cap 256)</span>           <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> <span class="w">HealthCollector</span>    <span class="d">── sysinfo refresh every 5s</span>              <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">└──</span> <span class="w">StaleDetector</span>      <span class="d">── background task every 30s</span>             <span class="d">│</span>
+<span class="d">  │</span>                                                                     <span class="d">│</span>
+<span class="d">  │</span>  <span class="c b">nexus-register</span>  <span class="d">(CLI, invoked by CC hooks)</span>                       <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">└──</span> gRPC client <span class="d">──▶</span> <span class="g">localhost:7400</span>  <span class="d">(500ms timeout, exit 0)</span>    <span class="d">│</span>
+<span class="d">  │</span>                                                                     <span class="d">│</span>
+<span class="d">  │</span>  <span class="c b">nexus</span> <span class="d">(TUI binary, launched by user)</span>                               <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">└──</span> gRPC client <span class="d">──▶</span> <span class="g">localhost:7400</span>  <span class="d">(+ remote agents via Tailscale)</span><span class="d">│</span>
+<span class="d">  │</span>                                                                     <span class="d">│</span>
+<span class="d">  │</span>  <span class="gb b">Claude Code sessions</span>  <span class="d">(1-N interactive terminal processes)</span>       <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">├──</span> Each fires <span class="w">SessionStart</span> / <span class="w">PostToolUse</span> / <span class="w">Stop</span> hooks           <span class="d">│</span>
+<span class="d">  │</span>  <span class="d">└──</span> Hooks invoke <span class="c">nexus-register</span> <span class="d">start / heartbeat / stop</span>           <span class="d">│</span>
+<span class="d">  │</span>                                                                     <span class="d">│</span>
+<span class="d">  └─────────────────────────────────────────────────────────────────────┘</span>
+</pre>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--primary)"></div> Ports / addresses</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--secondary)"></div> Binaries</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--warning)"></div> Internal components / events</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--primary-bright)"></div> Claude Code</div>
+</div>
+
+<!-- ================================================================== -->
+<h2><span class="num">2</span> Session Lifecycle</h2>
+<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
+  Two paths: ad-hoc (CC hooks) and managed (TUI-initiated). Both converge at the registry.
+</p>
+
+<div class="diagram" data-label="ad-hoc sessions (cc hooks)">
+<pre>
+<span class="gb b">CC starts</span>  <span class="d">──▶</span>  <span class="w">SessionStart hook</span>  <span class="d">──▶</span>  <span class="c">nexus-register start</span>
+                                           <span class="d">│</span>
+                                           <span class="d">│</span> gRPC <span class="t">RegisterSession</span>
+                                           <span class="d">▼</span>
+                                     <span class="g b">nexus-agent</span>
+                                           <span class="d">│</span>
+                                           <span class="d">│</span> <span class="t">registry.register_adhoc()</span>
+                                           <span class="d">▼</span>
+                                     <span class="w">SessionRegistry</span>  <span class="d">──▶</span>  <span class="gb">SessionStarted</span> event
+                                           <span class="d">│</span>
+<span class="gb b">CC tool use</span>  <span class="d">─▶</span>  <span class="w">PostToolUse hook</span>  <span class="d">──▶</span>  <span class="c">nexus-register heartbeat</span>
+                                           <span class="d">│</span>
+                                           <span class="d">│</span> gRPC <span class="t">Heartbeat</span>
+                                           <span class="d">▼</span>
+                                     <span class="t">registry.heartbeat()</span>  <span class="d">──▶</span>  <span class="gb">HeartbeatReceived</span> event
+                                                                 <span class="d">(+ StatusChanged if Stale→Active)</span>
+                                           <span class="d">│</span>
+<span class="gb b">CC stops</span>  <span class="d">───▶</span>  <span class="w">Stop hook</span>  <span class="d">──────────▶</span>  <span class="c">nexus-register stop</span>
+                                           <span class="d">│</span>
+                                           <span class="d">│</span> gRPC <span class="t">UnregisterSession</span>
+                                           <span class="d">▼</span>
+                                     <span class="t">registry.unregister()</span>  <span class="d">──▶</span>  <span class="r">SessionStopped</span> event
+</pre>
+</div>
+
+<div class="diagram" data-label="managed sessions (tui-initiated)">
+<pre>
+<span class="c b">TUI</span> <span class="d">press</span> <span class="g">n</span>  <span class="d">──▶</span>  <span class="t">StartSession RPC</span>  <span class="d">{ project, cwd }</span>
+                         <span class="d">│</span>
+                         <span class="d">▼</span>
+                   <span class="g b">nexus-agent</span>
+                         <span class="d">│</span>
+                   <span class="d">1.</span> <span class="t">Generate UUID</span>
+                   <span class="d">2.</span> <span class="t">Session { pid: 0, cc_session_id: uuid }</span>
+                   <span class="d">3.</span> <span class="t">registry.register_managed()</span>  <span class="d">──▶</span>  <span class="gb">SessionStarted</span>
+                   <span class="d">4.</span> <span class="w">Bootstrap:</span>
+                         <span class="d">│</span>
+                         <span class="d">│</span>  <span class="t">claude -p --session-id &lt;uuid&gt;</span>
+                         <span class="d">│</span>  <span class="t">  --output-format stream-json --verbose</span>
+                         <span class="d">│</span>  <span class="t">  --dangerously-skip-permissions</span>
+                         <span class="d">│</span>  <span class="t">  "Acknowledge with: Ready."</span>
+                         <span class="d">│</span>
+                         <span class="d">▼</span>
+                   <span class="g">Session resumable</span> via <span class="t">--resume &lt;uuid&gt;</span>
+</pre>
+</div>
+
+<div class="diagram" data-label="stale detection (background)">
+<pre>
+<span class="d">every 30s:</span>
+
+  <span class="t">for each session where tmux_session.is_none():</span>
+
+    <span class="t">idle_seconds()</span> <span class="d">&gt;</span> <span class="r b">900s</span> <span class="d">(15 min)</span>  <span class="d">──▶</span>  <span class="r">REMOVE</span>  <span class="d">+ emit</span> <span class="r">SessionStopped</span>
+                                             <span class="d">"stale session removed"</span>
+
+    <span class="t">idle_seconds()</span> <span class="d">&gt;</span> <span class="w b">300s</span> <span class="d">(5 min)</span>   <span class="d">──▶</span>  <span class="w">STALE</span>   <span class="d">+ emit</span> <span class="w">StatusChanged</span>
+                                             <span class="d">Active → Stale</span>
+
+    <span class="t">heartbeat arrives on Stale</span>       <span class="d">──▶</span>  <span class="g">REVIVE</span>  <span class="d">+ emit</span> <span class="g">StatusChanged</span>
+                                             <span class="d">Stale → Active</span>
+</pre>
+</div>
+
+<!-- ================================================================== -->
+<h2><span class="num">3</span> Command Broker Flow</h2>
+<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
+  User types a prompt in the TUI &rarr; agent spawns CC subprocess &rarr; output streams back.
+</p>
+
+<div class="diagram" data-label="sendcommand rpc sequence">
+<pre>
+<span class="c b">TUI</span>                          <span class="g b">Agent</span>                         <span class="gb b">CC subprocess</span>
+ <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span> <span class="t">SendCommand</span>                 <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span>  <span class="d">{ session_id, prompt }</span>     <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">├──────────────────────────▶</span>  <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span> <span class="t">1. heartbeat(session_id)</span>     <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span> <span class="t">2. lookup session in registry</span><span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span> <span class="t">3. resolve resume_id / cwd</span>  <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span> <span class="w">spawn process:</span>                <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>  <span class="t">NEXUS_SUBPROCESS=1</span>          <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>  <span class="t">claude -p</span>                   <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>   <span class="g">--resume &lt;id&gt;</span> <span class="d">(managed)</span>    <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>   <span class="w">--session-id &lt;new&gt;</span> <span class="d">(adhoc)</span> <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>   <span class="t">--stream-json --verbose</span>    <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>   <span class="t">"&lt;prompt&gt;"</span>                 <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">├─────────────────────────────▶│</span>
+ <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span>  <span class="gb">stream: TextChunk</span>          <span class="d">│</span>  <span class="d">stdout line (stream-json)</span>   <span class="d">│</span>
+ <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
+ <span class="d">│</span>  <span class="w">stream: ToolUseInfo</span>        <span class="d">│</span>  <span class="d">parser.parse_stream_json()</span>  <span class="d">│</span>
+ <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
+ <span class="d">│</span>  <span class="w">stream: ToolResult</span>         <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
+ <span class="d">│</span>  <span class="g">stream: CommandDone</span>        <span class="d">│</span>  <span class="d">process exit</span>                <span class="d">│</span>
+ <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
+ <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span> <span class="t">input bar re-enabled</span>        <span class="d">│</span>                               <span class="d">│</span>
+ <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
+</pre>
+</div>
+
+<div class="note">
+  <strong>NEXUS_SUBPROCESS=1</strong> &mdash; prevents the CC subprocess from firing nexus hooks
+  (which would register/unregister itself and corrupt the parent session). All three hooks
+  (<code>start</code>, <code>heartbeat</code>, <code>stop</code>) check this var and exit immediately.
+</div>
+
+<!-- ================================================================== -->
+<h2><span class="num">4</span> Metadata &amp; Proto Messages</h2>
+<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
+  What data is sent in each RPC, what fields each message carries.
+</p>
+
+<div class="cols">
+
+<div class="diagram" data-label="registration rpcs">
+<table class="meta-table">
+<tr><th>RPC</th><th>Request fields</th><th>Response</th></tr>
+<tr>
+  <td>RegisterSession</td>
+  <td>session_id, pid, cwd,<br>project?, branch?, command?</td>
+  <td>session_id, created (bool)</td>
+</tr>
+<tr>
+  <td>UnregisterSession</td>
+  <td>session_id</td>
+  <td>found (bool)</td>
+</tr>
+<tr>
+  <td>Heartbeat</td>
+  <td>session_id</td>
+  <td>found (bool)</td>
+</tr>
+<tr>
+  <td>StartSession</td>
+  <td>project, cwd, args[]</td>
+  <td>session_id, tmux_session,<br>session_type</td>
+</tr>
+<tr>
+  <td>StopSession</td>
+  <td>id</td>
+  <td>success, message?</td>
+</tr>
+</table>
+</div>
+
+<div class="diagram" data-label="query &amp; streaming rpcs">
+<table class="meta-table">
+<tr><th>RPC</th><th>Request</th><th>Response</th></tr>
+<tr>
+  <td>GetSessions</td>
+  <td>status?, project?,<br>session_type?</td>
+  <td>Session[], agent_name,<br>agent_host</td>
+</tr>
+<tr>
+  <td>GetSession</td>
+  <td>id</td>
+  <td>Session</td>
+</tr>
+<tr>
+  <td>GetHealth</td>
+  <td>(empty)</td>
+  <td>agent_name, agent_host,<br>uptime, session_count,<br>MachineHealth</td>
+</tr>
+<tr>
+  <td>StreamEvents</td>
+  <td>session_id?</td>
+  <td><em>stream</em> SessionEvent</td>
+</tr>
+<tr>
+  <td>SendCommand</td>
+  <td>session_id, prompt</td>
+  <td><em>stream</em> CommandOutput</td>
+</tr>
+</table>
+</div>
+
+</div>
+
+<div class="diagram" data-label="session data model">
+<pre>
+<span class="g b">Session</span> <span class="d">{</span>
+  <span class="c">id</span>              <span class="d">: String</span>        <span class="d">// UUID, primary key</span>
+  <span class="c">pid</span>             <span class="d">: u32</span>           <span class="d">// OS PID; <span class="w b">0 = managed</span>, &gt;0 = ad-hoc</span>
+  <span class="c">project</span>         <span class="d">: Option</span>        <span class="d">// "oo", "nx", etc.</span>
+  <span class="c">cwd</span>             <span class="d">: String</span>        <span class="d">// working directory</span>
+  <span class="c">branch</span>          <span class="d">: Option</span>        <span class="d">// git branch (not populated yet)</span>
+  <span class="c">started_at</span>      <span class="d">: Timestamp</span>     <span class="d">// creation time</span>
+  <span class="c">last_heartbeat</span>  <span class="d">: Timestamp</span>     <span class="d">// updated by Heartbeat RPC</span>
+  <span class="c">status</span>          <span class="d">: enum</span>          <span class="d">// <span class="g">Active</span> | <span class="w">Idle</span> | <span class="w">Stale</span> | <span class="r">Errored</span></span>
+  <span class="c">cc_session_id</span>   <span class="d">: Option</span>        <span class="d">// CC UUID for --resume</span>
+  <span class="c">tmux_session</span>    <span class="d">: Option</span>        <span class="d">// legacy, always None now</span>
+  <span class="c">spec</span>            <span class="d">: Option</span>        <span class="d">// openspec name (not populated)</span>
+  <span class="c">command</span>         <span class="d">: Option</span>        <span class="d">// initial command (not populated)</span>
+  <span class="c">agent</span>           <span class="d">: Option</span>        <span class="d">// agent name (not populated)</span>
+<span class="d">}</span>
+</pre>
+</div>
+
+<div class="diagram" data-label="command output stream types">
+<pre>
+<span class="g b">CommandOutput</span> <span class="d">.content oneof {</span>
+
+  <span class="c">TextChunk</span>    <span class="d">{ text, partial }</span>       <span class="d">// assistant response text</span>
+                                          <span class="d">// partial=true for streaming tokens</span>
+
+  <span class="w">ToolUseInfo</span>  <span class="d">{ tool_name,</span>             <span class="d">// "Bash", "Read", "Edit" etc.</span>
+               <span class="d">  input_preview }</span>        <span class="d">// first 200 chars of tool input</span>
+
+  <span class="w">ToolResult</span>   <span class="d">{ tool_name,</span>             <span class="d">// tool that ran</span>
+               <span class="d">  output_preview,</span>        <span class="d">// first 500 chars of output</span>
+               <span class="d">  success }</span>              <span class="d">// true/false</span>
+
+  <span class="r">CommandError</span> <span class="d">{ message,</span>               <span class="d">// error description</span>
+               <span class="d">  exit_code }</span>            <span class="d">// CC process exit code</span>
+
+  <span class="g">CommandDone</span>  <span class="d">{ duration_ms,</span>           <span class="d">// total command time</span>
+               <span class="d">  tool_calls }</span>           <span class="d">// num_turns from CC</span>
+<span class="d">}</span>
+</pre>
+</div>
+
+<div class="diagram" data-label="session event stream types">
+<pre>
+<span class="g b">SessionEvent</span> <span class="d">.payload oneof {</span>
+
+  <span class="gb">SessionStarted</span>     <span class="d">{ session: Session }</span>
+  <span class="c">HeartbeatReceived</span>  <span class="d">{ last_heartbeat: Timestamp }</span>
+  <span class="w">StatusChanged</span>      <span class="d">{ old_status, new_status }</span>
+  <span class="r">SessionStopped</span>     <span class="d">{ reason: String }</span>
+<span class="d">}</span>
+</pre>
+</div>
+
+<div class="note" style="margin-top:2rem;border-left-color:var(--secondary);">
+  <strong>No persistence</strong> &mdash; the registry is an in-memory
+  <code>RwLock&lt;HashMap&gt;</code>. Sessions are lost on agent restart. Ad-hoc sessions
+  self-heal via the next CC heartbeat hook. Managed sessions require a new
+  <code>StartSession</code> from the TUI.
+</div>
+
+<p style="color:var(--text-dim);font-size:0.72rem;font-family:var(--mono);margin-top:3rem;text-align:right;">
+  generated by nexus session &bull; March 2026
+</p>
+
+</body>
+</html>
