@@ -654,6 +654,8 @@ pub struct StreamViewState {
     pub lines: Vec<String>,
     pub scroll_offset: usize,
     pub auto_scroll: bool,
+    /// Buffer for accumulating partial text chunks.
+    pub partial_buf: String,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -678,6 +680,7 @@ impl StreamViewState {
             lines: Vec::new(),
             scroll_offset: 0,
             auto_scroll: true,
+            partial_buf: String::new(),
         }
     }
 
@@ -739,39 +742,78 @@ impl StreamViewState {
     }
 
     /// Format and append a CommandOutput message to the log.
+    ///
+    /// Partial text chunks are accumulated in `partial_buf`. When a non-partial
+    /// event arrives (tool use, done, etc.) or a newline is encountered, the
+    /// buffer is flushed to the log as complete lines.
     pub fn push_command_output(&mut self, output: &nexus_core::proto::CommandOutput) {
         use nexus_core::proto::command_output::Content;
 
-        let line = match &output.content {
+        match &output.content {
             Some(Content::Text(chunk)) => {
                 if chunk.partial {
-                    return; // Skip partial chunks for now
+                    // Accumulate partial text. Flush on newlines.
+                    self.partial_buf.push_str(&chunk.text);
+                    // Flush complete lines.
+                    while let Some(nl_pos) = self.partial_buf.find('\n') {
+                        let line = self.partial_buf[..nl_pos].to_string();
+                        self.partial_buf = self.partial_buf[nl_pos + 1..].to_string();
+                        for wrapped in textwrap_simple(&line, 120) {
+                            self.push_line(wrapped);
+                        }
+                    }
+                } else {
+                    // Full text — flush any partial buffer first, then add this.
+                    self.flush_partial_buf();
+                    for line in chunk.text.lines() {
+                        for wrapped in textwrap_simple(line, 120) {
+                            self.push_line(wrapped);
+                        }
+                    }
                 }
-                chunk.text.clone()
             }
             Some(Content::ToolUse(info)) => {
-                format!("[tool] {}: {}", info.tool_name, info.input_preview)
+                self.flush_partial_buf();
+                let line = format!("[tool] {}: {}", info.tool_name, info.input_preview);
+                for wrapped in textwrap_simple(&line, 120) {
+                    self.push_line(wrapped);
+                }
             }
             Some(Content::ToolResult(result)) => {
+                self.flush_partial_buf();
                 let icon = if result.success { "\u{2713}" } else { "\u{2717}" };
-                format!("  {icon} {}: {}", result.tool_name, result.output_preview)
+                let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
+                for wrapped in textwrap_simple(&line, 120) {
+                    self.push_line(wrapped);
+                }
             }
             Some(Content::Error(err)) => {
-                format!("ERROR: {} (exit {})", err.message, err.exit_code)
+                self.flush_partial_buf();
+                let line = format!("ERROR: {} (exit {})", err.message, err.exit_code);
+                self.push_line(line);
             }
             Some(Content::Done(done)) => {
-                format!(
+                self.flush_partial_buf();
+                let line = format!(
                     "\u{2500}\u{2500} done ({:.1}s, {} tool calls) \u{2500}\u{2500}",
                     done.duration_ms as f64 / 1000.0,
                     done.tool_calls
-                )
+                );
+                self.push_line(line);
             }
-            None => return,
-        };
+            None => {}
+        }
+    }
 
-        // Wrap long lines and push into the bounded buffer.
-        for wrapped in textwrap_simple(&line, 120) {
-            self.push_line(wrapped);
+    /// Flush any accumulated partial text to the log.
+    fn flush_partial_buf(&mut self) {
+        if !self.partial_buf.is_empty() {
+            let buf = std::mem::take(&mut self.partial_buf);
+            for line in buf.lines() {
+                for wrapped in textwrap_simple(line, 120) {
+                    self.push_line(wrapped);
+                }
+            }
         }
     }
 }

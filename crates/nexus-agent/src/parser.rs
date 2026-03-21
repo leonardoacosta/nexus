@@ -21,6 +21,33 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<proto::Com
         "tool_use" => parse_tool_use(&v),
         "tool_result" => parse_tool_result(&v),
         "result" => parse_result(&v),
+        // stream_event wraps inner events — unwrap and parse the inner event.
+        "stream_event" => {
+            if let Some(inner) = v.get("event") {
+                let inner_type = inner.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match inner_type {
+                    "content_block_delta" => {
+                        // Unwrap: delta is inside event.delta
+                        if let Some(delta) = inner.get("delta") {
+                            let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            match delta_type {
+                                "text_delta" => {
+                                    let text = delta.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                                    if text.is_empty() { None } else {
+                                        Some(proto::command_output::Content::Text(proto::TextChunk {
+                                            text: text.to_string(),
+                                            partial: true,
+                                        }))
+                                    }
+                                }
+                                _ => None, // input_json_delta, thinking_delta etc — skip
+                            }
+                        } else { None }
+                    }
+                    _ => None, // message_start, message_stop, etc — skip
+                }
+            } else { None }
+        }
         _ => None,
     };
 
