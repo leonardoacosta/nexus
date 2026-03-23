@@ -100,6 +100,8 @@ async fn run_session_stream(
     let mut client = NexusAgentClient::new(channel);
     let request = tonic::Request::new(EventFilter {
         session_id: Some(session_id.to_string()),
+        event_types: vec![],
+        initial_snapshot: false,
     });
 
     // Fetch current session state to show immediately (before waiting for events).
@@ -253,7 +255,11 @@ pub fn subscribe_alert_stream(agents: &[(String, u16)]) -> mpsc::Receiver<AlertE
 
 async fn run_alert_stream(channel: Channel, tx: &mpsc::Sender<AlertEvent>) -> anyhow::Result<()> {
     let mut client = NexusAgentClient::new(channel);
-    let request = tonic::Request::new(EventFilter { session_id: None });
+    let request = tonic::Request::new(EventFilter {
+        session_id: None,
+        event_types: vec![],
+        initial_snapshot: false,
+    });
 
     let response = client.stream_events(request).await?;
     let mut stream = response.into_inner();

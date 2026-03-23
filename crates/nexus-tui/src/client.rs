@@ -261,6 +261,7 @@ impl NexusClient {
             project: project.to_string(),
             cwd: cwd.to_string(),
             args: Vec::new(),
+            target_agent: None,
         });
 
         match client.start_session(request).await {

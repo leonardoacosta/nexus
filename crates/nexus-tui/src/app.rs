@@ -1140,6 +1140,23 @@ impl StreamViewState {
                 );
                 self.push_line(StyledLine::new(line, LineStyle::DoneSummary));
             }
+            Some(Content::Progress(progress)) => {
+                self.flush_partial_buf();
+                let pct = progress
+                    .percent
+                    .map(|p| format!(" {p:.0}%"))
+                    .unwrap_or_default();
+                let summary = if progress.summary.is_empty() {
+                    String::new()
+                } else {
+                    format!(" \u{2014} {}", progress.summary)
+                };
+                let line = format!(
+                    "\u{25B6} [{}]{pct}{summary}",
+                    progress.phase
+                );
+                self.push_line(StyledLine::new(line, LineStyle::Plain));
+            }
             None => {}
         }
     }

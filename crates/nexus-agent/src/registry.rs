@@ -47,6 +47,7 @@ impl SessionRegistry {
             &id,
             Payload::Started(proto::SessionStarted {
                 session: Some(session_to_proto(&session)),
+                is_snapshot: false,
             }),
         ));
 
@@ -103,6 +104,7 @@ impl SessionRegistry {
                     entry.key(),
                     Payload::Started(proto::SessionStarted {
                         session: Some(session_to_proto(&session)),
+                        is_snapshot: false,
                     }),
                 ));
                 entry.insert(session);
@@ -257,6 +259,9 @@ impl SessionRegistry {
 // ---------------------------------------------------------------------------
 
 /// Build a `SessionEvent` with the current timestamp and given payload.
+///
+/// `agent_name` is left empty here — it is stamped at the gRPC transport
+/// level by `stream_events` before forwarding to the client.
 fn make_event(session_id: &str, payload: Payload) -> proto::SessionEvent {
     let now = chrono::Utc::now();
     proto::SessionEvent {
@@ -266,5 +271,6 @@ fn make_event(session_id: &str, payload: Payload) -> proto::SessionEvent {
             nanos: now.timestamp_subsec_nanos() as i32,
         }),
         payload: Some(payload),
+        agent_name: String::new(),
     }
 }

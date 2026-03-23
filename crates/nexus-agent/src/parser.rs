@@ -29,8 +29,10 @@ pub enum ParsedEvent {
     Command(proto::CommandOutput),
     /// Side-channel telemetry (rate limit, cost, model).
     Telemetry(TelemetryUpdate),
-    /// A result event that carries both a CommandOutput (Done/Error) and telemetry.
-    CommandWithTelemetry(proto::CommandOutput, TelemetryUpdate),
+    /// Multiple command outputs to forward (e.g. progress + tool_use together).
+    CommandBatch(Vec<proto::CommandOutput>),
+    /// A batch of command outputs paired with telemetry (e.g. result progress + done + telemetry).
+    CommandBatchWithTelemetry(Vec<proto::CommandOutput>, TelemetryUpdate),
 }
 
 /// Parse a single line of CC stream-json output.
@@ -65,10 +67,27 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<ParsedEven
         }
         "tool_use" => {
             let content = parse_tool_use(&v)?;
-            Some(ParsedEvent::Command(proto::CommandOutput {
+            // Emit a progress update alongside the tool_use event so consumers
+            // can track which phase (tool) the command is currently executing.
+            let tool_name = match &content {
+                proto::command_output::Content::ToolUse(info) => info.tool_name.clone(),
+                _ => "unknown".to_string(),
+            };
+            let progress = proto::CommandOutput {
+                session_id: session_id.to_string(),
+                content: Some(proto::command_output::Content::Progress(
+                    proto::ProgressUpdate {
+                        phase: tool_name,
+                        percent: None,
+                        summary: String::new(),
+                    },
+                )),
+            };
+            let tool_output = proto::CommandOutput {
                 session_id: session_id.to_string(),
                 content: Some(content),
-            }))
+            };
+            Some(ParsedEvent::CommandBatch(vec![progress, tool_output]))
         }
         "tool_result" => {
             let content = parse_tool_result(&v)?;
@@ -239,9 +258,14 @@ fn parse_tool_result(v: &serde_json::Value) -> Option<proto::command_output::Con
 ///
 /// Extracts `total_cost_usd` and `model` from the result event when present, returning
 /// them as side-channel telemetry alongside the `CommandOutput`.
+///
+/// Emits a `ProgressUpdate` with a cost/duration summary before the `Done`/`Error` message
+/// so consumers can display completion details incrementally.
 fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedEvent> {
     // Check for error results first.
     let is_error = v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
+
+    let duration = v.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0);
 
     let content = if is_error {
         let errors = v
@@ -259,7 +283,6 @@ fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedE
             exit_code: 1,
         })
     } else {
-        let duration = v.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0);
         let turns = v.get("num_turns").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
         proto::command_output::Content::Done(proto::CommandDone {
             duration_ms: duration,
@@ -274,10 +297,31 @@ fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedE
         .and_then(|m| m.as_str())
         .map(String::from);
 
+    // Build a progress summary for the completion event.
+    let summary = {
+        let duration_secs = duration as f64 / 1000.0;
+        match cost_usd {
+            Some(cost) => format!("completed in {duration_secs:.1}s, ${cost:.4}"),
+            None => format!("completed in {duration_secs:.1}s"),
+        }
+    };
+    let progress = proto::CommandOutput {
+        session_id: session_id.to_string(),
+        content: Some(proto::command_output::Content::Progress(
+            proto::ProgressUpdate {
+                phase: "result".to_string(),
+                percent: Some(100.0),
+                summary,
+            },
+        )),
+    };
+
     let output = proto::CommandOutput {
         session_id: session_id.to_string(),
         content: Some(content),
     };
+
+    let batch = vec![progress, output];
 
     if cost_usd.is_some() || model.is_some() {
         let telemetry = TelemetryUpdate {
@@ -285,9 +329,9 @@ fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedE
             cost_usd,
             model,
         };
-        Some(ParsedEvent::CommandWithTelemetry(output, telemetry))
+        Some(ParsedEvent::CommandBatchWithTelemetry(batch, telemetry))
     } else {
-        Some(ParsedEvent::Command(output))
+        Some(ParsedEvent::CommandBatch(batch))
     }
 }
 
@@ -356,11 +400,29 @@ mod tests {
     use super::*;
 
     /// Helper: extract the CommandOutput from a ParsedEvent, panicking on Telemetry-only.
+    /// For batch variants, returns the last non-Progress output.
     fn unwrap_command(event: ParsedEvent) -> proto::CommandOutput {
         match event {
             ParsedEvent::Command(output) => output,
-            ParsedEvent::CommandWithTelemetry(output, _) => output,
             ParsedEvent::Telemetry(_) => panic!("expected Command, got Telemetry"),
+            ParsedEvent::CommandBatch(outputs) => outputs
+                .into_iter()
+                .rfind(|o| !matches!(&o.content, Some(proto::command_output::Content::Progress(_))))
+                .expect("batch contained no non-progress outputs"),
+            ParsedEvent::CommandBatchWithTelemetry(outputs, _) => outputs
+                .into_iter()
+                .rfind(|o| !matches!(&o.content, Some(proto::command_output::Content::Progress(_))))
+                .expect("batch contained no non-progress outputs"),
+        }
+    }
+
+    /// Helper: extract all CommandOutputs from a ParsedEvent batch.
+    fn unwrap_batch(event: ParsedEvent) -> Vec<proto::CommandOutput> {
+        match event {
+            ParsedEvent::Command(output) => vec![output],
+            ParsedEvent::CommandBatch(outputs) => outputs,
+            ParsedEvent::CommandBatchWithTelemetry(outputs, _) => outputs,
+            ParsedEvent::Telemetry(_) => panic!("expected Command/Batch, got Telemetry"),
         }
     }
 
@@ -579,8 +641,14 @@ mod tests {
         let line = r#"{"type":"result","duration_ms":5000,"num_turns":3,"total_cost_usd":0.42,"model":"claude-opus-4-6"}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
-            ParsedEvent::CommandWithTelemetry(output, telemetry) => {
-                match output.content.unwrap() {
+            ParsedEvent::CommandBatchWithTelemetry(outputs, telemetry) => {
+                // First output is the progress update.
+                assert!(matches!(
+                    &outputs[0].content,
+                    Some(proto::command_output::Content::Progress(p)) if p.phase == "result" && p.percent == Some(100.0)
+                ));
+                // Second output is the Done message.
+                match outputs[1].content.as_ref().unwrap() {
                     proto::command_output::Content::Done(done) => {
                         assert_eq!(done.duration_ms, 5000);
                         assert_eq!(done.tool_calls, 3);
@@ -591,7 +659,7 @@ mod tests {
                 assert_eq!(telemetry.model.as_deref(), Some("claude-opus-4-6"));
                 assert!(telemetry.rate_limit.is_none());
             }
-            other => panic!("expected CommandWithTelemetry, got {:?}", other),
+            other => panic!("expected CommandBatchWithTelemetry, got {:?}", other),
         }
     }
 
@@ -601,11 +669,11 @@ mod tests {
             r#"{"type":"result","duration_ms":100,"num_turns":1,"total_cost_usd":0.0}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
-            ParsedEvent::CommandWithTelemetry(_, telemetry) => {
+            ParsedEvent::CommandBatchWithTelemetry(_, telemetry) => {
                 assert!((telemetry.cost_usd.unwrap() - 0.0).abs() < 0.001);
                 assert!(telemetry.model.is_none());
             }
-            other => panic!("expected CommandWithTelemetry, got {:?}", other),
+            other => panic!("expected CommandBatchWithTelemetry, got {:?}", other),
         }
     }
 
@@ -614,8 +682,14 @@ mod tests {
         let line = r#"{"type":"result","duration_ms":1000,"num_turns":2}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
-            ParsedEvent::Command(output) => {
-                match output.content.unwrap() {
+            ParsedEvent::CommandBatch(outputs) => {
+                assert_eq!(outputs.len(), 2);
+                // First is progress, second is Done.
+                assert!(matches!(
+                    &outputs[0].content,
+                    Some(proto::command_output::Content::Progress(_))
+                ));
+                match outputs[1].content.as_ref().unwrap() {
                     proto::command_output::Content::Done(done) => {
                         assert_eq!(done.duration_ms, 1000);
                         assert_eq!(done.tool_calls, 2);
@@ -623,7 +697,7 @@ mod tests {
                     other => panic!("expected Done, got {:?}", other),
                 }
             }
-            other => panic!("expected Command (no telemetry), got {:?}", other),
+            other => panic!("expected CommandBatch (no telemetry), got {:?}", other),
         }
     }
 
@@ -633,14 +707,60 @@ mod tests {
             r#"{"type":"result","duration_ms":800,"num_turns":1,"model":"claude-sonnet-4-20250514"}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
-            ParsedEvent::CommandWithTelemetry(_, telemetry) => {
+            ParsedEvent::CommandBatchWithTelemetry(_, telemetry) => {
                 assert!(telemetry.cost_usd.is_none());
                 assert_eq!(
                     telemetry.model.as_deref(),
                     Some("claude-sonnet-4-20250514")
                 );
             }
-            other => panic!("expected CommandWithTelemetry, got {:?}", other),
+            other => panic!("expected CommandBatchWithTelemetry, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Progress event tests (add-command-progress-relay)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_tool_use_emits_progress_and_tool_use() {
+        let line =
+            r#"{"type":"tool_use","tool":{"name":"Bash","input":{"command":"cargo build"}}}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        let outputs = unwrap_batch(event);
+        assert_eq!(outputs.len(), 2);
+        // First: ProgressUpdate with phase = tool name.
+        match outputs[0].content.as_ref().unwrap() {
+            proto::command_output::Content::Progress(p) => {
+                assert_eq!(p.phase, "Bash");
+                assert!(p.percent.is_none());
+                assert!(p.summary.is_empty());
+            }
+            other => panic!("expected Progress, got {:?}", other),
+        }
+        // Second: ToolUseInfo.
+        match outputs[1].content.as_ref().unwrap() {
+            proto::command_output::Content::ToolUse(info) => {
+                assert_eq!(info.tool_name, "Bash");
+            }
+            other => panic!("expected ToolUse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_result_emits_progress_with_summary() {
+        let line = r#"{"type":"result","duration_ms":5000,"num_turns":3,"total_cost_usd":0.42,"model":"claude-opus-4-6"}"#;
+        let event = parse_stream_json_line("sess-1", line).unwrap();
+        let outputs = unwrap_batch(event);
+        assert_eq!(outputs.len(), 2);
+        match outputs[0].content.as_ref().unwrap() {
+            proto::command_output::Content::Progress(p) => {
+                assert_eq!(p.phase, "result");
+                assert_eq!(p.percent, Some(100.0));
+                assert!(p.summary.contains("5.0s"));
+                assert!(p.summary.contains("$0.42"));
+            }
+            other => panic!("expected Progress, got {:?}", other),
         }
     }
 }

@@ -20,6 +20,7 @@ pub struct NexusAgentService {
     health: HealthCollector,
     agent_name: String,
     agent_host: String,
+    started_at: std::time::Instant,
 }
 
 impl NexusAgentService {
@@ -36,6 +37,7 @@ impl NexusAgentService {
             health,
             agent_name,
             agent_host,
+            started_at: std::time::Instant::now(),
         }
     }
 }
@@ -170,6 +172,17 @@ impl NexusAgent for NexusAgentService {
         request: Request<proto::StartSessionRequest>,
     ) -> Result<Response<proto::StartSessionResponse>, Status> {
         let req = request.into_inner();
+
+        // Agent targeting: reject if target doesn't match this agent.
+        if let Some(ref target) = req.target_agent
+            && target != &self.agent_name
+        {
+            return Err(Status::not_found(format!(
+                "Agent '{}' does not match target '{}'",
+                self.agent_name, target
+            )));
+        }
+
         let session_id = Uuid::new_v4().to_string();
 
         let project_name = if req.project.is_empty() {
@@ -408,24 +421,47 @@ impl NexusAgent for NexusAgentService {
                                         return;
                                     }
                                 }
-                                parser::ParsedEvent::CommandWithTelemetry(output, telemetry) => {
-                                    // Persist telemetry, then forward the command output.
+                                parser::ParsedEvent::CommandBatch(outputs) => {
+                                    for output in outputs {
+                                        if matches!(
+                                            &output.content,
+                                            Some(proto::command_output::Content::Done(_))
+                                        ) {
+                                            done_sent = true;
+                                        }
+
+                                        if tx.send(Ok(output)).await.is_err() {
+                                            tracing::debug!(
+                                                session_id = %sid,
+                                                "send_command: client disconnected"
+                                            );
+                                            let _ = child.kill().await;
+                                            return;
+                                        }
+                                    }
+                                }
+                                parser::ParsedEvent::CommandBatchWithTelemetry(
+                                    outputs,
+                                    telemetry,
+                                ) => {
                                     registry.update_telemetry(&sid, &telemetry).await;
 
-                                    if matches!(
-                                        &output.content,
-                                        Some(proto::command_output::Content::Done(_))
-                                    ) {
-                                        done_sent = true;
-                                    }
+                                    for output in outputs {
+                                        if matches!(
+                                            &output.content,
+                                            Some(proto::command_output::Content::Done(_))
+                                        ) {
+                                            done_sent = true;
+                                        }
 
-                                    if tx.send(Ok(output)).await.is_err() {
-                                        tracing::debug!(
-                                            session_id = %sid,
-                                            "send_command: client disconnected"
-                                        );
-                                        let _ = child.kill().await;
-                                        return;
+                                        if tx.send(Ok(output)).await.is_err() {
+                                            tracing::debug!(
+                                                session_id = %sid,
+                                                "send_command: client disconnected"
+                                            );
+                                            let _ = child.kill().await;
+                                            return;
+                                        }
                                     }
                                 }
                             }
@@ -550,7 +586,7 @@ impl NexusAgent for NexusAgentService {
         let health_response = proto::HealthResponse {
             agent_name: self.agent_name.clone(),
             agent_host: self.agent_host.clone(),
-            uptime_seconds: 0, // TODO: pass started_at if needed
+            uptime_seconds: self.started_at.elapsed().as_secs(),
             session_count: sessions.len() as u32,
             machine: Some(proto::MachineHealth {
                 cpu_percent: machine.cpu_percent,
@@ -586,6 +622,8 @@ impl NexusAgent for NexusAgentService {
         let filter = request.into_inner();
         tracing::info!(
             session_filter = ?filter.session_id,
+            event_types = ?filter.event_types,
+            initial_snapshot = filter.initial_snapshot,
             "stream_events: new subscriber"
         );
         let mut broadcast_rx = self.events.subscribe();
@@ -596,16 +634,98 @@ impl NexusAgent for NexusAgentService {
         // than losing events from the broadcast channel.
         let (tx, rx) = mpsc::channel::<Result<proto::SessionEvent, Status>>(64);
 
+        let agent_name = self.agent_name.clone();
+        let registry = Arc::clone(&self.registry);
+
+        // Convert the repeated i32 event_types to a set of EventType values
+        // for efficient lookup. An empty set means "pass all events".
+        let allowed_event_types: Vec<i32> = filter.event_types.clone();
+
         tokio::spawn(async move {
+            // ------------------------------------------------------------------
+            // Phase 1: Initial snapshot (if requested)
+            // ------------------------------------------------------------------
+            if filter.initial_snapshot {
+                let sessions = registry.get_all().await;
+                let now = chrono::Utc::now();
+                let ts = Some(prost_types::Timestamp {
+                    seconds: now.timestamp(),
+                    nanos: now.timestamp_subsec_nanos() as i32,
+                });
+
+                for session in &sessions {
+                    // Apply session_id filter to snapshot events too.
+                    if let Some(ref filter_session_id) = filter.session_id
+                        && session.id != *filter_session_id
+                    {
+                        continue;
+                    }
+
+                    // Apply event type filter: snapshot events are SessionStarted.
+                    if !allowed_event_types.is_empty()
+                        && !allowed_event_types
+                            .contains(&(proto::EventType::SessionStarted as i32))
+                    {
+                        continue;
+                    }
+
+                    let event = proto::SessionEvent {
+                        session_id: session.id.clone(),
+                        ts,
+                        payload: Some(proto::session_event::Payload::Started(
+                            proto::SessionStarted {
+                                session: Some(session_to_proto(session)),
+                                is_snapshot: true,
+                            },
+                        )),
+                        agent_name: agent_name.clone(),
+                    };
+
+                    if tx.send(Ok(event)).await.is_err() {
+                        tracing::debug!("stream_events client disconnected during snapshot");
+                        return;
+                    }
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Phase 2: Live event forwarding
+            // ------------------------------------------------------------------
             loop {
                 match broadcast_rx.recv().await {
-                    Ok(event) => {
+                    Ok(mut event) => {
                         // Apply filter: skip events that don't match the requested session_id.
                         if let Some(ref filter_session_id) = filter.session_id
                             && event.session_id != *filter_session_id
                         {
                             continue;
                         }
+
+                        // Apply event type filter: map payload variant to EventType
+                        // and check against the allowed list. Empty list = pass all.
+                        if !allowed_event_types.is_empty() {
+                            let event_type = match &event.payload {
+                                Some(proto::session_event::Payload::Started(_)) => {
+                                    proto::EventType::SessionStarted as i32
+                                }
+                                Some(proto::session_event::Payload::Heartbeat(_)) => {
+                                    proto::EventType::HeartbeatReceived as i32
+                                }
+                                Some(proto::session_event::Payload::StatusChanged(_)) => {
+                                    proto::EventType::StatusChanged as i32
+                                }
+                                Some(proto::session_event::Payload::Stopped(_)) => {
+                                    proto::EventType::SessionStopped as i32
+                                }
+                                None => proto::EventType::Unspecified as i32,
+                            };
+                            if !allowed_event_types.contains(&event_type) {
+                                continue;
+                            }
+                        }
+
+                        // Stamp the agent name on every forwarded event.
+                        event.agent_name = agent_name.clone();
 
                         // If the client has disconnected, the send will fail
                         // and we break out of the loop to clean up.
@@ -736,6 +856,19 @@ impl NexusAgent for NexusAgentService {
         let projects: Vec<String> = project_names.into_iter().collect();
 
         Ok(Response::new(proto::ListProjectsResponse { projects }))
+    }
+
+    async fn list_agents(
+        &self,
+        _request: Request<proto::ListAgentsRequest>,
+    ) -> Result<Response<proto::ListAgentsResponse>, Status> {
+        Ok(Response::new(proto::ListAgentsResponse {
+            agents: vec![proto::AgentInfo {
+                name: self.agent_name.clone(),
+                host: self.agent_host.clone(),
+                port: 7400,
+            }],
+        }))
     }
 
     async fn stop_session(

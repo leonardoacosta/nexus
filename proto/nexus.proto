@@ -22,6 +22,14 @@ enum SessionType {
   SESSION_TYPE_AD_HOC = 2;
 }
 
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_SESSION_STARTED = 1;
+  EVENT_TYPE_HEARTBEAT_RECEIVED = 2;
+  EVENT_TYPE_STATUS_CHANGED = 3;
+  EVENT_TYPE_SESSION_STOPPED = 4;
+}
+
 // ---------------------------------------------------------------------------
 // Telemetry messages
 // ---------------------------------------------------------------------------
@@ -84,6 +92,7 @@ message StartSessionRequest {
   string project = 1;
   string cwd = 2;
   repeated string args = 3;
+  optional string target_agent = 4;
 }
 
 message StartSessionResponse {
@@ -133,6 +142,18 @@ message ListProjectsResponse {
   repeated string projects = 1;
 }
 
+message AgentInfo {
+  string name = 1;
+  string host = 2;
+  uint32 port = 3;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
 // ---------------------------------------------------------------------------
 // Command broker
 // ---------------------------------------------------------------------------
@@ -150,6 +171,7 @@ message CommandOutput {
     ToolResult tool_result = 4;
     CommandError error = 5;
     CommandDone done = 6;
+    ProgressUpdate progress = 7;
   }
 }
 
@@ -179,12 +201,20 @@ message CommandDone {
   uint32 tool_calls = 2;
 }
 
+message ProgressUpdate {
+  string phase = 1;
+  optional float percent = 2;
+  string summary = 3;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming events
 // ---------------------------------------------------------------------------
 
 message EventFilter {
   optional string session_id = 1;
+  repeated EventType event_types = 2;
+  bool initial_snapshot = 3;
 }
 
 message SessionEvent {
@@ -196,10 +226,12 @@ message SessionEvent {
     StatusChanged status_changed = 5;
     SessionStopped stopped = 6;
   }
+  string agent_name = 7;
 }
 
 message SessionStarted {
   Session session = 1;
+  bool is_snapshot = 2;
 }
 
 message HeartbeatReceived {
@@ -262,4 +294,5 @@ service NexusAgent {
   rpc SendCommand(CommandRequest) returns (stream CommandOutput);
   rpc GetHealth(HealthRequest) returns (HealthResponse);
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
 }
