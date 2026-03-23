@@ -82,9 +82,9 @@ impl SessionRegistry {
 
     /// Register an ad-hoc session (discovered via CC hook, not managed by tmux).
     ///
-    /// Idempotent: if a session with the same ID already exists, it is updated
-    /// in place without emitting `SessionStarted`. Returns `true` if the session
-    /// was newly created, `false` if an existing entry was updated.
+    /// Insert-if-absent: if a session with the same ID already exists, it is
+    /// left untouched (no field overwrites, no event). Returns `true` if the
+    /// session was newly created, `false` if it already existed.
     pub async fn register_adhoc(&self, mut session: Session) -> bool {
         // Ad-hoc sessions never have a tmux_session.
         session.tmux_session = None;
@@ -94,9 +94,8 @@ impl SessionRegistry {
 
         use std::collections::hash_map::Entry;
         match map.entry(id) {
-            Entry::Occupied(mut entry) => {
-                // Update existing session without emitting SessionStarted.
-                entry.insert(session);
+            Entry::Occupied(_) => {
+                // Session already registered — leave it untouched.
                 false
             }
             Entry::Vacant(entry) => {
