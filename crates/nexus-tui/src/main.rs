@@ -15,7 +15,7 @@ mod notifications;
 mod screens;
 mod stream;
 
-use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StyledLine};
+use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StreamVerbosity, StyledLine};
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
 use stream::{AlertEvent, StreamMessage};
@@ -283,6 +283,20 @@ fn run_loop(
                         status: _,
                     } => {
                         if let Some(sv) = app.stream_view.as_mut() {
+                            // Debounce: skip if same status text within 5 seconds.
+                            let debounced = sv
+                                .last_status_event
+                                .as_ref()
+                                .is_some_and(|(text, ts)| {
+                                    text == &session_type
+                                        && ts.elapsed()
+                                            < std::time::Duration::from_secs(5)
+                                });
+                            if !debounced {
+                                sv.last_status_event =
+                                    Some((session_type.clone(), std::time::Instant::now()));
+                                sv.system_event_count += 1;
+                            }
                             sv.session_type = Some(session_type);
                         }
                     }
@@ -291,6 +305,7 @@ fn run_loop(
                             let was_alive = sv.heartbeat_alive;
                             sv.last_heartbeat_ts = Some(timestamp.clone());
                             sv.last_heartbeat_tick = app.tick_count;
+                            sv.system_event_count += 1;
                             if !was_alive {
                                 // Heartbeat resumed after being stale.
                                 sv.push_line(StyledLine::new(
@@ -349,6 +364,7 @@ fn run_loop(
             && app.tick_count.wrapping_sub(sv.last_heartbeat_tick) > 50
         {
             sv.heartbeat_alive = false;
+            sv.system_event_count += 1;
             let ts = sv
                 .last_heartbeat_ts
                 .clone()
@@ -467,11 +483,17 @@ fn launch_editor(
 
     if let Some(sv) = &mut app.stream_view {
         sv.push_history(prompt.clone());
-        sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
+        sv.push_line(StyledLine::new(
+            "\u{2500}\u{2500} you \u{2500}\u{2500}",
+            LineStyle::UserHeader,
+        ));
         for line in prompt.lines() {
             sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
         }
+        // Blank separator after user prompt block.
         sv.push_line(StyledLine::new("", LineStyle::Plain));
+        // Reset assistant header for the upcoming response.
+        sv.assistant_header_emitted = false;
     }
 
     if let Some(sv) = &app.stream_view {
@@ -599,11 +621,17 @@ fn handle_stream_input_key(
 
                 if let Some(sv) = &mut app.stream_view {
                     sv.push_history(prompt.clone());
-                    sv.push_line(StyledLine::new("── you ──", LineStyle::UserPrompt));
+                    sv.push_line(StyledLine::new(
+                        "\u{2500}\u{2500} you \u{2500}\u{2500}",
+                        LineStyle::UserHeader,
+                    ));
                     for line in prompt.lines() {
                         sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
                     }
+                    // Blank separator after user prompt block.
                     sv.push_line(StyledLine::new("", LineStyle::Plain));
+                    // Reset assistant header for the upcoming response.
+                    sv.assistant_header_emitted = false;
                 }
 
                 if let Some(sv) = &app.stream_view {
@@ -889,6 +917,16 @@ fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::Char('i') => {
             app.input_mode = InputMode::StreamInput;
+            KeyAction::Continue
+        }
+        KeyCode::Char('v') => {
+            if let Some(sv) = app.stream_view.as_mut() {
+                sv.verbosity = match sv.verbosity {
+                    StreamVerbosity::Minimal => StreamVerbosity::Normal,
+                    StreamVerbosity::Normal => StreamVerbosity::Verbose,
+                    StreamVerbosity::Verbose => StreamVerbosity::Minimal,
+                };
+            }
             KeyAction::Continue
         }
         _ => KeyAction::Continue,

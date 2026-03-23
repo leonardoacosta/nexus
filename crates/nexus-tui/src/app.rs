@@ -11,6 +11,18 @@ use nexus_core::session::{Session, SessionStatus};
 use crate::markdown;
 
 // ---------------------------------------------------------------------------
+// Stream verbosity levels
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamVerbosity {
+    Minimal,
+    #[default]
+    Normal,
+    Verbose,
+}
+
+// ---------------------------------------------------------------------------
 // Brand colors (§6.1 of PRD)
 // ---------------------------------------------------------------------------
 
@@ -40,7 +52,9 @@ pub mod colors {
 #[allow(dead_code)] // AssistantText kept for exhaustive match; text now uses RichText path.
 pub enum LineStyle {
     UserPrompt,
+    UserHeader,
     AssistantText,
+    AssistantHeader,
     ToolHeader,
     ToolInput,
     ToolResult,
@@ -48,6 +62,25 @@ pub enum LineStyle {
     Error,
     DoneSummary,
     Plain,
+}
+
+impl LineStyle {
+    /// The minimum verbosity level at which this style is visible.
+    pub fn min_verbosity(self) -> StreamVerbosity {
+        match self {
+            LineStyle::UserPrompt
+            | LineStyle::UserHeader
+            | LineStyle::AssistantText
+            | LineStyle::AssistantHeader
+            | LineStyle::DoneSummary => StreamVerbosity::Minimal,
+            LineStyle::ToolHeader
+            | LineStyle::ToolInput
+            | LineStyle::ToolResult
+            | LineStyle::ToolError
+            | LineStyle::Error
+            | LineStyle::Plain => StreamVerbosity::Normal,
+        }
+    }
 }
 
 /// A single log line with associated style metadata.
@@ -104,6 +137,28 @@ impl StreamLine {
                 }
             }
         }
+    }
+
+    /// Whether this line should be visible at the given verbosity level.
+    ///
+    /// `RichText` lines are always visible at `Minimal` (they are assistant text).
+    /// `CollapsibleBlock` uses the header's style for the check.
+    pub fn is_visible(&self, verbosity: StreamVerbosity) -> bool {
+        let min = match self {
+            StreamLine::Styled(s) => s.style.min_verbosity(),
+            StreamLine::RichText { .. } => StreamVerbosity::Minimal,
+            StreamLine::CollapsibleBlock { header, .. } => header.style.min_verbosity(),
+        };
+        verbosity_rank(verbosity) >= verbosity_rank(min)
+    }
+}
+
+/// Map verbosity levels to a numeric rank for comparison.
+fn verbosity_rank(v: StreamVerbosity) -> u8 {
+    match v {
+        StreamVerbosity::Minimal => 0,
+        StreamVerbosity::Normal => 1,
+        StreamVerbosity::Verbose => 2,
     }
 }
 
@@ -906,6 +961,19 @@ pub struct StreamViewState {
     /// Current position in history during Up/Down navigation.
     /// `None` means the user is editing the live buffer (not navigating history).
     pub history_index: Option<usize>,
+
+    // Verbosity filter for the stream view.
+    pub verbosity: StreamVerbosity,
+
+    // Message framing: tracks whether the assistant header has been emitted
+    // for the current response.
+    pub assistant_header_emitted: bool,
+
+    // System event count (heartbeat, status changes, etc.).
+    pub system_event_count: usize,
+
+    // Event debouncing: last status event text and timestamp.
+    pub last_status_event: Option<(String, Instant)>,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -941,6 +1009,10 @@ impl StreamViewState {
             last_heartbeat_tick: 0,
             input_history: Vec::new(),
             history_index: None,
+            verbosity: StreamVerbosity::default(),
+            assistant_header_emitted: false,
+            system_event_count: 0,
+            last_status_event: None,
         }
     }
 
@@ -1097,6 +1169,15 @@ impl StreamViewState {
 
         match &output.content {
             Some(Content::Text(chunk)) => {
+                // Emit assistant header before the first text of a new response.
+                if !self.assistant_header_emitted {
+                    self.push_line(StyledLine::new(
+                        "\u{2500}\u{2500} assistant \u{2500}\u{2500}",
+                        LineStyle::AssistantHeader,
+                    ));
+                    self.assistant_header_emitted = true;
+                }
+
                 if chunk.partial {
                     // Accumulate partial text. Flush on newlines.
                     self.partial_buf.push_str(&chunk.text);
@@ -1179,6 +1260,10 @@ impl StreamViewState {
                     done.tool_calls
                 );
                 self.push_line(StyledLine::new(line, LineStyle::DoneSummary));
+                // Blank separator after done summary.
+                self.push_line(StyledLine::new("", LineStyle::Plain));
+                // Reset assistant header for the next response.
+                self.assistant_header_emitted = false;
             }
             Some(Content::Progress(progress)) => {
                 self.flush_partial_buf();

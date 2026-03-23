@@ -4,13 +4,19 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, LineStyle, StreamLine, colors};
+use crate::app::{App, LineStyle, StreamLine, StreamVerbosity, colors};
 
 /// Map a `LineStyle` to the ratatui `Style` using the brand color palette.
 fn line_style_to_ratatui(style: LineStyle) -> Style {
     match style {
         LineStyle::UserPrompt => Style::default().fg(colors::PRIMARY),
+        LineStyle::UserHeader => Style::default()
+            .fg(colors::PRIMARY)
+            .add_modifier(Modifier::DIM),
         LineStyle::AssistantText => Style::default().fg(Color::White),
+        LineStyle::AssistantHeader => Style::default()
+            .fg(colors::SECONDARY)
+            .add_modifier(Modifier::DIM),
         LineStyle::ToolHeader => Style::default()
             .fg(colors::SECONDARY)
             .add_modifier(Modifier::BOLD),
@@ -116,7 +122,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     ];
     spans.extend(badge_spans);
     spans.push(Span::styled(
-        "  q: back  j/k: scroll  End: follow  Enter: expand/collapse",
+        "  q: back  j/k: scroll  End: follow  Enter: expand/collapse  v: filter",
         Style::default().fg(colors::TEXT_DIM),
     ));
 
@@ -126,6 +132,21 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(colors::TEXT_DIM)),
     );
     frame.render_widget(title, area);
+}
+
+/// Render a `StyledLine` into a `Line`, adding a green left-border for `UserPrompt` lines.
+fn render_styled_line(s: &crate::app::StyledLine) -> Line<'static> {
+    if s.style == LineStyle::UserPrompt {
+        Line::from(vec![
+            Span::styled("\u{2502} ", Style::default().fg(colors::PRIMARY)),
+            Span::styled(s.text.clone(), line_style_to_ratatui(s.style)),
+        ])
+    } else {
+        Line::from(Span::styled(
+            s.text.clone(),
+            line_style_to_ratatui(s.style),
+        ))
+    }
 }
 
 fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
@@ -143,6 +164,8 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         }
     };
 
+    let verbosity = sv.verbosity;
+
     // Update auto-scroll position before rendering.
     sv.update_auto_scroll(visible_height);
 
@@ -155,16 +178,17 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
-    // Expand all StreamLine entries into individual display lines, then
-    // apply scroll offset and take only what fits in the viewport.
+    // Expand all StreamLine entries into individual display lines, filtering
+    // by the current verbosity level. Then apply scroll offset and take only
+    // what fits in the viewport.
     let mut display_lines: Vec<Line<'_>> = Vec::new();
     for entry in &sv.lines {
+        if !entry.is_visible(verbosity) {
+            continue;
+        }
         match entry {
             StreamLine::Styled(s) => {
-                display_lines.push(Line::from(Span::styled(
-                    s.text.clone(),
-                    line_style_to_ratatui(s.style),
-                )));
+                display_lines.push(render_styled_line(s));
             }
             StreamLine::RichText { line } => {
                 display_lines.push(line.clone());
@@ -176,15 +200,9 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
             } => {
                 if *expanded {
                     // Header rendered with normal (non-dim) color.
-                    display_lines.push(Line::from(Span::styled(
-                        header.text.clone(),
-                        line_style_to_ratatui(header.style),
-                    )));
+                    display_lines.push(render_styled_line(header));
                     for body_line in lines {
-                        display_lines.push(Line::from(Span::styled(
-                            body_line.text.clone(),
-                            line_style_to_ratatui(body_line.style),
-                        )));
+                        display_lines.push(render_styled_line(body_line));
                     }
                 } else {
                     // Collapsed: header only, rendered dim.
@@ -309,6 +327,25 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     )];
 
     if let Some(sv) = sv {
+        // Verbosity indicator
+        let verbosity_label = match sv.verbosity {
+            StreamVerbosity::Minimal => "M",
+            StreamVerbosity::Normal => "N",
+            StreamVerbosity::Verbose => "V",
+        };
+        spans.push(Span::styled(
+            format!(" \u{00B7} [{verbosity_label}]"),
+            Style::default().fg(colors::TEXT_DIM),
+        ));
+
+        // System event count
+        if sv.system_event_count > 0 {
+            spans.push(Span::styled(
+                format!(" \u{00B7} {} sys", sv.system_event_count),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
+        }
+
         // Model name
         if let Some(ref model) = sv.model {
             spans.push(Span::styled(
