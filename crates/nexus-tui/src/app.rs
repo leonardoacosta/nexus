@@ -11,6 +11,40 @@ use nexus_core::session::{Session, SessionStatus};
 use crate::markdown;
 
 // ---------------------------------------------------------------------------
+// Search state for stream view
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct SearchState {
+    pub query: String,
+    pub match_positions: Vec<usize>, // display line indices with matches
+    pub current_match: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Code block range for clipboard
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct CodeBlockRange {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String,
+}
+
+// ---------------------------------------------------------------------------
+// Session tab for quick switching
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct SessionTab {
+    pub session_id: String,
+    pub project: Option<String>,
+    pub session_label: String,
+    pub agent_name: String,
+}
+
+// ---------------------------------------------------------------------------
 // Stream verbosity levels
 // ---------------------------------------------------------------------------
 
@@ -62,6 +96,8 @@ pub enum LineStyle {
     Error,
     DoneSummary,
     Plain,
+    DiffAdd,
+    DiffRemove,
 }
 
 impl LineStyle {
@@ -78,7 +114,9 @@ impl LineStyle {
             | LineStyle::ToolResult
             | LineStyle::ToolError
             | LineStyle::Error
-            | LineStyle::Plain => StreamVerbosity::Normal,
+            | LineStyle::Plain
+            | LineStyle::DiffAdd
+            | LineStyle::DiffRemove => StreamVerbosity::Normal,
         }
     }
 }
@@ -214,6 +252,7 @@ pub enum InputMode {
     StartSessionProjectSelect,
     StartSessionCwd,
     StreamInput,
+    StreamSearch,
     ScratchpadEdit,
 }
 
@@ -369,6 +408,10 @@ pub struct App {
     /// Frame counter for animations (spinner, etc.). Incremented each render tick.
     pub tick_count: usize,
 
+    // Session tabs (max 9)
+    pub session_tabs: Vec<SessionTab>,
+    pub active_tab: Option<usize>,
+
     // Scratchpad state
     pub scratchpad_text: String,
     pub project_notes: ProjectNotes,
@@ -401,6 +444,8 @@ impl App {
             stream_executing: false,
             stream_exec_start: None,
             tick_count: 0,
+            session_tabs: Vec::new(),
+            active_tab: None,
             scratchpad_text: String::new(),
             project_notes: ProjectNotes::load(),
             scratchpad_project: None,
@@ -665,7 +710,36 @@ impl App {
     /// Leave stream attach view and return to dashboard.
     pub fn close_stream_attach(&mut self) {
         self.stream_view = None;
+        self.active_tab = None;
         self.current_screen = Screen::Dashboard;
+    }
+
+    /// Ensure the current stream session is tracked as a tab.
+    /// Returns the tab index if a new tab was added.
+    pub fn ensure_session_tab(&mut self) -> Option<usize> {
+        let sv = self.stream_view.as_ref()?;
+        let session_id = sv.session_id.clone();
+        if let Some(idx) = self
+            .session_tabs
+            .iter()
+            .position(|t| t.session_id == session_id)
+        {
+            self.active_tab = Some(idx);
+            return Some(idx);
+        }
+        if self.session_tabs.len() >= 9 {
+            return None; // max 9 tabs
+        }
+        let tab = SessionTab {
+            session_id: sv.session_id.clone(),
+            project: None, // filled from session data
+            session_label: sv.session_label.clone(),
+            agent_name: sv.agent_name.clone(),
+        };
+        self.session_tabs.push(tab);
+        let idx = self.session_tabs.len() - 1;
+        self.active_tab = Some(idx);
+        Some(idx)
     }
 
     // -----------------------------------------------------------------------
@@ -974,6 +1048,15 @@ pub struct StreamViewState {
 
     // Event debouncing: last status event text and timestamp.
     pub last_status_event: Option<(String, Instant)>,
+
+    // Search state for `/` search mode.
+    pub search: Option<SearchState>,
+
+    // Code block ranges detected during rendering (for clipboard yank).
+    pub code_blocks: Vec<CodeBlockRange>,
+
+    // Transient notification (e.g. "Copied to clipboard"). Cleared after a few ticks.
+    pub notification_message: Option<(String, usize)>,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -1013,6 +1096,9 @@ impl StreamViewState {
             assistant_header_emitted: false,
             system_event_count: 0,
             last_status_event: None,
+            search: None,
+            code_blocks: Vec::new(),
+            notification_message: None,
         }
     }
 
@@ -1190,8 +1276,35 @@ impl StreamViewState {
                 } else {
                     // Full text — flush any partial buffer first, then add this.
                     self.flush_partial_buf();
-                    for line in chunk.text.lines() {
-                        self.accumulate_markdown_line(line);
+
+                    // Detect thinking blocks: <thinking>...</thinking>
+                    let text = &chunk.text;
+                    let processed = Self::extract_thinking_blocks(text);
+                    for segment in processed {
+                        match segment {
+                            ThinkingSegment::Text(t) => {
+                                for line in t.lines() {
+                                    self.accumulate_markdown_line(line);
+                                }
+                            }
+                            ThinkingSegment::Thinking(content) => {
+                                // Flush any pending markdown first.
+                                self.flush_markdown_buf();
+                                let line_count = content.lines().count();
+                                let header_text = format!(
+                                    "\u{2500}\u{2500} thinking ({line_count} lines) \u{2500}\u{2500}"
+                                );
+                                let body_lines: Vec<StyledLine> = content
+                                    .lines()
+                                    .map(|l| StyledLine::new(l.to_string(), LineStyle::Plain))
+                                    .collect();
+                                self.push_stream_line(StreamLine::CollapsibleBlock {
+                                    header: StyledLine::new(header_text, LineStyle::DoneSummary),
+                                    lines: body_lines,
+                                    expanded: false,
+                                });
+                            }
+                        }
                     }
                     // Full (non-partial) text is a complete message — flush markdown now.
                     self.flush_markdown_buf();
@@ -1221,12 +1334,20 @@ impl StreamViewState {
                 // Count newlines in the output preview to decide collapsibility.
                 let line_count = result.output_preview.lines().count();
                 if line_count > 5 {
-                    // Build the body lines from the full output preview.
+                    // Build the body lines from the full output preview,
+                    // applying diff coloring if the content looks like a diff.
                     let body_lines: Vec<StyledLine> = result
                         .output_preview
                         .lines()
-                        .flat_map(|l| textwrap_simple(l, 116))
-                        .map(|l| StyledLine::new(format!("    {l}"), style))
+                        .flat_map(|l| {
+                            let diff_style = classify_diff_line(l);
+                            textwrap_simple(l, 116).into_iter().map(move |wrapped| {
+                                StyledLine::new(
+                                    format!("    {wrapped}"),
+                                    diff_style.unwrap_or(style),
+                                )
+                            })
+                        })
                         .collect();
 
                     let header_text = format!(
@@ -1241,9 +1362,18 @@ impl StreamViewState {
                         expanded: false,
                     });
                 } else {
-                    let line = format!("  {icon} {}: {}", result.tool_name, result.output_preview);
-                    for wrapped in textwrap_simple(&line, 120) {
-                        self.push_line(StyledLine::new(wrapped, style));
+                    // Apply diff coloring for short outputs too.
+                    for l in result.output_preview.lines() {
+                        let diff_style = classify_diff_line(l);
+                        let line_text = format!("  {icon} {}: {l}", result.tool_name);
+                        for wrapped in textwrap_simple(&line_text, 120) {
+                            self.push_line(StyledLine::new(wrapped, diff_style.unwrap_or(style)));
+                        }
+                    }
+                    // If there are no lines, still show the tool name.
+                    if result.output_preview.is_empty() {
+                        let line = format!("  {icon} {}", result.tool_name);
+                        self.push_line(StyledLine::new(line, style));
                     }
                 }
             }
@@ -1276,10 +1406,7 @@ impl StreamViewState {
                 } else {
                     format!(" \u{2014} {}", progress.summary)
                 };
-                let line = format!(
-                    "\u{25B6} [{}]{pct}{summary}",
-                    progress.phase
-                );
+                let line = format!("\u{25B6} [{}]{pct}{summary}", progress.phase);
                 self.push_line(StyledLine::new(line, LineStyle::Plain));
             }
             None => {}
@@ -1296,6 +1423,74 @@ impl StreamViewState {
             }
         }
         self.flush_markdown_buf();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Thinking block extraction
+// ---------------------------------------------------------------------------
+
+enum ThinkingSegment {
+    Text(String),
+    Thinking(String),
+}
+
+impl StreamViewState {
+    /// Extract `<thinking>...</thinking>` blocks from text, returning a mix of
+    /// normal text segments and thinking segments.
+    fn extract_thinking_blocks(text: &str) -> Vec<ThinkingSegment> {
+        let mut segments = Vec::new();
+        let mut remaining = text;
+
+        loop {
+            if let Some(start_idx) = remaining.find("<thinking>") {
+                let before = &remaining[..start_idx];
+                if !before.is_empty() {
+                    segments.push(ThinkingSegment::Text(before.to_string()));
+                }
+                let after_open = &remaining[start_idx + "<thinking>".len()..];
+                if let Some(end_idx) = after_open.find("</thinking>") {
+                    let content = &after_open[..end_idx];
+                    segments.push(ThinkingSegment::Thinking(content.to_string()));
+                    remaining = &after_open[end_idx + "</thinking>".len()..];
+                } else {
+                    // No closing tag — treat the rest as thinking content.
+                    segments.push(ThinkingSegment::Thinking(after_open.to_string()));
+                    break;
+                }
+            } else {
+                if !remaining.is_empty() {
+                    segments.push(ThinkingSegment::Text(remaining.to_string()));
+                }
+                break;
+            }
+        }
+
+        if segments.is_empty() {
+            segments.push(ThinkingSegment::Text(text.to_string()));
+        }
+        segments
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Diff line classification
+// ---------------------------------------------------------------------------
+
+/// Classify a line as a diff addition, removal, or neither.
+/// Returns `Some(LineStyle::DiffAdd)` for `+` lines (not `+++`),
+/// `Some(LineStyle::DiffRemove)` for `-` lines (not `---`),
+/// and `None` for context/other lines.
+fn classify_diff_line(line: &str) -> Option<LineStyle> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("+++") || trimmed.starts_with("---") {
+        None // diff header lines, not actual changes
+    } else if trimmed.starts_with('+') {
+        Some(LineStyle::DiffAdd)
+    } else if trimmed.starts_with('-') {
+        Some(LineStyle::DiffRemove)
+    } else {
+        None
     }
 }
 

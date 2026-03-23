@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, LineStyle, StreamLine, StreamVerbosity, colors};
+use crate::app::{App, CodeBlockRange, InputMode, LineStyle, StreamLine, StreamVerbosity, colors};
 
 /// Map a `LineStyle` to the ratatui `Style` using the brand color palette.
 fn line_style_to_ratatui(style: LineStyle) -> Style {
@@ -32,6 +32,8 @@ fn line_style_to_ratatui(style: LineStyle) -> Style {
             .fg(colors::PRIMARY_DIM)
             .add_modifier(Modifier::DIM),
         LineStyle::Plain => Style::default().fg(colors::TEXT),
+        LineStyle::DiffAdd => Style::default().fg(colors::PRIMARY),
+        LineStyle::DiffRemove => Style::default().fg(colors::ERROR),
     }
 }
 
@@ -57,18 +59,41 @@ pub fn render_stream(frame: &mut Frame, app: &mut App) {
         input_bar_height(&app.stream_input)
     };
 
-    let chunks = Layout::vertical([
-        Constraint::Length(3),          // title bar
-        Constraint::Min(1),             // log view
-        Constraint::Length(bar_height), // input bar (dynamic)
-        Constraint::Length(1),          // status bar
-    ])
-    .split(area);
+    // Reserve 1 row for search bar when in search mode.
+    let show_search_bar = app.input_mode == InputMode::StreamSearch
+        || app
+            .stream_view
+            .as_ref()
+            .is_some_and(|sv| sv.search.is_some());
+
+    let chunks = if show_search_bar {
+        Layout::vertical([
+            Constraint::Length(3),          // title bar
+            Constraint::Min(1),             // log view
+            Constraint::Length(1),          // search bar
+            Constraint::Length(bar_height), // input bar (dynamic)
+            Constraint::Length(1),          // status bar
+        ])
+        .split(area)
+    } else {
+        // Use a 5-element layout with search bar height 0 to keep indices consistent.
+        Layout::vertical([
+            Constraint::Length(3),          // title bar
+            Constraint::Min(1),             // log view
+            Constraint::Length(0),          // search bar (hidden)
+            Constraint::Length(bar_height), // input bar (dynamic)
+            Constraint::Length(1),          // status bar
+        ])
+        .split(area)
+    };
 
     render_title_bar(frame, chunks[0], app);
     render_log_view(frame, chunks[1], app);
-    render_input_bar(frame, chunks[2], app);
-    render_status_bar(frame, chunks[3], app);
+    if show_search_bar {
+        render_search_bar(frame, chunks[2], app);
+    }
+    render_input_bar(frame, chunks[3], app);
+    render_status_bar(frame, chunks[4], app);
 }
 
 fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -79,7 +104,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     let badge_spans: Vec<Span<'_>> = if let Some(sv) = sv {
         if let Some(ref stype) = sv.session_type {
             let (dot, dot_style) = if sv.heartbeat_alive {
-                // Pulse: alternate between filled (●) and hollow (○) every 10 ticks.
+                // Pulse: alternate between filled and hollow every 10 ticks.
                 if (app.tick_count / 10).is_multiple_of(2) {
                     ("\u{25CF}", Style::default().fg(colors::PRIMARY)) // ●
                 } else {
@@ -121,8 +146,29 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         ),
     ];
     spans.extend(badge_spans);
+
+    // Session tab indicators: [1:label] [2:label] ...
+    if !app.session_tabs.is_empty() {
+        spans.push(Span::styled("  ", Style::default()));
+        for (i, tab) in app.session_tabs.iter().enumerate() {
+            let tab_label = tab.project.as_deref().unwrap_or(&tab.session_label);
+            // Truncate label to 6 chars.
+            let short: String = tab_label.chars().take(6).collect();
+            let is_active = app.active_tab == Some(i);
+            let style = if is_active {
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(colors::TEXT_DIM)
+            };
+            spans.push(Span::styled(format!("[{}:{short}]", i + 1), style));
+            spans.push(Span::styled(" ", Style::default()));
+        }
+    }
+
     spans.push(Span::styled(
-        "  q: back  j/k: scroll  End: follow  Enter: expand/collapse  v: filter",
+        "  q: back  j/k: scroll  /: search  y: yank  v: filter",
         Style::default().fg(colors::TEXT_DIM),
     ));
 
@@ -142,11 +188,59 @@ fn render_styled_line(s: &crate::app::StyledLine) -> Line<'static> {
             Span::styled(s.text.clone(), line_style_to_ratatui(s.style)),
         ])
     } else {
-        Line::from(Span::styled(
-            s.text.clone(),
-            line_style_to_ratatui(s.style),
-        ))
+        Line::from(Span::styled(s.text.clone(), line_style_to_ratatui(s.style)))
     }
+}
+
+/// Extract the plain text content from a ratatui `Line`.
+fn line_text(line: &Line<'_>) -> String {
+    line.spans.iter().map(|s| s.content.as_ref()).collect()
+}
+
+/// Check if a display line is a code block line (has SURFACE background).
+fn is_code_block_line(line: &Line<'_>) -> bool {
+    line.spans
+        .iter()
+        .any(|s| s.style.bg == Some(colors::SURFACE))
+}
+
+/// Apply search highlighting to a `Line`, wrapping matched substrings in yellow
+/// background spans. Returns a new `Line` with highlights applied.
+fn highlight_search_in_line<'a>(line: Line<'a>, query: &str) -> Line<'a> {
+    if query.is_empty() {
+        return line;
+    }
+    let query_lower = query.to_lowercase();
+    let mut new_spans: Vec<Span<'a>> = Vec::new();
+
+    for span in line.spans {
+        let text = span.content.as_ref();
+        let text_lower = text.to_lowercase();
+        let base_style = span.style;
+
+        let mut start = 0;
+        let mut found = false;
+        for (idx, _) in text_lower.match_indices(&query_lower) {
+            found = true;
+            if idx > start {
+                new_spans.push(Span::styled(text[start..idx].to_owned(), base_style));
+            }
+            new_spans.push(Span::styled(
+                text[idx..idx + query.len()].to_owned(),
+                base_style.bg(Color::Yellow).fg(Color::Black),
+            ));
+            start = idx + query.len();
+        }
+        if found {
+            if start < text.len() {
+                new_spans.push(Span::styled(text[start..].to_owned(), base_style));
+            }
+        } else {
+            new_spans.push(Span::styled(text.to_owned(), base_style));
+        }
+    }
+
+    Line::from(new_spans)
 }
 
 fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
@@ -179,18 +273,64 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 
     // Expand all StreamLine entries into individual display lines, filtering
-    // by the current verbosity level. Then apply scroll offset and take only
-    // what fits in the viewport.
+    // by the current verbosity level. Track code blocks during expansion.
     let mut display_lines: Vec<Line<'_>> = Vec::new();
+    let mut code_blocks: Vec<CodeBlockRange> = Vec::new();
+    let mut in_code_block = false;
+    let mut code_block_start: usize = 0;
+    let mut code_block_content = String::new();
+
     for entry in &sv.lines {
         if !entry.is_visible(verbosity) {
             continue;
         }
         match entry {
             StreamLine::Styled(s) => {
-                display_lines.push(render_styled_line(s));
+                let line = render_styled_line(s);
+                let idx = display_lines.len();
+                // Code block lines from markdown have SURFACE background.
+                if is_code_block_line(&line) {
+                    if !in_code_block {
+                        in_code_block = true;
+                        code_block_start = idx;
+                        code_block_content.clear();
+                    }
+                    code_block_content.push_str(&line_text(&line));
+                    code_block_content.push('\n');
+                } else if in_code_block {
+                    // End of code block.
+                    code_blocks.push(CodeBlockRange {
+                        start_line: code_block_start,
+                        end_line: idx.saturating_sub(1),
+                        content: code_block_content.trim_end().to_string(),
+                    });
+                    in_code_block = false;
+                    code_block_content.clear();
+                }
+                display_lines.push(line);
             }
             StreamLine::RichText { line } => {
+                let idx = display_lines.len();
+                if is_code_block_line(line) {
+                    if !in_code_block {
+                        in_code_block = true;
+                        code_block_start = idx;
+                        code_block_content.clear();
+                    }
+                    // Strip the gutter prefix (│ ) from code block content for yank.
+                    let text = line_text(line);
+                    let stripped = text.strip_prefix("\u{2502} ").unwrap_or(&text);
+                    code_block_content.push_str(stripped);
+                    code_block_content.push('\n');
+                } else if in_code_block {
+                    code_blocks.push(CodeBlockRange {
+                        start_line: code_block_start,
+                        end_line: idx.saturating_sub(1),
+                        content: code_block_content.trim_end().to_string(),
+                    });
+                    in_code_block = false;
+                    code_block_content.clear();
+                }
                 display_lines.push(line.clone());
             }
             StreamLine::CollapsibleBlock {
@@ -198,6 +338,16 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
                 lines,
                 expanded,
             } => {
+                if in_code_block {
+                    let idx = display_lines.len();
+                    code_blocks.push(CodeBlockRange {
+                        start_line: code_block_start,
+                        end_line: idx.saturating_sub(1),
+                        content: code_block_content.trim_end().to_string(),
+                    });
+                    in_code_block = false;
+                    code_block_content.clear();
+                }
                 if *expanded {
                     // Header rendered with normal (non-dim) color.
                     display_lines.push(render_styled_line(header));
@@ -217,14 +367,132 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         }
     }
 
+    // Close any trailing code block.
+    if in_code_block && !code_block_content.is_empty() {
+        code_blocks.push(CodeBlockRange {
+            start_line: code_block_start,
+            end_line: display_lines.len().saturating_sub(1),
+            content: code_block_content.trim_end().to_string(),
+        });
+    }
+
+    // Store code blocks for yank.
+    sv.code_blocks = code_blocks;
+
+    // Get search state before slicing.
+    let search_query: Option<String> = sv
+        .search
+        .as_ref()
+        .filter(|s| !s.query.is_empty())
+        .map(|s| s.query.clone());
+
+    // Compute search match positions across all display lines.
+    if let Some(ref query) = search_query {
+        let query_lower = query.to_lowercase();
+        let match_positions: Vec<usize> = display_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line_text(line).to_lowercase().contains(&query_lower))
+            .map(|(i, _)| i)
+            .collect();
+        if let Some(ref mut search) = sv.search {
+            search.match_positions = match_positions;
+            if search.current_match >= search.match_positions.len() {
+                search.current_match = 0;
+            }
+        }
+    }
+
+    let scroll_offset = sv.scroll_offset;
+
+    // Take visible slice.
     let visible_lines: Vec<Line<'_>> = display_lines
         .into_iter()
-        .skip(sv.scroll_offset)
+        .skip(scroll_offset)
         .take(visible_height)
+        .map(|line| {
+            if let Some(ref query) = search_query {
+                highlight_search_in_line(line, query)
+            } else {
+                line
+            }
+        })
         .collect();
+
+    // Render notification overlay if present.
+    let notification = sv.notification_message.as_ref().map(|(msg, _)| msg.clone());
 
     let paragraph = Paragraph::new(visible_lines);
     frame.render_widget(paragraph, area);
+
+    // Draw notification toast in the top-right corner of the log area.
+    if let Some(msg) = notification {
+        let msg_len = msg.len() as u16 + 4; // padding
+        if area.width > msg_len {
+            let toast_area = Rect {
+                x: area.x + area.width - msg_len,
+                y: area.y,
+                width: msg_len,
+                height: 1,
+            };
+            let toast = Paragraph::new(Line::from(Span::styled(
+                format!("  {msg}  "),
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .bg(colors::SURFACE_HIGHLIGHT),
+            )));
+            frame.render_widget(toast, toast_area);
+        }
+    }
+}
+
+fn render_search_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let sv = app.stream_view.as_ref();
+
+    let (query, current, total) = if let Some(sv) = sv {
+        if let Some(ref search) = sv.search {
+            (
+                search.query.as_str(),
+                if search.match_positions.is_empty() {
+                    0
+                } else {
+                    search.current_match + 1
+                },
+                search.match_positions.len(),
+            )
+        } else {
+            ("", 0, 0)
+        }
+    } else {
+        ("", 0, 0)
+    };
+
+    let in_search_mode = app.input_mode == InputMode::StreamSearch;
+
+    let mut spans = vec![
+        Span::styled(
+            " / ",
+            Style::default()
+                .fg(colors::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(query.to_owned(), Style::default().fg(colors::TEXT)),
+    ];
+
+    if in_search_mode {
+        spans.push(Span::styled(
+            "\u{2588}",
+            Style::default().fg(colors::PRIMARY),
+        ));
+    }
+
+    spans.push(Span::styled(
+        format!("  ({current}/{total} matches)"),
+        Style::default().fg(colors::TEXT_DIM),
+    ));
+
+    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(colors::SURFACE));
+    frame.render_widget(bar, area);
 }
 
 fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {

@@ -161,13 +161,11 @@ impl MdRenderer {
                         Some(Some(n)) => {
                             let bullet = format!("{indent}{n}. ");
                             *n += 1;
-                            self.current_spans
-                                .push(Span::styled(bullet, STYLE_BULLET));
+                            self.current_spans.push(Span::styled(bullet, STYLE_BULLET));
                         }
                         Some(None) => {
                             let bullet = format!("{indent}  * ");
-                            self.current_spans
-                                .push(Span::styled(bullet, STYLE_BULLET));
+                            self.current_spans.push(Span::styled(bullet, STYLE_BULLET));
                         }
                         None => {}
                     }
@@ -283,12 +281,9 @@ impl MdRenderer {
                 Event::Code(cow) => {
                     let s = cow.into_string();
                     if let Some(ref mut table) = self.table {
-                        table
-                            .current_cell
-                            .push(Span::styled(s, STYLE_INLINE_CODE));
+                        table.current_cell.push(Span::styled(s, STYLE_INLINE_CODE));
                     } else {
-                        self.current_spans
-                            .push(Span::styled(s, STYLE_INLINE_CODE));
+                        self.current_spans.push(Span::styled(s, STYLE_INLINE_CODE));
                     }
                 }
                 Event::SoftBreak => {
@@ -304,10 +299,8 @@ impl MdRenderer {
                 }
                 Event::Rule => {
                     self.flush_line();
-                    let rule = "\u{2500}"
-                        .repeat(self.width.saturating_sub(2) as usize);
-                    self.output
-                        .push(Line::from(Span::styled(rule, STYLE_HR)));
+                    let rule = "\u{2500}".repeat(self.width.saturating_sub(2) as usize);
+                    self.output.push(Line::from(Span::styled(rule, STYLE_HR)));
                     self.output.push(Line::default());
                 }
 

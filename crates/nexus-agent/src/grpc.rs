@@ -68,14 +68,16 @@ pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Sessio
         || session.total_cost_usd.is_some()
         || session.model.is_some()
     {
-        let rate_limit = session.rate_limit_utilization.map(|util| proto::RateLimitInfo {
-            utilization_percent: util,
-            rate_limit_type: session
-                .rate_limit_type
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string()),
-            surpassed_threshold: util >= 0.75,
-        });
+        let rate_limit = session
+            .rate_limit_utilization
+            .map(|util| proto::RateLimitInfo {
+                utilization_percent: util,
+                rate_limit_type: session
+                    .rate_limit_type
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                surpassed_threshold: util >= 0.75,
+            });
 
         Some(proto::SessionTelemetry {
             rate_limit,
@@ -663,8 +665,7 @@ impl NexusAgent for NexusAgentService {
 
                     // Apply event type filter: snapshot events are SessionStarted.
                     if !allowed_event_types.is_empty()
-                        && !allowed_event_types
-                            .contains(&(proto::EventType::SessionStarted as i32))
+                        && !allowed_event_types.contains(&(proto::EventType::SessionStarted as i32))
                     {
                         continue;
                     }

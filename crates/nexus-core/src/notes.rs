@@ -62,8 +62,7 @@ mod tests {
         // We can't easily redirect the path in tests, but we can verify the
         // default behavior of from_str on invalid content.
         let notes: HashMap<String, String> =
-            toml::from_str::<HashMap<String, String>>("not valid toml {{{{")
-                .unwrap_or_default();
+            toml::from_str::<HashMap<String, String>>("not valid toml {{{{").unwrap_or_default();
         assert!(notes.is_empty());
     }
 

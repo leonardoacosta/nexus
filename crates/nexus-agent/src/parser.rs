@@ -117,14 +117,12 @@ pub fn parse_stream_json_line(session_id: &str, line: &str) -> Option<ParsedEven
                                     } else {
                                         Some(ParsedEvent::Command(proto::CommandOutput {
                                             session_id: session_id.to_string(),
-                                            content: Some(
-                                                proto::command_output::Content::Text(
-                                                    proto::TextChunk {
-                                                        text: text.to_string(),
-                                                        partial: true,
-                                                    },
-                                                ),
-                                            ),
+                                            content: Some(proto::command_output::Content::Text(
+                                                proto::TextChunk {
+                                                    text: text.to_string(),
+                                                    partial: true,
+                                                },
+                                            )),
                                         }))
                                     }
                                 }
@@ -292,10 +290,7 @@ fn parse_result_event(session_id: &str, v: &serde_json::Value) -> Option<ParsedE
 
     // Extract telemetry from the result event.
     let cost_usd = v.get("total_cost_usd").and_then(|c| c.as_f64());
-    let model = v
-        .get("model")
-        .and_then(|m| m.as_str())
-        .map(String::from);
+    let model = v.get("model").and_then(|m| m.as_str()).map(String::from);
 
     // Build a progress summary for the completion event.
     let summary = {
@@ -407,11 +402,21 @@ mod tests {
             ParsedEvent::Telemetry(_) => panic!("expected Command, got Telemetry"),
             ParsedEvent::CommandBatch(outputs) => outputs
                 .into_iter()
-                .rfind(|o| !matches!(&o.content, Some(proto::command_output::Content::Progress(_))))
+                .rfind(|o| {
+                    !matches!(
+                        &o.content,
+                        Some(proto::command_output::Content::Progress(_))
+                    )
+                })
                 .expect("batch contained no non-progress outputs"),
             ParsedEvent::CommandBatchWithTelemetry(outputs, _) => outputs
                 .into_iter()
-                .rfind(|o| !matches!(&o.content, Some(proto::command_output::Content::Progress(_))))
+                .rfind(|o| {
+                    !matches!(
+                        &o.content,
+                        Some(proto::command_output::Content::Progress(_))
+                    )
+                })
                 .expect("batch contained no non-progress outputs"),
         }
     }
@@ -665,8 +670,7 @@ mod tests {
 
     #[test]
     fn parse_result_with_zero_cost() {
-        let line =
-            r#"{"type":"result","duration_ms":100,"num_turns":1,"total_cost_usd":0.0}"#;
+        let line = r#"{"type":"result","duration_ms":100,"num_turns":1,"total_cost_usd":0.0}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
             ParsedEvent::CommandBatchWithTelemetry(_, telemetry) => {
@@ -703,16 +707,12 @@ mod tests {
 
     #[test]
     fn parse_result_with_model_only() {
-        let line =
-            r#"{"type":"result","duration_ms":800,"num_turns":1,"model":"claude-sonnet-4-20250514"}"#;
+        let line = r#"{"type":"result","duration_ms":800,"num_turns":1,"model":"claude-sonnet-4-20250514"}"#;
         let event = parse_stream_json_line("sess-1", line).unwrap();
         match event {
             ParsedEvent::CommandBatchWithTelemetry(_, telemetry) => {
                 assert!(telemetry.cost_usd.is_none());
-                assert_eq!(
-                    telemetry.model.as_deref(),
-                    Some("claude-sonnet-4-20250514")
-                );
+                assert_eq!(telemetry.model.as_deref(), Some("claude-sonnet-4-20250514"));
             }
             other => panic!("expected CommandBatchWithTelemetry, got {:?}", other),
         }

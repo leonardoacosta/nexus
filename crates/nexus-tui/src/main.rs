@@ -15,7 +15,10 @@ mod notifications;
 mod screens;
 mod stream;
 
-use app::{AgentData, App, InputMode, LineStyle, PaletteAction, Screen, StreamVerbosity, StyledLine};
+use app::{
+    AgentData, App, InputMode, LineStyle, PaletteAction, Screen, SearchState, StreamVerbosity,
+    StyledLine,
+};
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
 use stream::{AlertEvent, StreamMessage};
@@ -284,13 +287,10 @@ fn run_loop(
                     } => {
                         if let Some(sv) = app.stream_view.as_mut() {
                             // Debounce: skip if same status text within 5 seconds.
-                            let debounced = sv
-                                .last_status_event
-                                .as_ref()
-                                .is_some_and(|(text, ts)| {
+                            let debounced =
+                                sv.last_status_event.as_ref().is_some_and(|(text, ts)| {
                                     text == &session_type
-                                        && ts.elapsed()
-                                            < std::time::Duration::from_secs(5)
+                                        && ts.elapsed() < std::time::Duration::from_secs(5)
                                 });
                             if !debounced {
                                 sv.last_status_event =
@@ -353,6 +353,16 @@ fn run_loop(
 
         // Tick notification manager (remove expired).
         app.notifications.tick();
+
+        // Tick stream view notification (dismiss after ~15 ticks / ~3 seconds).
+        if let Some(sv) = app.stream_view.as_mut()
+            && let Some((_, ref mut age)) = sv.notification_message
+        {
+            *age += 1;
+            if *age > 15 {
+                sv.notification_message = None;
+            }
+        }
 
         // Increment frame counter for animations (spinner, etc.).
         app.tick_count = app.tick_count.wrapping_add(1);
@@ -561,6 +571,10 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             KeyAction::Continue
         }
         InputMode::StreamInput => handle_stream_input_key(app, key, rpc_tx),
+        InputMode::StreamSearch => {
+            handle_stream_search_key(app, key);
+            KeyAction::Continue
+        }
     }
 }
 
@@ -827,6 +841,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
                     let short_id = &session_id[..session_id.len().min(4)];
                     let label = format!("{project}#{short_id}");
                     app.open_stream_attach(session_id, label, agent_name);
+                    app.ensure_session_tab();
                     app.input_mode = InputMode::StreamInput;
                 }
             }
@@ -929,7 +944,174 @@ fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
             }
             KeyAction::Continue
         }
+        // Feature 1: Yank code block at current scroll position to clipboard.
+        KeyCode::Char('y') => {
+            yank_code_block(app);
+            KeyAction::Continue
+        }
+        // Feature 3: Enter search mode.
+        KeyCode::Char('/') => {
+            if let Some(sv) = app.stream_view.as_mut() {
+                sv.search = Some(SearchState {
+                    query: String::new(),
+                    match_positions: Vec::new(),
+                    current_match: 0,
+                });
+            }
+            app.input_mode = InputMode::StreamSearch;
+            KeyAction::Continue
+        }
+        // Feature 3: Next/previous search match (after search confirmed).
+        KeyCode::Char('n') => {
+            search_next(app);
+            KeyAction::Continue
+        }
+        KeyCode::Char('N') => {
+            search_prev(app);
+            KeyAction::Continue
+        }
+        // Feature 4: Quick session tabs (1-9).
+        KeyCode::Char(c @ '1'..='9') => {
+            let tab_idx = (c as usize) - ('1' as usize);
+            switch_session_tab(app, tab_idx);
+            KeyAction::Continue
+        }
         _ => KeyAction::Continue,
+    }
+}
+
+/// Yank the code block at the current scroll position to clipboard via OSC 52.
+fn yank_code_block(app: &mut App) {
+    let sv = match app.stream_view.as_mut() {
+        Some(sv) => sv,
+        None => return,
+    };
+
+    let scroll = sv.scroll_offset;
+
+    // Find a code block that contains the current scroll position.
+    let block = sv
+        .code_blocks
+        .iter()
+        .find(|cb| scroll >= cb.start_line && scroll <= cb.end_line);
+
+    if let Some(cb) = block {
+        let content = cb.content.clone();
+        if content.is_empty() {
+            sv.notification_message = Some(("empty code block".to_string(), 0));
+            return;
+        }
+
+        // OSC 52 clipboard write.
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+        let osc52 = format!("\x1b]52;c;{}\x07", encoded);
+        if let Ok(()) = std::io::Write::write_all(&mut std::io::stdout(), osc52.as_bytes()) {
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        }
+
+        let lines = content.lines().count();
+        sv.notification_message = Some((format!("yanked {lines} lines"), 0));
+    } else {
+        sv.notification_message = Some(("no code block at cursor".to_string(), 0));
+    }
+}
+
+/// Jump to the next search match.
+fn search_next(app: &mut App) {
+    let sv = match app.stream_view.as_mut() {
+        Some(sv) => sv,
+        None => return,
+    };
+    let search = match sv.search.as_mut() {
+        Some(s) if !s.match_positions.is_empty() => s,
+        _ => return,
+    };
+    search.current_match = (search.current_match + 1) % search.match_positions.len();
+    let target = search.match_positions[search.current_match];
+    sv.scroll_offset = target;
+    sv.auto_scroll = false;
+}
+
+/// Jump to the previous search match.
+fn search_prev(app: &mut App) {
+    let sv = match app.stream_view.as_mut() {
+        Some(sv) => sv,
+        None => return,
+    };
+    let search = match sv.search.as_mut() {
+        Some(s) if !s.match_positions.is_empty() => s,
+        _ => return,
+    };
+    if search.current_match == 0 {
+        search.current_match = search.match_positions.len() - 1;
+    } else {
+        search.current_match -= 1;
+    }
+    let target = search.match_positions[search.current_match];
+    sv.scroll_offset = target;
+    sv.auto_scroll = false;
+}
+
+/// Switch to a session tab by index.
+fn switch_session_tab(app: &mut App, tab_idx: usize) {
+    if tab_idx >= app.session_tabs.len() {
+        return;
+    }
+
+    // If we're already on this tab, do nothing.
+    if app.active_tab == Some(tab_idx) {
+        return;
+    }
+
+    let target = &app.session_tabs[tab_idx];
+    let target_session_id = target.session_id.clone();
+    let target_label = target.session_label.clone();
+    let target_agent = target.agent_name.clone();
+
+    // Check if the current view is the same session.
+    let current_is_different = app
+        .stream_view
+        .as_ref()
+        .is_none_or(|sv| sv.session_id != target_session_id);
+
+    if current_is_different {
+        // Switch to the target session.
+        app.open_stream_attach(target_session_id, target_label, target_agent);
+        app.input_mode = InputMode::Normal; // stay in normal stream mode
+    }
+    app.active_tab = Some(tab_idx);
+}
+
+/// Key handling for stream search input mode.
+fn handle_stream_search_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            // Cancel search: clear everything.
+            if let Some(sv) = app.stream_view.as_mut() {
+                sv.search = None;
+            }
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Enter => {
+            // Confirm search: keep highlights, go back to normal mode.
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Backspace => {
+            if let Some(sv) = app.stream_view.as_mut()
+                && let Some(ref mut search) = sv.search
+            {
+                search.query.pop();
+            }
+        }
+        KeyCode::Char(c) => {
+            if let Some(sv) = app.stream_view.as_mut()
+                && let Some(ref mut search) = sv.search
+            {
+                search.query.push(c);
+            }
+        }
+        _ => {}
     }
 }
 
