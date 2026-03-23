@@ -2,10 +2,13 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use ratatui::style::Color;
+use ratatui::text::Line;
 
 use nexus_core::agent::AgentInfo;
 use nexus_core::notes::ProjectNotes;
 use nexus_core::session::{Session, SessionStatus};
+
+use crate::markdown;
 
 // ---------------------------------------------------------------------------
 // Brand colors (§6.1 of PRD)
@@ -34,6 +37,7 @@ pub mod colors {
 
 /// Semantic style for a single line in the stream view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // AssistantText kept for exhaustive match; text now uses RichText path.
 pub enum LineStyle {
     UserPrompt,
     AssistantText,
@@ -62,12 +66,16 @@ impl StyledLine {
     }
 }
 
-/// A single entry in the stream view log — either a plain styled line or a
-/// collapsible block of tool output.
+/// A single entry in the stream view log — either a plain styled line, a
+/// pre-styled rich-text line (from markdown rendering), or a collapsible block
+/// of tool output.
 #[derive(Debug, Clone)]
 pub enum StreamLine {
     /// A single styled line rendered as-is.
     Styled(StyledLine),
+    /// A pre-styled line produced by the markdown renderer. Each `Line` may
+    /// contain multiple `Span`s with different styles (bold, italic, code, etc.)
+    RichText { line: Line<'static> },
     /// A collapsible block with a header and zero or more body lines.
     CollapsibleBlock {
         header: StyledLine,
@@ -85,6 +93,7 @@ impl StreamLine {
     pub fn display_lines(&self) -> usize {
         match self {
             StreamLine::Styled(_) => 1,
+            StreamLine::RichText { .. } => 1,
             StreamLine::CollapsibleBlock {
                 lines, expanded, ..
             } => {
@@ -869,6 +878,10 @@ pub struct StreamViewState {
     pub auto_scroll: bool,
     /// Buffer for accumulating partial text chunks.
     pub partial_buf: String,
+    /// Buffer for accumulating complete lines before markdown rendering.
+    /// Flushed when a non-text event arrives (tool use, done, etc.) or when
+    /// the buffer contains complete blocks separated by blank lines.
+    markdown_buf: String,
 
     // Telemetry fields (updated from session data on poll).
     pub model: Option<String>,
@@ -918,6 +931,7 @@ impl StreamViewState {
             scroll_offset: 0,
             auto_scroll: true,
             partial_buf: String::new(),
+            markdown_buf: String::new(),
             model: None,
             rate_limit_utilization: None,
             total_cost_usd: None,
@@ -948,6 +962,34 @@ impl StreamViewState {
     /// Append a styled line, wrapping it in `StreamLine::Styled` and maintaining the bounded buffer.
     pub fn push_line(&mut self, line: StyledLine) {
         self.push_stream_line(StreamLine::Styled(line));
+    }
+
+    /// Render markdown text and push the resulting `RichText` lines.
+    fn push_markdown(&mut self, text: &str, width: u16) {
+        let rich_lines = markdown::render_markdown(text, width);
+        for line in rich_lines {
+            self.push_stream_line(StreamLine::RichText { line });
+        }
+    }
+
+    /// Append text to the markdown accumulation buffer. Flushes completed
+    /// markdown blocks (text separated by blank lines or closed code fences)
+    /// through the renderer, keeping any trailing incomplete block buffered.
+    fn accumulate_markdown_line(&mut self, line: &str) {
+        if !self.markdown_buf.is_empty() {
+            self.markdown_buf.push('\n');
+        }
+        self.markdown_buf.push_str(line);
+    }
+
+    /// Flush the markdown accumulation buffer through the renderer.
+    fn flush_markdown_buf(&mut self) {
+        if self.markdown_buf.is_empty() {
+            return;
+        }
+        let buf = std::mem::take(&mut self.markdown_buf);
+        // Use 120 as default width — matches previous textwrap width.
+        self.push_markdown(&buf, 120);
     }
 
     /// Append a `StreamLine` entry, maintaining the bounded buffer.
@@ -1058,22 +1100,20 @@ impl StreamViewState {
                 if chunk.partial {
                     // Accumulate partial text. Flush on newlines.
                     self.partial_buf.push_str(&chunk.text);
-                    // Flush complete lines.
+                    // Flush complete lines into the markdown buffer.
                     while let Some(nl_pos) = self.partial_buf.find('\n') {
                         let line = self.partial_buf[..nl_pos].to_string();
                         self.partial_buf = self.partial_buf[nl_pos + 1..].to_string();
-                        for wrapped in textwrap_simple(&line, 120) {
-                            self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
-                        }
+                        self.accumulate_markdown_line(&line);
                     }
                 } else {
                     // Full text — flush any partial buffer first, then add this.
                     self.flush_partial_buf();
                     for line in chunk.text.lines() {
-                        for wrapped in textwrap_simple(line, 120) {
-                            self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
-                        }
+                        self.accumulate_markdown_line(line);
                     }
+                    // Full (non-partial) text is a complete message — flush markdown now.
+                    self.flush_markdown_buf();
                 }
             }
             Some(Content::ToolUse(info)) => {
@@ -1161,16 +1201,16 @@ impl StreamViewState {
         }
     }
 
-    /// Flush any accumulated partial text to the log.
+    /// Flush any accumulated partial text to the markdown buffer, then flush
+    /// the markdown buffer through the renderer.
     fn flush_partial_buf(&mut self) {
         if !self.partial_buf.is_empty() {
             let buf = std::mem::take(&mut self.partial_buf);
             for line in buf.lines() {
-                for wrapped in textwrap_simple(line, 120) {
-                    self.push_line(StyledLine::new(wrapped, LineStyle::AssistantText));
-                }
+                self.accumulate_markdown_line(line);
             }
         }
+        self.flush_markdown_buf();
     }
 }
 

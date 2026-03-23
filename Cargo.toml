@@ -64,5 +64,8 @@ tokio-stream = "0.1"
 # Hostname
 hostname = "0.4"
 
+# Markdown parsing
+pulldown-cmark = "0.13"
+
 # Shared crate
 nexus-core = { path = "crates/nexus-core" }

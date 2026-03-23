@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 
 mod app;
 mod client;
+mod markdown;
 mod notifications;
 mod screens;
 mod stream;

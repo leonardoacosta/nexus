@@ -214,7 +214,19 @@ fn render_project_select(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Style::default().bg(colors::SURFACE));
+    // Scroll so the selected item stays visible within the panel.
+    // +1 accounts for the title line at index 0.
+    let visible_rows = area.height as usize;
+    let selected_line = app.start_project_idx + 1;
+    let scroll_offset = if selected_line >= visible_rows {
+        (selected_line - visible_rows + 1) as u16
+    } else {
+        0
+    };
+
+    let paragraph = Paragraph::new(lines)
+        .style(Style::default().bg(colors::SURFACE))
+        .scroll((scroll_offset, 0));
     frame.render_widget(paragraph, area);
 }
 

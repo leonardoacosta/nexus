@@ -166,6 +166,9 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     line_style_to_ratatui(s.style),
                 )));
             }
+            StreamLine::RichText { line } => {
+                display_lines.push(line.clone());
+            }
             StreamLine::CollapsibleBlock {
                 header,
                 lines,
