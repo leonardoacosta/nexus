@@ -1,13 +1,12 @@
-use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::execute;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use notify::{EventKind, RecursiveMode, Watcher};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
 mod app;
@@ -106,15 +105,8 @@ async fn main() -> Result<()> {
     app.update_agents(initial_data);
 
     // Set up terminal.
-    terminal::enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    crossterm::execute!(
-        stdout,
-        EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
-    )?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = ratatui::try_init()?;
+    execute!(std::io::stdout(), EnableMouseCapture)?;
 
     // Channel for background poll results.
     let (poll_tx, mut poll_rx) = mpsc::channel::<Vec<AgentData>>(4);
@@ -148,13 +140,8 @@ async fn main() -> Result<()> {
     );
 
     // Restore terminal.
-    terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        crossterm::event::DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    execute!(std::io::stdout(), DisableMouseCapture)?;
+    ratatui::restore();
 
     result
 }
@@ -162,7 +149,7 @@ async fn main() -> Result<()> {
 /// The main render + event loop.
 #[allow(clippy::too_many_arguments)]
 fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut DefaultTerminal,
     app: &mut App,
     poll_rx: &mut mpsc::Receiver<Vec<AgentData>>,
     rpc_tx: &mpsc::Sender<RpcCommand>,
@@ -452,7 +439,7 @@ fn run_loop(
 /// Leave alternate screen, spawn $EDITOR (with vi/nano fallback) on a temp
 /// file, read the result, re-enter alternate screen, then send the prompt.
 fn launch_editor(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut DefaultTerminal,
     app: &mut App,
     rpc_tx: &mpsc::Sender<RpcCommand>,
 ) -> Result<()> {
@@ -473,24 +460,15 @@ fn launch_editor(
     std::fs::write(&tmp_path, &app.stream_input)?;
 
     // Leave TUI alternate screen.
-    terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        crossterm::event::DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    execute!(std::io::stdout(), DisableMouseCapture)?;
+    ratatui::try_restore()?;
 
     // Spawn editor and wait for it to exit.
     let status = std::process::Command::new(&editor).arg(&tmp_path).status();
 
     // Re-enter TUI alternate screen regardless of editor outcome.
-    terminal::enable_raw_mode()?;
-    crossterm::execute!(
-        terminal.backend_mut(),
-        EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
-    )?;
+    *terminal = ratatui::try_init()?;
+    execute!(std::io::stdout(), EnableMouseCapture)?;
     terminal.clear()?;
 
     match status {

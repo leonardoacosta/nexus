@@ -1,200 +1,218 @@
 {
-  "generated_at": "2026-03-23T22:15:00-05:00",
-  "generated_by": "plan:roadmap",
+  "generated_at": "2026-03-24T13:45:00-05:00",
+  "generated_by": "apply:all",
   "project": "nexus",
   "stack": "rust",
-  "git_sha": "3bac501",
-  "plan_dir": "docs/plan/production-hardening",
+  "git_sha": "1728644",
+  "plan_dir": "docs/plan/polish-and-ux",
   "spec_names": [
-    "fix-port-binding",
-    "optimize-memory",
-    "add-graceful-shutdown",
-    "add-auto-reconnect",
-    "add-grpc-tests",
-    "add-tui-snapshots",
-    "add-session-detail",
-    "add-command-palette",
-    "add-start-session-tui",
-    "add-config-hot-reload",
-    "doc-binary-sizes"
+    "ratatui-030-upgrade",
+    "dashboard-table-liststate",
+    "global-layout-polish",
+    "health-gauge-sparkline",
+    "deploy-monitoring",
+    "syntect-code-highlighting",
+    "tui-textarea-input",
+    "stream-scrollbar-separation",
+    "detail-block-widget"
   ],
   "specs": [
     {
-      "name": "fix-port-binding",
+      "name": "ratatui-030-upgrade",
       "wave": 1,
       "priority": "P1",
-      "phase": 1,
-      "feature_area": "reliability",
+      "feature_area": "foundation",
+      "beads_id": "nexus-7le",
       "files": [
-        "crates/nexus-agent/src/main.rs",
-        "crates/nexus-agent/src/grpc.rs",
-        "crates/nexus-agent/src/health.rs"
+        "Cargo.toml",
+        "crates/nexus-tui/src/main.rs",
+        "crates/nexus-tui/src/screens/palette.rs",
+        "crates/nexus-tui/src/screens/projects.rs",
+        "crates/nexus-tui/src/screens/stream.rs"
       ],
-      "conflicts_with": ["optimize-memory"],
+      "conflicts_with": ["global-layout-polish", "dashboard-table-liststate", "tui-textarea-input", "stream-scrollbar-separation"],
       "depends_on": []
     },
     {
-      "name": "optimize-memory",
-      "wave": 1,
-      "priority": "P1",
-      "phase": 1,
-      "feature_area": "reliability",
-      "files": [
-        "crates/nexus-agent/Cargo.toml",
-        "crates/nexus-agent/src/main.rs",
-        "crates/nexus-agent/src/grpc.rs",
-        "crates/nexus-agent/src/health.rs",
-        "crates/nexus-agent/src/events.rs"
-      ],
-      "conflicts_with": ["fix-port-binding"],
-      "depends_on": []
-    },
-    {
-      "name": "add-graceful-shutdown",
+      "name": "dashboard-table-liststate",
       "wave": 2,
-      "priority": "P1",
-      "phase": 1,
-      "feature_area": "reliability",
+      "priority": "P2",
+      "feature_area": "navigation",
+      "beads_id": "nexus-vfw",
+      "files": [
+        "crates/nexus-tui/src/screens/dashboard.rs",
+        "crates/nexus-tui/src/app.rs",
+        "crates/nexus-tui/src/main.rs"
+      ],
+      "conflicts_with": ["global-layout-polish"],
+      "depends_on": ["ratatui-030-upgrade"]
+    },
+    {
+      "name": "global-layout-polish",
+      "wave": 2,
+      "priority": "P2",
+      "feature_area": "navigation",
+      "beads_id": "nexus-3lr",
+      "files": [
+        "crates/nexus-tui/src/main.rs",
+        "crates/nexus-tui/src/screens/dashboard.rs",
+        "crates/nexus-tui/src/screens/detail.rs",
+        "crates/nexus-tui/src/screens/health.rs",
+        "crates/nexus-tui/src/screens/projects.rs",
+        "crates/nexus-tui/src/screens/stream.rs",
+        "crates/nexus-tui/src/screens/palette.rs",
+        "crates/nexus-tui/src/markdown.rs"
+      ],
+      "conflicts_with": ["dashboard-table-liststate"],
+      "depends_on": ["ratatui-030-upgrade"]
+    },
+    {
+      "name": "health-gauge-sparkline",
+      "wave": 3,
+      "priority": "P2",
+      "feature_area": "visualization",
+      "beads_id": "nexus-9mp",
+      "files": [
+        "crates/nexus-tui/src/app.rs",
+        "crates/nexus-tui/src/screens/health.rs"
+      ],
+      "conflicts_with": [],
+      "depends_on": ["ratatui-030-upgrade"]
+    },
+    {
+      "name": "deploy-monitoring",
+      "wave": 3,
+      "priority": "P2",
+      "feature_area": "visualization",
+      "beads_id": "nexus-olr",
       "files": [
         "proto/nexus.proto",
-        "crates/nexus-agent/src/main.rs",
-        "crates/nexus-agent/src/grpc.rs"
-      ],
-      "conflicts_with": [],
-      "depends_on": ["fix-port-binding"]
-    },
-    {
-      "name": "add-auto-reconnect",
-      "wave": 3,
-      "priority": "P1",
-      "phase": 1,
-      "feature_area": "reliability",
-      "files": [
-        "crates/nexus-tui/src/client.rs",
+        "crates/nexus-core/src/lib.rs",
+        "crates/nexus-agent/src/grpc.rs",
         "crates/nexus-tui/src/app.rs",
-        "crates/nexus-tui/src/screens/dashboard.rs",
-        "crates/nexus-tui/src/main.rs"
-      ],
-      "conflicts_with": [],
-      "depends_on": ["add-graceful-shutdown"]
-    },
-    {
-      "name": "add-grpc-tests",
-      "wave": 4,
-      "priority": "P2",
-      "phase": 2,
-      "feature_area": "testing",
-      "files": [
-        "crates/nexus-agent/tests/grpc_integration.rs",
-        "crates/nexus-agent/tests/common/mod.rs",
-        "crates/nexus-agent/Cargo.toml"
-      ],
-      "conflicts_with": [],
-      "depends_on": []
-    },
-    {
-      "name": "add-tui-snapshots",
-      "wave": 4,
-      "priority": "P2",
-      "phase": 2,
-      "feature_area": "testing",
-      "files": [
-        "crates/nexus-tui/tests/snapshots.rs",
-        "crates/nexus-tui/tests/fixtures/mod.rs",
-        "crates/nexus-tui/Cargo.toml"
-      ],
-      "conflicts_with": [],
-      "depends_on": []
-    },
-    {
-      "name": "add-session-detail",
-      "wave": 5,
-      "priority": "P2",
-      "phase": 3,
-      "feature_area": "m3-features",
-      "files": [
-        "crates/nexus-tui/src/screens/detail.rs",
-        "crates/nexus-tui/src/app.rs",
-        "crates/nexus-tui/src/main.rs"
-      ],
-      "conflicts_with": [],
-      "depends_on": []
-    },
-    {
-      "name": "add-command-palette",
-      "wave": 5,
-      "priority": "P2",
-      "phase": 3,
-      "feature_area": "m3-features",
-      "files": [
-        "crates/nexus-tui/src/screens/palette.rs",
-        "crates/nexus-tui/src/app.rs",
-        "crates/nexus-tui/src/main.rs",
-        "crates/nexus-tui/Cargo.toml"
-      ],
-      "conflicts_with": ["add-session-detail"],
-      "depends_on": []
-    },
-    {
-      "name": "add-start-session-tui",
-      "wave": 6,
-      "priority": "P2",
-      "phase": 3,
-      "feature_area": "m3-features",
-      "files": [
-        "crates/nexus-tui/src/app.rs",
-        "crates/nexus-tui/src/screens/dashboard.rs",
+        "crates/nexus-tui/src/screens/projects.rs",
         "crates/nexus-tui/src/client.rs"
       ],
-      "conflicts_with": [],
-      "depends_on": ["add-command-palette"]
+      "conflicts_with": ["health-gauge-sparkline"],
+      "depends_on": ["ratatui-030-upgrade"]
     },
     {
-      "name": "add-config-hot-reload",
-      "wave": 7,
+      "name": "syntect-code-highlighting",
+      "wave": 4,
       "priority": "P3",
-      "phase": 4,
-      "feature_area": "ops",
+      "feature_area": "stream",
+      "beads_id": "nexus-0ky",
       "files": [
-        "crates/nexus-agent/src/main.rs",
-        "crates/nexus-core/src/config.rs"
+        "Cargo.toml",
+        "crates/nexus-tui/Cargo.toml",
+        "crates/nexus-tui/src/markdown.rs"
       ],
       "conflicts_with": [],
-      "depends_on": []
+      "depends_on": ["ratatui-030-upgrade"]
     },
     {
-      "name": "doc-binary-sizes",
-      "wave": 7,
+      "name": "tui-textarea-input",
+      "wave": 4,
       "priority": "P3",
-      "phase": 4,
-      "feature_area": "ops",
+      "feature_area": "stream",
+      "beads_id": "nexus-9bb",
       "files": [
-        "README.md",
-        ".github/workflows/ci.yml"
+        "Cargo.toml",
+        "crates/nexus-tui/Cargo.toml",
+        "crates/nexus-tui/src/app.rs",
+        "crates/nexus-tui/src/screens/stream.rs",
+        "crates/nexus-tui/src/screens/projects.rs",
+        "crates/nexus-tui/src/main.rs"
+      ],
+      "conflicts_with": ["stream-scrollbar-separation"],
+      "depends_on": ["ratatui-030-upgrade"]
+    },
+    {
+      "name": "stream-scrollbar-separation",
+      "wave": 4,
+      "priority": "P3",
+      "feature_area": "stream",
+      "beads_id": "nexus-4js",
+      "files": [
+        "crates/nexus-tui/src/screens/stream.rs",
+        "crates/nexus-tui/src/app.rs",
+        "crates/nexus-tui/src/screens/palette.rs"
+      ],
+      "conflicts_with": ["tui-textarea-input"],
+      "depends_on": ["ratatui-030-upgrade"]
+    },
+    {
+      "name": "detail-block-widget",
+      "wave": 4,
+      "priority": "P3",
+      "feature_area": "stream",
+      "beads_id": "nexus-0jm",
+      "files": [
+        "crates/nexus-tui/src/screens/detail.rs"
       ],
       "conflicts_with": [],
-      "depends_on": []
+      "depends_on": ["ratatui-030-upgrade"]
     }
   ],
   "conflict_map": {
-    "crates/nexus-agent/src/main.rs": ["fix-port-binding", "optimize-memory", "add-graceful-shutdown", "add-config-hot-reload"],
-    "crates/nexus-agent/src/grpc.rs": ["fix-port-binding", "optimize-memory", "add-graceful-shutdown"],
-    "crates/nexus-tui/src/app.rs": ["add-auto-reconnect", "add-session-detail", "add-command-palette", "add-start-session-tui"],
-    "proto/nexus.proto": ["add-graceful-shutdown"]
+    "crates/nexus-tui/src/main.rs": ["ratatui-030-upgrade", "dashboard-table-liststate", "global-layout-polish", "tui-textarea-input"],
+    "crates/nexus-tui/src/app.rs": ["dashboard-table-liststate", "health-gauge-sparkline", "deploy-monitoring", "tui-textarea-input", "stream-scrollbar-separation"],
+    "crates/nexus-tui/src/screens/stream.rs": ["ratatui-030-upgrade", "global-layout-polish", "tui-textarea-input", "stream-scrollbar-separation"],
+    "crates/nexus-tui/src/screens/dashboard.rs": ["dashboard-table-liststate", "global-layout-polish"],
+    "crates/nexus-tui/src/screens/projects.rs": ["ratatui-030-upgrade", "global-layout-polish", "deploy-monitoring", "tui-textarea-input"],
+    "crates/nexus-tui/src/screens/palette.rs": ["ratatui-030-upgrade", "global-layout-polish", "stream-scrollbar-separation"],
+    "Cargo.toml": ["ratatui-030-upgrade", "syntect-code-highlighting", "tui-textarea-input"]
   },
   "dependency_map": {
-    "add-graceful-shutdown": ["fix-port-binding"],
-    "add-auto-reconnect": ["add-graceful-shutdown"],
-    "add-start-session-tui": ["add-command-palette"]
+    "dashboard-table-liststate": ["ratatui-030-upgrade"],
+    "global-layout-polish": ["ratatui-030-upgrade"],
+    "health-gauge-sparkline": ["ratatui-030-upgrade"],
+    "deploy-monitoring": ["ratatui-030-upgrade"],
+    "syntect-code-highlighting": ["ratatui-030-upgrade"],
+    "tui-textarea-input": ["ratatui-030-upgrade"],
+    "stream-scrollbar-separation": ["ratatui-030-upgrade"],
+    "detail-block-widget": ["ratatui-030-upgrade"]
   },
   "waves": [
-    { "wave": 1, "specs": ["fix-port-binding", "optimize-memory"], "phase": "Reliability", "parallel": false, "note": "Both touch agent main.rs — run sequentially" },
-    { "wave": 2, "specs": ["add-graceful-shutdown"], "phase": "Reliability", "parallel": false },
-    { "wave": 3, "specs": ["add-auto-reconnect"], "phase": "Reliability", "parallel": false },
-    { "wave": 4, "specs": ["add-grpc-tests", "add-tui-snapshots"], "phase": "Test Foundation", "parallel": true },
-    { "wave": 5, "specs": ["add-session-detail", "add-command-palette"], "phase": "M3 Features", "parallel": false, "note": "Both touch app.rs — run sequentially" },
-    { "wave": 6, "specs": ["add-start-session-tui"], "phase": "M3 Features", "parallel": false },
-    { "wave": 7, "specs": ["add-config-hot-reload", "doc-binary-sizes"], "phase": "Operational", "parallel": true }
+    {
+      "wave": 1,
+      "specs": [{"name": "ratatui-030-upgrade", "beads_id": "nexus-7le"}],
+      "phase": "Foundation",
+      "parallel": false,
+      "note": "Prerequisite — all other specs depend on 0.30 APIs"
+    },
+    {
+      "wave": 2,
+      "specs": [
+        {"name": "dashboard-table-liststate", "beads_id": "nexus-vfw"},
+        {"name": "global-layout-polish", "beads_id": "nexus-3lr"}
+      ],
+      "phase": "Dashboard & Navigation",
+      "parallel": false,
+      "note": "Both touch dashboard.rs and main.rs — run sequentially within mega-batch"
+    },
+    {
+      "wave": 3,
+      "specs": [
+        {"name": "health-gauge-sparkline", "beads_id": "nexus-9mp"},
+        {"name": "deploy-monitoring", "beads_id": "nexus-olr"}
+      ],
+      "phase": "Monitoring & Visualization",
+      "parallel": false,
+      "note": "Both touch app.rs — run sequentially. Deploy-monitoring also touches proto+agent."
+    },
+    {
+      "wave": 4,
+      "specs": [
+        {"name": "syntect-code-highlighting", "beads_id": "nexus-0ky"},
+        {"name": "tui-textarea-input", "beads_id": "nexus-9bb"},
+        {"name": "stream-scrollbar-separation", "beads_id": "nexus-4js"},
+        {"name": "detail-block-widget", "beads_id": "nexus-0jm"}
+      ],
+      "phase": "Stream & Input Refinement",
+      "parallel": false,
+      "note": "textarea + scrollbar both touch stream.rs — run sequentially. syntect + detail-block are independent."
+    }
   ],
   "status": "pending"
 }

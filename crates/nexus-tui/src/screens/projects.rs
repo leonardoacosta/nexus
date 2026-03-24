@@ -1,5 +1,5 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, Wrap};
@@ -154,15 +154,8 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 pub fn render_scratchpad(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Center the overlay: 60% width, 50% height, min 30x10.
-    let overlay_width = (area.width * 60 / 100).max(30).min(area.width);
-    let overlay_height = (area.height * 50 / 100).max(10).min(area.height);
-
-    let horizontal = Layout::horizontal([Constraint::Length(overlay_width)]).flex(Flex::Center);
-    let vertical = Layout::vertical([Constraint::Length(overlay_height)]).flex(Flex::Center);
-
-    let [h_area] = horizontal.areas(area);
-    let [overlay_area] = vertical.areas(h_area);
+    // Center the overlay: 60% width, 50% height.
+    let overlay_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(50));
 
     // Clear the area behind the overlay.
     frame.render_widget(Clear, overlay_area);

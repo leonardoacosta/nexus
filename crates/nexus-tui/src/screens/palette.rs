@@ -14,11 +14,7 @@ pub fn render_palette(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     // Center the palette: 60% width, up to 20 rows tall.
-    let palette_width = (area.width * 60 / 100).max(40).min(area.width);
-    let palette_height = 20u16.min(area.height.saturating_sub(4));
-    let x = (area.width.saturating_sub(palette_width)) / 2;
-    let y = (area.height.saturating_sub(palette_height)) / 2;
-    let palette_area = Rect::new(x, y, palette_width, palette_height);
+    let palette_area = area.centered(Constraint::Percentage(60), Constraint::Length(20));
 
     // Split into input line + results.
     let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(palette_area);
@@ -104,11 +100,8 @@ fn render_results(frame: &mut Frame, area: Rect, app: &App) {
 pub fn render_start_session(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    let panel_width = (area.width * 50 / 100).max(30).min(area.width);
-    let panel_height = 12u16.min(area.height.saturating_sub(4));
-    let x = (area.width.saturating_sub(panel_width)) / 2;
-    let y = (area.height.saturating_sub(panel_height)) / 2;
-    let panel_area = Rect::new(x, y, panel_width, panel_height);
+    // Center the start-session wizard: 50% width, 12 rows tall.
+    let panel_area = area.centered(Constraint::Percentage(50), Constraint::Length(12));
 
     match app.input_mode {
         InputMode::StartSessionAgent => render_agent_select(frame, panel_area, app),
