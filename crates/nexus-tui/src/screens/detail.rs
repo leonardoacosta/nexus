@@ -30,7 +30,10 @@ fn render_title_bar(frame: &mut Frame, area: Rect) {
                 .fg(colors::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  q/Esc: back", Style::default().fg(colors::TEXT_DIM)),
+        Span::styled(
+            "  q/Esc: back  a: stream  s: stop",
+            Style::default().fg(colors::TEXT_DIM),
+        ),
     ]))
     .block(
         Block::default()
@@ -53,28 +56,39 @@ fn render_detail_body(frame: &mut Frame, area: Rect, app: &App) {
         }
     };
 
+    // 2-panel horizontal layout: left 50% metadata, right 50% status info.
+    let panels = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    render_metadata_panel(frame, panels[0], session, agent);
+    render_status_panel(frame, panels[1], session, agent, app);
+}
+
+fn render_metadata_panel(
+    frame: &mut Frame,
+    area: Rect,
+    session: &nexus_core::session::Session,
+    _agent: &nexus_core::agent::AgentInfo,
+) {
     let label_style = Style::default().fg(colors::TEXT_DIM);
     let value_style = Style::default().fg(colors::TEXT);
 
-    let status = session.status;
-    let dot = status_dot(status);
-    let dot_color = status_color(status);
+    let short_id: String = session.id.chars().take(8).collect();
     let type_ind = session_type_indicator(session);
     let age = format_age(session.started_at);
     let started = session
         .started_at
         .format("%Y-%m-%d %H:%M:%S UTC")
         .to_string();
+    let last_hb = session
+        .last_heartbeat
+        .format("%Y-%m-%d %H:%M:%S UTC")
+        .to_string();
 
-    // Build key-value rows.
     let fields: Vec<(&str, Line<'_>)> = vec![
         (
             "id",
-            Line::from(Span::styled(session.id.clone(), value_style)),
-        ),
-        (
-            "pid",
-            Line::from(Span::styled(session.pid.to_string(), value_style)),
+            Line::from(Span::styled(short_id, value_style)),
         ),
         (
             "project",
@@ -94,8 +108,68 @@ fn render_detail_body(frame: &mut Frame, area: Rect, app: &App) {
             "cwd",
             Line::from(Span::styled(session.cwd.clone(), value_style)),
         ),
-        ("started_at", Line::from(Span::styled(started, value_style))),
-        ("age", Line::from(Span::styled(age, value_style))),
+        (
+            "type",
+            Line::from(Span::styled(type_ind.to_string(), value_style)),
+        ),
+        (
+            "started_at",
+            Line::from(Span::styled(started, value_style)),
+        ),
+        (
+            "last_heartbeat",
+            Line::from(Span::styled(last_hb, value_style)),
+        ),
+        (
+            "uptime",
+            Line::from(Span::styled(age, value_style)),
+        ),
+    ];
+
+    render_card(frame, area, "METADATA", &fields, label_style);
+}
+
+fn render_status_panel(
+    frame: &mut Frame,
+    area: Rect,
+    session: &nexus_core::session::Session,
+    agent: &nexus_core::agent::AgentInfo,
+    app: &App,
+) {
+    let label_style = Style::default().fg(colors::TEXT_DIM);
+    let value_style = Style::default().fg(colors::TEXT);
+
+    let status = session.status;
+    let dot = status_dot(status);
+    let dot_color = status_color(status);
+
+    // Connection status derived from the agent's connected flag in app state.
+    let conn_status = app
+        .agents
+        .iter()
+        .find(|a| a.info.name == agent.name)
+        .map(|a| {
+            if a.connected {
+                "connected"
+            } else if a.reconnect_attempt.is_some() {
+                "reconnecting"
+            } else if a.dns_failure {
+                "dns failure"
+            } else {
+                "disconnected"
+            }
+        })
+        .unwrap_or("unknown");
+
+    let conn_color = if conn_status == "connected" {
+        colors::PRIMARY
+    } else if conn_status == "reconnecting" {
+        colors::WARNING
+    } else {
+        colors::ERROR
+    };
+
+    let fields: Vec<(&str, Line<'_>)> = vec![
         (
             "status",
             Line::from(vec![
@@ -104,62 +178,58 @@ fn render_detail_body(frame: &mut Frame, area: Rect, app: &App) {
             ]),
         ),
         (
-            "spec",
-            Line::from(Span::styled(
-                session.spec.as_deref().unwrap_or("-").to_string(),
-                value_style,
-            )),
-        ),
-        (
-            "command",
-            Line::from(Span::styled(
-                session.command.as_deref().unwrap_or("-").to_string(),
-                value_style,
-            )),
-        ),
-        (
             "agent",
             Line::from(Span::styled(agent.name.clone(), value_style)),
         ),
         (
-            "type",
-            Line::from(Span::styled(type_ind.to_string(), value_style)),
+            "agent_host",
+            Line::from(Span::styled(agent.host.clone(), value_style)),
         ),
         (
-            "tmux_session",
-            Line::from(Span::styled(
-                session.tmux_session.as_deref().unwrap_or("-").to_string(),
-                value_style,
-            )),
+            "connection",
+            Line::from(Span::styled(conn_status.to_string(), Style::default().fg(conn_color))),
         ),
     ];
 
-    // Render as box-drawn bordered card.
-    let label_width: u16 = 14;
+    render_card(frame, area, "STATUS", &fields, label_style);
+}
+
+/// Render a labeled card with box-drawing borders and key-value rows.
+fn render_card(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    fields: &[(&str, Line<'_>)],
+    label_style: Style,
+) {
+    let label_width: usize = 14;
     let inner = shrink(area, 1, 1);
 
-    // Top border.
-    let border_top = format!(
-        " \u{250C}{}\u{2510}",
-        "\u{2500}".repeat((inner.width.saturating_sub(2)) as usize)
+    let inner_w = inner.width.saturating_sub(2) as usize;
+
+    // Title line with box-drawing.
+    let title_line = format!(
+        " \u{250C}\u{2500} {title} {}\u{2510}",
+        "\u{2500}".repeat(inner_w.saturating_sub(title.len() + 4))
     );
-    // Bottom border.
     let border_bot = format!(
         " \u{2514}{}\u{2518}",
-        "\u{2500}".repeat((inner.width.saturating_sub(2)) as usize)
+        "\u{2500}".repeat(inner_w)
     );
 
     let mut lines: Vec<Line<'_>> = Vec::new();
     lines.push(Line::from(Span::styled(
-        border_top,
-        Style::default().fg(colors::TEXT_DIM),
+        title_line,
+        Style::default()
+            .fg(colors::TEXT_DIM)
+            .add_modifier(Modifier::BOLD),
     )));
 
-    for (label, value_line) in &fields {
+    for (label, value_line) in fields {
         let mut spans = vec![
             Span::styled(" \u{2502} ", Style::default().fg(colors::TEXT_DIM)),
             Span::styled(
-                format!("{:<width$}", label, width = label_width as usize),
+                format!("{:<width$}", label, width = label_width),
                 label_style,
             ),
         ];
@@ -178,7 +248,7 @@ fn render_detail_body(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_footer(frame: &mut Frame, area: Rect) {
     let bar = Paragraph::new(Line::from(vec![Span::styled(
-        " q: back  s: stop session",
+        " q: back  a: stream attach  s: stop session",
         Style::default().fg(colors::TEXT_DIM),
     )]))
     .style(Style::default().bg(colors::SURFACE));

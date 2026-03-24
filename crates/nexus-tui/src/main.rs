@@ -818,7 +818,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
             app.move_up();
             KeyAction::Continue
         }
-        KeyCode::Enter => {
+        KeyCode::Enter | KeyCode::Char('d') => {
             // On Dashboard: open detail for selected session.
             if app.current_screen == Screen::Dashboard {
                 let sessions = app.all_sessions();
@@ -897,6 +897,20 @@ fn handle_detail_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComm
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.close_detail();
+            KeyAction::Continue
+        }
+        KeyCode::Char('a') => {
+            // Open stream attach view for the currently viewed session.
+            if let Some((session, agent)) = &app.selected_session.clone() {
+                let session_id = session.id.clone();
+                let agent_name = agent.name.clone();
+                let project = session.project.as_deref().unwrap_or("?");
+                let short_id = &session_id[..session_id.len().min(4)];
+                let label = format!("{project}#{short_id}");
+                app.open_stream_attach(session_id, label, agent_name);
+                app.ensure_session_tab();
+                app.input_mode = InputMode::StreamInput;
+            }
             KeyAction::Continue
         }
         KeyCode::Char('s') => {
