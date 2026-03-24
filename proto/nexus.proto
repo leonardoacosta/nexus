@@ -137,10 +137,27 @@ message HeartbeatResponse {
   bool found = 1;
 }
 
+enum SyncStatus {
+  SYNC_STATUS_UNSPECIFIED = 0;
+  SYNCED = 1;
+  BEHIND = 2;
+  UNKNOWN = 3;
+}
+
+message ProjectInfo {
+  string name = 1;
+  optional string path = 2;
+  optional string git_branch = 3;
+  optional string last_commit = 4;
+  SyncStatus sync_status = 5;
+  optional int32 commits_behind = 6;
+}
+
 message ListProjectsRequest {}
 
 message ListProjectsResponse {
   repeated string projects = 1;
+  repeated ProjectInfo project_details = 2;
 }
 
 message AgentInfo {

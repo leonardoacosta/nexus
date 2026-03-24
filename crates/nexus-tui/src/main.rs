@@ -74,6 +74,8 @@ enum RpcResult {
     CommandOutput(nexus_core::proto::CommandOutput),
     CommandStreamDone,
     ProjectList(Vec<String>),
+    /// Enriched project details fetched from all agents (name -> detail).
+    ProjectDetails(std::collections::HashMap<String, app::ProjectDetail>),
     /// One or more agents reconnected successfully.
     AgentsReconnected(Vec<String>),
     /// agents.toml was modified on disk; carries the new agent count.
@@ -262,6 +264,12 @@ fn run_loop(
                     app.start_projects = projects;
                     app.start_project_idx = 0;
                     app.start_project_filter.clear();
+                }
+                RpcResult::ProjectDetails(map) => {
+                    // Merge enriched project details into the app state.
+                    for (name, detail) in map {
+                        app.project_details_map.insert(name, detail);
+                    }
                 }
                 RpcResult::AgentsReconnected(names) => {
                     for name in names {
@@ -1486,6 +1494,8 @@ async fn background_task(
     let mut interval = tokio::time::interval(Duration::from_secs(2));
     // Reconnect attempts use a separate slower interval (5s baseline).
     let mut reconnect_interval = tokio::time::interval(Duration::from_secs(5));
+    // Periodic project details refresh (30s — git operations are slow).
+    let mut project_detail_interval = tokio::time::interval(Duration::from_secs(30));
     // Skip the immediate first tick so reconnects don't race with connect_all.
     reconnect_interval.reset();
 
@@ -1506,6 +1516,12 @@ async fn background_task(
                     let results = client.get_sessions().await;
                     let data = results_to_agent_data(&client, &results);
                     let _ = poll_tx.send(data).await;
+                }
+            }
+            _ = project_detail_interval.tick() => {
+                let details = client.list_projects_all_enriched().await;
+                if !details.is_empty() {
+                    let _ = rpc_result_tx.send(RpcResult::ProjectDetails(details)).await;
                 }
             }
             cmd = rpc_rx.recv() => {

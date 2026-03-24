@@ -1,3 +1,4 @@
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -352,6 +353,15 @@ impl ActivityStatus {
 // Project summary for projects screen
 // ---------------------------------------------------------------------------
 
+/// Sync status for a project's git repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyncStatus {
+    Synced,
+    Behind,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProjectSummary {
     pub name: String,
@@ -363,6 +373,58 @@ pub struct ProjectSummary {
     pub agents: Vec<String>,
     pub activity_status: ActivityStatus,
     pub last_activity: Option<DateTime<Utc>>,
+    pub sync_status: SyncStatus,
+    pub commits_behind: Option<i32>,
+    pub git_branch: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Health history ring buffer
+// ---------------------------------------------------------------------------
+
+/// Ring-buffer holding ~1 hour of CPU and RAM history (1800 samples at 2s intervals).
+#[derive(Debug, Clone)]
+pub struct AgentHealthHistory {
+    /// CPU utilization samples as integer percentages (0–100).
+    pub cpu: VecDeque<u64>,
+    /// RAM utilization samples as integer percentages (0–100).
+    pub ram: VecDeque<u64>,
+}
+
+impl AgentHealthHistory {
+    const CAPACITY: usize = 1800;
+
+    pub fn new() -> Self {
+        Self {
+            cpu: VecDeque::with_capacity(Self::CAPACITY),
+            ram: VecDeque::with_capacity(Self::CAPACITY),
+        }
+    }
+
+    pub fn push_cpu(&mut self, value: u64) {
+        if self.cpu.len() >= Self::CAPACITY {
+            self.cpu.pop_front();
+        }
+        self.cpu.push_back(value);
+    }
+
+    pub fn push_ram(&mut self, value: u64) {
+        if self.ram.len() >= Self::CAPACITY {
+            self.ram.pop_front();
+        }
+        self.ram.push_back(value);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enriched project detail (from ListProjects enriched response)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct ProjectDetail {
+    pub sync_status: SyncStatus,
+    pub commits_behind: Option<i32>,
+    pub git_branch: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +484,13 @@ pub struct App {
     pub scratchpad_text: String,
     pub project_notes: ProjectNotes,
     pub scratchpad_project: Option<String>,
+
+    /// Per-agent health history ring buffers keyed by agent name.
+    pub health_history: HashMap<String, AgentHealthHistory>,
+
+    /// Enriched project git details keyed by project name.
+    /// Populated from `ListProjects` enriched responses.
+    pub project_details_map: HashMap<String, ProjectDetail>,
 }
 
 impl App {
@@ -456,6 +525,8 @@ impl App {
             scratchpad_text: String::new(),
             project_notes: ProjectNotes::load(),
             scratchpad_project: None,
+            health_history: HashMap::new(),
+            project_details_map: HashMap::new(),
         }
     }
 
@@ -551,6 +622,9 @@ impl App {
                     agents: Vec::new(),
                     activity_status: ActivityStatus::None,
                     last_activity: None,
+                    sync_status: SyncStatus::Unknown,
+                    commits_behind: None,
+                    git_branch: None,
                 });
                 entry.total += 1;
                 match session.status {
@@ -584,9 +658,29 @@ impl App {
             } else {
                 ActivityStatus::None
             };
+
+            // Merge sync details from the enriched project details map.
+            if let Some(detail) = self.project_details_map.get(&entry.name) {
+                entry.sync_status = detail.sync_status;
+                entry.commits_behind = detail.commits_behind;
+                entry.git_branch = detail.git_branch.clone();
+            }
         }
 
         map.into_values().collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Project detail helpers
+    // -----------------------------------------------------------------------
+
+    /// Update the enriched project details map from `ListProjects` response data.
+    #[allow(dead_code)]
+    pub fn update_projects(&mut self, details: Vec<ProjectDetail>, names: Vec<String>) {
+        // Insert or update details for each project in the response.
+        for (name, detail) in names.into_iter().zip(details.into_iter()) {
+            self.project_details_map.insert(name, detail);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -825,6 +919,35 @@ impl App {
         } else {
             None
         };
+
+        // Push health samples into per-agent ring buffers.
+        for agent in &data {
+            if agent.connected {
+                if let Some(health) = &agent.info.health {
+                    let entry = self
+                        .health_history
+                        .entry(agent.info.name.clone())
+                        .or_insert_with(AgentHealthHistory::new);
+
+                    let cpu_sample = health.cpu_percent.clamp(0.0, 100.0) as u64;
+                    entry.push_cpu(cpu_sample);
+
+                    let ram_sample = if health.memory_total_gb > 0.0 {
+                        ((health.memory_used_gb / health.memory_total_gb) * 100.0)
+                            .clamp(0.0, 100.0) as u64
+                    } else {
+                        0
+                    };
+                    entry.push_ram(ram_sample);
+                }
+            }
+        }
+
+        // Remove history entries for agents that are no longer in the config.
+        let active_names: std::collections::HashSet<&str> =
+            data.iter().map(|a| a.info.name.as_str()).collect();
+        self.health_history
+            .retain(|name, _| active_names.contains(name.as_str()));
 
         self.agents = data;
 

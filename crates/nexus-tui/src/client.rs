@@ -9,8 +9,10 @@ use nexus_core::agent::AgentInfo;
 use nexus_core::config::{AgentConfig, NexusConfig};
 use nexus_core::health::MachineHealth;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
-use nexus_core::proto::{HealthRequest, SessionFilter, SessionId};
+use nexus_core::proto::{HealthRequest, SessionFilter, SessionId, SyncStatus as ProtoSyncStatus};
 use nexus_core::session::{Session, SessionStatus};
+
+use crate::app::{ProjectDetail, SyncStatus};
 
 /// Connection timeout for each agent.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -402,6 +404,59 @@ impl NexusClient {
                 Err(e.into())
             }
         }
+    }
+
+    /// List projects from all connected agents, returning enriched details.
+    ///
+    /// Merges project names and details across all connected agents.
+    /// Returns a map of project name -> `ProjectDetail`.
+    pub async fn list_projects_all_enriched(
+        &mut self,
+    ) -> std::collections::HashMap<String, ProjectDetail> {
+        let mut all_details: std::collections::HashMap<String, ProjectDetail> =
+            std::collections::HashMap::new();
+
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let request = tonic::Request::new(nexus_core::proto::ListProjectsRequest {});
+            match client.list_projects(request).await {
+                Ok(response) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+
+                    let inner = response.into_inner();
+                    for info in inner.project_details {
+                        let sync_status = match ProtoSyncStatus::try_from(info.sync_status) {
+                            Ok(ProtoSyncStatus::Synced) => SyncStatus::Synced,
+                            Ok(ProtoSyncStatus::Behind) => SyncStatus::Behind,
+                            _ => SyncStatus::Unknown,
+                        };
+                        all_details.insert(
+                            info.name.clone(),
+                            ProjectDetail {
+                                sync_status,
+                                commits_behind: info.commits_behind,
+                                git_branch: info.git_branch,
+                            },
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %e,
+                        "failed to list projects (enriched)"
+                    );
+                }
+            }
+        }
+
+        all_details
     }
 
     /// Send a StopSession RPC to the agent that owns the given session.

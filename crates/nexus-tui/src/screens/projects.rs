@@ -4,7 +4,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Row, Table, Wrap};
 
-use crate::app::{App, colors, format_age};
+use crate::app::{App, SyncStatus, colors, format_age};
 
 /// Render the project overview screen.
 pub fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
@@ -66,6 +66,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
     let header = Row::new(vec![
         "",
         "PROJECT",
+        "SYNC",
         "SESSIONS",
         "ACTIVE",
         "IDLE",
@@ -111,9 +112,21 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(p.activity_status.color()),
             );
 
+            // Sync status indicator.
+            let (sync_text, sync_color) = match p.sync_status {
+                SyncStatus::Synced => ("\u{25CF} synced".to_string(), colors::PRIMARY),
+                SyncStatus::Behind => {
+                    let n = p.commits_behind.unwrap_or(0);
+                    (format!("\u{25B2} {n} behind"), colors::WARNING)
+                }
+                SyncStatus::Unknown => ("\u{25CC} unknown".to_string(), colors::TEXT_DIM),
+            };
+            let sync_span = Span::styled(sync_text, Style::default().fg(sync_color).bg(bg));
+
             Row::new(vec![
                 Line::from(dot_span),
                 Line::from(name_display),
+                Line::from(sync_span),
                 Line::from(p.total.to_string()),
                 Line::from(p.active.to_string()),
                 Line::from(p.idle.to_string()),
@@ -129,6 +142,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
     let widths = [
         Constraint::Length(2),  // dot
         Constraint::Length(20), // project name + [N]
+        Constraint::Length(12), // sync status
         Constraint::Length(9),  // sessions
         Constraint::Length(7),  // active
         Constraint::Length(6),  // idle

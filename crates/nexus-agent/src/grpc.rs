@@ -843,9 +843,10 @@ impl NexusAgent for NexusAgentService {
         &self,
         _request: Request<proto::ListProjectsRequest>,
     ) -> Result<Response<proto::ListProjectsResponse>, Status> {
-        use std::collections::BTreeSet;
+        use std::collections::BTreeMap;
 
-        let mut project_names = BTreeSet::new();
+        // project_name -> best known cwd path
+        let mut project_map: BTreeMap<String, String> = BTreeMap::new();
 
         // 1. Scan ~/.claude/projects/ for project directories.
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -870,11 +871,17 @@ impl NexusAgent for NexusAgentService {
                     if let Some(pos) = name.rfind("-dev-") {
                         let project = &name[pos + 5..];
                         if !project.is_empty() {
-                            project_names.insert(project.to_string());
+                            // Reconstruct the path: replace '-' with '/' for path reconstruction.
+                            // Directory encoding replaces '/' with '-', so we reconstruct a best-
+                            // effort path from the full directory name.
+                            let path_guess = format!("/{}", name.replace('-', "/"));
+                            project_map
+                                .entry(project.to_string())
+                                .or_insert(path_guess);
                         }
                     } else {
-                        // No "-dev-" segment — use directory name as-is.
-                        project_names.insert(name);
+                        // No "-dev-" segment — use directory name as-is (no path to guess).
+                        project_map.entry(name).or_insert_with(String::new);
                     }
                 }
             }
@@ -891,16 +898,31 @@ impl NexusAgent for NexusAgentService {
         }
 
         // 2. Also add projects from active sessions (registry).
+        // Sessions' cwd is the most reliable path for git operations.
         let sessions = self.registry.get_all().await;
         for session in &sessions {
             if let Some(ref project) = session.project {
-                project_names.insert(project.clone());
+                // Prefer cwd from a live session over the guessed path.
+                project_map
+                    .entry(project.clone())
+                    .and_modify(|p| *p = session.cwd.clone())
+                    .or_insert_with(|| session.cwd.clone());
             }
         }
 
-        let projects: Vec<String> = project_names.into_iter().collect();
+        // 3. Build enriched ProjectInfo for each project.
+        let mut project_details: Vec<proto::ProjectInfo> = Vec::new();
+        for (name, path) in &project_map {
+            let info = collect_project_info(name, path).await;
+            project_details.push(info);
+        }
 
-        Ok(Response::new(proto::ListProjectsResponse { projects }))
+        let projects: Vec<String> = project_map.into_keys().collect();
+
+        Ok(Response::new(proto::ListProjectsResponse {
+            projects,
+            project_details,
+        }))
     }
 
     async fn list_agents(
@@ -1005,5 +1027,70 @@ impl NexusAgent for NexusAgentService {
             success: true,
             message: Some(message),
         }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Git helpers for project info collection
+// ---------------------------------------------------------------------------
+
+/// Run a git command in `dir` and return stdout as a trimmed string.
+/// Returns `None` on error or if git is not available.
+async fn git_run(dir: &str, args: &[&str]) -> Option<String> {
+    if dir.is_empty() {
+        return None;
+    }
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .await
+        .ok()?;
+    if output.status.success() {
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    } else {
+        None
+    }
+}
+
+/// Collect git metadata for a project at `path` and return a `ProjectInfo`.
+async fn collect_project_info(name: &str, path: &str) -> proto::ProjectInfo {
+    // Verify the path looks like a real directory before shelling out.
+    let path_exists = !path.is_empty() && std::path::Path::new(path).is_dir();
+
+    if !path_exists {
+        return proto::ProjectInfo {
+            name: name.to_string(),
+            path: if path.is_empty() { None } else { Some(path.to_string()) },
+            git_branch: None,
+            last_commit: None,
+            sync_status: proto::SyncStatus::Unknown as i32,
+            commits_behind: None,
+        };
+    }
+
+    let branch = git_run(path, &["rev-parse", "--abbrev-ref", "HEAD"]).await;
+    let last_commit = git_run(path, &["log", "-1", "--format=%H"]).await;
+
+    // Count commits behind remote tracking branch.
+    let behind_str = git_run(path, &["rev-list", "HEAD..@{u}", "--count"]).await;
+    let (sync_status, commits_behind) = match behind_str.as_deref() {
+        Some("0") => (proto::SyncStatus::Synced as i32, Some(0)),
+        Some(n) => {
+            let count: i32 = n.parse().unwrap_or(0);
+            (proto::SyncStatus::Behind as i32, Some(count))
+        }
+        None => (proto::SyncStatus::Unknown as i32, None),
+    };
+
+    proto::ProjectInfo {
+        name: name.to_string(),
+        path: Some(path.to_string()),
+        git_branch: branch,
+        last_commit,
+        sync_status,
+        commits_behind,
     }
 }
