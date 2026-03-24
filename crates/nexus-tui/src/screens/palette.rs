@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Clear, Paragraph};
 
 use crate::app::{App, InputMode, colors};
 
@@ -15,6 +15,9 @@ pub fn render_palette(frame: &mut Frame, app: &App) {
 
     // Center the palette: 60% width, up to 20 rows tall.
     let palette_area = area.centered(Constraint::Percentage(60), Constraint::Length(20));
+
+    // Clear the overlay area first to avoid artifacts from the screen beneath.
+    frame.render_widget(Clear, palette_area);
 
     // Split into input line + results.
     let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(palette_area);
@@ -102,6 +105,9 @@ pub fn render_start_session(frame: &mut Frame, app: &App) {
 
     // Center the start-session wizard: 50% width, 12 rows tall.
     let panel_area = area.centered(Constraint::Percentage(50), Constraint::Length(12));
+
+    // Clear behind the overlay to prevent artifacts.
+    frame.render_widget(Clear, panel_area);
 
     match app.input_mode {
         InputMode::StartSessionAgent => render_agent_select(frame, panel_area, app),

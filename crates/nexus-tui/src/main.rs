@@ -481,7 +481,7 @@ fn launch_editor(
 
     // Write current input buffer to a temp file so the user can edit it.
     let tmp_path = std::env::temp_dir().join("nexus-editor-prompt.txt");
-    std::fs::write(&tmp_path, &app.stream_input)?;
+    std::fs::write(&tmp_path, app.stream_input_text())?;
 
     // Leave TUI alternate screen.
     execute!(std::io::stdout(), DisableMouseCapture)?;
@@ -528,7 +528,7 @@ fn launch_editor(
     }
 
     // Send the prompt.
-    app.stream_input.clear();
+    app.stream_input_clear();
     app.stream_executing = true;
     app.stream_exec_start = Some(std::time::Instant::now());
 
@@ -657,13 +657,12 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
 
 /// Key handling for the stream input bar.
 ///
-/// - Enter (without Shift): send the buffer as a prompt.
-/// - Shift+Enter or Ctrl+J: insert newline.
+/// - Enter (without Shift/Ctrl): send the buffer as a prompt.
+/// - Shift+Enter or Ctrl+J: insert newline (passed through to TextArea).
 /// - Ctrl+E: open external editor.
-/// - Up/Down: navigate history (only when input is empty).
-/// - Backspace: delete last character.
+/// - Up/Down: navigate history when the textarea is empty.
 /// - Esc: exit stream input mode.
-/// - Any other char: append to buffer.
+/// - Everything else: passed through to the TextArea widget.
 fn handle_stream_input_key(
     app: &mut App,
     key: KeyEvent,
@@ -673,7 +672,7 @@ fn handle_stream_input_key(
     if app.stream_executing {
         if key.code == KeyCode::Esc {
             app.input_mode = InputMode::Normal;
-            app.stream_input.clear();
+            app.stream_input_clear();
         }
         return KeyAction::Continue;
     }
@@ -683,117 +682,99 @@ fn handle_stream_input_key(
         return KeyAction::OpenEditor;
     }
 
-    // Ctrl+J — insert newline (alternative to Shift+Enter).
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('j') {
-        app.stream_input.push('\n');
-        // Reset history navigation when editing.
+    // Esc — exit stream input mode.
+    if key.code == KeyCode::Esc {
+        app.input_mode = InputMode::Normal;
+        app.stream_input_clear();
         if let Some(sv) = &mut app.stream_view {
             sv.history_index = None;
         }
         return KeyAction::Continue;
     }
 
-    match key.code {
-        // Shift+Enter inserts a newline into the buffer.
-        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            app.stream_input.push('\n');
+    // Plain Enter (without modifiers) — send the buffer.
+    if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
+        let prompt = app.stream_input_text();
+        if !prompt.is_empty() {
+            app.stream_input_clear();
+            app.stream_executing = true;
+            app.stream_exec_start = Some(std::time::Instant::now());
+
             if let Some(sv) = &mut app.stream_view {
-                sv.history_index = None;
+                sv.push_history(prompt.clone());
+                sv.push_line(StyledLine::new(
+                    "\u{2500}\u{2500} you \u{2500}\u{2500}",
+                    LineStyle::UserHeader,
+                ));
+                for line in prompt.lines() {
+                    sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
+                }
+                // Blank separator after user prompt block.
+                sv.push_line(StyledLine::new("", LineStyle::Plain));
+                // Reset assistant header for the upcoming response.
+                sv.assistant_header_emitted = false;
+            }
+
+            if let Some(sv) = &app.stream_view {
+                let session_id = sv.session_id.clone();
+                let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
             }
         }
+        return KeyAction::Continue;
+    }
 
-        // Plain Enter sends the buffer.
-        KeyCode::Enter => {
-            if !app.stream_input.is_empty() {
-                let prompt = app.stream_input.clone();
-                app.stream_input.clear();
-                app.stream_executing = true;
-                app.stream_exec_start = Some(std::time::Instant::now());
-
-                if let Some(sv) = &mut app.stream_view {
-                    sv.push_history(prompt.clone());
-                    sv.push_line(StyledLine::new(
-                        "\u{2500}\u{2500} you \u{2500}\u{2500}",
-                        LineStyle::UserHeader,
-                    ));
-                    for line in prompt.lines() {
-                        sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
-                    }
-                    // Blank separator after user prompt block.
-                    sv.push_line(StyledLine::new("", LineStyle::Plain));
-                    // Reset assistant header for the upcoming response.
-                    sv.assistant_header_emitted = false;
-                }
-
-                if let Some(sv) = &app.stream_view {
-                    let session_id = sv.session_id.clone();
-                    let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
-                }
-            }
-        }
-
-        // Up — navigate backward in history (only when input is empty).
-        KeyCode::Up if app.stream_input.is_empty() => {
-            if let Some(sv) = &mut app.stream_view {
-                if sv.input_history.is_empty() {
-                    return KeyAction::Continue;
-                }
+    // Up — navigate backward in history (only when textarea is empty).
+    if key.code == KeyCode::Up && app.stream_input_is_empty() {
+        if let Some(sv) = &mut app.stream_view {
+            if !sv.input_history.is_empty() {
                 let new_idx = match sv.history_index {
                     None => sv.input_history.len() - 1,
                     Some(0) => 0,
                     Some(i) => i - 1,
                 };
                 sv.history_index = Some(new_idx);
-                app.stream_input = sv.input_history[new_idx].clone();
+                let text = sv.input_history[new_idx].clone();
+                app.stream_input_set(&text);
             }
         }
+        return KeyAction::Continue;
+    }
 
-        // Down — navigate forward in history (only when input is empty or navigating).
-        KeyCode::Down => {
-            if let Some(sv) = &mut app.stream_view {
-                match sv.history_index {
-                    None => {} // Not navigating; do nothing.
-                    Some(i) if i + 1 >= sv.input_history.len() => {
-                        // Past the end: clear input and exit history navigation.
-                        sv.history_index = None;
-                        app.stream_input.clear();
-                    }
-                    Some(i) => {
-                        let new_idx = i + 1;
-                        sv.history_index = Some(new_idx);
-                        app.stream_input = sv.input_history[new_idx].clone();
-                    }
+    // Down — navigate forward in history.
+    if key.code == KeyCode::Down {
+        if let Some(sv) = &mut app.stream_view {
+            match sv.history_index {
+                None => {} // Not navigating; let TextArea handle Down normally.
+                Some(i) if i + 1 >= sv.input_history.len() => {
+                    sv.history_index = None;
+                    app.stream_input_clear();
+                    return KeyAction::Continue;
+                }
+                Some(i) => {
+                    let new_idx = i + 1;
+                    sv.history_index = Some(new_idx);
+                    let text = sv.input_history[new_idx].clone();
+                    app.stream_input_set(&text);
+                    return KeyAction::Continue;
                 }
             }
         }
-
-        KeyCode::Char(c) => {
-            app.stream_input.push(c);
-            // Any typing exits history navigation.
-            if let Some(sv) = &mut app.stream_view {
-                sv.history_index = None;
-            }
-        }
-
-        KeyCode::Backspace => {
-            app.stream_input.pop();
-            // Backspace also exits history navigation.
-            if let Some(sv) = &mut app.stream_view {
-                sv.history_index = None;
-            }
-        }
-
-        KeyCode::Esc => {
-            // Exit stream input, go back to normal stream view.
-            app.input_mode = InputMode::Normal;
-            app.stream_input.clear();
-            if let Some(sv) = &mut app.stream_view {
-                sv.history_index = None;
-            }
-        }
-
-        _ => {}
     }
+
+    // Any typing resets history navigation.
+    if matches!(
+        key.code,
+        KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
+    ) {
+        if let Some(sv) = &mut app.stream_view {
+            sv.history_index = None;
+        }
+    }
+
+    // Pass the key through to the TextArea widget.
+    // Wrap in Event::Key so the textarea's crossterm Input conversion fires.
+    app.stream_textarea
+        .input(Event::Key(key));
 
     KeyAction::Continue
 }

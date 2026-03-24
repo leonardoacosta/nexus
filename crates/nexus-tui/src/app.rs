@@ -4,7 +4,8 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 use ratatui::style::Color;
 use ratatui::text::Line;
-use ratatui::widgets::TableState;
+use ratatui::widgets::{ScrollbarState, TableState};
+use tui_textarea::TextArea;
 
 use nexus_core::agent::AgentInfo;
 use nexus_core::notes::ProjectNotes;
@@ -465,8 +466,8 @@ pub struct App {
     // Stream attach view
     pub stream_view: Option<StreamViewState>,
 
-    /// Input buffer for the stream view command input bar.
-    pub stream_input: String,
+    /// TextArea widget for the stream view command input bar.
+    pub stream_textarea: TextArea<'static>,
     /// Whether a command is currently executing.
     pub stream_executing: bool,
 
@@ -491,6 +492,13 @@ pub struct App {
     /// Enriched project git details keyed by project name.
     /// Populated from `ListProjects` enriched responses.
     pub project_details_map: HashMap<String, ProjectDetail>,
+
+    /// Scrollbar state for the stream message area.
+    pub stream_scroll_state: ScrollbarState,
+
+    /// Total number of visible display lines in the stream view (updated each
+    /// render frame so the scrollbar knows the content length).
+    pub stream_total_lines: usize,
 }
 
 impl App {
@@ -516,7 +524,7 @@ impl App {
             status_message: None,
             notifications: NotificationManager::new(),
             stream_view: None,
-            stream_input: String::new(),
+            stream_textarea: TextArea::default(),
             stream_executing: false,
             stream_exec_start: None,
             tick_count: 0,
@@ -527,7 +535,45 @@ impl App {
             scratchpad_project: None,
             health_history: HashMap::new(),
             project_details_map: HashMap::new(),
+            stream_scroll_state: ScrollbarState::default(),
+            stream_total_lines: 0,
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Stream textarea helpers
+    // -------------------------------------------------------------------------
+
+    /// Return the current textarea content as a single `String` (lines joined
+    /// with `\n`). An empty textarea returns an empty string.
+    pub fn stream_input_text(&self) -> String {
+        let lines = self.stream_textarea.lines();
+        if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
+            String::new()
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    /// Return `true` if the textarea is empty (no content).
+    pub fn stream_input_is_empty(&self) -> bool {
+        let lines = self.stream_textarea.lines();
+        lines.is_empty() || (lines.len() == 1 && lines[0].is_empty())
+    }
+
+    /// Clear the textarea content.
+    pub fn stream_input_clear(&mut self) {
+        self.stream_textarea = TextArea::default();
+    }
+
+    /// Set the textarea content to an arbitrary string (used for history
+    /// navigation).
+    pub fn stream_input_set(&mut self, text: &str) {
+        let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+        self.stream_textarea = TextArea::new(lines);
+        // Move cursor to end of content.
+        self.stream_textarea
+            .move_cursor(tui_textarea::CursorMove::End);
     }
 
     pub fn next_screen(&mut self) {

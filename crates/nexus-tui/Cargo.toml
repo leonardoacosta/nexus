@@ -26,4 +26,6 @@ toml = { workspace = true }
 tokio-stream = { workspace = true }
 pulldown-cmark = { workspace = true }
 notify = { workspace = true }
+syntect = { workspace = true }
+tui-textarea-2 = { workspace = true }
 base64 = "0.22"

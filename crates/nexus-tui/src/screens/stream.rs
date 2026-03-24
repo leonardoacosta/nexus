@@ -2,9 +2,21 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    Wrap,
+};
 
 use crate::app::{App, CodeBlockRange, InputMode, LineStyle, StreamLine, StreamVerbosity, colors};
+
+/// Compute the height in terminal rows for the textarea input bar.
+///
+/// Reads the line count from the TextArea directly.  Cap at 5 content lines
+/// plus 1 border row.
+fn textarea_bar_height(app: &App) -> u16 {
+    let line_count = app.stream_textarea.lines().len().max(1);
+    (line_count.min(5) as u16) + 1
+}
 
 /// Map a `LineStyle` to the ratatui `Style` using the brand color palette.
 fn line_style_to_ratatui(style: LineStyle) -> Style {
@@ -37,25 +49,13 @@ fn line_style_to_ratatui(style: LineStyle) -> Style {
     }
 }
 
-/// Compute the height in terminal rows for the input bar based on the number
-/// of newlines in the stream input buffer.
-///
-/// The bar always shows at least 1 content line (plus 1 for the border = 2
-/// minimum rows, but we keep the block border so add 1). Cap at 5 content
-/// lines (6 rows total).
-fn input_bar_height(stream_input: &str) -> u16 {
-    let line_count = stream_input.lines().count().max(1);
-    let clamped = line_count.min(5) as u16;
-    clamped + 1 // +1 for the TOP border drawn by the block
-}
-
 /// Render the stream attach view.
 pub fn render_stream(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let bar_height = if app.stream_executing {
         2 // executing spinner: 1 content line + 1 border
     } else {
-        input_bar_height(&app.stream_input)
+        textarea_bar_height(app)
     };
 
     // Reserve 1 row for search bar when in search mode.
@@ -285,6 +285,17 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
+    // Width for separator lines (leave 1 col for scrollbar).
+    let sep_width = area.width.saturating_sub(1) as usize;
+
+    /// Return true for "role header" line styles that get a separator above them.
+    fn is_role_header(style: LineStyle) -> bool {
+        matches!(
+            style,
+            LineStyle::UserHeader | LineStyle::AssistantHeader | LineStyle::ToolHeader
+        )
+    }
+
     // Expand all StreamLine entries into individual display lines, filtering
     // by the current verbosity level. Track code blocks during expansion.
     let mut display_lines: Vec<Line<'_>> = Vec::new();
@@ -292,6 +303,7 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
     let mut in_code_block = false;
     let mut code_block_start: usize = 0;
     let mut code_block_content = String::new();
+    let mut first_entry = true;
 
     for entry in &sv.lines {
         if !entry.is_visible(verbosity) {
@@ -299,6 +311,15 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         }
         match entry {
             StreamLine::Styled(s) => {
+                // Insert a thin separator before role-header lines (except the very first).
+                if is_role_header(s.style) && !first_entry {
+                    let sep = "\u{2500}".repeat(sep_width);
+                    display_lines.push(Line::from(Span::styled(
+                        sep,
+                        Style::default().fg(colors::TEXT_DIM),
+                    )));
+                }
+                first_entry = false;
                 let line = render_styled_line(s);
                 let idx = display_lines.len();
                 // Code block lines from markdown have SURFACE background.
@@ -323,6 +344,7 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
                 display_lines.push(line);
             }
             StreamLine::RichText { line } => {
+                first_entry = false;
                 let idx = display_lines.len();
                 if is_code_block_line(line) {
                     if !in_code_block {
@@ -351,6 +373,15 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
                 lines,
                 expanded,
             } => {
+                // Separators before ToolHeader collapsible blocks.
+                if is_role_header(header.style) && !first_entry {
+                    let sep = "\u{2500}".repeat(sep_width);
+                    display_lines.push(Line::from(Span::styled(
+                        sep,
+                        Style::default().fg(colors::TEXT_DIM),
+                    )));
+                }
+                first_entry = false;
                 if in_code_block {
                     let idx = display_lines.len();
                     code_blocks.push(CodeBlockRange {
@@ -416,7 +447,12 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         }
     }
 
+    let total_lines = display_lines.len();
     let scroll_offset = sv.scroll_offset;
+
+    // Update app-level scrollbar state so it reflects the current content.
+    app.stream_total_lines = total_lines;
+    app.stream_scroll_state = ScrollbarState::new(total_lines).position(scroll_offset);
 
     // Take visible slice.
     let visible_lines: Vec<Line<'_>> = display_lines
@@ -435,16 +471,39 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
     // Render notification overlay if present.
     let notification = sv.notification_message.as_ref().map(|(msg, _)| msg.clone());
 
-    let paragraph = Paragraph::new(visible_lines);
-    frame.render_widget(paragraph, area);
+    // Reserve 1 column on the right for the scrollbar.
+    let msg_width = area.width.saturating_sub(1);
+    let msg_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: msg_width,
+        height: area.height,
+    };
+    let scrollbar_area = Rect {
+        x: area.x + msg_width,
+        y: area.y,
+        width: 1,
+        height: area.height,
+    };
 
-    // Draw notification toast in the top-right corner of the log area.
+    let paragraph = Paragraph::new(visible_lines);
+    frame.render_widget(paragraph, msg_area);
+
+    // Render the vertical scrollbar.
+    let mut scroll_state = app.stream_scroll_state;
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None);
+    frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scroll_state);
+
+    // Draw notification toast in the top-right corner of the message area
+    // (left of the scrollbar).
     if let Some(msg) = notification {
         let msg_len = msg.len() as u16 + 4; // padding
-        if area.width > msg_len {
+        if msg_area.width > msg_len {
             let toast_area = Rect {
-                x: area.x + area.width - msg_len,
-                y: area.y,
+                x: msg_area.x + msg_area.width - msg_len,
+                y: msg_area.y,
                 width: msg_len,
                 height: 1,
             };
@@ -508,7 +567,7 @@ fn render_search_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(bar, area);
 }
 
-fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
+fn render_input_bar(frame: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::TOP)
         .border_style(Style::default().fg(colors::TEXT_DIM));
@@ -531,8 +590,8 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
         )]))
         .block(block);
         frame.render_widget(content, area);
-    } else if app.stream_input.is_empty() {
-        // Show placeholder text when the buffer is empty and not executing.
+    } else if app.stream_input_is_empty() && app.input_mode != InputMode::StreamInput {
+        // Show placeholder text when the buffer is empty and not in input mode.
         let content = Paragraph::new(Line::from(vec![
             Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
             Span::styled(
@@ -545,49 +604,28 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &App) {
         .block(block);
         frame.render_widget(content, area);
     } else {
-        // Multi-line input: render each line of the buffer with the prompt prefix
-        // on the first line and a continuation marker on subsequent lines.
-        // Show a block cursor after the last character on the last line.
-        let input_lines: Vec<&str> = app.stream_input.split('\n').collect();
-        let line_count = input_lines.len();
+        // Reserve the top row for the border; render the TextArea in the
+        // remaining space.
+        let inner = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height.saturating_sub(1),
+        };
+        // Draw the top border.
+        frame.render_widget(block, area);
 
-        // Only render up to 5 lines (the layout already caps height to 5+1).
-        let visible_lines: Vec<Line<'_>> = input_lines
-            .iter()
-            .enumerate()
-            .take(5)
-            .map(|(i, text)| {
-                let is_last = i == line_count - 1;
-                if i == 0 {
-                    if is_last {
-                        Line::from(vec![
-                            Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
-                            Span::styled(*text, Style::default().fg(colors::TEXT)),
-                            Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
-                        ])
-                    } else {
-                        Line::from(vec![
-                            Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
-                            Span::styled(*text, Style::default().fg(colors::TEXT)),
-                        ])
-                    }
-                } else if is_last {
-                    Line::from(vec![
-                        Span::styled(" | ", Style::default().fg(colors::TEXT_DIM)),
-                        Span::styled(*text, Style::default().fg(colors::TEXT)),
-                        Span::styled("\u{2588}", Style::default().fg(colors::PRIMARY)),
-                    ])
-                } else {
-                    Line::from(vec![
-                        Span::styled(" | ", Style::default().fg(colors::TEXT_DIM)),
-                        Span::styled(*text, Style::default().fg(colors::TEXT)),
-                    ])
-                }
-            })
-            .collect();
-
-        let content = Paragraph::new(visible_lines).block(block);
-        frame.render_widget(content, area);
+        // Configure textarea style to match the brand palette and render it.
+        app.stream_textarea.set_style(Style::default().fg(colors::TEXT));
+        app.stream_textarea.set_cursor_style(
+            Style::default()
+                .fg(colors::PRIMARY)
+                .add_modifier(Modifier::REVERSED),
+        );
+        // Remove the textarea's own block so we can use our border above.
+        app.stream_textarea
+            .set_block(Block::default().borders(Borders::NONE));
+        frame.render_widget(&app.stream_textarea, inner);
     }
 }
 

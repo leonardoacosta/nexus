@@ -4,11 +4,34 @@
 //! color palette. Only assistant text is routed through this module; tool
 //! results, errors, and other stream content keep the existing `LineStyle` path.
 
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
+use syntect::parsing::SyntaxSet;
 
 use crate::app::colors;
+
+// ---------------------------------------------------------------------------
+// Syntect singletons (initialised once, reused across all render calls)
+// ---------------------------------------------------------------------------
+
+fn syntax_set() -> &'static SyntaxSet {
+    static SS: std::sync::OnceLock<SyntaxSet> = std::sync::OnceLock::new();
+    SS.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme_set() -> &'static ThemeSet {
+    static TS: std::sync::OnceLock<ThemeSet> = std::sync::OnceLock::new();
+    TS.get_or_init(ThemeSet::load_defaults)
+}
+
+/// Convert a syntect `Style` foreground colour into a ratatui `Color`.
+fn syntect_color_to_ratatui(s: SyntectStyle) -> Color {
+    let c = s.foreground;
+    Color::Rgb(c.r, c.g, c.b)
+}
 
 // ---------------------------------------------------------------------------
 // Style constants
@@ -96,6 +119,10 @@ struct MdRenderer {
     /// Inside a fenced/indented code block.
     in_code_block: bool,
 
+    /// Language tag for the current fenced code block (e.g. `"rust"`, `"python"`).
+    /// `None` for indented code blocks or blocks without a language annotation.
+    current_lang: Option<String>,
+
     /// Current list nesting. Each entry is `Some(n)` for ordered (current
     /// number) or `None` for unordered.
     list_stack: Vec<Option<u64>>,
@@ -123,6 +150,7 @@ impl MdRenderer {
             inline: InlineStyle::default(),
             heading: None,
             in_code_block: false,
+            current_lang: None,
             list_stack: Vec::new(),
             table: None,
         }
@@ -145,9 +173,15 @@ impl MdRenderer {
                 Event::Start(Tag::Paragraph) => {
                     // No-op; text events will accumulate spans.
                 }
-                Event::Start(Tag::CodeBlock(_)) => {
+                Event::Start(Tag::CodeBlock(ref kind)) => {
                     self.flush_line();
                     self.in_code_block = true;
+                    self.current_lang = match kind {
+                        CodeBlockKind::Fenced(lang) if !lang.is_empty() => {
+                            Some(lang.to_lowercase())
+                        }
+                        _ => None,
+                    };
                 }
                 Event::Start(Tag::List(start)) => {
                     self.flush_line();
@@ -211,6 +245,7 @@ impl MdRenderer {
                 }
                 Event::End(TagEnd::CodeBlock) => {
                     self.in_code_block = false;
+                    self.current_lang = None;
                 }
                 Event::End(TagEnd::List(_)) => {
                     self.flush_line();
@@ -256,12 +291,52 @@ impl MdRenderer {
                 Event::Text(cow) => {
                     let s = cow.into_string();
                     if self.in_code_block {
-                        // Render each line of the code block with gutter.
-                        for code_line in s.split('\n') {
-                            self.output.push(Line::from(vec![
-                                Span::styled("\u{2502} ", STYLE_CODE_GUTTER),
-                                Span::styled(code_line.to_owned(), STYLE_CODE_BLOCK),
-                            ]));
+                        // Split into owned lines; skip any trailing empty element
+                        // from the trailing newline pulldown-cmark appends.
+                        let mut owned_lines: Vec<String> =
+                            s.split('\n').map(str::to_owned).collect();
+                        if owned_lines.last().is_some_and(|l| l.is_empty()) {
+                            owned_lines.pop();
+                        }
+
+                        // Attempt syntax-highlighted rendering when a language is known.
+                        let ss = syntax_set();
+                        let ts = theme_set();
+                        let syntax = self
+                            .current_lang
+                            .as_deref()
+                            .and_then(|lang| ss.find_syntax_by_token(lang));
+                        let theme = ts
+                            .themes
+                            .get("base16-ocean.dark")
+                            .or_else(|| ts.themes.values().next());
+
+                        if let (Some(syntax), Some(theme)) = (syntax, theme) {
+                            let mut highlighter = HighlightLines::new(syntax, theme);
+                            for code_line in &owned_lines {
+                                let ranges = highlighter
+                                    .highlight_line(code_line, ss)
+                                    .unwrap_or_default();
+                                let mut spans: Vec<Span<'static>> =
+                                    Vec::with_capacity(ranges.len() + 1);
+                                spans.push(Span::styled("\u{2502} ", STYLE_CODE_GUTTER));
+                                for (style, text) in &ranges {
+                                    let fg = syntect_color_to_ratatui(*style);
+                                    spans.push(Span::styled(
+                                        text.to_string(),
+                                        Style::new().fg(fg).bg(colors::SURFACE),
+                                    ));
+                                }
+                                self.output.push(Line::from(spans));
+                            }
+                        } else {
+                            // Fallback: monochrome rendering (no language or unknown syntax).
+                            for code_line in owned_lines {
+                                self.output.push(Line::from(vec![
+                                    Span::styled("\u{2502} ", STYLE_CODE_GUTTER),
+                                    Span::styled(code_line, STYLE_CODE_BLOCK),
+                                ]));
+                            }
                         }
                     } else if let Some(ref mut table) = self.table {
                         let style = if table.in_header {
