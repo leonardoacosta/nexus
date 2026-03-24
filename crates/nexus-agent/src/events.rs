@@ -36,6 +36,7 @@ impl EventBroadcaster {
             Some(nexus_core::proto::session_event::Payload::Heartbeat(_)) => "Heartbeat",
             Some(nexus_core::proto::session_event::Payload::StatusChanged(_)) => "StatusChanged",
             Some(nexus_core::proto::session_event::Payload::Stopped(_)) => "Stopped",
+            Some(nexus_core::proto::session_event::Payload::GoingAway(_)) => "GoingAway",
             None => "None",
         };
         tracing::debug!(

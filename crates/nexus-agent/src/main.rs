@@ -13,10 +13,12 @@ mod grpc;
 mod health;
 mod parser;
 mod registry;
+mod shutdown;
 
 use grpc::NexusAgentService;
 use health::HealthCollector;
 use registry::SessionRegistry;
+use shutdown::ShutdownCoordinator;
 
 const GRPC_PORT: u16 = 7400;
 const HTTP_PORT: u16 = 7401;
@@ -56,6 +58,9 @@ async fn main() -> Result<()> {
 
     let started_at = std::time::Instant::now();
 
+    // Create the shutdown coordinator shared between signal handler and gRPC service.
+    let coordinator = Arc::new(ShutdownCoordinator::new());
+
     // Build the gRPC service.
     let service = NexusAgentService::new(
         Arc::clone(&registry),
@@ -63,14 +68,22 @@ async fn main() -> Result<()> {
         health_collector.clone(),
         agent_name.clone(),
         agent_host.clone(),
+        Arc::clone(&coordinator),
     );
 
     let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
     tracing::info!("gRPC server listening on {}", grpc_addr);
 
+    let shutdown_coordinator = Arc::clone(&coordinator);
     let grpc_server = Server::builder()
         .add_service(NexusAgentServer::new(service))
-        .serve_with_shutdown(grpc_addr, shutdown_signal());
+        .serve_with_shutdown(grpc_addr, async move {
+            shutdown_signal().await;
+            shutdown_coordinator.initiate_shutdown();
+            shutdown_coordinator
+                .wait_for_drain(Duration::from_secs(5))
+                .await;
+        });
 
     // Start stale session detection background task (30s interval).
     let stale_registry = Arc::clone(&registry);

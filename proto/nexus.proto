@@ -28,6 +28,7 @@ enum EventType {
   EVENT_TYPE_HEARTBEAT_RECEIVED = 2;
   EVENT_TYPE_STATUS_CHANGED = 3;
   EVENT_TYPE_SESSION_STOPPED = 4;
+  EVENT_TYPE_GOING_AWAY = 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +226,7 @@ message SessionEvent {
     HeartbeatReceived heartbeat = 4;
     StatusChanged status_changed = 5;
     SessionStopped stopped = 6;
+    GoingAway going_away = 8;
   }
   string agent_name = 7;
 }
@@ -245,6 +247,18 @@ message StatusChanged {
 
 message SessionStopped {
   string reason = 1;
+}
+
+message GoingAway {
+  string reason = 1;
+  uint32 drain_timeout_ms = 2;
+}
+
+message StatusTransition {
+  SessionStatus from_status = 1;
+  SessionStatus to_status = 2;
+  google.protobuf.Timestamp at = 3;
+  string reason = 4;
 }
 
 // ---------------------------------------------------------------------------

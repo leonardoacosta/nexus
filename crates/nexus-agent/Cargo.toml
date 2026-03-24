@@ -24,4 +24,5 @@ tracing-subscriber = { workspace = true }
 sysinfo = { workspace = true }
 prost-types = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 hostname = { workspace = true }

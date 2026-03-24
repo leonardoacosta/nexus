@@ -12,6 +12,7 @@ use crate::events::EventBroadcaster;
 use crate::health::HealthCollector;
 use crate::parser;
 use crate::registry::SessionRegistry;
+use crate::shutdown::ShutdownCoordinator;
 
 /// gRPC service implementation for the NexusAgent service.
 pub struct NexusAgentService {
@@ -21,6 +22,7 @@ pub struct NexusAgentService {
     agent_name: String,
     agent_host: String,
     started_at: std::time::Instant,
+    shutdown: Arc<ShutdownCoordinator>,
 }
 
 impl NexusAgentService {
@@ -30,6 +32,7 @@ impl NexusAgentService {
         health: HealthCollector,
         agent_name: String,
         agent_host: String,
+        shutdown: Arc<ShutdownCoordinator>,
     ) -> Self {
         Self {
             registry,
@@ -38,6 +41,7 @@ impl NexusAgentService {
             agent_name,
             agent_host,
             started_at: std::time::Instant::now(),
+            shutdown,
         }
     }
 }
@@ -643,6 +647,11 @@ impl NexusAgent for NexusAgentService {
         // for efficient lookup. An empty set means "pass all events".
         let allowed_event_types: Vec<i32> = filter.event_types.clone();
 
+        // Increment active stream count and capture handles for drain tracking.
+        let active_streams = self.shutdown.active_streams();
+        active_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let shutdown_token = self.shutdown.token();
+
         tokio::spawn(async move {
             // ------------------------------------------------------------------
             // Phase 1: Initial snapshot (if requested)
@@ -684,6 +693,7 @@ impl NexusAgent for NexusAgentService {
 
                     if tx.send(Ok(event)).await.is_err() {
                         tracing::debug!("stream_events client disconnected during snapshot");
+                        active_streams.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         return;
                     }
                 }
@@ -693,63 +703,94 @@ impl NexusAgent for NexusAgentService {
             // Phase 2: Live event forwarding
             // ------------------------------------------------------------------
             loop {
-                match broadcast_rx.recv().await {
-                    Ok(arc_event) => {
-                        // Apply filter: skip events that don't match the requested session_id.
-                        if let Some(ref filter_session_id) = filter.session_id
-                            && arc_event.session_id != *filter_session_id
-                        {
-                            continue;
-                        }
+                tokio::select! {
+                    _ = shutdown_token.cancelled() => {
+                        tracing::info!("stream_events: shutdown signal received, sending GoingAway");
+                        let now = chrono::Utc::now();
+                        let ts = Some(prost_types::Timestamp {
+                            seconds: now.timestamp(),
+                            nanos: now.timestamp_subsec_nanos() as i32,
+                        });
+                        let going_away_event = proto::SessionEvent {
+                            session_id: String::new(),
+                            ts,
+                            payload: Some(proto::session_event::Payload::GoingAway(
+                                proto::GoingAway {
+                                    reason: "agent shutting down".to_string(),
+                                    drain_timeout_ms: 5000,
+                                },
+                            )),
+                            agent_name: agent_name.clone(),
+                        };
+                        let _ = tx.send(Ok(going_away_event)).await;
+                        break;
+                    }
+                    recv_result = broadcast_rx.recv() => {
+                        match recv_result {
+                            Ok(arc_event) => {
+                                // Apply filter: skip events that don't match the requested session_id.
+                                if let Some(ref filter_session_id) = filter.session_id
+                                    && arc_event.session_id != *filter_session_id
+                                {
+                                    continue;
+                                }
 
-                        // Apply event type filter: map payload variant to EventType
-                        // and check against the allowed list. Empty list = pass all.
-                        if !allowed_event_types.is_empty() {
-                            let event_type = match &arc_event.payload {
-                                Some(proto::session_event::Payload::Started(_)) => {
-                                    proto::EventType::SessionStarted as i32
+                                // Apply event type filter: map payload variant to EventType
+                                // and check against the allowed list. Empty list = pass all.
+                                if !allowed_event_types.is_empty() {
+                                    let event_type = match &arc_event.payload {
+                                        Some(proto::session_event::Payload::Started(_)) => {
+                                            proto::EventType::SessionStarted as i32
+                                        }
+                                        Some(proto::session_event::Payload::Heartbeat(_)) => {
+                                            proto::EventType::HeartbeatReceived as i32
+                                        }
+                                        Some(proto::session_event::Payload::StatusChanged(_)) => {
+                                            proto::EventType::StatusChanged as i32
+                                        }
+                                        Some(proto::session_event::Payload::Stopped(_)) => {
+                                            proto::EventType::SessionStopped as i32
+                                        }
+                                        Some(proto::session_event::Payload::GoingAway(_)) => {
+                                            proto::EventType::GoingAway as i32
+                                        }
+                                        None => proto::EventType::Unspecified as i32,
+                                    };
+                                    if !allowed_event_types.contains(&event_type) {
+                                        continue;
+                                    }
                                 }
-                                Some(proto::session_event::Payload::Heartbeat(_)) => {
-                                    proto::EventType::HeartbeatReceived as i32
+
+                                // Stamp the agent name on every forwarded event.
+                                // Clone the inner event to allow mutation; Arc pointer clone
+                                // was already cheap on the broadcast side.
+                                let mut event = (*arc_event).clone();
+                                event.agent_name = agent_name.clone();
+
+                                // If the client has disconnected, the send will fail
+                                // and we break out of the loop to clean up.
+                                if tx.send(Ok(event)).await.is_err() {
+                                    tracing::debug!("stream_events client disconnected");
+                                    break;
                                 }
-                                Some(proto::session_event::Payload::StatusChanged(_)) => {
-                                    proto::EventType::StatusChanged as i32
-                                }
-                                Some(proto::session_event::Payload::Stopped(_)) => {
-                                    proto::EventType::SessionStopped as i32
-                                }
-                                None => proto::EventType::Unspecified as i32,
-                            };
-                            if !allowed_event_types.contains(&event_type) {
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!("stream_events subscriber lagged, skipped {} events", n);
+                                // Continue streaming — the subscriber missed some events
+                                // and should do a full GetSessions refresh if needed.
                                 continue;
                             }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                tracing::debug!("stream_events broadcast channel closed");
+                                break;
+                            }
                         }
-
-                        // Stamp the agent name on every forwarded event.
-                        // Clone the inner event to allow mutation; Arc pointer clone
-                        // was already cheap on the broadcast side.
-                        let mut event = (*arc_event).clone();
-                        event.agent_name = agent_name.clone();
-
-                        // If the client has disconnected, the send will fail
-                        // and we break out of the loop to clean up.
-                        if tx.send(Ok(event)).await.is_err() {
-                            tracing::debug!("stream_events client disconnected");
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("stream_events subscriber lagged, skipped {} events", n);
-                        // Continue streaming — the subscriber missed some events
-                        // and should do a full GetSessions refresh if needed.
-                        continue;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        tracing::debug!("stream_events broadcast channel closed");
-                        break;
                     }
                 }
             }
+
+            // Decrement active stream count on exit.
+            active_streams.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(

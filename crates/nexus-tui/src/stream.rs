@@ -336,6 +336,12 @@ fn format_event(event: &SessionEvent) -> String {
         Some(nexus_core::proto::session_event::Payload::Stopped(s)) => {
             format!("[{ts}] {sid_short} STOPPED  reason={}", s.reason)
         }
+        Some(nexus_core::proto::session_event::Payload::GoingAway(g)) => {
+            format!(
+                "[{ts}] {sid_short} GOING_AWAY reason={} drain={}ms",
+                g.reason, g.drain_timeout_ms
+            )
+        }
         None => {
             format!("[{ts}] {sid_short} UNKNOWN")
         }
