@@ -75,6 +75,9 @@ jobs:
       - name: Build release binaries
         run: cargo build --workspace --release --target ${{ matrix.target }}
 
+      - name: Report binary sizes
+        run: ls -lh target/release/nexus-agent target/release/nexus target/release/nexus-register 2>/dev/null || true
+
       - name: Upload nexus-agent
         uses: actions/upload-artifact@v4
         with:

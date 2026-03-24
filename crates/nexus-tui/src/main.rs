@@ -1,9 +1,11 @@
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use notify::{EventKind, RecursiveMode, Watcher};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
@@ -71,6 +73,8 @@ enum RpcResult {
     ProjectList(Vec<String>),
     /// One or more agents reconnected successfully.
     AgentsReconnected(Vec<String>),
+    /// agents.toml was modified on disk; carries the new agent count.
+    ConfigChanged(usize),
 }
 
 #[tokio::main]
@@ -120,7 +124,10 @@ async fn main() -> Result<()> {
     let (rpc_result_tx, mut rpc_result_rx) = mpsc::channel::<RpcResult>(4);
 
     // Move client into the background task that handles both polling and RPCs.
-    tokio::spawn(background_task(client, poll_tx, rpc_rx, rpc_result_tx));
+    tokio::spawn(background_task(client, poll_tx, rpc_rx, rpc_result_tx.clone()));
+
+    // Watch agents.toml for live edits.
+    spawn_config_watcher(NexusConfig::config_path(), rpc_result_tx);
 
     // Start background alert stream for notifications.
     let mut alert_rx = stream::subscribe_alert_stream(&agent_endpoints);
@@ -260,6 +267,12 @@ fn run_loop(
                             Severity::Info,
                         );
                     }
+                }
+                RpcResult::ConfigChanged(n) => {
+                    app.notifications.push(
+                        format!("config reloaded: {n} agents"),
+                        Severity::Info,
+                    );
                 }
             }
         }
@@ -1354,6 +1367,86 @@ fn handle_cwd_input_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcC
 }
 
 /// Background task: polls agents periodically and handles RPC commands.
+/// Spawn a background task that watches `~/.config/nexus/agents.toml` for
+/// modifications.  On each write event (debounced 500 ms) the file is
+/// re-parsed and the new agent count is sent as `RpcResult::ConfigChanged`.
+fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>) {
+    // Bridge: notify fires on a OS thread; we forward events into a tokio channel.
+    let (notify_tx, mut notify_rx) = mpsc::channel::<()>(1);
+
+    // `_watcher` must stay alive for the watch to remain active.
+    let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res
+            && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_))
+        {
+            // Best-effort send; drop duplicate events that back up while
+            // the debounce window is active.
+            let _ = notify_tx.try_send(());
+        }
+    }) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::warn!("config watcher: failed to create watcher: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = watcher.watch(&config_path, RecursiveMode::NonRecursive) {
+        tracing::warn!(path = %config_path.display(), "config watcher: failed to watch: {e}");
+        return;
+    }
+
+    tokio::spawn(async move {
+        // Keep watcher alive inside the async task.
+        let _watcher = watcher;
+
+        loop {
+            // Wait for the next raw event.
+            if notify_rx.recv().await.is_none() {
+                break;
+            }
+
+            // Debounce: drain any additional events that arrive within 500 ms.
+            let debounce = tokio::time::sleep(Duration::from_millis(500));
+            tokio::pin!(debounce);
+            loop {
+                tokio::select! {
+                    _ = &mut debounce => break,
+                    extra = notify_rx.recv() => {
+                        if extra.is_none() {
+                            return;
+                        }
+                        // Another event arrived — reset the debounce window.
+                        debounce.as_mut().reset(
+                            tokio::time::Instant::now() + Duration::from_millis(500),
+                        );
+                    }
+                }
+            }
+
+            // Re-parse the config and report the result.
+            // Extract the outcome before any `.await` so the non-Send error
+            // type is not held across an await point.
+            let reload_outcome: Option<usize> =
+                match nexus_core::config::NexusConfig::load() {
+                    Ok(cfg) => {
+                        let n = cfg.agents.len();
+                        tracing::info!("config reloaded: {n} agents");
+                        Some(n)
+                    }
+                    Err(e) => {
+                        tracing::warn!("config watcher: reload failed: {e}");
+                        None
+                    }
+                };
+
+            if let Some(n) = reload_outcome {
+                let _ = result_tx.send(RpcResult::ConfigChanged(n)).await;
+            }
+        }
+    });
+}
+
 async fn background_task(
     mut client: NexusClient,
     poll_tx: mpsc::Sender<Vec<AgentData>>,
