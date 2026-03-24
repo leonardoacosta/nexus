@@ -5,6 +5,10 @@ use nexus_core::health::{ContainerStatus, MachineHealth};
 use sysinfo::System;
 use tokio::sync::RwLock;
 
+/// How many health ticks to wait between Docker container list refreshes.
+/// At a 5-second interval this means Docker is queried every 30 seconds.
+const DOCKER_REFRESH_TICKS: u32 = 6;
+
 /// Shared health state that is periodically refreshed in the background.
 #[derive(Clone)]
 pub struct HealthCollector {
@@ -16,24 +20,59 @@ impl HealthCollector {
     ///
     /// The background task refreshes health metrics every `interval`.
     /// CPU percentage requires two samples, so the first reading may be low.
+    /// The `System` instance is created once and reused across refreshes to
+    /// avoid the ~100-200 MB allocation cost of `System::new_all()` on every tick.
     pub fn spawn(interval: Duration) -> Self {
-        let initial = collect_health_snapshot();
-        let state = Arc::new(RwLock::new(initial));
-
+        let state = Arc::new(RwLock::new(MachineHealth::default()));
         let collector = Self {
             state: state.clone(),
         };
 
         tokio::spawn(async move {
+            // Allocate the System instance once, then refresh in-place on each tick.
+            let mut sys = tokio::task::spawn_blocking(|| {
+                let mut s = System::new_all();
+                // Two-sample CPU measurement: baseline + sleep + refresh.
+                std::thread::sleep(Duration::from_millis(200));
+                s.refresh_all();
+                s
+            })
+            .await
+            .unwrap_or_else(|_| System::new());
+
+            // Populate the initial snapshot immediately.
+            let docker_containers = detect_docker_containers();
+            *state.write().await = build_health_from_system(&sys, docker_containers.clone());
+
             let mut tick = tokio::time::interval(interval);
-            // The first tick fires immediately — skip it since we already have an initial snapshot.
+            // Skip the first immediate tick — we already have data above.
             tick.tick().await;
+
+            let mut docker_tick_counter: u32 = 0;
+            let mut cached_docker = docker_containers;
 
             loop {
                 tick.tick().await;
-                let snapshot = tokio::task::spawn_blocking(collect_health_snapshot)
-                    .await
-                    .unwrap_or_else(|_| collect_fallback());
+
+                // Refresh Docker container list every DOCKER_REFRESH_TICKS cycles.
+                docker_tick_counter += 1;
+                if docker_tick_counter >= DOCKER_REFRESH_TICKS {
+                    cached_docker = detect_docker_containers();
+                    docker_tick_counter = 0;
+                }
+
+                let docker_snapshot = cached_docker.clone();
+
+                // Move sys into a blocking thread for the refresh, then get it back.
+                let (returned_sys, snapshot) = tokio::task::spawn_blocking(move || {
+                    sys.refresh_all();
+                    let snapshot = build_health_from_system(&sys, docker_snapshot);
+                    (sys, snapshot)
+                })
+                .await
+                .unwrap_or_else(|_| (System::new(), collect_fallback()));
+
+                sys = returned_sys;
                 *state.write().await = snapshot;
             }
         });
@@ -47,16 +86,11 @@ impl HealthCollector {
     }
 }
 
-/// Collect a point-in-time health snapshot using sysinfo.
-///
-/// CPU percentage is computed by refreshing twice with a short delay — sysinfo
-/// needs two data points to calculate utilisation.
-fn collect_health_snapshot() -> MachineHealth {
-    let mut sys = System::new_all();
-    // First refresh populates baseline; sleep then refresh again for CPU delta.
-    std::thread::sleep(Duration::from_millis(200));
-    sys.refresh_all();
-
+/// Build a `MachineHealth` snapshot from an already-refreshed `System`.
+fn build_health_from_system(
+    sys: &System,
+    docker_containers: Option<Vec<ContainerStatus>>,
+) -> MachineHealth {
     let cpu_percent = sys.global_cpu_usage();
 
     let memory_used_gb = sys.used_memory() as f32 / 1_073_741_824.0;
@@ -82,8 +116,6 @@ fn collect_health_snapshot() -> MachineHealth {
     };
 
     let uptime_seconds = System::uptime();
-
-    let docker_containers = detect_docker_containers();
 
     MachineHealth {
         cpu_percent,

@@ -18,6 +18,9 @@ use grpc::NexusAgentService;
 use health::HealthCollector;
 use registry::SessionRegistry;
 
+const GRPC_PORT: u16 = 7400;
+const HTTP_PORT: u16 = 7401;
+
 /// Shared state passed to axum HTTP handlers.
 #[derive(Clone)]
 struct AppState {
@@ -62,7 +65,7 @@ async fn main() -> Result<()> {
         agent_host.clone(),
     );
 
-    let grpc_addr = "0.0.0.0:7400".parse()?;
+    let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
     tracing::info!("gRPC server listening on {}", grpc_addr);
 
     let grpc_server = Server::builder()
@@ -97,9 +100,11 @@ async fn main() -> Result<()> {
         .route("/health", get(health_handler))
         .with_state(app_state);
 
-    let http_addr: std::net::SocketAddr = "0.0.0.0:7401".parse()?;
+    let http_addr: std::net::SocketAddr = format!("0.0.0.0:{HTTP_PORT}").parse()?;
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     tracing::info!("HTTP health server listening on {}", http_addr);
+
+    tracing::info!("listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT}");
 
     // Run both servers concurrently. If either exits, the other will be dropped.
     tokio::select! {

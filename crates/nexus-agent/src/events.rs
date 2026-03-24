@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use nexus_core::proto::SessionEvent;
 use tokio::sync::broadcast;
 
@@ -5,10 +7,11 @@ use tokio::sync::broadcast;
 ///
 /// Wraps a `tokio::sync::broadcast` channel so multiple gRPC stream
 /// subscribers can each receive a copy of every `SessionEvent` emitted
-/// by the registry.
+/// by the registry. Events are wrapped in `Arc` so the message body is
+/// not cloned for each subscriber — only the pointer is.
 #[derive(Debug)]
 pub struct EventBroadcaster {
-    tx: broadcast::Sender<SessionEvent>,
+    tx: broadcast::Sender<Arc<SessionEvent>>,
 }
 
 impl EventBroadcaster {
@@ -41,12 +44,13 @@ impl EventBroadcaster {
             receiver_count,
             "event: emitting"
         );
+        // Wrap in Arc once; each subscriber receives a clone of the pointer only.
         // send() returns Err when there are no active receivers — that is fine.
-        let _ = self.tx.send(event);
+        let _ = self.tx.send(Arc::new(event));
     }
 
     /// Create a new receiver that will see all events emitted after this call.
-    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<SessionEvent>> {
         self.tx.subscribe()
     }
 }

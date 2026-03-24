@@ -694,10 +694,10 @@ impl NexusAgent for NexusAgentService {
             // ------------------------------------------------------------------
             loop {
                 match broadcast_rx.recv().await {
-                    Ok(mut event) => {
+                    Ok(arc_event) => {
                         // Apply filter: skip events that don't match the requested session_id.
                         if let Some(ref filter_session_id) = filter.session_id
-                            && event.session_id != *filter_session_id
+                            && arc_event.session_id != *filter_session_id
                         {
                             continue;
                         }
@@ -705,7 +705,7 @@ impl NexusAgent for NexusAgentService {
                         // Apply event type filter: map payload variant to EventType
                         // and check against the allowed list. Empty list = pass all.
                         if !allowed_event_types.is_empty() {
-                            let event_type = match &event.payload {
+                            let event_type = match &arc_event.payload {
                                 Some(proto::session_event::Payload::Started(_)) => {
                                     proto::EventType::SessionStarted as i32
                                 }
@@ -726,6 +726,9 @@ impl NexusAgent for NexusAgentService {
                         }
 
                         // Stamp the agent name on every forwarded event.
+                        // Clone the inner event to allow mutation; Arc pointer clone
+                        // was already cheap on the broadcast side.
+                        let mut event = (*arc_event).clone();
                         event.agent_name = agent_name.clone();
 
                         // If the client has disconnected, the send will fail
