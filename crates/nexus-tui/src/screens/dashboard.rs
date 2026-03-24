@@ -189,16 +189,48 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         if i > 0 {
             spans.push(Span::styled(" ", Style::default().fg(colors::TEXT_DIM)));
         }
-        let dot_color = if agent.connected {
-            colors::PRIMARY
+
+        if agent.connected {
+            // Green dot for connected agents.
+            spans.push(Span::styled(
+                "\u{25CF} ",
+                Style::default().fg(colors::PRIMARY),
+            ));
+            spans.push(Span::styled(
+                agent.info.name.clone(),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
+        } else if let Some(attempt) = agent.reconnect_attempt {
+            // Amber reconnecting indicator with attempt count.
+            spans.push(Span::styled(
+                format!("\u{21BB}({attempt}) "), // ↻
+                Style::default().fg(colors::WARNING),
+            ));
+            spans.push(Span::styled(
+                agent.info.name.clone(),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
+        } else if agent.dns_failure {
+            // Red for permanent DNS failures.
+            spans.push(Span::styled(
+                "\u{2716} DNS ",
+                Style::default().fg(colors::ERROR),
+            ));
+            spans.push(Span::styled(
+                agent.info.name.clone(),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
         } else {
-            colors::ERROR
-        };
-        spans.push(Span::styled("\u{25CF} ", Style::default().fg(dot_color)));
-        spans.push(Span::styled(
-            agent.info.name.clone(),
-            Style::default().fg(colors::TEXT_DIM),
-        ));
+            // Red dot for other disconnected states.
+            spans.push(Span::styled(
+                "\u{2716} ",
+                Style::default().fg(colors::ERROR),
+            ));
+            spans.push(Span::styled(
+                agent.info.name.clone(),
+                Style::default().fg(colors::TEXT_DIM),
+            ));
+        }
     }
 
     spans.push(Span::styled(

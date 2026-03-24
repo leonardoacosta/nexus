@@ -29,6 +29,11 @@ pub enum StreamMessage {
     Heartbeat {
         timestamp: String, // HH:MM:SS format
     },
+    /// The agent signalled it is shutting down (GoingAway event).
+    AgentGoingAway {
+        agent_name: String,
+        reason: String,
+    },
 }
 
 /// A notification-worthy event detected from the background alert stream.
@@ -46,10 +51,12 @@ pub struct AlertEvent {
 pub fn subscribe_session_stream(
     agents: &[(String, u16)], // (host, port) pairs
     session_id: String,
+    agent_name: String,
 ) -> mpsc::Receiver<StreamMessage> {
     let (tx, rx) = mpsc::channel::<StreamMessage>(256);
     let agents = agents.to_vec();
     let sid = session_id.clone();
+    let aname = agent_name.clone();
 
     tokio::spawn(async move {
         info!(session_id = %sid, agent_count = agents.len(), "stream: subscribing to session events");
@@ -77,7 +84,7 @@ pub fn subscribe_session_stream(
                 }
             };
 
-            if let Err(e) = run_session_stream(channel, &sid, &tx).await {
+            if let Err(e) = run_session_stream(channel, &sid, &aname, &tx).await {
                 warn!(%e, "stream: session stream ended");
             } else {
                 debug!("stream: session stream ended cleanly (no more events)");
@@ -95,6 +102,7 @@ pub fn subscribe_session_stream(
 async fn run_session_stream(
     channel: Channel,
     session_id: &str,
+    agent_name: &str,
     tx: &mpsc::Sender<StreamMessage>,
 ) -> anyhow::Result<()> {
     let mut client = NexusAgentClient::new(channel);
@@ -189,6 +197,24 @@ async fn run_session_stream(
                         debug!("stream: receiver dropped (view closed)");
                         break;
                     }
+                } else if let Some(nexus_core::proto::session_event::Payload::GoingAway(g)) =
+                    &event.payload
+                {
+                    // Agent is shutting down — signal the TUI to begin reconnecting.
+                    let reason = g.reason.clone();
+                    let _ = tx
+                        .send(StreamMessage::AgentGoingAway {
+                            agent_name: agent_name.to_string(),
+                            reason: reason.clone(),
+                        })
+                        .await;
+                    // Also emit a log line so the user can see it in the stream view.
+                    let line = format_event(&event);
+                    let _ = tx
+                        .send(StreamMessage::Line(StreamLine { text: line }))
+                        .await;
+                    // Stream will end shortly as the agent shuts down; stop reading.
+                    break;
                 } else {
                     let line = format_event(&event);
                     if tx

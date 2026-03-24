@@ -17,6 +17,7 @@ pub fn render_notification(frame: &mut Frame, area: Rect, manager: &Notification
     };
 
     let color = match notification.severity {
+        Severity::Info => colors::PRIMARY,
         Severity::Warning => colors::WARNING,
         Severity::Error => colors::ERROR,
     };

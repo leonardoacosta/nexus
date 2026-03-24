@@ -33,10 +33,54 @@ pub struct AgentConnection {
 }
 
 /// Whether the TUI can currently reach this agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionStatus {
     Connected,
-    Disconnected,
+    /// Reconnect attempts are in progress.
+    Reconnecting { attempt: u32 },
+    /// Permanently disconnected (e.g. DNS failure). No automatic retries.
+    Disconnected { reason: String },
+}
+
+impl AgentConnection {
+    /// Attempt to (re)connect this agent. Updates `status`, `client`, and
+    /// `last_seen`/`last_error` on both success and failure.
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        let endpoint = format!("http://{}:{}", self.config.host, self.config.port);
+        match Endpoint::from_shared(endpoint)?
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .connect()
+            .await
+        {
+            Ok(channel) => {
+                self.client = Some(NexusAgentClient::new(channel));
+                self.status = ConnectionStatus::Connected;
+                self.last_seen = Some(Utc::now());
+                self.last_error = None;
+                Ok(())
+            }
+            Err(e) => {
+                let reason = e.to_string();
+                let is_dns = reason.contains("dns error")
+                    || reason.contains("Name or service not known")
+                    || reason.contains("No address associated");
+                if is_dns {
+                    self.status = ConnectionStatus::Disconnected {
+                        reason: format!("{}: DNS resolution failed", self.config.host),
+                    };
+                } else {
+                    let attempt = match &self.status {
+                        ConnectionStatus::Reconnecting { attempt } => attempt + 1,
+                        _ => 1,
+                    };
+                    self.status = ConnectionStatus::Reconnecting { attempt };
+                }
+                self.last_error = Some(reason.clone());
+                Err(anyhow::anyhow!(reason))
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +102,7 @@ impl NexusClient {
             .into_iter()
             .map(|cfg| AgentConnection {
                 config: cfg,
-                status: ConnectionStatus::Disconnected,
+                status: ConnectionStatus::Reconnecting { attempt: 0 },
                 last_seen: None,
                 last_error: None,
                 client: None,
@@ -94,8 +138,18 @@ impl NexusClient {
                             error = %e,
                             "failed to connect to agent"
                         );
-                        agent.status = ConnectionStatus::Disconnected;
-                        agent.last_error = Some(e.to_string());
+                        let reason = e.to_string();
+                        let is_dns = reason.contains("dns error")
+                            || reason.contains("Name or service not known")
+                            || reason.contains("No address associated");
+                        agent.status = if is_dns {
+                            ConnectionStatus::Disconnected {
+                                reason: format!("{}: DNS resolution failed", agent.config.host),
+                            }
+                        } else {
+                            ConnectionStatus::Reconnecting { attempt: 0 }
+                        };
+                        agent.last_error = Some(reason);
                         agent.client = None;
                     }
                 },
@@ -106,12 +160,42 @@ impl NexusClient {
                         error = %e,
                         "invalid agent endpoint"
                     );
-                    agent.status = ConnectionStatus::Disconnected;
+                    agent.status = ConnectionStatus::Disconnected {
+                        reason: format!("invalid endpoint: {e}"),
+                    };
                     agent.last_error = Some(e.to_string());
                     agent.client = None;
                 }
             }
         }
+    }
+
+    /// Calculate exponential backoff duration for reconnect attempts.
+    ///
+    /// Produces: attempt 1→1s, 2→2s, 3→4s, 4→8s, 5+→30s.
+    #[allow(dead_code)]
+    pub fn backoff_duration(attempt: u32) -> std::time::Duration {
+        let secs = (1u64 << attempt.min(4)).min(30);
+        std::time::Duration::from_secs(secs)
+    }
+
+    /// Attempt to reconnect all agents that are in `Reconnecting` state.
+    ///
+    /// Returns the names of agents that successfully reconnected.
+    pub async fn reconnect_disconnected(&mut self) -> Vec<String> {
+        let mut reconnected = Vec::new();
+        for agent in &mut self.agents {
+            match &agent.status {
+                ConnectionStatus::Connected => continue,
+                ConnectionStatus::Disconnected { .. } => continue, // DNS / permanent failures
+                ConnectionStatus::Reconnecting { .. } => {
+                    if agent.reconnect().await.is_ok() {
+                        reconnected.push(agent.config.name.clone());
+                    }
+                }
+            }
+        }
+        reconnected
     }
 
     /// Query all connected agents for their sessions and aggregate results.
@@ -164,8 +248,10 @@ impl NexusClient {
                                 error = %e,
                                 "failed to list sessions"
                             );
-                            agent.status = ConnectionStatus::Disconnected;
-                            agent.last_error = Some(e.to_string());
+                            let reason = e.to_string();
+                            agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
+                            agent.last_error = Some(reason);
+                            agent.client = None;
                             (Vec::new(), false, None)
                         }
                     }
@@ -230,8 +316,9 @@ impl NexusClient {
                             error = %e,
                             "error querying session"
                         );
-                        agent.status = ConnectionStatus::Disconnected;
+                        agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
                         agent.last_error = Some(e.to_string());
+                        agent.client = None;
                     }
                 }
             }
@@ -277,8 +364,9 @@ impl NexusClient {
                     error = %e,
                     "failed to start session"
                 );
-                agent.status = ConnectionStatus::Disconnected;
+                agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
                 agent.last_error = Some(e.to_string());
+                agent.client = None;
                 Err(e.into())
             }
         }
@@ -308,8 +396,9 @@ impl NexusClient {
                     error = %e,
                     "failed to list projects"
                 );
-                agent.status = ConnectionStatus::Disconnected;
+                agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
                 agent.last_error = Some(e.to_string());
+                agent.client = None;
                 Err(e.into())
             }
         }
@@ -348,8 +437,9 @@ impl NexusClient {
                         error = %e,
                         "error stopping session"
                     );
-                    agent.status = ConnectionStatus::Disconnected;
+                    agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
                     agent.last_error = Some(e.to_string());
+                    agent.client = None;
                     return Err(e.into());
                 }
             }

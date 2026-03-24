@@ -293,6 +293,10 @@ pub struct AgentData {
     pub connected: bool,
     pub last_seen: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
+    /// `Some(n)` when the agent is actively reconnecting (n = attempt number).
+    pub reconnect_attempt: Option<u32>,
+    /// True when the disconnect was caused by DNS resolution failure (no retry).
+    pub dns_failure: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -936,6 +940,7 @@ pub fn session_type_indicator(session: &Session) -> &'static str {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    Info,
     Warning,
     Error,
 }

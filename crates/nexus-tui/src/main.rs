@@ -16,8 +16,8 @@ mod screens;
 mod stream;
 
 use app::{
-    AgentData, App, InputMode, LineStyle, PaletteAction, Screen, SearchState, StreamVerbosity,
-    StyledLine,
+    AgentData, App, InputMode, LineStyle, PaletteAction, Screen, SearchState, Severity,
+    StreamVerbosity, StyledLine,
 };
 use client::{ConnectionStatus, NexusClient};
 use nexus_core::config::NexusConfig;
@@ -69,6 +69,8 @@ enum RpcResult {
     CommandOutput(nexus_core::proto::CommandOutput),
     CommandStreamDone,
     ProjectList(Vec<String>),
+    /// One or more agents reconnected successfully.
+    AgentsReconnected(Vec<String>),
 }
 
 #[tokio::main]
@@ -251,6 +253,14 @@ fn run_loop(
                     app.start_project_idx = 0;
                     app.start_project_filter.clear();
                 }
+                RpcResult::AgentsReconnected(names) => {
+                    for name in names {
+                        app.notifications.push(
+                            format!("\u{2713} reconnected to {name}"),
+                            Severity::Info,
+                        );
+                    }
+                }
             }
         }
 
@@ -316,6 +326,21 @@ fn run_loop(
                             sv.heartbeat_alive = true;
                         }
                     }
+                    StreamMessage::AgentGoingAway { agent_name, reason } => {
+                        // Mark the agent as reconnecting in the app data so the
+                        // status bar updates immediately (next poll will reconcile).
+                        if let Some(agent) = app.agents.iter_mut().find(|a| a.info.name == agent_name) {
+                            agent.connected = false;
+                            agent.reconnect_attempt = Some(0);
+                        }
+                        // Notify the user in the stream view.
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.push_line(StyledLine::new(
+                                format!("\u{26A0} agent shutting down ({reason}), reconnecting..."),
+                                LineStyle::Error,
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -343,6 +368,7 @@ fn run_loop(
             *stream_rx = Some(stream::subscribe_session_stream(
                 &endpoints,
                 sv.session_id.clone(),
+                sv.agent_name.clone(),
             ));
         }
 
@@ -1321,6 +1347,10 @@ async fn background_task(
     rpc_result_tx: mpsc::Sender<RpcResult>,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(2));
+    // Reconnect attempts use a separate slower interval (5s baseline).
+    let mut reconnect_interval = tokio::time::interval(Duration::from_secs(5));
+    // Skip the immediate first tick so reconnects don't race with connect_all.
+    reconnect_interval.reset();
 
     loop {
         tokio::select! {
@@ -1329,6 +1359,16 @@ async fn background_task(
                 let data = results_to_agent_data(&client, &results);
                 if poll_tx.send(data).await.is_err() {
                     break;
+                }
+            }
+            _ = reconnect_interval.tick() => {
+                let reconnected = client.reconnect_disconnected().await;
+                if !reconnected.is_empty() {
+                    let _ = rpc_result_tx.send(RpcResult::AgentsReconnected(reconnected)).await;
+                    // Immediately send updated session data after reconnect.
+                    let results = client.get_sessions().await;
+                    let data = results_to_agent_data(&client, &results);
+                    let _ = poll_tx.send(data).await;
                 }
             }
             cmd = rpc_rx.recv() => {
@@ -1417,18 +1457,28 @@ fn results_to_agent_data(
                             os: String::new(),
                             sessions: Vec::new(),
                             health: None,
-                            connected: conn.status == ConnectionStatus::Connected,
+                            connected: matches!(conn.status, ConnectionStatus::Connected),
                         },
                         Vec::new(),
                     )
                 });
 
+            let (reconnect_attempt, dns_failure) = match &conn.status {
+                ConnectionStatus::Connected => (None, false),
+                ConnectionStatus::Reconnecting { attempt } => (Some(*attempt), false),
+                ConnectionStatus::Disconnected { reason } => {
+                    (None, reason.contains("DNS"))
+                }
+            };
+
             AgentData {
                 info,
                 sessions,
-                connected: conn.status == ConnectionStatus::Connected,
+                connected: matches!(conn.status, ConnectionStatus::Connected),
                 last_seen: conn.last_seen,
                 last_error: conn.last_error.clone(),
+                reconnect_attempt,
+                dns_failure,
             }
         })
         .collect()
