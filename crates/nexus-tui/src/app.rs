@@ -3,6 +3,7 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 use ratatui::style::Color;
 use ratatui::text::Line;
+use ratatui::widgets::TableState;
 
 use nexus_core::agent::AgentInfo;
 use nexus_core::notes::ProjectNotes;
@@ -372,6 +373,7 @@ pub struct App {
     pub current_screen: Screen,
     pub agents: Vec<AgentData>,
     pub selected_index: usize,
+    pub dashboard_table_state: TableState,
     pub should_quit: bool,
     pub started_at: DateTime<Utc>,
 
@@ -428,6 +430,7 @@ impl App {
             current_screen: Screen::Dashboard,
             agents: Vec::new(),
             selected_index: 0,
+            dashboard_table_state: TableState::default().with_selected(Some(0)),
             should_quit: false,
             started_at: Utc::now(),
             selected_session: None,
@@ -459,23 +462,31 @@ impl App {
     pub fn next_screen(&mut self) {
         self.current_screen = self.current_screen.next();
         self.selected_index = 0;
+        self.dashboard_table_state.select(Some(0));
     }
 
     pub fn prev_screen(&mut self) {
         self.current_screen = self.current_screen.prev();
         self.selected_index = 0;
+        self.dashboard_table_state.select(Some(0));
     }
 
     pub fn move_down(&mut self) {
         let max = self.selectable_count();
         if max > 0 {
             self.selected_index = (self.selected_index + 1).min(max - 1);
+            if self.current_screen == Screen::Dashboard {
+                self.dashboard_table_state.select(Some(self.selected_index));
+            }
         }
     }
 
     pub fn move_up(&mut self) {
         if self.selected_index > 0 {
             self.selected_index -= 1;
+            if self.current_screen == Screen::Dashboard {
+                self.dashboard_table_state.select(Some(self.selected_index));
+            }
         }
     }
 

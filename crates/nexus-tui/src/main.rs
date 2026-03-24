@@ -7,6 +7,10 @@ use crossterm::execute;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use notify::{EventKind, RecursiveMode, Watcher};
 use ratatui::DefaultTerminal;
+use ratatui::layout::{Constraint, Layout};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::Line;
+use ratatui::widgets::Tabs;
 use tokio::sync::mpsc;
 
 mod app;
@@ -161,18 +165,30 @@ fn run_loop(
     loop {
         // Render.
         terminal.draw(|frame| {
+            let full_area = frame.area();
+
+            // Split: 2-row Tabs bar at top, rest goes to the active screen.
+            let [tabs_area, content_area] = Layout::vertical([
+                Constraint::Length(2),
+                Constraint::Min(0),
+            ])
+            .areas(full_area);
+
+            // Render the Tabs widget (only for the 3 primary tab screens).
+            render_tabs(frame, tabs_area, app);
+
             // Always render the base screen first.
             match app.current_screen {
-                Screen::Dashboard => screens::dashboard::render_dashboard(frame, app),
-                Screen::Detail => screens::detail::render_detail(frame, app),
-                Screen::Health => screens::health::render_health(frame, app),
-                Screen::Projects => screens::projects::render_projects(frame, app),
+                Screen::Dashboard => screens::dashboard::render_dashboard(frame, content_area, app),
+                Screen::Detail => screens::detail::render_detail(frame, content_area, app),
+                Screen::Health => screens::health::render_health(frame, content_area, app),
+                Screen::Projects => screens::projects::render_projects(frame, content_area, app),
                 Screen::Palette => {
                     // Render dashboard underneath, then overlay palette.
-                    screens::dashboard::render_dashboard(frame, app);
+                    screens::dashboard::render_dashboard(frame, content_area, app);
                     screens::palette::render_palette(frame, app);
                 }
-                Screen::StreamAttach => screens::stream::render_stream(frame, app),
+                Screen::StreamAttach => screens::stream::render_stream(frame, content_area, app),
             }
 
             // Scratchpad overlay on Projects screen.
@@ -529,6 +545,42 @@ fn launch_editor(
     }
 
     Ok(())
+}
+
+/// Render the tab bar showing Dashboard / Health / Projects.
+///
+/// The active tab is highlighted with an underline. Detail, Palette, and
+/// StreamAttach are not shown as tabs (they are transient screens).
+fn render_tabs(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, app: &App) {
+    use app::colors;
+
+    let tab_labels: Vec<Line<'_>> = vec![
+        Line::from("  Dashboard  "),
+        Line::from("  Health  "),
+        Line::from("  Projects  "),
+    ];
+
+    // Map the current screen to a tab index (0, 1, or 2).
+    // For transient screens (Detail, Palette, StreamAttach) keep highlighting
+    // Dashboard (index 0) as the "home" tab.
+    let selected_tab = match app.current_screen {
+        app::Screen::Dashboard | app::Screen::Palette => 0,
+        app::Screen::Health => 1,
+        app::Screen::Projects => 2,
+        app::Screen::Detail | app::Screen::StreamAttach => 0,
+    };
+
+    let tabs = Tabs::new(tab_labels)
+        .select(selected_tab)
+        .style(Style::default().fg(colors::TEXT_DIM))
+        .highlight_style(
+            Style::default()
+                .fg(colors::PRIMARY)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )
+        .divider("|");
+
+    frame.render_widget(tabs, area);
 }
 
 /// Return the path to `bin` if it exists somewhere on `$PATH`, else `None`.

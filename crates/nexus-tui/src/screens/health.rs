@@ -2,13 +2,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap};
 
 use crate::app::{App, colors, format_age, format_duration};
 
 /// Render the health overview screen.
-pub fn render_health(frame: &mut Frame, app: &App) {
-    let area = frame.area();
+pub fn render_health(frame: &mut Frame, area: Rect, app: &App) {
 
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -48,7 +47,15 @@ fn render_agent_cards(frame: &mut Frame, area: Rect, app: &App) {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
             "No agents configured.",
             Style::default().fg(colors::TEXT_DIM),
-        )]));
+        )]))
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors::TEXT_DIM))
+                .padding(Padding::horizontal(1)),
+        )
+        .wrap(Wrap { trim: true });
         frame.render_widget(msg, area);
         return;
     }
@@ -176,7 +183,15 @@ fn render_agent_cards(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(""));
     }
 
-    let paragraph = Paragraph::new(lines);
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors::TEXT_DIM))
+                .padding(Padding::horizontal(1)),
+        )
+        .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 

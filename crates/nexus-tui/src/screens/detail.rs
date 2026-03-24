@@ -2,13 +2,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap};
 
 use crate::app::{App, colors, format_age, session_type_indicator, status_color, status_dot};
 
 /// Render the session detail screen.
-pub fn render_detail(frame: &mut Frame, app: &App) {
-    let area = frame.area();
+pub fn render_detail(frame: &mut Frame, area: Rect, app: &App) {
 
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -194,7 +193,7 @@ fn render_status_panel(
     render_card(frame, area, "STATUS", &fields, label_style);
 }
 
-/// Render a labeled card with box-drawing borders and key-value rows.
+/// Render a labeled card with rounded borders and key-value rows.
 fn render_card(
     frame: &mut Frame,
     area: Rect,
@@ -203,46 +202,33 @@ fn render_card(
     label_style: Style,
 ) {
     let label_width: usize = 14;
-    let inner = shrink(area, 1, 1);
-
-    let inner_w = inner.width.saturating_sub(2) as usize;
-
-    // Title line with box-drawing.
-    let title_line = format!(
-        " \u{250C}\u{2500} {title} {}\u{2510}",
-        "\u{2500}".repeat(inner_w.saturating_sub(title.len() + 4))
-    );
-    let border_bot = format!(
-        " \u{2514}{}\u{2518}",
-        "\u{2500}".repeat(inner_w)
-    );
 
     let mut lines: Vec<Line<'_>> = Vec::new();
-    lines.push(Line::from(Span::styled(
-        title_line,
-        Style::default()
-            .fg(colors::TEXT_DIM)
-            .add_modifier(Modifier::BOLD),
-    )));
 
     for (label, value_line) in fields {
-        let mut spans = vec![
-            Span::styled(" \u{2502} ", Style::default().fg(colors::TEXT_DIM)),
-            Span::styled(
-                format!("{:<width$}", label, width = label_width),
-                label_style,
-            ),
-        ];
+        let mut spans = vec![Span::styled(
+            format!("{:<width$}  ", label, width = label_width),
+            label_style,
+        )];
         spans.extend(value_line.spans.iter().cloned());
         lines.push(Line::from(spans));
     }
 
-    lines.push(Line::from(Span::styled(
-        border_bot,
-        Style::default().fg(colors::TEXT_DIM),
-    )));
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .title_style(
+            Style::default()
+                .fg(colors::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )
+        .border_type(BorderType::Rounded)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors::TEXT_DIM))
+        .padding(Padding::horizontal(1));
 
-    let paragraph = Paragraph::new(lines);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 
@@ -256,12 +242,3 @@ fn render_footer(frame: &mut Frame, area: Rect) {
     frame.render_widget(bar, area);
 }
 
-/// Shrink a Rect by the given horizontal and vertical margins.
-fn shrink(area: Rect, h: u16, v: u16) -> Rect {
-    Rect {
-        x: area.x + h,
-        y: area.y + v,
-        width: area.width.saturating_sub(h * 2),
-        height: area.height.saturating_sub(v * 2),
-    }
-}

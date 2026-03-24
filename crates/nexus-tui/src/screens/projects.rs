@@ -2,13 +2,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Row, Table, Wrap};
 
 use crate::app::{App, colors, format_age};
 
 /// Render the project overview screen.
-pub fn render_projects(frame: &mut Frame, app: &App) {
-    let area = frame.area();
+pub fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
 
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -50,7 +49,15 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
             "No projects found.",
             Style::default().fg(colors::TEXT_DIM),
-        )]));
+        )]))
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors::TEXT_DIM))
+                .padding(Padding::horizontal(1)),
+        )
+        .wrap(Wrap { trim: true });
         frame.render_widget(msg, area);
         return;
     }
@@ -131,7 +138,16 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Fill(1),    // agents
     ];
 
-    let table = Table::new(rows, widths).header(header).column_spacing(1);
+    let table = Table::new(rows, widths)
+        .header(header)
+        .column_spacing(1)
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors::TEXT_DIM))
+                .padding(Padding::horizontal(1)),
+        );
 
     frame.render_widget(table, area);
 }

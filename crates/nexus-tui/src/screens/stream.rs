@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
 use crate::app::{App, CodeBlockRange, InputMode, LineStyle, StreamLine, StreamVerbosity, colors};
 
@@ -50,8 +50,7 @@ fn input_bar_height(stream_input: &str) -> u16 {
 }
 
 /// Render the stream attach view.
-pub fn render_stream(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
+pub fn render_stream(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let bar_height = if app.stream_executing {
         2 // executing spinner: 1 content line + 1 border
@@ -252,7 +251,14 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
             let msg = Paragraph::new(Line::from(vec![Span::styled(
                 "No stream data.",
                 Style::default().fg(colors::TEXT_DIM),
-            )]));
+            )]))
+            .block(
+                Block::default()
+                    .border_type(BorderType::Rounded)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(colors::TEXT_DIM)),
+            )
+            .wrap(Wrap { trim: true });
             frame.render_widget(msg, area);
             return;
         }
@@ -267,7 +273,14 @@ fn render_log_view(frame: &mut Frame, area: Rect, app: &mut App) {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
             "Waiting for events...",
             Style::default().fg(colors::TEXT_DIM),
-        )]));
+        )]))
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors::TEXT_DIM)),
+        )
+        .wrap(Wrap { trim: true });
         frame.render_widget(msg, area);
         return;
     }
