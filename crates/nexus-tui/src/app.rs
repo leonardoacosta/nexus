@@ -1510,3 +1510,153 @@ fn textwrap_simple(text: &str, width: usize) -> Vec<String> {
         .map(|c| c.iter().collect::<String>())
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- NotificationManager -----------------------------------------------
+
+    #[test]
+    fn notification_push_adds_to_queue() {
+        let mut mgr = NotificationManager::new();
+        assert!(mgr.latest().is_none());
+        mgr.push("hello".to_string(), Severity::Info);
+        assert!(mgr.latest().is_some());
+        assert_eq!(mgr.latest().unwrap().message, "hello");
+    }
+
+    #[test]
+    fn notification_dismiss_all_clears_queue() {
+        let mut mgr = NotificationManager::new();
+        mgr.push("a".to_string(), Severity::Info);
+        mgr.push("b".to_string(), Severity::Warning);
+        assert_eq!(mgr.queue.len(), 2);
+        mgr.dismiss_all();
+        assert!(mgr.queue.is_empty());
+        assert!(mgr.latest().is_none());
+    }
+
+    #[test]
+    fn notification_tick_retains_fresh_entries() {
+        let mut mgr = NotificationManager::new();
+        mgr.push("fresh".to_string(), Severity::Info);
+        // Immediately after pushing, elapsed << 10s — should be retained.
+        mgr.tick();
+        assert_eq!(mgr.queue.len(), 1, "fresh notification should survive tick");
+    }
+
+    #[test]
+    fn notification_severity_variants_stored_correctly() {
+        let mut mgr = NotificationManager::new();
+        mgr.push("info".to_string(), Severity::Info);
+        mgr.push("warn".to_string(), Severity::Warning);
+        mgr.push("err".to_string(), Severity::Error);
+        assert_eq!(mgr.queue.len(), 3);
+        assert_eq!(mgr.queue[0].severity, Severity::Info);
+        assert_eq!(mgr.queue[1].severity, Severity::Warning);
+        assert_eq!(mgr.queue[2].severity, Severity::Error);
+    }
+
+    // ---- Session tab management --------------------------------------------
+
+    #[test]
+    fn ensure_session_tab_adds_tab_and_sets_active() {
+        let mut app = App::new();
+        app.open_stream_attach(
+            "sess-1".to_string(),
+            "label-1".to_string(),
+            "agent-a".to_string(),
+        );
+        let idx = app.ensure_session_tab();
+        assert!(idx.is_some());
+        assert_eq!(app.session_tabs.len(), 1);
+        assert_eq!(app.active_tab, Some(0));
+        assert_eq!(app.session_tabs[0].session_id, "sess-1");
+    }
+
+    #[test]
+    fn ensure_session_tab_deduplicates_same_session() {
+        let mut app = App::new();
+        app.open_stream_attach(
+            "sess-1".to_string(),
+            "label-1".to_string(),
+            "agent-a".to_string(),
+        );
+        app.ensure_session_tab();
+        // Call again with the same session — should not add a duplicate.
+        app.ensure_session_tab();
+        assert_eq!(app.session_tabs.len(), 1, "duplicate session should not be added");
+    }
+
+    #[test]
+    fn ensure_session_tab_caps_at_nine() {
+        let mut app = App::new();
+        // Fill 9 tabs by repeatedly opening different sessions.
+        for i in 0..9usize {
+            app.open_stream_attach(
+                format!("sess-{i}"),
+                format!("label-{i}"),
+                "agent-a".to_string(),
+            );
+            app.ensure_session_tab();
+        }
+        assert_eq!(app.session_tabs.len(), 9);
+
+        // Attempt to add a 10th — should be rejected.
+        app.open_stream_attach(
+            "sess-tenth".to_string(),
+            "label-tenth".to_string(),
+            "agent-a".to_string(),
+        );
+        let result = app.ensure_session_tab();
+        assert!(result.is_none(), "10th tab should be rejected (max 9)");
+        assert_eq!(app.session_tabs.len(), 9, "tab count should remain at 9");
+    }
+
+    #[test]
+    fn close_stream_attach_clears_tabs_and_screen() {
+        let mut app = App::new();
+        app.open_stream_attach(
+            "sess-1".to_string(),
+            "label-1".to_string(),
+            "agent-a".to_string(),
+        );
+        app.ensure_session_tab();
+        assert_eq!(app.current_screen, Screen::StreamAttach);
+        app.close_stream_attach();
+        assert!(app.stream_view.is_none());
+        assert!(app.active_tab.is_none());
+        assert_eq!(app.current_screen, Screen::Dashboard);
+    }
+
+    // ---- Diff line classification -------------------------------------------
+
+    #[test]
+    fn diff_addition_line_classified_as_diff_add() {
+        let result = classify_diff_line("+ added line");
+        assert_eq!(result, Some(LineStyle::DiffAdd));
+    }
+
+    #[test]
+    fn diff_removal_line_classified_as_diff_remove() {
+        let result = classify_diff_line("- removed line");
+        assert_eq!(result, Some(LineStyle::DiffRemove));
+    }
+
+    #[test]
+    fn diff_header_lines_not_classified_as_changes() {
+        assert!(classify_diff_line("+++ b/foo.rs").is_none(), "+++ is a header");
+        assert!(classify_diff_line("--- a/foo.rs").is_none(), "--- is a header");
+    }
+
+    #[test]
+    fn diff_context_line_returns_none() {
+        assert!(classify_diff_line(" context line").is_none());
+        assert!(classify_diff_line("plain text").is_none());
+    }
+}

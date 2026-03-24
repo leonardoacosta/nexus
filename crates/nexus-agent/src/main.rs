@@ -8,17 +8,11 @@ use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tonic::transport::Server;
 use tracing_subscriber::EnvFilter;
 
-mod events;
-mod grpc;
-mod health;
-mod parser;
-mod registry;
-mod shutdown;
-
-use grpc::NexusAgentService;
-use health::HealthCollector;
-use registry::SessionRegistry;
-use shutdown::ShutdownCoordinator;
+use nexus_agent::events;
+use nexus_agent::grpc::NexusAgentService;
+use nexus_agent::health::HealthCollector;
+use nexus_agent::registry::SessionRegistry;
+use nexus_agent::shutdown::ShutdownCoordinator;
 
 const GRPC_PORT: u16 = 7400;
 const HTTP_PORT: u16 = 7401;

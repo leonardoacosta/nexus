@@ -59,7 +59,7 @@ tonic-prost-build = "0.14"
 prost-build = "0.14"
 
 # Streaming
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # Hostname

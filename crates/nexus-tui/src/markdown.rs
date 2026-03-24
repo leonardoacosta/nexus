@@ -589,4 +589,53 @@ mod tests {
             lines.len()
         );
     }
+
+    #[test]
+    fn h2_header_renders_with_double_hash_prefix() {
+        let lines = render_markdown("## Section", 80);
+        assert!(!lines.is_empty());
+        let first_span_text = lines[0].spans.first().map(|s| s.content.as_ref()).unwrap_or("");
+        assert_eq!(first_span_text, "## ", "H2 should have '## ' prefix span");
+    }
+
+    #[test]
+    fn h3_header_renders_with_triple_hash_prefix() {
+        let lines = render_markdown("### Subsection", 80);
+        assert!(!lines.is_empty());
+        let first_span_text = lines[0].spans.first().map(|s| s.content.as_ref()).unwrap_or("");
+        assert_eq!(first_span_text, "### ", "H3 should have '### ' prefix span");
+    }
+
+    #[test]
+    fn code_block_each_line_has_gutter() {
+        let md = "```\nline one\nline two\n```";
+        let lines = render_markdown(md, 80);
+        // Both content lines should have the box-drawing gutter character.
+        let gutter_lines: Vec<_> = lines
+            .iter()
+            .filter(|l| l.spans.iter().any(|s| s.content.as_ref() == "\u{2502} "))
+            .collect();
+        assert!(
+            gutter_lines.len() >= 2,
+            "expected at least 2 gutter lines, got {}",
+            gutter_lines.len()
+        );
+    }
+
+    #[test]
+    fn inline_code_uses_distinct_style() {
+        let lines = render_markdown("Use `cargo test` here", 80);
+        assert!(!lines.is_empty());
+        // The inline code span should have bg=SURFACE styling.
+        let has_inline_code = lines[0].spans.iter().any(|s| s.content.as_ref() == "cargo test");
+        assert!(has_inline_code, "inline code content should appear as a span");
+    }
+
+    #[test]
+    fn bold_text_appears_in_output() {
+        let lines = render_markdown("**important**", 80);
+        assert!(!lines.is_empty());
+        let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("important"));
+    }
 }

@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "nexus_agent"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nexus-agent"
 path = "src/main.rs"
@@ -26,3 +30,7 @@ prost-types = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 hostname = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
