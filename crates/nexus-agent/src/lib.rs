@@ -1,5 +1,6 @@
 pub mod claude_utils;
 pub mod config;
+pub mod dispatch;
 pub mod events;
 pub mod grpc;
 pub mod health;

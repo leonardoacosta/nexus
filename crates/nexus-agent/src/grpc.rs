@@ -811,7 +811,9 @@ impl NexusAgent for NexusAgentService {
         session.command = req.command;
         session.cc_session_id = Some(req.session_id.clone());
 
-        let created = self.registry.register_adhoc(session).await;
+        // gRPC-originated registrations don't have a tmux_target; the pane is
+        // only known at hook time (session_start socket event).
+        let created = self.registry.register_adhoc(session, None).await;
 
         Ok(Response::new(proto::RegisterSessionResponse {
             session_id: req.session_id,

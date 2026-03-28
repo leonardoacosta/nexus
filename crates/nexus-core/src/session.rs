@@ -18,6 +18,10 @@ pub struct Session {
     pub agent: Option<String>,
     pub tmux_session: Option<String>,
     pub cc_session_id: Option<String>,
+    /// Tmux pane identifier for bidirectional routing (e.g. "main:0.1").
+    /// Populated from the `$TMUX_PANE` environment variable captured at
+    /// session start via the telemetry hook.
+    pub tmux_target: Option<String>,
 
     // Telemetry fields (populated from CC stream-json events).
     pub rate_limit_utilization: Option<f32>,
@@ -56,6 +60,7 @@ impl Session {
             agent: None,
             tmux_session: None,
             cc_session_id: None,
+            tmux_target: None,
             rate_limit_utilization: None,
             rate_limit_type: None,
             total_cost_usd: None,

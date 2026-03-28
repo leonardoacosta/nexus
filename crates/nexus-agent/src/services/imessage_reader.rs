@@ -2,9 +2,12 @@
 //!
 //! Polls ~/Library/Messages/chat.db for new messages from the configured
 //! iMessage recipient. Announces new messages via TTS and stores them
-//! for API access. Future: command dispatch to Claude sessions.
+//! for API access. Incoming messages with an "answer:" prefix are routed
+//! to the appropriate Claude Code session via tmux send-keys.
 
 use crate::config::NotificationsConfig;
+use crate::dispatch::dispatch_answer;
+use crate::registry::SessionRegistry;
 use anyhow::Result;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -29,14 +32,21 @@ pub struct IMessageReaderService {
     shared_config: Arc<RwLock<NotificationsConfig>>,
     /// Recent messages buffer — shared with HTTP handler
     pub messages: Arc<RwLock<Vec<IMessageRecord>>>,
+    /// Session registry for answer routing.
+    registry: Arc<SessionRegistry>,
 }
 
 impl IMessageReaderService {
-    pub fn new(poll_interval_secs: u64, shared_config: Arc<RwLock<NotificationsConfig>>) -> Self {
+    pub fn new(
+        poll_interval_secs: u64,
+        shared_config: Arc<RwLock<NotificationsConfig>>,
+        registry: Arc<SessionRegistry>,
+    ) -> Self {
         Self {
             poll_interval_secs,
             shared_config,
             messages: Arc::new(RwLock::new(Vec::new())),
+            registry,
         }
     }
 
@@ -95,6 +105,88 @@ impl IMessageReaderService {
         }
 
         Ok(messages)
+    }
+
+    /// Parse an iMessage text for an answer command.
+    ///
+    /// Recognized prefixes (case-insensitive):
+    ///   - `"answer: <text>"`
+    ///   - `"answer <session-id>: <text>"`
+    ///
+    /// Returns `(optional_session_id, answer_text)` if the message is an answer
+    /// command, or `None` if it is a regular message.
+    fn parse_answer_command(text: &str) -> Option<(Option<String>, String)> {
+        let lower = text.trim().to_lowercase();
+
+        if !lower.starts_with("answer") {
+            return None;
+        }
+
+        // Strip the "answer" prefix and surrounding whitespace.
+        let rest = text.trim()[6..].trim();
+
+        // Check for optional session ID:  "answer <session-id>: <text>"
+        if let Some(colon_pos) = rest.find(':') {
+            let maybe_session = rest[..colon_pos].trim().to_string();
+            let answer_text = rest[colon_pos + 1..].trim().to_string();
+
+            if answer_text.is_empty() {
+                return None;
+            }
+
+            if maybe_session.is_empty() {
+                // "answer: <text>" — no session ID
+                Some((None, answer_text))
+            } else {
+                // "answer <session>: <text>"
+                Some((Some(maybe_session), answer_text))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Route an answer from an iMessage to the appropriate CC session pane.
+    async fn route_answer(registry: &SessionRegistry, session_id: Option<String>, text: &str) {
+        let (target_sid, tmux_target) = if let Some(sid) = session_id {
+            match registry.get_tmux_target(&sid).await {
+                Some(pane) => (sid, pane),
+                None => {
+                    warn!(session_id = %sid, "iMessage answer: no tmux_target for session");
+                    return;
+                }
+            }
+        } else {
+            match registry.get_session_with_pending_question().await {
+                Some((session, _pq)) => match session.tmux_target {
+                    Some(pane) => (session.id, pane),
+                    None => {
+                        warn!("iMessage answer: auto-target session has no tmux_target");
+                        return;
+                    }
+                },
+                None => {
+                    warn!("iMessage answer: no session with pending question found");
+                    return;
+                }
+            }
+        };
+
+        info!(
+            session_id = %target_sid,
+            tmux_target = %tmux_target,
+            "iMessage: routing answer to CC session"
+        );
+
+        match dispatch_answer(&tmux_target, text).await {
+            Ok(()) => {
+                registry.clear_pending_question(&target_sid).await;
+                info!(session_id = %target_sid, "iMessage answer dispatched");
+            }
+            Err(e) => {
+                warn!(session_id = %target_sid, error = %e, "iMessage answer dispatch failed");
+            }
+        }
     }
 
     /// Send a TTS notification for a new message using macOS `say` command
@@ -206,9 +298,24 @@ impl crate::Service for IMessageReaderService {
                                     last_rowid = last.rowid;
                                 }
 
-                                // Announce via TTS (only messages NOT from me)
+                                // Process incoming messages (not sent by me).
                                 for msg in &new_messages {
-                                    if !msg.is_from_me {
+                                    if msg.is_from_me {
+                                        continue;
+                                    }
+
+                                    // Check for answer routing command first.
+                                    if let Some((session_id, answer_text)) =
+                                        Self::parse_answer_command(&msg.text)
+                                    {
+                                        info!(
+                                            text = %msg.text,
+                                            "iMessage: detected answer command"
+                                        );
+                                        Self::route_answer(&self.registry, session_id, &answer_text)
+                                            .await;
+                                    } else {
+                                        // Regular message — announce via TTS.
                                         Self::announce_message(msg).await;
                                     }
                                 }

@@ -19,6 +19,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio_util::sync::CancellationToken;
 
+use crate::dispatch::dispatch_answer;
 use crate::registry::SessionRegistry;
 
 /// Default socket path, overridable via `NEXUS_SOCKET` env var.
@@ -152,6 +153,7 @@ async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
             pid,
             branch,
             cc_session_id,
+            tmux_target,
         } => {
             let now = chrono::Utc::now();
             let session = Session {
@@ -168,15 +170,17 @@ async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
                 agent: None,
                 tmux_session: None,
                 cc_session_id,
+                tmux_target: None, // set via register_adhoc
                 rate_limit_utilization: None,
                 rate_limit_type: None,
                 total_cost_usd: None,
                 model,
             };
-            let inserted = registry.register_adhoc(session).await;
+            let inserted = registry.register_adhoc(session, tmux_target.clone()).await;
             tracing::info!(
                 session_id = %session_id,
                 inserted,
+                tmux_target = ?tmux_target,
                 "socket: session_start"
             );
         }
@@ -203,15 +207,81 @@ async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
             message,
             message_type,
             channels,
+            question,
+            session_id: notif_session_id,
         } => {
-            // Notification routing (TTS/APNs/banner) is out of scope for this
-            // wave. Log it so operators can see it in traces.
             tracing::info!(
                 %message,
                 message_type = message_type.as_deref().unwrap_or("brief"),
                 channels = ?channels,
-                "socket: notification (unrouted)"
+                has_question = question.is_some(),
+                "socket: notification"
             );
+
+            // If this notification carries a question, record it in the
+            // registry so that incoming iMessage answers can be auto-routed.
+            if let (Some(q), Some(sid)) = (question, notif_session_id) {
+                registry.set_pending_question(&sid, q).await;
+            }
+        }
+
+        SocketEvent::Answer { text, session_id } => {
+            // Resolve the target session and its tmux pane.
+            let (target_session_id, tmux_target) = if let Some(sid) = session_id {
+                // Explicit session specified — look up its pane.
+                match registry.get_tmux_target(&sid).await {
+                    Some(pane) => (sid, pane),
+                    None => {
+                        tracing::warn!(
+                            session_id = %sid,
+                            "socket: answer — session has no tmux_target, cannot dispatch"
+                        );
+                        return;
+                    }
+                }
+            } else {
+                // Auto-target: find the session with the most recent pending question.
+                match registry.get_session_with_pending_question().await {
+                    Some((session, _pq)) => match session.tmux_target {
+                        Some(pane) => (session.id, pane),
+                        None => {
+                            tracing::warn!(
+                                "socket: answer — auto-target session has no tmux_target"
+                            );
+                            return;
+                        }
+                    },
+                    None => {
+                        tracing::warn!("socket: answer — no session with pending question found");
+                        return;
+                    }
+                }
+            };
+
+            tracing::info!(
+                session_id = %target_session_id,
+                tmux_target = %tmux_target,
+                text_len = text.len(),
+                "socket: dispatching answer"
+            );
+
+            match dispatch_answer(&tmux_target, &text).await {
+                Ok(()) => {
+                    // Clear pending question now that the answer has been sent.
+                    registry.clear_pending_question(&target_session_id).await;
+                    tracing::info!(
+                        session_id = %target_session_id,
+                        "socket: answer dispatched and pending question cleared"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %target_session_id,
+                        error = %e,
+                        "socket: answer dispatch failed"
+                    );
+                }
+            }
         }
 
         SocketEvent::AgentSpawn {

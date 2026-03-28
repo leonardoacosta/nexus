@@ -605,6 +605,7 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
         agent: proto.agent,
         tmux_session: proto.tmux_session,
         cc_session_id: proto.cc_session_id,
+        tmux_target: None, // not carried in proto yet
         rate_limit_utilization,
         rate_limit_type,
         total_cost_usd,
