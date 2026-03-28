@@ -148,20 +148,8 @@ fn shorten_model(model: &str) -> &str {
 
 fn render_context(remaining_pct: f64) -> String {
     let pct = remaining_pct.round() as u8;
-    let color = if pct <= 20 {
-        CTX_LOW
-    } else if pct <= 40 {
-        CTX_MED
-    } else {
-        CTX_HIGH
-    };
-
-    // Progress bar: 7 chars wide, filled from left = remaining
-    let filled = ((pct as usize) * 7) / 100;
-    let empty = 7 - filled;
-    let bar = format!("{}{}", "═".repeat(filled), "─".repeat(empty));
-
-    format!("{DIM}CTX{RESET} {color}{bar} {pct}%{RESET}")
+    let suffix = format!("{pct}%");
+    render_gauge("CTX", pct, &suffix)
 }
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
@@ -202,14 +190,35 @@ fn weekly_reset_countdown() -> String {
 
 // ── Cost rendering ────────────────────────────────────────────────────────────
 
+// ── Gauge rendering (shared by CTX, SES, WKL) ───────────────────────────────
+
+/// Render a labeled gauge bar. `pct` is 0-100 representing the "good" direction:
+/// - For CTX: pct = remaining (higher = better)
+/// - For SES/WKL: pct = 100 - usage_pct (higher = more budget left)
+fn render_gauge(label: &str, pct: u8, suffix: &str) -> String {
+    let color = if pct <= 20 { CTX_LOW } else if pct <= 40 { CTX_MED } else { CTX_HIGH };
+    let filled = ((pct as usize) * 7) / 100;
+    let empty = 7 - filled;
+    let bar = format!("{}{}", "═".repeat(filled), "─".repeat(empty));
+    format!("{DIM}{label}{RESET} {color}{bar} {suffix}{RESET}")
+}
+
 fn render_session_cost(cost_usd: f64) -> String {
+    const SESSION_LIMIT: f64 = 157.0; // Max 20x tier 5hr block
+    let usage_pct = ((cost_usd / SESSION_LIMIT) * 100.0).min(100.0);
+    let remaining_pct = (100.0 - usage_pct).max(0.0) as u8;
     let countdown = block_reset_countdown();
-    format!("{COST}${:.2}{RESET} {DIM}↻{countdown}{RESET}", cost_usd)
+    let suffix = format!("${:.0} ↻{countdown}", cost_usd);
+    render_gauge("SES", remaining_pct, &suffix)
 }
 
 fn render_weekly_cost(cost: f64) -> String {
+    const WEEKLY_LIMIT: f64 = 354.0; // Max 20x tier weekly
+    let usage_pct = ((cost / WEEKLY_LIMIT) * 100.0).min(100.0);
+    let remaining_pct = (100.0 - usage_pct).max(0.0) as u8;
     let countdown = weekly_reset_countdown();
-    format!("{COST}${:.0}{RESET} {DIM}↻{countdown}{RESET}", cost)
+    let suffix = format!("${:.0} ↻{countdown}", cost);
+    render_gauge("WKL", remaining_pct, &suffix)
 }
 
 // ── JSONL scanning (weekly cost) ──────────────────────────────────────────────
@@ -524,11 +533,6 @@ fn main() {
                 parts.push(format!("⚡ {SPEC}{spec}{RESET}"));
             }
         }
-    }
-
-    // Model
-    if !model_name.is_empty() {
-        parts.push(format!("{DIM}{model_name}{RESET}"));
     }
 
     // Context window (from CC stdin)
