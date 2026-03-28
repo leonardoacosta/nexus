@@ -224,7 +224,7 @@ impl IMessageReaderService {
 
 #[cfg(target_os = "macos")]
 #[async_trait::async_trait]
-impl crate::Service for IMessageReaderService {
+impl crate::services::Service for IMessageReaderService {
     fn name(&self) -> &'static str {
         "imessage-reader"
     }
