@@ -12,15 +12,107 @@
 //!
 //! The engine is intentionally stateless — all context needed for a message is
 //! carried in the `LifecycleEvent` itself.
+//!
+//! ## Hot-reload
+//!
+//! Call `spawn_config_watcher` after constructing the engine to watch
+//! `~/.config/nexus/notifications.toml` for changes. On modify/create events
+//! the config is reloaded and swapped atomically via the shared `Arc<RwLock>`.
+//! A 100 ms debounce prevents redundant reloads from editor write flushes.
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use notify::{EventKind, RecursiveMode, Watcher};
 use nexus_core::config::{NotificationConfig, Verbosity};
 use nexus_core::lifecycle::{LifecycleEvent, LifecycleEventKind};
 use tokio::sync::{RwLock, mpsc};
 use tracing::debug;
 
 use crate::services::receiver::ReceiverService;
+
+/// Spawn a background task that watches `notifications.toml` for modifications
+/// and atomically swaps the shared config on reload.
+///
+/// The watcher stays alive as long as the returned task is running. A 100 ms
+/// debounce window coalesces rapid successive writes (e.g. editor flush + fsync).
+pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
+    let config_path = NotificationConfig::config_path();
+
+    // Bridge: notify fires on an OS thread; we forward a unit signal into a
+    // tokio channel to do the actual reload inside an async context.
+    let (notify_tx, mut notify_rx) = mpsc::channel::<()>(1);
+
+    let mut watcher =
+        match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(ev) = res {
+                if matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                    // Best-effort send; duplicate events during the debounce
+                    // window are dropped intentionally.
+                    let _ = notify_tx.try_send(());
+                }
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("notification_engine: failed to create config watcher: {e}");
+                return;
+            }
+        };
+
+    if let Err(e) = watcher.watch(&config_path, RecursiveMode::NonRecursive) {
+        tracing::warn!(
+            path = %config_path.display(),
+            "notification_engine: failed to watch notifications.toml: {e}"
+        );
+        return;
+    }
+
+    tokio::spawn(async move {
+        // Keep the watcher alive inside the task.
+        let _watcher = watcher;
+
+        loop {
+            // Wait for the next raw filesystem event.
+            if notify_rx.recv().await.is_none() {
+                break;
+            }
+
+            // Debounce: drain any additional events within 100 ms.
+            let debounce = tokio::time::sleep(Duration::from_millis(100));
+            tokio::pin!(debounce);
+            loop {
+                tokio::select! {
+                    _ = &mut debounce => break,
+                    extra = notify_rx.recv() => {
+                        if extra.is_none() {
+                            return;
+                        }
+                        debounce.as_mut().reset(
+                            tokio::time::Instant::now() + Duration::from_millis(100),
+                        );
+                    }
+                }
+            }
+
+            // Reload outside the lock to avoid holding it during I/O.
+            // We evaluate the result before any `.await` so the non-Send
+            // Box<dyn Error> is not held across the await point.
+            let reload_result: Result<NotificationConfig, String> =
+                NotificationConfig::load().map_err(|e| e.to_string());
+            match reload_result {
+                Ok(new_config) => {
+                    let mut cfg = config.write().await;
+                    *cfg = new_config;
+                    tracing::info!("notification_engine: notifications.toml reloaded");
+                }
+                Err(e) => {
+                    tracing::warn!("notification_engine: reload failed: {e}");
+                }
+            }
+        }
+    });
+}
 
 /// A constructed notification ready for delivery.
 struct Notification {

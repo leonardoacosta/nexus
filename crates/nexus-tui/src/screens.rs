@@ -4,6 +4,7 @@
 pub mod dashboard; // Screen 1: Session list grouped by project
 pub mod detail; // Screen 2: Single session expanded view (spec 8)
 pub mod health; // Screen 3: System health overview
+pub mod notifications; // Notification settings panel overlay
 pub mod palette; // Screen 5: Command palette overlay (spec 8)
 pub mod projects; // Screen 4: Project overview table
 pub mod stream; // Stream attach log view

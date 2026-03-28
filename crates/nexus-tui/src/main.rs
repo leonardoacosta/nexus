@@ -209,6 +209,11 @@ fn run_loop(
                 screens::palette::render_start_session(frame, app);
             }
 
+            // Render notification settings panel overlay (if open).
+            if app.input_mode == InputMode::NotificationPanel {
+                screens::notifications::render_notification_panel(frame, app);
+            }
+
             // Render notification overlay on status bar (bottom row).
             if app.notifications.latest().is_some() {
                 let area = frame.area();
@@ -652,6 +657,10 @@ fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -
             handle_stream_search_key(app, key);
             KeyAction::Continue
         }
+        InputMode::NotificationPanel => {
+            handle_notification_panel_key(app, key);
+            KeyAction::Continue
+        }
     }
 }
 
@@ -881,10 +890,13 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
             KeyAction::Continue
         }
         KeyCode::Char('n') => {
-            if app.current_screen == Screen::Dashboard
-                && let Some(agent_name) = app.begin_start_session()
-            {
-                let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
+            if app.current_screen == Screen::Dashboard {
+                if let Some(agent_name) = app.begin_start_session() {
+                    let _ = rpc_tx.try_send(RpcCommand::ListProjects { agent_name });
+                }
+            } else {
+                // On Health and Projects screens, 'n' opens the notification panel.
+                app.open_notification_panel();
             }
             KeyAction::Continue
         }
@@ -1181,6 +1193,66 @@ fn handle_stream_search_key(app: &mut App, key: KeyEvent) {
                 && let Some(ref mut search) = sv.search
             {
                 search.query.push(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Key handling for the notification settings panel overlay.
+///
+/// - j/Down / k/Up — navigate project list
+/// - v             — cycle verbosity
+/// - a             — toggle announce_agents
+/// - s             — toggle announce_specs
+/// - d             — reset project to defaults
+/// - Esc / q       — close panel
+fn handle_notification_panel_key(app: &mut App, key: KeyEvent) {
+    let panel = match app.notification_panel.as_mut() {
+        Some(p) => p,
+        None => {
+            app.input_mode = InputMode::Normal;
+            return;
+        }
+    };
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.close_notification_panel();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let max = panel.rows.len().saturating_sub(1);
+            panel.selected = (panel.selected + 1).min(max);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            panel.selected = panel.selected.saturating_sub(1);
+        }
+        KeyCode::Char('v') => {
+            let panel = app.notification_panel.as_mut().unwrap();
+            panel.cycle_verbosity();
+            if let Err(e) = panel.save() {
+                app.status_message = Some(format!("save failed: {e}"));
+            }
+        }
+        KeyCode::Char('a') => {
+            let panel = app.notification_panel.as_mut().unwrap();
+            panel.toggle_agents();
+            if let Err(e) = panel.save() {
+                app.status_message = Some(format!("save failed: {e}"));
+            }
+        }
+        KeyCode::Char('s') => {
+            let panel = app.notification_panel.as_mut().unwrap();
+            panel.toggle_specs();
+            if let Err(e) = panel.save() {
+                app.status_message = Some(format!("save failed: {e}"));
+            }
+        }
+        KeyCode::Char('d') => {
+            let panel = app.notification_panel.as_mut().unwrap();
+            panel.reset_selected_to_default();
+            if let Err(e) = panel.save() {
+                app.status_message = Some(format!("save failed: {e}"));
             }
         }
         _ => {}

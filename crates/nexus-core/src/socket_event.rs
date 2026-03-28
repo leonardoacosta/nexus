@@ -25,6 +25,33 @@ pub enum SocketCommand {
     TypeSet { name: String, mode: String },
     /// Clear the per-type notification mode override.
     TypeClear { name: String },
+    /// Query per-project notification rules. If `project` is empty, returns
+    /// the defaults. Otherwise returns the effective (merged) rules for that project.
+    NotificationRules {
+        #[serde(default)]
+        project: String,
+    },
+    /// Mutate per-project notification rules and write back to
+    /// `~/.config/nexus/notifications.toml`. Any `None` fields are left unchanged.
+    NotificationSet {
+        /// Project code to update. Empty string updates the `[defaults]` section.
+        project: String,
+        /// New verbosity level ("verbose", "brief", "silent").
+        #[serde(default)]
+        verbosity: Option<String>,
+        /// Override announce_agents.
+        #[serde(default)]
+        announce_agents: Option<bool>,
+        /// Override announce_specs.
+        #[serde(default)]
+        announce_specs: Option<bool>,
+        /// Override announce_sessions.
+        #[serde(default)]
+        announce_sessions: Option<bool>,
+        /// Reset this project to defaults (remove from `[projects]` section).
+        #[serde(default)]
+        reset_to_default: bool,
+    },
 }
 
 /// Events emitted by Claude Code hooks via the Unix domain socket.
@@ -258,5 +285,49 @@ mod tests {
         let json = r#"{"event":"telemetry","payload":{"cost_usd":0.12}}"#;
         let ev: SocketEvent = serde_json::from_str(json).unwrap();
         assert!(matches!(ev, SocketEvent::Telemetry { .. }));
+    }
+
+    #[test]
+    fn parse_notification_rules_command() {
+        let json = r#"{"command":"notification_rules","project":"oo"}"#;
+        let cmd: SocketCommand = serde_json::from_str(json).unwrap();
+        assert!(matches!(cmd, SocketCommand::NotificationRules { project } if project == "oo"));
+    }
+
+    #[test]
+    fn parse_notification_rules_command_empty_project() {
+        let json = r#"{"command":"notification_rules"}"#;
+        let cmd: SocketCommand = serde_json::from_str(json).unwrap();
+        assert!(matches!(cmd, SocketCommand::NotificationRules { project } if project.is_empty()));
+    }
+
+    #[test]
+    fn parse_notification_set_command() {
+        let json = r#"{"command":"notification_set","project":"oo","verbosity":"verbose","announce_agents":true,"announce_specs":false}"#;
+        let cmd: SocketCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            SocketCommand::NotificationSet {
+                project,
+                verbosity,
+                announce_agents,
+                announce_specs,
+                ..
+            } => {
+                assert_eq!(project, "oo");
+                assert_eq!(verbosity.as_deref(), Some("verbose"));
+                assert_eq!(announce_agents, Some(true));
+                assert_eq!(announce_specs, Some(false));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_notification_set_reset_to_default() {
+        let json = r#"{"command":"notification_set","project":"oo","reset_to_default":true}"#;
+        let cmd: SocketCommand = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(cmd, SocketCommand::NotificationSet { reset_to_default: true, .. })
+        );
     }
 }

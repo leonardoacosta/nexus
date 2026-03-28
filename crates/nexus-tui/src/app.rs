@@ -257,6 +257,8 @@ pub enum InputMode {
     StreamInput,
     StreamSearch,
     ScratchpadEdit,
+    /// Notification settings panel overlay.
+    NotificationPanel,
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +431,142 @@ pub struct ProjectDetail {
 }
 
 // ---------------------------------------------------------------------------
+// Notification panel state
+// ---------------------------------------------------------------------------
+
+/// A single row in the notification settings panel.
+#[derive(Debug, Clone)]
+pub struct NotificationPanelRow {
+    /// Project code (e.g. "oo"), or empty string to represent the defaults row.
+    pub project: String,
+    /// Whether this row's settings come from the defaults (no per-project override).
+    pub is_default: bool,
+}
+
+/// State for the notification settings panel overlay.
+///
+/// The panel reads `~/.config/nexus/notifications.toml` directly and writes
+/// changes back on every toggle. The hot-reload watcher in NotificationEngine
+/// picks up the written changes automatically.
+#[derive(Debug)]
+pub struct NotificationPanelState {
+    /// Rows displayed in the panel (defaults row first, then projects).
+    pub rows: Vec<NotificationPanelRow>,
+    /// Currently selected row index.
+    pub selected: usize,
+    /// The parsed config (loaded when the panel opens).
+    pub config: nexus_core::config::NotificationConfig,
+}
+
+impl NotificationPanelState {
+    /// Build state from the current on-disk config.
+    pub fn load() -> Self {
+        let config = nexus_core::config::NotificationConfig::load().unwrap_or_default();
+        let mut rows = vec![NotificationPanelRow {
+            project: String::new(), // defaults row
+            is_default: false,      // the defaults section itself
+        }];
+        let mut project_codes: Vec<String> = config.projects.keys().cloned().collect();
+        project_codes.sort();
+        for code in project_codes {
+            rows.push(NotificationPanelRow {
+                project: code,
+                is_default: false,
+            });
+        }
+        Self {
+            rows,
+            selected: 0,
+            config,
+        }
+    }
+
+    /// Return the effective rules for the currently selected row.
+    pub fn selected_rules(&self) -> &nexus_core::config::ProjectNotificationRules {
+        let row = &self.rows[self.selected];
+        if row.project.is_empty() {
+            &self.config.defaults
+        } else {
+            self.config.rules_for(&row.project)
+        }
+    }
+
+    /// Whether the currently selected row has an explicit per-project override.
+    pub fn selected_has_override(&self) -> bool {
+        let row = &self.rows[self.selected];
+        if row.project.is_empty() {
+            return false; // defaults row never has an "override"
+        }
+        self.config.projects.contains_key(&row.project)
+    }
+
+    /// Cycle verbosity for the selected row: silent → brief → verbose → silent.
+    pub fn cycle_verbosity(&mut self) {
+        use nexus_core::config::Verbosity;
+        let row = &self.rows[self.selected];
+        let rules = if row.project.is_empty() {
+            &mut self.config.defaults
+        } else {
+            let defaults_clone = self.config.defaults.clone();
+            self.config
+                .projects
+                .entry(row.project.clone())
+                .or_insert_with(|| defaults_clone)
+        };
+        rules.verbosity = match rules.verbosity {
+            Verbosity::Silent => Verbosity::Brief,
+            Verbosity::Brief => Verbosity::Verbose,
+            Verbosity::Verbose => Verbosity::Silent,
+        };
+    }
+
+    /// Toggle `announce_agents` for the selected row.
+    pub fn toggle_agents(&mut self) {
+        let row = &self.rows[self.selected];
+        let defaults_clone = self.config.defaults.clone();
+        let rules = if row.project.is_empty() {
+            &mut self.config.defaults
+        } else {
+            self.config
+                .projects
+                .entry(row.project.clone())
+                .or_insert_with(|| defaults_clone)
+        };
+        rules.announce_agents = !rules.announce_agents;
+    }
+
+    /// Toggle `announce_specs` for the selected row.
+    pub fn toggle_specs(&mut self) {
+        let row = &self.rows[self.selected];
+        let defaults_clone = self.config.defaults.clone();
+        let rules = if row.project.is_empty() {
+            &mut self.config.defaults
+        } else {
+            self.config
+                .projects
+                .entry(row.project.clone())
+                .or_insert_with(|| defaults_clone)
+        };
+        rules.announce_specs = !rules.announce_specs;
+    }
+
+    /// Reset the selected project to defaults (remove from projects map).
+    /// Has no effect when called on the defaults row itself.
+    pub fn reset_selected_to_default(&mut self) {
+        let row = &self.rows[self.selected];
+        if row.project.is_empty() {
+            return; // cannot reset defaults
+        }
+        self.config.projects.remove(&row.project.clone());
+    }
+
+    /// Persist the current config to disk.
+    pub fn save(&self) -> Result<(), String> {
+        self.config.save().map_err(|e| e.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
 
@@ -499,6 +637,10 @@ pub struct App {
     /// Total number of visible display lines in the stream view (updated each
     /// render frame so the scrollbar knows the content length).
     pub stream_total_lines: usize,
+
+    /// State for the notification settings panel overlay.
+    /// `None` when the panel is closed.
+    pub notification_panel: Option<NotificationPanelState>,
 }
 
 impl App {
@@ -537,6 +679,7 @@ impl App {
             project_details_map: HashMap::new(),
             stream_scroll_state: ScrollbarState::default(),
             stream_total_lines: 0,
+            notification_panel: None,
         }
     }
 
@@ -774,6 +917,19 @@ impl App {
         self.current_screen = Screen::Dashboard;
         self.palette_query.clear();
         self.palette_results.clear();
+    }
+
+    /// Open the notification settings panel overlay.
+    pub fn open_notification_panel(&mut self) {
+        self.notification_panel = Some(NotificationPanelState::load());
+        self.input_mode = InputMode::NotificationPanel;
+    }
+
+    /// Close the notification settings panel. Any unsaved mutations are lost
+    /// (each toggle already persists immediately, so this is just UI cleanup).
+    pub fn close_notification_panel(&mut self) {
+        self.notification_panel = None;
+        self.input_mode = InputMode::Normal;
     }
 
     /// Rebuild palette results based on current query.

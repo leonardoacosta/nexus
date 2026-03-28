@@ -15,12 +15,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use nexus_core::config::{NotificationConfig, ProjectNotificationRules, Verbosity};
 use nexus_core::lifecycle::{LifecycleEvent, project_from_cwd};
 use nexus_core::session::{Session, SessionStatus};
 use nexus_core::socket_event::{SocketCommand, SocketEvent};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::dispatch::dispatch_answer;
@@ -71,11 +72,15 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
 /// `lifecycle_tx`: if `Some`, lifecycle events (AgentSpawn, AgentComplete,
 /// SessionStart, SessionStop) are forwarded to the NotificationEngine via this
 /// channel. Pass `None` when running in `role = agent` mode.
+///
+/// `notification_config`: if `Some`, `notification_rules` and `notification_set`
+/// socket commands are handled. Pass `None` when running in `role = agent` mode.
 pub async fn run_socket_service(
     registry: Arc<SessionRegistry>,
     receiver: Arc<ReceiverService>,
     cancel: CancellationToken,
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
+    notification_config: Option<Arc<RwLock<NotificationConfig>>>,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -100,7 +105,8 @@ pub async fn run_socket_service(
                         let reg = Arc::clone(&registry);
                         let recv = Arc::clone(&receiver);
                         let tx = lifecycle_tx.clone();
-                        tokio::spawn(handle_connection(stream, reg, recv, tx));
+                        let notif_cfg = notification_config.clone();
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -132,6 +138,7 @@ async fn handle_connection(
     registry: Arc<SessionRegistry>,
     receiver: Arc<ReceiverService>,
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
+    notification_config: Option<Arc<RwLock<NotificationConfig>>>,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -153,7 +160,7 @@ async fn handle_connection(
                 }
                 // Try SocketCommand (query/mutate — expects a JSON response)
                 if let Ok(cmd) = serde_json::from_str::<SocketCommand>(&line) {
-                    let response = dispatch_command(cmd, &receiver).await;
+                    let response = dispatch_command(cmd, &receiver, notification_config.as_ref()).await;
                     let mut response_line = response;
                     response_line.push('\n');
                     if let Err(e) = write_half.write_all(response_line.as_bytes()).await {
@@ -423,7 +430,11 @@ async fn dispatch_event(
 }
 
 /// Execute a `SocketCommand` and return a JSON response string.
-async fn dispatch_command(cmd: SocketCommand, receiver: &Arc<ReceiverService>) -> String {
+async fn dispatch_command(
+    cmd: SocketCommand,
+    receiver: &Arc<ReceiverService>,
+    notification_config: Option<&Arc<RwLock<NotificationConfig>>>,
+) -> String {
     match cmd {
         SocketCommand::ModeQuery => {
             tracing::debug!("socket: command mode_query");
@@ -449,5 +460,135 @@ async fn dispatch_command(cmd: SocketCommand, receiver: &Arc<ReceiverService>) -
             tracing::info!(type_name = %name, "socket: command type_clear");
             receiver.type_clear_json(&name)
         }
+        SocketCommand::NotificationRules { project } => {
+            tracing::debug!(project = %project, "socket: command notification_rules");
+            handle_notification_rules(&project, notification_config).await
+        }
+        SocketCommand::NotificationSet {
+            project,
+            verbosity,
+            announce_agents,
+            announce_specs,
+            announce_sessions,
+            reset_to_default,
+        } => {
+            tracing::info!(
+                project = %project,
+                verbosity = ?verbosity,
+                announce_agents = ?announce_agents,
+                announce_specs = ?announce_specs,
+                announce_sessions = ?announce_sessions,
+                reset_to_default,
+                "socket: command notification_set"
+            );
+            handle_notification_set(
+                &project,
+                verbosity.as_deref(),
+                announce_agents,
+                announce_specs,
+                announce_sessions,
+                reset_to_default,
+                notification_config,
+            )
+            .await
+        }
+    }
+}
+
+/// Return the effective rules for `project` as a JSON string.
+async fn handle_notification_rules(
+    project: &str,
+    notification_config: Option<&Arc<RwLock<NotificationConfig>>>,
+) -> String {
+    let Some(cfg_lock) = notification_config else {
+        return serde_json::json!({"error": "notification config not available (role=agent)"})
+            .to_string();
+    };
+    let cfg = cfg_lock.read().await;
+    let rules = cfg.rules_for(project);
+    match serde_json::to_string(rules) {
+        Ok(json) => json,
+        Err(e) => serde_json::json!({"error": format!("serialize error: {e}")}).to_string(),
+    }
+}
+
+/// Mutate per-project notification rules and persist to TOML.
+async fn handle_notification_set(
+    project: &str,
+    verbosity_str: Option<&str>,
+    announce_agents: Option<bool>,
+    announce_specs: Option<bool>,
+    announce_sessions: Option<bool>,
+    reset_to_default: bool,
+    notification_config: Option<&Arc<RwLock<NotificationConfig>>>,
+) -> String {
+    let Some(cfg_lock) = notification_config else {
+        return serde_json::json!({"error": "notification config not available (role=agent)"})
+            .to_string();
+    };
+
+    let mut cfg = cfg_lock.write().await;
+
+    if project.is_empty() {
+        // Mutate the [defaults] section.
+        apply_rule_mutations(
+            &mut cfg.defaults,
+            verbosity_str,
+            announce_agents,
+            announce_specs,
+            announce_sessions,
+        );
+    } else if reset_to_default {
+        // Remove the project override entirely.
+        cfg.projects.remove(project);
+    } else {
+        // Clone defaults first to avoid a borrow conflict when using entry API.
+        let defaults_clone = cfg.defaults.clone();
+        let entry = cfg
+            .projects
+            .entry(project.to_string())
+            .or_insert_with(|| defaults_clone);
+        apply_rule_mutations(
+            entry,
+            verbosity_str,
+            announce_agents,
+            announce_specs,
+            announce_sessions,
+        );
+    }
+
+    // Persist to disk. The hot-reload watcher will pick this up on the engine
+    // side — we also update the in-memory arc directly above.
+    if let Err(e) = cfg.save() {
+        tracing::warn!("socket: notification_set save failed: {e}");
+        return serde_json::json!({"error": format!("save failed: {e}")}).to_string();
+    }
+
+    serde_json::json!({"ok": true, "project": project}).to_string()
+}
+
+/// Apply field-level mutations to a `ProjectNotificationRules`.
+fn apply_rule_mutations(
+    rules: &mut ProjectNotificationRules,
+    verbosity_str: Option<&str>,
+    announce_agents: Option<bool>,
+    announce_specs: Option<bool>,
+    announce_sessions: Option<bool>,
+) {
+    if let Some(v) = verbosity_str {
+        rules.verbosity = match v {
+            "verbose" => Verbosity::Verbose,
+            "silent" => Verbosity::Silent,
+            _ => Verbosity::Brief,
+        };
+    }
+    if let Some(v) = announce_agents {
+        rules.announce_agents = v;
+    }
+    if let Some(v) = announce_specs {
+        rules.announce_specs = v;
+    }
+    if let Some(v) = announce_sessions {
+        rules.announce_sessions = v;
     }
 }

@@ -169,6 +169,10 @@ async fn main() -> Result<()> {
     // Role-gated: wire NotificationEngine and EventForwarder only on Primary.
     // The lifecycle channel feeds both local socket events and remote gRPC events
     // into the NotificationEngine for per-project TTS delivery.
+    //
+    // `notification_config_arc` is kept alive here so it can be shared with the
+    // socket service for `notification_rules` / `notification_set` commands.
+    let notification_config_arc: Option<Arc<RwLock<NotificationConfig>>>;
     let lifecycle_tx: Option<tokio::sync::mpsc::Sender<nexus_core::lifecycle::LifecycleEvent>> =
         if role == AgentRole::Primary {
             let notification_config = NotificationConfig::load().unwrap_or_else(|e| {
@@ -184,7 +188,12 @@ async fn main() -> Result<()> {
             );
 
             let config_arc = Arc::new(RwLock::new(notification_config));
+            notification_config_arc = Some(Arc::clone(&config_arc));
+
             let (tx, rx) = mpsc::channel::<nexus_core::lifecycle::LifecycleEvent>(256);
+
+            // Start hot-reload watcher for notifications.toml.
+            nexus_agent::notification_engine::spawn_config_watcher(Arc::clone(&config_arc));
 
             // Start the NotificationEngine — drains rx and delivers TTS.
             let engine = NotificationEngine::new(Arc::clone(&config_arc), Arc::clone(&receiver));
@@ -206,6 +215,7 @@ async fn main() -> Result<()> {
             tracing::info!("NotificationEngine and EventForwarder started (role=primary)");
             Some(tx)
         } else {
+            notification_config_arc = None;
             tracing::info!("NotificationEngine and EventForwarder skipped (role=agent)");
             None
         };
@@ -280,6 +290,7 @@ async fn main() -> Result<()> {
         Arc::clone(&receiver),
         socket_cancel,
         lifecycle_tx,
+        notification_config_arc,
     );
 
     tracing::info!(

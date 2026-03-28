@@ -3,6 +3,7 @@ pub mod api;
 pub mod config;
 pub mod health;
 pub mod lifecycle;
+pub mod notification_config;
 pub mod notes;
 pub mod session;
 pub mod socket_event;
