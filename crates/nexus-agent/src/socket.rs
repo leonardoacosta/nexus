@@ -426,6 +426,42 @@ async fn dispatch_event(
                 "socket: telemetry (unrouted)"
             );
         }
+
+        SocketEvent::DeployStatus {
+            project,
+            status,
+            message,
+            target,
+            service,
+        } => {
+            let target_str = target.as_deref().unwrap_or("local");
+            let service_str = service.as_deref().unwrap_or("unknown");
+            let msg = message.as_deref().unwrap_or("");
+
+            tracing::info!(
+                %project, %status, target = target_str, service = service_str,
+                "socket: deploy_status"
+            );
+
+            // Forward to notification engine as a lifecycle event
+            if let Some(ref tx) = lifecycle_tx {
+                use nexus_core::lifecycle::LifecycleEventKind;
+                let detail = if msg.is_empty() {
+                    format!("{} {} on {}", service_str, status, target_str)
+                } else {
+                    msg.to_string()
+                };
+                let _ = tx.send(LifecycleEvent {
+                    source_agent: target_str.to_string(),
+                    project: project.clone(),
+                    kind: LifecycleEventKind::Notification {
+                        message: format!("{} deploy: {}", project.to_uppercase(), detail),
+                        channels: vec!["tts".to_string()],
+                        message_type: "brief".to_string(),
+                    },
+                }).await;
+            }
+        }
     }
 }
 

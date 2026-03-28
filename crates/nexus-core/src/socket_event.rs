@@ -140,6 +140,24 @@ pub enum SocketEvent {
         #[serde(default)]
         payload: HashMap<String, serde_json::Value>,
     },
+
+    /// Deployment lifecycle event — emitted by deploy scripts to track
+    /// build/deploy/verify status across machines. Project-agnostic.
+    DeployStatus {
+        /// Project code that triggered the deploy (e.g., "nx", "cc", "oo").
+        project: String,
+        /// Current phase: "building", "deploying", "deployed", "failed", "verifying", "verified".
+        status: String,
+        /// Human-readable detail (e.g., "cargo build --release", "systemctl restart").
+        #[serde(default)]
+        message: Option<String>,
+        /// Target machine (e.g., "homelab", "macbook"). Defaults to local hostname.
+        #[serde(default)]
+        target: Option<String>,
+        /// Service being deployed (e.g., "nexus-agent", "claude-status").
+        #[serde(default)]
+        service: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -285,6 +303,28 @@ mod tests {
         let json = r#"{"event":"telemetry","payload":{"cost_usd":0.12}}"#;
         let ev: SocketEvent = serde_json::from_str(json).unwrap();
         assert!(matches!(ev, SocketEvent::Telemetry { .. }));
+    }
+
+    #[test]
+    fn parse_deploy_status() {
+        let json = r#"{"event":"deploy_status","project":"nx","status":"deployed","message":"nexus-agent restarted","target":"macbook","service":"nexus-agent"}"#;
+        let ev: SocketEvent = serde_json::from_str(json).unwrap();
+        match ev {
+            SocketEvent::DeployStatus { project, status, target, service, .. } => {
+                assert_eq!(project, "nx");
+                assert_eq!(status, "deployed");
+                assert_eq!(target.as_deref(), Some("macbook"));
+                assert_eq!(service.as_deref(), Some("nexus-agent"));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_deploy_status_minimal() {
+        let json = r#"{"event":"deploy_status","project":"oo","status":"building"}"#;
+        let ev: SocketEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(ev, SocketEvent::DeployStatus { project, status, .. } if project == "oo" && status == "building"));
     }
 
     #[test]
