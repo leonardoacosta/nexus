@@ -1,6 +1,6 @@
-use serde::Deserialize;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -23,19 +23,12 @@ struct CcInput {
     #[serde(default)]
     context_window: Option<CcContextWindow>,
     #[serde(default)]
-    cost: Option<CcCost>,
-    #[serde(default)]
     model: Option<CcModel>,
 }
 
 #[derive(Deserialize)]
 struct CcContextWindow {
     remaining_percentage: Option<f64>,
-}
-
-#[derive(Deserialize)]
-struct CcCost {
-    total_cost_usd: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -203,97 +196,161 @@ fn render_gauge(label: &str, pct: u8, suffix: &str) -> String {
     format!("{DIM}{label}{RESET} {color}{bar} {suffix}{RESET}")
 }
 
-fn render_session_cost(cost_usd: f64) -> String {
-    const SESSION_LIMIT: f64 = 157.0; // Max 20x tier 5hr block
-    let usage_pct = ((cost_usd / SESSION_LIMIT) * 100.0).min(100.0);
-    let remaining_pct = (100.0 - usage_pct).max(0.0) as u8;
-    let countdown = block_reset_countdown();
-    let suffix = format!("${:.0} ↻{countdown}", cost_usd);
+fn render_session_usage(utilization: f64, resets_at: Option<&str>) -> String {
+    let remaining_pct = (100.0 - utilization).max(0.0) as u8;
+    let countdown = resets_at
+        .and_then(|t| parse_timestamp(t))
+        .map(|target| {
+            let now = now_secs();
+            if target > now {
+                let rem = target - now;
+                format!("↻{}:{:02}h", rem / 3600, (rem % 3600) / 60)
+            } else {
+                "↻now".to_string()
+            }
+        })
+        .unwrap_or_else(|| block_reset_countdown_str());
+    let suffix = format!("{:.0}% {countdown}", utilization);
     render_gauge("SES", remaining_pct, &suffix)
 }
 
-fn render_weekly_cost(cost: f64) -> String {
-    const WEEKLY_LIMIT: f64 = 354.0; // Max 20x tier weekly
-    let usage_pct = ((cost / WEEKLY_LIMIT) * 100.0).min(100.0);
-    let remaining_pct = (100.0 - usage_pct).max(0.0) as u8;
-    let countdown = weekly_reset_countdown();
-    let suffix = format!("${:.0} ↻{countdown}", cost);
+fn render_weekly_usage(utilization: f64, resets_at: Option<&str>) -> String {
+    let remaining_pct = (100.0 - utilization).max(0.0) as u8;
+    let countdown = resets_at
+        .and_then(|t| parse_timestamp(t))
+        .map(|target| {
+            let now = now_secs();
+            if target > now {
+                let rem = target - now;
+                if rem >= 86400 * 2 {
+                    format!("↻{}d", rem / 86400)
+                } else {
+                    format!("↻{}:{:02}h", rem / 3600, (rem % 3600) / 60)
+                }
+            } else {
+                "↻now".to_string()
+            }
+        })
+        .unwrap_or_else(|| weekly_reset_countdown());
+    let suffix = format!("{:.0}% {countdown}", utilization);
     render_gauge("WKL", remaining_pct, &suffix)
 }
 
-// ── JSONL scanning (weekly cost) ──────────────────────────────────────────────
-
-/// Model pricing per million tokens
-struct ModelPricing {
-    input: f64,
-    output: f64,
-    cache_write: f64,
-    cache_read: f64,
+fn block_reset_countdown_str() -> String {
+    let countdown = block_reset_countdown();
+    format!("↻{countdown}")
 }
 
-impl ModelPricing {
-    fn for_model(model: &str) -> Self {
-        if model.contains("opus") {
-            Self {
-                input: 5.0,
-                output: 25.0,
-                cache_write: 6.25,
-                cache_read: 0.50,
-            }
-        } else if model.contains("haiku") {
-            Self {
-                input: 1.0,
-                output: 5.0,
-                cache_write: 1.25,
-                cache_read: 0.10,
-            }
-        } else {
-            // Default: sonnet
-            Self {
-                input: 3.0,
-                output: 15.0,
-                cache_write: 3.75,
-                cache_read: 0.30,
+// ── Anthropic Usage API ──────────────────────────────────────────────────────
+
+/// API response from https://api.anthropic.com/api/oauth/usage
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct UsageResponse {
+    five_hour: Option<UsagePeriod>,
+    seven_day: Option<UsagePeriod>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct UsagePeriod {
+    utilization: f64,
+    resets_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct CachedUsage {
+    fetched_at: u64,
+    data: UsageResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct Credentials {
+    #[serde(rename = "claudeAiOauth")]
+    claude_ai_oauth: Option<OAuthCreds>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthCreds {
+    #[serde(rename = "accessToken")]
+    access_token: String,
+    #[serde(rename = "expiresAt")]
+    expires_at: Option<u64>,
+}
+
+const USAGE_CACHE_TTL: u64 = 300; // 5 minutes
+
+fn get_api_usage() -> Option<UsageResponse> {
+    let cache_path = usage_cache_path()?;
+
+    // Check cache (5 min TTL)
+    if let Ok(content) = fs::read_to_string(&cache_path) {
+        if let Ok(cached) = serde_json::from_str::<CachedUsage>(&content) {
+            if now_secs() - cached.fetched_at < USAGE_CACHE_TTL {
+                return Some(cached.data);
             }
         }
     }
+
+    // Fetch fresh
+    let token = read_access_token()?;
+    let fresh = fetch_usage_curl(&token)?;
+
+    // Write cache
+    let cached = CachedUsage { fetched_at: now_secs(), data: fresh.clone() };
+    if let Ok(json) = serde_json::to_string(&cached) {
+        let _ = fs::write(&cache_path, json);
+    }
+
+    Some(fresh)
 }
 
-#[derive(Deserialize)]
-struct LogEntry {
-    #[serde(rename = "type")]
-    entry_type: Option<String>,
-    timestamp: Option<String>,
-    message: Option<LogMessage>,
+fn usage_cache_path() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".claude/scripts/state/usage-cache.json"))
 }
 
-#[derive(Deserialize)]
-struct LogMessage {
-    model: Option<String>,
-    usage: Option<TokenUsage>,
+fn read_access_token() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let path = PathBuf::from(home).join(".claude/.credentials.json");
+    let content = fs::read_to_string(&path).ok()?;
+    let creds: Credentials = serde_json::from_str(&content).ok()?;
+    let oauth = creds.claude_ai_oauth?;
+
+    // Check expiry
+    if let Some(expires_at) = oauth.expires_at {
+        if now_secs() * 1000 > expires_at {
+            return None;
+        }
+    }
+    Some(oauth.access_token)
 }
 
-#[derive(Deserialize)]
-struct TokenUsage {
-    input_tokens: Option<u64>,
-    output_tokens: Option<u64>,
-    cache_creation_input_tokens: Option<u64>,
-    cache_read_input_tokens: Option<u64>,
+fn fetch_usage_curl(token: &str) -> Option<UsageResponse> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s", "--max-time", "2",
+            "-H", "Accept: application/json",
+            "-H", &format!("Authorization: Bearer {}", token),
+            "-H", "anthropic-beta: oauth-2025-04-20",
+            "https://api.anthropic.com/api/oauth/usage",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() { return None; }
+    let body = String::from_utf8(output.stdout).ok()?;
+    if body.contains("\"error\"") { return None; }
+    serde_json::from_str(&body).ok()
 }
 
 /// Parse ISO8601 timestamp (e.g. "2026-01-13T15:58:47.496Z") to unix seconds
 fn parse_timestamp(ts: &str) -> Option<u64> {
     let clean = ts.trim_end_matches('Z');
     let parts: Vec<&str> = clean.split('T').collect();
-    if parts.len() != 2 {
-        return None;
-    }
+    if parts.len() != 2 { return None; }
     let date_parts: Vec<i32> = parts[0].split('-').filter_map(|s| s.parse().ok()).collect();
     let time_str = parts[1].split('.').next()?;
     let time_parts: Vec<u64> = time_str.split(':').filter_map(|s| s.parse().ok()).collect();
-    if date_parts.len() != 3 || time_parts.len() != 3 {
-        return None;
-    }
+    if date_parts.len() != 3 || time_parts.len() != 3 { return None; }
     let (year, month, day) = (date_parts[0], date_parts[1] as u32, date_parts[2] as u32);
     let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
     let days = days_from_civil(year, month, day);
@@ -308,142 +365,6 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i32 {
     let doy = (153 * (m - 3) + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe as i32 - 719468
-}
-
-fn week_start_timestamp() -> u64 {
-    let now = now_secs();
-    let days_since_epoch = (now / 86400) as i32;
-    let dow = (days_since_epoch + 4) % 7; // 0 = Sunday
-    let week_start_days = days_since_epoch - dow;
-    (week_start_days as u64) * 86400
-}
-
-fn calculate_cost(usage: &TokenUsage, model: &str) -> f64 {
-    let pricing = ModelPricing::for_model(model);
-    let input = usage.input_tokens.unwrap_or(0) as f64;
-    let output = usage.output_tokens.unwrap_or(0) as f64;
-    let cache_write = usage.cache_creation_input_tokens.unwrap_or(0) as f64;
-    let cache_read = usage.cache_read_input_tokens.unwrap_or(0) as f64;
-    (input * pricing.input
-        + output * pricing.output
-        + cache_write * pricing.cache_write
-        + cache_read * pricing.cache_read)
-        / 1_000_000.0
-}
-
-/// Pending assistant entry — last streaming chunk wins for deduplication
-struct PendingAssistant {
-    model: String,
-    usage: TokenUsage,
-    timestamp: Option<String>,
-}
-
-fn scan_jsonl_file(path: &PathBuf, since_timestamp: u64) -> f64 {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return 0.0,
-    };
-    let reader = BufReader::new(file);
-    let mut total_cost = 0.0;
-    let mut last_assistant: Option<PendingAssistant> = None;
-
-    for line in reader.lines().flatten() {
-        let entry: LogEntry = match serde_json::from_str(&line) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let entry_type = entry.entry_type.as_deref().unwrap_or("");
-
-        if entry_type == "assistant" {
-            if let Some(msg) = entry.message {
-                if let (Some(model), Some(usage)) = (msg.model, msg.usage) {
-                    last_assistant = Some(PendingAssistant {
-                        model,
-                        usage,
-                        timestamp: entry.timestamp,
-                    });
-                }
-            }
-        } else if entry_type == "user" || entry_type == "tool_result" {
-            if let Some(cached) = last_assistant.take() {
-                let in_range = cached
-                    .timestamp
-                    .as_ref()
-                    .and_then(|ts| parse_timestamp(ts))
-                    .map(|ts_secs| ts_secs >= since_timestamp)
-                    .unwrap_or(true);
-                if in_range {
-                    total_cost += calculate_cost(&cached.usage, &cached.model);
-                }
-            }
-        }
-    }
-    // Count any trailing assistant entry at EOF
-    if let Some(cached) = last_assistant {
-        let in_range = cached
-            .timestamp
-            .as_ref()
-            .and_then(|ts| parse_timestamp(ts))
-            .map(|ts_secs| ts_secs >= since_timestamp)
-            .unwrap_or(true);
-        if in_range {
-            total_cost += calculate_cost(&cached.usage, &cached.model);
-        }
-    }
-    total_cost
-}
-
-fn scan_weekly_cost() -> f64 {
-    let since = week_start_timestamp();
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return 0.0,
-    };
-    let projects_dir = PathBuf::from(home).join(".claude/projects");
-    let mut total = 0.0;
-
-    if let Ok(entries) = fs::read_dir(&projects_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            if let Ok(files) = fs::read_dir(&path) {
-                for file_entry in files.flatten() {
-                    let fp = file_entry.path();
-                    if fp.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                        total += scan_jsonl_file(&fp, since);
-                    }
-                }
-            }
-        }
-    }
-    total
-}
-
-/// Return cached weekly cost (60-second TTL via /tmp file)
-fn cached_weekly_cost() -> f64 {
-    let cache_path = "/tmp/nexus-status-weekly-cache.json";
-
-    let cache_fresh = std::fs::metadata(cache_path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.elapsed().ok())
-        .map(|e| e.as_secs() < 60)
-        .unwrap_or(false);
-
-    if cache_fresh {
-        if let Ok(content) = std::fs::read_to_string(cache_path) {
-            if let Ok(cost) = content.trim().parse::<f64>() {
-                return cost;
-            }
-        }
-    }
-
-    // Cache miss — scan JSONL files
-    let cost = scan_weekly_cost();
-    let _ = std::fs::write(cache_path, format!("{:.4}", cost));
-    cost
 }
 
 // ── Fetch nexus-agent ─────────────────────────────────────────────────────────
@@ -544,15 +465,20 @@ fn main() {
         parts.push(render_context(remaining));
     }
 
-    // Session cost in current 5-hour block (from CC stdin)
-    if let Some(cost) = cc_input.cost.as_ref().and_then(|c| c.total_cost_usd) {
-        parts.push(render_session_cost(cost));
-    }
-
-    // Weekly cost (JSONL scan, cached 60s)
-    let weekly = cached_weekly_cost();
-    if weekly > 0.01 {
-        parts.push(render_weekly_cost(weekly));
+    // Session (5hr) and Weekly (7d) usage from Anthropic API (cached 5min)
+    if let Some(usage) = get_api_usage() {
+        if let Some(five_hour) = &usage.five_hour {
+            parts.push(render_session_usage(
+                five_hour.utilization,
+                five_hour.resets_at.as_deref(),
+            ));
+        }
+        if let Some(seven_day) = &usage.seven_day {
+            parts.push(render_weekly_usage(
+                seven_day.utilization,
+                seven_day.resets_at.as_deref(),
+            ));
+        }
     }
 
     print!("{}", parts.join("  "));
