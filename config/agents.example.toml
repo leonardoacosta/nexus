@@ -1,6 +1,15 @@
 # Nexus Agent Configuration
 # Copy to ~/.config/nexus/agents.toml and customize.
 
+# Role for THIS machine. Defaults to "primary" if absent.
+# primary: runs ReceiverService (TTS/APNs/banner), NotificationEngine, EventForwarder
+# agent: runs gRPC + health + socket only — no audio, no notifications
+role = "primary"
+
+# Optional: name of this agent (must match one entry in [[agents]]).
+# Defaults to the machine hostname if absent.
+# self_name = "macbook"
+
 [[agents]]
 name = "homelab"
 host = "homelab"          # Tailscale MagicDNS hostname

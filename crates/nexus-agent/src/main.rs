@@ -4,14 +4,18 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{Json, Router, extract::State, routing::get};
 use nexus_core::api::HealthResponse;
+use nexus_core::config::{AgentRole, NexusConfig, NotificationConfig};
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use serde::{Deserialize, Serialize};
+use tokio::sync::{RwLock, mpsc};
 use tonic::transport::Server;
 use tracing_subscriber::EnvFilter;
 
+use nexus_agent::event_forwarder::EventForwarder;
 use nexus_agent::events;
 use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
+use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
 use nexus_agent::services::receiver::ReceiverService;
@@ -71,7 +75,24 @@ async fn main() -> Result<()> {
     let agent_host = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".into());
-    let agent_name = agent_host.clone();
+
+    // Load agents.toml to determine role and peer list.
+    let nexus_config = NexusConfig::load().unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to load agents.toml, using defaults (role=primary)");
+        NexusConfig {
+            agents: vec![],
+            role: AgentRole::Primary,
+            self_name: None,
+        }
+    });
+
+    let role = nexus_config.role;
+    let agent_name = nexus_config
+        .self_name
+        .clone()
+        .unwrap_or_else(|| agent_host.clone());
+
+    tracing::info!(%agent_name, ?role, "agent identity resolved");
 
     // Stale socket cleanup: remove leftover socket file from a previous
     // crash, or bail if another instance is already running.
@@ -92,10 +113,15 @@ async fn main() -> Result<()> {
     // Create the shutdown coordinator shared between signal handler and gRPC service.
     let coordinator = Arc::new(ShutdownCoordinator::new());
 
-    // Start the notification receiver pipeline (TTS, APNs, dedup, etc.).
-    // Keep an Arc so the socket listener can forward Notification events.
+    // Role-gated: start ReceiverService only on Primary.
+    // Agent role skips TTS/APNs/banner — no audio deps needed at runtime.
     let receiver = Arc::new(ReceiverService::new());
-    spawn_service(Arc::clone(&receiver), coordinator.token());
+    if role == AgentRole::Primary {
+        spawn_service(Arc::clone(&receiver), coordinator.token());
+        tracing::info!("ReceiverService started (role=primary)");
+    } else {
+        tracing::info!("ReceiverService skipped (role=agent)");
+    }
 
     // Cross-platform background services.
     spawn_service(
@@ -139,6 +165,50 @@ async fn main() -> Result<()> {
             coordinator.token(),
         );
     }
+
+    // Role-gated: wire NotificationEngine and EventForwarder only on Primary.
+    // The lifecycle channel feeds both local socket events and remote gRPC events
+    // into the NotificationEngine for per-project TTS delivery.
+    let lifecycle_tx: Option<tokio::sync::mpsc::Sender<nexus_core::lifecycle::LifecycleEvent>> =
+        if role == AgentRole::Primary {
+            let notification_config = NotificationConfig::load().unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "failed to load notifications.toml, using defaults"
+                );
+                NotificationConfig::default()
+            });
+            tracing::info!(
+                projects = notification_config.projects.len(),
+                "NotificationConfig loaded"
+            );
+
+            let config_arc = Arc::new(RwLock::new(notification_config));
+            let (tx, rx) = mpsc::channel::<nexus_core::lifecycle::LifecycleEvent>(256);
+
+            // Start the NotificationEngine — drains rx and delivers TTS.
+            let engine = NotificationEngine::new(Arc::clone(&config_arc), Arc::clone(&receiver));
+            engine.spawn(rx);
+
+            // Start EventForwarder — subscribes to all peer agents' gRPC streams.
+            let peers: Vec<nexus_core::config::AgentConfig> = nexus_config
+                .peers(&agent_name)
+                .into_iter()
+                .cloned()
+                .collect();
+            if peers.is_empty() {
+                tracing::info!("EventForwarder: no peers configured, skipping");
+            } else {
+                tracing::info!(peer_count = peers.len(), "EventForwarder starting");
+                EventForwarder::new(peers).spawn(tx.clone());
+            }
+
+            tracing::info!("NotificationEngine and EventForwarder started (role=primary)");
+            Some(tx)
+        } else {
+            tracing::info!("NotificationEngine and EventForwarder skipped (role=agent)");
+            None
+        };
 
     // Build the gRPC service.
     let service = NexusAgentService::new(
@@ -203,8 +273,14 @@ async fn main() -> Result<()> {
     // Spawn the Unix domain socket service for hook event ingestion.
     // The receiver handle lets the socket listener forward Notification events
     // directly into the TTS/APNs/banner pipeline without going through HTTP.
+    // On role=primary, lifecycle events are also forwarded to NotificationEngine.
     let socket_registry = Arc::clone(&registry);
-    let socket_service = socket::run_socket_service(socket_registry, Arc::clone(&receiver), socket_cancel);
+    let socket_service = socket::run_socket_service(
+        socket_registry,
+        Arc::clone(&receiver),
+        socket_cancel,
+        lifecycle_tx,
+    );
 
     tracing::info!(
         "listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT} socket={}",
@@ -403,28 +479,27 @@ async fn fetch_git_status() -> Option<StatuslineGit> {
     let dirty = !status_out.stdout.is_empty();
 
     // Count commits ahead/behind upstream.
-    let (ahead, behind) =
-        if let Ok(rev_out) = tokio::process::Command::new("git")
-            .args(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
-            .output()
-            .await
-        {
-            if rev_out.status.success() {
-                let s = String::from_utf8_lossy(&rev_out.stdout);
-                let parts: Vec<&str> = s.trim().split_whitespace().collect();
-                if parts.len() == 2 {
-                    let behind = parts[0].parse::<u32>().unwrap_or(0);
-                    let ahead = parts[1].parse::<u32>().unwrap_or(0);
-                    (ahead, behind)
-                } else {
-                    (0, 0)
-                }
+    let (ahead, behind) = if let Ok(rev_out) = tokio::process::Command::new("git")
+        .args(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
+        .output()
+        .await
+    {
+        if rev_out.status.success() {
+            let s = String::from_utf8_lossy(&rev_out.stdout);
+            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            if parts.len() == 2 {
+                let behind = parts[0].parse::<u32>().unwrap_or(0);
+                let ahead = parts[1].parse::<u32>().unwrap_or(0);
+                (ahead, behind)
             } else {
                 (0, 0)
             }
         } else {
             (0, 0)
-        };
+        }
+    } else {
+        (0, 0)
+    };
 
     Some(StatuslineGit {
         branch,

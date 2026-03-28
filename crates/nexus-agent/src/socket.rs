@@ -15,10 +15,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use nexus_core::lifecycle::{LifecycleEvent, project_from_cwd};
 use nexus_core::session::{Session, SessionStatus};
 use nexus_core::socket_event::{SocketCommand, SocketEvent};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::dispatch::dispatch_answer;
@@ -65,10 +67,15 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
 /// Bind the Unix domain socket and run the accept loop.
 ///
 /// Exits when `cancel` is triggered. The socket file is removed on exit.
+///
+/// `lifecycle_tx`: if `Some`, lifecycle events (AgentSpawn, AgentComplete,
+/// SessionStart, SessionStop) are forwarded to the NotificationEngine via this
+/// channel. Pass `None` when running in `role = agent` mode.
 pub async fn run_socket_service(
     registry: Arc<SessionRegistry>,
     receiver: Arc<ReceiverService>,
     cancel: CancellationToken,
+    lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -92,7 +99,8 @@ pub async fn run_socket_service(
                     Ok((stream, _addr)) => {
                         let reg = Arc::clone(&registry);
                         let recv = Arc::clone(&receiver);
-                        tokio::spawn(handle_connection(stream, reg, recv));
+                        let tx = lifecycle_tx.clone();
+                        tokio::spawn(handle_connection(stream, reg, recv, tx));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -123,6 +131,7 @@ async fn handle_connection(
     stream: UnixStream,
     registry: Arc<SessionRegistry>,
     receiver: Arc<ReceiverService>,
+    lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -139,7 +148,7 @@ async fn handle_connection(
                 }
                 // Try SocketEvent first (most common path — hooks fire-and-forget)
                 if let Ok(event) = serde_json::from_str::<SocketEvent>(&line) {
-                    dispatch_event(event, &registry, &receiver).await;
+                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref()).await;
                     continue;
                 }
                 // Try SocketCommand (query/mutate — expects a JSON response)
@@ -168,10 +177,14 @@ async fn handle_connection(
 }
 
 /// Route a parsed `SocketEvent` to the appropriate handler.
+///
+/// `lifecycle_tx`: if `Some`, AgentSpawn, AgentComplete, SessionStart, and
+/// SessionStop events are forwarded to the NotificationEngine.
 async fn dispatch_event(
     event: SocketEvent,
     registry: &Arc<SessionRegistry>,
     receiver: &Arc<ReceiverService>,
+    lifecycle_tx: Option<&mpsc::Sender<LifecycleEvent>>,
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -184,12 +197,17 @@ async fn dispatch_event(
             cc_session_id,
             tmux_target,
         } => {
+            let cwd_str = cwd.clone().unwrap_or_default();
+            let project_code = project
+                .clone()
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| project_from_cwd(&cwd_str));
             let now = chrono::Utc::now();
             let session = Session {
                 id: session_id.clone(),
                 pid: pid.unwrap_or(0),
                 project,
-                cwd: cwd.unwrap_or_default(),
+                cwd: cwd_str.clone(),
                 branch,
                 started_at: now,
                 last_heartbeat: now,
@@ -203,7 +221,7 @@ async fn dispatch_event(
                 rate_limit_utilization: None,
                 rate_limit_type: None,
                 total_cost_usd: None,
-                model,
+                model: model.clone(),
             };
             let inserted = registry.register_adhoc(session, tmux_target.clone()).await;
             tracing::info!(
@@ -212,6 +230,16 @@ async fn dispatch_event(
                 tmux_target = ?tmux_target,
                 "socket: session_start"
             );
+            if let Some(tx) = lifecycle_tx {
+                let ev = LifecycleEvent::session_start(
+                    "local",
+                    project_code,
+                    &session_id,
+                    model,
+                    cwd_str,
+                );
+                let _ = tx.send(ev).await;
+            }
         }
 
         SocketEvent::SessionStop { session_id } => {
@@ -221,6 +249,10 @@ async fn dispatch_event(
                 removed,
                 "socket: session_stop"
             );
+            if let Some(tx) = lifecycle_tx {
+                let ev = LifecycleEvent::session_stop("local", "", &session_id, 0);
+                let _ = tx.send(ev).await;
+            }
         }
 
         SocketEvent::SessionHeartbeat { session_id } => {
@@ -328,8 +360,23 @@ async fn dispatch_event(
                 session_id = ?session_id,
                 agent_type = ?agent_type,
                 model = ?model,
-                "socket: agent_spawn (unrouted)"
+                "socket: agent_spawn"
             );
+            if let Some(tx) = lifecycle_tx {
+                let agent_type_str = agent_type.unwrap_or_else(|| "unknown".to_string());
+                // Find project from the active session if we have a session_id.
+                let project = if let Some(ref sid) = session_id {
+                    let all = registry.get_all().await;
+                    all.into_iter()
+                        .find(|s| &s.id == sid)
+                        .and_then(|s| s.project)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let ev = LifecycleEvent::agent_spawn("local", project, agent_type_str, model);
+                let _ = tx.send(ev).await;
+            }
         }
 
         SocketEvent::AgentComplete {
@@ -341,8 +388,29 @@ async fn dispatch_event(
                 session_id = ?session_id,
                 agent_type = ?agent_type,
                 duration_ms = ?duration_ms,
-                "socket: agent_complete (unrouted)"
+                "socket: agent_complete"
             );
+            if let Some(tx) = lifecycle_tx {
+                let agent_type_str = agent_type.unwrap_or_else(|| "unknown".to_string());
+                let project = if let Some(ref sid) = session_id {
+                    let all = registry.get_all().await;
+                    all.into_iter()
+                        .find(|s| &s.id == sid)
+                        .and_then(|s| s.project)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let ev = LifecycleEvent::agent_complete(
+                    "local",
+                    project,
+                    agent_type_str,
+                    duration_ms.unwrap_or(0),
+                    0,
+                    0,
+                );
+                let _ = tx.send(ev).await;
+            }
         }
 
         SocketEvent::Telemetry { payload } => {

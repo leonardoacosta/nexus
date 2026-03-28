@@ -1,0 +1,32 @@
+# Nexus Notification Configuration
+# Copy to ~/.config/nexus/notifications.toml and customize.
+#
+# Controls which lifecycle events generate TTS notifications on the Primary agent.
+# Only relevant when role = "primary" in agents.toml.
+
+[defaults]
+# Verbosity: "verbose" (full detail), "brief" (event type only), "silent" (suppress)
+verbosity = "brief"
+# Announce sub-agent spawns and completions
+announce_agents = false
+# Announce spec completions (all tasks done)
+announce_specs = true
+# Announce session start/stop
+announce_sessions = false
+# Always announce errors regardless of other settings
+announce_errors = true
+# Delivery channels: "tts", "apns", "banner"
+channels = ["tts"]
+
+# Per-project overrides. Unset fields inherit from [defaults].
+
+[projects.oo]
+verbosity = "verbose"
+announce_agents = true
+
+[projects.cc]
+verbosity = "brief"
+
+[projects.tl]
+# Silent: suppress all notifications for this project
+verbosity = "silent"

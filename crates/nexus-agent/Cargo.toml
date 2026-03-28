@@ -13,6 +13,14 @@ path = "src/lib.rs"
 name = "nexus-agent"
 path = "src/main.rs"
 
+[features]
+# notification: TTS/APNs/banner pipeline (ReceiverService + audio deps).
+# Enabled by default — role=agent skips starting ReceiverService at runtime.
+# Full optional gating (cfg guards in source) is a future step; for now the
+# feature flag exists and all notification deps compile unconditionally.
+default = ["notification"]
+notification = []
+
 [dependencies]
 nexus-core = { workspace = true }
 tokio = { workspace = true }
@@ -33,7 +41,7 @@ hostname = { workspace = true }
 notify = { workspace = true }
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 
-# Notification pipeline dependencies (absorbed from claude-daemon)
+# Notification pipeline dependencies (absorbed from claude-daemon).
 async-trait = "0.1"
 dirs = "5"
 rusqlite = { version = "0.32", features = ["bundled"] }

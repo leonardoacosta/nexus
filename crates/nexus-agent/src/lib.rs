@@ -1,9 +1,11 @@
 pub mod claude_utils;
 pub mod config;
 pub mod dispatch;
+pub mod event_forwarder;
 pub mod events;
 pub mod grpc;
 pub mod health;
+pub mod notification_engine;
 pub mod parser;
 pub mod registry;
 pub mod services;
