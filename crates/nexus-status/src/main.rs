@@ -317,7 +317,7 @@ fn get_api_usage() -> Option<UsageResponse> {
 
     // Fetch fresh
     let token = read_access_token()?;
-    let fresh = fetch_usage_curl(&token)?;
+    let fresh: UsageResponse = fetch_api_curl(&token, "https://api.anthropic.com/api/oauth/usage")?;
 
     // Write cache
     let cached = CachedUsage { fetched_at: now_secs(), data: fresh.clone() };
@@ -349,14 +349,14 @@ fn read_access_token() -> Option<String> {
     Some(oauth.access_token)
 }
 
-fn fetch_usage_curl(token: &str) -> Option<UsageResponse> {
+fn fetch_api_curl<T: serde::de::DeserializeOwned>(token: &str, endpoint: &str) -> Option<T> {
     let output = std::process::Command::new("curl")
         .args([
             "-s", "--max-time", "2",
             "-H", "Accept: application/json",
             "-H", &format!("Authorization: Bearer {}", token),
             "-H", "anthropic-beta: oauth-2025-04-20",
-            "https://api.anthropic.com/api/oauth/usage",
+            endpoint,
         ])
         .output()
         .ok()?;
@@ -365,6 +365,55 @@ fn fetch_usage_curl(token: &str) -> Option<UsageResponse> {
     let body = String::from_utf8(output.stdout).ok()?;
     if body.contains("\"error\"") { return None; }
     serde_json::from_str(&body).ok()
+}
+
+// ── Account domain ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ProfileResponse {
+    account: Option<ProfileAccount>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ProfileAccount {
+    email: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct CachedProfile {
+    fetched_at: u64,
+    domain: String,
+}
+
+const PROFILE_CACHE_TTL: u64 = 3600; // 1 hour — email doesn't change often
+
+/// Extract email domain from account profile. Cached for 1 hour.
+fn get_account_domain() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let cache_path = PathBuf::from(&home).join(".claude/scripts/state/profile-cache.json");
+
+    // Check cache
+    if let Ok(content) = fs::read_to_string(&cache_path) {
+        if let Ok(cached) = serde_json::from_str::<CachedProfile>(&content) {
+            if now_secs() - cached.fetched_at < PROFILE_CACHE_TTL {
+                return Some(cached.domain);
+            }
+        }
+    }
+
+    // Fetch fresh
+    let token = read_access_token()?;
+    let profile: ProfileResponse = fetch_api_curl(&token, "https://api.anthropic.com/api/oauth/profile")?;
+    let email = profile.account?.email?;
+    let domain = email.split('@').nth(1).unwrap_or(&email).to_string();
+
+    // Cache
+    let cached = CachedProfile { fetched_at: now_secs(), domain: domain.clone() };
+    if let Ok(json) = serde_json::to_string(&cached) {
+        let _ = fs::write(&cache_path, json);
+    }
+
+    Some(domain)
 }
 
 /// Parse ISO8601 timestamp (e.g. "2026-01-13T15:58:47.496Z") to unix seconds
@@ -452,6 +501,13 @@ fn main() {
         parts.push(format!("{DIM}◉{RESET}"));
     } else {
         parts.push(format!("{DIM}◌{RESET}"));
+    }
+
+    // Account domain (e.g., @gmail, @priceless, @leonardoacosta)
+    if let Some(domain) = get_account_domain() {
+        // Shorten common domains, show custom domains as-is
+        let short = domain.split('.').next().unwrap_or(&domain);
+        parts.push(format!("{DIM}@{short}{RESET}"));
     }
 
     // Project code
