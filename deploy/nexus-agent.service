@@ -11,5 +11,24 @@ RestartSec=5
 Environment=RUST_LOG=info
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 
+# Notification env vars (absorbed from retired claude-daemon)
+# Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, DOPPLER_TOKEN, etc.)
+EnvironmentFile=-%h/.env
+
+# Security hardening (matching claude-daemon)
+NoNewPrivileges=true
+# PrivateTmp disabled — nexus-agent exposes sockets in /tmp/ that CC hooks must access
+PrivateTmp=false
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.claude
+ReadWritePaths=%h/.local
+ReadWritePaths=/tmp
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+TasksMax=256
+
 [Install]
 WantedBy=default.target
