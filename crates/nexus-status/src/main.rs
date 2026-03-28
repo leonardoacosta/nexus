@@ -196,49 +196,74 @@ fn render_gauge(label: &str, pct: u8, suffix: &str) -> String {
     format!("{DIM}{label}{RESET} {color}{bar} {suffix}{RESET}")
 }
 
-fn render_session_usage(utilization: f64, resets_at: Option<&str>) -> String {
-    let remaining_pct = (100.0 - utilization).max(0.0) as u8;
-    let countdown = resets_at
+/// Calculate projected utilization at reset based on current burn rate.
+/// `window_secs` = total window duration, `remaining_secs` = time until reset.
+fn project_utilization(current: f64, window_secs: u64, remaining_secs: u64) -> f64 {
+    let elapsed = window_secs.saturating_sub(remaining_secs) as f64;
+    if elapsed < 60.0 || current < 0.1 {
+        return current; // not enough data to project
+    }
+    let burn_rate = current / elapsed; // % per second
+    (burn_rate * window_secs as f64).min(999.0)
+}
+
+/// Format the momentum arrow: ↗85% colored by projected risk.
+fn momentum_indicator(projected: f64) -> String {
+    if projected < 0.1 { return String::new(); }
+    let (arrow, color) = if projected >= 95.0 {
+        ("↑", CTX_LOW) // red — will hit limit
+    } else if projected >= 75.0 {
+        ("↗", CTX_MED) // orange — trending high
+    } else {
+        ("→", CTX_HIGH) // mint — safe pace
+    };
+    format!("{color}{arrow}{:.0}%{RESET}", projected)
+}
+
+fn render_usage_gauge(label: &str, utilization: f64, resets_at: Option<&str>, window_secs: u64) -> String {
+    let now = now_secs();
+    let remaining_secs = resets_at
         .and_then(|t| parse_timestamp(t))
-        .map(|target| {
-            let now = now_secs();
-            if target > now {
-                let rem = target - now;
-                format!("↻{}:{:02}h", rem / 3600, (rem % 3600) / 60)
-            } else {
-                "↻now".to_string()
-            }
-        })
-        .unwrap_or_else(|| block_reset_countdown_str());
-    let suffix = format!("{:.0}% {countdown}", utilization);
-    render_gauge("SES", remaining_pct, &suffix)
+        .map(|target| if target > now { target - now } else { 0 })
+        .unwrap_or(0);
+
+    let remaining_pct = (100.0 - utilization).max(0.0) as u8;
+    let projected = project_utilization(utilization, window_secs, remaining_secs);
+    let momentum = momentum_indicator(projected);
+
+    // Countdown string
+    let countdown = if remaining_secs == 0 {
+        "↻now".to_string()
+    } else if remaining_secs >= 86400 * 2 {
+        format!("↻{}d", remaining_secs / 86400)
+    } else {
+        format!("↻{}:{:02}h", remaining_secs / 3600, (remaining_secs % 3600) / 60)
+    };
+
+    let suffix = if momentum.is_empty() {
+        format!("{:.0}% {countdown}", utilization)
+    } else {
+        format!("{:.0}% {momentum} {countdown}", utilization)
+    };
+
+    // Color the gauge by PROJECTED risk, not just current usage
+    let gauge_pct = if projected >= 95.0 {
+        remaining_pct.min(20) // force red gauge
+    } else if projected >= 75.0 {
+        remaining_pct.min(40) // force orange gauge
+    } else {
+        remaining_pct
+    };
+
+    render_gauge(label, gauge_pct, &suffix)
+}
+
+fn render_session_usage(utilization: f64, resets_at: Option<&str>) -> String {
+    render_usage_gauge("SES", utilization, resets_at, 5 * 3600)
 }
 
 fn render_weekly_usage(utilization: f64, resets_at: Option<&str>) -> String {
-    let remaining_pct = (100.0 - utilization).max(0.0) as u8;
-    let countdown = resets_at
-        .and_then(|t| parse_timestamp(t))
-        .map(|target| {
-            let now = now_secs();
-            if target > now {
-                let rem = target - now;
-                if rem >= 86400 * 2 {
-                    format!("↻{}d", rem / 86400)
-                } else {
-                    format!("↻{}:{:02}h", rem / 3600, (rem % 3600) / 60)
-                }
-            } else {
-                "↻now".to_string()
-            }
-        })
-        .unwrap_or_else(|| weekly_reset_countdown());
-    let suffix = format!("{:.0}% {countdown}", utilization);
-    render_gauge("WKL", remaining_pct, &suffix)
-}
-
-fn block_reset_countdown_str() -> String {
-    let countdown = block_reset_countdown();
-    format!("↻{countdown}")
+    render_usage_gauge("WKL", utilization, resets_at, 7 * 86400)
 }
 
 // ── Anthropic Usage API ──────────────────────────────────────────────────────
