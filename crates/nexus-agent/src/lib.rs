@@ -1,7 +1,10 @@
+pub mod claude_utils;
+pub mod config;
 pub mod events;
 pub mod grpc;
 pub mod health;
 pub mod parser;
 pub mod registry;
+pub mod services;
 pub mod shutdown;
 pub mod socket;

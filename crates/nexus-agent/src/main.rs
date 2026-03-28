@@ -12,6 +12,7 @@ use nexus_agent::events;
 use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::registry::SessionRegistry;
+use nexus_agent::services;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
@@ -26,6 +27,34 @@ struct AppState {
     agent_name: String,
     agent_host: String,
     started_at: std::time::Instant,
+}
+
+/// Spawn a service and wire it to the cancellation token for shutdown.
+///
+/// Creates an mpsc channel (the claude-daemon shutdown pattern), then spawns
+/// a background task that sends `()` on the channel when the token is
+/// cancelled. The service task runs `service.start(rx)`.
+fn spawn_service<S>(service: S, token: tokio_util::sync::CancellationToken)
+where
+    S: services::Service + 'static,
+{
+    let name = service.name();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    // Watch for token cancellation and forward to mpsc channel.
+    tokio::spawn(async move {
+        token.cancelled().await;
+        let _ = shutdown_tx.send(()).await;
+    });
+
+    tokio::spawn(async move {
+        tracing::info!("service starting: {}", name);
+        if let Err(e) = service.start(shutdown_rx).await {
+            tracing::error!("service {} exited with error: {}", name, e);
+        } else {
+            tracing::info!("service stopped: {}", name);
+        }
+    });
 }
 
 #[tokio::main]
@@ -60,6 +89,53 @@ async fn main() -> Result<()> {
 
     // Create the shutdown coordinator shared between signal handler and gRPC service.
     let coordinator = Arc::new(ShutdownCoordinator::new());
+
+    // Start the notification receiver pipeline (TTS, APNs, dedup, etc.).
+    let receiver = nexus_agent::services::receiver::ReceiverService::new();
+    spawn_service(receiver, coordinator.token());
+
+    // Cross-platform background services.
+    spawn_service(
+        services::git_watch::GitWatchService::new(60),
+        coordinator.token(),
+    );
+    spawn_service(
+        services::sync_telemetry::SyncTelemetryService::new(),
+        coordinator.token(),
+    );
+    spawn_service(
+        services::credential_watcher::CredentialWatcherService::new(2),
+        coordinator.token(),
+    );
+
+    // Linux-only services.
+    #[cfg(target_os = "linux")]
+    {
+        spawn_service(
+            services::server_monitor::ServerMonitorService::new(
+                30,
+                services::server_monitor::ServerMonitorService::default_state_path(),
+            ),
+            coordinator.token(),
+        );
+        spawn_service(
+            services::systemd_health::SystemdHealthService::new(30),
+            coordinator.token(),
+        );
+    }
+
+    // macOS-only services.
+    #[cfg(target_os = "macos")]
+    {
+        spawn_service(
+            services::launchd_health::LaunchdHealthService::new(60),
+            coordinator.token(),
+        );
+        spawn_service(
+            services::macos_integration::MacOSIntegrationService::new(30),
+            coordinator.token(),
+        );
+    }
 
     // Build the gRPC service.
     let service = NexusAgentService::new(
@@ -129,7 +205,21 @@ async fn main() -> Result<()> {
         socket_path.display()
     );
 
-    // Run all three services concurrently. If any exits, the others are dropped.
+    // Notify systemd that the service is ready (Linux only).
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(notify_socket) = std::env::var("NOTIFY_SOCKET") {
+            if !notify_socket.is_empty() {
+                use std::os::unix::net::UnixDatagram;
+                if let Ok(sock) = UnixDatagram::unbound() {
+                    let _ = sock.send_to(b"READY=1", &notify_socket);
+                    tracing::info!("sd_notify: READY=1 sent");
+                }
+            }
+        }
+    }
+
+    // Run all core services concurrently. If any exits, the others are dropped.
     tokio::select! {
         result = grpc_server => {
             if let Err(e) = result {
