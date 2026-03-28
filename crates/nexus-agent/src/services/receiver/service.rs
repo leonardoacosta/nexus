@@ -245,14 +245,6 @@ pub struct HealthResponse {
 /// Maximum number of notification records kept in the history ring buffer
 const NOTIFICATION_HISTORY_CAPACITY: usize = 20;
 
-/// Default Unix socket path for local notification delivery
-const DEFAULT_SOCKET_PATH: &str = "/tmp/claude-notify.sock";
-
-/// Get the socket path from env var or use the default
-fn get_socket_path() -> String {
-    env::var("CLAUDE_NOTIFY_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string())
-}
-
 /// An extended message stored in the in-memory message store
 #[derive(Debug, Clone, Serialize)]
 pub struct StoredMessage {
@@ -449,6 +441,142 @@ impl ReceiverService {
         config.server.port = port;
         let svc = Self::with_config(config);
         svc
+    }
+
+    // ── Public socket-callable API ──────────────────────────────────────────
+
+    /// Route a notification through the full speak pipeline (dedup, buffer, TTS, APNs, banner).
+    ///
+    /// Called by the Unix socket listener when a `SocketEvent::Notification` arrives.
+    /// Reuses the existing `handle_request("POST", "/speak", ...)` path — no logic is
+    /// duplicated.
+    pub async fn speak_from_socket(
+        &self,
+        message: &str,
+        message_type: Option<&str>,
+        channels: Option<&[String]>,
+    ) {
+        // Build a minimal SpeakRequest JSON so we can reuse handle_request's pipeline.
+        let mut map = serde_json::Map::new();
+        map.insert("message".into(), serde_json::Value::String(message.to_string()));
+        if let Some(mt) = message_type {
+            map.insert("message_type".into(), serde_json::Value::String(mt.to_string()));
+        }
+        if let Some(chs) = channels {
+            let ch_vals: Vec<serde_json::Value> = chs
+                .iter()
+                .map(|c| serde_json::Value::String(c.clone()))
+                .collect();
+            map.insert("channels".into(), serde_json::Value::Array(ch_vals));
+        }
+        let body = match serde_json::to_vec(&serde_json::Value::Object(map)) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!("speak_from_socket: failed to serialize request: {}", e);
+                return;
+            }
+        };
+        let (status, _, _) =
+            Self::handle_request("POST", "/speak", &body, Arc::clone(&self.state)).await;
+        if status >= 400 {
+            warn!("speak_from_socket: handle_request returned status {}", status);
+        }
+    }
+
+    /// Query the current notification mode. Returns a JSON string.
+    pub fn mode_query_json(&self) -> String {
+        let mode = crate::claude_utils::notification_mode::get_notification_mode();
+        serde_json::json!({ "mode": mode.to_string() }).to_string()
+    }
+
+    /// Set the notification mode by name. Returns a JSON result string.
+    pub fn mode_set_json(&self, mode_str: &str) -> String {
+        match mode_str.parse::<crate::claude_utils::notification_mode::NotificationMode>() {
+            Ok(new_mode) => {
+                let previous = crate::claude_utils::notification_mode::get_notification_mode();
+                match crate::claude_utils::notification_mode::set_notification_mode(
+                    new_mode,
+                    "socket_command",
+                ) {
+                    Ok(()) => serde_json::json!({
+                        "mode": new_mode.to_string(),
+                        "previous": previous.to_string(),
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            Err(e) => serde_json::json!({ "error": format!("invalid mode: {}", e) }).to_string(),
+        }
+    }
+
+    /// Cycle to the next notification mode. Returns a JSON result string.
+    pub fn mode_cycle_json(&self) -> String {
+        let previous = crate::claude_utils::notification_mode::get_notification_mode();
+        match crate::claude_utils::notification_mode::cycle_notification_mode() {
+            Ok(new_mode) => serde_json::json!({
+                "mode": new_mode.to_string(),
+                "previous": previous.to_string(),
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Return recent notification history as a JSON array string.
+    pub async fn history_json(&self, limit: Option<usize>) -> String {
+        let state_guard = self.state.read().await;
+        let history_guard = state_guard.notification_history.lock().unwrap();
+        let records: Vec<_> = history_guard
+            .iter()
+            .rev()
+            .take(limit.unwrap_or(NOTIFICATION_HISTORY_CAPACITY))
+            .collect();
+        serde_json::to_string(&records).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Set per-type notification mode override. Returns a JSON result string.
+    pub fn type_set_json(&self, type_name: &str, mode_str: &str) -> String {
+        use crate::claude_utils::notification_config::{
+            TypeConfig, load_notification_config, save_notification_config,
+        };
+        match mode_str.parse::<crate::claude_utils::notification_mode::NotificationMode>() {
+            Ok(mode) => {
+                let mut config = load_notification_config();
+                let types = config.types.get_or_insert_with(Default::default);
+                types.insert(
+                    type_name.to_string(),
+                    TypeConfig {
+                        mode: Some(mode),
+                        ..Default::default()
+                    },
+                );
+                match save_notification_config(&config) {
+                    Ok(()) => serde_json::json!({
+                        "type": type_name,
+                        "mode": mode.to_string(),
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            Err(e) => serde_json::json!({ "error": format!("invalid mode: {}", e) }).to_string(),
+        }
+    }
+
+    /// Clear per-type notification mode override. Returns a JSON result string.
+    pub fn type_clear_json(&self, type_name: &str) -> String {
+        use crate::claude_utils::notification_config::{
+            load_notification_config, save_notification_config,
+        };
+        let mut config = load_notification_config();
+        if let Some(types) = config.types.as_mut() {
+            types.remove(type_name);
+        }
+        match save_notification_config(&config) {
+            Ok(()) => serde_json::json!({ "cleared": type_name }).to_string(),
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
     }
 
     /// Generate TTS audio using ElevenLabs API
@@ -1349,8 +1477,9 @@ end tell"#,
                     .map(|start| (Utc::now() - start).num_seconds().max(0) as u64)
                     .unwrap_or(0);
 
-                // Socket status
-                let socket_path = get_socket_path();
+                // Socket status — report nexus-agent unified socket (claude-notify.sock removed)
+                let socket_path = std::env::var("NEXUS_SOCKET")
+                    .unwrap_or_else(|_| "/tmp/nexus-agent.sock".to_string());
                 let socket_exists = std::path::Path::new(&socket_path).exists();
 
                 // Channel availability
@@ -2341,6 +2470,23 @@ impl Default for ReceiverService {
     }
 }
 
+/// Allow `spawn_service(Arc::clone(&receiver), ...)` so main.rs can keep an
+/// Arc reference to forward socket notifications without cloning the whole service.
+#[async_trait::async_trait]
+impl Service for Arc<ReceiverService> {
+    fn name(&self) -> &'static str {
+        "tts_receiver"
+    }
+
+    async fn start(&self, shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
+        ReceiverService::start(self, shutdown_rx).await
+    }
+
+    async fn health_check(&self) -> bool {
+        ReceiverService::health_check(self).await
+    }
+}
+
 #[async_trait::async_trait]
 impl Service for ReceiverService {
     fn name(&self) -> &'static str {
@@ -2353,32 +2499,10 @@ impl Service for ReceiverService {
         let listener = TcpListener::bind(addr).await?;
 
         info!("TTS Receiver listening on http://0.0.0.0:{}", self.port);
-
-        // Start Unix domain socket listener for sub-millisecond local delivery
-        #[cfg(unix)]
-        let socket_path = get_socket_path();
-        #[cfg(unix)]
-        {
-            // Clean up stale socket from crashed daemon
-            let sock_path = std::path::Path::new(&socket_path);
-            if sock_path.exists() {
-                info!("Removing stale socket file: {}", socket_path);
-                let _ = std::fs::remove_file(sock_path);
-            }
-            match UnixListener::bind(&socket_path) {
-                Ok(unix_listener) => {
-                    info!("TTS Receiver listening on socket: {}", socket_path);
-                    let state_for_socket = Arc::clone(&self.state);
-                    tokio::spawn(async move {
-                        Self::run_socket_listener(unix_listener, state_for_socket).await;
-                    });
-                }
-                Err(e) => {
-                    error!("Failed to bind Unix socket at {}: {}", socket_path, e);
-                    // Continue without socket — HTTP still works
-                }
-            }
-        }
+        // Note: Unix domain socket (/tmp/claude-notify.sock) has been removed.
+        // Notifications are now routed through the nexus-agent main socket
+        // (/tmp/nexus-agent.sock) and forwarded to ReceiverService via
+        // speak_from_socket(). HTTP on port 9999 remains for backward compat.
 
         // Spawn the serial playback queue
         let queue_depth = self.config.playback_queue.max_depth;
@@ -2442,16 +2566,6 @@ impl Service for ReceiverService {
                         }
                     }
                 }
-            }
-        }
-
-        // Shutdown sequence: clean up socket file
-        #[cfg(unix)]
-        {
-            let sock_path = std::path::Path::new(&socket_path);
-            if sock_path.exists() {
-                info!("Removing socket file on shutdown: {}", socket_path);
-                let _ = std::fs::remove_file(sock_path);
             }
         }
 

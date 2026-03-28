@@ -1,6 +1,32 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Commands sent to nexus-agent that expect a JSON response on the same connection.
+///
+/// Unlike `SocketEvent` (fire-and-forget), commands are request/response: the
+/// agent writes a JSON reply before closing the connection.
+///
+/// The `command` field acts as a discriminant tag.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "command", rename_all = "snake_case")]
+pub enum SocketCommand {
+    /// Query the current notification mode.
+    ModeQuery,
+    /// Set the notification mode by name (full, system, noduck, silent).
+    ModeSet { mode: String },
+    /// Cycle to the next notification mode.
+    ModeCycle,
+    /// Retrieve recent notification history.
+    History {
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Override the notification mode for a specific notification type.
+    TypeSet { name: String, mode: String },
+    /// Clear the per-type notification mode override.
+    TypeClear { name: String },
+}
+
 /// Events emitted by Claude Code hooks via the Unix domain socket.
 ///
 /// Each event is a single line of newline-delimited JSON. The `event` field

@@ -13,6 +13,7 @@ use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
+use nexus_agent::services::receiver::ReceiverService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
@@ -91,8 +92,9 @@ async fn main() -> Result<()> {
     let coordinator = Arc::new(ShutdownCoordinator::new());
 
     // Start the notification receiver pipeline (TTS, APNs, dedup, etc.).
-    let receiver = nexus_agent::services::receiver::ReceiverService::new();
-    spawn_service(receiver, coordinator.token());
+    // Keep an Arc so the socket listener can forward Notification events.
+    let receiver = Arc::new(ReceiverService::new());
+    spawn_service(Arc::clone(&receiver), coordinator.token());
 
     // Cross-platform background services.
     spawn_service(
@@ -197,8 +199,10 @@ async fn main() -> Result<()> {
     tracing::info!("HTTP health server listening on {}", http_addr);
 
     // Spawn the Unix domain socket service for hook event ingestion.
+    // The receiver handle lets the socket listener forward Notification events
+    // directly into the TTS/APNs/banner pipeline without going through HTTP.
     let socket_registry = Arc::clone(&registry);
-    let socket_service = socket::run_socket_service(socket_registry, socket_cancel);
+    let socket_service = socket::run_socket_service(socket_registry, Arc::clone(&receiver), socket_cancel);
 
     tracing::info!(
         "listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT} socket={}",

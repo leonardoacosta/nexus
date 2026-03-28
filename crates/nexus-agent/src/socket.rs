@@ -6,21 +6,24 @@
 //! 1. Resolves and validates the socket path (stale-socket cleanup).
 //! 2. Binds a `UnixListener` and accepts connections in a loop.
 //! 3. Spawns a task per connection that reads lines and dispatches events
-//!    to the `SessionRegistry`.
-//! 4. Shuts down cleanly on cancellation, removing the socket file.
+//!    to the `SessionRegistry` or forwards notifications to `ReceiverService`.
+//! 4. Handles `SocketCommand` messages (mode query/set/cycle, history, type
+//!    overrides) by writing a JSON response on the same connection.
+//! 5. Shuts down cleanly on cancellation, removing the socket file.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use nexus_core::session::{Session, SessionStatus};
-use nexus_core::socket_event::SocketEvent;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use nexus_core::socket_event::{SocketCommand, SocketEvent};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio_util::sync::CancellationToken;
 
 use crate::dispatch::dispatch_answer;
 use crate::registry::SessionRegistry;
+use crate::services::receiver::ReceiverService;
 
 /// Default socket path, overridable via `NEXUS_SOCKET` env var.
 const DEFAULT_SOCKET_PATH: &str = "/tmp/nexus-agent.sock";
@@ -64,6 +67,7 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
 /// Exits when `cancel` is triggered. The socket file is removed on exit.
 pub async fn run_socket_service(
     registry: Arc<SessionRegistry>,
+    receiver: Arc<ReceiverService>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let path = socket_path();
@@ -87,7 +91,8 @@ pub async fn run_socket_service(
                 match accept_result {
                     Ok((stream, _addr)) => {
                         let reg = Arc::clone(&registry);
-                        tokio::spawn(handle_connection(stream, reg));
+                        let recv = Arc::clone(&receiver);
+                        tokio::spawn(handle_connection(stream, reg, recv));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -109,11 +114,20 @@ pub async fn run_socket_service(
     Ok(())
 }
 
-/// Read newline-delimited JSON events from a single connection and dispatch
-/// each to the registry. The connection is held open; multiple events can
-/// arrive on the same stream.
-async fn handle_connection(stream: UnixStream, registry: Arc<SessionRegistry>) {
-    let reader = BufReader::new(stream);
+/// Read newline-delimited JSON from a single connection.
+///
+/// Each line is tried first as a `SocketEvent` (fire-and-forget), then as a
+/// `SocketCommand` (request/response — JSON reply written before closing).
+/// Multiple events can arrive on the same stream before EOF.
+async fn handle_connection(
+    stream: UnixStream,
+    registry: Arc<SessionRegistry>,
+    receiver: Arc<ReceiverService>,
+) {
+    // Split into reader/writer halves so we can both read lines and write
+    // command responses on the same stream.
+    let (read_half, mut write_half) = stream.into_split();
+    let reader = BufReader::new(read_half);
     let mut lines = reader.lines();
 
     loop {
@@ -123,12 +137,23 @@ async fn handle_connection(stream: UnixStream, registry: Arc<SessionRegistry>) {
                 if line.is_empty() {
                     continue;
                 }
-                match serde_json::from_str::<SocketEvent>(&line) {
-                    Ok(event) => dispatch_event(event, &registry).await,
-                    Err(e) => {
-                        tracing::warn!(error = %e, raw = %line, "failed to parse socket event");
-                    }
+                // Try SocketEvent first (most common path — hooks fire-and-forget)
+                if let Ok(event) = serde_json::from_str::<SocketEvent>(&line) {
+                    dispatch_event(event, &registry, &receiver).await;
+                    continue;
                 }
+                // Try SocketCommand (query/mutate — expects a JSON response)
+                if let Ok(cmd) = serde_json::from_str::<SocketCommand>(&line) {
+                    let response = dispatch_command(cmd, &receiver).await;
+                    let mut response_line = response;
+                    response_line.push('\n');
+                    if let Err(e) = write_half.write_all(response_line.as_bytes()).await {
+                        tracing::warn!(error = %e, "socket: failed to write command response");
+                    }
+                    // Commands are single-shot: close after response.
+                    break;
+                }
+                tracing::warn!(raw = %line, "socket: unrecognised JSON (not event or command)");
             }
             Ok(None) => {
                 // EOF — client closed the connection.
@@ -142,8 +167,12 @@ async fn handle_connection(stream: UnixStream, registry: Arc<SessionRegistry>) {
     }
 }
 
-/// Route a parsed `SocketEvent` to the appropriate registry method.
-async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
+/// Route a parsed `SocketEvent` to the appropriate handler.
+async fn dispatch_event(
+    event: SocketEvent,
+    registry: &Arc<SessionRegistry>,
+    receiver: &Arc<ReceiverService>,
+) {
     match event {
         SocketEvent::SessionStart {
             session_id,
@@ -215,8 +244,14 @@ async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
                 message_type = message_type.as_deref().unwrap_or("brief"),
                 channels = ?channels,
                 has_question = question.is_some(),
-                "socket: notification"
+                "socket: notification — forwarding to ReceiverService"
             );
+
+            // Forward to the TTS/APNs/banner pipeline.
+            let ch_slice: Option<&[String]> = channels.as_deref();
+            receiver
+                .speak_from_socket(&message, message_type.as_deref(), ch_slice)
+                .await;
 
             // If this notification carries a question, record it in the
             // registry so that incoming iMessage answers can be auto-routed.
@@ -311,7 +346,40 @@ async fn dispatch_event(event: SocketEvent, registry: &Arc<SessionRegistry>) {
         }
 
         SocketEvent::Telemetry { payload } => {
-            tracing::debug!(keys = ?payload.keys().collect::<Vec<_>>(), "socket: telemetry (unrouted)");
+            tracing::debug!(
+                keys = ?payload.keys().collect::<Vec<_>>(),
+                "socket: telemetry (unrouted)"
+            );
+        }
+    }
+}
+
+/// Execute a `SocketCommand` and return a JSON response string.
+async fn dispatch_command(cmd: SocketCommand, receiver: &Arc<ReceiverService>) -> String {
+    match cmd {
+        SocketCommand::ModeQuery => {
+            tracing::debug!("socket: command mode_query");
+            receiver.mode_query_json()
+        }
+        SocketCommand::ModeSet { mode } => {
+            tracing::info!(mode = %mode, "socket: command mode_set");
+            receiver.mode_set_json(&mode)
+        }
+        SocketCommand::ModeCycle => {
+            tracing::info!("socket: command mode_cycle");
+            receiver.mode_cycle_json()
+        }
+        SocketCommand::History { limit } => {
+            tracing::debug!(limit = ?limit, "socket: command history");
+            receiver.history_json(limit).await
+        }
+        SocketCommand::TypeSet { name, mode } => {
+            tracing::info!(type_name = %name, mode = %mode, "socket: command type_set");
+            receiver.type_set_json(&name, &mode)
+        }
+        SocketCommand::TypeClear { name } => {
+            tracing::info!(type_name = %name, "socket: command type_clear");
+            receiver.type_clear_json(&name)
         }
     }
 }
