@@ -4,3 +4,4 @@ pub mod health;
 pub mod parser;
 pub mod registry;
 pub mod shutdown;
+pub mod socket;

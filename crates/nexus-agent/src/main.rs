@@ -13,6 +13,7 @@ use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::shutdown::ShutdownCoordinator;
+use nexus_agent::socket;
 
 const GRPC_PORT: u16 = 7400;
 const HTTP_PORT: u16 = 7401;
@@ -41,6 +42,11 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "unknown".into());
     let agent_name = agent_host.clone();
 
+    // Stale socket cleanup: remove leftover socket file from a previous
+    // crash, or bail if another instance is already running.
+    let socket_path = socket::socket_path();
+    socket::cleanup_stale_socket(&socket_path).await?;
+
     // Initialize the event broadcast channel (capacity 256).
     let event_broadcaster = Arc::new(events::EventBroadcaster::new(256));
 
@@ -67,6 +73,9 @@ async fn main() -> Result<()> {
 
     let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
     tracing::info!("gRPC server listening on {}", grpc_addr);
+
+    // Cancellation token for socket service — cancelled when the agent shuts down.
+    let socket_cancel = coordinator.token();
 
     let shutdown_coordinator = Arc::clone(&coordinator);
     let grpc_server = Server::builder()
@@ -96,7 +105,7 @@ async fn main() -> Result<()> {
 
     // Build the HTTP health server on port 7401.
     let app_state = AppState {
-        registry,
+        registry: Arc::clone(&registry),
         health: health_collector,
         agent_name,
         agent_host,
@@ -111,9 +120,16 @@ async fn main() -> Result<()> {
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     tracing::info!("HTTP health server listening on {}", http_addr);
 
-    tracing::info!("listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT}");
+    // Spawn the Unix domain socket service for hook event ingestion.
+    let socket_registry = Arc::clone(&registry);
+    let socket_service = socket::run_socket_service(socket_registry, socket_cancel);
 
-    // Run both servers concurrently. If either exits, the other will be dropped.
+    tracing::info!(
+        "listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT} socket={}",
+        socket_path.display()
+    );
+
+    // Run all three services concurrently. If any exits, the others are dropped.
     tokio::select! {
         result = grpc_server => {
             if let Err(e) = result {
@@ -123,6 +139,11 @@ async fn main() -> Result<()> {
         result = axum::serve(http_listener, http_app).into_future() => {
             if let Err(e) = result {
                 tracing::error!("HTTP health server error: {}", e);
+            }
+        }
+        result = socket_service => {
+            if let Err(e) = result {
+                tracing::error!("socket service error: {}", e);
             }
         }
     }
