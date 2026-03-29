@@ -299,15 +299,17 @@ async fn dispatch_event(
                 "socket: notification"
             );
 
+            // Default channels to ["tts"] when not specified
+            let effective_channels = channels.unwrap_or_else(|| vec!["tts".to_string()]);
+
             if peer_relay_urls.is_empty() {
                 // role=primary: handle locally via ReceiverService
-                let ch_slice: Option<&[String]> = channels.as_deref();
                 receiver
-                    .speak_from_socket(&message, message_type.as_deref(), ch_slice)
+                    .speak_from_socket(&message, message_type.as_deref(), Some(&effective_channels))
                     .await;
             } else {
                 // role=agent: relay to primary peer(s) via HTTP
-                relay_notification_to_peers(peer_relay_urls, &message, message_type.as_deref(), channels.as_deref()).await;
+                relay_notification_to_peers(peer_relay_urls, &message, message_type.as_deref(), Some(&effective_channels)).await;
             }
 
             // Track pending questions regardless of role
