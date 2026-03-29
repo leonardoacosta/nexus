@@ -65,6 +65,11 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// URLs of peer agents to relay notifications to when this agent has role=agent.
+/// e.g., `["http://macbook-pro:9999"]` — the primary's ReceiverService HTTP port.
+/// Empty when role=primary (we handle notifications locally).
+pub type PeerRelayUrls = Vec<String>;
+
 /// Bind the Unix domain socket and run the accept loop.
 ///
 /// Exits when `cancel` is triggered. The socket file is removed on exit.
@@ -75,12 +80,16 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
 ///
 /// `notification_config`: if `Some`, `notification_rules` and `notification_set`
 /// socket commands are handled. Pass `None` when running in `role = agent` mode.
+///
+/// `peer_relay_urls`: when role=agent, Notification and DeployStatus events are
+/// relayed via HTTP POST to these URLs (the primary's /speak endpoint).
 pub async fn run_socket_service(
     registry: Arc<SessionRegistry>,
     receiver: Arc<ReceiverService>,
     cancel: CancellationToken,
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
+    peer_relay_urls: PeerRelayUrls,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -106,7 +115,8 @@ pub async fn run_socket_service(
                         let recv = Arc::clone(&receiver);
                         let tx = lifecycle_tx.clone();
                         let notif_cfg = notification_config.clone();
-                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg));
+                        let relay = peer_relay_urls.clone();
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -139,6 +149,7 @@ async fn handle_connection(
     receiver: Arc<ReceiverService>,
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
+    peer_relay_urls: PeerRelayUrls,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -155,7 +166,7 @@ async fn handle_connection(
                 }
                 // Try SocketEvent first (most common path — hooks fire-and-forget)
                 if let Ok(event) = serde_json::from_str::<SocketEvent>(&line) {
-                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref()).await;
+                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref(), &peer_relay_urls).await;
                     continue;
                 }
                 // Try SocketCommand (query/mutate — expects a JSON response)
@@ -192,6 +203,7 @@ async fn dispatch_event(
     registry: &Arc<SessionRegistry>,
     receiver: &Arc<ReceiverService>,
     lifecycle_tx: Option<&mpsc::Sender<LifecycleEvent>>,
+    peer_relay_urls: &[String],
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -283,17 +295,22 @@ async fn dispatch_event(
                 message_type = message_type.as_deref().unwrap_or("brief"),
                 channels = ?channels,
                 has_question = question.is_some(),
-                "socket: notification — forwarding to ReceiverService"
+                relay_peers = peer_relay_urls.len(),
+                "socket: notification"
             );
 
-            // Forward to the TTS/APNs/banner pipeline.
-            let ch_slice: Option<&[String]> = channels.as_deref();
-            receiver
-                .speak_from_socket(&message, message_type.as_deref(), ch_slice)
-                .await;
+            if peer_relay_urls.is_empty() {
+                // role=primary: handle locally via ReceiverService
+                let ch_slice: Option<&[String]> = channels.as_deref();
+                receiver
+                    .speak_from_socket(&message, message_type.as_deref(), ch_slice)
+                    .await;
+            } else {
+                // role=agent: relay to primary peer(s) via HTTP
+                relay_notification_to_peers(peer_relay_urls, &message, message_type.as_deref(), channels.as_deref()).await;
+            }
 
-            // If this notification carries a question, record it in the
-            // registry so that incoming iMessage answers can be auto-routed.
+            // Track pending questions regardless of role
             if let (Some(q), Some(sid)) = (question, notif_session_id) {
                 registry.set_pending_question(&sid, q).await;
             }
@@ -443,25 +460,88 @@ async fn dispatch_event(
                 "socket: deploy_status"
             );
 
-            // Forward to notification engine as a lifecycle event
-            if let Some(ref tx) = lifecycle_tx {
-                use nexus_core::lifecycle::LifecycleEventKind;
-                let detail = if msg.is_empty() {
-                    format!("{} {} on {}", service_str, status, target_str)
-                } else {
-                    msg.to_string()
-                };
-                let _ = tx.send(LifecycleEvent {
-                    source_agent: target_str.to_string(),
-                    project: project.clone(),
-                    kind: LifecycleEventKind::Notification {
-                        message: format!("{} deploy: {}", project.to_uppercase(), detail),
-                        channels: vec!["tts".to_string()],
-                        message_type: "brief".to_string(),
-                    },
-                }).await;
+            let detail = if msg.is_empty() {
+                format!("{} {} on {}", service_str, status, target_str)
+            } else {
+                msg.to_string()
+            };
+            let deploy_msg = format!("{} deploy: {}", project.to_uppercase(), detail);
+
+            if peer_relay_urls.is_empty() {
+                // role=primary: forward to notification engine
+                if let Some(ref tx) = lifecycle_tx {
+                    use nexus_core::lifecycle::LifecycleEventKind;
+                    let _ = tx.send(LifecycleEvent {
+                        source_agent: target_str.to_string(),
+                        project: project.clone(),
+                        kind: LifecycleEventKind::Notification {
+                            message: deploy_msg,
+                            channels: vec!["tts".to_string()],
+                            message_type: "brief".to_string(),
+                        },
+                    }).await;
+                }
+            } else {
+                // role=agent: relay to primary
+                relay_notification_to_peers(peer_relay_urls, &deploy_msg, Some("brief"), Some(&["tts".to_string()])).await;
             }
         }
+    }
+}
+
+/// Relay a notification to peer agents via HTTP POST to their /speak endpoint.
+/// Fire-and-forget — errors are logged but don't block.
+async fn relay_notification_to_peers(
+    peer_urls: &[String],
+    message: &str,
+    message_type: Option<&str>,
+    channels: Option<&[String]>,
+) {
+    let body = serde_json::json!({
+        "message": message,
+        "type": message_type.unwrap_or("brief"),
+        "channels": channels.unwrap_or(&[]),
+    });
+    let body_str = body.to_string();
+
+    for url in peer_urls {
+        let speak_url = format!("{}/speak", url);
+        let body_clone = body_str.clone();
+        // Spawn per-peer to avoid blocking on slow/unreachable peers
+        tokio::spawn(async move {
+            match reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+            {
+                Ok(client) => {
+                    match client
+                        .post(&speak_url)
+                        .header("content-type", "application/json")
+                        .body(body_clone)
+                        .send()
+                        .await
+                    {
+                        Ok(resp) => {
+                            tracing::info!(
+                                url = %speak_url,
+                                status = %resp.status(),
+                                "relay: notification forwarded to peer"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                url = %speak_url,
+                                error = %e,
+                                "relay: failed to forward notification to peer"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "relay: failed to build HTTP client");
+                }
+            }
+        });
     }
 }
 

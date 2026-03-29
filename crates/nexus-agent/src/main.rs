@@ -280,10 +280,23 @@ async fn main() -> Result<()> {
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     tracing::info!("HTTP health server listening on {}", http_addr);
 
+    // Build peer relay URLs for agent role: forward notifications to primary's HTTP port 9999.
+    let peer_relay_urls: socket::PeerRelayUrls = if role == AgentRole::Agent {
+        nexus_config
+            .peers(nexus_config.self_name.as_deref().unwrap_or("unknown"))
+            .iter()
+            .map(|peer| format!("http://{}:9999", peer.host))
+            .collect()
+    } else {
+        vec![] // primary handles locally
+    };
+    if !peer_relay_urls.is_empty() {
+        tracing::info!(peers = ?peer_relay_urls, "notification relay configured (role=agent)");
+    }
+
     // Spawn the Unix domain socket service for hook event ingestion.
-    // The receiver handle lets the socket listener forward Notification events
-    // directly into the TTS/APNs/banner pipeline without going through HTTP.
-    // On role=primary, lifecycle events are also forwarded to NotificationEngine.
+    // role=primary: notifications handled locally via ReceiverService
+    // role=agent: notifications relayed to primary peer via HTTP
     let socket_registry = Arc::clone(&registry);
     let socket_service = socket::run_socket_service(
         socket_registry,
@@ -291,6 +304,7 @@ async fn main() -> Result<()> {
         socket_cancel,
         lifecycle_tx,
         notification_config_arc,
+        peer_relay_urls,
     );
 
     tracing::info!(
