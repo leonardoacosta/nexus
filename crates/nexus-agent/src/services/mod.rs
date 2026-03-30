@@ -25,6 +25,7 @@ pub mod git_watch;
 pub mod imessage_reader;
 pub mod launchd_health;
 pub mod macos_integration;
+pub mod project_status;
 pub mod receiver;
 pub mod sync_telemetry;
 
