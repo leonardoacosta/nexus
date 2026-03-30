@@ -37,6 +37,9 @@ pub struct NexusConfig {
     /// Name of this agent (must match one entry in `agents`). Defaults to hostname.
     #[serde(default)]
     pub self_name: Option<String>,
+    /// Session pool configuration. Omit to use defaults.
+    #[serde(default)]
+    pub pool: Option<PoolConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +169,46 @@ impl NotificationConfig {
     pub fn rules_for(&self, project: &str) -> &ProjectNotificationRules {
         self.projects.get(project).unwrap_or(&self.defaults)
     }
+}
+
+/// Configuration for the session pool — warm Claude Code sessions per project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolConfig {
+    /// Whether the session pool is enabled.
+    #[serde(default = "default_pool_enabled")]
+    pub enabled: bool,
+    /// Maximum number of pooled sessions across all projects.
+    #[serde(default = "default_max_sessions")]
+    pub max_sessions: usize,
+    /// How long (in minutes) a session can be idle before eviction.
+    #[serde(default = "default_idle_timeout_minutes")]
+    pub idle_timeout_minutes: u64,
+    /// Project codes to pre-warm on agent startup (e.g. ["oo", "nx"]).
+    #[serde(default)]
+    pub warmup_on_startup: Vec<String>,
+}
+
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pool_enabled(),
+            max_sessions: default_max_sessions(),
+            idle_timeout_minutes: default_idle_timeout_minutes(),
+            warmup_on_startup: Vec::new(),
+        }
+    }
+}
+
+fn default_pool_enabled() -> bool {
+    true
+}
+
+fn default_max_sessions() -> usize {
+    5
+}
+
+fn default_idle_timeout_minutes() -> u64 {
+    15
 }
 
 fn dirs_path() -> PathBuf {
