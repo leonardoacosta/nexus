@@ -348,6 +348,50 @@ message ProjectStatusResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Command Registry
+// ---------------------------------------------------------------------------
+
+enum CommandTier {
+  COMMAND_TIER_UNSPECIFIED = 0;
+  COMMAND_TIER_STATUS = 1;
+  COMMAND_TIER_ANALYSIS = 2;
+  COMMAND_TIER_ACTION = 3;
+}
+
+enum CostCategory {
+  COST_CATEGORY_UNSPECIFIED = 0;
+  COST_CATEGORY_MINIMAL = 1;
+  COST_CATEGORY_LOW = 2;
+  COST_CATEGORY_MEDIUM = 3;
+  COST_CATEGORY_HIGH = 4;
+}
+
+message CommandInfoProto {
+  string name = 1;
+  string namespace = 2;
+  string full_name = 3;
+  string description = 4;
+  CommandTier tier = 5;
+  CostCategory cost = 6;
+}
+
+message ListCommandsRequest {
+  optional string namespace = 1;
+  optional CommandTier tier = 2;
+}
+
+message ListCommandsResponse {
+  repeated CommandInfoProto commands = 1;
+}
+
+message RunProjectCommandRequest {
+  string project = 1;
+  string command = 2;
+  repeated string args = 3;
+  bool fresh_session = 4;
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -365,4 +409,6 @@ service NexusAgent {
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   rpc GetProjectStatus(ProjectStatusRequest) returns (ProjectStatusResponse);
+  rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
+  rpc RunProjectCommand(RunProjectCommandRequest) returns (stream CommandOutput);
 }
