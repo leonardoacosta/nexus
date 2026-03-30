@@ -336,6 +336,28 @@ impl SessionPool {
         }
     }
 
+    /// Update the session ID for a project's pool entry.
+    ///
+    /// Called after a real CC session is spawned for a `Warming` placeholder
+    /// so the pool tracks the actual session ID going forward.
+    pub async fn set_session_id(&self, project_code: &str, session_id: String) {
+        let mut sessions = self.inner.sessions.write().await;
+        if let Some(session) = sessions.get_mut(project_code) {
+            debug!(
+                project = project_code,
+                old_id = %session.session_id,
+                new_id = %session_id,
+                "Updating pool entry with real session ID"
+            );
+            session.session_id = session_id;
+        } else {
+            warn!(
+                project = project_code,
+                "set_session_id called but no pool entry found"
+            );
+        }
+    }
+
     /// Mark all sessions as `Draining` and return their session IDs for
     /// graceful shutdown signalling.
     pub async fn drain_all(&self) -> Vec<String> {
