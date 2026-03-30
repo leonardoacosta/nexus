@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
             agents: vec![],
             role: AgentRole::Primary,
             self_name: None,
+            pool: None,
         }
     });
 

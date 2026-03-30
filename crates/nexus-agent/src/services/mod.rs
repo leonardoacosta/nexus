@@ -27,6 +27,7 @@ pub mod launchd_health;
 pub mod macos_integration;
 pub mod project_status;
 pub mod receiver;
+pub mod session_pool;
 pub mod sync_telemetry;
 
 #[cfg(target_os = "linux")]
