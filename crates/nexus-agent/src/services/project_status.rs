@@ -287,6 +287,83 @@ pub async fn collect_all(cwd: &Path) -> ProjectStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Cache
+// ---------------------------------------------------------------------------
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock;
+
+struct CachedEntry {
+    status: ProjectStatus,
+    cached_at: Instant,
+}
+
+struct CacheInner {
+    cache: RwLock<HashMap<String, CachedEntry>>,
+    ttl: Duration,
+}
+
+/// Cached project status with TTL-based expiration.
+///
+/// Clone-friendly via `Arc<Inner>` — all clones share the same backing store.
+#[derive(Clone)]
+pub struct ProjectStatusCache {
+    inner: Arc<CacheInner>,
+}
+
+impl ProjectStatusCache {
+    /// Create a new cache with the given TTL (default: 30 seconds).
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(CacheInner {
+                cache: RwLock::new(HashMap::new()),
+                ttl,
+            }),
+        }
+    }
+
+    /// Return a [`ProjectStatus`] for the given project.
+    ///
+    /// - `fresh = true` → bypass cache and force a live collection.
+    /// - Cache hit within TTL → return cached value.
+    /// - Expired or missing → call [`collect_all`], store result, return it.
+    pub async fn get(&self, project_code: &str, cwd: &Path, fresh: bool) -> ProjectStatus {
+        if !fresh {
+            // Fast path: try read lock first.
+            let guard = self.inner.cache.read().await;
+            if let Some(entry) = guard.get(project_code) {
+                if entry.cached_at.elapsed() < self.inner.ttl {
+                    return entry.status.clone();
+                }
+            }
+        }
+
+        // Cache miss, expired, or forced refresh — collect fresh data.
+        let status = collect_all(cwd).await;
+
+        // Store under write lock.
+        let mut guard = self.inner.cache.write().await;
+        guard.insert(
+            project_code.to_owned(),
+            CachedEntry {
+                status: status.clone(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        status
+    }
+
+    /// Remove a project's cached entry (e.g. after a git push or bd close).
+    pub async fn invalidate(&self, project_code: &str) {
+        let mut guard = self.inner.cache.write().await;
+        guard.remove(project_code);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
