@@ -1758,6 +1758,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-status"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nexus-tui"
 version = "0.1.0"
 dependencies = [

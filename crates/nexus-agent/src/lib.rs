@@ -1,8 +1,12 @@
 pub mod claude_utils;
 pub mod config;
+pub mod cron;
+pub mod cron_state;
 pub mod dispatch;
+pub mod environment;
 pub mod event_forwarder;
 pub mod events;
+pub mod failures;
 pub mod grpc;
 pub mod health;
 pub mod notification_engine;

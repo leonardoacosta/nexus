@@ -25,6 +25,7 @@ use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::dispatch::dispatch_answer;
+use crate::failures::{FailureBuffer, FailureEvent};
 use crate::registry::SessionRegistry;
 use crate::services::receiver::ReceiverService;
 
@@ -90,6 +91,7 @@ pub async fn run_socket_service(
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
     peer_relay_urls: PeerRelayUrls,
+    failure_buffer: FailureBuffer,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -116,7 +118,8 @@ pub async fn run_socket_service(
                         let tx = lifecycle_tx.clone();
                         let notif_cfg = notification_config.clone();
                         let relay = peer_relay_urls.clone();
-                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay));
+                        let failures = failure_buffer.clone();
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -150,6 +153,7 @@ async fn handle_connection(
     lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
     peer_relay_urls: PeerRelayUrls,
+    failure_buffer: FailureBuffer,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -166,7 +170,7 @@ async fn handle_connection(
                 }
                 // Try SocketEvent first (most common path — hooks fire-and-forget)
                 if let Ok(event) = serde_json::from_str::<SocketEvent>(&line) {
-                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref(), &peer_relay_urls).await;
+                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref(), &peer_relay_urls, &failure_buffer).await;
                     continue;
                 }
                 // Try SocketCommand (query/mutate — expects a JSON response)
@@ -204,6 +208,7 @@ async fn dispatch_event(
     receiver: &Arc<ReceiverService>,
     lifecycle_tx: Option<&mpsc::Sender<LifecycleEvent>>,
     peer_relay_urls: &[String],
+    failure_buffer: &FailureBuffer,
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -440,10 +445,54 @@ async fn dispatch_event(
         }
 
         SocketEvent::Telemetry { payload } => {
-            tracing::debug!(
-                keys = ?payload.keys().collect::<Vec<_>>(),
-                "socket: telemetry (unrouted)"
-            );
+            // Check if this is a tool_use_fail event and record it.
+            let is_tool_fail = payload
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "tool_use_fail");
+
+            if is_tool_fail {
+                let tool_name = payload
+                    .get("tool")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let error_summary = payload
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error")
+                    .to_string();
+                let project = payload
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let session_id = payload
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let event = FailureEvent {
+                    timestamp: chrono::Utc::now(),
+                    tool_name: tool_name.clone(),
+                    error_summary: error_summary.clone(),
+                    project: project.clone(),
+                    session_id,
+                };
+                failure_buffer.push(event).await;
+                tracing::info!(
+                    tool = %tool_name,
+                    project = %project,
+                    error = %error_summary,
+                    "socket: tool_use_fail recorded in failure buffer"
+                );
+            } else {
+                tracing::debug!(
+                    keys = ?payload.keys().collect::<Vec<_>>(),
+                    "socket: telemetry (unrouted)"
+                );
+            }
         }
 
         SocketEvent::DeployStatus {
