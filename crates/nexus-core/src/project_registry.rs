@@ -106,6 +106,13 @@ impl ProjectRegistry {
         None
     }
 
+    /// Create an empty registry with no projects (used as a fallback).
+    pub fn load_empty() -> Self {
+        Self {
+            inner: Arc::new(HashMap::new()),
+        }
+    }
+
     /// Path to the projects registry JSON file.
     pub fn registry_path() -> PathBuf {
         home_dir().join(".claude/scripts/config/projects.json")

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::{self, nexus_agent_server::NexusAgent};
 use nexus_core::session::Session;
 use tokio::io::AsyncBufReadExt;
@@ -12,6 +13,7 @@ use crate::events::EventBroadcaster;
 use crate::health::HealthCollector;
 use crate::parser;
 use crate::registry::SessionRegistry;
+use crate::services::project_status::ProjectStatusCache;
 use crate::shutdown::ShutdownCoordinator;
 
 /// gRPC service implementation for the NexusAgent service.
@@ -23,6 +25,8 @@ pub struct NexusAgentService {
     agent_host: String,
     started_at: std::time::Instant,
     shutdown: Arc<ShutdownCoordinator>,
+    project_registry: ProjectRegistry,
+    status_cache: ProjectStatusCache,
 }
 
 impl NexusAgentService {
@@ -33,6 +37,8 @@ impl NexusAgentService {
         agent_name: String,
         agent_host: String,
         shutdown: Arc<ShutdownCoordinator>,
+        project_registry: ProjectRegistry,
+        status_cache: ProjectStatusCache,
     ) -> Self {
         Self {
             registry,
@@ -42,6 +48,8 @@ impl NexusAgentService {
             agent_host,
             started_at: std::time::Instant::now(),
             shutdown,
+            project_registry,
+            status_cache,
         }
     }
 }
@@ -924,6 +932,43 @@ impl NexusAgent for NexusAgentService {
         Ok(Response::new(proto::ListProjectsResponse {
             projects,
             project_details,
+        }))
+    }
+
+    async fn get_project_status(
+        &self,
+        request: Request<proto::ProjectStatusRequest>,
+    ) -> Result<Response<proto::ProjectStatusResponse>, Status> {
+        let req = request.into_inner();
+        let project_path = self
+            .project_registry
+            .resolve(&req.project)
+            .ok_or_else(|| Status::not_found(format!("unknown project: {}", req.project)))?;
+
+        let status = self
+            .status_cache
+            .get(&req.project, &project_path.cwd, req.fresh)
+            .await;
+
+        Ok(Response::new(proto::ProjectStatusResponse {
+            project: req.project,
+            beads: Some(proto::BeadsStatus {
+                ready_count: status.beads.ready_count,
+                open_count: status.beads.open_count,
+                blocked_count: status.beads.blocked_count,
+                ready_json: status.beads.ready_json,
+            }),
+            git: Some(proto::GitStatusInfo {
+                branch: status.git.branch,
+                head_sha: status.git.head_sha,
+                recent_commits: status.git.recent_commits,
+                porcelain: status.git.porcelain,
+            }),
+            specs: Some(proto::SpecStatusInfo {
+                spec_count: status.spec.spec_count,
+                change_count: status.spec.change_count,
+                active_changes: status.spec.active_changes,
+            }),
         }))
     }
 
