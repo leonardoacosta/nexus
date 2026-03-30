@@ -566,4 +566,68 @@ mod tests {
             assert_eq!(*status, PooledSessionStatus::Draining);
         }
     }
+
+    /// Walk the full state machine: Warming → Ready → Busy → Ready → Draining.
+    #[tokio::test]
+    async fn state_machine_full_walk() {
+        let pool = make_pool();
+
+        // New session starts in Warming.
+        let id = pool.get_or_create("oo").await.unwrap();
+        let stats = pool.stats().await;
+        assert_eq!(stats.warming, 1, "new session should be Warming");
+
+        // Simulate session finishing warm-up: release → Ready.
+        pool.release("oo").await;
+        let stats = pool.stats().await;
+        assert_eq!(stats.idle, 1, "after release, session should be Ready/idle");
+
+        // Requesting the session again → Busy.
+        let id2 = pool.get_or_create("oo").await.unwrap();
+        assert_eq!(id, id2, "should reuse the same session");
+        let stats = pool.stats().await;
+        assert_eq!(stats.active, 1, "session should be Busy/active");
+
+        // Command done → release back to Ready.
+        pool.release("oo").await;
+        let stats = pool.stats().await;
+        assert_eq!(stats.idle, 1, "session should be back to Ready/idle");
+
+        // Drain moves it to Draining.
+        let drained = pool.drain_all().await;
+        assert_eq!(drained.len(), 1);
+        let sessions = pool.all_sessions().await;
+        assert_eq!(sessions[0].1, PooledSessionStatus::Draining);
+    }
+
+    /// Verify stats counts across mixed-state sessions.
+    #[tokio::test]
+    async fn stats_counts_all_states() {
+        let config = PoolConfig {
+            enabled: true,
+            max_sessions: 10,
+            idle_timeout_minutes: 15,
+            warmup_on_startup: vec![],
+        };
+        let pool = SessionPool::new(config, ProjectRegistry::load_empty());
+
+        // "oo" → Warming (just created, no release)
+        pool.get_or_create("oo").await.unwrap();
+
+        // "nx" → Ready (created then released)
+        pool.get_or_create("nx").await.unwrap();
+        pool.release("nx").await;
+
+        // "tc" → Busy (created, released to Ready, then acquired again)
+        pool.get_or_create("tc").await.unwrap();
+        pool.release("tc").await;
+        pool.get_or_create("tc").await.unwrap(); // now Busy
+
+        let stats = pool.stats().await;
+        assert_eq!(stats.total, 3);
+        assert_eq!(stats.warming, 1, "one Warming");
+        assert_eq!(stats.idle, 1, "one Ready/idle");
+        assert_eq!(stats.active, 1, "one Busy/active");
+        assert_eq!(stats.draining, 0);
+    }
 }

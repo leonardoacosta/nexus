@@ -215,3 +215,48 @@ fn dirs_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     PathBuf::from(home).join(".config/nexus")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_config_default_values() {
+        let cfg = PoolConfig::default();
+        assert!(cfg.enabled, "pool should be enabled by default");
+        assert_eq!(cfg.max_sessions, 5, "default max_sessions should be 5");
+        assert_eq!(
+            cfg.idle_timeout_minutes, 15,
+            "default idle_timeout_minutes should be 15"
+        );
+        assert!(
+            cfg.warmup_on_startup.is_empty(),
+            "warmup_on_startup should be empty by default"
+        );
+    }
+
+    #[test]
+    fn pool_config_deserializes_with_defaults_from_toml() {
+        // Minimal TOML — serde defaults fill in the rest.
+        let toml_str = r#"enabled = false"#;
+        let cfg: PoolConfig = toml::from_str(toml_str).unwrap();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.max_sessions, 5);
+        assert_eq!(cfg.idle_timeout_minutes, 15);
+        assert!(cfg.warmup_on_startup.is_empty());
+    }
+
+    #[test]
+    fn pool_config_warmup_list_parses() {
+        let toml_str = r#"
+            enabled = true
+            max_sessions = 10
+            idle_timeout_minutes = 30
+            warmup_on_startup = ["oo", "nx"]
+        "#;
+        let cfg: PoolConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.max_sessions, 10);
+        assert_eq!(cfg.idle_timeout_minutes, 30);
+        assert_eq!(cfg.warmup_on_startup, vec!["oo", "nx"]);
+    }
+}

@@ -100,3 +100,70 @@ impl Session {
             .num_seconds()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_type_default_is_ad_hoc() {
+        assert_eq!(SessionType::default(), SessionType::AdHoc);
+    }
+
+    #[test]
+    fn session_type_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&SessionType::AdHoc).unwrap(),
+            r#""ad_hoc""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SessionType::Managed).unwrap(),
+            r#""managed""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SessionType::Pooled).unwrap(),
+            r#""pooled""#
+        );
+    }
+
+    #[test]
+    fn session_type_deserializes_snake_case() {
+        let v: SessionType = serde_json::from_str(r#""ad_hoc""#).unwrap();
+        assert_eq!(v, SessionType::AdHoc);
+        let v: SessionType = serde_json::from_str(r#""pooled""#).unwrap();
+        assert_eq!(v, SessionType::Pooled);
+    }
+
+    #[test]
+    fn new_session_has_ad_hoc_type_by_default() {
+        let s = Session::new(1234, "/tmp".into());
+        assert_eq!(s.session_type, SessionType::AdHoc);
+    }
+
+    #[test]
+    fn session_type_field_defaults_on_missing_json() {
+        // Deserializing a Session without `session_type` field should default to AdHoc.
+        let json = r#"{
+            "id": "abc",
+            "pid": 1,
+            "project": null,
+            "cwd": "/tmp",
+            "branch": null,
+            "started_at": "2024-01-01T00:00:00Z",
+            "last_heartbeat": "2024-01-01T00:00:00Z",
+            "status": "active",
+            "spec": null,
+            "command": null,
+            "agent": null,
+            "tmux_session": null,
+            "cc_session_id": null,
+            "tmux_target": null,
+            "rate_limit_utilization": null,
+            "rate_limit_type": null,
+            "total_cost_usd": null,
+            "model": null
+        }"#;
+        let s: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(s.session_type, SessionType::AdHoc);
+    }
+}
