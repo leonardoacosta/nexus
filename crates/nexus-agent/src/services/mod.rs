@@ -20,6 +20,7 @@ pub trait Service: Send + Sync {
     }
 }
 
+pub mod command_registry;
 pub mod credential_watcher;
 pub mod git_watch;
 pub mod imessage_reader;
