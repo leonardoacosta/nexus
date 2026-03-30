@@ -24,6 +24,7 @@ use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
 use nexus_agent::services::project_status::ProjectStatusCache;
+use nexus_agent::services::session_pool::SessionPool;
 use nexus_agent::services::receiver::ReceiverService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
@@ -241,6 +242,12 @@ async fn main() -> Result<()> {
     // Initialize project status cache with 30-second TTL.
     let status_cache = ProjectStatusCache::new(Duration::from_secs(30));
 
+    // Initialize and spawn the session pool service.
+    let pool_config = nexus_config.pool.clone().unwrap_or_default();
+    let session_pool = SessionPool::new(pool_config, project_registry.clone());
+    spawn_service(session_pool.clone(), coordinator.token());
+    tracing::info!("SessionPool service started");
+
     // Build the gRPC service.
     let service = NexusAgentService::new(
         Arc::clone(&registry),
@@ -251,6 +258,7 @@ async fn main() -> Result<()> {
         Arc::clone(&coordinator),
         project_registry.clone(),
         status_cache.clone(),
+        session_pool,
     );
 
     let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
