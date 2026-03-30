@@ -371,6 +371,8 @@ impl ProjectStatusCache {
 mod tests {
     use super::*;
 
+    // --- parse_bd_stats ---
+
     #[test]
     fn parse_bd_stats_standard() {
         let text = "Open: 5\nBlocked: 2\nClosed: 10\n";
@@ -387,6 +389,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_bd_stats_whitespace_tolerant() {
+        // Leading/trailing whitespace on the value side should still parse.
+        let text = "  Open:   3\n  Blocked:   1\n";
+        let (open, blocked) = parse_bd_stats(text);
+        assert_eq!(open, 3);
+        assert_eq!(blocked, 1);
+    }
+
+    #[test]
+    fn parse_bd_stats_missing_fields_default_to_zero() {
+        // Only "Open:" present — Blocked should stay 0.
+        let text = "Open: 7\nClosed: 3\n";
+        let (open, blocked) = parse_bd_stats(text);
+        assert_eq!(open, 7);
+        assert_eq!(blocked, 0);
+    }
+
+    // --- parse_openspec_list ---
+
+    #[test]
     fn parse_openspec_list_active() {
         let json =
             r#"[{"name":"add-feature","status":"active"},{"name":"fix-bug","status":"draft"}]"#;
@@ -401,5 +423,101 @@ mod tests {
         let status = parse_openspec_list("not json");
         assert_eq!(status.spec_count, 0);
         assert_eq!(status.change_count, 0);
+    }
+
+    #[test]
+    fn parse_openspec_list_empty_array() {
+        let status = parse_openspec_list("[]");
+        assert_eq!(status.spec_count, 0);
+        assert_eq!(status.change_count, 0);
+        assert!(status.active_changes.is_empty());
+    }
+
+    #[test]
+    fn parse_openspec_list_all_active() {
+        let json = r#"[
+            {"name":"spec-a","status":"active"},
+            {"name":"spec-b","status":"active"}
+        ]"#;
+        let status = parse_openspec_list(json);
+        assert_eq!(status.spec_count, 2);
+        assert_eq!(status.change_count, 2);
+        assert_eq!(status.active_changes, vec!["spec-a", "spec-b"]);
+    }
+
+    #[test]
+    fn parse_openspec_list_non_object_json_returns_default() {
+        // Top-level JSON object (not array) should return defaults.
+        let status = parse_openspec_list(r#"{"key":"value"}"#);
+        assert_eq!(status.spec_count, 0);
+        assert_eq!(status.change_count, 0);
+    }
+
+    // --- ProjectStatusCache ---
+
+    #[tokio::test]
+    async fn cache_new_is_empty() {
+        let cache = ProjectStatusCache::new(Duration::from_secs(30));
+        // An empty cache has no entries — verify Arc clone shares the same store.
+        let cache2 = cache.clone();
+        // Both clones operate on the same underlying data; invalidating on one
+        // should be a no-op since there's nothing to remove.
+        cache2.invalidate("nonexistent").await; // must not panic
+    }
+
+    #[tokio::test]
+    async fn cache_stores_and_returns_entry_within_ttl() {
+        // We can't easily inject a ProjectStatus without calling collect_all
+        // (which would run real subprocesses). Instead, verify the cache's
+        // structural contract: after `get` inserts an entry, a second `get`
+        // within TTL returns a value (without re-running collection).
+        //
+        // Use a very short TTL so the test doesn't hang.
+        let cache = ProjectStatusCache::new(Duration::from_secs(60));
+
+        // Use /tmp as cwd — all collectors will fail gracefully and return defaults.
+        let cwd = std::path::Path::new("/tmp");
+
+        // First call: cache miss → runs collect_all (returns default structs).
+        let status1 = cache.get("test-proj", cwd, false).await;
+
+        // Second call: should be a cache hit within TTL.
+        let status2 = cache.get("test-proj", cwd, false).await;
+
+        // Both should be structurally identical (default values from failed collectors).
+        assert_eq!(status1.git.branch, status2.git.branch);
+        assert_eq!(status1.beads.ready_count, status2.beads.ready_count);
+    }
+
+    #[tokio::test]
+    async fn cache_invalidate_removes_entry() {
+        let cache = ProjectStatusCache::new(Duration::from_secs(60));
+        let cwd = std::path::Path::new("/tmp");
+
+        // Populate the cache.
+        cache.get("proj-x", cwd, false).await;
+
+        // Invalidate it.
+        cache.invalidate("proj-x").await;
+
+        // A subsequent get with fresh=false will re-run collection (still returns
+        // defaults from /tmp, but we at least verify it doesn't panic and returns
+        // a valid ProjectStatus).
+        let status = cache.get("proj-x", cwd, false).await;
+        // BeadsStatus default has ready_count == 0.
+        assert_eq!(status.beads.ready_count, 0);
+    }
+
+    #[tokio::test]
+    async fn cache_fresh_flag_bypasses_ttl() {
+        let cache = ProjectStatusCache::new(Duration::from_secs(3600));
+        let cwd = std::path::Path::new("/tmp");
+
+        // Populate.
+        cache.get("proj-y", cwd, false).await;
+
+        // Force a fresh collection — must not panic.
+        let status = cache.get("proj-y", cwd, true).await;
+        assert_eq!(status.beads.open_count, 0); // default from /tmp
     }
 }

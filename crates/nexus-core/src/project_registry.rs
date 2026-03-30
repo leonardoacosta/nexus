@@ -145,15 +145,90 @@ fn expand_tilde(path: &str) -> PathBuf {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+impl ProjectRegistry {
+    /// Construct a registry directly from a pre-built map (test helper only).
+    fn from_map(map: HashMap<String, ProjectPath>) -> Self {
+        Self {
+            inner: Arc::new(map),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    fn make_registry(entries: &[(&str, &str, &str)]) -> ProjectRegistry {
+        let map: HashMap<String, ProjectPath> = entries
+            .iter()
+            .map(|(code, name, path)| {
+                (
+                    code.to_string(),
+                    ProjectPath {
+                        code: code.to_string(),
+                        name: name.to_string(),
+                        cwd: PathBuf::from(path),
+                    },
+                )
+            })
+            .collect();
+        ProjectRegistry::from_map(map)
+    }
+
     #[test]
     fn expand_tilde_replaces_home() {
-        std::env::set_var("HOME", "/home/user");
-        assert_eq!(expand_tilde("~/dev/oo"), PathBuf::from("/home/user/dev/oo"));
-        assert_eq!(expand_tilde("~"), PathBuf::from("/home/user"));
+        // Use the real home directory to avoid mutating HOME (which would race
+        // with other tests that also read it).
+        let home = home_dir();
+        assert_eq!(expand_tilde("~/dev/oo"), home.join("dev/oo"));
+        assert_eq!(expand_tilde("~"), home.clone());
+        // Absolute paths that do not start with ~ must be returned unchanged.
         assert_eq!(expand_tilde("/abs/path"), PathBuf::from("/abs/path"));
+    }
+
+    #[test]
+    fn resolve_known_project_returns_correct_path() {
+        let registry = make_registry(&[("oo", "otaku-odyssey", "/home/user/dev/oo")]);
+
+        let result = registry.resolve("oo");
+        assert!(result.is_some(), "expected 'oo' to resolve");
+        let pp = result.unwrap();
+        assert_eq!(pp.code, "oo");
+        assert_eq!(pp.name, "otaku-odyssey");
+        assert_eq!(pp.cwd, PathBuf::from("/home/user/dev/oo"));
+    }
+
+    #[test]
+    fn resolve_unknown_code_with_no_fallback_dir_returns_none() {
+        // Use a code that almost certainly doesn't exist as ~/dev/<code>/.
+        let registry = make_registry(&[("oo", "otaku-odyssey", "/home/user/dev/oo")]);
+
+        let result = registry.resolve("__nonexistent_project_xyzzy__");
+        assert!(
+            result.is_none(),
+            "expected None for a code with no registry entry and no fallback dir"
+        );
+    }
+
+    #[test]
+    fn load_empty_creates_registry_with_no_entries() {
+        let registry = ProjectRegistry::load_empty();
+        // Nothing should resolve from an empty registry (unless a ~/dev/<code> dir exists,
+        // which is very unlikely for this sentinel value).
+        let result = registry.resolve("__empty_registry_sentinel__");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_prefers_registry_over_fallback() {
+        // Register "nx" with a custom path so we know the exact value returned.
+        let registry = make_registry(&[("nx", "nexus", "/custom/path/nx")]);
+
+        let result = registry.resolve("nx");
+        assert!(result.is_some());
+        let pp = result.unwrap();
+        // Must come from the registry, not the fallback ~/dev/nx.
+        assert_eq!(pp.cwd, PathBuf::from("/custom/path/nx"));
     }
 
     #[test]
