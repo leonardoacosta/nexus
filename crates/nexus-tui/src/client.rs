@@ -519,6 +519,7 @@ impl NexusClient {
             let request = tonic::Request::new(nexus_core::proto::CommandRequest {
                 session_id: session_id.to_string(),
                 prompt: prompt.to_string(),
+                project: None,
             });
 
             match client.send_command(request).await {

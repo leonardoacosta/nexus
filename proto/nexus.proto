@@ -20,6 +20,7 @@ enum SessionType {
   SESSION_TYPE_UNSPECIFIED = 0;
   SESSION_TYPE_MANAGED = 1;
   SESSION_TYPE_AD_HOC = 2;
+  SESSION_TYPE_POOLED = 3;
 }
 
 enum EventType {
@@ -179,6 +180,7 @@ message ListAgentsResponse {
 message CommandRequest {
   string session_id = 1;
   string prompt = 2;
+  optional string project = 3;
 }
 
 message CommandOutput {
