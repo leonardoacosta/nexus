@@ -5,6 +5,7 @@ pub mod health;
 pub mod lifecycle;
 pub mod notification_config;
 pub mod notes;
+pub mod project_registry;
 pub mod session;
 pub mod socket_event;
 

@@ -1,0 +1,167 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::Result;
+use serde::Deserialize;
+
+/// A resolved project location on disk.
+#[derive(Debug, Clone)]
+pub struct ProjectPath {
+    /// Short project code, e.g. `"oo"`, `"nx"`.
+    pub code: String,
+    /// Human-readable project name, e.g. `"Otaku Odyssey"`.
+    pub name: String,
+    /// Absolute path to the project root.
+    pub cwd: PathBuf,
+}
+
+/// Raw entry as stored in `~/.claude/scripts/config/projects.json`.
+#[derive(Debug, Deserialize)]
+struct RawProject {
+    code: String,
+    name: String,
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawRegistry {
+    projects: Vec<RawProject>,
+}
+
+/// Thin, cheaply-cloneable wrapper around the loaded project map.
+///
+/// Backed by an `Arc` so cloning is O(1) and all clones share the same data.
+/// Thread-safe for concurrent reads — no interior mutability is needed since
+/// the registry is immutable after construction.
+#[derive(Debug, Clone)]
+pub struct ProjectRegistry {
+    inner: Arc<HashMap<String, ProjectPath>>,
+}
+
+impl ProjectRegistry {
+    /// Load the registry from `~/.claude/scripts/config/projects.json`.
+    ///
+    /// Tilde expansion in `path` values is performed for `~` (home directory).
+    /// If the file does not exist or cannot be parsed, an error is returned.
+    pub fn load() -> Result<Self> {
+        let path = Self::registry_path();
+
+        tracing::debug!("Loading project registry from {}", path.display());
+
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("Failed to read {}: {e}", path.display()))?;
+
+        let raw: RawRegistry = serde_json::from_str(&contents)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", path.display()))?;
+
+        let map: HashMap<String, ProjectPath> = raw
+            .projects
+            .into_iter()
+            .map(|p| {
+                let cwd = expand_tilde(&p.path);
+                let pp = ProjectPath {
+                    code: p.code.clone(),
+                    name: p.name,
+                    cwd,
+                };
+                (p.code, pp)
+            })
+            .collect();
+
+        tracing::debug!("Loaded {} projects from registry", map.len());
+
+        Ok(Self {
+            inner: Arc::new(map),
+        })
+    }
+
+    /// Resolve a project code to its on-disk location.
+    ///
+    /// Lookup order:
+    /// 1. Exact match in the loaded registry.
+    /// 2. Fallback: `~/dev/<code>/` if that directory exists on this machine.
+    ///
+    /// Returns `None` if neither source produces a result.
+    pub fn resolve(&self, code: &str) -> Option<ProjectPath> {
+        if let Some(pp) = self.inner.get(code) {
+            return Some(pp.clone());
+        }
+
+        // Fallback: ~/dev/<code>
+        let fallback = home_dir().join("dev").join(code);
+        if fallback.is_dir() {
+            tracing::debug!(
+                "Project '{}' not in registry; using fallback path {}",
+                code,
+                fallback.display()
+            );
+            return Some(ProjectPath {
+                code: code.to_string(),
+                name: code.to_string(),
+                cwd: fallback,
+            });
+        }
+
+        None
+    }
+
+    /// Path to the projects registry JSON file.
+    pub fn registry_path() -> PathBuf {
+        home_dir().join(".claude/scripts/config/projects.json")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn home_dir() -> PathBuf {
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
+
+/// Expand a leading `~` to the current user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        home_dir().join(rest)
+    } else if path == "~" {
+        home_dir()
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_tilde_replaces_home() {
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(expand_tilde("~/dev/oo"), PathBuf::from("/home/user/dev/oo"));
+        assert_eq!(expand_tilde("~"), PathBuf::from("/home/user"));
+        assert_eq!(expand_tilde("/abs/path"), PathBuf::from("/abs/path"));
+    }
+
+    #[test]
+    fn load_parses_real_registry() {
+        // This test is skipped if the registry file doesn't exist (CI / other machines).
+        let path = ProjectRegistry::registry_path();
+        if !path.exists() {
+            return;
+        }
+        let registry = ProjectRegistry::load().expect("registry should load");
+        // Nexus itself is always in the registry.
+        let nx = registry.resolve("nx");
+        assert!(nx.is_some(), "expected 'nx' project in registry");
+        let nx = nx.unwrap();
+        assert_eq!(nx.code, "nx");
+        assert!(!nx.name.is_empty());
+    }
+}
