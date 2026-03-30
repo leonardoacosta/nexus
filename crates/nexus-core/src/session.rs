@@ -28,6 +28,19 @@ pub struct Session {
     pub rate_limit_type: Option<String>,
     pub total_cost_usd: Option<f64>,
     pub model: Option<String>,
+
+    /// Whether this session is ad-hoc, managed, or part of a pool.
+    #[serde(default)]
+    pub session_type: SessionType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionType {
+    #[default]
+    AdHoc,
+    Managed,
+    Pooled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +78,7 @@ impl Session {
             rate_limit_type: None,
             total_cost_usd: None,
             model: None,
+            session_type: SessionType::AdHoc,
         }
     }
 
