@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use axum::{Json, Router, extract::{Query, State}, routing::get};
+use axum::{Json, Router, extract::{Path, Query, State}, http::StatusCode, routing::get};
 use nexus_core::api::HealthResponse;
 use nexus_core::config::{AgentRole, NexusConfig, NotificationConfig};
+use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -22,6 +23,7 @@ use nexus_agent::health::HealthCollector;
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
+use nexus_agent::services::project_status::ProjectStatusCache;
 use nexus_agent::services::receiver::ReceiverService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
@@ -40,6 +42,8 @@ struct AppState {
     agent_name: String,
     agent_host: String,
     started_at: std::time::Instant,
+    project_registry: ProjectRegistry,
+    status_cache: ProjectStatusCache,
 }
 
 /// Spawn a service and wire it to the cancellation token for shutdown.
@@ -227,6 +231,15 @@ async fn main() -> Result<()> {
             None
         };
 
+    // Load project registry (falls back gracefully if projects.json missing).
+    let project_registry = ProjectRegistry::load().unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to load project registry, using empty registry");
+        ProjectRegistry::load_empty()
+    });
+
+    // Initialize project status cache with 30-second TTL.
+    let status_cache = ProjectStatusCache::new(Duration::from_secs(30));
+
     // Build the gRPC service.
     let service = NexusAgentService::new(
         Arc::clone(&registry),
@@ -235,6 +248,8 @@ async fn main() -> Result<()> {
         agent_name.clone(),
         agent_host.clone(),
         Arc::clone(&coordinator),
+        project_registry.clone(),
+        status_cache.clone(),
     );
 
     let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
@@ -298,6 +313,8 @@ async fn main() -> Result<()> {
         agent_name,
         agent_host,
         started_at,
+        project_registry,
+        status_cache,
     };
 
     let http_app = Router::new()
@@ -307,6 +324,10 @@ async fn main() -> Result<()> {
         .route("/environment", get(environment_handler))
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
+        .route("/project/:code/status", get(project_status_handler))
+        .route("/project/:code/beads", get(project_beads_handler))
+        .route("/project/:code/git", get(project_git_handler))
+        .route("/project/:code/specs", get(project_specs_handler))
         .with_state(app_state);
 
     let http_addr: std::net::SocketAddr = format!("0.0.0.0:{HTTP_PORT}").parse()?;
@@ -906,6 +927,85 @@ async fn cron_handler(State(state): State<AppState>) -> Json<CronResponse> {
     Json(CronResponse {
         jobs: snapshot.into_iter().map(|(k, v)| (k, v.into())).collect(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Project status handlers
+// ---------------------------------------------------------------------------
+
+/// Query parameters for project status endpoints.
+#[derive(Debug, Deserialize)]
+struct ProjectStatusQuery {
+    /// Force a fresh collection bypassing the cache.
+    fresh: Option<bool>,
+}
+
+/// GET /project/:code/status — return aggregated beads + git + specs status.
+async fn project_status_handler(
+    Path(code): Path<String>,
+    Query(query): Query<ProjectStatusQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let project = state
+        .project_registry
+        .resolve(&code)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown project: {code}")))?;
+    let status = state
+        .status_cache
+        .get(&code, &project.cwd, query.fresh.unwrap_or(false))
+        .await;
+    Ok(Json(serde_json::to_value(&status).unwrap()))
+}
+
+/// GET /project/:code/beads — return beads status only.
+async fn project_beads_handler(
+    Path(code): Path<String>,
+    Query(query): Query<ProjectStatusQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let project = state
+        .project_registry
+        .resolve(&code)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown project: {code}")))?;
+    let status = state
+        .status_cache
+        .get(&code, &project.cwd, query.fresh.unwrap_or(false))
+        .await;
+    Ok(Json(serde_json::to_value(&status.beads).unwrap()))
+}
+
+/// GET /project/:code/git — return git status only.
+async fn project_git_handler(
+    Path(code): Path<String>,
+    Query(query): Query<ProjectStatusQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let project = state
+        .project_registry
+        .resolve(&code)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown project: {code}")))?;
+    let status = state
+        .status_cache
+        .get(&code, &project.cwd, query.fresh.unwrap_or(false))
+        .await;
+    Ok(Json(serde_json::to_value(&status.git).unwrap()))
+}
+
+/// GET /project/:code/specs — return openspec status only.
+async fn project_specs_handler(
+    Path(code): Path<String>,
+    Query(query): Query<ProjectStatusQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let project = state
+        .project_registry
+        .resolve(&code)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown project: {code}")))?;
+    let status = state
+        .status_cache
+        .get(&code, &project.cwd, query.fresh.unwrap_or(false))
+        .await;
+    Ok(Json(serde_json::to_value(&status.spec).unwrap()))
 }
 
 /// Wait for SIGTERM or Ctrl+C to trigger graceful shutdown.
