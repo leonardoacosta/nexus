@@ -39,3 +39,81 @@ pub struct CommandInfo {
     /// Estimated cost category
     pub cost: CostCategory,
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_tier_serde_round_trip() {
+        for (tier, expected_json) in [
+            (CommandTier::Status, "\"status\""),
+            (CommandTier::Analysis, "\"analysis\""),
+            (CommandTier::Action, "\"action\""),
+        ] {
+            let serialized = serde_json::to_string(&tier).unwrap();
+            assert_eq!(serialized, expected_json);
+            let deserialized: CommandTier = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, tier);
+        }
+    }
+
+    #[test]
+    fn cost_category_serde_round_trip() {
+        for (cost, expected_json) in [
+            (CostCategory::Minimal, "\"minimal\""),
+            (CostCategory::Low, "\"low\""),
+            (CostCategory::Medium, "\"medium\""),
+            (CostCategory::High, "\"high\""),
+        ] {
+            let serialized = serde_json::to_string(&cost).unwrap();
+            assert_eq!(serialized, expected_json);
+            let deserialized: CostCategory = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, cost);
+        }
+    }
+
+    #[test]
+    fn command_info_construction_and_serde() {
+        let info = CommandInfo {
+            name: "code".to_owned(),
+            namespace: "audit".to_owned(),
+            full_name: "audit:code".to_owned(),
+            description: "Audit Code".to_owned(),
+            tier: CommandTier::Analysis,
+            cost: CostCategory::High,
+        };
+
+        assert_eq!(info.name, "code");
+        assert_eq!(info.namespace, "audit");
+        assert_eq!(info.full_name, "audit:code");
+
+        // Serde round-trip
+        let json = serde_json::to_string(&info).unwrap();
+        let restored: CommandInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, info);
+    }
+
+    #[test]
+    fn command_info_top_level_empty_namespace() {
+        let info = CommandInfo {
+            name: "apply".to_owned(),
+            namespace: String::new(),
+            full_name: "apply".to_owned(),
+            description: "Apply Changes".to_owned(),
+            tier: CommandTier::Action,
+            cost: CostCategory::High,
+        };
+
+        assert_eq!(info.namespace, "");
+        assert_eq!(info.full_name, "apply");
+
+        let json = serde_json::to_string(&info).unwrap();
+        let restored: CommandInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, info);
+    }
+}
