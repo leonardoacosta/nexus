@@ -13,6 +13,7 @@ use crate::events::EventBroadcaster;
 use crate::health::HealthCollector;
 use crate::parser;
 use crate::registry::SessionRegistry;
+use crate::services::command_registry::CommandRegistry;
 use crate::services::project_status::ProjectStatusCache;
 use crate::services::session_pool::{PooledSessionStatus, SessionPool};
 use crate::shutdown::ShutdownCoordinator;
@@ -29,6 +30,7 @@ pub struct NexusAgentService {
     project_registry: ProjectRegistry,
     status_cache: ProjectStatusCache,
     session_pool: SessionPool,
+    command_registry: CommandRegistry,
 }
 
 impl NexusAgentService {
@@ -42,6 +44,7 @@ impl NexusAgentService {
         project_registry: ProjectRegistry,
         status_cache: ProjectStatusCache,
         session_pool: SessionPool,
+        command_registry: CommandRegistry,
     ) -> Self {
         Self {
             registry,
@@ -54,6 +57,7 @@ impl NexusAgentService {
             project_registry,
             status_cache,
             session_pool,
+            command_registry,
         }
     }
 }
@@ -120,6 +124,26 @@ pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Sessio
         tmux_session: session.tmux_session.clone(),
         cc_session_id: session.cc_session_id.clone(),
         telemetry,
+    }
+}
+
+fn command_info_to_proto(info: &nexus_core::command::CommandInfo) -> proto::CommandInfoProto {
+    proto::CommandInfoProto {
+        name: info.name.clone(),
+        namespace: info.namespace.clone(),
+        full_name: info.full_name.clone(),
+        description: info.description.clone(),
+        tier: match info.tier {
+            nexus_core::command::CommandTier::Status => proto::CommandTier::Status.into(),
+            nexus_core::command::CommandTier::Analysis => proto::CommandTier::Analysis.into(),
+            nexus_core::command::CommandTier::Action => proto::CommandTier::Action.into(),
+        },
+        cost: match info.cost {
+            nexus_core::command::CostCategory::Minimal => proto::CostCategory::Minimal.into(),
+            nexus_core::command::CostCategory::Low => proto::CostCategory::Low.into(),
+            nexus_core::command::CostCategory::Medium => proto::CostCategory::Medium.into(),
+            nexus_core::command::CostCategory::High => proto::CostCategory::High.into(),
+        },
     }
 }
 
@@ -1089,6 +1113,81 @@ impl NexusAgent for NexusAgentService {
             success: true,
             message: Some(message),
         }))
+    }
+
+    async fn list_commands(
+        &self,
+        request: Request<proto::ListCommandsRequest>,
+    ) -> Result<Response<proto::ListCommandsResponse>, Status> {
+        let req = request.into_inner();
+
+        // Convert optional namespace filter.
+        let namespace = req.namespace.as_deref();
+
+        // Convert optional proto CommandTier to core CommandTier.
+        let tier = req.tier.and_then(|raw| {
+            match proto::CommandTier::try_from(raw).unwrap_or(proto::CommandTier::Unspecified) {
+                proto::CommandTier::Status => Some(nexus_core::command::CommandTier::Status),
+                proto::CommandTier::Analysis => Some(nexus_core::command::CommandTier::Analysis),
+                proto::CommandTier::Action => Some(nexus_core::command::CommandTier::Action),
+                proto::CommandTier::Unspecified => None,
+            }
+        });
+
+        let commands = self.command_registry.list(namespace, tier).await;
+
+        let proto_commands: Vec<proto::CommandInfoProto> =
+            commands.iter().map(command_info_to_proto).collect();
+
+        Ok(Response::new(proto::ListCommandsResponse {
+            commands: proto_commands,
+        }))
+    }
+
+    type RunProjectCommandStream =
+        tokio_stream::wrappers::ReceiverStream<Result<proto::CommandOutput, Status>>;
+
+    async fn run_project_command(
+        &self,
+        request: Request<proto::RunProjectCommandRequest>,
+    ) -> Result<Response<Self::RunProjectCommandStream>, Status> {
+        let req = request.into_inner();
+
+        // Validate project exists.
+        self.project_registry
+            .resolve(&req.project)
+            .ok_or_else(|| Status::not_found(format!("project not found: {}", req.project)))?;
+
+        // Validate command exists in registry.
+        self.command_registry
+            .get(&req.command)
+            .await
+            .ok_or_else(|| Status::not_found(format!("command not found: {}", req.command)))?;
+
+        // Construct prompt: /<command> <args joined by space>
+        let prompt = if req.args.is_empty() {
+            format!("/{}", req.command)
+        } else {
+            format!("/{} {}", req.command, req.args.join(" "))
+        };
+
+        // Delegate to send_command_via_pool with the constructed prompt.
+        let pool_req = proto::CommandRequest {
+            session_id: String::new(),
+            prompt,
+            project: Some(req.project),
+        };
+
+        self.send_command_via_pool(
+            pool_req.project.clone().unwrap_or_default(),
+            pool_req,
+        )
+        .await
+        .map(|resp| {
+            // The inner stream type is the same; wrap as RunProjectCommandStream.
+            let stream = resp.into_inner();
+            Response::new(stream)
+        })
     }
 }
 
