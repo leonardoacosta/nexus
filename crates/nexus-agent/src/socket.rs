@@ -246,6 +246,7 @@ async fn dispatch_event(
                 rate_limit_type: None,
                 total_cost_usd: None,
                 model: model.clone(),
+                session_type: nexus_core::session::SessionType::AdHoc,
             };
             let inserted = registry.register_adhoc(session, tmux_target.clone()).await;
             tracing::info!(

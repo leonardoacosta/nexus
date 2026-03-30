@@ -611,6 +611,7 @@ fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
         rate_limit_type,
         total_cost_usd,
         model,
+        session_type: nexus_core::session::SessionType::AdHoc,
     }
 }
 
