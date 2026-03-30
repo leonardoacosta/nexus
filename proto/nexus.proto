@@ -310,6 +310,42 @@ message HealthResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Project Status
+// ---------------------------------------------------------------------------
+
+message BeadsStatus {
+  int32 ready_count = 1;
+  int32 open_count = 2;
+  int32 blocked_count = 3;
+  string ready_json = 4;
+}
+
+message GitStatusInfo {
+  string branch = 1;
+  string head_sha = 2;
+  repeated string recent_commits = 3;
+  string porcelain = 4;
+}
+
+message SpecStatusInfo {
+  int32 spec_count = 1;
+  int32 change_count = 2;
+  repeated string active_changes = 3;
+}
+
+message ProjectStatusRequest {
+  string project = 1;
+  bool fresh = 2;
+}
+
+message ProjectStatusResponse {
+  string project = 1;
+  BeadsStatus beads = 2;
+  GitStatusInfo git = 3;
+  SpecStatusInfo specs = 4;
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -326,4 +362,5 @@ service NexusAgent {
   rpc GetHealth(HealthRequest) returns (HealthResponse);
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetProjectStatus(ProjectStatusRequest) returns (ProjectStatusResponse);
 }
