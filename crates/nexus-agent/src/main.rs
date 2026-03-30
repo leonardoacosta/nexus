@@ -23,6 +23,7 @@ use nexus_agent::health::HealthCollector;
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
+use nexus_agent::services::command_registry::CommandRegistry;
 use nexus_agent::services::project_status::ProjectStatusCache;
 use nexus_agent::services::session_pool::SessionPool;
 use nexus_agent::services::receiver::ReceiverService;
@@ -45,6 +46,7 @@ struct AppState {
     started_at: std::time::Instant,
     project_registry: ProjectRegistry,
     status_cache: ProjectStatusCache,
+    command_registry: CommandRegistry,
 }
 
 /// Spawn a service and wire it to the cancellation token for shutdown.
@@ -248,6 +250,10 @@ async fn main() -> Result<()> {
     spawn_service(session_pool.clone(), coordinator.token());
     tracing::info!("SessionPool service started");
 
+    // Initialize the command registry (scans ~/.claude/commands/ on startup).
+    let command_registry = CommandRegistry::with_default_dir();
+    tracing::info!("CommandRegistry initialized");
+
     // Build the gRPC service.
     let service = NexusAgentService::new(
         Arc::clone(&registry),
@@ -259,6 +265,7 @@ async fn main() -> Result<()> {
         project_registry.clone(),
         status_cache.clone(),
         session_pool,
+        command_registry.clone(),
     );
 
     let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
@@ -324,6 +331,7 @@ async fn main() -> Result<()> {
         started_at,
         project_registry,
         status_cache,
+        command_registry,
     };
 
     let http_app = Router::new()
@@ -333,10 +341,13 @@ async fn main() -> Result<()> {
         .route("/environment", get(environment_handler))
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
+        .route("/commands", get(list_commands_handler))
+        .route("/commands/:namespace", get(list_commands_by_namespace_handler))
         .route("/project/:code/status", get(project_status_handler))
         .route("/project/:code/beads", get(project_beads_handler))
         .route("/project/:code/git", get(project_git_handler))
         .route("/project/:code/specs", get(project_specs_handler))
+        .route("/project/:code/run", axum::routing::post(run_command_handler))
         .with_state(app_state);
 
     let http_addr: std::net::SocketAddr = format!("0.0.0.0:{HTTP_PORT}").parse()?;
@@ -1015,6 +1026,93 @@ async fn project_specs_handler(
         .get(&code, &project.cwd, query.fresh.unwrap_or(false))
         .await;
     Ok(Json(serde_json::to_value(&status.spec).unwrap()))
+}
+
+// ---------------------------------------------------------------------------
+// Command registry HTTP handlers
+// ---------------------------------------------------------------------------
+
+/// Query parameters for `GET /commands`.
+#[derive(Debug, Deserialize)]
+struct ListCommandsQuery {
+    namespace: Option<String>,
+    tier: Option<String>,
+}
+
+/// GET /commands — list all discovered commands, optional `?namespace=` and `?tier=` filters.
+async fn list_commands_handler(
+    State(state): State<AppState>,
+    Query(query): Query<ListCommandsQuery>,
+) -> Json<serde_json::Value> {
+    let namespace = query.namespace.as_deref();
+    let tier = query.tier.as_deref().and_then(|t| match t {
+        "status" => Some(nexus_core::command::CommandTier::Status),
+        "analysis" => Some(nexus_core::command::CommandTier::Analysis),
+        "action" => Some(nexus_core::command::CommandTier::Action),
+        _ => None,
+    });
+
+    let commands = state.command_registry.list(namespace, tier).await;
+    Json(serde_json::json!({ "commands": commands }))
+}
+
+/// GET /commands/:namespace — list commands in a specific namespace.
+async fn list_commands_by_namespace_handler(
+    Path(namespace): Path<String>,
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let commands = state.command_registry.list(Some(&namespace), None).await;
+    Json(serde_json::json!({ "namespace": namespace, "commands": commands }))
+}
+
+/// Request body for `POST /project/:code/run`.
+#[derive(Deserialize)]
+struct RunCommandBody {
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+/// POST /project/:code/run — accept a command execution request for a project.
+///
+/// Validates project and command exist, then returns an acknowledgment with the
+/// prompt that would be sent. Actual streaming execution is via gRPC RunProjectCommand.
+async fn run_command_handler(
+    Path(code): Path<String>,
+    State(state): State<AppState>,
+    Json(body): Json<RunCommandBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Validate project exists.
+    state
+        .project_registry
+        .resolve(&code)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown project: {code}")))?;
+
+    // Validate command exists in registry.
+    state
+        .command_registry
+        .get(&body.command)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("unknown command: {}", body.command),
+            )
+        })?;
+
+    let prompt = if body.args.is_empty() {
+        format!("/{}", body.command)
+    } else {
+        format!("/{} {}", body.command, body.args.join(" "))
+    };
+
+    Ok(Json(serde_json::json!({
+        "status": "accepted",
+        "project": code,
+        "command": body.command,
+        "prompt": prompt,
+        "note": "Use gRPC RunProjectCommand for streaming execution"
+    })))
 }
 
 /// Wait for SIGTERM or Ctrl+C to trigger graceful shutdown.
