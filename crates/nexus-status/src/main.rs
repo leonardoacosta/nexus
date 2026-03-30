@@ -259,11 +259,11 @@ fn render_usage_gauge(label: &str, utilization: f64, resets_at: Option<&str>, wi
 }
 
 fn render_session_usage(utilization: f64, resets_at: Option<&str>) -> String {
-    render_usage_gauge("SES", utilization, resets_at, 5 * 3600)
+    render_usage_gauge("5H", utilization, resets_at, 5 * 3600)
 }
 
 fn render_weekly_usage(utilization: f64, resets_at: Option<&str>) -> String {
-    render_usage_gauge("WKL", utilization, resets_at, 7 * 86400)
+    render_usage_gauge("7D", utilization, resets_at, 7 * 86400)
 }
 
 // ── Anthropic Usage API ──────────────────────────────────────────────────────
