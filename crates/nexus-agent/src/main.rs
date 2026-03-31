@@ -342,12 +342,12 @@ async fn main() -> Result<()> {
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
         .route("/commands", get(list_commands_handler))
-        .route("/commands/:namespace", get(list_commands_by_namespace_handler))
-        .route("/project/:code/status", get(project_status_handler))
-        .route("/project/:code/beads", get(project_beads_handler))
-        .route("/project/:code/git", get(project_git_handler))
-        .route("/project/:code/specs", get(project_specs_handler))
-        .route("/project/:code/run", axum::routing::post(run_command_handler))
+        .route("/commands/{namespace}", get(list_commands_by_namespace_handler))
+        .route("/project/{code}/status", get(project_status_handler))
+        .route("/project/{code}/beads", get(project_beads_handler))
+        .route("/project/{code}/git", get(project_git_handler))
+        .route("/project/{code}/specs", get(project_specs_handler))
+        .route("/project/{code}/run", axum::routing::post(run_command_handler))
         .with_state(app_state);
 
     let http_addr: std::net::SocketAddr = format!("0.0.0.0:{HTTP_PORT}").parse()?;
