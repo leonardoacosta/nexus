@@ -19,10 +19,10 @@ use nexus_agent::failures::FailureBuffer;
 use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
-    AppState, cron_handler, environment_handler, failures_handler, health_handler,
-    list_commands_by_namespace_handler, list_commands_handler, project_beads_handler,
-    project_git_handler, project_specs_handler, project_status_handler, recommend_handler,
-    run_command_handler, statusline_handler,
+    AppState, credentials_handler, cron_handler, environment_handler, failures_handler,
+    health_handler, list_commands_by_namespace_handler, list_commands_handler,
+    project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
+    recommend_handler, run_command_handler, statusline_handler,
 };
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
@@ -351,6 +351,7 @@ async fn main() -> Result<()> {
     let http_app = Router::new()
         .route("/health", get(health_handler))
         .route("/statusline", get(statusline_handler))
+        .route("/credentials", get(credentials_handler))
         .route("/recommend", get(recommend_handler))
         .route("/environment", get(environment_handler))
         .route("/failures", get(failures_handler))

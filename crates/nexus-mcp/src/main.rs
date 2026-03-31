@@ -1,0 +1,337 @@
+//! nexus-mcp — MCP stdio server for Claude Code integration.
+//!
+//! Reads line-delimited JSON-RPC 2.0 from stdin, dispatches to tools
+//! that proxy nexus-agent HTTP endpoints, writes responses to stdout.
+//! Logging goes to stderr via `tracing`.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io::Write;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tracing_subscriber::EnvFilter;
+
+// ── JSON-RPC 2.0 Types ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcRequest {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    id: Option<serde_json::Value>,
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonRpcResponse {
+    jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonRpcError {
+    code: i32,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<serde_json::Value>,
+}
+
+// ── MCP Protocol Types ──────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+struct McpCapabilities {
+    tools: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct McpServerInfo {
+    name: String,
+    version: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpInitializeResult {
+    protocol_version: String,
+    capabilities: McpCapabilities,
+    server_info: McpServerInfo,
+}
+
+#[derive(Debug, Serialize)]
+struct McpTool {
+    name: String,
+    description: String,
+    #[serde(rename = "inputSchema")]
+    input_schema: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct McpToolResult {
+    content: Vec<McpToolContent>,
+    #[serde(rename = "isError", skip_serializing_if = "std::ops::Not::not")]
+    is_error: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct McpToolContent {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: String,
+}
+
+// ── Config ──────────────────────────────────────────────────────────────────
+
+fn agent_base_url() -> String {
+    let host = std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7401".to_string());
+    format!("http://{}:{}", host, port)
+}
+
+// ── Tool Definitions ────────────────────────────────────────────────────────
+
+fn tool_definitions() -> Vec<McpTool> {
+    vec![
+        McpTool {
+            name: "get_credential_status".to_string(),
+            description: "Get the current credential pool status including active account, \
+                          utilization, and rate limit windows. No sensitive data (tokens/paths) \
+                          is exposed."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        McpTool {
+            name: "get_sessions".to_string(),
+            description: "Get active Claude Code sessions across all machines, including \
+                          project, status, model, and idle time."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        McpTool {
+            name: "get_recommendations".to_string(),
+            description: "Get scored work recommendations based on beads issues, project \
+                          context, and failure spikes."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+    ]
+}
+
+// ── Tool Execution ──────────────────────────────────────────────────────────
+
+async fn execute_tool(name: &str, client: &reqwest::Client) -> McpToolResult {
+    let base_url = agent_base_url();
+    let endpoint = match name {
+        "get_credential_status" => format!("{}/credentials", base_url),
+        "get_sessions" => format!("{}/statusline", base_url),
+        "get_recommendations" => format!("{}/recommend", base_url),
+        _ => {
+            return McpToolResult {
+                content: vec![McpToolContent {
+                    content_type: "text".to_string(),
+                    text: format!("Unknown tool: {}", name),
+                }],
+                is_error: true,
+            };
+        }
+    };
+
+    match client.get(&endpoint).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                match resp.text().await {
+                    Ok(body) => McpToolResult {
+                        content: vec![McpToolContent {
+                            content_type: "text".to_string(),
+                            text: body,
+                        }],
+                        is_error: false,
+                    },
+                    Err(e) => McpToolResult {
+                        content: vec![McpToolContent {
+                            content_type: "text".to_string(),
+                            text: format!("Failed to read response body: {}", e),
+                        }],
+                        is_error: true,
+                    },
+                }
+            } else {
+                McpToolResult {
+                    content: vec![McpToolContent {
+                        content_type: "text".to_string(),
+                        text: format!("Agent returned HTTP {}", resp.status()),
+                    }],
+                    is_error: true,
+                }
+            }
+        }
+        Err(e) => McpToolResult {
+            content: vec![McpToolContent {
+                content_type: "text".to_string(),
+                text: format!(
+                    "Cannot reach nexus-agent at {}. Is the agent running? Error: {}",
+                    base_url, e
+                ),
+            }],
+            is_error: true,
+        },
+    }
+}
+
+// ── Request Dispatch ────────────────────────────────────────────────────────
+
+async fn dispatch(req: &JsonRpcRequest, client: &reqwest::Client) -> JsonRpcResponse {
+    match req.method.as_str() {
+        "initialize" => {
+            let mut tools_cap = HashMap::new();
+            tools_cap.insert("listChanged".to_string(), serde_json::json!(false));
+
+            let result = McpInitializeResult {
+                protocol_version: "2024-11-05".to_string(),
+                capabilities: McpCapabilities { tools: tools_cap },
+                server_info: McpServerInfo {
+                    name: "nexus-mcp".to_string(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                },
+            };
+
+            JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::to_value(result).unwrap()),
+                error: None,
+            }
+        }
+
+        "notifications/initialized" => {
+            // Client acknowledgement — no response needed for notifications.
+            // Return empty response since we process all messages uniformly.
+            JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::json!({})),
+                error: None,
+            }
+        }
+
+        "tools/list" => {
+            let tools = tool_definitions();
+            JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::json!({ "tools": tools })),
+                error: None,
+            }
+        }
+
+        "tools/call" => {
+            let tool_name = req
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let tool_result = execute_tool(tool_name, client).await;
+
+            JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::to_value(tool_result).unwrap()),
+                error: None,
+            }
+        }
+
+        _ => JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: req.id.clone(),
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32601,
+                message: format!("Method not found: {}", req.method),
+                data: None,
+            }),
+        },
+    }
+}
+
+// ── Main Loop ───────────────────────────────────────────────────────────────
+
+#[tokio::main]
+async fn main() {
+    // Tracing goes to stderr so stdout is reserved for JSON-RPC.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("nexus_mcp=info".parse().unwrap()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
+    tracing::info!("nexus-mcp starting (base_url={})", agent_base_url());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("failed to create reqwest client");
+
+    let stdin = tokio::io::stdin();
+    let reader = BufReader::new(stdin);
+    let mut lines = reader.lines();
+
+    let mut stdout = std::io::stdout().lock();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+
+        let req: JsonRpcRequest = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(e) => {
+                let err_resp = JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: None,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32700,
+                        message: format!("Parse error: {}", e),
+                        data: None,
+                    }),
+                };
+                let _ = serde_json::to_writer(&mut stdout, &err_resp);
+                let _ = writeln!(stdout);
+                let _ = stdout.flush();
+                continue;
+            }
+        };
+
+        // Notifications (no id) don't get responses in JSON-RPC 2.0,
+        // but MCP expects responses for all named methods, so we respond.
+        let resp = dispatch(&req, &client).await;
+
+        // Only write response if request had an id (JSON-RPC 2.0 spec).
+        if req.id.is_some() {
+            let _ = serde_json::to_writer(&mut stdout, &resp);
+            let _ = writeln!(stdout);
+            let _ = stdout.flush();
+        }
+    }
+
+    tracing::info!("nexus-mcp shutting down (stdin closed)");
+}

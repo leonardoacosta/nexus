@@ -236,6 +236,101 @@ async fn fetch_git_status() -> Option<StatuslineGit> {
 }
 
 // ---------------------------------------------------------------------------
+// GET /credentials
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WindowStatus {
+    pub utilization: f32,
+    pub resets_in_minutes: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountStatus {
+    pub name: String,
+    pub expired: bool,
+    pub five_hour: Option<WindowStatus>,
+    pub seven_day: Option<WindowStatus>,
+    pub seconds_since_polled: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SwapInfo {
+    pub debounce_active: bool,
+    pub last_swap_account: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialsResponse {
+    pub active_account: Option<String>,
+    pub accounts: Vec<AccountStatus>,
+    pub swap: SwapInfo,
+}
+
+/// GET /credentials — return sanitized credential pool status (no tokens/paths).
+pub async fn credentials_handler(State(state): State<AppState>) -> Json<CredentialsResponse> {
+    let pool = &state.credential_pool;
+    let now = chrono::Utc::now();
+
+    let active = pool.active_account.read().await.clone();
+    let accounts = pool.accounts.read().await;
+
+    let account_statuses: Vec<AccountStatus> = accounts
+        .iter()
+        .map(|a| {
+            let (five_hour, seven_day) = match &a.usage {
+                Some(usage) => {
+                    let fh = WindowStatus {
+                        utilization: usage.five_hour.utilization,
+                        resets_in_minutes: usage
+                            .five_hour
+                            .resets_at
+                            .signed_duration_since(now)
+                            .num_seconds() as f64
+                            / 60.0,
+                    };
+                    let sd = WindowStatus {
+                        utilization: usage.seven_day.utilization,
+                        resets_in_minutes: usage
+                            .seven_day
+                            .resets_at
+                            .signed_duration_since(now)
+                            .num_seconds() as f64
+                            / 60.0,
+                    };
+                    (Some(fh), Some(sd))
+                }
+                None => (None, None),
+            };
+
+            let seconds_since_polled = a
+                .last_polled
+                .map(|lp| now.signed_duration_since(lp).num_seconds());
+
+            AccountStatus {
+                name: a.name.clone(),
+                expired: a.is_expired(),
+                five_hour,
+                seven_day,
+                seconds_since_polled,
+            }
+        })
+        .collect();
+
+    let debounce_active = pool.is_debounce_active().await;
+    let last_swap_account = pool.last_swap_account.read().await.clone();
+
+    Json(CredentialsResponse {
+        active_account: active,
+        accounts: account_statuses,
+        swap: SwapInfo {
+            debounce_active,
+            last_swap_account,
+        },
+    })
+}
+
+// ---------------------------------------------------------------------------
 // GET /recommend
 // ---------------------------------------------------------------------------
 
@@ -760,5 +855,73 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-nexus-secret", "my-secret".parse().unwrap());
         assert!(validate_secret(&secret, &headers).is_ok());
+    }
+
+    #[test]
+    fn credentials_response_no_sensitive_fields() {
+        let resp = CredentialsResponse {
+            active_account: None,
+            accounts: vec![],
+            swap: SwapInfo {
+                debounce_active: false,
+                last_swap_account: None,
+            },
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+
+        // Must not contain access_token or path fields
+        let json_str = serde_json::to_string(&json).unwrap();
+        assert!(!json_str.contains("access_token"));
+        assert!(!json_str.contains("\"path\""));
+    }
+
+    #[test]
+    fn credentials_response_empty_pool() {
+        let resp = CredentialsResponse {
+            active_account: None,
+            accounts: vec![],
+            swap: SwapInfo {
+                debounce_active: false,
+                last_swap_account: None,
+            },
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["active_account"], serde_json::Value::Null);
+        assert_eq!(json["accounts"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn credentials_response_with_accounts() {
+        let resp = CredentialsResponse {
+            active_account: Some("personal".to_string()),
+            accounts: vec![AccountStatus {
+                name: "personal".to_string(),
+                expired: false,
+                five_hour: Some(WindowStatus {
+                    utilization: 0.45,
+                    resets_in_minutes: 120.5,
+                }),
+                seven_day: Some(WindowStatus {
+                    utilization: 0.72,
+                    resets_in_minutes: 4320.0,
+                }),
+                seconds_since_polled: Some(30),
+            }],
+            swap: SwapInfo {
+                debounce_active: true,
+                last_swap_account: Some("work".to_string()),
+            },
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["active_account"], "personal");
+        assert_eq!(json["accounts"].as_array().unwrap().len(), 1);
+        assert_eq!(json["accounts"][0]["name"], "personal");
+        assert!(!json["accounts"][0]["expired"].as_bool().unwrap());
+        assert!(json["swap"]["debounce_active"].as_bool().unwrap());
+
+        // Verify no sensitive data leakage
+        let s = serde_json::to_string(&json).unwrap();
+        assert!(!s.contains("access_token"));
+        assert!(!s.contains("\"path\""));
     }
 }
