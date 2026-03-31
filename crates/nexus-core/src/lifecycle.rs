@@ -231,13 +231,6 @@ pub fn project_from_cwd(cwd: &str) -> String {
         }
     }
 
-    // Fall back: last component if short enough to be a project code.
-    if let Some(last) = components.last() {
-        if last.len() <= 6 && last.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
-            return last.to_string();
-        }
-    }
-
     String::new()
 }
 
@@ -254,7 +247,15 @@ mod tests {
 
     #[test]
     fn test_project_from_cwd_no_dev() {
-        assert_eq!(project_from_cwd("/tmp"), "tmp");
+        assert_eq!(project_from_cwd("/tmp"), "");
+        assert_eq!(project_from_cwd("/home/user"), "");
+    }
+
+    #[test]
+    fn test_project_from_cwd_short_paths_return_empty() {
+        assert_eq!(project_from_cwd("/var/log"), "");
+        assert_eq!(project_from_cwd("/usr/bin"), "");
+        assert_eq!(project_from_cwd("/home/dev"), "");
         assert_eq!(project_from_cwd("/home/user"), "");
     }
 

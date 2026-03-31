@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use nexus_core::proto;
 use nexus_core::session::Session;
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -169,17 +171,14 @@ impl NexusAgentService {
         tracing::info!("stopping session {} (pid {})", session_id, pid);
 
         // Send SIGTERM first.
-        let term_result = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
-
-        match term_result {
-            Ok(status) if status.success() => {
+        let nix_pid = Pid::from_raw(pid as i32);
+        match signal::kill(nix_pid, Signal::SIGTERM) {
+            Ok(()) => {
                 tracing::debug!("SIGTERM sent to pid {}", pid);
             }
-            Ok(status) => {
-                // kill returned non-zero — process may already be gone.
-                let msg = format!("SIGTERM failed for pid {} (exit: {})", pid, status);
+            Err(nix::errno::Errno::ESRCH) => {
+                // Process already gone.
+                let msg = format!("SIGTERM: pid {} already exited", pid);
                 tracing::warn!("{}", msg);
                 self.registry.remove(&session_id).await;
                 return Ok(Response::new(proto::StopResult {
@@ -200,12 +199,9 @@ impl NexusAgentService {
 
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(250)).await;
-            // Check if process is still alive: kill -0 returns error if gone.
-            let probe = std::process::Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .status();
-            match probe {
-                Ok(s) if !s.success() => {
+            // Check if process is still alive: signal 0 returns ESRCH if gone.
+            match signal::kill(nix_pid, None) {
+                Err(nix::errno::Errno::ESRCH) => {
                     exited = true;
                     break;
                 }
@@ -215,9 +211,7 @@ impl NexusAgentService {
 
         if !exited {
             tracing::warn!("pid {} did not exit after SIGTERM, sending SIGKILL", pid);
-            let _ = std::process::Command::new("kill")
-                .args(["-KILL", &pid.to_string()])
-                .status();
+            let _ = signal::kill(nix_pid, Signal::SIGKILL);
             // Brief wait for SIGKILL to take effect.
             tokio::time::sleep(Duration::from_millis(500)).await;
         }

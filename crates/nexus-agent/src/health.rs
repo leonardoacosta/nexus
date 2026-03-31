@@ -41,7 +41,9 @@ impl HealthCollector {
             .unwrap_or_else(|_| System::new());
 
             // Populate the initial snapshot immediately.
-            let docker_containers = detect_docker_containers();
+            let docker_containers = tokio::task::spawn_blocking(detect_docker_containers)
+                .await
+                .unwrap_or(None);
             *state.write().await = build_health_from_system(&sys, docker_containers.clone());
 
             let mut tick = tokio::time::interval(interval);
@@ -56,21 +58,36 @@ impl HealthCollector {
 
                 // Refresh Docker container list every DOCKER_REFRESH_TICKS cycles.
                 docker_tick_counter += 1;
-                if docker_tick_counter >= DOCKER_REFRESH_TICKS {
-                    cached_docker = detect_docker_containers();
+                let refresh_docker = docker_tick_counter >= DOCKER_REFRESH_TICKS;
+                if refresh_docker {
                     docker_tick_counter = 0;
                 }
 
                 let docker_snapshot = cached_docker.clone();
 
                 // Move sys into a blocking thread for the refresh, then get it back.
-                let (returned_sys, snapshot) = tokio::task::spawn_blocking(move || {
-                    sys.refresh_all();
-                    let snapshot = build_health_from_system(&sys, docker_snapshot);
-                    (sys, snapshot)
-                })
-                .await
-                .unwrap_or_else(|_| (System::new(), collect_fallback()));
+                let (returned_sys, snapshot, updated_docker) =
+                    tokio::task::spawn_blocking(move || {
+                        sys.refresh_all();
+                        let updated_docker = if refresh_docker {
+                            detect_docker_containers()
+                        } else {
+                            None
+                        };
+                        let effective_docker = if updated_docker.is_some() {
+                            updated_docker.clone()
+                        } else {
+                            docker_snapshot
+                        };
+                        let snapshot = build_health_from_system(&sys, effective_docker);
+                        (sys, snapshot, updated_docker)
+                    })
+                    .await
+                    .unwrap_or_else(|_| (System::new(), collect_fallback(), None));
+
+                if updated_docker.is_some() {
+                    cached_docker = updated_docker;
+                }
 
                 sys = returned_sys;
                 *state.write().await = snapshot;

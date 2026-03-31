@@ -124,9 +124,9 @@ impl SyncTelemetryService {
         Ok(events)
     }
 
-    /// Send batch of events to API (blocking)
-    fn send_batch_blocking(endpoint: &str, events: &[TelemetryEvent]) -> Result<usize> {
-        let client = reqwest::blocking::Client::builder()
+    /// Send batch of events to API (async)
+    async fn send_batch(&self, endpoint: &str, events: &[TelemetryEvent]) -> Result<usize> {
+        let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()
             .context("Failed to create HTTP client")?;
@@ -139,7 +139,8 @@ impl SyncTelemetryService {
             .post(endpoint)
             .header("Content-Type", "application/json")
             .json(&request)
-            .send();
+            .send()
+            .await;
 
         match response {
             Ok(resp) => {
@@ -152,7 +153,8 @@ impl SyncTelemetryService {
                     return Ok(0);
                 }
 
-                let result: IngestResponse = resp.json().context("Failed to parse API response")?;
+                let result: IngestResponse =
+                    resp.json().await.context("Failed to parse API response")?;
 
                 let ingested = result
                     .result
@@ -167,16 +169,6 @@ impl SyncTelemetryService {
                 Ok(0)
             }
         }
-    }
-
-    /// Send batch of events to API (async wrapper)
-    async fn send_batch(&self, endpoint: &str, events: &[TelemetryEvent]) -> Result<usize> {
-        let endpoint = endpoint.to_string();
-        let events = events.to_vec();
-
-        tokio::task::spawn_blocking(move || Self::send_batch_blocking(&endpoint, &events))
-            .await
-            .context("Blocking task failed")?
     }
 
     /// Write events back to queue file (append mode)

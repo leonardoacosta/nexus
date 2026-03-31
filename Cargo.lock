@@ -1710,6 +1710,7 @@ dependencies = [
  "hostname",
  "libc",
  "nexus-core",
+ "nix",
  "notify",
  "prost-types",
  "reqwest",
