@@ -258,7 +258,7 @@ impl CommandRegistry {
             .commands
             .iter()
             .filter(|c| {
-                namespace.map_or(true, |ns| c.namespace == ns) && tier.map_or(true, |t| c.tier == t)
+                namespace.is_none_or(|ns| c.namespace == ns) && tier.is_none_or(|t| c.tier == t)
             })
             .cloned()
             .collect()

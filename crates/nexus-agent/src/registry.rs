@@ -121,14 +121,6 @@ impl SessionRegistry {
     }
 
     /// Prune sessions whose last heartbeat is older than `max_age`.
-    /// Used by future health/ops spec for periodic stale-session cleanup.
-    #[allow(dead_code)]
-    pub async fn remove_stale(&self, max_age: Duration) {
-        let mut map = self.sessions.write().await;
-        let max_age_secs = max_age.as_secs() as i64;
-        map.retain(|_, session| session.idle_seconds() < max_age_secs);
-    }
-
     /// Register an ad-hoc session (discovered via CC hook, not managed by tmux).
     ///
     /// `tmux_target` is the pane identifier captured from `$TMUX_PANE` at hook

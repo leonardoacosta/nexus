@@ -168,11 +168,10 @@ fn parse_bd_stats(text: &str) -> (i32, i32) {
             if let Ok(n) = rest.trim().parse::<i32>() {
                 open = n;
             }
-        } else if let Some(rest) = trimmed.strip_prefix("Blocked:") {
-            if let Ok(n) = rest.trim().parse::<i32>() {
+        } else if let Some(rest) = trimmed.strip_prefix("Blocked:")
+            && let Ok(n) = rest.trim().parse::<i32>() {
                 blocked = n;
             }
-        }
     }
 
     (open, blocked)
@@ -255,11 +254,10 @@ fn parse_openspec_list(json: &str) -> SpecStatus {
             .map(|s| s == "active")
             .unwrap_or(false);
 
-        if is_active {
-            if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
+        if is_active
+            && let Some(name) = item.get("name").and_then(|n| n.as_str()) {
                 active_changes.push(name.to_owned());
             }
-        }
     }
 
     let change_count = active_changes.len() as i32;
@@ -333,11 +331,10 @@ impl ProjectStatusCache {
         if !fresh {
             // Fast path: try read lock first.
             let guard = self.inner.cache.read().await;
-            if let Some(entry) = guard.get(project_code) {
-                if entry.cached_at.elapsed() < self.inner.ttl {
+            if let Some(entry) = guard.get(project_code)
+                && entry.cached_at.elapsed() < self.inner.ttl {
                     return entry.status.clone();
                 }
-            }
         }
 
         // Cache miss, expired, or forced refresh — collect fresh data.

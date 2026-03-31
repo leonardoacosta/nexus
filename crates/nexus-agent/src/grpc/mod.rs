@@ -16,6 +16,20 @@ pub mod commands;
 pub mod sessions;
 pub mod status;
 
+/// Bundled configuration for constructing a `NexusAgentService`.
+pub struct AgentServiceConfig {
+    pub registry: Arc<SessionRegistry>,
+    pub events: Arc<EventBroadcaster>,
+    pub health: HealthCollector,
+    pub agent_name: String,
+    pub agent_host: String,
+    pub shutdown: Arc<ShutdownCoordinator>,
+    pub project_registry: ProjectRegistry,
+    pub status_cache: ProjectStatusCache,
+    pub session_pool: SessionPool,
+    pub command_registry: CommandRegistry,
+}
+
 /// gRPC service implementation for the NexusAgent service.
 pub struct NexusAgentService {
     pub(super) registry: Arc<SessionRegistry>,
@@ -32,30 +46,19 @@ pub struct NexusAgentService {
 }
 
 impl NexusAgentService {
-    pub fn new(
-        registry: Arc<SessionRegistry>,
-        events: Arc<EventBroadcaster>,
-        health: HealthCollector,
-        agent_name: String,
-        agent_host: String,
-        shutdown: Arc<ShutdownCoordinator>,
-        project_registry: ProjectRegistry,
-        status_cache: ProjectStatusCache,
-        session_pool: SessionPool,
-        command_registry: CommandRegistry,
-    ) -> Self {
+    pub fn new(cfg: AgentServiceConfig) -> Self {
         Self {
-            registry,
-            events,
-            health,
-            agent_name,
-            agent_host,
+            registry: cfg.registry,
+            events: cfg.events,
+            health: cfg.health,
+            agent_name: cfg.agent_name,
+            agent_host: cfg.agent_host,
             started_at: std::time::Instant::now(),
-            shutdown,
-            project_registry,
-            status_cache,
-            session_pool,
-            command_registry,
+            shutdown: cfg.shutdown,
+            project_registry: cfg.project_registry,
+            status_cache: cfg.status_cache,
+            session_pool: cfg.session_pool,
+            command_registry: cfg.command_registry,
         }
     }
 }
@@ -80,22 +83,20 @@ pub(super) fn command_info_to_proto(
 
 /// Check whether a session matches the given filter criteria.
 pub(super) fn matches_filter(session: &proto::Session, filter: &proto::SessionFilter) -> bool {
-    if let Some(status) = filter.status {
-        if session.status != status {
+    if let Some(status) = filter.status
+        && session.status != status {
             return false;
         }
-    }
     if let Some(ref project) = filter.project {
         match &session.project {
             Some(p) if p == project => {}
             _ => return false,
         }
     }
-    if let Some(session_type) = filter.session_type {
-        if session.session_type != session_type {
+    if let Some(session_type) = filter.session_type
+        && session.session_type != session_type {
             return false;
         }
-    }
     true
 }
 

@@ -91,13 +91,13 @@ pub fn parse_focus_mode(output: &str, success: bool) -> bool {
 /// Example output:
 /// ```text
 /// Now drawing from 'AC Power'
-///  -InternalBattery-0 (id=1234567)	85%; charged; 0:00 remaining present: true
+///  -InternalBattery-0 (id=1234567)    85%; charged; 0:00 remaining present: true
 /// ```
 ///
 /// Or when on battery:
 /// ```text
 /// Now drawing from 'Battery Power'
-///  -InternalBattery-0 (id=1234567)	72%; discharging; 3:45 remaining present: true
+///  -InternalBattery-0 (id=1234567)    72%; discharging; 3:45 remaining present: true
 /// ```
 ///
 /// Returns (on_battery, battery_percentage).
@@ -112,7 +112,7 @@ pub fn parse_battery_info(output: &str) -> (bool, Option<u8>) {
             line.split_whitespace()
                 .find(|word| word.ends_with("%;") || word.ends_with('%'))
                 .and_then(|pct_str| {
-                    let cleaned = pct_str.trim_end_matches(|c| c == '%' || c == ';');
+                    let cleaned = pct_str.trim_end_matches(['%', ';']);
                     cleaned.parse::<u8>().ok()
                 })
         });

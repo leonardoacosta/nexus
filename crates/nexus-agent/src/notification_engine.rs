@@ -45,13 +45,12 @@ pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
 
     let mut watcher =
         match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res {
-                if matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+            if let Ok(ev) = res
+                && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                     // Best-effort send; duplicate events during the debounce
                     // window are dropped intentionally.
                     let _ = notify_tx.try_send(());
                 }
-            }
         }) {
             Ok(w) => w,
             Err(e) => {

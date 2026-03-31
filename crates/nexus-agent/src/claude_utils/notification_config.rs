@@ -429,7 +429,7 @@ pub fn should_route_to_watch(config: &NotificationConfig, notification_type: &st
                 .routing
                 .get(notification_type)
                 .copied()
-                .unwrap_or_else(|| {
+                .unwrap_or({
                     // Default routing
                     matches!(notification_type, "error_alerts" | "deployments")
                 })

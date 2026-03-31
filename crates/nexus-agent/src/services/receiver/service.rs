@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 // Re-export types from the types module so existing imports continue to work.
 pub use super::types::*;

@@ -165,7 +165,7 @@ impl NexusAgentService {
                         }
                     } else {
                         // No "-dev-" segment — use directory name as-is (no path to guess).
-                        project_map.entry(name).or_insert_with(String::new);
+                        project_map.entry(name).or_default();
                     }
                 }
             }
@@ -270,11 +270,10 @@ impl NexusAgentService {
 
                 for session in &sessions {
                     // Apply session_id filter to snapshot events too.
-                    if let Some(ref filter_session_id) = filter.session_id {
-                        if session.id != *filter_session_id {
+                    if let Some(ref filter_session_id) = filter.session_id
+                        && session.id != *filter_session_id {
                             continue;
                         }
-                    }
 
                     // Apply event type filter: snapshot events are SessionStarted.
                     if !allowed_event_types.is_empty()
@@ -333,11 +332,10 @@ impl NexusAgentService {
                         match recv_result {
                             Ok(arc_event) => {
                                 // Apply filter: skip events that don't match the requested session_id.
-                                if let Some(ref filter_session_id) = filter.session_id {
-                                    if arc_event.session_id != *filter_session_id {
+                                if let Some(ref filter_session_id) = filter.session_id
+                                    && arc_event.session_id != *filter_session_id {
                                         continue;
                                     }
-                                }
 
                                 // Apply event type filter: map payload variant to EventType
                                 // and check against the allowed list. Empty list = pass all.

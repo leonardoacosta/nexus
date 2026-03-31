@@ -18,16 +18,13 @@ pub(crate) const NOTIFICATION_HISTORY_CAPACITY: usize = 20;
 /// Message type for notification delivery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MessageType {
+    #[default]
     Brief,
     Extended,
 }
 
-impl Default for MessageType {
-    fn default() -> Self {
-        Self::Brief
-    }
-}
 
 /// Delivery channel for notifications
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]

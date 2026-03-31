@@ -8,6 +8,12 @@ pub struct ShutdownCoordinator {
     active_streams: Arc<AtomicUsize>,
 }
 
+impl Default for ShutdownCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShutdownCoordinator {
     pub fn new() -> Self {
         Self {

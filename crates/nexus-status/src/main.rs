@@ -236,8 +236,8 @@ fn render_usage_gauge(
 ) -> String {
     let now = now_secs();
     let remaining_secs = resets_at
-        .and_then(|t| parse_timestamp(t))
-        .map(|target| if target > now { target - now } else { 0 })
+        .and_then(parse_timestamp)
+        .map(|target| target.saturating_sub(now))
         .unwrap_or(0);
 
     let remaining_pct = (100.0 - utilization).max(0.0) as u8;
@@ -324,13 +324,11 @@ fn get_api_usage() -> Option<UsageResponse> {
     let cache_path = usage_cache_path()?;
 
     // Check cache (5 min TTL)
-    if let Ok(content) = fs::read_to_string(&cache_path) {
-        if let Ok(cached) = serde_json::from_str::<CachedUsage>(&content) {
-            if now_secs() - cached.fetched_at < USAGE_CACHE_TTL {
+    if let Ok(content) = fs::read_to_string(&cache_path)
+        && let Ok(cached) = serde_json::from_str::<CachedUsage>(&content)
+            && now_secs() - cached.fetched_at < USAGE_CACHE_TTL {
                 return Some(cached.data);
             }
-        }
-    }
 
     // Fetch fresh
     let token = read_access_token()?;
@@ -361,11 +359,10 @@ fn read_access_token() -> Option<String> {
     let oauth = creds.claude_ai_oauth?;
 
     // Check expiry
-    if let Some(expires_at) = oauth.expires_at {
-        if now_secs() * 1000 > expires_at {
+    if let Some(expires_at) = oauth.expires_at
+        && now_secs() * 1000 > expires_at {
             return None;
         }
-    }
     Some(oauth.access_token)
 }
 
@@ -422,13 +419,11 @@ fn get_account_domain() -> Option<String> {
     let cache_path = PathBuf::from(&home).join(".claude/scripts/state/profile-cache.json");
 
     // Check cache
-    if let Ok(content) = fs::read_to_string(&cache_path) {
-        if let Ok(cached) = serde_json::from_str::<CachedProfile>(&content) {
-            if now_secs() - cached.fetched_at < PROFILE_CACHE_TTL {
+    if let Ok(content) = fs::read_to_string(&cache_path)
+        && let Ok(cached) = serde_json::from_str::<CachedProfile>(&content)
+            && now_secs() - cached.fetched_at < PROFILE_CACHE_TTL {
                 return Some(cached.domain);
             }
-        }
-    }
 
     // Fetch fresh
     let token = read_access_token()?;
@@ -518,7 +513,7 @@ fn main() {
             .find(|s| s.project.as_deref() == Some(&project_code))
     });
 
-    let model_name = cc_model
+    let _model_name = cc_model
         .or_else(|| {
             session
                 .and_then(|s| s.model.as_deref())
@@ -566,13 +561,11 @@ fn main() {
     }
 
     // Active spec (from nexus-agent session)
-    if let Some(sess) = session {
-        if let Some(spec) = &sess.spec {
-            if !spec.is_empty() {
+    if let Some(sess) = session
+        && let Some(spec) = &sess.spec
+            && !spec.is_empty() {
                 parts.push(format!("⚡ {SPEC}{spec}{RESET}"));
             }
-        }
-    }
 
     // Context window (from CC stdin)
     if let Some(remaining) = cc_input

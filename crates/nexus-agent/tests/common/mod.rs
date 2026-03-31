@@ -12,7 +12,7 @@ use tonic::transport::{Channel, Endpoint, Server};
 // main.rs uses rather than importing private modules.
 
 use nexus_agent::events::EventBroadcaster;
-use nexus_agent::grpc::NexusAgentService;
+use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services::command_registry::CommandRegistry;
@@ -36,18 +36,18 @@ pub async fn start_test_server() -> SocketAddr {
     let session_pool = SessionPool::new(pool_config, project_registry.clone());
     let command_registry = CommandRegistry::with_default_dir();
 
-    let service = NexusAgentService::new(
-        Arc::clone(&registry),
-        Arc::clone(&broadcaster),
+    let service = NexusAgentService::new(AgentServiceConfig {
+        registry: Arc::clone(&registry),
+        events: Arc::clone(&broadcaster),
         health,
-        "test-agent".to_string(),
-        "localhost".to_string(),
-        Arc::clone(&coordinator),
+        agent_name: "test-agent".to_string(),
+        agent_host: "localhost".to_string(),
+        shutdown: Arc::clone(&coordinator),
         project_registry,
         status_cache,
         session_pool,
         command_registry,
-    );
+    });
 
     // Bind to port 0 — the OS picks a free port.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

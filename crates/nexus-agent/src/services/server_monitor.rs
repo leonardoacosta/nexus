@@ -89,8 +89,7 @@ pub fn parse_meminfo(contents: &str) -> Option<MemInfo> {
 
 /// Parse a value like "  16384000 kB" into the numeric part.
 fn parse_kb_value(s: &str) -> Option<u64> {
-    s.trim()
-        .split_whitespace()
+    s.split_whitespace()
         .next()
         .and_then(|v| v.parse::<u64>().ok())
 }
@@ -100,7 +99,6 @@ fn parse_kb_value(s: &str) -> Option<u64> {
 /// Format: "0.50 0.30 0.15 1/234 5678"
 pub fn parse_loadavg(contents: &str) -> Option<f64> {
     contents
-        .trim()
         .split_whitespace()
         .next()
         .and_then(|v| v.parse::<f64>().ok())
@@ -163,16 +161,14 @@ async fn get_docker_container_count() -> Option<u32> {
 
 /// Determine overall health status from metrics.
 fn compute_status(health: &ServerHealth) -> String {
-    if let Some(disk) = health.disk_usage_pct {
-        if disk >= DISK_WARNING_PCT {
+    if let Some(disk) = health.disk_usage_pct
+        && disk >= DISK_WARNING_PCT {
             return "warning".to_string();
         }
-    }
-    if let Some(mem) = health.memory_usage_pct {
-        if mem >= MEMORY_WARNING_PCT {
+    if let Some(mem) = health.memory_usage_pct
+        && mem >= MEMORY_WARNING_PCT {
             return "warning".to_string();
         }
-    }
     "healthy".to_string()
 }
 
@@ -270,8 +266,8 @@ impl Service for ServerMonitorService {
         );
 
         // Ensure parent directory exists
-        if let Some(parent) = self.state_path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Some(parent) = self.state_path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent) {
                 error!(
                     "Failed to create state directory {}: {}",
                     parent.display(),
@@ -279,7 +275,6 @@ impl Service for ServerMonitorService {
                 );
                 return Err(e.into());
             }
-        }
 
         self.healthy.store(true, Ordering::SeqCst);
 
@@ -296,16 +291,14 @@ impl Service for ServerMonitorService {
                     let health = collect_health(&self.state_path).await;
 
                     // Log warnings for critical thresholds
-                    if let Some(disk) = health.disk_usage_pct {
-                        if disk >= DISK_WARNING_PCT {
+                    if let Some(disk) = health.disk_usage_pct
+                        && disk >= DISK_WARNING_PCT {
                             warn!("Disk usage critical: {:.1}%", disk);
                         }
-                    }
-                    if let Some(mem) = health.memory_usage_pct {
-                        if mem >= MEMORY_WARNING_PCT {
+                    if let Some(mem) = health.memory_usage_pct
+                        && mem >= MEMORY_WARNING_PCT {
                             warn!("Memory usage critical: {:.1}%", mem);
                         }
-                    }
 
                     debug!(
                         "Server health: disk={:?}% mem={:?}% load={:?} docker={:?} status={}",

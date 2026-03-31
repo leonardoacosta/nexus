@@ -8,8 +8,6 @@ use crate::services::Service;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -103,19 +101,50 @@ impl SyncTelemetryService {
             .join("telemetry"))
     }
 
-    /// Read events from queue file
-    fn read_queue(queue_file: &Path) -> Result<Vec<TelemetryEvent>> {
+    /// Read events from queue file (async).
+    async fn read_queue(queue_file: &Path) -> Result<Vec<TelemetryEvent>> {
+        if !tokio::fs::try_exists(queue_file).await.unwrap_or(false) {
+            return Ok(Vec::new());
+        }
+
+        let content = tokio::fs::read_to_string(queue_file)
+            .await
+            .with_context(|| format!("Failed to read queue file: {}", queue_file.display()))?;
+
+        let mut events = Vec::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            match serde_json::from_str::<TelemetryEvent>(trimmed) {
+                Ok(event) => events.push(event),
+                Err(_) => {
+                    let preview = if trimmed.len() > 50 {
+                        format!("{}...", &trimmed[..50])
+                    } else {
+                        trimmed.to_string()
+                    };
+                    warn!("Skipping malformed telemetry line: {}", preview);
+                }
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Read events from queue file (sync, for tests and dry_run).
+    fn read_queue_sync(queue_file: &Path) -> Result<Vec<TelemetryEvent>> {
         if !queue_file.exists() {
             return Ok(Vec::new());
         }
 
-        let file = File::open(queue_file)
-            .with_context(|| format!("Failed to open queue file: {}", queue_file.display()))?;
-        let reader = BufReader::new(file);
+        let content = std::fs::read_to_string(queue_file)
+            .with_context(|| format!("Failed to read queue file: {}", queue_file.display()))?;
 
         let mut events = Vec::new();
-        for line in reader.lines() {
-            let line = line.context("Failed to read line from queue file")?;
+        for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -179,23 +208,30 @@ impl SyncTelemetryService {
         }
     }
 
-    /// Write events back to queue file (append mode)
-    fn requeue_events(queue_file: &Path, events: &[TelemetryEvent]) -> Result<()> {
-        let mut file = fs::OpenOptions::new()
+    /// Write events back to queue file (append mode, async).
+    async fn requeue_events(queue_file: &Path, events: &[TelemetryEvent]) -> Result<()> {
+        let mut buf = String::new();
+        for event in events {
+            let json = serde_json::to_string(event).context("Failed to serialize event")?;
+            buf.push_str(&json);
+            buf.push('\n');
+        }
+
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(queue_file)
+            .await
             .with_context(|| {
                 format!(
                     "Failed to open queue file for writing: {}",
                     queue_file.display()
                 )
             })?;
-
-        for event in events {
-            let json = serde_json::to_string(event).context("Failed to serialize event")?;
-            writeln!(file, "{}", json).context("Failed to write event to queue")?;
-        }
+        file.write_all(buf.as_bytes())
+            .await
+            .context("Failed to write events to queue")?;
 
         Ok(())
     }
@@ -210,26 +246,39 @@ impl SyncTelemetryService {
         let processing_file = queue_dir.join("processing.jsonl");
 
         // Recover from previous incomplete run
-        if processing_file.exists() {
+        if tokio::fs::try_exists(&processing_file)
+            .await
+            .unwrap_or(false)
+        {
             debug!("Previous processing file exists - recovering...");
 
             // Merge processing file back into queue
-            let processing_content =
-                fs::read_to_string(&processing_file).context("Failed to read processing file")?;
+            let processing_content = tokio::fs::read_to_string(&processing_file)
+                .await
+                .context("Failed to read processing file")?;
 
-            let queue_content = if queue_file.exists() {
-                fs::read_to_string(&queue_file).context("Failed to read queue file")?
+            let queue_content = if tokio::fs::try_exists(&queue_file)
+                .await
+                .unwrap_or(false)
+            {
+                tokio::fs::read_to_string(&queue_file)
+                    .await
+                    .context("Failed to read queue file")?
             } else {
                 String::new()
             };
 
             let merged = processing_content + &queue_content;
-            fs::write(&queue_file, merged).context("Failed to write merged queue")?;
-            fs::remove_file(&processing_file).context("Failed to remove processing file")?;
+            tokio::fs::write(&queue_file, merged)
+                .await
+                .context("Failed to write merged queue")?;
+            tokio::fs::remove_file(&processing_file)
+                .await
+                .context("Failed to remove processing file")?;
         }
 
         // Read events from queue
-        let mut events = Self::read_queue(&queue_file)?;
+        let mut events = Self::read_queue(&queue_file).await?;
 
         if events.is_empty() {
             debug!("Queue empty, nothing to sync");
@@ -270,8 +319,11 @@ impl SyncTelemetryService {
         if events.is_empty() {
             debug!("All events filtered out (stale/overflow), nothing to sync");
             // Clean up the queue file since all events were dropped
-            if queue_file.exists() {
-                let _ = fs::remove_file(&queue_file);
+            if tokio::fs::try_exists(&queue_file)
+                .await
+                .unwrap_or(false)
+            {
+                let _ = tokio::fs::remove_file(&queue_file).await;
             }
             return Ok(FlushResult {
                 total: 0,
@@ -283,11 +335,12 @@ impl SyncTelemetryService {
         info!("Found {} pending events", events.len());
 
         // Move queue file to processing to prevent duplicate sends
-        fs::rename(&queue_file, &processing_file)
+        tokio::fs::rename(&queue_file, &processing_file)
+            .await
             .context("Failed to rename queue file to processing")?;
 
         // Send in batches
-        let total_batches = (events.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+        let total_batches = events.len().div_ceil(BATCH_SIZE);
         let mut total_ingested = 0;
         let mut failed_batches = 0;
         let mut requeued_count = 0;
@@ -307,7 +360,7 @@ impl SyncTelemetryService {
                 );
                 failed_batches += 1;
                 requeued_count += chunk.len();
-                Self::requeue_events(&queue_file, chunk)?;
+                Self::requeue_events(&queue_file, chunk).await?;
                 continue;
             }
 
@@ -327,7 +380,7 @@ impl SyncTelemetryService {
                         failed_batches += 1;
                         requeued_count += chunk.len();
                         api_down = true;
-                        Self::requeue_events(&queue_file, chunk)?;
+                        Self::requeue_events(&queue_file, chunk).await?;
                     }
                 }
                 Err(e) => {
@@ -336,14 +389,19 @@ impl SyncTelemetryService {
                     requeued_count += chunk.len();
                     api_down = true;
                     debug!("Batch {} failed: {}", batch_num, e);
-                    Self::requeue_events(&queue_file, chunk)?;
+                    Self::requeue_events(&queue_file, chunk).await?;
                 }
             }
         }
 
         // Remove processing file on success
-        if processing_file.exists() {
-            fs::remove_file(&processing_file).context("Failed to remove processing file")?;
+        if tokio::fs::try_exists(&processing_file)
+            .await
+            .unwrap_or(false)
+        {
+            tokio::fs::remove_file(&processing_file)
+                .await
+                .context("Failed to remove processing file")?;
         }
 
         info!(
@@ -372,7 +430,7 @@ impl SyncTelemetryService {
         let queue_dir = Self::get_queue_dir()?;
         let queue_file = queue_dir.join("pending.jsonl");
 
-        let events = Self::read_queue(&queue_file)?;
+        let events = Self::read_queue_sync(&queue_file)?;
 
         if events.is_empty() {
             info!("Queue empty, nothing to sync");
@@ -510,6 +568,7 @@ impl Service for SyncTelemetryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write as _;
 
     #[test]
@@ -517,7 +576,7 @@ mod tests {
         let temp_file = std::env::temp_dir().join("test-empty-queue.jsonl");
         let _ = std::fs::remove_file(&temp_file);
 
-        let events = SyncTelemetryService::read_queue(&temp_file).unwrap();
+        let events = SyncTelemetryService::read_queue_sync(&temp_file).unwrap();
         assert_eq!(events.len(), 0);
     }
 
@@ -538,7 +597,7 @@ mod tests {
         let mut file = File::create(&temp_file).unwrap();
         writeln!(file, "{}", serde_json::to_string(&event).unwrap()).unwrap();
 
-        let events = SyncTelemetryService::read_queue(&temp_file).unwrap();
+        let events = SyncTelemetryService::read_queue_sync(&temp_file).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].id, "test-1");
 
@@ -557,7 +616,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = SyncTelemetryService::read_queue(&temp_file).unwrap();
+        let events = SyncTelemetryService::read_queue_sync(&temp_file).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].id, "test-1");
 
@@ -587,7 +646,7 @@ mod tests {
             }
         }
 
-        let mut events = SyncTelemetryService::read_queue(&queue_file).unwrap();
+        let mut events = SyncTelemetryService::read_queue_sync(&queue_file).unwrap();
         assert_eq!(events.len(), 10_050);
 
         // Apply the same queue cap logic the flush method uses
@@ -652,7 +711,7 @@ mod tests {
             }
         }
 
-        let mut events = SyncTelemetryService::read_queue(&queue_file).unwrap();
+        let mut events = SyncTelemetryService::read_queue_sync(&queue_file).unwrap();
         assert_eq!(events.len(), 3);
 
         // Apply the same age filter logic the flush method uses
@@ -765,7 +824,7 @@ mod tests {
     #[test]
     fn test_read_queue_nonexistent_path() {
         let nonexistent = Path::new("/tmp/absolutely-does-not-exist-telemetry-test/queue.jsonl");
-        let events = SyncTelemetryService::read_queue(nonexistent).unwrap();
+        let events = SyncTelemetryService::read_queue_sync(nonexistent).unwrap();
         assert!(
             events.is_empty(),
             "read_queue on a nonexistent file should return empty vec"

@@ -73,6 +73,22 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
 /// Empty when role=primary (we handle notifications locally).
 pub type PeerRelayUrls = Vec<String>;
 
+/// Bundled context for the Unix socket service and per-connection handlers.
+///
+/// Replaces the 9-parameter signatures of `run_socket_service` and
+/// `handle_connection` with a single shared struct.
+pub struct SocketContext {
+    pub registry: Arc<SessionRegistry>,
+    pub receiver: Arc<ReceiverService>,
+    pub cancel: CancellationToken,
+    pub lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
+    pub notification_config: Option<Arc<RwLock<NotificationConfig>>>,
+    pub peer_relay_urls: PeerRelayUrls,
+    pub failure_buffer: FailureBuffer,
+    pub http_client: reqwest::Client,
+    pub credential_pool: Arc<CredentialPool>,
+}
+
 /// Bind the Unix domain socket and run the accept loop.
 ///
 /// Exits when `cancel` is triggered. The socket file is removed on exit.
@@ -86,21 +102,8 @@ pub type PeerRelayUrls = Vec<String>;
 ///
 /// `peer_relay_urls`: when role=agent, Notification and DeployStatus events are
 /// relayed via HTTP POST to these URLs (the primary's /speak endpoint).
-pub async fn run_socket_service(
-    registry: Arc<SessionRegistry>,
-    receiver: Arc<ReceiverService>,
-    cancel: CancellationToken,
-    lifecycle_tx: Option<mpsc::Sender<LifecycleEvent>>,
-    notification_config: Option<Arc<RwLock<NotificationConfig>>>,
-    peer_relay_urls: PeerRelayUrls,
-    failure_buffer: FailureBuffer,
-    http_client: reqwest::Client,
-    credential_pool: Arc<CredentialPool>,
-) -> Result<()> {
+pub async fn run_socket_service(ctx: SocketContext) -> Result<()> {
     let path = socket_path();
-
-    // Clean up stale socket or bail if another instance is live.
-    cleanup_stale_socket(&path).await?;
 
     let listener = UnixListener::bind(&path)?;
     tracing::info!(path = %path.display(), "socket listener bound");
@@ -108,7 +111,7 @@ pub async fn run_socket_service(
     loop {
         tokio::select! {
             // Graceful shutdown requested.
-            _ = cancel.cancelled() => {
+            _ = ctx.cancel.cancelled() => {
                 tracing::info!("socket service shutting down");
                 break;
             }
@@ -117,14 +120,14 @@ pub async fn run_socket_service(
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((stream, _addr)) => {
-                        let reg = Arc::clone(&registry);
-                        let recv = Arc::clone(&receiver);
-                        let tx = lifecycle_tx.clone();
-                        let notif_cfg = notification_config.clone();
-                        let relay = peer_relay_urls.clone();
-                        let failures = failure_buffer.clone();
-                        let client = http_client.clone();
-                        let pool = Arc::clone(&credential_pool);
+                        let reg = Arc::clone(&ctx.registry);
+                        let recv = Arc::clone(&ctx.receiver);
+                        let tx = ctx.lifecycle_tx.clone();
+                        let notif_cfg = ctx.notification_config.clone();
+                        let relay = ctx.peer_relay_urls.clone();
+                        let failures = ctx.failure_buffer.clone();
+                        let client = ctx.http_client.clone();
+                        let pool = Arc::clone(&ctx.credential_pool);
                         tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client, pool));
                     }
                     Err(e) => {

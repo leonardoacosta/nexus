@@ -89,13 +89,12 @@ impl NotificationBatchBuffer {
             match ntype.as_str() {
                 "quality_gates" => {
                     // Check if coalesce window has passed since first entry
-                    if let Some(first) = queue.first() {
-                        if first.received_at.elapsed() >= self.build_coalesce_window {
+                    if let Some(first) = queue.first()
+                        && first.received_at.elapsed() >= self.build_coalesce_window {
                             let coalesced = self.coalesce_quality_gates(queue);
                             results.push((ntype.clone(), coalesced));
                             types_to_remove.push(ntype.clone());
                         }
-                    }
                 }
                 "reminders" if self.reminder_coalesce => {
                     if queue.len() >= 2 {
@@ -189,11 +188,10 @@ impl NotificationBatchBuffer {
     fn coalesce_reminders(&self, queue: &[QueuedNotification]) -> String {
         let count = queue.len();
         // Extract wait time from last reminder message if possible
-        if let Some(last) = queue.last() {
-            if last.message.contains("waiting") {
+        if let Some(last) = queue.last()
+            && last.message.contains("waiting") {
                 return format!("{} ({} reminders suppressed)", last.message, count - 1);
             }
-        }
         format!("Claude has been waiting ({} reminders)", count)
     }
 
@@ -210,8 +208,7 @@ pub async fn is_terminal_focused() -> bool {
         .args(["getactivewindow", "getwindowname"])
         .output()
         .await
-    {
-        if output.status.success() {
+        && output.status.success() {
             let name = String::from_utf8_lossy(&output.stdout).to_lowercase();
             let terminal_indicators = [
                 "kitty",
@@ -225,7 +222,6 @@ pub async fn is_terminal_focused() -> bool {
             ];
             return terminal_indicators.iter().any(|t| name.contains(t));
         }
-    }
     // Default: assume focused
     true
 }

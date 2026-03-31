@@ -35,7 +35,7 @@ fn normalize_for_speech(text: &str) -> String {
     s = s.replace('#', "");
 
     // Parentheses → just the content
-    s = s.replace('(', "").replace(')', "");
+    s = s.replace(['(', ')'], "");
 
     // = between words → space ("daemon=active" → "daemon active")
     // Process char by char to only replace = between word chars

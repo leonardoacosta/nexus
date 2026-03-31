@@ -121,7 +121,7 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
 
         let status_cell = Line::from(vec![
             Span::styled(format!(" {dot} "), Style::default().fg(dot_color)),
-            Span::styled(format!("{type_ind}"), Style::default().fg(colors::TEXT_DIM)),
+            Span::styled(type_ind.to_string(), Style::default().fg(colors::TEXT_DIM)),
         ]);
         let name_cell = Line::from(Span::styled(
             row_data.session.id.chars().take(8).collect::<String>(),

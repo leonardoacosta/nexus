@@ -90,6 +90,12 @@ struct CacheState {
     refreshed_at: Instant,
 }
 
+impl Default for EnvironmentCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EnvironmentCache {
     pub fn new() -> Self {
         Self {

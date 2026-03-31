@@ -126,18 +126,12 @@ impl Default for VoiceSettingsConfig {
 /// Falls back to "default" key, then to elevenlabs.voice_id.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ProjectVoicesConfig {
     #[serde(flatten)]
     pub voices: HashMap<String, String>,
 }
 
-impl Default for ProjectVoicesConfig {
-    fn default() -> Self {
-        Self {
-            voices: HashMap::new(),
-        }
-    }
-}
 
 impl ProjectVoicesConfig {
     /// Get the voice ID for a given project.
@@ -161,18 +155,12 @@ impl ProjectVoicesConfig {
 /// Maps project codes to chime audio file paths.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ProjectChimesConfig {
     #[serde(flatten)]
     pub chimes: HashMap<String, String>,
 }
 
-impl Default for ProjectChimesConfig {
-    fn default() -> Self {
-        Self {
-            chimes: HashMap::new(),
-        }
-    }
-}
 
 impl ProjectChimesConfig {
     /// Get the chime path for a given project, if configured.
@@ -293,6 +281,7 @@ impl NotificationsConfig {
     /// - `CLAUDE_DEBOUNCE_MAX_BUFFER`: Override debounce.maxBuffer
     /// - `CLAUDE_AUDIO_RESUME_DELAY_MS`: Override audio.resumeDelayMs
     /// - `CLAUDE_AUDIO_DEDUP_WINDOW_MS`: Override audio.dedupWindowMs
+    ///
     /// Synchronous load — suitable for startup/constructor paths that are not
     /// inside an async context. Prefer `load()` (async) in handler code.
     pub fn load_sync() -> Result<Self> {
@@ -357,12 +346,11 @@ impl NotificationsConfig {
 
     /// Apply environment variable overrides to the configuration
     fn apply_env_overrides(&mut self) {
-        if let Ok(port_str) = env::var("CLAUDE_RECEIVER_PORT") {
-            if let Ok(port) = port_str.parse::<u16>() {
+        if let Ok(port_str) = env::var("CLAUDE_RECEIVER_PORT")
+            && let Ok(port) = port_str.parse::<u16>() {
                 debug!("Overriding server.port from env: {}", port);
                 self.server.port = port;
             }
-        }
 
         if let Ok(voice_id) = env::var("ELEVENLABS_VOICE_ID") {
             debug!("Overriding elevenlabs.voiceId from env");
@@ -374,54 +362,46 @@ impl NotificationsConfig {
             self.elevenlabs.model_id = model_id;
         }
 
-        if let Ok(window_str) = env::var("CLAUDE_DEBOUNCE_WINDOW_MS") {
-            if let Ok(window_ms) = window_str.parse::<u64>() {
+        if let Ok(window_str) = env::var("CLAUDE_DEBOUNCE_WINDOW_MS")
+            && let Ok(window_ms) = window_str.parse::<u64>() {
                 debug!("Overriding debounce.windowMs from env: {}", window_ms);
                 self.debounce.window_ms = window_ms;
             }
-        }
 
-        if let Ok(max_str) = env::var("CLAUDE_DEBOUNCE_MAX_BUFFER") {
-            if let Ok(max_buffer) = max_str.parse::<usize>() {
+        if let Ok(max_str) = env::var("CLAUDE_DEBOUNCE_MAX_BUFFER")
+            && let Ok(max_buffer) = max_str.parse::<usize>() {
                 debug!("Overriding debounce.maxBuffer from env: {}", max_buffer);
                 self.debounce.max_buffer = max_buffer;
             }
-        }
 
-        if let Ok(delay_str) = env::var("CLAUDE_AUDIO_RESUME_DELAY_MS") {
-            if let Ok(delay_ms) = delay_str.parse::<u64>() {
+        if let Ok(delay_str) = env::var("CLAUDE_AUDIO_RESUME_DELAY_MS")
+            && let Ok(delay_ms) = delay_str.parse::<u64>() {
                 debug!("Overriding audio.resumeDelayMs from env: {}", delay_ms);
                 self.audio.resume_delay_ms = delay_ms;
             }
-        }
 
-        if let Ok(dedup_str) = env::var("CLAUDE_AUDIO_DEDUP_WINDOW_MS") {
-            if let Ok(dedup_ms) = dedup_str.parse::<u64>() {
+        if let Ok(dedup_str) = env::var("CLAUDE_AUDIO_DEDUP_WINDOW_MS")
+            && let Ok(dedup_ms) = dedup_str.parse::<u64>() {
                 debug!("Overriding audio.dedupWindowMs from env: {}", dedup_ms);
                 self.audio.dedup_window_ms = dedup_ms;
             }
-        }
 
-        if let Ok(stability_str) = env::var("CLAUDE_VOICE_STABILITY") {
-            if let Ok(stability) = stability_str.parse::<f32>() {
-                if (0.0..=1.0).contains(&stability) {
+        if let Ok(stability_str) = env::var("CLAUDE_VOICE_STABILITY")
+            && let Ok(stability) = stability_str.parse::<f32>()
+                && (0.0..=1.0).contains(&stability) {
                     debug!("Overriding voiceSettings.stability from env: {}", stability);
                     self.voice_settings.stability = stability;
                 }
-            }
-        }
 
-        if let Ok(boost_str) = env::var("CLAUDE_VOICE_SIMILARITY_BOOST") {
-            if let Ok(boost) = boost_str.parse::<f32>() {
-                if (0.0..=1.0).contains(&boost) {
+        if let Ok(boost_str) = env::var("CLAUDE_VOICE_SIMILARITY_BOOST")
+            && let Ok(boost) = boost_str.parse::<f32>()
+                && (0.0..=1.0).contains(&boost) {
                     debug!(
                         "Overriding voiceSettings.similarityBoost from env: {}",
                         boost
                     );
                     self.voice_settings.similarity_boost = boost;
                 }
-            }
-        }
     }
 
     /// Get the deduplication window as a Duration

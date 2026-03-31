@@ -179,7 +179,6 @@ impl ReceiverService {
                     type_name.to_string(),
                     TypeConfig {
                         mode: Some(mode),
-                        ..Default::default()
                     },
                 );
                 match save_notification_config(&config) {

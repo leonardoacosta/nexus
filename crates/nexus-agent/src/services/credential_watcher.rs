@@ -318,13 +318,12 @@ impl DebounceTracker {
     fn should_process(&mut self, path: &Path) -> bool {
         let now = tokio::time::Instant::now();
 
-        if let Some(last) = self.last_event.get(path) {
-            if now.duration_since(*last) < self.window {
+        if let Some(last) = self.last_event.get(path)
+            && now.duration_since(*last) < self.window {
                 // Within debounce window — suppress
                 self.last_event.insert(path.to_path_buf(), now);
                 return false;
             }
-        }
 
         self.last_event.insert(path.to_path_buf(), now);
         true

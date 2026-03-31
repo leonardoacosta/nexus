@@ -16,7 +16,7 @@ use nexus_agent::environment::EnvironmentCache;
 use nexus_agent::event_forwarder::EventForwarder;
 use nexus_agent::events;
 use nexus_agent::failures::FailureBuffer;
-use nexus_agent::grpc::NexusAgentService;
+use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
     AppState, credentials_handler, cron_handler, environment_handler, failures_handler,
@@ -261,18 +261,18 @@ async fn main() -> Result<()> {
     tracing::info!("CommandRegistry initialized");
 
     // Build the gRPC service.
-    let service = NexusAgentService::new(
-        Arc::clone(&registry),
-        Arc::clone(&event_broadcaster),
-        health_collector.clone(),
-        agent_name.clone(),
-        agent_host.clone(),
-        Arc::clone(&coordinator),
-        project_registry.clone(),
-        status_cache.clone(),
+    let service = NexusAgentService::new(AgentServiceConfig {
+        registry: Arc::clone(&registry),
+        events: Arc::clone(&event_broadcaster),
+        health: health_collector.clone(),
+        agent_name: agent_name.clone(),
+        agent_host: agent_host.clone(),
+        shutdown: Arc::clone(&coordinator),
+        project_registry: project_registry.clone(),
+        status_cache: status_cache.clone(),
         session_pool,
-        command_registry.clone(),
-    );
+        command_registry: command_registry.clone(),
+    });
 
     let bind_address = &nexus_config.bind_address;
     let effective_secret = nexus_config.effective_secret();
@@ -393,18 +393,17 @@ async fn main() -> Result<()> {
     // Spawn the Unix domain socket service for hook event ingestion.
     // role=primary: notifications handled locally via ReceiverService
     // role=agent: notifications relayed to primary peer via HTTP
-    let socket_registry = Arc::clone(&registry);
-    let socket_service = socket::run_socket_service(
-        socket_registry,
-        Arc::clone(&receiver),
-        socket_cancel,
+    let socket_service = socket::run_socket_service(socket::SocketContext {
+        registry: Arc::clone(&registry),
+        receiver: Arc::clone(&receiver),
+        cancel: socket_cancel,
         lifecycle_tx,
-        notification_config_arc,
+        notification_config: notification_config_arc,
         peer_relay_urls,
         failure_buffer,
-        socket_http_client,
-        socket_credential_pool,
-    );
+        http_client: socket_http_client,
+        credential_pool: socket_credential_pool,
+    });
 
     tracing::info!(
         "listening on gRPC={bind_address}:{GRPC_PORT} HTTP={bind_address}:{HTTP_PORT} socket={}",
@@ -414,15 +413,14 @@ async fn main() -> Result<()> {
     // Notify systemd that the service is ready (Linux only).
     #[cfg(target_os = "linux")]
     {
-        if let Ok(notify_socket) = std::env::var("NOTIFY_SOCKET") {
-            if !notify_socket.is_empty() {
+        if let Ok(notify_socket) = std::env::var("NOTIFY_SOCKET")
+            && !notify_socket.is_empty() {
                 use std::os::unix::net::UnixDatagram;
                 if let Ok(sock) = UnixDatagram::unbound() {
                     let _ = sock.send_to(b"READY=1", &notify_socket);
                     tracing::info!("sd_notify: READY=1 sent");
                 }
             }
-        }
     }
 
     // Run all core services concurrently. If any exits, the others are dropped.

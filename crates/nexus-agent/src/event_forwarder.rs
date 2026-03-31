@@ -74,8 +74,8 @@ async fn subscribe_to_peer(
     let mut stream = client.stream_events(request).await?.into_inner();
 
     while let Some(event) = stream.message().await? {
-        if let Some(lifecycle_event) = session_event_to_lifecycle(&peer.name, &event) {
-            if tx.send(lifecycle_event).await.is_err() {
+        if let Some(lifecycle_event) = session_event_to_lifecycle(&peer.name, &event)
+            && tx.send(lifecycle_event).await.is_err() {
                 // Receiver dropped — no point continuing.
                 tracing::debug!(
                     peer = %peer.name,
@@ -83,7 +83,6 @@ async fn subscribe_to_peer(
                 );
                 return Ok(());
             }
-        }
     }
 
     Ok(())

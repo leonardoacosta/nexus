@@ -27,11 +27,10 @@ impl NexusAgentService {
         // Project routing: when `project` is set and `session_id` is empty, route
         // through the session pool instead of looking up a specific session.
         // ---------------------------------------------------------------------------
-        if let Some(ref project_code) = req.project {
-            if req.session_id.is_empty() {
+        if let Some(ref project_code) = req.project
+            && req.session_id.is_empty() {
                 return self.send_command_via_pool(project_code.clone(), req).await;
             }
-        }
 
         let session_id = req.session_id.clone();
 

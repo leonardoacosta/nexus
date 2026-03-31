@@ -226,8 +226,8 @@ impl ReceiverService {
 
         Self::show_notification("Claude", &formatted_message, req.project.as_deref()).await;
 
-        if let Some(project) = req.project.as_deref() {
-            if let Some(chime_path) = config.project_chimes.get_chime_for_project(project) {
+        if let Some(project) = req.project.as_deref()
+            && let Some(chime_path) = config.project_chimes.get_chime_for_project(project) {
                 let expanded = crate::claude_utils::path::expand_home(chime_path);
                 if expanded.exists() {
                     debug!("Playing project chime for {}: {}", project, chime_path);
@@ -240,7 +240,6 @@ impl ReceiverService {
                     debug!("Chime file not found: {}", expanded.display());
                 }
             }
-        }
 
         if let Some(key) = api_key {
             if mode == crate::claude_utils::notification_mode::NotificationMode::System {

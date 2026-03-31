@@ -356,7 +356,13 @@ fn next_weekly_at(
 // ---------------------------------------------------------------------------
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var("HOME").ok().map(PathBuf::from)
+    let p = nexus_core::paths::home_dir();
+    // Return None if the fallback /tmp sentinel was used.
+    if p.as_os_str() == "/tmp" {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 /// Prune /tmp/nexus-* files older than 24 hours.

@@ -204,12 +204,11 @@ impl CredentialPool {
 
         // Persist to disk.
         let cache_path = usage_cache_path();
-        if let Some(parent) = cache_path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Some(parent) = cache_path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent) {
                 warn!(error = %e, "failed to create state dir for usage cache");
                 return;
             }
-        }
         if let Err(e) = cache.save(&cache_path) {
             warn!(error = %e, "failed to persist usage cache");
         } else {
@@ -309,15 +308,14 @@ impl Service for CredentialPoolService {
         let accounts: Vec<CredentialAccount> = initial
             .into_iter()
             .map(|mut acct| {
-                if let Some(ref cache) = cached {
-                    if let Some(cu) = cache.accounts.get(&acct.name) {
+                if let Some(ref cache) = cached
+                    && let Some(cu) = cache.accounts.get(&acct.name) {
                         acct.usage = Some(AccountUsage {
                             five_hour: cu.five_hour.clone(),
                             seven_day: cu.seven_day.clone(),
                         });
                         acct.last_polled = Some(cu.last_polled);
                     }
-                }
                 acct
             })
             .collect();
@@ -496,12 +494,11 @@ impl DebounceTracker {
 
     fn should_process(&mut self, path: &Path) -> bool {
         let now = tokio::time::Instant::now();
-        if let Some(last) = self.last_event.get(path) {
-            if now.duration_since(*last) < self.window {
+        if let Some(last) = self.last_event.get(path)
+            && now.duration_since(*last) < self.window {
                 self.last_event.insert(path.to_path_buf(), now);
                 return false;
             }
-        }
         self.last_event.insert(path.to_path_buf(), now);
         true
     }
@@ -695,7 +692,7 @@ pub async fn import_credential_to_pool(
 pub async fn try_discover_account_name(
     pool: &CredentialPool,
     acct: &CredentialAccount,
-    pool_dir: &Path,
+    _pool_dir: &Path,
 ) {
     // Try to get account info via the usage API — if it works, the account is valid
     // but we don't have a profile endpoint, so we use the token fingerprint.

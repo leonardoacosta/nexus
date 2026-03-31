@@ -24,6 +24,7 @@ pub mod command_registry;
 pub mod credential_pool;
 pub mod credential_watcher;
 pub mod git_watch;
+#[cfg(target_os = "macos")]
 pub mod imessage_reader;
 pub mod launchd_health;
 pub mod macos_integration;
