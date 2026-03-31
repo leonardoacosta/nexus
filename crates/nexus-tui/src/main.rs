@@ -65,6 +65,9 @@ pub(crate) enum RpcCommand {
     ListProjects {
         agent_name: String,
     },
+    /// Config file changed on disk — carry the new config so the background
+    /// task can update the NexusClient agent list.
+    ReloadConfig(NexusConfig),
 }
 
 pub(crate) enum RpcResult {
@@ -131,7 +134,7 @@ async fn main() -> Result<()> {
     ));
 
     // Watch agents.toml for live edits.
-    spawn_config_watcher(NexusConfig::config_path(), rpc_result_tx);
+    spawn_config_watcher(NexusConfig::config_path(), rpc_result_tx, rpc_tx.clone());
 
     // Start background alert stream for notifications.
     let mut alert_rx = stream::subscribe_alert_stream(&agent_endpoints);
@@ -470,7 +473,7 @@ fn run_loop(
 /// Spawn a background task that watches `~/.config/nexus/agents.toml` for
 /// modifications.  On each write event (debounced 500 ms) the file is
 /// re-parsed and the new agent count is sent as `RpcResult::ConfigChanged`.
-fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>) {
+fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>, rpc_tx: mpsc::Sender<RpcCommand>) {
     // Bridge: notify fires on a OS thread; we forward events into a tokio channel.
     let (notify_tx, mut notify_rx) = mpsc::channel::<()>(1);
 
@@ -528,11 +531,11 @@ fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>
             // Re-parse the config and report the result.
             // Extract the outcome before any `.await` so the non-Send error
             // type is not held across an await point.
-            let reload_outcome: Option<usize> = match nexus_core::config::NexusConfig::load() {
+            let reload_outcome: Option<(usize, NexusConfig)> = match nexus_core::config::NexusConfig::load() {
                 Ok(cfg) => {
                     let n = cfg.agents.len();
                     tracing::info!("config reloaded: {n} agents");
-                    Some(n)
+                    Some((n, cfg))
                 }
                 Err(e) => {
                     tracing::warn!("config watcher: reload failed: {e}");
@@ -540,7 +543,10 @@ fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>
                 }
             };
 
-            if let Some(n) = reload_outcome {
+            if let Some((n, cfg)) = reload_outcome {
+                // Send the parsed config to the background task so it can
+                // update the NexusClient agent list.
+                let _ = rpc_tx.send(RpcCommand::ReloadConfig(cfg)).await;
                 let _ = result_tx.send(RpcResult::ConfigChanged(n)).await;
             }
         }
@@ -628,6 +634,18 @@ async fn background_task(
                                 let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
                             }
                         }
+                    }
+                    Some(RpcCommand::ReloadConfig(new_config)) => {
+                        client.update_config(new_config);
+                        // Reconnect any newly-added agents.
+                        let reconnected = client.reconnect_disconnected().await;
+                        if !reconnected.is_empty() {
+                            let _ = rpc_result_tx.send(RpcResult::AgentsReconnected(reconnected)).await;
+                        }
+                        // Push updated session data immediately.
+                        let results = client.get_sessions().await;
+                        let data = results_to_agent_data(&client, &results);
+                        let _ = poll_tx.send(data).await;
                     }
                     Some(RpcCommand::ListProjects { agent_name }) => {
                         let projects = match client.list_projects(&agent_name).await {

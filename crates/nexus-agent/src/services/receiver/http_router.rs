@@ -1,6 +1,7 @@
-//! HTTP routing and request parsing.
+//! HTTP routing via axum.
 //!
-//! Contains handle_request, handle_connection, parse_request, format_response.
+//! Contains the axum Router builder and the internal `handle_request` dispatch
+//! (used by both axum handlers and the `speak_from_socket` internal caller).
 
 use super::{
     BannerDelivery, BufferEntry, PlaybackMessage, QueuedNotification,
@@ -14,15 +15,109 @@ use crate::services::receiver::service::{
 };
 use crate::services::receiver::service::NOTIFICATION_HISTORY_CAPACITY;
 use crate::services::receiver::state::ReceiverState;
+use axum::body::Bytes;
+use axum::extract::State as AxumState;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use chrono::Utc;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+
+/// Shared state for axum receiver handlers.
+pub(crate) type ReceiverRouter = axum::Router;
+
+/// Build the axum Router for the ReceiverService.
+///
+/// All routes delegate to `ReceiverService::handle_request` so the handler
+/// logic stays in one place while axum handles HTTP parsing, connection
+/// management, and response formatting.
+pub(crate) fn build_receiver_router(state: Arc<RwLock<ReceiverState>>) -> ReceiverRouter {
+    use axum::routing::{get, post};
+
+    axum::Router::new()
+        .route("/health", get(axum_get_handler))
+        .route("/status/notifications", get(axum_get_handler))
+        .route("/mode", get(axum_get_handler).post(axum_post_handler))
+        .route("/mode/cycle", post(axum_post_handler))
+        .route("/reload", post(axum_post_handler))
+        .route("/history", get(axum_get_handler))
+        .route("/sessions", get(axum_get_handler))
+        .route("/messages", get(axum_get_handler))
+        .route("/messages/{id}", get(axum_get_with_path_handler))
+        .route("/speak", post(axum_post_handler))
+        .route("/play", post(axum_post_handler))
+        .route("/imessage", post(axum_post_handler))
+        .route("/watch/register", post(axum_post_handler))
+        .fallback(axum_fallback_handler)
+        .with_state(state)
+}
+
+/// Axum handler for GET routes — extracts path and delegates to handle_request.
+async fn axum_get_handler(
+    AxumState(state): AxumState<Arc<RwLock<ReceiverState>>>,
+    uri: axum::http::Uri,
+) -> impl IntoResponse {
+    let path = uri.path();
+    let (status, content_type, body) =
+        ReceiverService::handle_request("GET", path, &[], state).await;
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        [(axum::http::header::CONTENT_TYPE, content_type)],
+        body,
+    )
+}
+
+/// Axum handler for GET routes with path parameters (e.g. /messages/{id}).
+async fn axum_get_with_path_handler(
+    AxumState(state): AxumState<Arc<RwLock<ReceiverState>>>,
+    uri: axum::http::Uri,
+) -> impl IntoResponse {
+    let path = uri.path();
+    let (status, content_type, body) =
+        ReceiverService::handle_request("GET", path, &[], state).await;
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        [(axum::http::header::CONTENT_TYPE, content_type)],
+        body,
+    )
+}
+
+/// Axum handler for POST routes — extracts path + body and delegates.
+async fn axum_post_handler(
+    AxumState(state): AxumState<Arc<RwLock<ReceiverState>>>,
+    uri: axum::http::Uri,
+    body: Bytes,
+) -> impl IntoResponse {
+    let path = uri.path();
+    let (status, content_type, resp_body) =
+        ReceiverService::handle_request("POST", path, &body, state).await;
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        [(axum::http::header::CONTENT_TYPE, content_type)],
+        resp_body,
+    )
+}
+
+/// Fallback for unmatched routes.
+async fn axum_fallback_handler(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> impl IntoResponse {
+    let response = ErrorResponse {
+        error: "Not found".to_string(),
+        details: Some(format!("{} {}", method, uri.path())),
+    };
+    let body = serde_json::to_vec(&response).unwrap_or_default();
+    (
+        StatusCode::NOT_FOUND,
+        [(axum::http::header::CONTENT_TYPE, "application/json".to_string())],
+        body,
+    )
+}
 
 impl ReceiverService {
     /// Handle incoming HTTP request
@@ -859,116 +954,4 @@ impl ReceiverService {
         }
     }
 
-    /// Parse HTTP request from raw bytes
-    pub(crate) fn parse_request(data: &[u8]) -> Option<(String, String, Vec<u8>)> {
-        let request_str = String::from_utf8_lossy(data);
-        let lines: Vec<&str> = request_str.lines().collect();
-
-        if lines.is_empty() {
-            return None;
-        }
-
-        let parts: Vec<&str> = lines[0].split_whitespace().collect();
-        if parts.len() < 2 {
-            return None;
-        }
-
-        let method = parts[0].to_string();
-        let path = parts[1].to_string();
-
-        let mut body_start = 0;
-        let mut content_length: usize = 0;
-
-        for (i, line) in lines.iter().enumerate() {
-            if line.to_lowercase().starts_with("content-length:") {
-                if let Some(len_str) = line.split(':').nth(1) {
-                    content_length = len_str.trim().parse().unwrap_or(0);
-                }
-            }
-            if line.is_empty() {
-                body_start = i + 1;
-                break;
-            }
-        }
-
-        let body = if body_start > 0 && content_length > 0 {
-            let header_end = request_str
-                .find("\r\n\r\n")
-                .map(|p| p + 4)
-                .or_else(|| request_str.find("\n\n").map(|p| p + 2))
-                .unwrap_or(data.len());
-
-            if header_end < data.len() {
-                data[header_end..].to_vec()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-
-        Some((method, path, body))
-    }
-
-    /// Format HTTP response
-    pub(crate) fn format_response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
-        let status_text = match status {
-            200 => "OK",
-            400 => "Bad Request",
-            404 => "Not Found",
-            500 => "Internal Server Error",
-            _ => "Unknown",
-        };
-
-        let headers = format!(
-            "HTTP/1.1 {} {}\r\n\
-             Content-Type: {}\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\
-             \r\n",
-            status,
-            status_text,
-            content_type,
-            body.len()
-        );
-
-        let mut response = headers.into_bytes();
-        response.extend_from_slice(body);
-        response
-    }
-
-    /// Handle a single TCP connection
-    pub(crate) async fn handle_connection(
-        mut stream: TcpStream,
-        state: Arc<RwLock<ReceiverState>>,
-    ) {
-        let mut buffer = vec![0u8; 8192];
-
-        match stream.read(&mut buffer).await {
-            Ok(n) if n > 0 => {
-                if let Some((method, path, body)) = Self::parse_request(&buffer[..n]) {
-                    debug!("Request: {} {}", method, path);
-
-                    let (status, content_type, response_body) =
-                        Self::handle_request(&method, &path, &body, state).await;
-
-                    let response = Self::format_response(status, &content_type, &response_body);
-
-                    if let Err(e) = stream.write_all(&response).await {
-                        error!("Failed to write response: {}", e);
-                    }
-                } else {
-                    warn!("Failed to parse HTTP request");
-                    let response = Self::format_response(400, "text/plain", b"Bad Request");
-                    let _ = stream.write_all(&response).await;
-                }
-            }
-            Ok(_) => {
-                debug!("Empty request received");
-            }
-            Err(e) => {
-                error!("Failed to read from connection: {}", e);
-            }
-        }
-    }
 }

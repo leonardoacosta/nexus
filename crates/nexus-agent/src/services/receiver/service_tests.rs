@@ -4,38 +4,6 @@ use crate::services::receiver::state::ReceiverState;
 use super::super::AudioController;
 
 #[test]
-fn test_parse_get_request() {
-    let request = b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n";
-    let result = ReceiverService::parse_request(request);
-    assert!(result.is_some());
-    let (method, path, body) = result.unwrap();
-    assert_eq!(method, "GET");
-    assert_eq!(path, "/health");
-    assert!(body.is_empty());
-}
-
-#[test]
-fn test_parse_post_request() {
-    let request = b"POST /speak HTTP/1.1\r\nHost: localhost\r\nContent-Length: 23\r\n\r\n{\"message\":\"hello\"}";
-    let result = ReceiverService::parse_request(request);
-    assert!(result.is_some());
-    let (method, path, body) = result.unwrap();
-    assert_eq!(method, "POST");
-    assert_eq!(path, "/speak");
-    assert!(!body.is_empty());
-}
-
-#[test]
-fn test_format_response() {
-    let body = b"{\"status\":\"ok\"}";
-    let response = ReceiverService::format_response(200, "application/json", body);
-    let response_str = String::from_utf8_lossy(&response);
-    assert!(response_str.contains("HTTP/1.1 200 OK"));
-    assert!(response_str.contains("Content-Type: application/json"));
-    assert!(response_str.contains("{\"status\":\"ok\"}"));
-}
-
-#[test]
 fn test_speak_request_deserialize() {
     let json = r#"{"message":"hello world"}"#;
     let req: SpeakRequest = serde_json::from_str(json).unwrap();

@@ -118,6 +118,33 @@ impl NexusClient {
         Self { agents }
     }
 
+    /// Update the agent list from a new configuration.
+    ///
+    /// Agents that already exist (matched by name) keep their connection state.
+    /// New agents start as `Reconnecting { attempt: 0 }`.
+    /// Removed agents are dropped (connections closed).
+    pub fn update_config(&mut self, config: NexusConfig) {
+        let mut new_agents: Vec<AgentConnection> = Vec::with_capacity(config.agents.len());
+        for cfg in config.agents {
+            // Try to find an existing connection for this agent name.
+            if let Some(pos) = self.agents.iter().position(|a| a.config.name == cfg.name) {
+                let mut existing = self.agents.swap_remove(pos);
+                // Update host/port in case they changed.
+                existing.config = cfg;
+                new_agents.push(existing);
+            } else {
+                new_agents.push(AgentConnection {
+                    config: cfg,
+                    status: ConnectionStatus::Reconnecting { attempt: 0 },
+                    last_seen: None,
+                    last_error: None,
+                    client: None,
+                });
+            }
+        }
+        self.agents = new_agents;
+    }
+
     /// Attempt to connect to every configured agent.
     ///
     /// Agents that are unreachable are marked `Disconnected` with the error

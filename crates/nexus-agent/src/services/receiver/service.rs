@@ -4,11 +4,11 @@
 //! Handler logic lives in sub-modules:
 //! - `types` — Public request/response types, constants
 //! - `state` — ReceiverState, mode/type management, message store, buffer flush
-//! - `http_router` — HTTP request routing, parsing, formatting
-//! - `socket` — Unix socket listener
+//! - `http_router` — Axum router builder and HTTP request dispatch
 //! - `delivery` — TTS, APNs, banner, iMessage delivery
 
 use super::PlaybackQueue;
+use super::http_router::build_receiver_router;
 use crate::config::NotificationsConfig;
 use crate::services::receiver::state::ReceiverState;
 use crate::services::Service;
@@ -17,9 +17,8 @@ use chrono::Utc;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpListener;
 use tokio::sync::{RwLock, mpsc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 // Re-export types from the types module so existing imports continue to work.
 pub use super::types::*;
@@ -145,7 +144,7 @@ impl Service for ReceiverService {
         let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid bind address '{}:{}': {}", self.bind_address, self.port, e))?;
-        let listener = TcpListener::bind(addr).await?;
+        let listener = tokio::net::TcpListener::bind(addr).await?;
 
         info!("TTS Receiver listening on http://{}:{}", self.bind_address, self.port);
 
@@ -160,6 +159,16 @@ impl Service for ReceiverService {
             state.started_at = Some(Utc::now());
             state.playback_queue = Some(queue_handle);
         }
+
+        // Build the axum router for this receiver.
+        let app = build_receiver_router(Arc::clone(&self.state));
+
+        // Spawn axum HTTP server.
+        let mut axum_handle = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                tracing::error!("axum receiver server error: {}", e);
+            }
+        });
 
         let mut buffer_flush_interval = tokio::time::interval(Duration::from_millis(500));
         let mut message_prune_interval = tokio::time::interval(Duration::from_secs(
@@ -188,19 +197,12 @@ impl Service for ReceiverService {
                     Self::prune_message_store(&store);
                 }
 
-                result = listener.accept() => {
+                result = &mut axum_handle => {
                     match result {
-                        Ok((stream, peer_addr)) => {
-                            debug!("Connection from {}", peer_addr);
-                            let state = Arc::clone(&self.state);
-                            tokio::spawn(async move {
-                                Self::handle_connection(stream, state).await;
-                            });
-                        }
-                        Err(e) => {
-                            error!("Failed to accept connection: {}", e);
-                        }
+                        Ok(()) => warn!("axum server task exited unexpectedly"),
+                        Err(e) => warn!("axum server task panicked: {}", e),
                     }
+                    break;
                 }
             }
         }

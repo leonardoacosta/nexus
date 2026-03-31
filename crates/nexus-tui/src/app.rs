@@ -582,6 +582,48 @@ impl App {
             .move_cursor(tui_textarea::CursorMove::End);
     }
 
+    /// Submit a prompt to the currently attached session.
+    ///
+    /// Clears the input, marks the session as executing, pushes the prompt
+    /// into stream history and view, and sends the RPC command. Returns `true`
+    /// if the prompt was sent, `false` if it was empty or no stream view is
+    /// attached.
+    pub fn submit_prompt(
+        &mut self,
+        rpc_tx: &tokio::sync::mpsc::Sender<crate::RpcCommand>,
+    ) -> bool {
+        let prompt = self.stream_input_text();
+        if prompt.is_empty() {
+            return false;
+        }
+
+        self.stream_input_clear();
+        self.stream_executing = true;
+        self.stream_exec_start = Some(std::time::Instant::now());
+
+        if let Some(sv) = &mut self.stream_view {
+            sv.push_history(prompt.clone());
+            sv.push_line(StyledLine::new(
+                "\u{2500}\u{2500} you \u{2500}\u{2500}",
+                LineStyle::UserHeader,
+            ));
+            for line in prompt.lines() {
+                sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
+            }
+            // Blank separator after user prompt block.
+            sv.push_line(StyledLine::new("", LineStyle::Plain));
+            // Reset assistant header for the upcoming response.
+            sv.assistant_header_emitted = false;
+        }
+
+        if let Some(sv) = &self.stream_view {
+            let session_id = sv.session_id.clone();
+            let _ = rpc_tx.try_send(crate::RpcCommand::SendCommand { session_id, prompt });
+        }
+
+        true
+    }
+
     pub fn next_screen(&mut self) {
         self.current_screen = self.current_screen.next();
         self.selected_index = 0;

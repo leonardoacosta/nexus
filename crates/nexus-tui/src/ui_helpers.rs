@@ -9,7 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::Tabs;
 
-use crate::app::{self, App, LineStyle, Screen, StyledLine};
+use crate::app::{self, App, Screen};
 use crate::RpcCommand;
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -81,30 +81,10 @@ pub(crate) fn launch_editor(
         return Ok(());
     }
 
-    // Send the prompt.
-    app.stream_input_clear();
-    app.stream_executing = true;
-    app.stream_exec_start = Some(std::time::Instant::now());
-
-    if let Some(sv) = &mut app.stream_view {
-        sv.push_history(prompt.clone());
-        sv.push_line(StyledLine::new(
-            "\u{2500}\u{2500} you \u{2500}\u{2500}",
-            LineStyle::UserHeader,
-        ));
-        for line in prompt.lines() {
-            sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
-        }
-        // Blank separator after user prompt block.
-        sv.push_line(StyledLine::new("", LineStyle::Plain));
-        // Reset assistant header for the upcoming response.
-        sv.assistant_header_emitted = false;
-    }
-
-    if let Some(sv) = &app.stream_view {
-        let session_id = sv.session_id.clone();
-        let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
-    }
+    // Set the textarea content to the editor output, then submit via the
+    // shared submit_prompt method.
+    app.stream_input_set(&prompt);
+    app.submit_prompt(rpc_tx);
 
     Ok(())
 }

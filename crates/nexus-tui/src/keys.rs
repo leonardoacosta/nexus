@@ -6,7 +6,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
 use crate::app::{
-    App, InputMode, LineStyle, PaletteAction, Screen, SearchState, StreamVerbosity, StyledLine,
+    App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity,
 };
 use crate::{KeyAction, RpcCommand};
 
@@ -110,32 +110,7 @@ pub(crate) fn handle_stream_input_key(
 
     // Plain Enter (without modifiers) — send the buffer.
     if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-        let prompt = app.stream_input_text();
-        if !prompt.is_empty() {
-            app.stream_input_clear();
-            app.stream_executing = true;
-            app.stream_exec_start = Some(std::time::Instant::now());
-
-            if let Some(sv) = &mut app.stream_view {
-                sv.push_history(prompt.clone());
-                sv.push_line(StyledLine::new(
-                    "\u{2500}\u{2500} you \u{2500}\u{2500}",
-                    LineStyle::UserHeader,
-                ));
-                for line in prompt.lines() {
-                    sv.push_line(StyledLine::new(line.to_string(), LineStyle::UserPrompt));
-                }
-                // Blank separator after user prompt block.
-                sv.push_line(StyledLine::new("", LineStyle::Plain));
-                // Reset assistant header for the upcoming response.
-                sv.assistant_header_emitted = false;
-            }
-
-            if let Some(sv) = &app.stream_view {
-                let session_id = sv.session_id.clone();
-                let _ = rpc_tx.try_send(RpcCommand::SendCommand { session_id, prompt });
-            }
-        }
+        app.submit_prompt(rpc_tx);
         return KeyAction::Continue;
     }
 
