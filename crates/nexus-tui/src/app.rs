@@ -7,7 +7,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ScrollbarState, TableState};
 use tui_textarea::TextArea;
 
-use nexus_core::agent::AgentInfo;
+use nexus_core::agent::AgentSnapshot;
 use nexus_core::notes::ProjectNotes;
 use nexus_core::session::{Session, SessionStatus};
 
@@ -283,7 +283,7 @@ pub struct PaletteEntry {
 /// Aggregated data for a single agent, received from the polling task.
 #[derive(Debug, Clone)]
 pub struct AgentData {
-    pub info: AgentInfo,
+    pub info: AgentSnapshot,
     pub sessions: Vec<Session>,
     pub connected: bool,
     pub last_seen: Option<DateTime<Utc>>,
@@ -435,7 +435,7 @@ pub struct App {
     pub started_at: DateTime<Utc>,
 
     // Detail screen state
-    pub selected_session: Option<(Session, AgentInfo)>,
+    pub selected_session: Option<(Session, AgentSnapshot)>,
 
     // Palette state
     pub input_mode: InputMode,
@@ -907,7 +907,7 @@ impl App {
     }
 
     /// Enter the detail screen for a given session.
-    pub fn open_detail(&mut self, session: Session, agent: AgentInfo) {
+    pub fn open_detail(&mut self, session: Session, agent: AgentSnapshot) {
         self.selected_session = Some((session, agent));
         self.current_screen = Screen::Detail;
     }
@@ -1039,8 +1039,8 @@ impl App {
 
         // Push health samples into per-agent ring buffers.
         for agent in &data {
-            if agent.connected {
-                if let Some(health) = &agent.info.health {
+            if agent.connected
+                && let Some(health) = &agent.info.health {
                     let entry = self
                         .health_history
                         .entry(agent.info.name.clone())
@@ -1057,7 +1057,6 @@ impl App {
                     };
                     entry.push_ram(ram_sample);
                 }
-            }
         }
 
         // Remove history entries for agents that are no longer in the config.

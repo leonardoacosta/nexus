@@ -1,5 +1,4 @@
 pub mod agent;
-pub mod api;
 pub mod credentials;
 pub mod command;
 pub mod config;

@@ -66,7 +66,7 @@ fn render_metadata_panel(
     frame: &mut Frame,
     area: Rect,
     session: &nexus_core::session::Session,
-    _agent: &nexus_core::agent::AgentInfo,
+    _agent: &nexus_core::agent::AgentSnapshot,
 ) {
     let label_style = Style::default().fg(colors::TEXT_DIM);
     let value_style = Style::default().fg(colors::TEXT);
@@ -122,7 +122,7 @@ fn render_status_panel(
     frame: &mut Frame,
     area: Rect,
     session: &nexus_core::session::Session,
-    agent: &nexus_core::agent::AgentInfo,
+    agent: &nexus_core::agent::AgentSnapshot,
     app: &App,
 ) {
     let label_style = Style::default().fg(colors::TEXT_DIM);

@@ -116,8 +116,8 @@ pub(crate) fn handle_stream_input_key(
 
     // Up — navigate backward in history (only when textarea is empty).
     if key.code == KeyCode::Up && app.stream_input_is_empty() {
-        if let Some(sv) = &mut app.stream_view {
-            if !sv.input_history.is_empty() {
+        if let Some(sv) = &mut app.stream_view
+            && !sv.input_history.is_empty() {
                 let new_idx = match sv.history_index {
                     None => sv.input_history.len() - 1,
                     Some(0) => 0,
@@ -127,13 +127,12 @@ pub(crate) fn handle_stream_input_key(
                 let text = sv.input_history[new_idx].clone();
                 app.stream_input_set(&text);
             }
-        }
         return KeyAction::Continue;
     }
 
     // Down — navigate forward in history.
-    if key.code == KeyCode::Down {
-        if let Some(sv) = &mut app.stream_view {
+    if key.code == KeyCode::Down
+        && let Some(sv) = &mut app.stream_view {
             match sv.history_index {
                 None => {} // Not navigating; let TextArea handle Down normally.
                 Some(i) if i + 1 >= sv.input_history.len() => {
@@ -150,17 +149,15 @@ pub(crate) fn handle_stream_input_key(
                 }
             }
         }
-    }
 
     // Any typing resets history navigation.
     if matches!(
         key.code,
         KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
-    ) {
-        if let Some(sv) = &mut app.stream_view {
+    )
+        && let Some(sv) = &mut app.stream_view {
             sv.history_index = None;
         }
-    }
 
     // Pass the key through to the TextArea widget.
     // Wrap in Event::Key so the textarea's crossterm Input conversion fires.
@@ -203,8 +200,8 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
         }
         KeyCode::Enter | KeyCode::Char('d') => {
             // On Dashboard: open detail for selected session.
-            if app.current_screen == Screen::Dashboard {
-                if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
+            if app.current_screen == Screen::Dashboard
+                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
                     let session = row.session.clone();
                     // Find the agent info.
                     let agent_info = app
@@ -212,7 +209,7 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
                         .iter()
                         .find(|a| a.info.name == row.agent_name)
                         .map(|a| a.info.clone())
-                        .unwrap_or_else(|| nexus_core::agent::AgentInfo {
+                        .unwrap_or_else(|| nexus_core::agent::AgentSnapshot {
                             name: row.agent_name.clone(),
                             host: String::new(),
                             port: 0,
@@ -223,7 +220,6 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
                         });
                     app.open_detail(session, agent_info);
                 }
-            }
             KeyAction::Continue
         }
         KeyCode::Char(':') | KeyCode::Char('/') => {
@@ -243,8 +239,8 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
         }
         KeyCode::Char('a') => {
             // Stream attach: works for all sessions (managed and ad-hoc).
-            if app.current_screen == Screen::Dashboard {
-                if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
+            if app.current_screen == Screen::Dashboard
+                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
                     let session_id = row.session.id.clone();
                     let agent_name = row.agent_name.clone();
                     let project = row.session.project.as_deref().unwrap_or("?");
@@ -254,20 +250,18 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
                     app.ensure_session_tab();
                     app.input_mode = InputMode::StreamInput;
                 }
-            }
             KeyAction::Continue
         }
         KeyCode::Char('e') => {
             // Open scratchpad for selected project on Projects screen.
-            if app.current_screen == Screen::Projects {
-                if let Some(name) = app
+            if app.current_screen == Screen::Projects
+                && let Some(name) = app
                     .cached_project_summaries()
                     .get(app.selected_index)
                     .map(|p| p.name.clone())
                 {
                     app.open_scratchpad(&name);
                 }
-            }
             KeyAction::Continue
         }
         KeyCode::Char('A') => {
@@ -657,7 +651,7 @@ pub(crate) fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_t
                     .iter()
                     .find(|a| a.info.name == agent_name)
                     .map(|a| a.info.clone())
-                    .unwrap_or_else(|| nexus_core::agent::AgentInfo {
+                    .unwrap_or_else(|| nexus_core::agent::AgentSnapshot {
                         name: agent_name,
                         host: String::new(),
                         port: 0,

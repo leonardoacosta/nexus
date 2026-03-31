@@ -18,7 +18,7 @@ use anyhow::Result;
 use nexus_core::config::{NotificationConfig, ProjectNotificationRules, Verbosity};
 use nexus_core::lifecycle::{LifecycleEvent, project_from_cwd};
 use nexus_core::session::{Session, SessionStatus};
-use nexus_core::socket_event::{SocketCommand, SocketEvent};
+use nexus_core::socket_event::{SocketCommand, SocketEvent, SocketResponse};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{RwLock, mpsc};
@@ -195,7 +195,8 @@ async fn handle_connection(
                 if let Ok(cmd) = serde_json::from_str::<SocketCommand>(&line) {
                     let response =
                         dispatch_command(cmd, &receiver, notification_config.as_ref()).await;
-                    let mut response_line = response;
+                    let mut response_line = serde_json::to_string(&response)
+                        .unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"));
                     response_line.push('\n');
                     if let Err(e) = write_half.write_all(response_line.as_bytes()).await {
                         tracing::warn!(error = %e, "socket: failed to write command response");
@@ -671,7 +672,7 @@ async fn dispatch_event(
 
             if peer_relay_urls.is_empty() {
                 // role=primary: forward to notification engine
-                if let Some(ref tx) = lifecycle_tx {
+                if let Some(tx) = lifecycle_tx {
                     use nexus_core::lifecycle::LifecycleEventKind;
                     let _ = tx
                         .send(LifecycleEvent {
@@ -748,40 +749,45 @@ async fn relay_notification_to_peers(
     }
 }
 
-/// Execute a `SocketCommand` and return a JSON response string.
+/// Execute a `SocketCommand` and return a typed `SocketResponse`.
 async fn dispatch_command(
     cmd: SocketCommand,
     receiver: &Arc<ReceiverService>,
     notification_config: Option<&Arc<RwLock<NotificationConfig>>>,
-) -> String {
+) -> SocketResponse {
     match cmd {
         SocketCommand::ModeQuery => {
             tracing::debug!("socket: command mode_query");
-            receiver.mode_query_json()
+            parse_response(receiver.mode_query_json())
         }
         SocketCommand::ModeSet { mode } => {
             tracing::info!(mode = %mode, "socket: command mode_set");
-            receiver.mode_set_json(&mode)
+            parse_response(receiver.mode_set_json(&mode))
         }
         SocketCommand::ModeCycle => {
             tracing::info!("socket: command mode_cycle");
-            receiver.mode_cycle_json()
+            parse_response(receiver.mode_cycle_json())
         }
         SocketCommand::History { limit } => {
             tracing::debug!(limit = ?limit, "socket: command history");
-            receiver.history_json(limit).await
+            let json_str = receiver.history_json(limit).await;
+            match serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                Ok(items) => SocketResponse::History(items),
+                Err(_) => SocketResponse::History(Vec::new()),
+            }
         }
         SocketCommand::TypeSet { name, mode } => {
             tracing::info!(type_name = %name, mode = %mode, "socket: command type_set");
-            receiver.type_set_json(&name, &mode)
+            parse_response(receiver.type_set_json(&name, &mode))
         }
         SocketCommand::TypeClear { name } => {
             tracing::info!(type_name = %name, "socket: command type_clear");
-            receiver.type_clear_json(&name)
+            parse_response(receiver.type_clear_json(&name))
         }
         SocketCommand::NotificationRules { project } => {
             tracing::debug!(project = %project, "socket: command notification_rules");
-            handle_notification_rules(&project, notification_config).await
+            let json_str = handle_notification_rules(&project, notification_config).await;
+            parse_response(json_str)
         }
         SocketCommand::NotificationSet {
             project,
@@ -800,18 +806,36 @@ async fn dispatch_command(
                 reset_to_default,
                 "socket: command notification_set"
             );
-            handle_notification_set(
-                &project,
-                verbosity.as_deref(),
-                announce_agents,
-                announce_specs,
-                announce_sessions,
-                reset_to_default,
-                notification_config,
+            parse_response(
+                handle_notification_set(
+                    &project,
+                    verbosity.as_deref(),
+                    announce_agents,
+                    announce_specs,
+                    announce_sessions,
+                    reset_to_default,
+                    notification_config,
+                )
+                .await,
             )
-            .await
         }
     }
+}
+
+/// Parse a JSON string from a receiver method into a `SocketResponse`.
+///
+/// Falls back to `SocketResponse::Error` if the string cannot be parsed as
+/// any known variant.
+fn parse_response(json_str: String) -> SocketResponse {
+    serde_json::from_str::<SocketResponse>(&json_str).unwrap_or_else(|_| {
+        // Try as a generic JSON value and wrap it.
+        match serde_json::from_str::<serde_json::Value>(&json_str) {
+            Ok(val) => SocketResponse::Rules(val),
+            Err(e) => SocketResponse::Error {
+                error: format!("parse error: {e}"),
+            },
+        }
+    })
 }
 
 /// Return the effective rules for `project` as a JSON string.

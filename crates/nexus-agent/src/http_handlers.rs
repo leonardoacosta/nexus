@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use nexus_core::api::HealthResponse;
+use nexus_core::health::MachineHealth;
 use nexus_core::project_registry::ProjectRegistry;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -56,6 +56,16 @@ pub struct AppState {
 // ---------------------------------------------------------------------------
 // GET /health
 // ---------------------------------------------------------------------------
+
+/// JSON body returned by `GET /health`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HealthResponse {
+    agent_name: String,
+    agent_host: String,
+    uptime_seconds: u64,
+    session_count: usize,
+    machine: Option<MachineHealth>,
+}
 
 /// GET /health — return JSON HealthResponse with cached machine metrics.
 pub async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -212,7 +222,7 @@ async fn fetch_git_status() -> Option<StatuslineGit> {
     {
         if rev_out.status.success() {
             let s = String::from_utf8_lossy(&rev_out.stdout);
-            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            let parts: Vec<&str> = s.split_whitespace().collect();
             if parts.len() == 2 {
                 let behind = parts[0].parse::<u32>().unwrap_or(0);
                 let ahead = parts[1].parse::<u32>().unwrap_or(0);
@@ -381,12 +391,11 @@ pub async fn recommend_handler(State(state): State<AppState>) -> Json<RecommendR
 
     let mut cache = mutex.lock().await;
 
-    if cache.refreshed_at.elapsed() < TTL {
-        if let Some(ref mut resp) = cache.response {
+    if cache.refreshed_at.elapsed() < TTL
+        && let Some(ref mut resp) = cache.response {
             resp.context.session_count = session_count;
             return Json(resp.clone());
         }
-    }
 
     let response = build_recommendations(session_count, &state.failure_buffer).await;
     cache.response = Some(response.clone());
@@ -496,22 +505,20 @@ async fn build_recommendations(session_count: usize, failure_buffer: &FailureBuf
             }
         }
 
-        if let Some(ref spec) = active_spec {
-            if !spec.is_empty() && item.title.to_lowercase().contains(&spec.to_lowercase()) {
+        if let Some(ref spec) = active_spec
+            && !spec.is_empty() && item.title.to_lowercase().contains(&spec.to_lowercase()) {
                 score += 30;
                 reasons.push("active spec".into());
             }
-        }
 
-        if !item.created_at.is_empty() {
-            if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&item.created_at) {
+        if !item.created_at.is_empty()
+            && let Ok(created) = chrono::DateTime::parse_from_rfc3339(&item.created_at) {
                 let age_days = (now_epoch - created.timestamp()) / 86400;
                 if age_days > 7 {
                     score += 5;
                     reasons.push("stale >7d".into());
                 }
             }
-        }
 
         recommendations.push(Recommendation {
             id: item.id.clone(),

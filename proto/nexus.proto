@@ -44,7 +44,7 @@ message RateLimitInfo {
 
 message SessionTelemetry {
   optional RateLimitInfo rate_limit = 1;
-  optional float total_cost_usd = 2;
+  optional double total_cost_usd = 2;
   optional string model = 3;
 }
 

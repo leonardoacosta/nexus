@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use tonic::transport::{Channel, Endpoint};
 use tracing::warn;
 
-use nexus_core::agent::AgentInfo;
+use nexus_core::agent::AgentSnapshot;
 use nexus_core::config::{AgentConfig, NexusConfig};
 use nexus_core::health::MachineHealth;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
@@ -238,7 +238,7 @@ impl NexusClient {
     ///
     /// All agents are queried concurrently via `JoinSet` so the worst-case
     /// latency is bounded by a single agent timeout rather than N * timeout.
-    pub async fn get_sessions(&mut self) -> Vec<(AgentInfo, Vec<Session>)> {
+    pub async fn get_sessions(&mut self) -> Vec<(AgentSnapshot, Vec<Session>)> {
         use tokio::task::JoinSet;
 
         // Spawn one task per agent. Agents without a client get a synchronous
@@ -291,7 +291,7 @@ impl NexusClient {
                 }
             };
 
-            let info = AgentInfo {
+            let info = AgentSnapshot {
                 name: agent.config.name.clone(),
                 host: agent.config.host.clone(),
                 port: agent.config.port,
@@ -312,7 +312,7 @@ impl NexusClient {
     /// Returns the owning agent's info together with the session, or `None` if
     /// no connected agent knows about this session.
     #[allow(dead_code)] // Used by spec 8 (detail screen)
-    pub async fn get_session(&mut self, id: &str) -> Option<(AgentInfo, Session)> {
+    pub async fn get_session(&mut self, id: &str) -> Option<(AgentSnapshot, Session)> {
         for agent in &mut self.agents {
             let client = match agent.client.as_mut() {
                 Some(c) => c,
@@ -328,7 +328,7 @@ impl NexusClient {
                     agent.last_error = None;
 
                     let session = proto_to_session(response.into_inner());
-                    let info = AgentInfo {
+                    let info = AgentSnapshot {
                         name: agent.config.name.clone(),
                         host: agent.config.host.clone(),
                         port: agent.config.port,

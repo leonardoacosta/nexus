@@ -668,7 +668,7 @@ async fn background_task(
 fn results_to_agent_data(
     client: &NexusClient,
     results: &[(
-        nexus_core::agent::AgentInfo,
+        nexus_core::agent::AgentSnapshot,
         Vec<nexus_core::session::Session>,
     )],
 ) -> Vec<AgentData> {
@@ -683,7 +683,7 @@ fn results_to_agent_data(
                 .cloned()
                 .unwrap_or_else(|| {
                     (
-                        nexus_core::agent::AgentInfo {
+                        nexus_core::agent::AgentSnapshot {
                             name: conn.config.name.clone(),
                             host: conn.config.host.clone(),
                             port: conn.config.port,

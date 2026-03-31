@@ -100,7 +100,7 @@ impl From<&Session> for proto::Session {
 
             Some(proto::SessionTelemetry {
                 rate_limit,
-                total_cost_usd: session.total_cost_usd.map(|c| c as f32),
+                total_cost_usd: session.total_cost_usd,
                 model: session.model.clone(),
             })
         } else {
@@ -159,7 +159,7 @@ impl From<proto::Session> for Session {
                 (
                     rl_util,
                     rl_type,
-                    telemetry.total_cost_usd.map(|c| c as f64),
+                    telemetry.total_cost_usd,
                     telemetry.model.clone(),
                 )
             } else {

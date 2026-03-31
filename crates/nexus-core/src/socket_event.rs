@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// agent writes a JSON reply before closing the connection.
 ///
 /// The `command` field acts as a discriminant tag.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum SocketCommand {
     /// Query the current notification mode.
@@ -52,6 +52,35 @@ pub enum SocketCommand {
         #[serde(default)]
         reset_to_default: bool,
     },
+}
+
+/// Typed responses returned by `dispatch_command` for each `SocketCommand`.
+///
+/// Each variant maps 1:1 to a `SocketCommand` variant.  The agent serialises
+/// the response to JSON before writing it back on the socket connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SocketResponse {
+    /// Response to `ModeQuery`.
+    ModeQuery { mode: String },
+    /// Response to `ModeSet` or `ModeCycle`.
+    ModeChanged { mode: String, previous: String },
+    /// Response to `History`.
+    History(Vec<serde_json::Value>),
+    /// Response to `TypeSet`.
+    TypeSet {
+        #[serde(rename = "type")]
+        type_name: String,
+        mode: String,
+    },
+    /// Response to `TypeClear`.
+    TypeCleared { cleared: String },
+    /// Response to `NotificationRules`.
+    Rules(serde_json::Value),
+    /// Response to `NotificationSet`.
+    Ok { ok: bool, project: String },
+    /// Error response (any command).
+    Error { error: String },
 }
 
 /// Events emitted by Claude Code hooks via the Unix domain socket.
