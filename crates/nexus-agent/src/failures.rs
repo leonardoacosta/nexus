@@ -508,10 +508,21 @@ mod tests {
         assert_eq!(*resp.by_project.get("cc").unwrap(), 3);
         assert_eq!(*resp.by_project.get("oo").unwrap(), 1);
         assert_eq!(resp.top_errors.len(), 2);
-        // Most frequent error first.
-        assert_eq!(resp.top_errors[0].summary, "old_string not found");
-        assert_eq!(resp.top_errors[0].count, 2);
-        assert_eq!(resp.top_errors[0].tool, "Edit");
+        // Both errors appear exactly twice — order between equal counts is not
+        // deterministic (HashMap-backed aggregation), so search by summary.
+        let edit_err = resp
+            .top_errors
+            .iter()
+            .find(|e| e.summary == "old_string not found")
+            .expect("expected 'old_string not found' in top_errors");
+        assert_eq!(edit_err.count, 2);
+        assert_eq!(edit_err.tool, "Edit");
+        let bash_err = resp
+            .top_errors
+            .iter()
+            .find(|e| e.summary == "command failed")
+            .expect("expected 'command failed' in top_errors");
+        assert_eq!(bash_err.count, 2);
     }
 
     #[tokio::test]
