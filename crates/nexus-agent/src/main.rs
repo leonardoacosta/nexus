@@ -22,7 +22,7 @@ use nexus_agent::http_handlers::{
     AppState, credentials_handler, cron_handler, environment_handler, failures_handler,
     health_handler, hooks_handler, list_commands_by_namespace_handler, list_commands_handler,
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
-    recommend_handler, run_command_handler, statusline_handler,
+    recommend_handler, run_command_handler, specs_all_handler, statusline_handler,
 };
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
@@ -32,6 +32,7 @@ use nexus_agent::services::credential_pool::{CredentialPool, CredentialPoolServi
 use nexus_agent::services::project_status::ProjectStatusCache;
 use nexus_agent::services::receiver::ReceiverService;
 use nexus_agent::services::session_pool::SessionPool;
+use nexus_agent::services::spec_watcher::SpecWatcherService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
@@ -255,6 +256,13 @@ async fn main() -> Result<()> {
     spawn_service(session_pool.clone(), coordinator.token());
     tracing::info!("SessionPool service started");
 
+    // Initialize and spawn the spec watcher service.
+    spawn_service(
+        SpecWatcherService::new(project_registry.clone(), status_cache.clone()),
+        coordinator.token(),
+    );
+    tracing::info!("SpecWatcherService started");
+
     // Initialize the command registry (scans ~/.claude/commands/ on startup).
     let command_registry = CommandRegistry::with_default_dir();
     tracing::info!("CommandRegistry initialized");
@@ -355,6 +363,7 @@ async fn main() -> Result<()> {
         .route("/environment", get(environment_handler))
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
+        .route("/specs/all", get(specs_all_handler))
         .route("/commands", get(list_commands_handler))
         .route(
             "/commands/{namespace}",

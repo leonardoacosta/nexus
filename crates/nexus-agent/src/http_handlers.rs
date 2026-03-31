@@ -1017,6 +1017,83 @@ pub fn validate_secret(
     }
 }
 
+// ---------------------------------------------------------------------------
+// GET /specs/all — cross-project aggregate spec + beads status
+// ---------------------------------------------------------------------------
+
+/// Per-project spec + beads summary in the cross-project response.
+#[derive(Debug, Serialize)]
+pub struct ProjectSpecStatus {
+    pub code: String,
+    pub name: String,
+    pub specs: Vec<nexus_core::project_registry::SpecSnapshot>,
+    pub beads: Option<BeadsSummary>,
+}
+
+/// Summary of beads state for a project.
+#[derive(Debug, Serialize)]
+pub struct BeadsSummary {
+    pub open: u32,
+    pub closed: u32,
+    pub ready: u32,
+}
+
+/// Top-level response for `GET /specs/all`.
+#[derive(Debug, Serialize)]
+pub struct AllSpecsResponse {
+    pub projects: Vec<ProjectSpecStatus>,
+}
+
+/// GET /specs/all — return aggregated spec + beads status for all registered projects.
+///
+/// Reads from the `ProjectStatusCache` for each project returned by
+/// `ProjectRegistry::all()`. If a project has no cached data, it is included
+/// with empty specs and no beads summary (the background `SpecWatcherService`
+/// will populate it on the next poll cycle).
+pub async fn specs_all_handler(State(state): State<AppState>) -> Json<AllSpecsResponse> {
+    let all_projects = state.project_registry.all();
+    let mut projects: Vec<ProjectSpecStatus> = Vec::with_capacity(all_projects.len());
+
+    for project in &all_projects {
+        let cached = state.status_cache.get_cached(&project.code).await;
+
+        let (specs, beads) = match cached {
+            Some(status) => {
+                let spec_snapshots: Vec<nexus_core::project_registry::SpecSnapshot> = status
+                    .spec
+                    .active_changes
+                    .iter()
+                    .map(|name| nexus_core::project_registry::SpecSnapshot {
+                        name: name.clone(),
+                        status: "active".to_string(),
+                        completed_tasks: 0,
+                        total_tasks: 0,
+                        last_modified: None,
+                    })
+                    .collect();
+
+                let beads_summary = BeadsSummary {
+                    open: status.beads.open_count.max(0) as u32,
+                    closed: 0, // Not tracked by the collector
+                    ready: status.beads.ready_count.max(0) as u32,
+                };
+
+                (spec_snapshots, Some(beads_summary))
+            }
+            None => (vec![], None),
+        };
+
+        projects.push(ProjectSpecStatus {
+            code: project.code.clone(),
+            name: project.name.clone(),
+            specs,
+            beads,
+        });
+    }
+
+    Json(AllSpecsResponse { projects })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1196,5 +1273,46 @@ mod tests {
         let s = serde_json::to_string(&json).unwrap();
         assert!(!s.contains("access_token"));
         assert!(!s.contains("\"path\""));
+    }
+
+    #[test]
+    fn all_specs_response_shape() {
+        let resp = AllSpecsResponse {
+            projects: vec![
+                ProjectSpecStatus {
+                    code: "oo".to_string(),
+                    name: "Otaku Odyssey".to_string(),
+                    specs: vec![nexus_core::project_registry::SpecSnapshot {
+                        name: "add-feature".to_string(),
+                        status: "active".to_string(),
+                        completed_tasks: 3,
+                        total_tasks: 10,
+                        last_modified: None,
+                    }],
+                    beads: Some(BeadsSummary {
+                        open: 5,
+                        closed: 2,
+                        ready: 3,
+                    }),
+                },
+                ProjectSpecStatus {
+                    code: "nx".to_string(),
+                    name: "Nexus".to_string(),
+                    specs: vec![],
+                    beads: None,
+                },
+            ],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        let projects = json["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0]["code"], "oo");
+        assert_eq!(projects[0]["specs"].as_array().unwrap().len(), 1);
+        assert_eq!(projects[0]["specs"][0]["name"], "add-feature");
+        assert_eq!(projects[0]["beads"]["open"], 5);
+        assert_eq!(projects[0]["beads"]["ready"], 3);
+        assert_eq!(projects[1]["code"], "nx");
+        assert!(projects[1]["specs"].as_array().unwrap().is_empty());
+        assert!(projects[1]["beads"].is_null());
     }
 }

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A resolved project location on disk.
 #[derive(Debug, Clone)]
@@ -14,6 +14,16 @@ pub struct ProjectPath {
     pub name: String,
     /// Absolute path to the project root.
     pub cwd: PathBuf,
+}
+
+/// Snapshot of a single openspec change — used for cross-project change detection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpecSnapshot {
+    pub name: String,
+    pub status: String,
+    pub completed_tasks: u32,
+    pub total_tasks: u32,
+    pub last_modified: Option<String>,
 }
 
 /// Raw entry as stored in `~/.claude/scripts/config/projects.json`.
@@ -104,6 +114,11 @@ impl ProjectRegistry {
         }
 
         None
+    }
+
+    /// Return all registered projects.
+    pub fn all(&self) -> Vec<ProjectPath> {
+        self.inner.values().cloned().collect()
     }
 
     /// Create an empty registry with no projects (used as a fallback).
@@ -223,6 +238,29 @@ mod tests {
         let pp = result.unwrap();
         // Must come from the registry, not the fallback ~/dev/nx.
         assert_eq!(pp.cwd, PathBuf::from("/custom/path/nx"));
+    }
+
+    #[test]
+    fn all_returns_all_registered_projects() {
+        let registry = make_registry(&[
+            ("oo", "otaku-odyssey", "/home/user/dev/oo"),
+            ("nx", "nexus", "/home/user/dev/nx"),
+            ("tc", "top-chef", "/home/user/dev/tc"),
+        ]);
+
+        let mut all = registry
+            .all()
+            .into_iter()
+            .map(|p| p.code.clone())
+            .collect::<Vec<_>>();
+        all.sort();
+        assert_eq!(all, vec!["nx", "oo", "tc"]);
+    }
+
+    #[test]
+    fn all_empty_registry_returns_empty_vec() {
+        let registry = ProjectRegistry::load_empty();
+        assert!(registry.all().is_empty());
     }
 
     #[test]

@@ -130,6 +130,18 @@ fn tool_definitions() -> Vec<McpTool> {
                 "required": []
             }),
         },
+        McpTool {
+            name: "get_all_specs".to_string(),
+            description: "Get aggregated openspec and beads status across all registered \
+                          projects. Returns spec snapshots (name, status, task progress) \
+                          and beads summary (open, closed, ready) for every project."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
     ]
 }
 
@@ -141,6 +153,7 @@ async fn execute_tool(name: &str, client: &reqwest::Client) -> McpToolResult {
         "get_credential_status" => format!("{}/credentials", base_url),
         "get_sessions" => format!("{}/statusline", base_url),
         "get_recommendations" => format!("{}/recommend", base_url),
+        "get_all_specs" => format!("{}/specs/all", base_url),
         _ => {
             return McpToolResult {
                 content: vec![McpToolContent {

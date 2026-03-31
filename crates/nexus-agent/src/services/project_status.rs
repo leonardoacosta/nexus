@@ -354,6 +354,32 @@ impl ProjectStatusCache {
         status
     }
 
+    /// Write a pre-collected [`ProjectStatus`] into the cache without running
+    /// subprocess collectors. Used by the spec watcher to warm the cache.
+    pub async fn set(&self, project_code: &str, status: ProjectStatus) {
+        let mut guard = self.inner.cache.write().await;
+        guard.insert(
+            project_code.to_owned(),
+            CachedEntry {
+                status,
+                cached_at: Instant::now(),
+            },
+        );
+    }
+
+    /// Return a cached [`ProjectStatus`] if one exists and hasn't expired,
+    /// without triggering a fresh collection.
+    pub async fn get_cached(&self, project_code: &str) -> Option<ProjectStatus> {
+        let guard = self.inner.cache.read().await;
+        guard.get(project_code).and_then(|entry| {
+            if entry.cached_at.elapsed() < self.inner.ttl {
+                Some(entry.status.clone())
+            } else {
+                None
+            }
+        })
+    }
+
     /// Remove a project's cached entry (e.g. after a git push or bd close).
     pub async fn invalidate(&self, project_code: &str) {
         let mut guard = self.inner.cache.write().await;
