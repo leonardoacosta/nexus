@@ -20,7 +20,7 @@ use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
     AppState, credentials_handler, cron_handler, environment_handler, failures_handler,
-    health_handler, list_commands_by_namespace_handler, list_commands_handler,
+    health_handler, hooks_handler, list_commands_by_namespace_handler, list_commands_handler,
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
     recommend_handler, run_command_handler, statusline_handler,
 };
@@ -352,6 +352,7 @@ async fn main() -> Result<()> {
         .route("/health", get(health_handler))
         .route("/statusline", get(statusline_handler))
         .route("/credentials", get(credentials_handler))
+        .route("/hooks", axum::routing::post(hooks_handler))
         .route("/recommend", get(recommend_handler))
         .route("/environment", get(environment_handler))
         .route("/failures", get(failures_handler))

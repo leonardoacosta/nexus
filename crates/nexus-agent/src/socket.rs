@@ -614,6 +614,38 @@ async fn dispatch_event(
             }
         }
 
+        SocketEvent::SessionSummary {
+            session_id,
+            project,
+            tool_counts,
+            failure_count,
+            compaction_count,
+            agent_spawns,
+            duration_ms,
+            model,
+        } => {
+            tracing::info!(
+                session_id = %session_id,
+                project = ?project,
+                tool_count = tool_counts.len(),
+                failure_count,
+                duration_ms,
+                "socket: session_summary"
+            );
+            let summary = crate::registry::SessionSummaryData {
+                tool_counts,
+                failure_count,
+                compaction_count,
+                agent_spawns,
+                duration_ms,
+                model,
+                session_id: session_id.clone(),
+                project,
+                received_at: chrono::Utc::now(),
+            };
+            registry.store_session_summary(summary).await;
+        }
+
         SocketEvent::DeployStatus {
             project,
             status,

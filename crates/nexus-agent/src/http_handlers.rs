@@ -577,6 +577,189 @@ async fn check_failure_spike(failure_buffer: &FailureBuffer) -> Option<Recommend
 }
 
 // ---------------------------------------------------------------------------
+// POST /hooks
+// ---------------------------------------------------------------------------
+
+/// Incoming hook event payload — dispatched by `hook_event_name` or `event` field.
+#[derive(Debug, Deserialize)]
+pub struct HookEventPayload {
+    /// Primary discriminant (preferred).
+    #[serde(default)]
+    pub hook_event_name: Option<String>,
+    /// Fallback discriminant.
+    #[serde(default)]
+    pub event: Option<String>,
+
+    // Fields for session_start
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub pid: Option<u32>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub cc_session_id: Option<String>,
+    #[serde(default)]
+    pub tmux_target: Option<String>,
+
+    // Fields for session_summary
+    #[serde(default)]
+    pub tool_counts: Option<std::collections::HashMap<String, u32>>,
+    #[serde(default)]
+    pub failure_count: Option<u32>,
+    #[serde(default)]
+    pub compaction_count: Option<u32>,
+    #[serde(default)]
+    pub agent_spawns: Option<u32>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+
+    // Fields for stop_failure
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HookResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// POST /hooks — receive CC session events via HTTP.
+pub async fn hooks_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<HookEventPayload>,
+) -> Result<Json<HookResponse>, (StatusCode, Json<HookResponse>)> {
+    let event_name = payload
+        .hook_event_name
+        .as_deref()
+        .or(payload.event.as_deref())
+        .unwrap_or("unknown");
+
+    match event_name {
+        "session_start" => {
+            let session_id = payload.session_id.clone().unwrap_or_default();
+            if session_id.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(HookResponse {
+                        status: "error".into(),
+                        message: Some("session_start requires session_id".into()),
+                    }),
+                ));
+            }
+
+            let mut session = nexus_core::session::Session::new(
+                payload.pid.unwrap_or(0),
+                payload.cwd.clone().unwrap_or_default(),
+            );
+            session.id = session_id;
+            session.project = payload.project.clone();
+            session.branch = payload.branch.clone();
+            session.model = payload.model.clone();
+            session.cc_session_id = payload.cc_session_id.clone();
+
+            let is_new = state
+                .registry
+                .register_adhoc(session, payload.tmux_target.clone())
+                .await;
+
+            Ok(Json(HookResponse {
+                status: "ok".into(),
+                message: Some(if is_new {
+                    "session registered".into()
+                } else {
+                    "session already registered".into()
+                }),
+            }))
+        }
+
+        "session_stop" | "stop_failure" | "stop_success" => {
+            let session_id = payload.session_id.clone().unwrap_or_default();
+            if session_id.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(HookResponse {
+                        status: "error".into(),
+                        message: Some("session_stop requires session_id".into()),
+                    }),
+                ));
+            }
+
+            let removed = state.registry.unregister(&session_id).await;
+
+            Ok(Json(HookResponse {
+                status: "ok".into(),
+                message: Some(if removed {
+                    "session unregistered".into()
+                } else {
+                    "session not found".into()
+                }),
+            }))
+        }
+
+        "session_summary" => {
+            let session_id = payload.session_id.clone().unwrap_or_default();
+            if session_id.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(HookResponse {
+                        status: "error".into(),
+                        message: Some("session_summary requires session_id".into()),
+                    }),
+                ));
+            }
+
+            let summary = crate::registry::SessionSummaryData {
+                tool_counts: payload.tool_counts.clone().unwrap_or_default(),
+                failure_count: payload.failure_count.unwrap_or(0),
+                compaction_count: payload.compaction_count.unwrap_or(0),
+                agent_spawns: payload.agent_spawns.unwrap_or(0),
+                duration_ms: payload.duration_ms.unwrap_or(0),
+                model: payload.model.clone(),
+                session_id: session_id.clone(),
+                project: payload.project.clone(),
+                received_at: chrono::Utc::now(),
+            };
+
+            state.registry.store_session_summary(summary).await;
+
+            Ok(Json(HookResponse {
+                status: "ok".into(),
+                message: Some("summary stored".into()),
+            }))
+        }
+
+        "session_heartbeat" => {
+            let session_id = payload.session_id.clone().unwrap_or_default();
+            if !session_id.is_empty() {
+                state.registry.heartbeat(&session_id).await;
+            }
+
+            Ok(Json(HookResponse {
+                status: "ok".into(),
+                message: None,
+            }))
+        }
+
+        _ => {
+            tracing::debug!(event = %event_name, "unknown hook event, ignoring");
+            Ok(Json(HookResponse {
+                status: "ok".into(),
+                message: Some(format!("unknown event: {}", event_name)),
+            }))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GET /environment
 // ---------------------------------------------------------------------------
 
@@ -888,6 +1071,85 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["active_account"], serde_json::Value::Null);
         assert_eq!(json["accounts"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn hook_payload_session_start_deserializes() {
+        let json = r#"{
+            "hook_event_name": "session_start",
+            "session_id": "sess-123",
+            "project": "nx",
+            "cwd": "/home/user/dev/nx",
+            "model": "opus",
+            "pid": 12345
+        }"#;
+        let payload: HookEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.hook_event_name.as_deref(), Some("session_start"));
+        assert_eq!(payload.session_id.as_deref(), Some("sess-123"));
+        assert_eq!(payload.project.as_deref(), Some("nx"));
+        assert_eq!(payload.pid, Some(12345));
+    }
+
+    #[test]
+    fn hook_payload_stop_failure_deserializes() {
+        let json = r#"{
+            "event": "stop_failure",
+            "session_id": "sess-456",
+            "reason": "process crashed"
+        }"#;
+        let payload: HookEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.event.as_deref(), Some("stop_failure"));
+        assert_eq!(payload.session_id.as_deref(), Some("sess-456"));
+        assert_eq!(payload.reason.as_deref(), Some("process crashed"));
+    }
+
+    #[test]
+    fn hook_payload_session_summary_deserializes() {
+        let json = r#"{
+            "hook_event_name": "session_summary",
+            "session_id": "sess-789",
+            "project": "oo",
+            "tool_counts": {"Read": 5, "Write": 3},
+            "failure_count": 1,
+            "compaction_count": 0,
+            "agent_spawns": 2,
+            "duration_ms": 120000,
+            "model": "opus"
+        }"#;
+        let payload: HookEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            payload.hook_event_name.as_deref(),
+            Some("session_summary")
+        );
+        let tc = payload.tool_counts.as_ref().unwrap();
+        assert_eq!(*tc.get("Read").unwrap(), 5);
+        assert_eq!(*tc.get("Write").unwrap(), 3);
+        assert_eq!(payload.failure_count, Some(1));
+        assert_eq!(payload.agent_spawns, Some(2));
+        assert_eq!(payload.duration_ms, Some(120000));
+    }
+
+    #[test]
+    fn hook_payload_malformed_json_fails() {
+        let json = "not json at all";
+        let result = serde_json::from_str::<HookEventPayload>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn hook_payload_unknown_event_deserializes() {
+        let json = r#"{"event": "some_future_event", "session_id": "x"}"#;
+        let payload: HookEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.event.as_deref(), Some("some_future_event"));
+    }
+
+    #[test]
+    fn hook_payload_fallback_discriminant() {
+        // When hook_event_name is absent, event is used
+        let json = r#"{"event": "session_start", "session_id": "x"}"#;
+        let payload: HookEventPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.hook_event_name.is_none());
+        assert_eq!(payload.event.as_deref(), Some("session_start"));
     }
 
     #[test]

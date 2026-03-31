@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use nexus_core::proto::{self, session_event::Payload};
 use nexus_core::session::Session;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::events::EventBroadcaster;
@@ -21,6 +23,26 @@ pub struct PendingQuestion {
     pub received_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Aggregated summary data for a completed session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSummaryData {
+    pub tool_counts: HashMap<String, u32>,
+    pub failure_count: u32,
+    pub compaction_count: u32,
+    pub agent_spawns: u32,
+    pub duration_ms: u64,
+    pub model: Option<String>,
+    pub session_id: String,
+    pub project: Option<String>,
+    pub received_at: DateTime<Utc>,
+}
+
+/// A pending summary for a session that hasn't been registered yet.
+struct PendingSummary {
+    data: SessionSummaryData,
+    expires_at: DateTime<Utc>,
+}
+
 /// In-memory store of active Claude Code sessions on this machine.
 /// Populated by watching sessions.json (MVP) or receiving direct hook events (target).
 pub struct SessionRegistry {
@@ -30,6 +52,10 @@ pub struct SessionRegistry {
     /// when the session has emitted an AskUserQuestion-style notification and
     /// no answer has been dispatched yet.
     pending_questions: RwLock<HashMap<String, PendingQuestion>>,
+    /// Session summaries indexed by session ID.
+    session_summaries: RwLock<HashMap<String, SessionSummaryData>>,
+    /// Pending summaries for sessions not yet registered (5-min TTL).
+    pending_summaries: RwLock<HashMap<String, PendingSummary>>,
 }
 
 impl SessionRegistry {
@@ -38,6 +64,8 @@ impl SessionRegistry {
             sessions: RwLock::new(HashMap::new()),
             events,
             pending_questions: RwLock::new(HashMap::new()),
+            session_summaries: RwLock::new(HashMap::new()),
+            pending_summaries: RwLock::new(HashMap::new()),
         }
     }
 
@@ -68,7 +96,11 @@ impl SessionRegistry {
         ));
 
         let mut map = self.sessions.write().await;
-        map.insert(id, session);
+        map.insert(id.clone(), session);
+        drop(map);
+
+        // Check for pending summaries that arrived before registration.
+        self.apply_pending_summary(&id).await;
     }
 
     /// Remove a session by ID. Returns the removed session if it existed.
@@ -122,14 +154,19 @@ impl SessionRegistry {
                 false
             }
             Entry::Vacant(entry) => {
+                let key = entry.key().clone();
                 self.events.emit(make_event(
-                    entry.key(),
+                    &key,
                     Payload::Started(proto::SessionStarted {
                         session: Some(session_to_proto(&session)),
                         is_snapshot: false,
                     }),
                 ));
                 entry.insert(session);
+                drop(map);
+
+                // Check for pending summaries that arrived before registration.
+                self.apply_pending_summary(&key).await;
                 true
             }
         }
@@ -263,6 +300,64 @@ impl SessionRegistry {
     pub async fn get_tmux_target(&self, session_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).and_then(|s| s.tmux_target.clone())
+    }
+
+    /// Store a session summary. If the session is known, stores immediately.
+    /// If not, stores as pending with a 5-minute TTL for late-arriving sessions.
+    pub async fn store_session_summary(&self, summary: SessionSummaryData) {
+        let session_id = summary.session_id.clone();
+        let sessions = self.sessions.read().await;
+
+        if sessions.contains_key(&session_id) {
+            drop(sessions);
+            let mut summaries = self.session_summaries.write().await;
+            summaries.insert(session_id.clone(), summary);
+            tracing::debug!(session_id = %session_id, "stored session summary");
+        } else {
+            drop(sessions);
+            let mut pending = self.pending_summaries.write().await;
+            let expires_at = Utc::now() + chrono::Duration::minutes(5);
+            pending.insert(
+                session_id.clone(),
+                PendingSummary {
+                    data: summary,
+                    expires_at,
+                },
+            );
+            tracing::debug!(
+                session_id = %session_id,
+                "stored pending session summary (session not yet registered)"
+            );
+        }
+    }
+
+    /// Retrieve a session summary by ID.
+    pub async fn get_session_summary(&self, session_id: &str) -> Option<SessionSummaryData> {
+        let summaries = self.session_summaries.read().await;
+        summaries.get(session_id).cloned()
+    }
+
+    /// Cleanup expired pending summaries. Called periodically.
+    pub async fn cleanup_pending_summaries(&self) {
+        let now = Utc::now();
+        let mut pending = self.pending_summaries.write().await;
+        let before = pending.len();
+        pending.retain(|_, ps| ps.expires_at > now);
+        let removed = before - pending.len();
+        if removed > 0 {
+            tracing::debug!(removed, "cleaned up expired pending summaries");
+        }
+    }
+
+    /// Check for and apply any pending summary when a session is registered.
+    async fn apply_pending_summary(&self, session_id: &str) {
+        let mut pending = self.pending_summaries.write().await;
+        if let Some(ps) = pending.remove(session_id) {
+            drop(pending);
+            let mut summaries = self.session_summaries.write().await;
+            summaries.insert(session_id.to_string(), ps.data);
+            tracing::debug!(session_id = %session_id, "applied pending summary to newly registered session");
+        }
     }
 
     /// Periodic stale detection for ad-hoc sessions.

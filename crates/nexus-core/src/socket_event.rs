@@ -141,6 +141,26 @@ pub enum SocketEvent {
         payload: HashMap<String, serde_json::Value>,
     },
 
+    /// Summary of a completed session — emitted at session end with
+    /// aggregated tool counts, failure data, and timing.
+    SessionSummary {
+        session_id: String,
+        #[serde(default)]
+        project: Option<String>,
+        #[serde(default)]
+        tool_counts: HashMap<String, u32>,
+        #[serde(default)]
+        failure_count: u32,
+        #[serde(default)]
+        compaction_count: u32,
+        #[serde(default)]
+        agent_spawns: u32,
+        #[serde(default)]
+        duration_ms: u64,
+        #[serde(default)]
+        model: Option<String>,
+    },
+
     /// Deployment lifecycle event — emitted by deploy scripts to track
     /// build/deploy/verify status across machines. Project-agnostic.
     DeployStatus {
@@ -321,6 +341,54 @@ mod tests {
                 assert_eq!(status, "deployed");
                 assert_eq!(target.as_deref(), Some("macbook"));
                 assert_eq!(service.as_deref(), Some("nexus-agent"));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_session_summary() {
+        let json = r#"{"event":"session_summary","session_id":"abc","project":"nx","tool_counts":{"Read":10,"Write":5},"failure_count":2,"compaction_count":1,"agent_spawns":3,"duration_ms":60000,"model":"opus"}"#;
+        let ev: SocketEvent = serde_json::from_str(json).unwrap();
+        match ev {
+            SocketEvent::SessionSummary {
+                session_id,
+                project,
+                tool_counts,
+                failure_count,
+                compaction_count,
+                agent_spawns,
+                duration_ms,
+                model,
+            } => {
+                assert_eq!(session_id, "abc");
+                assert_eq!(project.as_deref(), Some("nx"));
+                assert_eq!(*tool_counts.get("Read").unwrap(), 10);
+                assert_eq!(*tool_counts.get("Write").unwrap(), 5);
+                assert_eq!(failure_count, 2);
+                assert_eq!(compaction_count, 1);
+                assert_eq!(agent_spawns, 3);
+                assert_eq!(duration_ms, 60000);
+                assert_eq!(model.as_deref(), Some("opus"));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_session_summary_minimal() {
+        let json = r#"{"event":"session_summary","session_id":"x"}"#;
+        let ev: SocketEvent = serde_json::from_str(json).unwrap();
+        match ev {
+            SocketEvent::SessionSummary {
+                session_id,
+                tool_counts,
+                failure_count,
+                ..
+            } => {
+                assert_eq!(session_id, "x");
+                assert!(tool_counts.is_empty());
+                assert_eq!(failure_count, 0);
             }
             other => panic!("unexpected variant: {other:?}"),
         }
