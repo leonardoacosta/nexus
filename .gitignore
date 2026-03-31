@@ -2,7 +2,9 @@
 /target/
 **/*.rs.bk
 # Gate hook temp files
+# Orphaned agent tmp files
 **/tmp.*.rs
+tmp.*.rs
 
 # IDE
 .idea/
