@@ -13,6 +13,7 @@ pub mod health;
 pub mod http_handlers;
 pub mod notification_engine;
 pub mod parser;
+pub mod rate_limit_interceptor;
 pub mod registry;
 pub mod services;
 pub mod shutdown;

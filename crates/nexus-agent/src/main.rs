@@ -326,6 +326,9 @@ async fn main() -> Result<()> {
     let cron_state = CronState::new();
     spawn_service(CronService::new(cron_state.clone()), coordinator.token());
 
+    // Clone credential pool for the socket service (before moving into AppState).
+    let socket_credential_pool = Arc::clone(&credential_pool);
+
     // Build the HTTP health server on port 7401.
     let app_state = AppState {
         registry: Arc::clone(&registry),
@@ -398,6 +401,7 @@ async fn main() -> Result<()> {
         peer_relay_urls,
         failure_buffer,
         socket_http_client,
+        socket_credential_pool,
     );
 
     tracing::info!(

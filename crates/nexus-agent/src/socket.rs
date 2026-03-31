@@ -26,7 +26,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::dispatch::dispatch_answer;
 use crate::failures::{FailureBuffer, FailureEvent};
+use crate::rate_limit_interceptor::{self, InterceptResult};
 use crate::registry::SessionRegistry;
+use crate::services::credential_pool::CredentialPool;
 use crate::services::receiver::ReceiverService;
 
 /// Default socket path, overridable via `NEXUS_SOCKET` env var.
@@ -93,6 +95,7 @@ pub async fn run_socket_service(
     peer_relay_urls: PeerRelayUrls,
     failure_buffer: FailureBuffer,
     http_client: reqwest::Client,
+    credential_pool: Arc<CredentialPool>,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -121,7 +124,8 @@ pub async fn run_socket_service(
                         let relay = peer_relay_urls.clone();
                         let failures = failure_buffer.clone();
                         let client = http_client.clone();
-                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client));
+                        let pool = Arc::clone(&credential_pool);
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client, pool));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -157,6 +161,7 @@ async fn handle_connection(
     peer_relay_urls: PeerRelayUrls,
     failure_buffer: FailureBuffer,
     http_client: reqwest::Client,
+    credential_pool: Arc<CredentialPool>,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -181,6 +186,7 @@ async fn handle_connection(
                         &peer_relay_urls,
                         &failure_buffer,
                         &http_client,
+                        &credential_pool,
                     )
                     .await;
                     continue;
@@ -223,6 +229,7 @@ async fn dispatch_event(
     peer_relay_urls: &[String],
     failure_buffer: &FailureBuffer,
     http_client: &reqwest::Client,
+    credential_pool: &Arc<CredentialPool>,
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -318,6 +325,46 @@ async fn dispatch_event(
                 relay_peers = peer_relay_urls.len(),
                 "socket: notification"
             );
+
+            // [4.1] Check for rate limit in notification text.
+            if rate_limit_interceptor::is_rate_limit_notification(&message) {
+                tracing::info!("socket: rate limit detected in notification text");
+                let result = rate_limit_interceptor::handle_rate_limit(
+                    credential_pool,
+                    registry,
+                    notif_session_id.as_deref(),
+                )
+                .await;
+                match result {
+                    // [4.4] Handled — suppress notification from TTS.
+                    InterceptResult::Handled => return,
+                    // [5.3] Exhausted — deliver exhaustion message via TTS.
+                    InterceptResult::Exhausted(exhaustion_msg) => {
+                        let tts_channels = vec!["tts".to_string()];
+                        if peer_relay_urls.is_empty() {
+                            receiver
+                                .speak_from_socket(
+                                    &exhaustion_msg,
+                                    Some("brief"),
+                                    Some(&tts_channels),
+                                )
+                                .await;
+                        } else {
+                            relay_notification_to_peers(
+                                peer_relay_urls,
+                                &exhaustion_msg,
+                                Some("brief"),
+                                Some(&tts_channels),
+                                http_client,
+                            )
+                            .await;
+                        }
+                        return;
+                    }
+                    // NoPool — fall through to normal notification handling.
+                    InterceptResult::NoPool => {}
+                }
+            }
 
             // Default channels to ["tts"] when not specified
             let effective_channels = channels.unwrap_or_else(|| vec!["tts".to_string()]);
@@ -510,10 +557,60 @@ async fn dispatch_event(
                     "socket: tool_use_fail recorded in failure buffer"
                 );
             } else {
-                tracing::debug!(
-                    keys = ?payload.keys().collect::<Vec<_>>(),
-                    "socket: telemetry (unrouted)"
-                );
+                // [4.1] Check for rate_limit_event with utilization >= 1.0 in telemetry.
+                let is_rate_limit_exhausted = payload
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|t| t == "rate_limit_event")
+                    && payload
+                        .get("rate_limit_info")
+                        .and_then(|v| v.get("utilization"))
+                        .and_then(|v| v.as_f64())
+                        .is_some_and(|u| u >= 1.0);
+
+                if is_rate_limit_exhausted {
+                    let telemetry_session_id = payload
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    tracing::info!(
+                        session_id = ?telemetry_session_id,
+                        "socket: rate limit exhaustion detected in telemetry"
+                    );
+                    let result = rate_limit_interceptor::handle_rate_limit(
+                        credential_pool,
+                        registry,
+                        telemetry_session_id.as_deref(),
+                    )
+                    .await;
+                    if let InterceptResult::Exhausted(exhaustion_msg) = result {
+                        // [5.3] Deliver exhaustion notification via TTS.
+                        let tts_channels = vec!["tts".to_string()];
+                        if peer_relay_urls.is_empty() {
+                            receiver
+                                .speak_from_socket(
+                                    &exhaustion_msg,
+                                    Some("brief"),
+                                    Some(&tts_channels),
+                                )
+                                .await;
+                        } else {
+                            relay_notification_to_peers(
+                                peer_relay_urls,
+                                &exhaustion_msg,
+                                Some("brief"),
+                                Some(&tts_channels),
+                                http_client,
+                            )
+                            .await;
+                        }
+                    }
+                } else {
+                    tracing::debug!(
+                        keys = ?payload.keys().collect::<Vec<_>>(),
+                        "socket: telemetry (unrouted)"
+                    );
+                }
             }
         }
 

@@ -24,7 +24,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
@@ -68,6 +68,10 @@ struct OAuthEntry {
 
 // ── Shared Pool State ──────────────────────────────────────────────────────
 
+/// Duration of the debounce window after a credential swap.
+/// During this window, new rate limit events trigger "continue" without re-swap.
+const SWAP_DEBOUNCE_SECS: u64 = 180; // 3 minutes
+
 /// Thread-safe inner state shared between the service, HTTP handlers, and
 /// the socket service for credential rotation.
 #[derive(Debug)]
@@ -77,6 +81,10 @@ pub struct CredentialPool {
     /// Notify handle used to reset the poll interval (e.g., after `poll_now`).
     poll_notify: Notify,
     http_client: reqwest::Client,
+    /// Time of the last successful credential swap (for debounce).
+    pub last_swap_time: RwLock<Option<Instant>>,
+    /// Account name that was last swapped to (for debounce logging).
+    pub last_swap_account: RwLock<Option<String>>,
 }
 
 impl CredentialPool {
@@ -86,6 +94,8 @@ impl CredentialPool {
             active_account: RwLock::new(None),
             poll_notify: Notify::new(),
             http_client,
+            last_swap_time: RwLock::new(None),
+            last_swap_account: RwLock::new(None),
         }
     }
 
@@ -104,6 +114,18 @@ impl CredentialPool {
         self.poll_all_accounts().await;
         // Wake the poll loop so it resets its interval.
         self.poll_notify.notify_one();
+    }
+
+    /// Check if the debounce window is active (within 3 minutes of last swap).
+    pub async fn is_debounce_active(&self) -> bool {
+        let guard = self.last_swap_time.read().await;
+        guard.is_some_and(|t| t.elapsed() < Duration::from_secs(SWAP_DEBOUNCE_SECS))
+    }
+
+    /// Record a successful swap for debounce tracking.
+    pub async fn record_swap(&self, account_name: &str) {
+        *self.last_swap_time.write().await = Some(Instant::now());
+        *self.last_swap_account.write().await = Some(account_name.to_string());
     }
 
     /// Atomic symlink swap: point `~/.claude/.credentials.json` at `target`.
