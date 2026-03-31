@@ -299,8 +299,9 @@ async fn main() -> Result<()> {
     let failure_buffer = FailureBuffer::new();
 
     // Bootstrap failure buffer from historical JSONL files (last 30 days).
-    if let Some(home) = dirs::home_dir() {
-        let failures_dir = home.join(".claude/scripts/state/failures");
+    {
+        let failures_dir =
+            nexus_core::paths::home_dir().join(".claude/scripts/state/failures");
         if failures_dir.is_dir() {
             let count = failure_buffer.bootstrap_from_jsonl(&failures_dir).await;
             tracing::info!("Imported {} failure events from JSONL files", count);

@@ -24,7 +24,7 @@ static PROJECTS: OnceLock<Vec<ProjectConfig>> = OnceLock::new();
 /// otherwise returns an empty list.
 pub fn get_projects() -> &'static [ProjectConfig] {
     PROJECTS.get_or_init(|| {
-        let home = dirs::home_dir().unwrap_or_default();
+        let home = nexus_core::paths::home_dir();
         let path = home.join(".claude/scripts/state/projects.json");
         match std::fs::read_to_string(&path) {
             Ok(content) => match serde_json::from_str::<ProjectsFile>(&content) {

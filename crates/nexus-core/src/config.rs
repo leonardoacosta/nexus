@@ -7,8 +7,6 @@ use crate::paths::nexus_config_dir;
 /// Errors that can occur when loading or saving Nexus configuration files.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("config file not found: {0}")]
-    NotFound(PathBuf),
     #[error("failed to parse config: {0}")]
     Parse(#[from] toml::de::Error),
     #[error("failed to serialize config: {0}")]
@@ -207,6 +205,20 @@ impl NotificationConfig {
     pub fn rules_for(&self, project: &str) -> &ProjectNotificationRules {
         self.projects.get(project).unwrap_or(&self.defaults)
     }
+
+    /// Serialize this config to TOML and write it back to
+    /// `~/.config/nexus/notifications.toml`.
+    ///
+    /// Creates the parent directory if it does not exist.
+    pub fn save(&self) -> Result<(), ConfigError> {
+        let path = Self::config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let toml_str = toml::to_string_pretty(self)?;
+        std::fs::write(&path, toml_str)?;
+        Ok(())
+    }
 }
 
 /// Configuration for the session pool — warm Claude Code sessions per project.
@@ -360,5 +372,48 @@ mod tests {
         unsafe { std::env::set_var("NEXUS_SECRET", "from-env") };
         assert_eq!(cfg.effective_secret().as_deref(), Some("from-env"));
         unsafe { std::env::remove_var("NEXUS_SECRET") };
+    }
+
+    // -------------------------------------------------------------------------
+    // NotificationConfig — save / rules_for
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn notification_config_roundtrip_save_load() {
+        // Build a config with a per-project override.
+        let mut projects = HashMap::new();
+        projects.insert(
+            "oo".to_string(),
+            ProjectNotificationRules {
+                verbosity: Verbosity::Verbose,
+                announce_agents: true,
+                announce_specs: true,
+                announce_sessions: false,
+                announce_errors: true,
+                channels: vec!["tts".to_string()],
+            },
+        );
+        let config = NotificationConfig {
+            defaults: ProjectNotificationRules::default(),
+            projects,
+        };
+
+        // Serialize to TOML and back.
+        let toml_str = toml::to_string_pretty(&config).expect("serialize");
+        let parsed: NotificationConfig = toml::from_str(&toml_str).expect("parse");
+
+        assert_eq!(parsed.projects.len(), 1);
+        let oo = parsed.rules_for("oo");
+        assert_eq!(oo.verbosity, Verbosity::Verbose);
+        assert!(oo.announce_agents);
+    }
+
+    #[test]
+    fn notification_config_rules_for_fallback() {
+        let config = NotificationConfig::default();
+        let rules = config.rules_for("unknown-project");
+        assert_eq!(rules.verbosity, Verbosity::Brief);
+        assert!(!rules.announce_agents);
+        assert!(rules.announce_specs);
     }
 }

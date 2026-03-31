@@ -142,8 +142,7 @@ pub struct CronLogger {
 impl CronLogger {
     /// Create a new logger targeting `~/.config/nexus/cron-log.jsonl`.
     pub fn new() -> Option<Self> {
-        let home = dirs::home_dir()?;
-        let log_path = home.join(".config/nexus/cron-log.jsonl");
+        let log_path = nexus_core::paths::home_dir().join(".config/nexus/cron-log.jsonl");
         Some(Self { log_path })
     }
 

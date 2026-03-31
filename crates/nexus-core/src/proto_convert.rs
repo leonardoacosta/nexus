@@ -280,6 +280,34 @@ impl From<&CommandInfo> for proto::CommandInfoProto {
     }
 }
 
+impl From<proto::CommandInfoProto> for CommandInfo {
+    fn from(proto: proto::CommandInfoProto) -> Self {
+        let tier = match proto::CommandTier::try_from(proto.tier) {
+            Ok(proto::CommandTier::Status) => CommandTier::Status,
+            Ok(proto::CommandTier::Analysis) => CommandTier::Analysis,
+            Ok(proto::CommandTier::Action) => CommandTier::Action,
+            _ => CommandTier::Status,
+        };
+
+        let cost = match proto::CostCategory::try_from(proto.cost) {
+            Ok(proto::CostCategory::Minimal) => CostCategory::Minimal,
+            Ok(proto::CostCategory::Low) => CostCategory::Low,
+            Ok(proto::CostCategory::Medium) => CostCategory::Medium,
+            Ok(proto::CostCategory::High) => CostCategory::High,
+            _ => CostCategory::Minimal,
+        };
+
+        CommandInfo {
+            name: proto.name,
+            namespace: proto.namespace,
+            full_name: proto.full_name,
+            description: proto.description,
+            tier,
+            cost,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -446,6 +474,28 @@ mod tests {
         assert_eq!(proto_info.description, "Audit code quality");
         assert_eq!(proto_info.tier, proto::CommandTier::Analysis as i32);
         assert_eq!(proto_info.cost, proto::CostCategory::High as i32);
+    }
+
+    #[test]
+    fn command_info_round_trip() {
+        let info = CommandInfo {
+            name: "code".to_string(),
+            namespace: "audit".to_string(),
+            full_name: "audit:code".to_string(),
+            description: "Audit code quality".to_string(),
+            tier: CommandTier::Analysis,
+            cost: CostCategory::High,
+        };
+
+        let proto_info: proto::CommandInfoProto = (&info).into();
+        let restored: CommandInfo = proto_info.into();
+
+        assert_eq!(restored.name, info.name);
+        assert_eq!(restored.namespace, info.namespace);
+        assert_eq!(restored.full_name, info.full_name);
+        assert_eq!(restored.description, info.description);
+        assert_eq!(restored.tier, info.tier);
+        assert_eq!(restored.cost, info.cost);
     }
 
     #[test]

@@ -456,7 +456,7 @@ async fn fetch_bd_ready() -> Option<Vec<BeadsReadyItem>> {
 }
 
 async fn fetch_master_context() -> Option<MasterContext> {
-    let home = dirs::home_dir()?;
+    let home = nexus_core::paths::home_dir();
     let path = home.join(".claude/scripts/state/master-context.json");
     let contents = tokio::fs::read_to_string(&path).await.ok()?;
     serde_json::from_str::<MasterContext>(&contents).ok()
