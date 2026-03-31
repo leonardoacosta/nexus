@@ -7,13 +7,10 @@ use ratatui::widgets::{
     ScrollbarState, Table,
 };
 
-use crate::app::{
-    App, colors, format_age, session_type_indicator, status_color, status_dot,
-};
+use crate::app::{App, colors, format_age, session_type_indicator, status_color, status_dot};
 
 /// Render the session dashboard screen.
 pub fn render_dashboard(frame: &mut Frame, area: Rect, app: &mut App) {
-
     // Layout: title (3), sessions table (remaining - 1), status bar (1).
     let chunks = Layout::vertical([
         Constraint::Length(3),
@@ -49,7 +46,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
-    let sessions = app.all_sessions();
+    let sessions = app.cached_sessions().to_vec();
 
     if sessions.is_empty() {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
@@ -75,7 +72,11 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
     let mut session_to_flat: Vec<usize> = Vec::new();
 
     for row_data in sessions.iter() {
-        let project_name = row_data.session.project.as_deref().unwrap_or("(no project)");
+        let project_name = row_data
+            .session
+            .project
+            .as_deref()
+            .unwrap_or("(no project)");
 
         // Emit group header when project changes.
         if current_project != Some(project_name) {
@@ -308,8 +309,8 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::app::App;
 

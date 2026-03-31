@@ -8,7 +8,6 @@ use crate::app::{App, SyncStatus, colors, format_age};
 
 /// Render the project overview screen.
 pub fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
-
     let chunks = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(1),
@@ -43,7 +42,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
-    let summaries = app.project_summaries();
+    let summaries = app.cached_project_summaries().to_vec();
 
     if summaries.is_empty() {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
@@ -167,7 +166,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let summaries = app.project_summaries();
+    let summaries = app.cached_project_summaries().to_vec();
     let total_projects = summaries.len();
     let total_sessions: usize = summaries.iter().map(|p| p.total).sum();
 
@@ -230,8 +229,8 @@ pub fn render_scratchpad(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::app::App;
 

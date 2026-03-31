@@ -641,6 +641,11 @@ pub struct App {
     /// State for the notification settings panel overlay.
     /// `None` when the panel is closed.
     pub notification_panel: Option<NotificationPanelState>,
+
+    /// Cached flattened session rows, recomputed on `update_agents`.
+    cached_sessions: Vec<SessionRow>,
+    /// Cached project summaries, recomputed on `update_agents`.
+    cached_project_summaries: Vec<ProjectSummary>,
 }
 
 impl App {
@@ -680,6 +685,8 @@ impl App {
             stream_scroll_state: ScrollbarState::default(),
             stream_total_lines: 0,
             notification_panel: None,
+            cached_sessions: Vec::new(),
+            cached_project_summaries: Vec::new(),
         }
     }
 
@@ -753,17 +760,27 @@ impl App {
     /// Number of selectable rows for the current screen.
     fn selectable_count(&self) -> usize {
         match self.current_screen {
-            Screen::Dashboard => self.all_sessions().len(),
+            Screen::Dashboard => self.cached_sessions.len(),
             Screen::Detail => 0,
             Screen::Health => self.agents.len(),
-            Screen::Projects => self.project_summaries().len(),
+            Screen::Projects => self.cached_project_summaries.len(),
             Screen::Palette => self.palette_results.len(),
             Screen::StreamAttach => 0,
         }
     }
 
+    /// Return the cached flattened session rows (recomputed on each `update_agents` call).
+    pub fn cached_sessions(&self) -> &[SessionRow] {
+        &self.cached_sessions
+    }
+
+    /// Return the cached project summaries (recomputed on each `update_agents` call).
+    pub fn cached_project_summaries(&self) -> &[ProjectSummary] {
+        &self.cached_project_summaries
+    }
+
     /// Flatten all connected agents' sessions into a list sorted by project name.
-    pub fn all_sessions(&self) -> Vec<SessionRow> {
+    fn recompute_sessions(&self) -> Vec<SessionRow> {
         let mut rows: Vec<SessionRow> = self
             .agents
             .iter()
@@ -787,7 +804,7 @@ impl App {
     }
 
     /// Aggregate project summaries from all connected agents.
-    pub fn project_summaries(&self) -> Vec<ProjectSummary> {
+    fn recompute_project_summaries(&self) -> Vec<ProjectSummary> {
         use std::collections::BTreeMap;
 
         let mut map: BTreeMap<String, ProjectSummary> = BTreeMap::new();
@@ -938,7 +955,7 @@ impl App {
         let mut entries: Vec<PaletteEntry> = Vec::new();
 
         // Sessions.
-        for row in self.all_sessions() {
+        for row in &self.cached_sessions {
             let project = row.session.project.as_deref().unwrap_or("-");
             let branch = row.session.branch.as_deref().unwrap_or("-");
             let label = format!("{project}:{branch} ({agent})", agent = row.agent_name);
@@ -966,7 +983,7 @@ impl App {
         });
 
         // Stop session actions.
-        for row in self.all_sessions() {
+        for row in &self.cached_sessions {
             let project = row.session.project.as_deref().unwrap_or("-");
             entries.push(PaletteEntry {
                 label: format!(
@@ -1115,7 +1132,7 @@ impl App {
     pub fn update_agents(&mut self, data: Vec<AgentData>) {
         // Remember the currently selected session ID (if on dashboard).
         let selected_session_id = if self.current_screen == Screen::Dashboard {
-            self.all_sessions()
+            self.cached_sessions
                 .get(self.selected_index)
                 .map(|r| r.session.id.clone())
         } else {
@@ -1135,8 +1152,8 @@ impl App {
                     entry.push_cpu(cpu_sample);
 
                     let ram_sample = if health.memory_total_gb > 0.0 {
-                        ((health.memory_used_gb / health.memory_total_gb) * 100.0)
-                            .clamp(0.0, 100.0) as u64
+                        ((health.memory_used_gb / health.memory_total_gb) * 100.0).clamp(0.0, 100.0)
+                            as u64
                     } else {
                         0
                     };
@@ -1165,10 +1182,13 @@ impl App {
             }
         }
 
+        // Recompute caches now that agent data is updated.
+        self.cached_sessions = self.recompute_sessions();
+        self.cached_project_summaries = self.recompute_project_summaries();
+
         // Try to restore selection by session ID.
         if let Some(id) = selected_session_id {
-            let sessions = self.all_sessions();
-            if let Some(pos) = sessions.iter().position(|r| r.session.id == id) {
+            if let Some(pos) = self.cached_sessions.iter().position(|r| r.session.id == id) {
                 self.selected_index = pos;
             } else {
                 // Session gone — clamp.
@@ -1926,7 +1946,11 @@ mod tests {
         app.ensure_session_tab();
         // Call again with the same session — should not add a duplicate.
         app.ensure_session_tab();
-        assert_eq!(app.session_tabs.len(), 1, "duplicate session should not be added");
+        assert_eq!(
+            app.session_tabs.len(),
+            1,
+            "duplicate session should not be added"
+        );
     }
 
     #[test]
@@ -1986,8 +2010,14 @@ mod tests {
 
     #[test]
     fn diff_header_lines_not_classified_as_changes() {
-        assert!(classify_diff_line("+++ b/foo.rs").is_none(), "+++ is a header");
-        assert!(classify_diff_line("--- a/foo.rs").is_none(), "--- is a header");
+        assert!(
+            classify_diff_line("+++ b/foo.rs").is_none(),
+            "+++ is a header"
+        );
+        assert!(
+            classify_diff_line("--- a/foo.rs").is_none(),
+            "--- is a header"
+        );
     }
 
     #[test]
@@ -2069,12 +2099,18 @@ mod tests {
 
     #[test]
     fn line_style_min_verbosity_user_prompt_is_minimal() {
-        assert_eq!(LineStyle::UserPrompt.min_verbosity(), StreamVerbosity::Minimal);
+        assert_eq!(
+            LineStyle::UserPrompt.min_verbosity(),
+            StreamVerbosity::Minimal
+        );
     }
 
     #[test]
     fn line_style_min_verbosity_tool_header_is_normal() {
-        assert_eq!(LineStyle::ToolHeader.min_verbosity(), StreamVerbosity::Normal);
+        assert_eq!(
+            LineStyle::ToolHeader.min_verbosity(),
+            StreamVerbosity::Normal
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tonic::transport::{Channel, Endpoint, Server};
@@ -11,10 +12,13 @@ use tonic::transport::{Channel, Endpoint, Server};
 // main.rs uses rather than importing private modules.
 
 use nexus_agent::events::EventBroadcaster;
+use nexus_agent::grpc::NexusAgentService;
 use nexus_agent::health::HealthCollector;
 use nexus_agent::registry::SessionRegistry;
+use nexus_agent::services::command_registry::CommandRegistry;
+use nexus_agent::services::project_status::ProjectStatusCache;
+use nexus_agent::services::session_pool::SessionPool;
 use nexus_agent::shutdown::ShutdownCoordinator;
-use nexus_agent::grpc::NexusAgentService;
 
 /// Spin up a real `NexusAgentService` bound to a random OS-assigned port.
 ///
@@ -26,6 +30,11 @@ pub async fn start_test_server() -> SocketAddr {
     let registry = Arc::new(SessionRegistry::new(Arc::clone(&broadcaster)));
     let health = HealthCollector::spawn(Duration::from_secs(60)); // long interval — tests don't need refreshes
     let coordinator = Arc::new(ShutdownCoordinator::new());
+    let project_registry = ProjectRegistry::load_empty();
+    let status_cache = ProjectStatusCache::new(Duration::from_secs(30));
+    let pool_config = nexus_core::config::PoolConfig::default();
+    let session_pool = SessionPool::new(pool_config, project_registry.clone());
+    let command_registry = CommandRegistry::with_default_dir();
 
     let service = NexusAgentService::new(
         Arc::clone(&registry),
@@ -34,6 +43,10 @@ pub async fn start_test_server() -> SocketAddr {
         "test-agent".to_string(),
         "localhost".to_string(),
         Arc::clone(&coordinator),
+        project_registry,
+        status_cache,
+        session_pool,
+        command_registry,
     );
 
     // Bind to port 0 — the OS picks a free port.

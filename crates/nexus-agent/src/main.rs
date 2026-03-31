@@ -29,8 +29,8 @@ use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
 use nexus_agent::services::command_registry::CommandRegistry;
 use nexus_agent::services::project_status::ProjectStatusCache;
-use nexus_agent::services::session_pool::SessionPool;
 use nexus_agent::services::receiver::ReceiverService;
+use nexus_agent::services::session_pool::SessionPool;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
@@ -86,6 +86,8 @@ async fn main() -> Result<()> {
             role: AgentRole::Primary,
             self_name: None,
             pool: None,
+            bind_address: "127.0.0.1".to_string(),
+            secret: None,
         }
     });
 
@@ -256,7 +258,10 @@ async fn main() -> Result<()> {
         command_registry.clone(),
     );
 
-    let grpc_addr = format!("0.0.0.0:{GRPC_PORT}").parse()?;
+    let bind_address = &nexus_config.bind_address;
+    let effective_secret = nexus_config.effective_secret();
+
+    let grpc_addr = format!("{bind_address}:{GRPC_PORT}").parse()?;
     tracing::info!("gRPC server listening on {}", grpc_addr);
 
     // Cancellation token for socket service — cancelled when the agent shuts down.
@@ -302,10 +307,7 @@ async fn main() -> Result<()> {
 
     // Initialize shared cron state and spawn CronService.
     let cron_state = CronState::new();
-    spawn_service(
-        CronService::new(cron_state.clone()),
-        coordinator.token(),
-    );
+    spawn_service(CronService::new(cron_state.clone()), coordinator.token());
 
     // Build the HTTP health server on port 7401.
     let app_state = AppState {
@@ -320,6 +322,7 @@ async fn main() -> Result<()> {
         project_registry,
         status_cache,
         command_registry,
+        secret: effective_secret,
     };
 
     let http_app = Router::new()
@@ -330,15 +333,21 @@ async fn main() -> Result<()> {
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
         .route("/commands", get(list_commands_handler))
-        .route("/commands/{namespace}", get(list_commands_by_namespace_handler))
+        .route(
+            "/commands/{namespace}",
+            get(list_commands_by_namespace_handler),
+        )
         .route("/project/{code}/status", get(project_status_handler))
         .route("/project/{code}/beads", get(project_beads_handler))
         .route("/project/{code}/git", get(project_git_handler))
         .route("/project/{code}/specs", get(project_specs_handler))
-        .route("/project/{code}/run", axum::routing::post(run_command_handler))
+        .route(
+            "/project/{code}/run",
+            axum::routing::post(run_command_handler),
+        )
         .with_state(app_state);
 
-    let http_addr: std::net::SocketAddr = format!("0.0.0.0:{HTTP_PORT}").parse()?;
+    let http_addr: std::net::SocketAddr = format!("{bind_address}:{HTTP_PORT}").parse()?;
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     tracing::info!("HTTP health server listening on {}", http_addr);
 
@@ -371,7 +380,7 @@ async fn main() -> Result<()> {
     );
 
     tracing::info!(
-        "listening on gRPC=0.0.0.0:{GRPC_PORT} HTTP=0.0.0.0:{HTTP_PORT} socket={}",
+        "listening on gRPC={bind_address}:{GRPC_PORT} HTTP={bind_address}:{HTTP_PORT} socket={}",
         socket_path.display()
     );
 

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::execute;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::execute;
 use notify::{EventKind, RecursiveMode, Watcher};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
@@ -122,7 +122,12 @@ async fn main() -> Result<()> {
     let (rpc_result_tx, mut rpc_result_rx) = mpsc::channel::<RpcResult>(4);
 
     // Move client into the background task that handles both polling and RPCs.
-    tokio::spawn(background_task(client, poll_tx, rpc_rx, rpc_result_tx.clone()));
+    tokio::spawn(background_task(
+        client,
+        poll_tx,
+        rpc_rx,
+        rpc_result_tx.clone(),
+    ));
 
     // Watch agents.toml for live edits.
     spawn_config_watcher(NexusConfig::config_path(), rpc_result_tx);
@@ -170,11 +175,8 @@ fn run_loop(
             let full_area = frame.area();
 
             // Split: 2-row Tabs bar at top, rest goes to the active screen.
-            let [tabs_area, content_area] = Layout::vertical([
-                Constraint::Length(2),
-                Constraint::Min(0),
-            ])
-            .areas(full_area);
+            let [tabs_area, content_area] =
+                Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(full_area);
 
             // Render the Tabs widget (only for the 3 primary tab screens).
             render_tabs(frame, tabs_area, app);
@@ -278,17 +280,13 @@ fn run_loop(
                 }
                 RpcResult::AgentsReconnected(names) => {
                     for name in names {
-                        app.notifications.push(
-                            format!("\u{2713} reconnected to {name}"),
-                            Severity::Info,
-                        );
+                        app.notifications
+                            .push(format!("\u{2713} reconnected to {name}"), Severity::Info);
                     }
                 }
                 RpcResult::ConfigChanged(n) => {
-                    app.notifications.push(
-                        format!("config reloaded: {n} agents"),
-                        Severity::Info,
-                    );
+                    app.notifications
+                        .push(format!("config reloaded: {n} agents"), Severity::Info);
                 }
             }
         }
@@ -297,7 +295,7 @@ fn run_loop(
         while let Ok(alert) = alert_rx.try_recv() {
             // Try to resolve project name from current session data.
             let project = app
-                .all_sessions()
+                .cached_sessions()
                 .iter()
                 .find(|r| r.session.id == alert.session_id)
                 .and_then(|r| r.session.project.clone());
@@ -358,7 +356,9 @@ fn run_loop(
                     StreamMessage::AgentGoingAway { agent_name, reason } => {
                         // Mark the agent as reconnecting in the app data so the
                         // status bar updates immediately (next poll will reconcile).
-                        if let Some(agent) = app.agents.iter_mut().find(|a| a.info.name == agent_name) {
+                        if let Some(agent) =
+                            app.agents.iter_mut().find(|a| a.info.name == agent_name)
+                        {
                             agent.connected = false;
                             agent.reconnect_attempt = Some(0);
                         }
@@ -782,8 +782,7 @@ fn handle_stream_input_key(
 
     // Pass the key through to the TextArea widget.
     // Wrap in Event::Key so the textarea's crossterm Input conversion fires.
-    app.stream_textarea
-        .input(Event::Key(key));
+    app.stream_textarea.input(Event::Key(key));
 
     KeyAction::Continue
 }
@@ -862,8 +861,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
         KeyCode::Enter | KeyCode::Char('d') => {
             // On Dashboard: open detail for selected session.
             if app.current_screen == Screen::Dashboard {
-                let sessions = app.all_sessions();
-                if let Some(row) = sessions.get(app.selected_index) {
+                if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
                     let session = row.session.clone();
                     // Find the agent info.
                     let agent_info = app
@@ -903,8 +901,7 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
         KeyCode::Char('a') => {
             // Stream attach: works for all sessions (managed and ad-hoc).
             if app.current_screen == Screen::Dashboard {
-                let sessions = app.all_sessions();
-                if let Some(row) = sessions.get(app.selected_index) {
+                if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
                     let session_id = row.session.id.clone();
                     let agent_name = row.agent_name.clone();
                     let project = row.session.project.as_deref().unwrap_or("?");
@@ -920,9 +917,11 @@ fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcComman
         KeyCode::Char('e') => {
             // Open scratchpad for selected project on Projects screen.
             if app.current_screen == Screen::Projects {
-                let summaries = app.project_summaries();
-                if let Some(p) = summaries.get(app.selected_index) {
-                    let name = p.name.clone();
+                if let Some(name) = app
+                    .cached_project_summaries()
+                    .get(app.selected_index)
+                    .map(|p| p.name.clone())
+                {
                     app.open_scratchpad(&name);
                 }
             }
@@ -1272,16 +1271,14 @@ fn handle_palette_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCom
                 execute_palette_action(app, entry.action, rpc_tx);
             }
         }
-        KeyCode::Char('j') | KeyCode::Down => {
+        KeyCode::Down => {
             if !app.palette_results.is_empty() {
                 app.palette_selected =
                     (app.palette_selected + 1).min(app.palette_results.len() - 1);
             }
         }
-        KeyCode::Char('k') | KeyCode::Up => {
-            // In palette input, only arrow keys navigate (j/k are typing chars).
-            // So we only handle Up here.
-            if key.code == KeyCode::Up && app.palette_selected > 0 {
+        KeyCode::Up => {
+            if app.palette_selected > 0 {
                 app.palette_selected -= 1;
             }
         }
@@ -1305,8 +1302,12 @@ fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_tx: &mpsc::S
             agent_name,
         } => {
             // Find the session and agent info from current state.
-            let sessions = app.all_sessions();
-            if let Some(row) = sessions.iter().find(|r| r.session.id == session_id) {
+            if let Some(row) = app
+                .cached_sessions()
+                .iter()
+                .find(|r| r.session.id == session_id)
+                .cloned()
+            {
                 let session = row.session.clone();
                 let agent_info = app
                     .agents
@@ -1466,21 +1467,22 @@ fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>
     let (notify_tx, mut notify_rx) = mpsc::channel::<()>(1);
 
     // `_watcher` must stay alive for the watch to remain active.
-    let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if let Ok(ev) = res
-            && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_))
-        {
-            // Best-effort send; drop duplicate events that back up while
-            // the debounce window is active.
-            let _ = notify_tx.try_send(());
-        }
-    }) {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("config watcher: failed to create watcher: {e}");
-            return;
-        }
-    };
+    let mut watcher =
+        match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(ev) = res
+                && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_))
+            {
+                // Best-effort send; drop duplicate events that back up while
+                // the debounce window is active.
+                let _ = notify_tx.try_send(());
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("config watcher: failed to create watcher: {e}");
+                return;
+            }
+        };
 
     if let Err(e) = watcher.watch(&config_path, RecursiveMode::NonRecursive) {
         tracing::warn!(path = %config_path.display(), "config watcher: failed to watch: {e}");
@@ -1518,18 +1520,17 @@ fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>
             // Re-parse the config and report the result.
             // Extract the outcome before any `.await` so the non-Send error
             // type is not held across an await point.
-            let reload_outcome: Option<usize> =
-                match nexus_core::config::NexusConfig::load() {
-                    Ok(cfg) => {
-                        let n = cfg.agents.len();
-                        tracing::info!("config reloaded: {n} agents");
-                        Some(n)
-                    }
-                    Err(e) => {
-                        tracing::warn!("config watcher: reload failed: {e}");
-                        None
-                    }
-                };
+            let reload_outcome: Option<usize> = match nexus_core::config::NexusConfig::load() {
+                Ok(cfg) => {
+                    let n = cfg.agents.len();
+                    tracing::info!("config reloaded: {n} agents");
+                    Some(n)
+                }
+                Err(e) => {
+                    tracing::warn!("config watcher: reload failed: {e}");
+                    None
+                }
+            };
 
             if let Some(n) = reload_outcome {
                 let _ = result_tx.send(RpcResult::ConfigChanged(n)).await;
@@ -1672,9 +1673,7 @@ fn results_to_agent_data(
             let (reconnect_attempt, dns_failure) = match &conn.status {
                 ConnectionStatus::Connected => (None, false),
                 ConnectionStatus::Reconnecting { attempt } => (Some(*attempt), false),
-                ConnectionStatus::Disconnected { reason } => {
-                    (None, reason.contains("DNS"))
-                }
+                ConnectionStatus::Disconnected { reason } => (None, reason.contains("DNS")),
             };
 
             AgentData {

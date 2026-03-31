@@ -55,6 +55,17 @@ pub struct NexusConfig {
     /// Session pool configuration. Omit to use defaults.
     #[serde(default)]
     pub pool: Option<PoolConfig>,
+    /// IP address for the agent daemon to bind gRPC and HTTP servers on.
+    /// Defaults to "127.0.0.1" for security (localhost only). Set to "0.0.0.0"
+    /// to accept connections from the network (e.g. via Tailscale).
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    /// Optional shared secret for authenticating sensitive HTTP endpoints
+    /// (e.g. `/project/{code}/run`). When set, requests must include an
+    /// `X-Nexus-Secret` header matching this value. Can also be provided
+    /// via the `NEXUS_SECRET` environment variable (which takes precedence).
+    #[serde(default)]
+    pub secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +85,10 @@ fn default_port() -> u16 {
     7400
 }
 
+fn default_bind_address() -> String {
+    "127.0.0.1".to_string()
+}
+
 impl NexusConfig {
     pub fn config_path() -> PathBuf {
         nexus_config_dir().join("agents.toml")
@@ -89,6 +104,14 @@ impl NexusConfig {
     /// Return peers that this agent should subscribe to (all agents except self).
     pub fn peers(&self, self_name: &str) -> Vec<&AgentConfig> {
         self.agents.iter().filter(|a| a.name != self_name).collect()
+    }
+
+    /// Return the effective secret, preferring `NEXUS_SECRET` env var over
+    /// the config file value.
+    pub fn effective_secret(&self) -> Option<String> {
+        std::env::var("NEXUS_SECRET")
+            .ok()
+            .or_else(|| self.secret.clone())
     }
 }
 
@@ -268,5 +291,74 @@ mod tests {
         assert_eq!(cfg.max_sessions, 10);
         assert_eq!(cfg.idle_timeout_minutes, 30);
         assert_eq!(cfg.warmup_on_startup, vec!["oo", "nx"]);
+    }
+
+    // -------------------------------------------------------------------------
+    // bind_address + secret (Spec 4 — secure agent endpoints)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn default_bind_address_is_localhost() {
+        let toml_str = r#"
+            agents = []
+        "#;
+        let cfg: NexusConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            cfg.bind_address, "127.0.0.1",
+            "bind_address should default to 127.0.0.1"
+        );
+    }
+
+    #[test]
+    fn explicit_bind_address_override() {
+        let toml_str = r#"
+            agents = []
+            bind_address = "0.0.0.0"
+        "#;
+        let cfg: NexusConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.bind_address, "0.0.0.0");
+    }
+
+    #[test]
+    fn secret_defaults_to_none() {
+        let toml_str = r#"
+            agents = []
+        "#;
+        let cfg: NexusConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.secret.is_none(), "secret should default to None");
+    }
+
+    #[test]
+    fn secret_from_config_file() {
+        let toml_str = r#"
+            agents = []
+            secret = "s3cret-t0ken"
+        "#;
+        let cfg: NexusConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.secret.as_deref(), Some("s3cret-t0ken"));
+    }
+
+    #[test]
+    fn effective_secret_prefers_env_var() {
+        let cfg = NexusConfig {
+            agents: vec![],
+            role: AgentRole::Primary,
+            self_name: None,
+            pool: None,
+            bind_address: "127.0.0.1".to_string(),
+            secret: Some("from-config".to_string()),
+        };
+
+        // Without the env var, falls back to config.
+        // NOTE: env var tests are inherently global — only safe because cargo
+        // test runs each test in its own thread and we clean up.
+        // SAFETY: Single-threaded test, no concurrent env var access.
+        unsafe { std::env::remove_var("NEXUS_SECRET") };
+        assert_eq!(cfg.effective_secret().as_deref(), Some("from-config"));
+
+        // With the env var, it takes precedence.
+        unsafe { std::env::set_var("NEXUS_SECRET", "from-env") };
+        assert_eq!(cfg.effective_secret().as_deref(), Some("from-env"));
+        unsafe { std::env::remove_var("NEXUS_SECRET") };
     }
 }

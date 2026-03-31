@@ -45,6 +45,9 @@ pub struct AppState {
     pub project_registry: ProjectRegistry,
     pub status_cache: ProjectStatusCache,
     pub command_registry: CommandRegistry,
+    /// Shared secret for authenticating sensitive endpoints.
+    /// `None` means no auth required (backward compat).
+    pub secret: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -661,11 +664,27 @@ pub struct RunCommandBody {
 }
 
 /// POST /project/:code/run — accept a command execution request for a project.
+///
+/// When a shared secret is configured (via `secret` in agents.toml or the
+/// `NEXUS_SECRET` env var), requests must include an `X-Nexus-Secret` header
+/// with the matching value. Requests without a valid header receive 401.
 pub async fn run_command_handler(
     Path(code): Path<String>,
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<RunCommandBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Shared-secret auth gate.
+    if let Some(ref expected) = state.secret {
+        let provided = headers.get("x-nexus-secret").and_then(|v| v.to_str().ok());
+        match provided {
+            Some(val) if val == expected => {} // OK
+            _ => {
+                return Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string()));
+            }
+        }
+    }
+
     state
         .project_registry
         .resolve(&code)
@@ -695,4 +714,61 @@ pub async fn run_command_handler(
         "prompt": prompt,
         "note": "Use gRPC RunProjectCommand for streaming execution"
     })))
+}
+
+/// Validate the `X-Nexus-Secret` header against the configured secret.
+///
+/// Returns `Ok(())` if no secret is configured (open access) or the header
+/// matches. Returns `Err((401, "unauthorized"))` otherwise.
+pub fn validate_secret(
+    expected: &Option<String>,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    if let Some(secret) = expected {
+        let provided = headers.get("x-nexus-secret").and_then(|v| v.to_str().ok());
+        match provided {
+            Some(val) if val == secret => Ok(()),
+            _ => Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string())),
+        }
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn no_secret_configured_allows_all_requests() {
+        let secret: Option<String> = None;
+        let headers = HeaderMap::new();
+        assert!(validate_secret(&secret, &headers).is_ok());
+    }
+
+    #[test]
+    fn secret_configured_rejects_missing_header() {
+        let secret = Some("my-secret".to_string());
+        let headers = HeaderMap::new();
+        let err = validate_secret(&secret, &headers).unwrap_err();
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn secret_configured_rejects_wrong_header() {
+        let secret = Some("my-secret".to_string());
+        let mut headers = HeaderMap::new();
+        headers.insert("x-nexus-secret", "wrong-secret".parse().unwrap());
+        let err = validate_secret(&secret, &headers).unwrap_err();
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn secret_configured_accepts_valid_header() {
+        let secret = Some("my-secret".to_string());
+        let mut headers = HeaderMap::new();
+        headers.insert("x-nexus-secret", "my-secret".parse().unwrap());
+        assert!(validate_secret(&secret, &headers).is_ok());
+    }
 }

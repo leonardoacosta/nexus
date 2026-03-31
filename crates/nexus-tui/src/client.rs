@@ -39,9 +39,13 @@ pub struct AgentConnection {
 pub enum ConnectionStatus {
     Connected,
     /// Reconnect attempts are in progress.
-    Reconnecting { attempt: u32 },
+    Reconnecting {
+        attempt: u32,
+    },
     /// Permanently disconnected (e.g. DNS failure). No automatic retries.
-    Disconnected { reason: String },
+    Disconnected {
+        reason: String,
+    },
 }
 
 impl AgentConnection {
@@ -204,61 +208,60 @@ impl NexusClient {
     ///
     /// Unreachable agents contribute an empty session list and are marked
     /// `Disconnected` so the UI can display their status.
+    ///
+    /// All agents are queried concurrently via `JoinSet` so the worst-case
+    /// latency is bounded by a single agent timeout rather than N * timeout.
     pub async fn get_sessions(&mut self) -> Vec<(AgentInfo, Vec<Session>)> {
+        use tokio::task::JoinSet;
+
+        // Spawn one task per agent. Agents without a client get a synchronous
+        // "no client" result written back directly — no task needed.
+        let mut join_set: JoinSet<(usize, AgentQueryResult)> = JoinSet::new();
+
+        for (idx, agent) in self.agents.iter().enumerate() {
+            if let Some(client) = agent.client.clone() {
+                let name = agent.config.name.clone();
+                join_set.spawn(query_single_agent(idx, client, name));
+            }
+        }
+
+        // Pre-fill results for agents that had no client (disconnected).
+        let mut agent_results: Vec<Option<AgentQueryResult>> =
+            (0..self.agents.len()).map(|_| None).collect();
+
+        // Collect concurrent results.
+        while let Some(join_result) = join_set.join_next().await {
+            if let Ok((idx, result)) = join_result {
+                agent_results[idx] = Some(result);
+            }
+        }
+
+        // Write connection status back to self.agents and build return vec.
         let mut results = Vec::with_capacity(self.agents.len());
 
-        for agent in &mut self.agents {
-            let (sessions, connected, health) = match agent.client.as_mut() {
-                Some(client) => {
-                    let request = tonic::Request::new(SessionFilter {
-                        status: None,
-                        project: None,
-                        session_type: None,
-                    });
-
-                    match client.get_sessions(request).await {
-                        Ok(response) => {
-                            agent.last_seen = Some(Utc::now());
-                            agent.status = ConnectionStatus::Connected;
-                            agent.last_error = None;
-
-                            let list = response.into_inner();
-                            let sessions =
-                                list.sessions.into_iter().map(proto_to_session).collect();
-
-                            // Fetch health data from the same agent.
-                            let health = match client
-                                .get_health(tonic::Request::new(HealthRequest {}))
-                                .await
-                            {
-                                Ok(resp) => resp.into_inner().machine.map(proto_to_machine_health),
-                                Err(e) => {
-                                    warn!(
-                                        agent = %agent.config.name,
-                                        error = %e,
-                                        "failed to fetch health"
-                                    );
-                                    None
-                                }
-                            };
-
-                            (sessions, true, health)
-                        }
-                        Err(e) => {
-                            warn!(
-                                agent = %agent.config.name,
-                                error = %e,
-                                "failed to list sessions"
-                            );
-                            let reason = e.to_string();
-                            agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
-                            agent.last_error = Some(reason);
-                            agent.client = None;
-                            (Vec::new(), false, None)
-                        }
-                    }
+        for (idx, agent) in self.agents.iter_mut().enumerate() {
+            let (sessions, connected, health) = match agent_results[idx].take() {
+                Some(AgentQueryResult::Success { sessions, health }) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    (sessions, true, health)
                 }
-                None => (Vec::new(), false, None),
+                Some(AgentQueryResult::SessionError { reason }) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %reason,
+                        "failed to list sessions"
+                    );
+                    agent.status = ConnectionStatus::Reconnecting { attempt: 1 };
+                    agent.last_error = Some(reason);
+                    agent.client = None;
+                    (Vec::new(), false, None)
+                }
+                None => {
+                    // No client — already disconnected.
+                    (Vec::new(), false, None)
+                }
             };
 
             let info = AgentInfo {
@@ -548,6 +551,65 @@ impl NexusClient {
 }
 
 // ---------------------------------------------------------------------------
+// Parallel per-agent query (Spec 3)
+// ---------------------------------------------------------------------------
+
+/// Result of querying a single agent for sessions and health.
+enum AgentQueryResult {
+    Success {
+        sessions: Vec<Session>,
+        health: Option<MachineHealth>,
+    },
+    SessionError {
+        reason: String,
+    },
+}
+
+/// Query a single agent for sessions + health. Runs as a standalone async task
+/// so all agents can be queried concurrently via `JoinSet`.
+async fn query_single_agent(
+    idx: usize,
+    mut client: NexusAgentClient<Channel>,
+    agent_name: String,
+) -> (usize, AgentQueryResult) {
+    let request = tonic::Request::new(SessionFilter {
+        status: None,
+        project: None,
+        session_type: None,
+    });
+
+    let result = match client.get_sessions(request).await {
+        Ok(response) => {
+            let list = response.into_inner();
+            let sessions: Vec<Session> = list.sessions.into_iter().map(proto_to_session).collect();
+
+            // Fetch health data from the same agent.
+            let health = match client
+                .get_health(tonic::Request::new(HealthRequest {}))
+                .await
+            {
+                Ok(resp) => resp.into_inner().machine.map(proto_to_machine_health),
+                Err(e) => {
+                    warn!(
+                        agent = %agent_name,
+                        error = %e,
+                        "failed to fetch health"
+                    );
+                    None
+                }
+            };
+
+            AgentQueryResult::Success { sessions, health }
+        }
+        Err(e) => AgentQueryResult::SessionError {
+            reason: e.to_string(),
+        },
+    };
+
+    (idx, result)
+}
+
+// ---------------------------------------------------------------------------
 // Proto conversion helpers — delegated to nexus_core::proto_convert
 // ---------------------------------------------------------------------------
 
@@ -582,6 +644,8 @@ mod tests {
             role: nexus_core::config::AgentRole::Primary,
             self_name: None,
             pool: None,
+            bind_address: "127.0.0.1".to_string(),
+            secret: None,
         }
     }
 
@@ -636,30 +700,51 @@ mod tests {
 
     #[test]
     fn backoff_attempt_0_is_1s() {
-        assert_eq!(NexusClient::backoff_duration(0), std::time::Duration::from_secs(1));
+        assert_eq!(
+            NexusClient::backoff_duration(0),
+            std::time::Duration::from_secs(1)
+        );
     }
 
     #[test]
     fn backoff_attempt_1_is_2s() {
-        assert_eq!(NexusClient::backoff_duration(1), std::time::Duration::from_secs(2));
+        assert_eq!(
+            NexusClient::backoff_duration(1),
+            std::time::Duration::from_secs(2)
+        );
     }
 
     #[test]
     fn backoff_attempt_2_is_4s() {
-        assert_eq!(NexusClient::backoff_duration(2), std::time::Duration::from_secs(4));
+        assert_eq!(
+            NexusClient::backoff_duration(2),
+            std::time::Duration::from_secs(4)
+        );
     }
 
     #[test]
     fn backoff_attempt_3_is_8s() {
-        assert_eq!(NexusClient::backoff_duration(3), std::time::Duration::from_secs(8));
+        assert_eq!(
+            NexusClient::backoff_duration(3),
+            std::time::Duration::from_secs(8)
+        );
     }
 
     #[test]
     fn backoff_caps_at_16s() {
         // attempt.min(4) means the shift is capped at 4: 1<<4 = 16s maximum.
-        assert_eq!(NexusClient::backoff_duration(4), std::time::Duration::from_secs(16));
-        assert_eq!(NexusClient::backoff_duration(5), std::time::Duration::from_secs(16));
-        assert_eq!(NexusClient::backoff_duration(100), std::time::Duration::from_secs(16));
+        assert_eq!(
+            NexusClient::backoff_duration(4),
+            std::time::Duration::from_secs(16)
+        );
+        assert_eq!(
+            NexusClient::backoff_duration(5),
+            std::time::Duration::from_secs(16)
+        );
+        assert_eq!(
+            NexusClient::backoff_duration(100),
+            std::time::Duration::from_secs(16)
+        );
     }
 
     // -------------------------------------------------------------------------
