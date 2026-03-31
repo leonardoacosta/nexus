@@ -118,6 +118,13 @@ async fn main() -> Result<()> {
     // Create the shutdown coordinator shared between signal handler and gRPC service.
     let coordinator = Arc::new(ShutdownCoordinator::new());
 
+    // Build a shared HTTP client for outbound requests (reused by services and
+    // the HTTP handler layer to avoid per-request connection pool overhead).
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("failed to create shared reqwest::Client");
+
     // Role-gated: start ReceiverService only on Primary.
     // Agent role skips TTS/APNs/banner — no audio deps needed at runtime.
     let receiver = Arc::new(
@@ -136,11 +143,11 @@ async fn main() -> Result<()> {
         coordinator.token(),
     );
     spawn_service(
-        services::sync_telemetry::SyncTelemetryService::new(),
+        services::sync_telemetry::SyncTelemetryService::with_client(http_client.clone()),
         coordinator.token(),
     );
     spawn_service(
-        services::credential_watcher::CredentialWatcherService::new(2),
+        services::credential_watcher::CredentialWatcherService::with_client(2, http_client.clone()),
         coordinator.token(),
     );
 
@@ -326,8 +333,10 @@ async fn main() -> Result<()> {
         status_cache,
         command_registry,
         secret: effective_secret,
+        http_client,
     };
 
+    let socket_http_client = app_state.http_client.clone();
     let http_app = Router::new()
         .route("/health", get(health_handler))
         .route("/statusline", get(statusline_handler))
@@ -380,6 +389,7 @@ async fn main() -> Result<()> {
         notification_config_arc,
         peer_relay_urls,
         failure_buffer,
+        socket_http_client,
     );
 
     tracing::info!(

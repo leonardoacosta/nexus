@@ -138,9 +138,9 @@ impl NexusAgentService {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let projects_dir = std::path::PathBuf::from(&home).join(".claude/projects");
 
-        match std::fs::read_dir(&projects_dir) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
+        match tokio::fs::read_dir(&projects_dir).await {
+            Ok(mut entries) => {
+                while let Ok(Some(entry)) = entries.next_entry().await {
                     let name = entry.file_name().to_string_lossy().to_string();
 
                     // Skip hidden directories.
@@ -149,7 +149,7 @@ impl NexusAgentService {
                     }
 
                     // Only consider directories.
-                    if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    if !entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
                         continue;
                     }
 

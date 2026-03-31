@@ -65,11 +65,23 @@ pub struct SyncTelemetryService {
     consecutive_failures: AtomicU32,
     /// Current backoff interval in seconds (increases exponentially on failure)
     current_backoff_secs: AtomicU64,
+    /// Shared HTTP client for outbound requests.
+    http_client: reqwest::Client,
 }
 
 impl SyncTelemetryService {
-    /// Create new sync telemetry service
+    /// Create new sync telemetry service with a default HTTP client.
     pub fn new() -> Self {
+        Self::with_client(
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+        )
+    }
+
+    /// Create new sync telemetry service with a shared HTTP client.
+    pub fn with_client(http_client: reqwest::Client) -> Self {
         let co_api_url =
             std::env::var("CO_API_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
 
@@ -77,6 +89,7 @@ impl SyncTelemetryService {
             co_api_url,
             consecutive_failures: AtomicU32::new(0),
             current_backoff_secs: AtomicU64::new(0),
+            http_client,
         }
     }
 
@@ -126,16 +139,11 @@ impl SyncTelemetryService {
 
     /// Send batch of events to API (async)
     async fn send_batch(&self, endpoint: &str, events: &[TelemetryEvent]) -> Result<usize> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .build()
-            .context("Failed to create HTTP client")?;
-
         let request = IngestRequest {
             events: events.to_vec(),
         };
 
-        let response = client
+        let response = self.http_client
             .post(endpoint)
             .header("Content-Type", "application/json")
             .json(&request)
@@ -663,6 +671,7 @@ mod tests {
             co_api_url: "http://localhost:9999".to_string(),
             consecutive_failures: AtomicU32::new(0),
             current_backoff_secs: AtomicU64::new(0),
+            http_client: reqwest::Client::new(),
         };
 
         // Simulate failure #1: prev=0, backoff = FLUSH_INTERVAL_SECS * 2 = 240

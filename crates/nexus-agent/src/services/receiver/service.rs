@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc};
 use tracing::{debug, error, info, warn};
 
 // Re-export types from the types module so existing imports continue to work.
@@ -34,13 +34,11 @@ pub struct ReceiverService {
     bind_address: String,
     state: Arc<RwLock<ReceiverState>>,
     config: NotificationsConfig,
-    shared_config: Option<Arc<tokio::sync::RwLock<NotificationsConfig>>>,
-    reload_rx: Option<watch::Receiver<()>>,
 }
 
 impl ReceiverService {
     pub fn new() -> Self {
-        let config = NotificationsConfig::load().unwrap_or_default();
+        let config = NotificationsConfig::load_sync().unwrap_or_default();
         Self::with_config(config)
     }
 
@@ -51,31 +49,11 @@ impl ReceiverService {
             bind_address: "127.0.0.1".to_string(),
             state: Arc::new(RwLock::new(ReceiverState::new(config.clone()))),
             config,
-            shared_config: None,
-            reload_rx: None,
-        }
-    }
-
-    pub fn with_shared_config(
-        config: NotificationsConfig,
-        shared_config: Arc<tokio::sync::RwLock<NotificationsConfig>>,
-        reload_rx: watch::Receiver<()>,
-    ) -> Self {
-        let port = config.server.port;
-        let mut receiver_state = ReceiverState::new(config.clone());
-        receiver_state.shared_config = Some(Arc::clone(&shared_config));
-        Self {
-            port,
-            bind_address: "127.0.0.1".to_string(),
-            state: Arc::new(RwLock::new(receiver_state)),
-            config,
-            shared_config: Some(shared_config),
-            reload_rx: Some(reload_rx),
         }
     }
 
     pub fn with_port(port: u16) -> Self {
-        let mut config = NotificationsConfig::load().unwrap_or_default();
+        let mut config = NotificationsConfig::load_sync().unwrap_or_default();
         config.server.port = port;
         Self::with_config(config)
     }

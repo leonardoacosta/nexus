@@ -24,9 +24,6 @@ use crate::registry::SessionRegistry;
 use crate::services::command_registry::CommandRegistry;
 use crate::services::project_status::ProjectStatusCache;
 
-/// The HTTP port used to build self-referencing URLs (e.g. /recommend → /failures).
-const HTTP_PORT: u16 = 7401;
-
 // ---------------------------------------------------------------------------
 // AppState
 // ---------------------------------------------------------------------------
@@ -48,6 +45,9 @@ pub struct AppState {
     /// Shared secret for authenticating sensitive endpoints.
     /// `None` means no auth required (backward compat).
     pub secret: Option<String>,
+    /// Shared HTTP client for outbound requests (avoids per-request connection
+    /// pool overhead).
+    pub http_client: reqwest::Client,
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ pub async fn recommend_handler(State(state): State<AppState>) -> Json<RecommendR
         }
     }
 
-    let response = build_recommendations(session_count).await;
+    let response = build_recommendations(session_count, &state.failure_buffer).await;
     cache.response = Some(response.clone());
     cache.refreshed_at = Instant::now();
 
@@ -335,7 +335,7 @@ fn default_priority() -> i32 {
     4
 }
 
-async fn build_recommendations(session_count: usize) -> RecommendResponse {
+async fn build_recommendations(session_count: usize, failure_buffer: &FailureBuffer) -> RecommendResponse {
     let (bd_result, context_result) = tokio::join!(fetch_bd_ready(), fetch_master_context());
 
     let ready_items = bd_result.unwrap_or_default();
@@ -357,7 +357,7 @@ async fn build_recommendations(session_count: usize) -> RecommendResponse {
 
     let mut recommendations: Vec<Recommendation> = Vec::new();
 
-    if let Some(failure_rec) = check_failure_spike().await {
+    if let Some(failure_rec) = check_failure_spike(failure_buffer).await {
         recommendations.push(failure_rec);
     }
 
@@ -462,29 +462,8 @@ async fn fetch_master_context() -> Option<MasterContext> {
     serde_json::from_str::<MasterContext>(&contents).ok()
 }
 
-async fn check_failure_spike() -> Option<Recommendation> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .ok()?;
-
-    let resp = client
-        .get(format!("http://127.0.0.1:{HTTP_PORT}/failures?days=1"))
-        .send()
-        .await
-        .ok()?;
-
-    if !resp.status().is_success() {
-        return None;
-    }
-
-    #[derive(Deserialize)]
-    struct FailureSummary {
-        #[serde(default)]
-        total: u64,
-    }
-
-    let summary: FailureSummary = resp.json().await.ok()?;
+async fn check_failure_spike(failure_buffer: &FailureBuffer) -> Option<Recommendation> {
+    let summary = failure_buffer.query_http(1).await;
 
     if summary.total > 50 {
         Some(Recommendation {
@@ -566,7 +545,9 @@ pub async fn project_status_handler(
         .status_cache
         .get(&code, &project.cwd, query.fresh.unwrap_or(false))
         .await;
-    Ok(Json(serde_json::to_value(&status).unwrap()))
+    serde_json::to_value(&status)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 /// GET /project/:code/beads — return beads status only.
@@ -583,7 +564,9 @@ pub async fn project_beads_handler(
         .status_cache
         .get(&code, &project.cwd, query.fresh.unwrap_or(false))
         .await;
-    Ok(Json(serde_json::to_value(&status.beads).unwrap()))
+    serde_json::to_value(&status.beads)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 /// GET /project/:code/git — return git status only.
@@ -600,7 +583,9 @@ pub async fn project_git_handler(
         .status_cache
         .get(&code, &project.cwd, query.fresh.unwrap_or(false))
         .await;
-    Ok(Json(serde_json::to_value(&status.git).unwrap()))
+    serde_json::to_value(&status.git)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 /// GET /project/:code/specs — return openspec status only.
@@ -617,7 +602,9 @@ pub async fn project_specs_handler(
         .status_cache
         .get(&code, &project.cwd, query.fresh.unwrap_or(false))
         .await;
-    Ok(Json(serde_json::to_value(&status.spec).unwrap()))
+    serde_json::to_value(&status.spec)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 // ---------------------------------------------------------------------------

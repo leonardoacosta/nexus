@@ -256,12 +256,17 @@ impl FailureBuffer {
         let cutoff = Utc::now() - Duration::days(ROLLING_WINDOW_DAYS);
 
         // Collect and sort JSONL files so import order is deterministic.
-        let mut jsonl_files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
-            Ok(entries) => entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "jsonl"))
-                .collect(),
+        let mut jsonl_files: Vec<std::path::PathBuf> = match tokio::fs::read_dir(dir).await {
+            Ok(mut entries) => {
+                let mut files = Vec::new();
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|ext| ext == "jsonl") {
+                        files.push(path);
+                    }
+                }
+                files
+            }
             Err(e) => {
                 tracing::warn!(dir = %dir.display(), error = %e, "failed to read failures JSONL directory");
                 return 0;
@@ -273,7 +278,7 @@ impl FailureBuffer {
         let mut buf = self.inner.write().await;
 
         for path in &jsonl_files {
-            let contents = match std::fs::read_to_string(path) {
+            let contents = match tokio::fs::read_to_string(path).await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(path = %path.display(), error = %e, "failed to read JSONL file");

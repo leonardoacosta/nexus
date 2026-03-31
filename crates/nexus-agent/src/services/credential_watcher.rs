@@ -121,7 +121,7 @@ fn read_servers_config() -> Vec<MenubarServer> {
 /// Push credential metadata to all configured menubar endpoints.
 ///
 /// Best-effort delivery: logs failures but does not retry.
-async fn push_to_menubars(meta: &CredentialMeta) {
+async fn push_to_menubars(meta: &CredentialMeta, client: &reqwest::Client) {
     let servers = read_servers_config();
     if servers.is_empty() {
         debug!("[credential-watcher] No menubar servers configured, skipping push");
@@ -138,11 +138,6 @@ async fn push_to_menubars(meta: &CredentialMeta) {
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
         refreshed_at: meta.refreshed_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
     };
-
-    let client = reqwest::Client::builder()
-        .timeout(PUSH_TIMEOUT)
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
 
     for server in &servers {
         let url = format!("{}/credentials", server.url.trim_end_matches('/'));
@@ -427,14 +422,28 @@ pub struct CredentialWatcherService {
     debounce_secs: u64,
     /// Whether the service is healthy
     healthy: Arc<AtomicBool>,
+    /// Shared HTTP client for outbound requests.
+    http_client: reqwest::Client,
 }
 
 impl CredentialWatcherService {
     /// Create a new credential watcher service with the given debounce window.
     pub fn new(debounce_secs: u64) -> Self {
+        Self::with_client(
+            debounce_secs,
+            reqwest::Client::builder()
+                .timeout(PUSH_TIMEOUT)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+        )
+    }
+
+    /// Create a new credential watcher service with a shared HTTP client.
+    pub fn with_client(debounce_secs: u64, http_client: reqwest::Client) -> Self {
         Self {
             debounce_secs,
             healthy: Arc::new(AtomicBool::new(false)),
+            http_client,
         }
     }
 
@@ -536,7 +545,7 @@ impl Service for CredentialWatcherService {
 
                             // Push credential updates to menubar endpoints
                             if let CredentialEvent::Changed(ref meta) = cred_event {
-                                push_to_menubars(meta).await;
+                                push_to_menubars(meta, &self.http_client).await;
                             }
                         } else {
                             debug!(

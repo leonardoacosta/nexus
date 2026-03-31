@@ -92,6 +92,7 @@ pub async fn run_socket_service(
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
     peer_relay_urls: PeerRelayUrls,
     failure_buffer: FailureBuffer,
+    http_client: reqwest::Client,
 ) -> Result<()> {
     let path = socket_path();
 
@@ -119,7 +120,8 @@ pub async fn run_socket_service(
                         let notif_cfg = notification_config.clone();
                         let relay = peer_relay_urls.clone();
                         let failures = failure_buffer.clone();
-                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures));
+                        let client = http_client.clone();
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -154,6 +156,7 @@ async fn handle_connection(
     notification_config: Option<Arc<RwLock<NotificationConfig>>>,
     peer_relay_urls: PeerRelayUrls,
     failure_buffer: FailureBuffer,
+    http_client: reqwest::Client,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -177,6 +180,7 @@ async fn handle_connection(
                         lifecycle_tx.as_ref(),
                         &peer_relay_urls,
                         &failure_buffer,
+                        &http_client,
                     )
                     .await;
                     continue;
@@ -218,6 +222,7 @@ async fn dispatch_event(
     lifecycle_tx: Option<&mpsc::Sender<LifecycleEvent>>,
     peer_relay_urls: &[String],
     failure_buffer: &FailureBuffer,
+    http_client: &reqwest::Client,
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -329,6 +334,7 @@ async fn dispatch_event(
                     &message,
                     message_type.as_deref(),
                     Some(&effective_channels),
+                    http_client,
                 )
                 .await;
             }
@@ -557,6 +563,7 @@ async fn dispatch_event(
                     &deploy_msg,
                     Some("brief"),
                     Some(&["tts".to_string()]),
+                    http_client,
                 )
                 .await;
             }
@@ -571,6 +578,7 @@ async fn relay_notification_to_peers(
     message: &str,
     message_type: Option<&str>,
     channels: Option<&[String]>,
+    client: &reqwest::Client,
 ) {
     let body = serde_json::json!({
         "message": message,
@@ -582,38 +590,29 @@ async fn relay_notification_to_peers(
     for url in peer_urls {
         let speak_url = format!("{}/speak", url);
         let body_clone = body_str.clone();
+        let client = client.clone();
         // Spawn per-peer to avoid blocking on slow/unreachable peers
         tokio::spawn(async move {
-            match reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(3))
-                .build()
+            match client
+                .post(&speak_url)
+                .header("content-type", "application/json")
+                .body(body_clone)
+                .send()
+                .await
             {
-                Ok(client) => {
-                    match client
-                        .post(&speak_url)
-                        .header("content-type", "application/json")
-                        .body(body_clone)
-                        .send()
-                        .await
-                    {
-                        Ok(resp) => {
-                            tracing::info!(
-                                url = %speak_url,
-                                status = %resp.status(),
-                                "relay: notification forwarded to peer"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                url = %speak_url,
-                                error = %e,
-                                "relay: failed to forward notification to peer"
-                            );
-                        }
-                    }
+                Ok(resp) => {
+                    tracing::info!(
+                        url = %speak_url,
+                        status = %resp.status(),
+                        "relay: notification forwarded to peer"
+                    );
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "relay: failed to build HTTP client");
+                    tracing::warn!(
+                        url = %speak_url,
+                        error = %e,
+                        "relay: failed to forward notification to peer"
+                    );
                 }
             }
         });

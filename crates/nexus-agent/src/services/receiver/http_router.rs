@@ -662,7 +662,7 @@ impl ReceiverService {
                 let state_path =
                     crate::claude_utils::notification_mode::notification_mode_state_path();
 
-                let (updated_at, updated_by) = match std::fs::read_to_string(&state_path) {
+                let (updated_at, updated_by) = match tokio::fs::read_to_string(&state_path).await {
                     Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
                         Ok(v) => (
                             v.get("updated_at")
@@ -773,43 +773,27 @@ impl ReceiverService {
             }
 
             ("POST", "/reload") => {
-                let state_guard = state.read().await;
-                if let Some(ref shared_config) = state_guard.shared_config {
-                    let shared_config = Arc::clone(shared_config);
-                    drop(state_guard);
-                    match NotificationsConfig::load() {
-                        Ok(new_config) => {
-                            {
-                                let mut config_guard = shared_config.write().await;
-                                *config_guard = new_config.clone();
-                            }
-                            {
-                                let mut state_guard = state.write().await;
-                                state_guard.config = new_config;
-                            }
-                            let response = serde_json::json!({
-                                "status": "ok",
-                                "reloaded_at": Utc::now().to_rfc3339(),
-                            });
-                            let body = serde_json::to_vec(&response).unwrap_or_default();
-                            (200, "application/json".to_string(), body)
+                match NotificationsConfig::load().await {
+                    Ok(new_config) => {
+                        {
+                            let mut state_guard = state.write().await;
+                            state_guard.config = new_config;
                         }
-                        Err(e) => {
-                            let response = serde_json::json!({
-                                "status": "error",
-                                "message": e.to_string(),
-                            });
-                            let body = serde_json::to_vec(&response).unwrap_or_default();
-                            (500, "application/json".to_string(), body)
-                        }
+                        let response = serde_json::json!({
+                            "status": "ok",
+                            "reloaded_at": Utc::now().to_rfc3339(),
+                        });
+                        let body = serde_json::to_vec(&response).unwrap_or_default();
+                        (200, "application/json".to_string(), body)
                     }
-                } else {
-                    let response = serde_json::json!({
-                        "status": "error",
-                        "message": "Hot reload not available (daemon started without shared config)",
-                    });
-                    let body = serde_json::to_vec(&response).unwrap_or_default();
-                    (501, "application/json".to_string(), body)
+                    Err(e) => {
+                        let response = serde_json::json!({
+                            "status": "error",
+                            "message": e.to_string(),
+                        });
+                        let body = serde_json::to_vec(&response).unwrap_or_default();
+                        (500, "application/json".to_string(), body)
+                    }
                 }
             }
 
@@ -826,7 +810,7 @@ impl ReceiverService {
             ("GET", "/messages") => {
                 let home = std::env::var("HOME").unwrap_or_default();
                 let messages_path = format!("{}/.claude/state/imessages.json", home);
-                match std::fs::read_to_string(&messages_path) {
+                match tokio::fs::read_to_string(&messages_path).await {
                     Ok(json) => (200, "application/json".to_string(), json.into_bytes()),
                     Err(_) => (200, "application/json".to_string(), b"[]".to_vec()),
                 }

@@ -39,7 +39,6 @@ pub struct ReceiverState {
     pub(crate) suppression_checker: SuppressionChecker,
     pub playback_queue: Option<PlaybackQueueHandle>,
     pub notification_history: Arc<Mutex<VecDeque<NotificationRecord>>>,
-    pub shared_config: Option<Arc<tokio::sync::RwLock<NotificationsConfig>>>,
     pub message_store: Arc<Mutex<HashMap<String, StoredMessage>>>,
     pub last_notification: Option<LastNotificationInfo>,
 }
@@ -77,7 +76,6 @@ impl ReceiverState {
             notification_history: Arc::new(Mutex::new(VecDeque::with_capacity(
                 NOTIFICATION_HISTORY_CAPACITY,
             ))),
-            shared_config: None,
             message_store: Arc::new(Mutex::new(HashMap::new())),
             last_notification: None,
         }
@@ -108,7 +106,6 @@ impl ReceiverState {
             notification_history: Arc::new(Mutex::new(VecDeque::with_capacity(
                 NOTIFICATION_HISTORY_CAPACITY,
             ))),
-            shared_config: None,
             message_store: Arc::new(Mutex::new(HashMap::new())),
             last_notification: None,
         }

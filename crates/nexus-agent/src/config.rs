@@ -293,7 +293,9 @@ impl NotificationsConfig {
     /// - `CLAUDE_DEBOUNCE_MAX_BUFFER`: Override debounce.maxBuffer
     /// - `CLAUDE_AUDIO_RESUME_DELAY_MS`: Override audio.resumeDelayMs
     /// - `CLAUDE_AUDIO_DEDUP_WINDOW_MS`: Override audio.dedupWindowMs
-    pub fn load() -> Result<Self> {
+    /// Synchronous load — suitable for startup/constructor paths that are not
+    /// inside an async context. Prefer `load()` (async) in handler code.
+    pub fn load_sync() -> Result<Self> {
         let config_path = env::var("CLAUDE_NOTIFICATIONS_CONFIG")
             .unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
 
@@ -302,6 +304,37 @@ impl NotificationsConfig {
         let mut config = if expanded_path.exists() {
             info!("Loading config from: {}", expanded_path.display());
             let content = std::fs::read_to_string(&expanded_path).with_context(|| {
+                format!("Failed to read config file: {}", expanded_path.display())
+            })?;
+
+            serde_json::from_str(&content).with_context(|| {
+                format!("Failed to parse config file: {}", expanded_path.display())
+            })?
+        } else {
+            warn!(
+                "Config file not found at {}, using defaults",
+                expanded_path.display()
+            );
+            Self::default()
+        };
+
+        config.apply_env_overrides();
+
+        debug!("Loaded configuration: {:?}", config);
+        Ok(config)
+    }
+
+    /// Async load — uses `tokio::fs` for non-blocking I/O. Use in async handler
+    /// code (HTTP routes, gRPC handlers, etc.).
+    pub async fn load() -> Result<Self> {
+        let config_path = env::var("CLAUDE_NOTIFICATIONS_CONFIG")
+            .unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
+
+        let expanded_path = expand_home(&config_path);
+
+        let mut config = if expanded_path.exists() {
+            info!("Loading config from: {}", expanded_path.display());
+            let content = tokio::fs::read_to_string(&expanded_path).await.with_context(|| {
                 format!("Failed to read config file: {}", expanded_path.display())
             })?;
 

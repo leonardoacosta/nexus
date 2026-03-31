@@ -26,7 +26,6 @@ mod http_router;
 mod notification_batch;
 mod playback_queue;
 mod service;
-mod socket;
 pub mod state;
 mod suppression;
 mod tts;
