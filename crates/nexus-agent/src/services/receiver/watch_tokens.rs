@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::PathBuf;
 
 const DEFAULT_DB_PATH: &str = "~/.claude/scripts/state/watch-tokens.db";

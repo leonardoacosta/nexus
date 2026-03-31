@@ -1,6 +1,5 @@
 pub mod claude_utils;
 pub mod command_executor;
-pub mod http_handlers;
 pub mod config;
 pub mod cron;
 pub mod cron_state;
@@ -11,6 +10,7 @@ pub mod events;
 pub mod failures;
 pub mod grpc;
 pub mod health;
+pub mod http_handlers;
 pub mod notification_engine;
 pub mod parser;
 pub mod registry;

@@ -189,7 +189,13 @@ fn weekly_reset_countdown() -> String {
 /// - For CTX: pct = remaining (higher = better)
 /// - For SES/WKL: pct = 100 - usage_pct (higher = more budget left)
 fn render_gauge(label: &str, pct: u8, suffix: &str) -> String {
-    let color = if pct <= 20 { CTX_LOW } else if pct <= 40 { CTX_MED } else { CTX_HIGH };
+    let color = if pct <= 20 {
+        CTX_LOW
+    } else if pct <= 40 {
+        CTX_MED
+    } else {
+        CTX_HIGH
+    };
     let filled = ((pct as usize) * 7) / 100;
     let empty = 7 - filled;
     let bar = format!("{}{}", "═".repeat(filled), "─".repeat(empty));
@@ -209,7 +215,9 @@ fn project_utilization(current: f64, window_secs: u64, remaining_secs: u64) -> f
 
 /// Format the momentum arrow: ↗85% colored by projected risk.
 fn momentum_indicator(projected: f64) -> String {
-    if projected < 0.1 { return String::new(); }
+    if projected < 0.1 {
+        return String::new();
+    }
     let (arrow, color) = if projected >= 95.0 {
         ("↑", CTX_LOW) // red — will hit limit
     } else if projected >= 75.0 {
@@ -220,7 +228,12 @@ fn momentum_indicator(projected: f64) -> String {
     format!("{color}{arrow}{:.0}%{RESET}", projected)
 }
 
-fn render_usage_gauge(label: &str, utilization: f64, resets_at: Option<&str>, window_secs: u64) -> String {
+fn render_usage_gauge(
+    label: &str,
+    utilization: f64,
+    resets_at: Option<&str>,
+    window_secs: u64,
+) -> String {
     let now = now_secs();
     let remaining_secs = resets_at
         .and_then(|t| parse_timestamp(t))
@@ -237,7 +250,11 @@ fn render_usage_gauge(label: &str, utilization: f64, resets_at: Option<&str>, wi
     } else if remaining_secs >= 86400 * 2 {
         format!("↻{}d", remaining_secs / 86400)
     } else {
-        format!("↻{}:{:02}h", remaining_secs / 3600, (remaining_secs % 3600) / 60)
+        format!(
+            "↻{}:{:02}h",
+            remaining_secs / 3600,
+            (remaining_secs % 3600) / 60
+        )
     };
 
     let suffix = if momentum.is_empty() {
@@ -320,7 +337,10 @@ fn get_api_usage() -> Option<UsageResponse> {
     let fresh: UsageResponse = fetch_api_curl(&token, "https://api.anthropic.com/api/oauth/usage")?;
 
     // Write cache
-    let cached = CachedUsage { fetched_at: now_secs(), data: fresh.clone() };
+    let cached = CachedUsage {
+        fetched_at: now_secs(),
+        data: fresh.clone(),
+    };
     if let Ok(json) = serde_json::to_string(&cached) {
         let _ = fs::write(&cache_path, json);
     }
@@ -352,18 +372,27 @@ fn read_access_token() -> Option<String> {
 fn fetch_api_curl<T: serde::de::DeserializeOwned>(token: &str, endpoint: &str) -> Option<T> {
     let output = std::process::Command::new("curl")
         .args([
-            "-s", "--max-time", "2",
-            "-H", "Accept: application/json",
-            "-H", &format!("Authorization: Bearer {}", token),
-            "-H", "anthropic-beta: oauth-2025-04-20",
+            "-s",
+            "--max-time",
+            "2",
+            "-H",
+            "Accept: application/json",
+            "-H",
+            &format!("Authorization: Bearer {}", token),
+            "-H",
+            "anthropic-beta: oauth-2025-04-20",
             endpoint,
         ])
         .output()
         .ok()?;
 
-    if !output.status.success() { return None; }
+    if !output.status.success() {
+        return None;
+    }
     let body = String::from_utf8(output.stdout).ok()?;
-    if body.contains("\"error\"") { return None; }
+    if body.contains("\"error\"") {
+        return None;
+    }
     serde_json::from_str(&body).ok()
 }
 
@@ -403,12 +432,16 @@ fn get_account_domain() -> Option<String> {
 
     // Fetch fresh
     let token = read_access_token()?;
-    let profile: ProfileResponse = fetch_api_curl(&token, "https://api.anthropic.com/api/oauth/profile")?;
+    let profile: ProfileResponse =
+        fetch_api_curl(&token, "https://api.anthropic.com/api/oauth/profile")?;
     let email = profile.account?.email?;
     let domain = email.split('@').nth(1).unwrap_or(&email).to_string();
 
     // Cache
-    let cached = CachedProfile { fetched_at: now_secs(), domain: domain.clone() };
+    let cached = CachedProfile {
+        fetched_at: now_secs(),
+        domain: domain.clone(),
+    };
     if let Ok(json) = serde_json::to_string(&cached) {
         let _ = fs::write(&cache_path, json);
     }
@@ -420,11 +453,15 @@ fn get_account_domain() -> Option<String> {
 fn parse_timestamp(ts: &str) -> Option<u64> {
     let clean = ts.trim_end_matches('Z');
     let parts: Vec<&str> = clean.split('T').collect();
-    if parts.len() != 2 { return None; }
+    if parts.len() != 2 {
+        return None;
+    }
     let date_parts: Vec<i32> = parts[0].split('-').filter_map(|s| s.parse().ok()).collect();
     let time_str = parts[1].split('.').next()?;
     let time_parts: Vec<u64> = time_str.split(':').filter_map(|s| s.parse().ok()).collect();
-    if date_parts.len() != 3 || time_parts.len() != 3 { return None; }
+    if date_parts.len() != 3 || time_parts.len() != 3 {
+        return None;
+    }
     let (year, month, day) = (date_parts[0], date_parts[1] as u32, date_parts[2] as u32);
     let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
     let days = days_from_civil(year, month, day);

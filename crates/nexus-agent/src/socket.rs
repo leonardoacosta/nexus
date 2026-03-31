@@ -170,12 +170,21 @@ async fn handle_connection(
                 }
                 // Try SocketEvent first (most common path — hooks fire-and-forget)
                 if let Ok(event) = serde_json::from_str::<SocketEvent>(&line) {
-                    dispatch_event(event, &registry, &receiver, lifecycle_tx.as_ref(), &peer_relay_urls, &failure_buffer).await;
+                    dispatch_event(
+                        event,
+                        &registry,
+                        &receiver,
+                        lifecycle_tx.as_ref(),
+                        &peer_relay_urls,
+                        &failure_buffer,
+                    )
+                    .await;
                     continue;
                 }
                 // Try SocketCommand (query/mutate — expects a JSON response)
                 if let Ok(cmd) = serde_json::from_str::<SocketCommand>(&line) {
-                    let response = dispatch_command(cmd, &receiver, notification_config.as_ref()).await;
+                    let response =
+                        dispatch_command(cmd, &receiver, notification_config.as_ref()).await;
                     let mut response_line = response;
                     response_line.push('\n');
                     if let Err(e) = write_half.write_all(response_line.as_bytes()).await {
@@ -315,7 +324,13 @@ async fn dispatch_event(
                     .await;
             } else {
                 // role=agent: relay to primary peer(s) via HTTP
-                relay_notification_to_peers(peer_relay_urls, &message, message_type.as_deref(), Some(&effective_channels)).await;
+                relay_notification_to_peers(
+                    peer_relay_urls,
+                    &message,
+                    message_type.as_deref(),
+                    Some(&effective_channels),
+                )
+                .await;
             }
 
             // Track pending questions regardless of role
@@ -523,19 +538,27 @@ async fn dispatch_event(
                 // role=primary: forward to notification engine
                 if let Some(ref tx) = lifecycle_tx {
                     use nexus_core::lifecycle::LifecycleEventKind;
-                    let _ = tx.send(LifecycleEvent {
-                        source_agent: target_str.to_string(),
-                        project: project.clone(),
-                        kind: LifecycleEventKind::Notification {
-                            message: deploy_msg,
-                            channels: vec!["tts".to_string()],
-                            message_type: "brief".to_string(),
-                        },
-                    }).await;
+                    let _ = tx
+                        .send(LifecycleEvent {
+                            source_agent: target_str.to_string(),
+                            project: project.clone(),
+                            kind: LifecycleEventKind::Notification {
+                                message: deploy_msg,
+                                channels: vec!["tts".to_string()],
+                                message_type: "brief".to_string(),
+                            },
+                        })
+                        .await;
                 }
             } else {
                 // role=agent: relay to primary
-                relay_notification_to_peers(peer_relay_urls, &deploy_msg, Some("brief"), Some(&["tts".to_string()])).await;
+                relay_notification_to_peers(
+                    peer_relay_urls,
+                    &deploy_msg,
+                    Some("brief"),
+                    Some(&["tts".to_string()]),
+                )
+                .await;
             }
         }
     }

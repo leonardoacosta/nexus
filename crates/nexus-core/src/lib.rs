@@ -1,11 +1,11 @@
 pub mod agent;
-pub mod command;
 pub mod api;
+pub mod command;
 pub mod config;
 pub mod health;
 pub mod lifecycle;
-pub mod notification_config;
 pub mod notes;
+pub mod notification_config;
 pub mod paths;
 pub mod project_registry;
 pub mod proto_convert;

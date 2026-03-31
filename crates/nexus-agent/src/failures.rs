@@ -534,8 +534,7 @@ mod tests {
         buf.push(make_event("Bash", "cc", "fail")).await;
         // 1 event in previous 7-day period.
         let prev_ts = Utc::now() - Duration::days(10);
-        buf.push(make_event_at("Bash", "cc", "fail", prev_ts))
-            .await;
+        buf.push(make_event_at("Bash", "cc", "fail", prev_ts)).await;
 
         let resp = buf.query_http(7).await;
         assert_eq!(resp.total, 3);
@@ -552,8 +551,7 @@ mod tests {
         // 3 events in previous 7-day period.
         for _ in 0..3 {
             let prev_ts = Utc::now() - Duration::days(10);
-            buf.push(make_event_at("Bash", "cc", "fail", prev_ts))
-                .await;
+            buf.push(make_event_at("Bash", "cc", "fail", prev_ts)).await;
         }
 
         let resp = buf.query_http(7).await;

@@ -21,28 +21,33 @@ mod audio;
 mod banner;
 mod buffer;
 mod dedup;
+mod delivery;
+mod http_router;
 mod notification_batch;
 mod playback_queue;
 mod service;
+mod socket;
+pub mod state;
 mod suppression;
 mod tts;
 mod tts_elevenlabs;
 mod tts_system;
+pub(crate) mod types;
 pub mod watch_tokens;
 
-pub use apns::{build_apns_payload, build_apns_payload_ext, ApnsClient, ApnsResponse, ApnsSender};
+pub use apns::{ApnsClient, ApnsResponse, ApnsSender, build_apns_payload, build_apns_payload_ext};
 pub use audio::AudioController;
 pub use banner::BannerDelivery;
 pub use buffer::{BufferEntry, MessageBuffer};
 pub use dedup::Deduplicator;
-pub use notification_batch::{is_terminal_focused, NotificationBatchBuffer, QueuedNotification};
+pub use notification_batch::{NotificationBatchBuffer, QueuedNotification, is_terminal_focused};
 pub use playback_queue::{PlaybackMessage, PlaybackQueue, PlaybackQueueHandle};
 pub use service::{
     AudioHealth, Channel, ErrorResponse, HealthResponse, MessageType, PlayRequest, ReceiverService,
     SpeakRequest, StoredMessage, SuccessResponse,
 };
 pub use suppression::SuppressionChecker;
-pub use tts::{split_into_chunks, TtsOrchestrator, TtsResult};
+pub use tts::{TtsOrchestrator, TtsResult, split_into_chunks};
 pub use tts_elevenlabs::{ElevenLabsClient, ElevenLabsConfig, ElevenLabsVoiceSettings};
 pub use tts_system::SystemTts;
 pub use watch_tokens::{WatchDevice, WatchTokenStore};

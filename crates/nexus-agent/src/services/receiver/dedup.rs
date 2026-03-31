@@ -3,8 +3,8 @@
 //! Prevents duplicate TTS requests within a configurable time window.
 //! Uses message content hashing (first 100 chars) to detect duplicates.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 use tracing::debug;

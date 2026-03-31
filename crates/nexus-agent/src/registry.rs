@@ -251,10 +251,7 @@ impl SessionRegistry {
         let pending = self.pending_questions.read().await;
 
         // Find the most recently asked pending question.
-        let newest = pending
-            .values()
-            .max_by_key(|pq| pq.received_at)?
-            .clone();
+        let newest = pending.values().max_by_key(|pq| pq.received_at)?.clone();
         drop(pending);
 
         let sessions = self.sessions.read().await;
@@ -265,9 +262,7 @@ impl SessionRegistry {
     /// Look up the tmux target pane for a session by ID.
     pub async fn get_tmux_target(&self, session_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
-        sessions
-            .get(session_id)
-            .and_then(|s| s.tmux_target.clone())
+        sessions.get(session_id).and_then(|s| s.tmux_target.clone())
     }
 
     /// Periodic stale detection for ad-hoc sessions.

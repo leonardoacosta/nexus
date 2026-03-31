@@ -11,13 +11,14 @@
 
 use super::audio::AudioController;
 use super::buffer::MessageBuffer;
-use super::service::{MessageType, ReceiverService, ReceiverState, SpeakRequest};
+use super::service::{MessageType, ReceiverService, SpeakRequest};
+use super::state::ReceiverState;
 use super::tts::split_into_chunks;
 use crate::config::NotificationsConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 

@@ -87,17 +87,16 @@ impl From<&Session> for proto::Session {
             || session.total_cost_usd.is_some()
             || session.model.is_some()
         {
-            let rate_limit =
-                session
-                    .rate_limit_utilization
-                    .map(|util| proto::RateLimitInfo {
-                        utilization_percent: util,
-                        rate_limit_type: session
-                            .rate_limit_type
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_string()),
-                        surpassed_threshold: util >= 0.75,
-                    });
+            let rate_limit = session
+                .rate_limit_utilization
+                .map(|util| proto::RateLimitInfo {
+                    utilization_percent: util,
+                    rate_limit_type: session
+                        .rate_limit_type
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    surpassed_threshold: util >= 0.75,
+                });
 
             Some(proto::SessionTelemetry {
                 rate_limit,

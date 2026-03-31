@@ -161,9 +161,7 @@ impl NexusAgentService {
                             // Directory encoding replaces '/' with '-', so we reconstruct a best-
                             // effort path from the full directory name.
                             let path_guess = format!("/{}", name.replace('-', "/"));
-                            project_map
-                                .entry(project.to_string())
-                                .or_insert(path_guess);
+                            project_map.entry(project.to_string()).or_insert(path_guess);
                         }
                     } else {
                         // No "-dev-" segment — use directory name as-is (no path to guess).
@@ -280,8 +278,7 @@ impl NexusAgentService {
 
                     // Apply event type filter: snapshot events are SessionStarted.
                     if !allowed_event_types.is_empty()
-                        && !allowed_event_types
-                            .contains(&(proto::EventType::SessionStarted as i32))
+                        && !allowed_event_types.contains(&(proto::EventType::SessionStarted as i32))
                     {
                         continue;
                     }

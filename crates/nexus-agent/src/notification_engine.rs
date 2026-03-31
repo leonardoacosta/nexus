@@ -23,9 +23,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use notify::{EventKind, RecursiveMode, Watcher};
 use nexus_core::config::{NotificationConfig, Verbosity};
 use nexus_core::lifecycle::{LifecycleEvent, LifecycleEventKind};
+use notify::{EventKind, RecursiveMode, Watcher};
 use tokio::sync::{RwLock, mpsc};
 use tracing::debug;
 

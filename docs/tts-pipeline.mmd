@@ -1,0 +1,155 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1a1b26', 'primaryTextColor': '#c0caf5', 'primaryBorderColor': '#7aa2f7', 'lineColor': '#565f89', 'secondaryColor': '#24283b', 'tertiaryColor': '#1a1b26', 'edgeLabelBackground': '#1a1b26', 'clusterBkg': '#1a1b26', 'clusterBorder': '#565f89'}}}%%
+
+flowchart TB
+    subgraph triggers["Triggers"]
+        direction TB
+        bash_tts["Bash tool call<br/>(every CC response)"]
+        hook_notif["CC Notification hook<br/>(telemetry.sh)"]
+    end
+
+    subgraph cli["Notification CLIs"]
+        direction TB
+        cn["claude-notify<br/>(primary, Rust)"]
+        ce["claude-emit<br/>(legacy, Rust)"]
+    end
+
+    bash_tts -->|"stdin JSON"| cn
+    hook_notif -->|"15s throttle"| ce
+
+    subgraph transport["Transport Layer"]
+        direction LR
+        sock_notify["/tmp/claude-notify.sock<br/>(Unix socket, sub-ms)"]
+        http_speak["HTTP POST :9999/speak<br/>(10s timeout, fallback)"]
+    end
+
+    cn -->|"try first"| sock_notify
+    cn -.->|"fallback"| http_speak
+    ce -->|"HTTP only"| http_speak
+
+    subgraph receiver["ReceiverService (nexus-agent)"]
+        direction TB
+
+        subgraph intake["Intake"]
+            direction LR
+            sock_listen["Socket Listener"]
+            tcp_listen["TCP Listener"]
+        end
+
+        subgraph pipeline["Processing Pipeline"]
+            direction TB
+            store["1. Store + Log<br/>(message_store, history ring)"]
+            block["2. Block Ambiguous<br/>(filter vague messages)"]
+            mode["3. Mode Resolution<br/>(quietest wins)<br/>Full > NoDuck > System > Silent"]
+            channels["4. Channel Routing<br/>(Brief: tts+apns+banner)<br/>(Extended: tts only)"]
+            suppress["5. Suppression Check<br/>(video call, DND)"]
+            dedup["6. Deduplication<br/>(hash first 100 chars, 500ms window)"]
+            batch["7. Type Batching<br/>(coalesce quality_gates, reminders)"]
+            buffer["8. Message Buffer<br/>(per-project, 2s debounce, max 5)<br/>(smart combine: join or summarize)"]
+        end
+
+        store --> block --> mode --> channels --> suppress --> dedup --> batch --> buffer
+    end
+
+    sock_notify --> sock_listen
+    http_speak --> tcp_listen
+    sock_listen --> store
+    tcp_listen --> store
+
+    subgraph playback["Playback Queue (serial)"]
+        direction TB
+        duck["Duck media<br/>(playerctl / media-control)"]
+        process["Process message"]
+        drain["Drain + coalesce pending"]
+        resume["Resume media"]
+        duck --> process --> drain --> resume
+    end
+
+    buffer -->|"flush"| playback
+
+    subgraph delivery["Delivery Channels"]
+        direction TB
+
+        subgraph tts_chain["TTS (primary channel)"]
+            direction TB
+            normalize["Normalize for speech<br/>(strip markdown, dev-speak)"]
+            enrich["Enrich message<br/>(add project prefix)"]
+            chime["Project chime<br/>(WAV, optional)"]
+            desktop_notif["Desktop notification<br/>(notify-send / terminal-notifier)"]
+
+            subgraph tts_engines["TTS Engines"]
+                direction LR
+                eleven["ElevenLabs API<br/>(eleven_turbo_v2_5)<br/>POST /v1/text-to-speech"]
+                system_tts["System TTS fallback<br/>(espeak-ng / say)"]
+            end
+
+            subgraph audio_play["Audio Playback"]
+                direction LR
+                mpv["mpv --no-video"]
+                ffplay["ffplay"]
+                paplay["paplay / aplay"]
+                afplay["afplay (macOS)"]
+            end
+
+            normalize --> enrich --> chime --> desktop_notif
+            desktop_notif --> eleven
+            eleven -.->|"failure"| system_tts
+            eleven --> audio_play
+            system_tts --> audio_play
+        end
+
+        subgraph side_channels["Side Channels (fire-and-forget)"]
+            direction TB
+            apns["APNs<br/>(Apple Watch push)<br/>HTTP/2 + .p8 token auth"]
+            banner["Banner<br/>(macOS osascript)<br/>display notification"]
+            imsg["iMessage escalation<br/>(long-running ops, 10min+)"]
+        end
+    end
+
+    process --> tts_chain
+    channels -.->|"spawn async"| apns
+    channels -.->|"spawn async"| banner
+    process -.->|"threshold check"| imsg
+
+    subgraph bidir["Bidirectional Routing"]
+        direction TB
+
+        subgraph question_track["Question Tracking"]
+            direction LR
+            sock_event["SocketEvent::Notification<br/>(with question field)"]
+            pending["PendingQuestion store<br/>(registry HashMap)"]
+        end
+
+        subgraph answer_flow["Answer Dispatch"]
+            direction LR
+            answer_in["SocketEvent::Answer<br/>(text + optional session_id)"]
+            resolve["Resolve target<br/>(explicit or most recent)"]
+            tmux["tmux send-keys<br/>-t {pane} 'text' Enter"]
+        end
+
+        subgraph imsg_read["iMessage Reader (macOS)"]
+            direction LR
+            chatdb["Poll chat.db<br/>(~/Library/Messages/)"]
+            prefix["Filter 'answer:' prefix"]
+        end
+
+        sock_event --> pending
+        answer_in --> resolve --> tmux
+        chatdb --> prefix --> resolve
+    end
+
+    style triggers fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px
+    style cli fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px
+    style transport fill:#1a1b26,stroke:#e0af68,stroke-width:2px
+    style receiver fill:#1a1b26,stroke:#9ece6a,stroke-width:2px
+    style intake fill:#24283b,stroke:#9ece6a,stroke-width:1px
+    style pipeline fill:#24283b,stroke:#9ece6a,stroke-width:1px
+    style playback fill:#1a1b26,stroke:#bb9af7,stroke-width:2px
+    style delivery fill:#1a1b26,stroke:#f7768e,stroke-width:2px
+    style tts_chain fill:#24283b,stroke:#f7768e,stroke-width:1px
+    style tts_engines fill:#1a1b26,stroke:#f7768e,stroke-width:1px
+    style audio_play fill:#1a1b26,stroke:#565f89,stroke-width:1px
+    style side_channels fill:#24283b,stroke:#e0af68,stroke-width:1px
+    style bidir fill:#1a1b26,stroke:#7dcfff,stroke-width:2px
+    style question_track fill:#24283b,stroke:#7dcfff,stroke-width:1px
+    style answer_flow fill:#24283b,stroke:#7dcfff,stroke-width:1px
+    style imsg_read fill:#24283b,stroke:#7dcfff,stroke-width:1px

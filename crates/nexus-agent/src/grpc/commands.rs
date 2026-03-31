@@ -102,8 +102,14 @@ impl NexusAgentService {
 
             // 5-7. Delegate stream reading, parsing, and forwarding to the
             // shared executor. No pool release needed for direct-session commands.
-            run_claude_subprocess(cmd, sid, registry, tx, None::<fn() -> std::future::Ready<()>>)
-                .await;
+            run_claude_subprocess(
+                cmd,
+                sid,
+                registry,
+                tx,
+                None::<fn() -> std::future::Ready<()>>,
+            )
+            .await;
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
@@ -142,16 +148,13 @@ impl NexusAgentService {
             project: Some(req.project),
         };
 
-        self.send_command_via_pool(
-            pool_req.project.clone().unwrap_or_default(),
-            pool_req,
-        )
-        .await
-        .map(|resp| {
-            // The inner stream type is the same; wrap as RunProjectCommandStream.
-            let stream = resp.into_inner();
-            Response::new(stream)
-        })
+        self.send_command_via_pool(pool_req.project.clone().unwrap_or_default(), pool_req)
+            .await
+            .map(|resp| {
+                // The inner stream type is the same; wrap as RunProjectCommandStream.
+                let stream = resp.into_inner();
+                Response::new(stream)
+            })
     }
 
     /// Execute a command routed via the session pool for a given project code.
@@ -249,9 +252,15 @@ impl NexusAgentService {
                 .current_dir(&cwd);
 
             // Release the pool session back to Ready regardless of success/failure.
-            run_claude_subprocess(cmd, sid, registry, tx, Some(move || async move {
-                pool.release(&pc).await;
-            }))
+            run_claude_subprocess(
+                cmd,
+                sid,
+                registry,
+                tx,
+                Some(move || async move {
+                    pool.release(&pc).await;
+                }),
+            )
             .await;
         });
 

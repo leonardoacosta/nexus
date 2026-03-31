@@ -404,10 +404,12 @@ mod tests {
             .send_notification("device123", "Title", "Body", None, None)
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("connection refused"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("connection refused")
+        );
     }
 
     #[tokio::test]

@@ -1,0 +1,94 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1a1b26', 'primaryTextColor': '#c0caf5', 'primaryBorderColor': '#7aa2f7', 'lineColor': '#565f89', 'secondaryColor': '#24283b', 'tertiaryColor': '#1a1b26', 'edgeLabelBackground': '#1a1b26', 'clusterBkg': '#1a1b26', 'clusterBorder': '#565f89'}}}%%
+
+flowchart TB
+    subgraph machine_a["Machine A (homelab)"]
+        direction TB
+        cc_a1["Claude Code<br/>Session 1"]
+        cc_a2["Claude Code<br/>Session 2"]
+        sock_a["/tmp/nexus-agent.sock<br/>(Unix Domain Socket)"]
+
+        subgraph agent_a["nexus-agent :7400"]
+            direction TB
+            reg_a["SessionRegistry<br/>(in-memory HashMap)"]
+            health_a["HealthCollector<br/>(sysinfo, 5s poll)"]
+            events_a["EventBroadcaster<br/>(tokio broadcast)"]
+            sync_a["SyncTelemetryService<br/>(2min flush)"]
+        end
+
+        cc_a1 -->|"JSON events"| sock_a
+        cc_a2 -->|"JSON events"| sock_a
+        sock_a -->|"SessionStart<br/>Heartbeat<br/>Notification"| reg_a
+        reg_a --> events_a
+    end
+
+    subgraph machine_b["Machine B (macbook)"]
+        direction TB
+        cc_b1["Claude Code<br/>Session 3"]
+        sock_b["/tmp/nexus-agent.sock<br/>(Unix Domain Socket)"]
+
+        subgraph agent_b["nexus-agent :7400"]
+            direction TB
+            reg_b["SessionRegistry<br/>(in-memory HashMap)"]
+            health_b["HealthCollector<br/>(sysinfo, 5s poll)"]
+            events_b["EventBroadcaster<br/>(tokio broadcast)"]
+            sync_b["SyncTelemetryService<br/>(2min flush)"]
+        end
+
+        cc_b1 -->|"JSON events"| sock_b
+        sock_b -->|"SessionStart<br/>Heartbeat<br/>Notification"| reg_b
+        reg_b --> events_b
+    end
+
+    subgraph machine_c["Machine C (desktop)"]
+        direction TB
+        cc_c1["Claude Code<br/>Session 4"]
+        cc_c2["Claude Code<br/>Session 5"]
+        sock_c["/tmp/nexus-agent.sock<br/>(Unix Domain Socket)"]
+
+        subgraph agent_c["nexus-agent :7400"]
+            direction TB
+            reg_c["SessionRegistry<br/>(in-memory HashMap)"]
+            health_c["HealthCollector<br/>(sysinfo, 5s poll)"]
+            events_c["EventBroadcaster<br/>(tokio broadcast)"]
+            sync_c["SyncTelemetryService<br/>(2min flush)"]
+        end
+
+        cc_c1 -->|"JSON events"| sock_c
+        cc_c2 -->|"JSON events"| sock_c
+        sock_c -->|"SessionStart<br/>Heartbeat<br/>Notification"| reg_c
+        reg_c --> events_c
+    end
+
+    subgraph tui["nexus TUI (any machine)"]
+        direction TB
+        client["NexusClient<br/>Fan-out gRPC"]
+        views["Merged Views<br/>(Dashboard, Health, Projects)"]
+        config["agents.toml<br/>(agent discovery)"]
+        config --> client
+        client --> views
+    end
+
+    co_api["co API<br/>(Historical Analytics Sink)"]
+
+    client <-->|"gRPC: GetSessions<br/>GetHealth<br/>StreamEvents"| agent_a
+    client <-->|"gRPC: GetSessions<br/>GetHealth<br/>StreamEvents"| agent_b
+    client <-->|"gRPC: GetSessions<br/>GetHealth<br/>StreamEvents"| agent_c
+
+    sync_a -.->|"JSONL flush<br/>(fire-and-forget)"| co_api
+    sync_b -.->|"JSONL flush<br/>(fire-and-forget)"| co_api
+    sync_c -.->|"JSONL flush<br/>(fire-and-forget)"| co_api
+
+    tailscale{{"Tailscale Mesh<br/>(MagicDNS)"}}
+    agent_a ~~~ tailscale
+    agent_b ~~~ tailscale
+    agent_c ~~~ tailscale
+
+    style machine_a fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px
+    style machine_b fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px
+    style machine_c fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px
+    style agent_a fill:#24283b,stroke:#9ece6a,stroke-width:2px
+    style agent_b fill:#24283b,stroke:#9ece6a,stroke-width:2px
+    style agent_c fill:#24283b,stroke:#9ece6a,stroke-width:2px
+    style tui fill:#1a1b26,stroke:#bb9af7,stroke-width:2px
+    style co_api fill:#24283b,stroke:#f7768e,stroke-width:2px,stroke-dasharray: 5 5
+    style tailscale fill:#1a1b26,stroke:#e0af68,stroke-width:2px

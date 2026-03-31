@@ -310,7 +310,13 @@ mod tests {
         let json = r#"{"event":"deploy_status","project":"nx","status":"deployed","message":"nexus-agent restarted","target":"macbook","service":"nexus-agent"}"#;
         let ev: SocketEvent = serde_json::from_str(json).unwrap();
         match ev {
-            SocketEvent::DeployStatus { project, status, target, service, .. } => {
+            SocketEvent::DeployStatus {
+                project,
+                status,
+                target,
+                service,
+                ..
+            } => {
                 assert_eq!(project, "nx");
                 assert_eq!(status, "deployed");
                 assert_eq!(target.as_deref(), Some("macbook"));
@@ -324,7 +330,9 @@ mod tests {
     fn parse_deploy_status_minimal() {
         let json = r#"{"event":"deploy_status","project":"oo","status":"building"}"#;
         let ev: SocketEvent = serde_json::from_str(json).unwrap();
-        assert!(matches!(ev, SocketEvent::DeployStatus { project, status, .. } if project == "oo" && status == "building"));
+        assert!(
+            matches!(ev, SocketEvent::DeployStatus { project, status, .. } if project == "oo" && status == "building")
+        );
     }
 
     #[test]
@@ -366,8 +374,12 @@ mod tests {
     fn parse_notification_set_reset_to_default() {
         let json = r#"{"command":"notification_set","project":"oo","reset_to_default":true}"#;
         let cmd: SocketCommand = serde_json::from_str(json).unwrap();
-        assert!(
-            matches!(cmd, SocketCommand::NotificationSet { reset_to_default: true, .. })
-        );
+        assert!(matches!(
+            cmd,
+            SocketCommand::NotificationSet {
+                reset_to_default: true,
+                ..
+            }
+        ));
     }
 }

@@ -17,8 +17,8 @@ use crate::services::Service;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -582,10 +582,11 @@ MemAvailable:          0 kB
     #[test]
     fn test_default_state_path() {
         let path = ServerMonitorService::default_state_path();
-        assert!(path
-            .to_str()
-            .expect("should be valid utf8")
-            .ends_with("scripts/state/server-health.json"));
+        assert!(
+            path.to_str()
+                .expect("should be valid utf8")
+                .ends_with("scripts/state/server-health.json")
+        );
     }
 
     #[tokio::test]

@@ -8,7 +8,6 @@ use crate::app::{App, colors, format_age, session_type_indicator, status_color, 
 
 /// Render the session detail screen.
 pub fn render_detail(frame: &mut Frame, area: Rect, app: &App) {
-
     let chunks = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(1),
@@ -56,8 +55,8 @@ fn render_detail_body(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     // 2-panel horizontal layout: left 50% metadata, right 50% status info.
-    let panels = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
+    let panels =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
     render_metadata_panel(frame, panels[0], session, agent);
     render_status_panel(frame, panels[1], session, agent, app);
@@ -85,10 +84,7 @@ fn render_metadata_panel(
         .to_string();
 
     let fields: Vec<(&str, Line<'_>)> = vec![
-        (
-            "id",
-            Line::from(Span::styled(short_id, value_style)),
-        ),
+        ("id", Line::from(Span::styled(short_id, value_style))),
         (
             "project",
             Line::from(Span::styled(
@@ -111,18 +107,12 @@ fn render_metadata_panel(
             "type",
             Line::from(Span::styled(type_ind.to_string(), value_style)),
         ),
-        (
-            "started_at",
-            Line::from(Span::styled(started, value_style)),
-        ),
+        ("started_at", Line::from(Span::styled(started, value_style))),
         (
             "last_heartbeat",
             Line::from(Span::styled(last_hb, value_style)),
         ),
-        (
-            "uptime",
-            Line::from(Span::styled(age, value_style)),
-        ),
+        ("uptime", Line::from(Span::styled(age, value_style))),
     ];
 
     render_card(frame, area, "METADATA", &fields, label_style);
@@ -186,7 +176,10 @@ fn render_status_panel(
         ),
         (
             "connection",
-            Line::from(Span::styled(conn_status.to_string(), Style::default().fg(conn_color))),
+            Line::from(Span::styled(
+                conn_status.to_string(),
+                Style::default().fg(conn_color),
+            )),
         ),
     ];
 
@@ -226,9 +219,7 @@ fn render_card(
         .border_style(Style::default().fg(colors::TEXT_DIM))
         .padding(Padding::horizontal(1));
 
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: true });
+    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 
@@ -244,8 +235,8 @@ fn render_footer(frame: &mut Frame, area: Rect) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::app::App;
 
@@ -277,4 +268,3 @@ mod tests {
             .unwrap();
     }
 }
-

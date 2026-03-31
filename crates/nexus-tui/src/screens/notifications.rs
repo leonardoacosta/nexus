@@ -65,14 +65,15 @@ pub fn render_notification_panel(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, area: ratatui::layout::Rect) {
-    let line = Line::from(vec![
-        Span::styled(
-            format!("  {:<18} {:<10} {:<8} {:<8}", "PROJECT", "VERBOSITY", "AGENTS", "SPECS"),
-            Style::default()
-                .fg(colors::TEXT_DIM)
-                .add_modifier(Modifier::BOLD),
+    let line = Line::from(vec![Span::styled(
+        format!(
+            "  {:<18} {:<10} {:<8} {:<8}",
+            "PROJECT", "VERBOSITY", "AGENTS", "SPECS"
         ),
-    ]);
+        Style::default()
+            .fg(colors::TEXT_DIM)
+            .add_modifier(Modifier::BOLD),
+    )]);
     frame.render_widget(Paragraph::new(line), area);
 }
 
@@ -106,7 +107,8 @@ fn render_rows(frame: &mut Frame, area: ratatui::layout::Rect, state: &Notificat
         } else {
             row.project.clone()
         };
-        let has_override = !row.project.is_empty() && state.config.projects.contains_key(&row.project);
+        let has_override =
+            !row.project.is_empty() && state.config.projects.contains_key(&row.project);
         let override_tag = if has_override { "" } else { " (default)" };
 
         let verbosity_label = match rules.verbosity {
@@ -115,19 +117,22 @@ fn render_rows(frame: &mut Frame, area: ratatui::layout::Rect, state: &Notificat
             Verbosity::Silent => ".. silent ",
         };
 
-        let agents_label = if rules.announce_agents { "\u{2713}" } else { "\u{2717}" };
-        let specs_label = if rules.announce_specs { "\u{2713}" } else { "\u{2717}" };
+        let agents_label = if rules.announce_agents {
+            "\u{2713}"
+        } else {
+            "\u{2717}"
+        };
+        let specs_label = if rules.announce_specs {
+            "\u{2713}"
+        } else {
+            "\u{2717}"
+        };
 
         let cursor = if is_selected { "\u{25B8}" } else { " " };
 
         let row_text = format!(
             "{} {:<18} {:<10} {:<8} {:<8}{}",
-            cursor,
-            project_label,
-            verbosity_label,
-            agents_label,
-            specs_label,
-            override_tag,
+            cursor, project_label, verbosity_label, agents_label, specs_label, override_tag,
         );
 
         let style = if is_selected {

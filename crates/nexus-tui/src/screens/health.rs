@@ -309,8 +309,8 @@ fn cpu_color(percent: f32) -> ratatui::style::Color {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::app::App;
 

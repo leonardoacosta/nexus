@@ -1,7 +1,7 @@
 mod common;
 
 use nexus_core::proto::{
-    EventFilter, HeartbeatRequest, HealthRequest, ListAgentsRequest, ListProjectsRequest,
+    EventFilter, HealthRequest, HeartbeatRequest, ListAgentsRequest, ListProjectsRequest,
     RegisterSessionRequest, SessionFilter, SessionId, UnregisterSessionRequest,
 };
 
@@ -31,7 +31,10 @@ async fn test_register_then_get_sessions() {
 
     let body = resp.into_inner();
     assert_eq!(body.session_id, session_id);
-    assert!(body.created, "first registration should return created=true");
+    assert!(
+        body.created,
+        "first registration should return created=true"
+    );
 
     // GetSessions should include the registered session.
     let list_resp = client
@@ -311,7 +314,10 @@ async fn test_register_twice_is_idempotent() {
         .await
         .expect("second register failed")
         .into_inner();
-    assert!(!second.created, "second registration should return created=false");
+    assert!(
+        !second.created,
+        "second registration should return created=false"
+    );
 
     // Only one entry should exist.
     let list = client
@@ -325,7 +331,10 @@ async fn test_register_twice_is_idempotent() {
         .into_inner();
 
     let count = list.sessions.iter().filter(|s| s.id == session_id).count();
-    assert_eq!(count, 1, "session should appear exactly once even after double registration");
+    assert_eq!(
+        count, 1,
+        "session should appear exactly once even after double registration"
+    );
 }
 
 #[tokio::test]

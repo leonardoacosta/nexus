@@ -16,8 +16,8 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};

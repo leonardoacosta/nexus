@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tracing::{debug, info, warn};
 
 /// A message read from the iMessage database

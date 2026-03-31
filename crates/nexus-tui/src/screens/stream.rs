@@ -51,7 +51,6 @@ fn line_style_to_ratatui(style: LineStyle) -> Style {
 
 /// Render the stream attach view.
 pub fn render_stream(frame: &mut Frame, area: Rect, app: &mut App) {
-
     let bar_height = if app.stream_executing {
         2 // executing spinner: 1 content line + 1 border
     } else {
@@ -616,7 +615,8 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &mut App) {
         frame.render_widget(block, area);
 
         // Configure textarea style to match the brand palette and render it.
-        app.stream_textarea.set_style(Style::default().fg(colors::TEXT));
+        app.stream_textarea
+            .set_style(Style::default().fg(colors::TEXT));
         app.stream_textarea.set_cursor_style(
             Style::default()
                 .fg(colors::PRIMARY)

@@ -30,10 +30,7 @@ pub enum StreamMessage {
         timestamp: String, // HH:MM:SS format
     },
     /// The agent signalled it is shutting down (GoingAway event).
-    AgentGoingAway {
-        agent_name: String,
-        reason: String,
-    },
+    AgentGoingAway { agent_name: String, reason: String },
 }
 
 /// A notification-worthy event detected from the background alert stream.

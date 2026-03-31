@@ -8,7 +8,7 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, T
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
+use syntect::highlighting::{Style as SyntectStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
 use crate::app::colors;
@@ -669,7 +669,11 @@ mod tests {
     fn h2_header_renders_with_double_hash_prefix() {
         let lines = render_markdown("## Section", 80);
         assert!(!lines.is_empty());
-        let first_span_text = lines[0].spans.first().map(|s| s.content.as_ref()).unwrap_or("");
+        let first_span_text = lines[0]
+            .spans
+            .first()
+            .map(|s| s.content.as_ref())
+            .unwrap_or("");
         assert_eq!(first_span_text, "## ", "H2 should have '## ' prefix span");
     }
 
@@ -677,7 +681,11 @@ mod tests {
     fn h3_header_renders_with_triple_hash_prefix() {
         let lines = render_markdown("### Subsection", 80);
         assert!(!lines.is_empty());
-        let first_span_text = lines[0].spans.first().map(|s| s.content.as_ref()).unwrap_or("");
+        let first_span_text = lines[0]
+            .spans
+            .first()
+            .map(|s| s.content.as_ref())
+            .unwrap_or("");
         assert_eq!(first_span_text, "### ", "H3 should have '### ' prefix span");
     }
 
@@ -702,8 +710,14 @@ mod tests {
         let lines = render_markdown("Use `cargo test` here", 80);
         assert!(!lines.is_empty());
         // The inline code span should have bg=SURFACE styling.
-        let has_inline_code = lines[0].spans.iter().any(|s| s.content.as_ref() == "cargo test");
-        assert!(has_inline_code, "inline code content should appear as a span");
+        let has_inline_code = lines[0]
+            .spans
+            .iter()
+            .any(|s| s.content.as_ref() == "cargo test");
+        assert!(
+            has_inline_code,
+            "inline code content should appear as a span"
+        );
     }
 
     #[test]
