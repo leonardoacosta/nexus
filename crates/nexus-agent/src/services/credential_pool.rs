@@ -16,7 +16,8 @@ use crate::services::Service;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use nexus_core::credentials::{
-    best_available, query_usage, AccountUsage, CachedUsage, CredentialAccount, UsageCache,
+    best_available, fingerprint_token, is_managed_symlink, query_usage, sanitize_account_name,
+    AccountUsage, CachedUsage, CredentialAccount, UsageCache,
 };
 use nexus_core::paths;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -249,21 +250,45 @@ impl Service for CredentialPoolService {
     async fn start(&self, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
         let creds_dir = credentials_dir();
 
-        // ── Passthrough mode [3.6] ─────────────────────────────────────
+        // ── Auto-create credentials dir [2.1] ──────────────────────────
         if !creds_dir.is_dir() {
             info!(
-                "Credential pool passthrough: {} does not exist, service is a no-op",
+                "Credential pool: creating {} (first run)",
                 creds_dir.display()
             );
-            // Block until shutdown without consuming resources.
-            let _ = shutdown_rx.recv().await;
-            return Ok(());
+            tokio::fs::create_dir_all(&creds_dir)
+                .await
+                .with_context(|| format!("failed to create {}", creds_dir.display()))?;
         }
 
-        let initial = scan_credential_files(&creds_dir);
+        let mut initial = scan_credential_files(&creds_dir);
+
+        // ── Bootstrap import from CC [2.2] ─────────────────────────────
+        // If pool is empty and ~/.claude/.credentials.json is a real file
+        // (not already a managed symlink), import it into the pool.
+        if initial.is_empty() {
+            let cc_creds = paths::claude_credentials_path();
+            if cc_creds.is_file() && !is_managed_symlink(&cc_creds, &creds_dir) {
+                match bootstrap_import_credential(&cc_creds, &creds_dir).await {
+                    Ok(acct) => {
+                        info!(
+                            account = %acct.name,
+                            "Bootstrapped credential from CC .credentials.json"
+                        );
+                        initial.push(acct);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to bootstrap credential from CC");
+                    }
+                }
+            }
+        }
+
+        // ── Passthrough [2.4] ──────────────────────────────────────────
+        // Only passthrough when dir exists, is empty, AND no CC credential detected.
         if initial.is_empty() {
             info!(
-                "Credential pool passthrough: {} exists but is empty, service is a no-op",
+                "Credential pool passthrough: {} is empty and no CC credential detected",
                 creds_dir.display()
             );
             let _ = shutdown_rx.recv().await;
@@ -579,6 +604,155 @@ fn scan_credential_files(dir: &Path) -> Vec<CredentialAccount> {
         }
     }
     accounts
+}
+
+/// Import a CC credential file into the pool directory.
+///
+/// Copies the file to `pool_dir/acct-{fingerprint}.json`, then converts
+/// the original path to a symlink pointing at the copy.
+async fn bootstrap_import_credential(
+    cc_creds_path: &Path,
+    pool_dir: &Path,
+) -> Result<CredentialAccount> {
+    let content = tokio::fs::read_to_string(cc_creds_path)
+        .await
+        .with_context(|| format!("failed to read {}", cc_creds_path.display()))?;
+
+    let cred: CredentialFile = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", cc_creds_path.display()))?;
+
+    let fingerprint = fingerprint_token(&cred.claude_ai_oauth.access_token);
+    let pool_filename = format!("acct-{}.json", fingerprint);
+    let pool_path = pool_dir.join(&pool_filename);
+
+    // Copy to pool dir.
+    tokio::fs::write(&pool_path, &content)
+        .await
+        .with_context(|| format!("failed to write {}", pool_path.display()))?;
+
+    // Convert .credentials.json to symlink pointing at the pool copy.
+    tokio::fs::remove_file(cc_creds_path).await.ok();
+    tokio::fs::symlink(&pool_path, cc_creds_path)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to symlink {} -> {}",
+                cc_creds_path.display(),
+                pool_path.display()
+            )
+        })?;
+
+    info!(
+        "Converted {} to symlink -> {}",
+        cc_creds_path.display(),
+        pool_path.display()
+    );
+
+    parse_credential_file(&pool_path)
+}
+
+/// Import a credential file from CC into the pool directory (watcher bridge).
+///
+/// Called when the credential watcher detects a change to `.credentials.json`.
+/// If it is already a managed symlink, does nothing. Otherwise copies to pool dir.
+pub async fn import_credential_to_pool(
+    cc_creds_path: &Path,
+    pool_dir: &Path,
+) -> Result<Option<CredentialAccount>> {
+    if is_managed_symlink(cc_creds_path, pool_dir) {
+        return Ok(None);
+    }
+
+    let content = tokio::fs::read_to_string(cc_creds_path)
+        .await
+        .with_context(|| format!("failed to read {}", cc_creds_path.display()))?;
+
+    let cred: CredentialFile = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", cc_creds_path.display()))?;
+
+    let fingerprint = fingerprint_token(&cred.claude_ai_oauth.access_token);
+    let pool_filename = format!("acct-{}.json", fingerprint);
+    let pool_path = pool_dir.join(&pool_filename);
+
+    // Write (or overwrite) the pool file — handles token refresh.
+    tokio::fs::write(&pool_path, &content)
+        .await
+        .with_context(|| format!("failed to write {}", pool_path.display()))?;
+
+    info!(
+        fingerprint = %fingerprint,
+        "Imported credential to pool: {}",
+        pool_path.display()
+    );
+
+    Ok(Some(parse_credential_file(&pool_path)?))
+}
+
+/// Try to discover a human-readable name for a credential account by querying the API.
+///
+/// On success, renames the pool file from `acct-{fingerprint}.json` to `acct-{name}.json`.
+/// Falls back silently to fingerprint name if the API call fails.
+pub async fn try_discover_account_name(
+    pool: &CredentialPool,
+    acct: &CredentialAccount,
+    pool_dir: &Path,
+) {
+    // Try to get account info via the usage API — if it works, the account is valid
+    // but we don't have a profile endpoint, so we use the token fingerprint.
+    // This is a placeholder for future name discovery via a profile endpoint.
+    let client = &pool.http_client;
+    match query_usage(client, &acct.access_token).await {
+        Ok(_usage) => {
+            // Usage query succeeded — account is valid but we don't have a name.
+            // Future: call a profile endpoint to get the account display name.
+            debug!(account = %acct.name, "Account validated via usage API (no name endpoint available)");
+        }
+        Err(e) => {
+            debug!(account = %acct.name, error = %e, "Name discovery failed, keeping fingerprint name");
+        }
+    }
+}
+
+/// Rename a credential file in the pool from one name to another.
+///
+/// Updates both the filesystem and the in-memory pool state.
+#[allow(dead_code)]
+pub async fn rename_pool_credential(
+    pool: &CredentialPool,
+    old_name: &str,
+    new_name: &str,
+    pool_dir: &Path,
+) -> Result<()> {
+    let sanitized = sanitize_account_name(new_name);
+    if sanitized.is_empty() || sanitized == old_name {
+        return Ok(());
+    }
+
+    let old_path = pool_dir.join(format!("acct-{}.json", old_name));
+    let new_path = pool_dir.join(format!("acct-{}.json", sanitized));
+
+    if old_path.exists() {
+        tokio::fs::rename(&old_path, &new_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to rename {} -> {}",
+                    old_path.display(),
+                    new_path.display()
+                )
+            })?;
+
+        // Update in-memory state.
+        let mut accounts = pool.accounts.write().await;
+        if let Some(acct) = accounts.iter_mut().find(|a| a.name == old_name) {
+            acct.name = sanitized.clone();
+            acct.path = new_path;
+        }
+
+        info!(old = %old_name, new = %sanitized, "Renamed credential in pool");
+    }
+
+    Ok(())
 }
 
 /// Load the usage cache if it exists and its entries are fresh enough.

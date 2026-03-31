@@ -20,6 +20,16 @@ pub fn nexus_config_dir() -> PathBuf {
     home_dir().join(".config").join("nexus")
 }
 
+/// Return the path to the Claude Code credentials file (`~/.claude/.credentials.json`).
+pub fn claude_credentials_path() -> PathBuf {
+    home_dir().join(".claude").join(".credentials.json")
+}
+
+/// Return the path to the credential pool directory (`~/.config/nexus/credentials/`).
+pub fn credentials_pool_dir() -> PathBuf {
+    nexus_config_dir().join("credentials")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +64,21 @@ mod tests {
         // Should be exactly home/.config/nexus
         let home = home_dir();
         assert_eq!(config, home.join(".config").join("nexus"));
+    }
+
+    #[test]
+    fn claude_credentials_path_is_under_home() {
+        let home = home_dir();
+        let creds = claude_credentials_path();
+        assert!(creds.starts_with(&home));
+        assert!(creds.ends_with(".claude/.credentials.json"));
+    }
+
+    #[test]
+    fn credentials_pool_dir_is_under_config() {
+        let config = nexus_config_dir();
+        let pool = credentials_pool_dir();
+        assert!(pool.starts_with(&config));
+        assert!(pool.ends_with("credentials"));
     }
 }

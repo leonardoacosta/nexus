@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ── Core Types ──────────────────────────────────────────────────────────────
 
@@ -86,6 +87,82 @@ pub fn best_available(accounts: &[CredentialAccount]) -> Option<&CredentialAccou
                 .partial_cmp(&b.effective_utilization())
                 .unwrap_or(Ordering::Equal)
         })
+}
+
+// ── Token Fingerprinting ────────────────────────────────────────────────────
+
+/// Compute a short fingerprint of an access token using SHA-256.
+///
+/// Returns the first 8 hex characters of the SHA-256 hash.
+/// Deterministic: same token always produces the same fingerprint.
+pub fn fingerprint_token(access_token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(access_token.as_bytes());
+    let result = hasher.finalize();
+    format!("{:x}", result)[..8].to_string()
+}
+
+/// Check if `path` is a symlink whose target resides inside `pool_dir`.
+///
+/// Returns `false` if the path is not a symlink, does not exist, or
+/// its target is outside `pool_dir`.
+pub fn is_managed_symlink(path: &Path, pool_dir: &Path) -> bool {
+    match std::fs::read_link(path) {
+        Ok(target) => {
+            // Handle relative symlinks by resolving against the link's parent.
+            let resolved = if target.is_absolute() {
+                target
+            } else {
+                path.parent()
+                    .map(|p| p.join(&target))
+                    .unwrap_or(target)
+            };
+            // Canonicalize both to handle .. and other path components.
+            let canon_target = match resolved.canonicalize() {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+            let canon_pool = match pool_dir.canonicalize() {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+            canon_target.starts_with(&canon_pool)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Sanitize a name for use as a credential filename.
+///
+/// Lowercases, replaces non-alphanumeric characters with hyphens,
+/// collapses consecutive hyphens, trims leading/trailing hyphens,
+/// and truncates to 32 characters.
+pub fn sanitize_account_name(name: &str) -> String {
+    let sanitized: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    // Collapse consecutive hyphens.
+    let mut result = String::with_capacity(sanitized.len());
+    let mut last_was_hyphen = false;
+    for c in sanitized.chars() {
+        if c == '-' {
+            if !last_was_hyphen {
+                result.push(c);
+            }
+            last_was_hyphen = true;
+        } else {
+            result.push(c);
+            last_was_hyphen = false;
+        }
+    }
+    let trimmed = result.trim_matches('-');
+    if trimmed.len() > 32 {
+        trimmed[..32].trim_end_matches('-').to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 // ── Usage API Client ────────────────────────────────────────────────────────
@@ -313,6 +390,115 @@ mod tests {
         let usage = parse_usage_response(api).unwrap();
         assert!((usage.five_hour.utilization - 0.45).abs() < f32::EPSILON);
         assert!((usage.seven_day.utilization - 0.72).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn fingerprint_token_deterministic() {
+        let fp1 = fingerprint_token("tok-abc123");
+        let fp2 = fingerprint_token("tok-abc123");
+        assert_eq!(fp1, fp2, "same token should produce same fingerprint");
+    }
+
+    #[test]
+    fn fingerprint_token_is_8_hex_chars() {
+        let fp = fingerprint_token("some-access-token-value");
+        assert_eq!(fp.len(), 8, "fingerprint should be 8 chars, got {}", fp.len());
+        assert!(
+            fp.chars().all(|c| c.is_ascii_hexdigit()),
+            "fingerprint should be hex, got {}",
+            fp
+        );
+    }
+
+    #[test]
+    fn fingerprint_token_different_tokens_differ() {
+        let fp1 = fingerprint_token("token-alpha");
+        let fp2 = fingerprint_token("token-beta");
+        assert_ne!(fp1, fp2, "different tokens should produce different fingerprints");
+    }
+
+    #[test]
+    fn is_managed_symlink_returns_false_for_regular_file() {
+        let dir = std::env::temp_dir().join("nexus-test-managed-symlink");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool_dir = dir.join("pool");
+        std::fs::create_dir_all(&pool_dir).unwrap();
+        let file = dir.join("regular.json");
+        std::fs::write(&file, "{}").unwrap();
+
+        assert!(!is_managed_symlink(&file, &pool_dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_managed_symlink_returns_true_for_symlink_inside_pool() {
+        let dir = std::env::temp_dir().join("nexus-test-managed-symlink-2");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool_dir = dir.join("pool");
+        std::fs::create_dir_all(&pool_dir).unwrap();
+
+        // Create target file inside pool.
+        let target = pool_dir.join("acct-test.json");
+        std::fs::write(&target, "{}").unwrap();
+
+        // Create symlink pointing into pool.
+        let link = dir.join("link.json");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(is_managed_symlink(&link, &pool_dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_managed_symlink_returns_false_for_symlink_outside_pool() {
+        let dir = std::env::temp_dir().join("nexus-test-managed-symlink-3");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool_dir = dir.join("pool");
+        std::fs::create_dir_all(&pool_dir).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let target = outside.join("other.json");
+        std::fs::write(&target, "{}").unwrap();
+
+        let link = dir.join("link.json");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(!is_managed_symlink(&link, &pool_dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_managed_symlink_returns_false_for_nonexistent_path() {
+        let pool_dir = std::env::temp_dir().join("nexus-test-nonexistent-pool");
+        assert!(!is_managed_symlink(Path::new("/tmp/nonexistent-link-xyz"), &pool_dir));
+    }
+
+    #[test]
+    fn sanitize_account_name_basic() {
+        assert_eq!(sanitize_account_name("John Doe"), "john-doe");
+        assert_eq!(sanitize_account_name("user@example.com"), "user-example-com");
+    }
+
+    #[test]
+    fn sanitize_account_name_truncates_to_32() {
+        let long = "a".repeat(50);
+        let result = sanitize_account_name(&long);
+        assert!(result.len() <= 32);
+    }
+
+    #[test]
+    fn sanitize_account_name_strips_special() {
+        assert_eq!(sanitize_account_name("---hello---"), "hello");
+        assert_eq!(sanitize_account_name("a  b  c"), "a-b-c");
     }
 
     #[test]

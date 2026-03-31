@@ -175,6 +175,13 @@ async fn push_to_menubars(meta: &CredentialMeta, client: &reqwest::Client) {
 const CREDENTIAL_PREFIXES: &[&str] = &["credentials", "auth", "oauth", ".credentials"];
 const CREDENTIAL_EXTENSIONS: &[&str] = &["token"];
 
+/// Check if the path is the Claude Code `.credentials.json` file.
+fn is_cc_credentials_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| name == ".credentials.json")
+}
+
 /// Check if a filename matches credential file patterns.
 fn is_credential_file(path: &Path) -> bool {
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -546,6 +553,30 @@ impl Service for CredentialWatcherService {
                             // Push credential updates to menubar endpoints
                             if let CredentialEvent::Changed(ref meta) = cred_event {
                                 push_to_menubars(meta, &self.http_client).await;
+
+                                // Auto-import to credential pool if this is .credentials.json
+                                if is_cc_credentials_file(&path) {
+                                    let pool_dir = nexus_core::paths::credentials_pool_dir();
+                                    if pool_dir.is_dir() {
+                                        match crate::services::credential_pool::import_credential_to_pool(&path, &pool_dir).await {
+                                            Ok(Some(acct)) => {
+                                                tracing::info!(
+                                                    account = %acct.name,
+                                                    "Auto-imported CC credential to pool"
+                                                );
+                                            }
+                                            Ok(None) => {
+                                                // Already managed — no action needed.
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    error = %e,
+                                                    "Failed to auto-import CC credential to pool"
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             debug!(
