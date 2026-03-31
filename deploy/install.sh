@@ -100,8 +100,8 @@ fi
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [[ -d "$REPO_DIR/.git" ]]; then
     info "Installing git hooks"
-    cp "$SCRIPT_DIR/hooks/post-merge" "$REPO_DIR/.git/hooks/post-merge"
-    cp "$SCRIPT_DIR/hooks/pre-push" "$REPO_DIR/.git/hooks/pre-push"
+    cp "$SCRIPT_DIR/hooks/post-merge-dispatcher" "$REPO_DIR/.git/hooks/post-merge"
+    cp "$SCRIPT_DIR/hooks/pre-push-dispatcher" "$REPO_DIR/.git/hooks/pre-push"
     chmod +x "$REPO_DIR/.git/hooks/post-merge" "$REPO_DIR/.git/hooks/pre-push"
 else
     warn "Not a git repository — skipping hook installation"

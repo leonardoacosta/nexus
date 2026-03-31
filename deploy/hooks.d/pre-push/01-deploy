@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Nexus Agent — pre-push deploy hook
+# Builds release on pushes to main, installs, and enables service.
+# Aborts push on build failure. Skip with: SKIP_DEPLOY=1 git push
+
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[1;31m'
+RESET='\033[0m'
+
+info()  { printf "${GREEN}nexus-agent: %s${RESET}\n" "$1"; }
+skip()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1"; }
+fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
+
+# ── Skip guard ────────────────────────────────────────────────────
+
+if [[ "${SKIP_DEPLOY:-0}" == "1" ]]; then
+    skip "SKIP_DEPLOY set, bypassing build"
+    exit 0
+fi
+
+# ── Branch filter ─────────────────────────────────────────────────
+
+PUSHING_MAIN=0
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    if [[ "$remote_ref" == "refs/heads/main" ]]; then
+        PUSHING_MAIN=1
+        break
+    fi
+done
+
+if [[ "$PUSHING_MAIN" -eq 0 ]]; then
+    skip "not pushing to main, skipping build"
+    exit 0
+fi
+
+# ── Ensure protoc is available (required by prost-build) ─────────
+
+if ! command -v protoc &>/dev/null; then
+    info "protoc not found, installing..."
+    case "$(uname -s)" in
+        Darwin) brew install protobuf ;;
+        Linux)  sudo apt-get install -y protobuf-compiler ;;
+    esac
+fi
+
+# ── Build release ─────────────────────────────────────────────────
+
+BIN_DIR="$HOME/.local/bin"
+CONFIG_DIR="$HOME/.config/nexus"
+REPO_DIR="$(git rev-parse --show-toplevel)"
+DEPLOY_DIR="$REPO_DIR/deploy"
+
+mkdir -p "$BIN_DIR" "$CONFIG_DIR"
+
+info "building release..."
+START=$(date +%s)
+
+if ! cargo build --release; then
+    fail "release build failed, push aborted"
+fi
+
+ELAPSED=$(( $(date +%s) - START ))
+info "built in ${ELAPSED}s"
+
+# ── Install binaries ──────────────────────────────────────────────
+
+install -m 755 target/release/nexus-agent "$BIN_DIR/nexus-agent"
+install -m 755 target/release/nexus "$BIN_DIR/nexus"
+install -m 755 target/release/nexus-register "$BIN_DIR/nexus-register"
+info "binaries installed to $BIN_DIR/"
+
+# ── Configure agents.toml ─────────────────────────────────────────
+
+if [[ ! -f "$CONFIG_DIR/agents.toml" ]]; then
+    LOCAL_HOST="$(hostname -s)"
+    LOCAL_USER="$(whoami)"
+    info "seeding default agents.toml (local agent: $LOCAL_HOST)"
+    cat > "$CONFIG_DIR/agents.toml" <<EOF
+[[agents]]
+name = "$LOCAL_HOST"
+host = "localhost"
+port = 7400
+user = "$LOCAL_USER"
+EOF
+fi
+
+# ── Install and enable service ────────────────────────────────────
+
+OS="$(uname -s)"
+case "$OS" in
+    Linux)
+        SYSTEMD_DIR="$HOME/.config/systemd/user"
+        mkdir -p "$SYSTEMD_DIR"
+        install -m 644 "$DEPLOY_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
+        systemctl --user daemon-reload
+        systemctl --user enable --now nexus-agent
+        info "systemd service enabled and started"
+        ;;
+    Darwin)
+        LAUNCH_DIR="$HOME/Library/LaunchAgents"
+        PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
+        mkdir -p "$LAUNCH_DIR"
+        sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
+        # Unload first if already loaded (idempotent restart)
+        launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
+        launchctl load "$PLIST"
+        info "launchd agent loaded and running"
+        ;;
+esac
+
+info "deploy complete"

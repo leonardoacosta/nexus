@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# pre-push dispatcher
+# Runs all executable scripts in deploy/hooks.d/pre-push/ in sorted order.
+# A failing hook logs a warning but does NOT block subsequent hooks.
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+HOOKS_DIR="$REPO_DIR/deploy/hooks.d/pre-push"
+
+if [ ! -d "$HOOKS_DIR" ]; then
+    exit 0
+fi
+
+for hook in "$HOOKS_DIR"/*; do
+    [ -x "$hook" ] || continue
+    name="$(basename "$hook")"
+    if ! "$hook" "$@"; then
+        echo "Warning: pre-push hook '$name' failed (continuing)" >&2
+    fi
+done
