@@ -22,6 +22,7 @@ use crate::failures::{FailureBuffer, HttpFailuresResponse};
 use crate::health::HealthCollector;
 use crate::registry::SessionRegistry;
 use crate::services::command_registry::CommandRegistry;
+use crate::services::credential_pool::CredentialPool;
 use crate::services::project_status::ProjectStatusCache;
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,8 @@ pub struct AppState {
     /// Shared HTTP client for outbound requests (avoids per-request connection
     /// pool overhead).
     pub http_client: reqwest::Client,
+    /// Credential pool for OAuth credential rotation (shared with socket handler).
+    pub credential_pool: Arc<CredentialPool>,
 }
 
 // ---------------------------------------------------------------------------

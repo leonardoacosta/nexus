@@ -28,6 +28,7 @@ use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
 use nexus_agent::services;
 use nexus_agent::services::command_registry::CommandRegistry;
+use nexus_agent::services::credential_pool::{CredentialPool, CredentialPoolService};
 use nexus_agent::services::project_status::ProjectStatusCache;
 use nexus_agent::services::receiver::ReceiverService;
 use nexus_agent::services::session_pool::SessionPool;
@@ -150,6 +151,12 @@ async fn main() -> Result<()> {
         services::credential_watcher::CredentialWatcherService::with_client(2, http_client.clone()),
         coordinator.token(),
     );
+
+    // Initialize and spawn the credential pool service.
+    let credential_pool_service = CredentialPoolService::new(http_client.clone());
+    let credential_pool: Arc<CredentialPool> = credential_pool_service.pool();
+    spawn_service(credential_pool_service, coordinator.token());
+    tracing::info!("CredentialPoolService started");
 
     // Linux-only services.
     #[cfg(target_os = "linux")]
@@ -334,6 +341,7 @@ async fn main() -> Result<()> {
         command_registry,
         secret: effective_secret,
         http_client,
+        credential_pool,
     };
 
     let socket_http_client = app_state.http_client.clone();
