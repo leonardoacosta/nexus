@@ -19,11 +19,10 @@ use tracing::{debug, error, info, warn};
 
 impl ReceiverService {
     /// Show desktop notification using terminal-notifier (macOS) or notify-send (Linux)
-    pub(crate) async fn show_notification(title: &str, message: &str, project: Option<&str>) {
-        let full_title = match project {
-            Some(p) if !p.is_empty() => format!("{} ({})", title, p),
-            _ => title.to_string(),
-        };
+    pub(crate) async fn show_notification(_title: &str, message: &str, project: Option<&str>) {
+        let (icon, name) =
+            crate::claude_utils::project::get_project_display(project.unwrap_or(""));
+        let full_title = format!("{} {}", icon, name);
 
         if cfg!(target_os = "macos") {
             let result = Command::new("/opt/homebrew/bin/terminal-notifier")
@@ -410,10 +409,9 @@ impl ReceiverService {
             message_id,
         );
 
-        let title = match project {
-            Some(p) if !p.is_empty() && p != "global" => p.to_uppercase(),
-            _ => "Claude".to_string(),
-        };
+        let (icon, name) =
+            crate::claude_utils::project::get_project_display(project.unwrap_or(""));
+        let title = format!("{} {}", icon, name);
 
         for device in devices {
             let result = apns_client

@@ -154,7 +154,8 @@ impl NotificationEngine {
                 let prefix = if event.project.is_empty() {
                     String::new()
                 } else {
-                    format!("{} — ", event.project.to_uppercase())
+                    let (_, name) = crate::claude_utils::project::get_project_display(&event.project);
+                    format!("{} — ", name)
                 };
                 let full_message = format!("{}Error: {}", prefix, message);
                 self.deliver(Notification {
@@ -267,7 +268,8 @@ fn project_prefix(event: &LifecycleEvent) -> String {
     if event.project.is_empty() {
         format!("{} — ", event.source_agent.to_uppercase())
     } else {
-        format!("{} — ", event.project.to_uppercase())
+        let (_, name) = crate::claude_utils::project::get_project_display(&event.project);
+        format!("{} — ", name)
     }
 }
 

@@ -30,3 +30,25 @@ verbosity = "brief"
 [projects.tl]
 # Silent: suppress all notifications for this project
 verbosity = "silent"
+
+# ---------------------------------------------------------------------------
+# Per-Project ElevenLabs Voices
+# ---------------------------------------------------------------------------
+# Maps project codes to ElevenLabs voice IDs for TTS notifications.
+# Configured in ~/.claude/scripts/notifications/config/notifications.json
+# under the "projectVoices" key.
+#
+# Fallback chain:
+#   1. projectVoices.<code>   — project-specific voice
+#   2. projectVoices.default  — shared fallback voice
+#   3. elevenlabs.voiceId     — global default voice
+#
+# Example notifications.json snippet:
+#   "projectVoices": {
+#     "oo": "aKmZVXNhtFkOYNQj1qj9",   // Cortana voice for Otaku Odyssey
+#     "tl": "IKne3meq5aSn9XLyUdCD",   // Different voice for Tavern Ledger
+#     "default": "aKmZVXNhtFkOYNQj1qj9" // Fallback for unlisted projects
+#   }
+#
+# Browse voices at https://elevenlabs.io/voice-library
+# Voice IDs are visible in the ElevenLabs dashboard under Voice Settings.
