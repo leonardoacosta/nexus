@@ -307,6 +307,53 @@ fn cpu_color(percent: f32) -> ratatui::style::Color {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::app::App;
+
+    use super::render_health;
+
+    #[test]
+    fn renders_without_panic_on_empty_data() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        terminal
+            .draw(|f| {
+                render_health(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_with_no_agents() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        app.agents.clear();
+        terminal
+            .draw(|f| {
+                render_health(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_small_terminal() {
+        let backend = TestBackend::new(10, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        terminal
+            .draw(|f| {
+                render_health(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+}
+
 /// Choose color based on a utilization ratio (0.0–1.0).
 fn ram_color(ratio: f32) -> ratatui::style::Color {
     if ratio > 0.90 {

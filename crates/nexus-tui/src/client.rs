@@ -654,3 +654,136 @@ fn proto_to_machine_health(proto: nexus_core::proto::MachineHealth) -> MachineHe
         docker_containers,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use nexus_core::config::{AgentConfig, NexusConfig};
+
+    use super::*;
+
+    fn make_agent_config(name: &str, host: &str) -> AgentConfig {
+        AgentConfig {
+            name: name.to_string(),
+            host: host.to_string(),
+            port: 7400,
+            user: String::new(),
+        }
+    }
+
+    fn make_nexus_config(agents: Vec<AgentConfig>) -> NexusConfig {
+        NexusConfig {
+            agents,
+            role: nexus_core::config::AgentRole::Primary,
+            self_name: None,
+            pool: None,
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NexusClient::new — construction without network I/O
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn new_creates_client_with_reconnecting_agents() {
+        let cfg = make_nexus_config(vec![
+            make_agent_config("machine-a", "192.168.1.10"),
+            make_agent_config("machine-b", "192.168.1.11"),
+        ]);
+
+        let client = NexusClient::new(cfg);
+
+        assert_eq!(client.agents.len(), 2);
+        for agent in &client.agents {
+            assert!(
+                matches!(agent.status, ConnectionStatus::Reconnecting { .. }),
+                "expected Reconnecting, got {:?}",
+                agent.status
+            );
+            assert!(agent.client.is_none());
+            assert!(agent.last_seen.is_none());
+            assert!(agent.last_error.is_none());
+        }
+    }
+
+    #[test]
+    fn new_empty_config_creates_empty_client() {
+        let cfg = make_nexus_config(vec![]);
+        let client = NexusClient::new(cfg);
+        assert!(client.agents.is_empty());
+    }
+
+    #[test]
+    fn agent_names_match_config() {
+        let cfg = make_nexus_config(vec![
+            make_agent_config("nyaptor", "100.64.0.1"),
+            make_agent_config("work-mbp", "100.64.0.2"),
+        ]);
+
+        let client = NexusClient::new(cfg);
+        assert_eq!(client.agents[0].config.name, "nyaptor");
+        assert_eq!(client.agents[1].config.name, "work-mbp");
+    }
+
+    // -------------------------------------------------------------------------
+    // NexusClient::backoff_duration — pure calculation
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn backoff_attempt_0_is_1s() {
+        assert_eq!(NexusClient::backoff_duration(0), std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn backoff_attempt_1_is_2s() {
+        assert_eq!(NexusClient::backoff_duration(1), std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn backoff_attempt_2_is_4s() {
+        assert_eq!(NexusClient::backoff_duration(2), std::time::Duration::from_secs(4));
+    }
+
+    #[test]
+    fn backoff_attempt_3_is_8s() {
+        assert_eq!(NexusClient::backoff_duration(3), std::time::Duration::from_secs(8));
+    }
+
+    #[test]
+    fn backoff_caps_at_16s() {
+        // attempt.min(4) means the shift is capped at 4: 1<<4 = 16s maximum.
+        assert_eq!(NexusClient::backoff_duration(4), std::time::Duration::from_secs(16));
+        assert_eq!(NexusClient::backoff_duration(5), std::time::Duration::from_secs(16));
+        assert_eq!(NexusClient::backoff_duration(100), std::time::Duration::from_secs(16));
+    }
+
+    // -------------------------------------------------------------------------
+    // ConnectionStatus transitions (no network)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn connection_status_equality() {
+        assert_eq!(ConnectionStatus::Connected, ConnectionStatus::Connected);
+        assert_ne!(
+            ConnectionStatus::Connected,
+            ConnectionStatus::Reconnecting { attempt: 1 }
+        );
+        assert_ne!(
+            ConnectionStatus::Reconnecting { attempt: 1 },
+            ConnectionStatus::Disconnected {
+                reason: "dns".into()
+            }
+        );
+    }
+
+    #[test]
+    fn disconnected_status_carries_reason() {
+        let status = ConnectionStatus::Disconnected {
+            reason: "192.168.1.10: DNS resolution failed".to_string(),
+        };
+        if let ConnectionStatus::Disconnected { reason } = &status {
+            assert!(reason.contains("DNS"));
+        } else {
+            panic!("expected Disconnected");
+        }
+    }
+}

@@ -242,3 +242,39 @@ fn render_footer(frame: &mut Frame, area: Rect) {
     frame.render_widget(bar, area);
 }
 
+#[cfg(test)]
+mod tests {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::app::App;
+
+    use super::render_detail;
+
+    #[test]
+    fn renders_without_panic_no_session_selected() {
+        // selected_session is None by default — exercises the "No session selected" path.
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        assert!(app.selected_session.is_none());
+        terminal
+            .draw(|f| {
+                render_detail(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_small_terminal() {
+        let backend = TestBackend::new(10, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        terminal
+            .draw(|f| {
+                render_detail(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+}
+

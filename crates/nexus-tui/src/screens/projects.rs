@@ -227,3 +227,38 @@ pub fn render_scratchpad(frame: &mut Frame, app: &App) {
     )]));
     frame.render_widget(hint, hint_area);
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::app::App;
+
+    use super::render_projects;
+
+    #[test]
+    fn renders_without_panic_on_empty_data() {
+        // No agents → no sessions → empty project list.
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        terminal
+            .draw(|f| {
+                render_projects(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_small_terminal() {
+        let backend = TestBackend::new(10, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::new();
+        terminal
+            .draw(|f| {
+                render_projects(f, f.area(), &app);
+            })
+            .unwrap();
+    }
+}

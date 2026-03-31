@@ -305,3 +305,51 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     frame.render_widget(bar, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::app::App;
+
+    use super::render_dashboard;
+
+    #[test]
+    fn renders_without_panic_on_empty_data() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        terminal
+            .draw(|f| {
+                render_dashboard(f, f.area(), &mut app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_with_no_agents() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        app.agents.clear();
+        terminal
+            .draw(|f| {
+                render_dashboard(f, f.area(), &mut app);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn renders_without_panic_small_terminal() {
+        // Stress the layout with a very small area.
+        let backend = TestBackend::new(10, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        terminal
+            .draw(|f| {
+                render_dashboard(f, f.area(), &mut app);
+            })
+            .unwrap();
+    }
+}
