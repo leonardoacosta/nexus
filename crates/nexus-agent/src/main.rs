@@ -36,7 +36,7 @@ use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
 const GRPC_PORT: u16 = 7400;
-const HTTP_PORT: u16 = 7401;
+const HTTP_PORT: u16 = 7402;
 
 /// Spawn a service and wire it to the cancellation token for shutdown.
 ///
