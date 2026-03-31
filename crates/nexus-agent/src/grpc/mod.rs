@@ -61,90 +61,21 @@ impl NexusAgentService {
 }
 
 // ---------------------------------------------------------------------------
-// Conversion: nexus_core::session types -> proto types
+// Conversion: re-export from nexus_core::proto_convert
 // ---------------------------------------------------------------------------
 
-pub fn session_status_to_proto(status: &nexus_core::session::SessionStatus) -> i32 {
-    match status {
-        nexus_core::session::SessionStatus::Active => proto::SessionStatus::Active.into(),
-        nexus_core::session::SessionStatus::Idle => proto::SessionStatus::Idle.into(),
-        nexus_core::session::SessionStatus::Stale => proto::SessionStatus::Stale.into(),
-        nexus_core::session::SessionStatus::Errored => proto::SessionStatus::Errored.into(),
-    }
-}
+pub use nexus_core::proto_convert::{datetime_to_timestamp, session_status_to_proto};
 
-pub fn datetime_to_timestamp(dt: &chrono::DateTime<chrono::Utc>) -> Option<prost_types::Timestamp> {
-    Some(prost_types::Timestamp {
-        seconds: dt.timestamp(),
-        nanos: dt.timestamp_subsec_nanos() as i32,
-    })
-}
-
+/// Convert a domain `Session` to a proto `Session` using the core `From` impl.
 pub fn session_to_proto(session: &nexus_core::session::Session) -> proto::Session {
-    // Build telemetry sub-message if any telemetry fields are populated.
-    let telemetry = if session.rate_limit_utilization.is_some()
-        || session.total_cost_usd.is_some()
-        || session.model.is_some()
-    {
-        let rate_limit = session
-            .rate_limit_utilization
-            .map(|util| proto::RateLimitInfo {
-                utilization_percent: util,
-                rate_limit_type: session
-                    .rate_limit_type
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
-                surpassed_threshold: util >= 0.75,
-            });
-
-        Some(proto::SessionTelemetry {
-            rate_limit,
-            total_cost_usd: session.total_cost_usd.map(|c| c as f32),
-            model: session.model.clone(),
-        })
-    } else {
-        None
-    };
-
-    proto::Session {
-        id: session.id.clone(),
-        pid: session.pid,
-        project: session.project.clone(),
-        cwd: session.cwd.clone(),
-        branch: session.branch.clone(),
-        started_at: datetime_to_timestamp(&session.started_at),
-        last_heartbeat: datetime_to_timestamp(&session.last_heartbeat),
-        status: session_status_to_proto(&session.status),
-        session_type: proto::SessionType::AdHoc.into(),
-        spec: session.spec.clone(),
-        command: session.command.clone(),
-        agent: session.agent.clone(),
-        tmux_session: session.tmux_session.clone(),
-        cc_session_id: session.cc_session_id.clone(),
-        telemetry,
-    }
+    session.into()
 }
 
+/// Convert a domain `CommandInfo` to a proto `CommandInfoProto` using the core `From` impl.
 pub(super) fn command_info_to_proto(
     info: &nexus_core::command::CommandInfo,
 ) -> proto::CommandInfoProto {
-    proto::CommandInfoProto {
-        name: info.name.clone(),
-        namespace: info.namespace.clone(),
-        full_name: info.full_name.clone(),
-        description: info.description.clone(),
-        tier: match info.tier {
-            nexus_core::command::CommandTier::Status => proto::CommandTier::Status.into(),
-            nexus_core::command::CommandTier::Analysis => proto::CommandTier::Analysis.into(),
-            nexus_core::command::CommandTier::Action => proto::CommandTier::Action.into(),
-        },
-        cost: match info.cost {
-            nexus_core::command::CostCategory::Minimal => proto::CostCategory::Minimal.into(),
-            nexus_core::command::CostCategory::Low => proto::CostCategory::Low.into(),
-            nexus_core::command::CostCategory::Medium => proto::CostCategory::Medium.into(),
-            nexus_core::command::CostCategory::High => proto::CostCategory::High.into(),
-        },
-    }
+    info.into()
 }
 
 /// Check whether a session matches the given filter criteria.

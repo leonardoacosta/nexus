@@ -2,6 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::paths::nexus_config_dir;
+
+/// Errors that can occur when loading or saving Nexus configuration files.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("config file not found: {0}")]
+    NotFound(PathBuf),
+    #[error("failed to parse config: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("failed to serialize config: {0}")]
+    Serialize(#[from] toml::ser::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
 /// The role this nexus-agent instance plays in the fleet.
 ///
 /// - `Primary`: The Mac — runs ReceiverService (TTS/APNs/banner), NotificationEngine,
@@ -61,10 +76,10 @@ fn default_port() -> u16 {
 
 impl NexusConfig {
     pub fn config_path() -> PathBuf {
-        dirs_path().join("agents.toml")
+        nexus_config_dir().join("agents.toml")
     }
 
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load() -> Result<Self, ConfigError> {
         let path = Self::config_path();
         let contents = std::fs::read_to_string(&path)?;
         let config: Self = toml::from_str(&contents)?;
@@ -149,12 +164,12 @@ pub struct NotificationConfig {
 
 impl NotificationConfig {
     pub fn config_path() -> PathBuf {
-        dirs_path().join("notifications.toml")
+        nexus_config_dir().join("notifications.toml")
     }
 
     /// Load from ~/.config/nexus/notifications.toml.
     /// Returns `Ok(Default::default())` if the file does not exist.
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load() -> Result<Self, ConfigError> {
         let path = Self::config_path();
         if !path.exists() {
             return Ok(Self::default());
@@ -209,11 +224,6 @@ fn default_max_sessions() -> usize {
 
 fn default_idle_timeout_minutes() -> u64 {
     15
-}
-
-fn dirs_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".config/nexus")
 }
 
 #[cfg(test)]

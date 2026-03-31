@@ -6,13 +6,13 @@
 //! - `parse_notification_config()` — load with fallback to built-in defaults
 //! - `NotificationConfig::save()` — serialize and write back to TOML
 
-use crate::config::NotificationConfig;
+use crate::config::{ConfigError, NotificationConfig};
 
 /// Load notification config from `~/.config/nexus/notifications.toml`.
 ///
 /// If the file does not exist, returns `Ok` with built-in defaults.
 /// If the file exists but fails to parse, returns the `Err`.
-pub fn parse_notification_config() -> Result<NotificationConfig, Box<dyn std::error::Error>> {
+pub fn parse_notification_config() -> Result<NotificationConfig, ConfigError> {
     NotificationConfig::load()
 }
 
@@ -21,7 +21,7 @@ impl NotificationConfig {
     /// `~/.config/nexus/notifications.toml`.
     ///
     /// Creates the parent directory if it does not exist.
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> Result<(), ConfigError> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

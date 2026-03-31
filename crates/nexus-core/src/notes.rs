@@ -47,8 +47,7 @@ impl ProjectNotes {
     }
 
     fn notes_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(home).join(".config/nexus/project-notes.toml")
+        crate::paths::nexus_config_dir().join("project-notes.toml")
     }
 }
 

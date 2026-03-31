@@ -68,6 +68,7 @@ message Session {
   optional string tmux_session = 13;
   optional string cc_session_id = 14;
   optional SessionTelemetry telemetry = 15;
+  optional string tmux_target = 16;
 }
 
 message SessionId {

@@ -10,7 +10,7 @@ use nexus_core::config::{AgentConfig, NexusConfig};
 use nexus_core::health::MachineHealth;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
 use nexus_core::proto::{HealthRequest, SessionFilter, SessionId, SyncStatus as ProtoSyncStatus};
-use nexus_core::session::{Session, SessionStatus};
+use nexus_core::session::Session;
 
 use crate::app::{ProjectDetail, SyncStatus};
 
@@ -548,111 +548,17 @@ impl NexusClient {
 }
 
 // ---------------------------------------------------------------------------
-// Proto conversion helpers
+// Proto conversion helpers — delegated to nexus_core::proto_convert
 // ---------------------------------------------------------------------------
 
 /// Convert a protobuf `Session` message into the core `Session` type.
 fn proto_to_session(proto: nexus_core::proto::Session) -> Session {
-    let started_at = proto
-        .started_at
-        .map(proto_timestamp_to_datetime)
-        .unwrap_or_else(Utc::now);
-
-    let last_heartbeat = proto
-        .last_heartbeat
-        .map(proto_timestamp_to_datetime)
-        .unwrap_or_else(Utc::now);
-
-    let status = match proto.status {
-        1 => SessionStatus::Active,
-        2 => SessionStatus::Idle,
-        3 => SessionStatus::Stale,
-        4 => SessionStatus::Errored,
-        _ => SessionStatus::Active,
-    };
-
-    // Extract telemetry fields from the proto.
-    let (rate_limit_utilization, rate_limit_type, total_cost_usd, model) =
-        if let Some(ref telemetry) = proto.telemetry {
-            let (rl_util, rl_type) = if let Some(ref rl) = telemetry.rate_limit {
-                (
-                    Some(rl.utilization_percent),
-                    Some(rl.rate_limit_type.clone()),
-                )
-            } else {
-                (None, None)
-            };
-            (
-                rl_util,
-                rl_type,
-                telemetry.total_cost_usd.map(|c| c as f64),
-                telemetry.model.clone(),
-            )
-        } else {
-            (None, None, None, None)
-        };
-
-    Session {
-        id: proto.id,
-        pid: proto.pid,
-        project: proto.project,
-        cwd: proto.cwd,
-        branch: proto.branch,
-        started_at,
-        last_heartbeat,
-        status,
-        spec: proto.spec,
-        command: proto.command,
-        agent: proto.agent,
-        tmux_session: proto.tmux_session,
-        cc_session_id: proto.cc_session_id,
-        tmux_target: None, // not carried in proto yet
-        rate_limit_utilization,
-        rate_limit_type,
-        total_cost_usd,
-        model,
-        session_type: nexus_core::session::SessionType::AdHoc,
-    }
-}
-
-/// Convert a protobuf `Timestamp` to a `chrono::DateTime<Utc>`.
-fn proto_timestamp_to_datetime(ts: prost_types::Timestamp) -> DateTime<Utc> {
-    DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_else(Utc::now)
+    proto.into()
 }
 
 /// Convert a protobuf `MachineHealth` message into the core `MachineHealth` type.
 fn proto_to_machine_health(proto: nexus_core::proto::MachineHealth) -> MachineHealth {
-    let load_avg = if proto.load_avg.len() >= 3 {
-        [proto.load_avg[0], proto.load_avg[1], proto.load_avg[2]]
-    } else {
-        [0.0; 3]
-    };
-
-    let docker_containers = if proto.docker_containers.is_empty() {
-        None
-    } else {
-        Some(
-            proto
-                .docker_containers
-                .into_iter()
-                .map(|c| nexus_core::health::ContainerStatus {
-                    name: c.name,
-                    running: c.running,
-                })
-                .collect(),
-        )
-    };
-
-    MachineHealth {
-        cpu_percent: proto.cpu_percent,
-        memory_used_gb: proto.memory_used_gb,
-        memory_total_gb: proto.memory_total_gb,
-        disk_used_gb: proto.disk_used_gb,
-        disk_total_gb: proto.disk_total_gb,
-        load_avg,
-        uptime_seconds: proto.uptime_seconds,
-        docker_containers,
-    }
+    proto.into()
 }
 
 #[cfg(test)]

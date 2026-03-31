@@ -89,7 +89,7 @@ impl ProjectRegistry {
         }
 
         // Fallback: ~/dev/<code>
-        let fallback = home_dir().join("dev").join(code);
+        let fallback = crate::paths::home_dir().join("dev").join(code);
         if fallback.is_dir() {
             tracing::debug!(
                 "Project '{}' not in registry; using fallback path {}",
@@ -115,7 +115,7 @@ impl ProjectRegistry {
 
     /// Path to the projects registry JSON file.
     pub fn registry_path() -> PathBuf {
-        home_dir().join(".claude/scripts/config/projects.json")
+        crate::paths::home_dir().join(".claude/scripts/config/projects.json")
     }
 }
 
@@ -123,18 +123,12 @@ impl ProjectRegistry {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"))
-}
-
 /// Expand a leading `~` to the current user's home directory.
 fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
-        home_dir().join(rest)
+        crate::paths::home_dir().join(rest)
     } else if path == "~" {
-        home_dir()
+        crate::paths::home_dir()
     } else {
         PathBuf::from(path)
     }
@@ -179,7 +173,7 @@ mod tests {
     fn expand_tilde_replaces_home() {
         // Use the real home directory to avoid mutating HOME (which would race
         // with other tests that also read it).
-        let home = home_dir();
+        let home = crate::paths::home_dir();
         assert_eq!(expand_tilde("~/dev/oo"), home.join("dev/oo"));
         assert_eq!(expand_tilde("~"), home.clone());
         // Absolute paths that do not start with ~ must be returned unchanged.
