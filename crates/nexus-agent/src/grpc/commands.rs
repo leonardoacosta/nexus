@@ -5,6 +5,7 @@ use nexus_core::session::Session;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::command_executor::run_claude_subprocess;
 use crate::services::session_pool::PooledSessionStatus;
 
 use super::NexusAgentService;
@@ -71,7 +72,7 @@ impl NexusAgentService {
                 resume_id, req.prompt, cwd,
             );
 
-            // 4. Spawn the claude child process.
+            // 4. Build the claude child process command.
             // Use --resume for managed sessions (nexus controls the session),
             // --session-id for ad-hoc (start fresh conversation in same project context).
             // Managed sessions are created via StartSession RPC and have
@@ -97,212 +98,12 @@ impl NexusAgentService {
                 cmd.arg("--session-id").arg(&new_uuid);
             }
 
-            let child = cmd
-                .arg(&req.prompt)
-                .current_dir(&cwd)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn();
+            cmd.arg(&req.prompt).current_dir(&cwd);
 
-            let mut child = match child {
-                Ok(c) => c,
-                Err(e) => {
-                    let msg = format!("failed to spawn claude process: {e}");
-                    tracing::error!(session_id = %sid, "{}", msg);
-                    let _ = tx
-                        .send(Ok(proto::CommandOutput {
-                            session_id: sid,
-                            content: Some(proto::command_output::Content::Error(
-                                proto::CommandError {
-                                    message: msg,
-                                    exit_code: -1,
-                                },
-                            )),
-                        }))
-                        .await;
-                    return;
-                }
-            };
-
-            // 5. Read stdout line by line, capture stderr for error reporting.
-            let stdout = child.stdout.take().expect("stdout was piped");
-            let stderr = child.stderr.take().expect("stderr was piped");
-            let reader = tokio::io::BufReader::new(stdout);
-            let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-
-            // Spawn stderr reader to capture error output.
-            let stderr_handle = tokio::spawn(async move {
-                let mut stderr_reader = tokio::io::BufReader::new(stderr);
-                let mut stderr_buf = String::new();
-                let _ =
-                    tokio::io::AsyncReadExt::read_to_string(&mut stderr_reader, &mut stderr_buf)
-                        .await;
-                stderr_buf
-            });
-
-            let mut done_sent = false;
-
-            // 6. Parse each line and forward via the gRPC stream.
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        if line.trim().is_empty() {
-                            continue;
-                        }
-                        tracing::info!(session_id = %sid, "stream-json line: {}", &line[..line.len().min(200)]);
-
-                        if let Some(event) = crate::parser::parse_stream_json_line(&sid, &line) {
-                            match event {
-                                crate::parser::ParsedEvent::Telemetry(telemetry) => {
-                                    // Side-channel telemetry — persist but don't forward on stream.
-                                    registry.update_telemetry(&sid, &telemetry).await;
-                                }
-                                crate::parser::ParsedEvent::Command(output) => {
-                                    if matches!(
-                                        &output.content,
-                                        Some(proto::command_output::Content::Done(_))
-                                    ) {
-                                        done_sent = true;
-                                    }
-
-                                    if tx.send(Ok(output)).await.is_err() {
-                                        tracing::debug!(
-                                            session_id = %sid,
-                                            "send_command: client disconnected"
-                                        );
-                                        let _ = child.kill().await;
-                                        return;
-                                    }
-                                }
-                                crate::parser::ParsedEvent::CommandBatch(outputs) => {
-                                    for output in outputs {
-                                        if matches!(
-                                            &output.content,
-                                            Some(proto::command_output::Content::Done(_))
-                                        ) {
-                                            done_sent = true;
-                                        }
-
-                                        if tx.send(Ok(output)).await.is_err() {
-                                            tracing::debug!(
-                                                session_id = %sid,
-                                                "send_command: client disconnected"
-                                            );
-                                            let _ = child.kill().await;
-                                            return;
-                                        }
-                                    }
-                                }
-                                crate::parser::ParsedEvent::CommandBatchWithTelemetry(
-                                    outputs,
-                                    telemetry,
-                                ) => {
-                                    registry.update_telemetry(&sid, &telemetry).await;
-
-                                    for output in outputs {
-                                        if matches!(
-                                            &output.content,
-                                            Some(proto::command_output::Content::Done(_))
-                                        ) {
-                                            done_sent = true;
-                                        }
-
-                                        if tx.send(Ok(output)).await.is_err() {
-                                            tracing::debug!(
-                                                session_id = %sid,
-                                                "send_command: client disconnected"
-                                            );
-                                            let _ = child.kill().await;
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        // EOF — process closed stdout.
-                        break;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            session_id = %sid,
-                            "send_command: error reading stdout: {e}"
-                        );
-                        break;
-                    }
-                }
-            }
-
-            // 7. Wait for process exit and handle non-zero exit codes.
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        let code = status.code().unwrap_or(-1);
-                        let stderr_output = stderr_handle.await.unwrap_or_default();
-                        let stderr_preview = if stderr_output.len() > 200 {
-                            format!("{}...", &stderr_output[..200])
-                        } else {
-                            stderr_output
-                        };
-                        let msg = if stderr_preview.is_empty() {
-                            format!("claude process exited with code {code}")
-                        } else {
-                            format!("claude exited {code}: {}", stderr_preview.trim())
-                        };
-                        tracing::warn!(session_id = %sid, "{}", msg);
-                        let _ = tx
-                            .send(Ok(proto::CommandOutput {
-                                session_id: sid.clone(),
-                                content: Some(proto::command_output::Content::Error(
-                                    proto::CommandError {
-                                        message: msg,
-                                        exit_code: code,
-                                    },
-                                )),
-                            }))
-                            .await;
-                    }
-
-                    // Send a final CommandDone if the parser didn't emit one.
-                    if !done_sent {
-                        let _ = tx
-                            .send(Ok(proto::CommandOutput {
-                                session_id: sid.clone(),
-                                content: Some(proto::command_output::Content::Done(
-                                    proto::CommandDone {
-                                        duration_ms: 0,
-                                        tool_calls: 0,
-                                    },
-                                )),
-                            }))
-                            .await;
-                    }
-
-                    tracing::info!(
-                        session_id = %sid,
-                        exit_code = status.code().unwrap_or(-1),
-                        "send_command: claude process finished"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        session_id = %sid,
-                        "send_command: failed to wait on claude process: {e}"
-                    );
-                    let _ = tx
-                        .send(Ok(proto::CommandOutput {
-                            session_id: sid,
-                            content: Some(proto::command_output::Content::Error(
-                                proto::CommandError {
-                                    message: format!("failed to wait on process: {e}"),
-                                    exit_code: -1,
-                                },
-                            )),
-                        }))
-                        .await;
-                }
-            }
+            // 5-7. Delegate stream reading, parsing, and forwarding to the
+            // shared executor. No pool release needed for direct-session commands.
+            run_claude_subprocess(cmd, sid, registry, tx, None::<fn() -> std::future::Ready<()>>)
+                .await;
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
@@ -433,7 +234,7 @@ impl NexusAgentService {
         let pc = project_code.clone();
 
         tokio::spawn(async move {
-            // Pool sessions always use --session-id (managed, resumable conversation).
+            // Pool sessions always use --resume (managed, resumable conversation).
             let mut cmd = tokio::process::Command::new("claude");
             cmd.env("NEXUS_SUBPROCESS", "1");
             cmd.arg("-p")
@@ -445,213 +246,13 @@ impl NexusAgentService {
                 .arg("--resume")
                 .arg(&sid)
                 .arg(&req.prompt)
-                .current_dir(&cwd)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-
-            let child = cmd.spawn();
-            let mut child = match child {
-                Ok(c) => c,
-                Err(e) => {
-                    let msg = format!("failed to spawn claude process: {e}");
-                    tracing::error!(session_id = %sid, project = %pc, "{}", msg);
-                    let _ = tx
-                        .send(Ok(proto::CommandOutput {
-                            session_id: sid.clone(),
-                            content: Some(proto::command_output::Content::Error(
-                                proto::CommandError {
-                                    message: msg,
-                                    exit_code: -1,
-                                },
-                            )),
-                        }))
-                        .await;
-                    pool.release(&pc).await;
-                    return;
-                }
-            };
-
-            let stdout = child.stdout.take().expect("stdout was piped");
-            let stderr = child.stderr.take().expect("stderr was piped");
-            let reader = tokio::io::BufReader::new(stdout);
-            let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-
-            let stderr_handle = tokio::spawn(async move {
-                let mut stderr_reader = tokio::io::BufReader::new(stderr);
-                let mut stderr_buf = String::new();
-                let _ = tokio::io::AsyncReadExt::read_to_string(
-                    &mut stderr_reader,
-                    &mut stderr_buf,
-                )
-                .await;
-                stderr_buf
-            });
-
-            let mut done_sent = false;
-
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        if line.trim().is_empty() {
-                            continue;
-                        }
-                        tracing::info!(
-                            session_id = %sid,
-                            project = %pc,
-                            "pool stream-json line: {}",
-                            &line[..line.len().min(200)]
-                        );
-
-                        if let Some(event) = crate::parser::parse_stream_json_line(&sid, &line) {
-                            match event {
-                                crate::parser::ParsedEvent::Telemetry(telemetry) => {
-                                    registry.update_telemetry(&sid, &telemetry).await;
-                                }
-                                crate::parser::ParsedEvent::Command(output) => {
-                                    if matches!(
-                                        &output.content,
-                                        Some(proto::command_output::Content::Done(_))
-                                    ) {
-                                        done_sent = true;
-                                    }
-                                    if tx.send(Ok(output)).await.is_err() {
-                                        tracing::debug!(
-                                            session_id = %sid,
-                                            "pool send_command: client disconnected"
-                                        );
-                                        let _ = child.kill().await;
-                                        pool.release(&pc).await;
-                                        return;
-                                    }
-                                }
-                                crate::parser::ParsedEvent::CommandBatch(outputs) => {
-                                    for output in outputs {
-                                        if matches!(
-                                            &output.content,
-                                            Some(proto::command_output::Content::Done(_))
-                                        ) {
-                                            done_sent = true;
-                                        }
-                                        if tx.send(Ok(output)).await.is_err() {
-                                            tracing::debug!(
-                                                session_id = %sid,
-                                                "pool send_command: client disconnected"
-                                            );
-                                            let _ = child.kill().await;
-                                            pool.release(&pc).await;
-                                            return;
-                                        }
-                                    }
-                                }
-                                crate::parser::ParsedEvent::CommandBatchWithTelemetry(
-                                    outputs,
-                                    telemetry,
-                                ) => {
-                                    registry.update_telemetry(&sid, &telemetry).await;
-                                    for output in outputs {
-                                        if matches!(
-                                            &output.content,
-                                            Some(proto::command_output::Content::Done(_))
-                                        ) {
-                                            done_sent = true;
-                                        }
-                                        if tx.send(Ok(output)).await.is_err() {
-                                            tracing::debug!(
-                                                session_id = %sid,
-                                                "pool send_command: client disconnected"
-                                            );
-                                            let _ = child.kill().await;
-                                            pool.release(&pc).await;
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(None) => break,
-                    Err(e) => {
-                        tracing::warn!(
-                            session_id = %sid,
-                            "pool send_command: error reading stdout: {e}"
-                        );
-                        break;
-                    }
-                }
-            }
-
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        let code = status.code().unwrap_or(-1);
-                        let stderr_output = stderr_handle.await.unwrap_or_default();
-                        let stderr_preview = if stderr_output.len() > 200 {
-                            format!("{}...", &stderr_output[..200])
-                        } else {
-                            stderr_output
-                        };
-                        let msg = if stderr_preview.is_empty() {
-                            format!("claude process exited with code {code}")
-                        } else {
-                            format!("claude exited {code}: {}", stderr_preview.trim())
-                        };
-                        tracing::warn!(session_id = %sid, project = %pc, "{}", msg);
-                        let _ = tx
-                            .send(Ok(proto::CommandOutput {
-                                session_id: sid.clone(),
-                                content: Some(proto::command_output::Content::Error(
-                                    proto::CommandError {
-                                        message: msg,
-                                        exit_code: code,
-                                    },
-                                )),
-                            }))
-                            .await;
-                    }
-
-                    if !done_sent {
-                        let _ = tx
-                            .send(Ok(proto::CommandOutput {
-                                session_id: sid.clone(),
-                                content: Some(proto::command_output::Content::Done(
-                                    proto::CommandDone {
-                                        duration_ms: 0,
-                                        tool_calls: 0,
-                                    },
-                                )),
-                            }))
-                            .await;
-                    }
-
-                    tracing::info!(
-                        session_id = %sid,
-                        project = %pc,
-                        exit_code = status.code().unwrap_or(-1),
-                        "pool send_command: claude process finished"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        session_id = %sid,
-                        project = %pc,
-                        "pool send_command: failed to wait on claude process: {e}"
-                    );
-                    let _ = tx
-                        .send(Ok(proto::CommandOutput {
-                            session_id: sid.clone(),
-                            content: Some(proto::command_output::Content::Error(
-                                proto::CommandError {
-                                    message: format!("failed to wait on process: {e}"),
-                                    exit_code: -1,
-                                },
-                            )),
-                        }))
-                        .await;
-                }
-            }
+                .current_dir(&cwd);
 
             // Release the pool session back to Ready regardless of success/failure.
-            pool.release(&pc).await;
+            run_claude_subprocess(cmd, sid, registry, tx, Some(move || async move {
+                pool.release(&pc).await;
+            }))
+            .await;
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(

@@ -1,4 +1,5 @@
 pub mod claude_utils;
+pub mod command_executor;
 pub mod config;
 pub mod cron;
 pub mod cron_state;
