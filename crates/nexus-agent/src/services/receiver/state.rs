@@ -8,8 +8,8 @@ use super::{
 };
 use crate::config::NotificationsConfig;
 use crate::services::receiver::service::{
-    LastNotificationInfo, MessageType, NotificationRecord, SpeakRequest, StoredMessage,
-    NOTIFICATION_HISTORY_CAPACITY,
+    LastNotificationInfo, MessageType, NOTIFICATION_HISTORY_CAPACITY, NotificationRecord,
+    SpeakRequest, StoredMessage,
 };
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
@@ -169,18 +169,13 @@ impl ReceiverService {
 
     pub fn type_set_json(&self, type_name: &str, mode_str: &str) -> String {
         use crate::claude_utils::notification_config::{
-            load_notification_config, save_notification_config, TypeConfig,
+            TypeConfig, load_notification_config, save_notification_config,
         };
         match mode_str.parse::<crate::claude_utils::notification_mode::NotificationMode>() {
             Ok(mode) => {
                 let mut config = load_notification_config();
                 let types = config.types.get_or_insert_with(Default::default);
-                types.insert(
-                    type_name.to_string(),
-                    TypeConfig {
-                        mode: Some(mode),
-                    },
-                );
+                types.insert(type_name.to_string(), TypeConfig { mode: Some(mode) });
                 match save_notification_config(&config) {
                     Ok(()) => serde_json::json!({
                         "type": type_name,

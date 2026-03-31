@@ -149,7 +149,12 @@ impl NexusAgentService {
                     }
 
                     // Only consider directories.
-                    if !entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
+                    if !entry
+                        .file_type()
+                        .await
+                        .map(|ft| ft.is_dir())
+                        .unwrap_or(false)
+                    {
                         continue;
                     }
 
@@ -271,9 +276,10 @@ impl NexusAgentService {
                 for session in &sessions {
                     // Apply session_id filter to snapshot events too.
                     if let Some(ref filter_session_id) = filter.session_id
-                        && session.id != *filter_session_id {
-                            continue;
-                        }
+                        && session.id != *filter_session_id
+                    {
+                        continue;
+                    }
 
                     // Apply event type filter: snapshot events are SessionStarted.
                     if !allowed_event_types.is_empty()

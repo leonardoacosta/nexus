@@ -172,7 +172,8 @@ impl SyncTelemetryService {
             events: events.to_vec(),
         };
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(endpoint)
             .header("Content-Type", "application/json")
             .json(&request)
@@ -257,10 +258,7 @@ impl SyncTelemetryService {
                 .await
                 .context("Failed to read processing file")?;
 
-            let queue_content = if tokio::fs::try_exists(&queue_file)
-                .await
-                .unwrap_or(false)
-            {
+            let queue_content = if tokio::fs::try_exists(&queue_file).await.unwrap_or(false) {
                 tokio::fs::read_to_string(&queue_file)
                     .await
                     .context("Failed to read queue file")?
@@ -319,10 +317,7 @@ impl SyncTelemetryService {
         if events.is_empty() {
             debug!("All events filtered out (stale/overflow), nothing to sync");
             // Clean up the queue file since all events were dropped
-            if tokio::fs::try_exists(&queue_file)
-                .await
-                .unwrap_or(false)
-            {
+            if tokio::fs::try_exists(&queue_file).await.unwrap_or(false) {
                 let _ = tokio::fs::remove_file(&queue_file).await;
             }
             return Ok(FlushResult {

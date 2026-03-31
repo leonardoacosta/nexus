@@ -4,13 +4,9 @@
 //! generate_elevenlabs_audio, play_audio_file, speak_system_fallback,
 //! probe_audio_health, process_speak_request.
 
-use super::{
-    ApnsClient, ApnsResponse, ApnsSender, ElevenLabsClient, WatchTokenStore,
-};
+use super::{ApnsClient, ApnsResponse, ApnsSender, ElevenLabsClient, WatchTokenStore};
 use crate::config::NotificationsConfig;
-use crate::services::receiver::service::{
-    AudioHealth, ReceiverService, SpeakRequest,
-};
+use crate::services::receiver::service::{AudioHealth, ReceiverService, SpeakRequest};
 use anyhow::Result;
 use std::env;
 use tokio::fs;
@@ -20,8 +16,7 @@ use tracing::{debug, error, info, warn};
 impl ReceiverService {
     /// Show desktop notification using terminal-notifier (macOS) or notify-send (Linux)
     pub(crate) async fn show_notification(_title: &str, message: &str, project: Option<&str>) {
-        let (icon, name) =
-            crate::claude_utils::project::get_project_display(project.unwrap_or(""));
+        let (icon, name) = crate::claude_utils::project::get_project_display(project.unwrap_or(""));
         let full_title = format!("{} {}", icon, name);
 
         if cfg!(target_os = "macos") {
@@ -227,19 +222,19 @@ impl ReceiverService {
         Self::show_notification("Claude", &formatted_message, req.project.as_deref()).await;
 
         if let Some(project) = req.project.as_deref()
-            && let Some(chime_path) = config.project_chimes.get_chime_for_project(project) {
-                let expanded = crate::claude_utils::path::expand_home(chime_path);
-                if expanded.exists() {
-                    debug!("Playing project chime for {}: {}", project, chime_path);
-                    if let Err(e) =
-                        Self::play_audio_file(expanded.to_str().unwrap_or(chime_path)).await
-                    {
-                        warn!("Failed to play chime: {}", e);
-                    }
-                } else {
-                    debug!("Chime file not found: {}", expanded.display());
+            && let Some(chime_path) = config.project_chimes.get_chime_for_project(project)
+        {
+            let expanded = crate::claude_utils::path::expand_home(chime_path);
+            if expanded.exists() {
+                debug!("Playing project chime for {}: {}", project, chime_path);
+                if let Err(e) = Self::play_audio_file(expanded.to_str().unwrap_or(chime_path)).await
+                {
+                    warn!("Failed to play chime: {}", e);
                 }
+            } else {
+                debug!("Chime file not found: {}", expanded.display());
             }
+        }
 
         if let Some(key) = api_key {
             if mode == crate::claude_utils::notification_mode::NotificationMode::System {
@@ -408,8 +403,7 @@ impl ReceiverService {
             message_id,
         );
 
-        let (icon, name) =
-            crate::claude_utils::project::get_project_display(project.unwrap_or(""));
+        let (icon, name) = crate::claude_utils::project::get_project_display(project.unwrap_or(""));
         let title = format!("{} {}", icon, name);
 
         for device in devices {

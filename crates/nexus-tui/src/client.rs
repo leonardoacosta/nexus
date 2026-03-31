@@ -205,8 +205,8 @@ impl NexusClient {
 
     /// Calculate exponential backoff duration for reconnect attempts.
     ///
-    /// Produces: attempt 1→1s, 2→2s, 3→4s, 4→8s, 5+→30s.
-    #[allow(dead_code)]
+    /// Produces: attempt 0→1s, 1→2s, 2→4s, 3→8s, 4+→16s.
+    #[cfg(test)]
     pub fn backoff_duration(attempt: u32) -> std::time::Duration {
         let secs = (1u64 << attempt.min(4)).min(30);
         std::time::Duration::from_secs(secs)
@@ -472,6 +472,7 @@ impl NexusClient {
                                 sync_status,
                                 commits_behind: info.commits_behind,
                                 git_branch: info.git_branch,
+                                path: info.path,
                             },
                         );
                     }

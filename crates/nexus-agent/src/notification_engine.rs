@@ -46,11 +46,12 @@ pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
     let mut watcher =
         match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             if let Ok(ev) = res
-                && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
-                    // Best-effort send; duplicate events during the debounce
-                    // window are dropped intentionally.
-                    let _ = notify_tx.try_send(());
-                }
+                && matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_))
+            {
+                // Best-effort send; duplicate events during the debounce
+                // window are dropped intentionally.
+                let _ = notify_tx.try_send(());
+            }
         }) {
             Ok(w) => w,
             Err(e) => {
@@ -153,7 +154,8 @@ impl NotificationEngine {
                 let prefix = if event.project.is_empty() {
                     String::new()
                 } else {
-                    let (_, name) = crate::claude_utils::project::get_project_display(&event.project);
+                    let (_, name) =
+                        crate::claude_utils::project::get_project_display(&event.project);
                     format!("{} — ", name)
                 };
                 let full_message = format!("{}Error: {}", prefix, message);

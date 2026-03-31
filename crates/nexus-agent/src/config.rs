@@ -132,7 +132,6 @@ pub struct ProjectVoicesConfig {
     pub voices: HashMap<String, String>,
 }
 
-
 impl ProjectVoicesConfig {
     /// Get the voice ID for a given project.
     /// Falls back to the "default" key if the project has no specific mapping.
@@ -160,7 +159,6 @@ pub struct ProjectChimesConfig {
     #[serde(flatten)]
     pub chimes: HashMap<String, String>,
 }
-
 
 impl ProjectChimesConfig {
     /// Get the chime path for a given project, if configured.
@@ -323,9 +321,11 @@ impl NotificationsConfig {
 
         let mut config = if expanded_path.exists() {
             info!("Loading config from: {}", expanded_path.display());
-            let content = tokio::fs::read_to_string(&expanded_path).await.with_context(|| {
-                format!("Failed to read config file: {}", expanded_path.display())
-            })?;
+            let content = tokio::fs::read_to_string(&expanded_path)
+                .await
+                .with_context(|| {
+                    format!("Failed to read config file: {}", expanded_path.display())
+                })?;
 
             serde_json::from_str(&content).with_context(|| {
                 format!("Failed to parse config file: {}", expanded_path.display())
@@ -347,10 +347,11 @@ impl NotificationsConfig {
     /// Apply environment variable overrides to the configuration
     fn apply_env_overrides(&mut self) {
         if let Ok(port_str) = env::var("CLAUDE_RECEIVER_PORT")
-            && let Ok(port) = port_str.parse::<u16>() {
-                debug!("Overriding server.port from env: {}", port);
-                self.server.port = port;
-            }
+            && let Ok(port) = port_str.parse::<u16>()
+        {
+            debug!("Overriding server.port from env: {}", port);
+            self.server.port = port;
+        }
 
         if let Ok(voice_id) = env::var("ELEVENLABS_VOICE_ID") {
             debug!("Overriding elevenlabs.voiceId from env");
@@ -363,45 +364,51 @@ impl NotificationsConfig {
         }
 
         if let Ok(window_str) = env::var("CLAUDE_DEBOUNCE_WINDOW_MS")
-            && let Ok(window_ms) = window_str.parse::<u64>() {
-                debug!("Overriding debounce.windowMs from env: {}", window_ms);
-                self.debounce.window_ms = window_ms;
-            }
+            && let Ok(window_ms) = window_str.parse::<u64>()
+        {
+            debug!("Overriding debounce.windowMs from env: {}", window_ms);
+            self.debounce.window_ms = window_ms;
+        }
 
         if let Ok(max_str) = env::var("CLAUDE_DEBOUNCE_MAX_BUFFER")
-            && let Ok(max_buffer) = max_str.parse::<usize>() {
-                debug!("Overriding debounce.maxBuffer from env: {}", max_buffer);
-                self.debounce.max_buffer = max_buffer;
-            }
+            && let Ok(max_buffer) = max_str.parse::<usize>()
+        {
+            debug!("Overriding debounce.maxBuffer from env: {}", max_buffer);
+            self.debounce.max_buffer = max_buffer;
+        }
 
         if let Ok(delay_str) = env::var("CLAUDE_AUDIO_RESUME_DELAY_MS")
-            && let Ok(delay_ms) = delay_str.parse::<u64>() {
-                debug!("Overriding audio.resumeDelayMs from env: {}", delay_ms);
-                self.audio.resume_delay_ms = delay_ms;
-            }
+            && let Ok(delay_ms) = delay_str.parse::<u64>()
+        {
+            debug!("Overriding audio.resumeDelayMs from env: {}", delay_ms);
+            self.audio.resume_delay_ms = delay_ms;
+        }
 
         if let Ok(dedup_str) = env::var("CLAUDE_AUDIO_DEDUP_WINDOW_MS")
-            && let Ok(dedup_ms) = dedup_str.parse::<u64>() {
-                debug!("Overriding audio.dedupWindowMs from env: {}", dedup_ms);
-                self.audio.dedup_window_ms = dedup_ms;
-            }
+            && let Ok(dedup_ms) = dedup_str.parse::<u64>()
+        {
+            debug!("Overriding audio.dedupWindowMs from env: {}", dedup_ms);
+            self.audio.dedup_window_ms = dedup_ms;
+        }
 
         if let Ok(stability_str) = env::var("CLAUDE_VOICE_STABILITY")
             && let Ok(stability) = stability_str.parse::<f32>()
-                && (0.0..=1.0).contains(&stability) {
-                    debug!("Overriding voiceSettings.stability from env: {}", stability);
-                    self.voice_settings.stability = stability;
-                }
+            && (0.0..=1.0).contains(&stability)
+        {
+            debug!("Overriding voiceSettings.stability from env: {}", stability);
+            self.voice_settings.stability = stability;
+        }
 
         if let Ok(boost_str) = env::var("CLAUDE_VOICE_SIMILARITY_BOOST")
             && let Ok(boost) = boost_str.parse::<f32>()
-                && (0.0..=1.0).contains(&boost) {
-                    debug!(
-                        "Overriding voiceSettings.similarityBoost from env: {}",
-                        boost
-                    );
-                    self.voice_settings.similarity_boost = boost;
-                }
+            && (0.0..=1.0).contains(&boost)
+        {
+            debug!(
+                "Overriding voiceSettings.similarityBoost from env: {}",
+                boost
+            );
+            self.voice_settings.similarity_boost = boost;
+        }
     }
 
     /// Get the deduplication window as a Duration

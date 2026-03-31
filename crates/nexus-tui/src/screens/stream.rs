@@ -3,8 +3,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    Wrap,
+    Block, BorderType, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
 };
 
 use crate::app::{App, CodeBlockRange, InputMode, LineStyle, StreamLine, StreamVerbosity, colors};
@@ -51,6 +50,11 @@ fn line_style_to_ratatui(style: LineStyle) -> Style {
 
 /// Render the stream attach view.
 pub fn render_stream(frame: &mut Frame, area: Rect, app: &mut App) {
+    // Keep the stream view's terminal width in sync with the actual frame size.
+    if let Some(sv) = &mut app.stream_view {
+        sv.terminal_width = area.width;
+    }
+
     let bar_height = if app.stream_executing {
         2 // executing spinner: 1 content line + 1 border
     } else {

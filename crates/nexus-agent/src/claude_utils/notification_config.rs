@@ -425,14 +425,10 @@ pub fn get_type_mode(
 pub fn should_route_to_watch(config: &NotificationConfig, notification_type: &str) -> bool {
     match &config.watch {
         Some(watch) if watch.enabled => {
-            watch
-                .routing
-                .get(notification_type)
-                .copied()
-                .unwrap_or({
-                    // Default routing
-                    matches!(notification_type, "error_alerts" | "deployments")
-                })
+            watch.routing.get(notification_type).copied().unwrap_or({
+                // Default routing
+                matches!(notification_type, "error_alerts" | "deployments")
+            })
         }
         _ => false,
     }

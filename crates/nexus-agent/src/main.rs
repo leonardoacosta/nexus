@@ -128,9 +128,8 @@ async fn main() -> Result<()> {
 
     // Role-gated: start ReceiverService only on Primary.
     // Agent role skips TTS/APNs/banner — no audio deps needed at runtime.
-    let receiver = Arc::new(
-        ReceiverService::new().with_bind_address(nexus_config.bind_address.clone()),
-    );
+    let receiver =
+        Arc::new(ReceiverService::new().with_bind_address(nexus_config.bind_address.clone()));
     if role == AgentRole::Primary {
         spawn_service(Arc::clone(&receiver), coordinator.token());
         tracing::info!("ReceiverService started (role=primary)");
@@ -314,8 +313,7 @@ async fn main() -> Result<()> {
 
     // Bootstrap failure buffer from historical JSONL files (last 30 days).
     {
-        let failures_dir =
-            nexus_core::paths::home_dir().join(".claude/scripts/state/failures");
+        let failures_dir = nexus_core::paths::home_dir().join(".claude/scripts/state/failures");
         if failures_dir.is_dir() {
             let count = failure_buffer.bootstrap_from_jsonl(&failures_dir).await;
             tracing::info!("Imported {} failure events from JSONL files", count);
@@ -414,13 +412,14 @@ async fn main() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         if let Ok(notify_socket) = std::env::var("NOTIFY_SOCKET")
-            && !notify_socket.is_empty() {
-                use std::os::unix::net::UnixDatagram;
-                if let Ok(sock) = UnixDatagram::unbound() {
-                    let _ = sock.send_to(b"READY=1", &notify_socket);
-                    tracing::info!("sd_notify: READY=1 sent");
-                }
+            && !notify_socket.is_empty()
+        {
+            use std::os::unix::net::UnixDatagram;
+            if let Ok(sock) = UnixDatagram::unbound() {
+                let _ = sock.send_to(b"READY=1", &notify_socket);
+                tracing::info!("sd_notify: READY=1 sent");
             }
+        }
     }
 
     // Run all core services concurrently. If any exits, the others are dropped.

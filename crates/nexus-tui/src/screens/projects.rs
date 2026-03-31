@@ -42,7 +42,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
-    let summaries = app.cached_project_summaries().to_vec();
+    let summaries = app.cached_project_summaries();
 
     if summaries.is_empty() {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
@@ -166,7 +166,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let summaries = app.cached_project_summaries().to_vec();
+    let summaries = app.cached_project_summaries();
     let total_projects = summaries.len();
     let total_sessions: usize = summaries.iter().map(|p| p.total).sum();
 

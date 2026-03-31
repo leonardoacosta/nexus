@@ -12,17 +12,15 @@ use nexus_core::notes::ProjectNotes;
 use nexus_core::session::{Session, SessionStatus};
 
 // Re-export extracted modules so existing `crate::app::*` imports work.
-pub use crate::notification::{NotificationManager, NotificationPanelState, Severity};
 #[allow(unused_imports)] // Used by tests and re-exported for submodules
 pub use crate::notification::{Notification, NotificationPanelRow};
+pub use crate::notification::{NotificationManager, NotificationPanelState, Severity};
 pub use crate::stream_state::StreamViewState;
 #[allow(unused_imports)] // Used by tests
 pub use crate::stream_state::classify_diff_line;
 pub use crate::theme::{
     colors, format_age, format_duration, session_type_indicator, status_color, status_dot,
 };
-#[allow(unused_imports)] // Design token — kept for completeness
-pub use crate::theme::status_sparkline;
 
 // ---------------------------------------------------------------------------
 // Search state for stream view
@@ -418,6 +416,8 @@ pub struct ProjectDetail {
     pub sync_status: SyncStatus,
     pub commits_behind: Option<i32>,
     pub git_branch: Option<String>,
+    /// Filesystem path to the project root, sourced from the agent.
+    pub path: Option<String>,
 }
 
 // NotificationPanelRow and NotificationPanelState — re-exported from crate::notification
@@ -588,10 +588,7 @@ impl App {
     /// into stream history and view, and sends the RPC command. Returns `true`
     /// if the prompt was sent, `false` if it was empty or no stream view is
     /// attached.
-    pub fn submit_prompt(
-        &mut self,
-        rpc_tx: &tokio::sync::mpsc::Sender<crate::RpcCommand>,
-    ) -> bool {
+    pub fn submit_prompt(&mut self, rpc_tx: &tokio::sync::mpsc::Sender<crate::RpcCommand>) -> bool {
         let prompt = self.stream_input_text();
         if prompt.is_empty() {
             return false;
@@ -1040,23 +1037,24 @@ impl App {
         // Push health samples into per-agent ring buffers.
         for agent in &data {
             if agent.connected
-                && let Some(health) = &agent.info.health {
-                    let entry = self
-                        .health_history
-                        .entry(agent.info.name.clone())
-                        .or_insert_with(AgentHealthHistory::new);
+                && let Some(health) = &agent.info.health
+            {
+                let entry = self
+                    .health_history
+                    .entry(agent.info.name.clone())
+                    .or_insert_with(AgentHealthHistory::new);
 
-                    let cpu_sample = health.cpu_percent.clamp(0.0, 100.0) as u64;
-                    entry.push_cpu(cpu_sample);
+                let cpu_sample = health.cpu_percent.clamp(0.0, 100.0) as u64;
+                entry.push_cpu(cpu_sample);
 
-                    let ram_sample = if health.memory_total_gb > 0.0 {
-                        ((health.memory_used_gb / health.memory_total_gb) * 100.0).clamp(0.0, 100.0)
-                            as u64
-                    } else {
-                        0
-                    };
-                    entry.push_ram(ram_sample);
-                }
+                let ram_sample = if health.memory_total_gb > 0.0 {
+                    ((health.memory_used_gb / health.memory_total_gb) * 100.0).clamp(0.0, 100.0)
+                        as u64
+                } else {
+                    0
+                };
+                entry.push_ram(ram_sample);
+            }
         }
 
         // Remove history entries for agents that are no longer in the config.

@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 
 mod app;
 mod client;
+mod keys;
 mod markdown;
 mod notification;
 mod notifications;
@@ -19,7 +20,6 @@ mod screens;
 mod stream;
 mod stream_state;
 mod theme;
-mod keys;
 mod ui_helpers;
 
 use app::{AgentData, App, InputMode, LineStyle, Screen, Severity, StyledLine};
@@ -82,8 +82,9 @@ pub(crate) enum RpcResult {
     ProjectDetails(std::collections::HashMap<String, app::ProjectDetail>),
     /// One or more agents reconnected successfully.
     AgentsReconnected(Vec<String>),
-    /// agents.toml was modified on disk; carries the new agent count.
-    ConfigChanged(usize),
+    /// agents.toml was modified on disk; carries the new agent count and
+    /// updated endpoints so the alert stream can be resubscribed.
+    ConfigChanged(usize, Vec<(String, u16)>),
 }
 
 #[tokio::main]
@@ -288,9 +289,11 @@ fn run_loop(
                             .push(format!("\u{2713} reconnected to {name}"), Severity::Info);
                     }
                 }
-                RpcResult::ConfigChanged(n) => {
+                RpcResult::ConfigChanged(n, new_endpoints) => {
                     app.notifications
                         .push(format!("config reloaded: {n} agents"), Severity::Info);
+                    // Resubscribe alert stream to pick up new/changed agents.
+                    *alert_rx = stream::subscribe_alert_stream(&new_endpoints);
                 }
             }
         }
@@ -473,7 +476,11 @@ fn run_loop(
 /// Spawn a background task that watches `~/.config/nexus/agents.toml` for
 /// modifications.  On each write event (debounced 500 ms) the file is
 /// re-parsed and the new agent count is sent as `RpcResult::ConfigChanged`.
-fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>, rpc_tx: mpsc::Sender<RpcCommand>) {
+fn spawn_config_watcher(
+    config_path: PathBuf,
+    result_tx: mpsc::Sender<RpcResult>,
+    rpc_tx: mpsc::Sender<RpcCommand>,
+) {
     // Bridge: notify fires on a OS thread; we forward events into a tokio channel.
     let (notify_tx, mut notify_rx) = mpsc::channel::<()>(1);
 
@@ -531,23 +538,31 @@ fn spawn_config_watcher(config_path: PathBuf, result_tx: mpsc::Sender<RpcResult>
             // Re-parse the config and report the result.
             // Extract the outcome before any `.await` so the non-Send error
             // type is not held across an await point.
-            let reload_outcome: Option<(usize, NexusConfig)> = match nexus_core::config::NexusConfig::load() {
-                Ok(cfg) => {
-                    let n = cfg.agents.len();
-                    tracing::info!("config reloaded: {n} agents");
-                    Some((n, cfg))
-                }
-                Err(e) => {
-                    tracing::warn!("config watcher: reload failed: {e}");
-                    None
-                }
-            };
+            let reload_outcome: Option<(usize, NexusConfig)> =
+                match nexus_core::config::NexusConfig::load() {
+                    Ok(cfg) => {
+                        let n = cfg.agents.len();
+                        tracing::info!("config reloaded: {n} agents");
+                        Some((n, cfg))
+                    }
+                    Err(e) => {
+                        tracing::warn!("config watcher: reload failed: {e}");
+                        None
+                    }
+                };
 
             if let Some((n, cfg)) = reload_outcome {
+                let new_endpoints: Vec<(String, u16)> = cfg
+                    .agents
+                    .iter()
+                    .map(|a| (a.host.clone(), a.port))
+                    .collect();
                 // Send the parsed config to the background task so it can
                 // update the NexusClient agent list.
                 let _ = rpc_tx.send(RpcCommand::ReloadConfig(cfg)).await;
-                let _ = result_tx.send(RpcResult::ConfigChanged(n)).await;
+                let _ = result_tx
+                    .send(RpcResult::ConfigChanged(n, new_endpoints))
+                    .await;
             }
         }
     });

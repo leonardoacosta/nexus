@@ -10,8 +10,8 @@
 use super::PlaybackQueue;
 use super::http_router::build_receiver_router;
 use crate::config::NotificationsConfig;
-use crate::services::receiver::state::ReceiverState;
 use crate::services::Service;
+use crate::services::receiver::state::ReceiverState;
 use anyhow::Result;
 use chrono::Utc;
 use std::net::SocketAddr;
@@ -143,10 +143,20 @@ impl Service for ReceiverService {
     async fn start(&self, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
         let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid bind address '{}:{}': {}", self.bind_address, self.port, e))?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "invalid bind address '{}:{}': {}",
+                    self.bind_address,
+                    self.port,
+                    e
+                )
+            })?;
         let listener = tokio::net::TcpListener::bind(addr).await?;
 
-        info!("TTS Receiver listening on http://{}:{}", self.bind_address, self.port);
+        info!(
+            "TTS Receiver listening on http://{}:{}",
+            self.bind_address, self.port
+        );
 
         let queue_depth = self.config.playback_queue.max_depth;
         let (queue_handle, queue_join) =

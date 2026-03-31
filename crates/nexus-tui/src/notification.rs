@@ -76,8 +76,6 @@ impl NotificationManager {
 pub struct NotificationPanelRow {
     /// Project code (e.g. "oo"), or empty string to represent the defaults row.
     pub project: String,
-    /// Whether this row's settings come from the defaults (no per-project override).
-    pub is_default: bool,
 }
 
 /// State for the notification settings panel overlay.
@@ -93,38 +91,17 @@ impl NotificationPanelState {
         let config = nexus_core::config::NotificationConfig::load().unwrap_or_default();
         let mut rows = vec![NotificationPanelRow {
             project: String::new(),
-            is_default: false,
         }];
         let mut project_codes: Vec<String> = config.projects.keys().cloned().collect();
         project_codes.sort();
         for code in project_codes {
-            rows.push(NotificationPanelRow {
-                project: code,
-                is_default: false,
-            });
+            rows.push(NotificationPanelRow { project: code });
         }
         Self {
             rows,
             selected: 0,
             config,
         }
-    }
-
-    pub fn selected_rules(&self) -> &nexus_core::config::ProjectNotificationRules {
-        let row = &self.rows[self.selected];
-        if row.project.is_empty() {
-            &self.config.defaults
-        } else {
-            self.config.rules_for(&row.project)
-        }
-    }
-
-    pub fn selected_has_override(&self) -> bool {
-        let row = &self.rows[self.selected];
-        if row.project.is_empty() {
-            return false;
-        }
-        self.config.projects.contains_key(&row.project)
     }
 
     pub fn cycle_verbosity(&mut self) {

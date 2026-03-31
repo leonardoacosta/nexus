@@ -16,17 +16,17 @@ use crate::services::Service;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use nexus_core::credentials::{
-    best_available, fingerprint_token, is_managed_symlink, query_usage, sanitize_account_name,
-    AccountUsage, CachedUsage, CredentialAccount, UsageCache,
+    AccountUsage, CachedUsage, CredentialAccount, UsageCache, best_available, fingerprint_token,
+    is_managed_symlink, query_usage, sanitize_account_name,
 };
 use nexus_core::paths;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Notify, RwLock};
+use tokio::sync::{Notify, RwLock, mpsc};
 use tracing::{debug, error, info, warn};
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -205,10 +205,11 @@ impl CredentialPool {
         // Persist to disk.
         let cache_path = usage_cache_path();
         if let Some(parent) = cache_path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent) {
-                warn!(error = %e, "failed to create state dir for usage cache");
-                return;
-            }
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            warn!(error = %e, "failed to create state dir for usage cache");
+            return;
+        }
         if let Err(e) = cache.save(&cache_path) {
             warn!(error = %e, "failed to persist usage cache");
         } else {
@@ -309,13 +310,14 @@ impl Service for CredentialPoolService {
             .into_iter()
             .map(|mut acct| {
                 if let Some(ref cache) = cached
-                    && let Some(cu) = cache.accounts.get(&acct.name) {
-                        acct.usage = Some(AccountUsage {
-                            five_hour: cu.five_hour.clone(),
-                            seven_day: cu.seven_day.clone(),
-                        });
-                        acct.last_polled = Some(cu.last_polled);
-                    }
+                    && let Some(cu) = cache.accounts.get(&acct.name)
+                {
+                    acct.usage = Some(AccountUsage {
+                        five_hour: cu.five_hour.clone(),
+                        seven_day: cu.seven_day.clone(),
+                    });
+                    acct.last_polled = Some(cu.last_polled);
+                }
                 acct
             })
             .collect();
@@ -495,10 +497,11 @@ impl DebounceTracker {
     fn should_process(&mut self, path: &Path) -> bool {
         let now = tokio::time::Instant::now();
         if let Some(last) = self.last_event.get(path)
-            && now.duration_since(*last) < self.window {
-                self.last_event.insert(path.to_path_buf(), now);
-                return false;
-            }
+            && now.duration_since(*last) < self.window
+        {
+            self.last_event.insert(path.to_path_buf(), now);
+            return false;
+        }
         self.last_event.insert(path.to_path_buf(), now);
         true
     }

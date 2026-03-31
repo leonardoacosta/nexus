@@ -392,10 +392,11 @@ pub async fn recommend_handler(State(state): State<AppState>) -> Json<RecommendR
     let mut cache = mutex.lock().await;
 
     if cache.refreshed_at.elapsed() < TTL
-        && let Some(ref mut resp) = cache.response {
-            resp.context.session_count = session_count;
-            return Json(resp.clone());
-        }
+        && let Some(ref mut resp) = cache.response
+    {
+        resp.context.session_count = session_count;
+        return Json(resp.clone());
+    }
 
     let response = build_recommendations(session_count, &state.failure_buffer).await;
     cache.response = Some(response.clone());
@@ -442,7 +443,10 @@ fn default_priority() -> i32 {
     4
 }
 
-async fn build_recommendations(session_count: usize, failure_buffer: &FailureBuffer) -> RecommendResponse {
+async fn build_recommendations(
+    session_count: usize,
+    failure_buffer: &FailureBuffer,
+) -> RecommendResponse {
     let (bd_result, context_result) = tokio::join!(fetch_bd_ready(), fetch_master_context());
 
     let ready_items = bd_result.unwrap_or_default();
@@ -506,19 +510,22 @@ async fn build_recommendations(session_count: usize, failure_buffer: &FailureBuf
         }
 
         if let Some(ref spec) = active_spec
-            && !spec.is_empty() && item.title.to_lowercase().contains(&spec.to_lowercase()) {
-                score += 30;
-                reasons.push("active spec".into());
-            }
+            && !spec.is_empty()
+            && item.title.to_lowercase().contains(&spec.to_lowercase())
+        {
+            score += 30;
+            reasons.push("active spec".into());
+        }
 
         if !item.created_at.is_empty()
-            && let Ok(created) = chrono::DateTime::parse_from_rfc3339(&item.created_at) {
-                let age_days = (now_epoch - created.timestamp()) / 86400;
-                if age_days > 7 {
-                    score += 5;
-                    reasons.push("stale >7d".into());
-                }
+            && let Ok(created) = chrono::DateTime::parse_from_rfc3339(&item.created_at)
+        {
+            let age_days = (now_epoch - created.timestamp()) / 86400;
+            if age_days > 7 {
+                score += 5;
+                reasons.push("stale >7d".into());
             }
+        }
 
         recommendations.push(Recommendation {
             id: item.id.clone(),
@@ -1124,10 +1131,7 @@ mod tests {
             "model": "opus"
         }"#;
         let payload: HookEventPayload = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            payload.hook_event_name.as_deref(),
-            Some("session_summary")
-        );
+        assert_eq!(payload.hook_event_name.as_deref(), Some("session_summary"));
         let tc = payload.tool_counts.as_ref().unwrap();
         assert_eq!(*tc.get("Read").unwrap(), 5);
         assert_eq!(*tc.get("Write").unwrap(), 3);

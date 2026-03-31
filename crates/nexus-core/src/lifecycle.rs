@@ -224,7 +224,9 @@ pub fn project_from_cwd(cwd: &str) -> String {
 
     // Find "dev" component and take the next one.
     for (i, comp) in components.iter().enumerate() {
-        if *comp == "dev" && let Some(project) = components.get(i + 1) {
+        if *comp == "dev"
+            && let Some(project) = components.get(i + 1)
+        {
             return project.to_string();
         }
     }

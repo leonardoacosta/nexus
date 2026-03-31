@@ -75,14 +75,15 @@ async fn subscribe_to_peer(
 
     while let Some(event) = stream.message().await? {
         if let Some(lifecycle_event) = session_event_to_lifecycle(&peer.name, &event)
-            && tx.send(lifecycle_event).await.is_err() {
-                // Receiver dropped — no point continuing.
-                tracing::debug!(
-                    peer = %peer.name,
-                    "event_forwarder: notification channel closed, stopping subscription"
-                );
-                return Ok(());
-            }
+            && tx.send(lifecycle_event).await.is_err()
+        {
+            // Receiver dropped — no point continuing.
+            tracing::debug!(
+                peer = %peer.name,
+                "event_forwarder: notification channel closed, stopping subscription"
+            );
+            return Ok(());
+        }
     }
 
     Ok(())

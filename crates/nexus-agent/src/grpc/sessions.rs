@@ -53,12 +53,13 @@ impl NexusAgentService {
 
         // Agent targeting: reject if target doesn't match this agent.
         if let Some(ref target) = req.target_agent
-            && target != &self.agent_name {
-                return Err(Status::not_found(format!(
-                    "Agent '{}' does not match target '{}'",
-                    self.agent_name, target
-                )));
-            }
+            && target != &self.agent_name
+        {
+            return Err(Status::not_found(format!(
+                "Agent '{}' does not match target '{}'",
+                self.agent_name, target
+            )));
+        }
 
         let session_id = Uuid::new_v4().to_string();
 

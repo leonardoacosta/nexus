@@ -326,9 +326,10 @@ fn get_api_usage() -> Option<UsageResponse> {
     // Check cache (5 min TTL)
     if let Ok(content) = fs::read_to_string(&cache_path)
         && let Ok(cached) = serde_json::from_str::<CachedUsage>(&content)
-            && now_secs() - cached.fetched_at < USAGE_CACHE_TTL {
-                return Some(cached.data);
-            }
+        && now_secs() - cached.fetched_at < USAGE_CACHE_TTL
+    {
+        return Some(cached.data);
+    }
 
     // Fetch fresh
     let token = read_access_token()?;
@@ -360,9 +361,10 @@ fn read_access_token() -> Option<String> {
 
     // Check expiry
     if let Some(expires_at) = oauth.expires_at
-        && now_secs() * 1000 > expires_at {
-            return None;
-        }
+        && now_secs() * 1000 > expires_at
+    {
+        return None;
+    }
     Some(oauth.access_token)
 }
 
@@ -421,9 +423,10 @@ fn get_account_domain() -> Option<String> {
     // Check cache
     if let Ok(content) = fs::read_to_string(&cache_path)
         && let Ok(cached) = serde_json::from_str::<CachedProfile>(&content)
-            && now_secs() - cached.fetched_at < PROFILE_CACHE_TTL {
-                return Some(cached.domain);
-            }
+        && now_secs() - cached.fetched_at < PROFILE_CACHE_TTL
+    {
+        return Some(cached.domain);
+    }
 
     // Fetch fresh
     let token = read_access_token()?;
@@ -563,9 +566,10 @@ fn main() {
     // Active spec (from nexus-agent session)
     if let Some(sess) = session
         && let Some(spec) = &sess.spec
-            && !spec.is_empty() {
-                parts.push(format!("⚡ {SPEC}{spec}{RESET}"));
-            }
+        && !spec.is_empty()
+    {
+        parts.push(format!("⚡ {SPEC}{spec}{RESET}"));
+    }
 
     // Context window (from CC stdin)
     if let Some(remaining) = cc_input

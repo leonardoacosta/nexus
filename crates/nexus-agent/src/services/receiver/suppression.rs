@@ -39,9 +39,10 @@ impl SuppressionChecker {
     pub async fn is_video_call_active(&mut self) -> bool {
         // Check cache first
         if let Some(ref cache) = self.video_call_cache
-            && cache.checked_at.elapsed() < self.cache_duration {
-                return cache.result;
-            }
+            && cache.checked_at.elapsed() < self.cache_duration
+        {
+            return cache.result;
+        }
 
         let result = self.detect_video_call().await;
         self.video_call_cache = Some(CachedCheck {
@@ -54,27 +55,28 @@ impl SuppressionChecker {
     async fn detect_video_call(&self) -> bool {
         // Try wmctrl first
         if let Ok(output) = Command::new("wmctrl").arg("-l").output().await
-            && output.status.success() {
-                let windows = String::from_utf8_lossy(&output.stdout).to_lowercase();
-                let call_indicators = [
-                    "zoom meeting",
-                    "zoom",
-                    "microsoft teams",
-                    "teams meeting",
-                    "google meet",
-                    "meet -",
-                    "webex",
-                    "slack huddle",
-                    "discord call",
-                ];
-                if call_indicators
-                    .iter()
-                    .any(|indicator| windows.contains(indicator))
-                {
-                    info!("Video call detected via wmctrl");
-                    return true;
-                }
+            && output.status.success()
+        {
+            let windows = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            let call_indicators = [
+                "zoom meeting",
+                "zoom",
+                "microsoft teams",
+                "teams meeting",
+                "google meet",
+                "meet -",
+                "webex",
+                "slack huddle",
+                "discord call",
+            ];
+            if call_indicators
+                .iter()
+                .any(|indicator| windows.contains(indicator))
+            {
+                info!("Video call detected via wmctrl");
+                return true;
             }
+        }
 
         // Fallback: check running processes
         if let Ok(output) = Command::new("pgrep")
@@ -82,10 +84,12 @@ impl SuppressionChecker {
             .arg("zoom|teams|meet")
             .output()
             .await
-            && output.status.success() && !output.stdout.is_empty() {
-                debug!("Video call process detected via pgrep");
-                return true;
-            }
+            && output.status.success()
+            && !output.stdout.is_empty()
+        {
+            debug!("Video call process detected via pgrep");
+            return true;
+        }
 
         false
     }
@@ -95,15 +99,16 @@ impl SuppressionChecker {
     pub async fn is_dnd_active(&self) -> bool {
         // Check dunst DND
         if let Ok(output) = Command::new("dunstctl").arg("is-paused").output().await
-            && output.status.success() {
-                let result = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .to_lowercase();
-                if result == "true" {
-                    info!("DND active (dunst paused)");
-                    return true;
-                }
+            && output.status.success()
+        {
+            let result = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_lowercase();
+            if result == "true" {
+                info!("DND active (dunst paused)");
+                return true;
             }
+        }
 
         false
     }

@@ -57,6 +57,9 @@ pub struct StreamViewState {
 
     // Transient notification.
     pub notification_message: Option<(String, usize)>,
+
+    /// Current terminal width for text wrapping (updated by the render loop).
+    pub terminal_width: u16,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -99,6 +102,7 @@ impl StreamViewState {
             search: None,
             code_blocks: Vec::new(),
             notification_message: None,
+            terminal_width: 120,
         }
     }
 
@@ -137,7 +141,8 @@ impl StreamViewState {
             return;
         }
         let buf = std::mem::take(&mut self.markdown_buf);
-        self.push_markdown(&buf, 120);
+        let width = self.terminal_width;
+        self.push_markdown(&buf, width);
     }
 
     pub fn push_stream_line(&mut self, entry: StreamLine) {
@@ -273,11 +278,11 @@ impl StreamViewState {
             Some(Content::ToolUse(info)) => {
                 self.flush_partial_buf();
                 let header = format!("\u{23FA} {}", info.tool_name);
-                for wrapped in textwrap_simple(&header, 120) {
+                for wrapped in textwrap_simple(&header, self.terminal_width as usize) {
                     self.push_line(StyledLine::new(wrapped, LineStyle::ToolHeader));
                 }
                 let input = format!("  $ {}", info.input_preview);
-                for wrapped in textwrap_simple(&input, 120) {
+                for wrapped in textwrap_simple(&input, self.terminal_width as usize) {
                     self.push_line(StyledLine::new(wrapped, LineStyle::ToolInput));
                 }
             }
@@ -318,7 +323,7 @@ impl StreamViewState {
                     for l in result.output_preview.lines() {
                         let diff_style = classify_diff_line(l);
                         let line_text = format!("  {icon} {}: {l}", result.tool_name);
-                        for wrapped in textwrap_simple(&line_text, 120) {
+                        for wrapped in textwrap_simple(&line_text, self.terminal_width as usize) {
                             self.push_line(StyledLine::new(wrapped, diff_style.unwrap_or(style)));
                         }
                     }

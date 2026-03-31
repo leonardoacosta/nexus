@@ -78,9 +78,9 @@ pub fn best_available(accounts: &[CredentialAccount]) -> Option<&CredentialAccou
         .iter()
         .filter(|a| !a.is_expired())
         .filter(|a| {
-            a.usage.as_ref().is_none_or(|u| {
-                u.five_hour.utilization < 1.0 && u.seven_day.utilization < 1.0
-            })
+            a.usage
+                .as_ref()
+                .is_none_or(|u| u.five_hour.utilization < 1.0 && u.seven_day.utilization < 1.0)
         })
         .min_by(|a, b| {
             a.effective_utilization()
@@ -113,9 +113,7 @@ pub fn is_managed_symlink(path: &Path, pool_dir: &Path) -> bool {
             let resolved = if target.is_absolute() {
                 target
             } else {
-                path.parent()
-                    .map(|p| p.join(&target))
-                    .unwrap_or(target)
+                path.parent().map(|p| p.join(&target)).unwrap_or(target)
             };
             // Canonicalize both to handle .. and other path components.
             let canon_target = match resolved.canonicalize() {
@@ -402,7 +400,12 @@ mod tests {
     #[test]
     fn fingerprint_token_is_8_hex_chars() {
         let fp = fingerprint_token("some-access-token-value");
-        assert_eq!(fp.len(), 8, "fingerprint should be 8 chars, got {}", fp.len());
+        assert_eq!(
+            fp.len(),
+            8,
+            "fingerprint should be 8 chars, got {}",
+            fp.len()
+        );
         assert!(
             fp.chars().all(|c| c.is_ascii_hexdigit()),
             "fingerprint should be hex, got {}",
@@ -414,7 +417,10 @@ mod tests {
     fn fingerprint_token_different_tokens_differ() {
         let fp1 = fingerprint_token("token-alpha");
         let fp2 = fingerprint_token("token-beta");
-        assert_ne!(fp1, fp2, "different tokens should produce different fingerprints");
+        assert_ne!(
+            fp1, fp2,
+            "different tokens should produce different fingerprints"
+        );
     }
 
     #[test]
@@ -479,13 +485,19 @@ mod tests {
     #[test]
     fn is_managed_symlink_returns_false_for_nonexistent_path() {
         let pool_dir = std::env::temp_dir().join("nexus-test-nonexistent-pool");
-        assert!(!is_managed_symlink(Path::new("/tmp/nonexistent-link-xyz"), &pool_dir));
+        assert!(!is_managed_symlink(
+            Path::new("/tmp/nonexistent-link-xyz"),
+            &pool_dir
+        ));
     }
 
     #[test]
     fn sanitize_account_name_basic() {
         assert_eq!(sanitize_account_name("John Doe"), "john-doe");
-        assert_eq!(sanitize_account_name("user@example.com"), "user-example-com");
+        assert_eq!(
+            sanitize_account_name("user@example.com"),
+            "user-example-com"
+        );
     }
 
     #[test]

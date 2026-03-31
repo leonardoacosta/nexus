@@ -9,8 +9,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::Tabs;
 
-use crate::app::{self, App, Screen};
 use crate::RpcCommand;
+use crate::app::{self, App, Screen};
 use anyhow::Result;
 use tokio::sync::mpsc;
 
@@ -170,4 +170,3 @@ pub(crate) fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
         _ => {}
     }
 }
-

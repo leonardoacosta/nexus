@@ -104,9 +104,10 @@ fn read_ref_commit(git_dir: &Path, ref_path: &str) -> Result<String> {
             }
             // Format: "<sha> <ref>"
             if let Some((sha, r)) = line.split_once(' ')
-                && r == ref_path {
-                    return Ok(sha.to_string());
-                }
+                && r == ref_path
+            {
+                return Ok(sha.to_string());
+            }
         }
     }
 

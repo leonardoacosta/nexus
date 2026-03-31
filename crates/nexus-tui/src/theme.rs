@@ -76,16 +76,6 @@ pub fn status_color(status: SessionStatus) -> Color {
     }
 }
 
-/// Return a static sparkline string based on current status.
-pub fn status_sparkline(status: SessionStatus) -> &'static str {
-    match status {
-        SessionStatus::Active => "\u{28FF}\u{28F8}\u{28F0}\u{2838}", // ⣿⣸⣰⠸
-        SessionStatus::Idle => "\u{2820}\u{2830}\u{2800}\u{2800}",   // ⠠⠰⠀⠀
-        SessionStatus::Stale => "\u{2800}\u{2800}\u{2800}\u{2800}",  // ⠀⠀⠀⠀
-        SessionStatus::Errored => "",
-    }
-}
-
 /// Type indicator for a session: [M] if managed (has tmux_session), [A] if ad-hoc.
 pub fn session_type_indicator(session: &Session) -> &'static str {
     if session.tmux_session.is_some() {

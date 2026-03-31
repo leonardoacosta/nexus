@@ -84,9 +84,10 @@ pub(super) fn command_info_to_proto(
 /// Check whether a session matches the given filter criteria.
 pub(super) fn matches_filter(session: &proto::Session, filter: &proto::SessionFilter) -> bool {
     if let Some(status) = filter.status
-        && session.status != status {
-            return false;
-        }
+        && session.status != status
+    {
+        return false;
+    }
     if let Some(ref project) = filter.project {
         match &session.project {
             Some(p) if p == project => {}
@@ -94,9 +95,10 @@ pub(super) fn matches_filter(session: &proto::Session, filter: &proto::SessionFi
         }
     }
     if let Some(session_type) = filter.session_type
-        && session.session_type != session_type {
-            return false;
-        }
+        && session.session_type != session_type
+    {
+        return false;
+    }
     true
 }
 

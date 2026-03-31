@@ -90,11 +90,12 @@ impl NotificationBatchBuffer {
                 "quality_gates" => {
                     // Check if coalesce window has passed since first entry
                     if let Some(first) = queue.first()
-                        && first.received_at.elapsed() >= self.build_coalesce_window {
-                            let coalesced = self.coalesce_quality_gates(queue);
-                            results.push((ntype.clone(), coalesced));
-                            types_to_remove.push(ntype.clone());
-                        }
+                        && first.received_at.elapsed() >= self.build_coalesce_window
+                    {
+                        let coalesced = self.coalesce_quality_gates(queue);
+                        results.push((ntype.clone(), coalesced));
+                        types_to_remove.push(ntype.clone());
+                    }
                 }
                 "reminders" if self.reminder_coalesce => {
                     if queue.len() >= 2 {
@@ -189,9 +190,10 @@ impl NotificationBatchBuffer {
         let count = queue.len();
         // Extract wait time from last reminder message if possible
         if let Some(last) = queue.last()
-            && last.message.contains("waiting") {
-                return format!("{} ({} reminders suppressed)", last.message, count - 1);
-            }
+            && last.message.contains("waiting")
+        {
+            return format!("{} ({} reminders suppressed)", last.message, count - 1);
+        }
         format!("Claude has been waiting ({} reminders)", count)
     }
 
@@ -208,20 +210,21 @@ pub async fn is_terminal_focused() -> bool {
         .args(["getactivewindow", "getwindowname"])
         .output()
         .await
-        && output.status.success() {
-            let name = String::from_utf8_lossy(&output.stdout).to_lowercase();
-            let terminal_indicators = [
-                "kitty",
-                "alacritty",
-                "wezterm",
-                "foot",
-                "ghostty",
-                "terminal",
-                "tmux",
-                "konsole",
-            ];
-            return terminal_indicators.iter().any(|t| name.contains(t));
-        }
+        && output.status.success()
+    {
+        let name = String::from_utf8_lossy(&output.stdout).to_lowercase();
+        let terminal_indicators = [
+            "kitty",
+            "alacritty",
+            "wezterm",
+            "foot",
+            "ghostty",
+            "terminal",
+            "tmux",
+            "konsole",
+        ];
+        return terminal_indicators.iter().any(|t| name.contains(t));
+    }
     // Default: assume focused
     true
 }

@@ -25,7 +25,6 @@ pub enum MessageType {
     Extended,
 }
 
-
 /// Delivery channel for notifications
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]

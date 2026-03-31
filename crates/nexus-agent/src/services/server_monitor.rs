@@ -162,13 +162,15 @@ async fn get_docker_container_count() -> Option<u32> {
 /// Determine overall health status from metrics.
 fn compute_status(health: &ServerHealth) -> String {
     if let Some(disk) = health.disk_usage_pct
-        && disk >= DISK_WARNING_PCT {
-            return "warning".to_string();
-        }
+        && disk >= DISK_WARNING_PCT
+    {
+        return "warning".to_string();
+    }
     if let Some(mem) = health.memory_usage_pct
-        && mem >= MEMORY_WARNING_PCT {
-            return "warning".to_string();
-        }
+        && mem >= MEMORY_WARNING_PCT
+    {
+        return "warning".to_string();
+    }
     "healthy".to_string()
 }
 
@@ -267,14 +269,15 @@ impl Service for ServerMonitorService {
 
         // Ensure parent directory exists
         if let Some(parent) = self.state_path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent) {
-                error!(
-                    "Failed to create state directory {}: {}",
-                    parent.display(),
-                    e
-                );
-                return Err(e.into());
-            }
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            error!(
+                "Failed to create state directory {}: {}",
+                parent.display(),
+                e
+            );
+            return Err(e.into());
+        }
 
         self.healthy.store(true, Ordering::SeqCst);
 

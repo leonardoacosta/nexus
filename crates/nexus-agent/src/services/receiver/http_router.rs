@@ -3,17 +3,14 @@
 //! Contains the axum Router builder and the internal `handle_request` dispatch
 //! (used by both axum handlers and the `speak_from_socket` internal caller).
 
-use super::{
-    BannerDelivery, BufferEntry, PlaybackMessage, QueuedNotification,
-    WatchTokenStore,
-};
+use super::{BannerDelivery, BufferEntry, PlaybackMessage, QueuedNotification, WatchTokenStore};
 use crate::config::NotificationsConfig;
-use crate::services::receiver::service::{
-    Channel, ErrorResponse, HealthResponse, LastNotificationInfo, MessageType,
-    NotificationRecord, PlayRequest, ReceiverService, RegisterWatchRequest, RegisterWatchResponse,
-    SpeakRequest, SuccessResponse, VERSION,
-};
 use crate::services::receiver::service::NOTIFICATION_HISTORY_CAPACITY;
+use crate::services::receiver::service::{
+    Channel, ErrorResponse, HealthResponse, LastNotificationInfo, MessageType, NotificationRecord,
+    PlayRequest, ReceiverService, RegisterWatchRequest, RegisterWatchResponse, SpeakRequest,
+    SuccessResponse, VERSION,
+};
 use crate::services::receiver::state::ReceiverState;
 use axum::body::Bytes;
 use axum::extract::State as AxumState;
@@ -114,7 +111,10 @@ async fn axum_fallback_handler(
     let body = serde_json::to_vec(&response).unwrap_or_default();
     (
         StatusCode::NOT_FOUND,
-        [(axum::http::header::CONTENT_TYPE, "application/json".to_string())],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".to_string(),
+        )],
         body,
     )
 }
@@ -425,9 +425,7 @@ impl ReceiverService {
                         let banner_project = req.project.clone();
                         tokio::spawn(async move {
                             let title = match banner_project.as_deref() {
-                                Some(p) if !p.is_empty() && p != "global" => {
-                                    Some(p.to_uppercase())
-                                }
+                                Some(p) if !p.is_empty() && p != "global" => Some(p.to_uppercase()),
                                 _ => None,
                             };
                             match BannerDelivery::deliver(&banner_message, title.as_deref()).await {
@@ -867,30 +865,28 @@ impl ReceiverService {
                 }
             }
 
-            ("POST", "/reload") => {
-                match NotificationsConfig::load().await {
-                    Ok(new_config) => {
-                        {
-                            let mut state_guard = state.write().await;
-                            state_guard.config = new_config;
-                        }
-                        let response = serde_json::json!({
-                            "status": "ok",
-                            "reloaded_at": Utc::now().to_rfc3339(),
-                        });
-                        let body = serde_json::to_vec(&response).unwrap_or_default();
-                        (200, "application/json".to_string(), body)
+            ("POST", "/reload") => match NotificationsConfig::load().await {
+                Ok(new_config) => {
+                    {
+                        let mut state_guard = state.write().await;
+                        state_guard.config = new_config;
                     }
-                    Err(e) => {
-                        let response = serde_json::json!({
-                            "status": "error",
-                            "message": e.to_string(),
-                        });
-                        let body = serde_json::to_vec(&response).unwrap_or_default();
-                        (500, "application/json".to_string(), body)
-                    }
+                    let response = serde_json::json!({
+                        "status": "ok",
+                        "reloaded_at": Utc::now().to_rfc3339(),
+                    });
+                    let body = serde_json::to_vec(&response).unwrap_or_default();
+                    (200, "application/json".to_string(), body)
                 }
-            }
+                Err(e) => {
+                    let response = serde_json::json!({
+                        "status": "error",
+                        "message": e.to_string(),
+                    });
+                    let body = serde_json::to_vec(&response).unwrap_or_default();
+                    (500, "application/json".to_string(), body)
+                }
+            },
 
             ("GET", "/history") => {
                 let state_guard = state.read().await;
@@ -953,5 +949,4 @@ impl ReceiverService {
             }
         }
     }
-
 }

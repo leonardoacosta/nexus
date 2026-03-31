@@ -5,13 +5,15 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
-use crate::app::{
-    App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity,
-};
+use crate::app::{App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity};
 use crate::{KeyAction, RpcCommand};
 
 /// Handle a key event. Returns the appropriate `KeyAction`.
-pub(crate) fn handle_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
+pub(crate) fn handle_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
     // Clear status message and dismiss notifications on any key press.
     app.status_message = None;
     app.notifications.dismiss_all();
@@ -117,47 +119,49 @@ pub(crate) fn handle_stream_input_key(
     // Up — navigate backward in history (only when textarea is empty).
     if key.code == KeyCode::Up && app.stream_input_is_empty() {
         if let Some(sv) = &mut app.stream_view
-            && !sv.input_history.is_empty() {
-                let new_idx = match sv.history_index {
-                    None => sv.input_history.len() - 1,
-                    Some(0) => 0,
-                    Some(i) => i - 1,
-                };
-                sv.history_index = Some(new_idx);
-                let text = sv.input_history[new_idx].clone();
-                app.stream_input_set(&text);
-            }
+            && !sv.input_history.is_empty()
+        {
+            let new_idx = match sv.history_index {
+                None => sv.input_history.len() - 1,
+                Some(0) => 0,
+                Some(i) => i - 1,
+            };
+            sv.history_index = Some(new_idx);
+            let text = sv.input_history[new_idx].clone();
+            app.stream_input_set(&text);
+        }
         return KeyAction::Continue;
     }
 
     // Down — navigate forward in history.
     if key.code == KeyCode::Down
-        && let Some(sv) = &mut app.stream_view {
-            match sv.history_index {
-                None => {} // Not navigating; let TextArea handle Down normally.
-                Some(i) if i + 1 >= sv.input_history.len() => {
-                    sv.history_index = None;
-                    app.stream_input_clear();
-                    return KeyAction::Continue;
-                }
-                Some(i) => {
-                    let new_idx = i + 1;
-                    sv.history_index = Some(new_idx);
-                    let text = sv.input_history[new_idx].clone();
-                    app.stream_input_set(&text);
-                    return KeyAction::Continue;
-                }
+        && let Some(sv) = &mut app.stream_view
+    {
+        match sv.history_index {
+            None => {} // Not navigating; let TextArea handle Down normally.
+            Some(i) if i + 1 >= sv.input_history.len() => {
+                sv.history_index = None;
+                app.stream_input_clear();
+                return KeyAction::Continue;
+            }
+            Some(i) => {
+                let new_idx = i + 1;
+                sv.history_index = Some(new_idx);
+                let text = sv.input_history[new_idx].clone();
+                app.stream_input_set(&text);
+                return KeyAction::Continue;
             }
         }
+    }
 
     // Any typing resets history navigation.
     if matches!(
         key.code,
         KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
-    )
-        && let Some(sv) = &mut app.stream_view {
-            sv.history_index = None;
-        }
+    ) && let Some(sv) = &mut app.stream_view
+    {
+        sv.history_index = None;
+    }
 
     // Pass the key through to the TextArea widget.
     // Wrap in Event::Key so the textarea's crossterm Input conversion fires.
@@ -167,7 +171,11 @@ pub(crate) fn handle_stream_input_key(
 }
 
 /// Normal mode key handling.
-pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
+pub(crate) fn handle_normal_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
     match app.current_screen {
         Screen::Detail => handle_detail_key(app, key, rpc_tx),
         Screen::StreamAttach => handle_stream_key(app, key),
@@ -176,7 +184,11 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sen
 }
 
 /// Key handling for list-based screens (Dashboard, Health, Projects).
-pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
+pub(crate) fn handle_list_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -201,25 +213,26 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
         KeyCode::Enter | KeyCode::Char('d') => {
             // On Dashboard: open detail for selected session.
             if app.current_screen == Screen::Dashboard
-                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
-                    let session = row.session.clone();
-                    // Find the agent info.
-                    let agent_info = app
-                        .agents
-                        .iter()
-                        .find(|a| a.info.name == row.agent_name)
-                        .map(|a| a.info.clone())
-                        .unwrap_or_else(|| nexus_core::agent::AgentSnapshot {
-                            name: row.agent_name.clone(),
-                            host: String::new(),
-                            port: 0,
-                            os: String::new(),
-                            sessions: Vec::new(),
-                            health: None,
-                            connected: false,
-                        });
-                    app.open_detail(session, agent_info);
-                }
+                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
+            {
+                let session = row.session.clone();
+                // Find the agent info.
+                let agent_info = app
+                    .agents
+                    .iter()
+                    .find(|a| a.info.name == row.agent_name)
+                    .map(|a| a.info.clone())
+                    .unwrap_or_else(|| nexus_core::agent::AgentSnapshot {
+                        name: row.agent_name.clone(),
+                        host: String::new(),
+                        port: 0,
+                        os: String::new(),
+                        sessions: Vec::new(),
+                        health: None,
+                        connected: false,
+                    });
+                app.open_detail(session, agent_info);
+            }
             KeyAction::Continue
         }
         KeyCode::Char(':') | KeyCode::Char('/') => {
@@ -240,16 +253,17 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
         KeyCode::Char('a') => {
             // Stream attach: works for all sessions (managed and ad-hoc).
             if app.current_screen == Screen::Dashboard
-                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
-                    let session_id = row.session.id.clone();
-                    let agent_name = row.agent_name.clone();
-                    let project = row.session.project.as_deref().unwrap_or("?");
-                    let short_id = &session_id[..session_id.len().min(4)];
-                    let label = format!("{project}#{short_id}");
-                    app.open_stream_attach(session_id, label, agent_name);
-                    app.ensure_session_tab();
-                    app.input_mode = InputMode::StreamInput;
-                }
+                && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
+            {
+                let session_id = row.session.id.clone();
+                let agent_name = row.agent_name.clone();
+                let project = row.session.project.as_deref().unwrap_or("?");
+                let short_id = &session_id[..session_id.len().min(4)];
+                let label = format!("{project}#{short_id}");
+                app.open_stream_attach(session_id, label, agent_name);
+                app.ensure_session_tab();
+                app.input_mode = InputMode::StreamInput;
+            }
             KeyAction::Continue
         }
         KeyCode::Char('e') => {
@@ -259,9 +273,9 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
                     .cached_project_summaries()
                     .get(app.selected_index)
                     .map(|p| p.name.clone())
-                {
-                    app.open_scratchpad(&name);
-                }
+            {
+                app.open_scratchpad(&name);
+            }
             KeyAction::Continue
         }
         KeyCode::Char('A') => {
@@ -273,7 +287,11 @@ pub(crate) fn handle_list_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sende
 }
 
 /// Key handling for the detail screen.
-pub(crate) fn handle_detail_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) -> KeyAction {
+pub(crate) fn handle_detail_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.close_detail();
@@ -544,18 +562,24 @@ pub(crate) fn handle_stream_search_key(app: &mut App, key: KeyEvent) {
 /// - d             — reset project to defaults
 /// - Esc / q       — close panel
 pub(crate) fn handle_notification_panel_key(app: &mut App, key: KeyEvent) {
-    let panel = match app.notification_panel.as_mut() {
-        Some(p) => p,
-        None => {
-            app.input_mode = InputMode::Normal;
-            return;
-        }
-    };
+    if app.notification_panel.is_none() {
+        app.input_mode = InputMode::Normal;
+        return;
+    }
 
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
             app.close_notification_panel();
+            return;
         }
+        _ => {}
+    }
+
+    let Some(panel) = app.notification_panel.as_mut() else {
+        return;
+    };
+
+    match key.code {
         KeyCode::Char('j') | KeyCode::Down => {
             let max = panel.rows.len().saturating_sub(1);
             panel.selected = (panel.selected + 1).min(max);
@@ -564,28 +588,24 @@ pub(crate) fn handle_notification_panel_key(app: &mut App, key: KeyEvent) {
             panel.selected = panel.selected.saturating_sub(1);
         }
         KeyCode::Char('v') => {
-            let panel = app.notification_panel.as_mut().unwrap();
             panel.cycle_verbosity();
             if let Err(e) = panel.save() {
                 app.status_message = Some(format!("save failed: {e}"));
             }
         }
         KeyCode::Char('a') => {
-            let panel = app.notification_panel.as_mut().unwrap();
             panel.toggle_agents();
             if let Err(e) = panel.save() {
                 app.status_message = Some(format!("save failed: {e}"));
             }
         }
         KeyCode::Char('s') => {
-            let panel = app.notification_panel.as_mut().unwrap();
             panel.toggle_specs();
             if let Err(e) = panel.save() {
                 app.status_message = Some(format!("save failed: {e}"));
             }
         }
         KeyCode::Char('d') => {
-            let panel = app.notification_panel.as_mut().unwrap();
             panel.reset_selected_to_default();
             if let Err(e) = panel.save() {
                 app.status_message = Some(format!("save failed: {e}"));
@@ -632,7 +652,11 @@ pub(crate) fn handle_palette_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Se
 }
 
 /// Execute a palette action.
-pub(crate) fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_tx: &mpsc::Sender<RpcCommand>) {
+pub(crate) fn execute_palette_action(
+    app: &mut App,
+    action: PaletteAction,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) {
     match action {
         PaletteAction::GoSession {
             session_id,
@@ -679,7 +703,11 @@ pub(crate) fn execute_palette_action(app: &mut App, action: PaletteAction, rpc_t
 }
 
 /// Key handling for agent selection in start-session wizard.
-pub(crate) fn handle_agent_select_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
+pub(crate) fn handle_agent_select_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) {
     let count = app.connected_agents().len();
     match key.code {
         KeyCode::Esc => {
@@ -709,7 +737,11 @@ pub(crate) fn handle_agent_select_key(app: &mut App, key: KeyEvent, rpc_tx: &mps
 }
 
 /// Key handling for project selection in start-session wizard.
-pub(crate) fn handle_project_select_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
+pub(crate) fn handle_project_select_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
@@ -733,7 +765,12 @@ pub(crate) fn handle_project_select_key(app: &mut App, key: KeyEvent, rpc_tx: &m
             let filtered = app.filtered_projects();
             if let Some(project) = filtered.get(app.start_project_idx).cloned().cloned() {
                 app.start_project = project.clone();
-                app.start_cwd = format!("~/dev/{project}");
+                // Source CWD from agent project data when available.
+                app.start_cwd = app
+                    .project_details_map
+                    .get(&project)
+                    .and_then(|d| d.path.clone())
+                    .unwrap_or_else(|| format!("~/dev/{project}"));
                 app.start_projects.clear();
                 app.start_project_filter.clear();
                 app.input_mode = InputMode::StartSessionCwd;
@@ -756,7 +793,11 @@ pub(crate) fn handle_project_select_key(app: &mut App, key: KeyEvent, rpc_tx: &m
 }
 
 /// Key handling for cwd text input in the start-session wizard.
-pub(crate) fn handle_cwd_input_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::Sender<RpcCommand>) {
+pub(crate) fn handle_cwd_input_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
@@ -794,4 +835,3 @@ pub(crate) fn handle_cwd_input_key(app: &mut App, key: KeyEvent, rpc_tx: &mpsc::
         _ => {}
     }
 }
-

@@ -1,7 +1,7 @@
-use super::*;
-use crate::services::receiver::state::ReceiverState;
 #[cfg(test)]
 use super::super::AudioController;
+use super::*;
+use crate::services::receiver::state::ReceiverState;
 
 #[test]
 fn test_speak_request_deserialize() {
@@ -229,8 +229,7 @@ fn test_enrich_vague_message_ready_no_project() {
 
 #[test]
 fn test_enrich_vague_message_not_vague() {
-    let result =
-        ReceiverService::enrich_vague_message("Build completed successfully", Some("oo"));
+    let result = ReceiverService::enrich_vague_message("Build completed successfully", Some("oo"));
     assert_eq!(result, "Build completed successfully");
 }
 
