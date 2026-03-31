@@ -28,3 +28,8 @@ Thumbs.db
 .claude/local/
 
 docs/screenshots
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
