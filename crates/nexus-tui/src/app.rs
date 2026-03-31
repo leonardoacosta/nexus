@@ -1995,4 +1995,126 @@ mod tests {
         assert!(classify_diff_line(" context line").is_none());
         assert!(classify_diff_line("plain text").is_none());
     }
+
+    // ---- Screen cycling ----------------------------------------------------
+
+    #[test]
+    fn screen_next_cycles_through_tab_screens() {
+        // TAB_SCREENS = [Dashboard, Health, Projects]
+        assert_eq!(Screen::Dashboard.next(), Screen::Health);
+        assert_eq!(Screen::Health.next(), Screen::Projects);
+        assert_eq!(Screen::Projects.next(), Screen::Dashboard);
+    }
+
+    #[test]
+    fn screen_prev_cycles_in_reverse() {
+        assert_eq!(Screen::Dashboard.prev(), Screen::Projects);
+        assert_eq!(Screen::Projects.prev(), Screen::Health);
+        assert_eq!(Screen::Health.prev(), Screen::Dashboard);
+    }
+
+    #[test]
+    fn next_screen_updates_current_screen_and_resets_selection() {
+        let mut app = App::new();
+        assert_eq!(app.current_screen, Screen::Dashboard);
+        app.next_screen();
+        assert_eq!(app.current_screen, Screen::Health);
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn prev_screen_updates_current_screen_and_resets_selection() {
+        let mut app = App::new();
+        app.next_screen(); // Dashboard → Health
+        app.next_screen(); // Health → Projects
+        assert_eq!(app.current_screen, Screen::Projects);
+        app.prev_screen(); // Projects → Health
+        assert_eq!(app.current_screen, Screen::Health);
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn full_screen_cycle_returns_to_start() {
+        let mut app = App::new();
+        let start = app.current_screen;
+        // Cycle through all 3 tab screens and back.
+        app.next_screen();
+        app.next_screen();
+        app.next_screen();
+        assert_eq!(app.current_screen, start);
+    }
+
+    // ---- Quit flag ---------------------------------------------------------
+
+    #[test]
+    fn should_quit_defaults_to_false() {
+        let app = App::new();
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn setting_should_quit_to_true_persists() {
+        let mut app = App::new();
+        app.should_quit = true;
+        assert!(app.should_quit);
+    }
+
+    // ---- StreamVerbosity ---------------------------------------------------
+
+    #[test]
+    fn verbosity_rank_ordering_is_minimal_normal_verbose() {
+        assert!(verbosity_rank(StreamVerbosity::Minimal) < verbosity_rank(StreamVerbosity::Normal));
+        assert!(verbosity_rank(StreamVerbosity::Normal) < verbosity_rank(StreamVerbosity::Verbose));
+    }
+
+    #[test]
+    fn line_style_min_verbosity_user_prompt_is_minimal() {
+        assert_eq!(LineStyle::UserPrompt.min_verbosity(), StreamVerbosity::Minimal);
+    }
+
+    #[test]
+    fn line_style_min_verbosity_tool_header_is_normal() {
+        assert_eq!(LineStyle::ToolHeader.min_verbosity(), StreamVerbosity::Normal);
+    }
+
+    #[test]
+    fn stream_line_styled_has_one_display_line() {
+        let line = StreamLine::Styled(StyledLine::new("hello", LineStyle::Plain));
+        assert_eq!(line.display_lines(), 1);
+    }
+
+    #[test]
+    fn stream_line_collapsible_collapsed_has_one_display_line() {
+        let block = StreamLine::CollapsibleBlock {
+            header: StyledLine::new("header", LineStyle::ToolHeader),
+            lines: vec![
+                StyledLine::new("body1", LineStyle::ToolResult),
+                StyledLine::new("body2", LineStyle::ToolResult),
+            ],
+            expanded: false,
+        };
+        assert_eq!(block.display_lines(), 1);
+    }
+
+    #[test]
+    fn stream_line_collapsible_expanded_counts_header_plus_body() {
+        let block = StreamLine::CollapsibleBlock {
+            header: StyledLine::new("header", LineStyle::ToolHeader),
+            lines: vec![
+                StyledLine::new("body1", LineStyle::ToolResult),
+                StyledLine::new("body2", LineStyle::ToolResult),
+            ],
+            expanded: true,
+        };
+        assert_eq!(block.display_lines(), 3); // 1 header + 2 body
+    }
+
+    #[test]
+    fn stream_line_is_visible_at_correct_verbosity() {
+        let tool_line = StreamLine::Styled(StyledLine::new("tool", LineStyle::ToolHeader));
+        // Tool lines require Normal — not visible at Minimal.
+        assert!(!tool_line.is_visible(StreamVerbosity::Minimal));
+        assert!(tool_line.is_visible(StreamVerbosity::Normal));
+        assert!(tool_line.is_visible(StreamVerbosity::Verbose));
+    }
 }
