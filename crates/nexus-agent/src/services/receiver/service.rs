@@ -31,6 +31,7 @@ pub use super::types::*;
 /// TTS Receiver HTTP service
 pub struct ReceiverService {
     port: u16,
+    bind_address: String,
     state: Arc<RwLock<ReceiverState>>,
     config: NotificationsConfig,
     shared_config: Option<Arc<tokio::sync::RwLock<NotificationsConfig>>>,
@@ -47,6 +48,7 @@ impl ReceiverService {
         let port = config.server.port;
         Self {
             port,
+            bind_address: "127.0.0.1".to_string(),
             state: Arc::new(RwLock::new(ReceiverState::new(config.clone()))),
             config,
             shared_config: None,
@@ -64,6 +66,7 @@ impl ReceiverService {
         receiver_state.shared_config = Some(Arc::clone(&shared_config));
         Self {
             port,
+            bind_address: "127.0.0.1".to_string(),
             state: Arc::new(RwLock::new(receiver_state)),
             config,
             shared_config: Some(shared_config),
@@ -75,6 +78,12 @@ impl ReceiverService {
         let mut config = NotificationsConfig::load().unwrap_or_default();
         config.server.port = port;
         Self::with_config(config)
+    }
+
+    /// Set the bind address for this receiver service.
+    pub fn with_bind_address(mut self, bind_address: String) -> Self {
+        self.bind_address = bind_address;
+        self
     }
 
     /// Access the shared state (used by state.rs for history_json).
@@ -155,10 +164,12 @@ impl Service for ReceiverService {
     }
 
     async fn start(&self, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
-        let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
+        let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid bind address '{}:{}': {}", self.bind_address, self.port, e))?;
         let listener = TcpListener::bind(addr).await?;
 
-        info!("TTS Receiver listening on http://0.0.0.0:{}", self.port);
+        info!("TTS Receiver listening on http://{}:{}", self.bind_address, self.port);
 
         let queue_depth = self.config.playback_queue.max_depth;
         let (queue_handle, queue_join) =

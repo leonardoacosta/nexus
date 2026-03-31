@@ -120,7 +120,9 @@ async fn main() -> Result<()> {
 
     // Role-gated: start ReceiverService only on Primary.
     // Agent role skips TTS/APNs/banner — no audio deps needed at runtime.
-    let receiver = Arc::new(ReceiverService::new());
+    let receiver = Arc::new(
+        ReceiverService::new().with_bind_address(nexus_config.bind_address.clone()),
+    );
     if role == AgentRole::Primary {
         spawn_service(Arc::clone(&receiver), coordinator.token());
         tracing::info!("ReceiverService started (role=primary)");
