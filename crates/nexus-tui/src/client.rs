@@ -534,6 +534,196 @@ impl NexusClient {
         anyhow::bail!("session {id} not found on any connected agent")
     }
 
+    // -------------------------------------------------------------------------
+    // Analytics RPCs (fan-out, sequential)
+    // -------------------------------------------------------------------------
+
+    /// Fetch health timeseries from all agents.
+    /// Returns `Vec<(agent_name, Vec<HealthTimeSeriesEntry>)>`.
+    #[allow(dead_code)] // Wired up by analytics screen tasks
+    pub async fn get_health_time_series(
+        &mut self,
+        hours: u32,
+    ) -> Vec<(String, Vec<nexus_core::proto::HealthTimeSeriesEntry>)> {
+        let mut results = Vec::new();
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+            let request =
+                tonic::Request::new(nexus_core::proto::HealthTimeSeriesRequest { hours });
+            match client.get_health_time_series(request).await {
+                Ok(resp) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    results.push((agent.config.name.clone(), resp.into_inner().samples));
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %e,
+                        "failed to fetch health timeseries"
+                    );
+                }
+            }
+        }
+        results
+    }
+
+    /// Fetch session history from all agents.
+    /// Returns merged `Vec<SessionHistoryEntry>` (deduplicated by date — counts
+    /// and costs are summed for the same date across agents).
+    #[allow(dead_code)] // Wired up by analytics screen tasks
+    pub async fn get_session_history(
+        &mut self,
+        days: u32,
+        project: Option<String>,
+    ) -> Vec<nexus_core::proto::SessionHistoryEntry> {
+        use std::collections::HashMap;
+
+        let mut by_date: HashMap<String, nexus_core::proto::SessionHistoryEntry> = HashMap::new();
+
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+            let request = tonic::Request::new(nexus_core::proto::SessionHistoryRequest {
+                days,
+                project: project.clone(),
+            });
+            match client.get_session_history(request).await {
+                Ok(resp) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    for entry in resp.into_inner().entries {
+                        by_date
+                            .entry(entry.date.clone())
+                            .and_modify(|existing| {
+                                existing.session_count += entry.session_count;
+                                existing.total_cost_usd += entry.total_cost_usd;
+                            })
+                            .or_insert(entry);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %e,
+                        "failed to fetch session history"
+                    );
+                }
+            }
+        }
+
+        let mut entries: Vec<_> = by_date.into_values().collect();
+        entries.sort_by(|a, b| a.date.cmp(&b.date));
+        entries
+    }
+
+    /// Fetch failure trends from all agents.
+    /// Returns merged `(daily, by_tool)` — daily entries are summed by date,
+    /// by-tool entries are summed by tool name.
+    #[allow(dead_code)] // Wired up by analytics screen tasks
+    pub async fn get_failure_trends(
+        &mut self,
+        days: u32,
+    ) -> (
+        Vec<nexus_core::proto::FailureTrendEntry>,
+        Vec<nexus_core::proto::FailureByTool>,
+    ) {
+        use std::collections::HashMap;
+
+        let mut daily_map: HashMap<String, nexus_core::proto::FailureTrendEntry> = HashMap::new();
+        let mut tool_map: HashMap<String, nexus_core::proto::FailureByTool> = HashMap::new();
+
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+            let request = tonic::Request::new(nexus_core::proto::FailureTrendsRequest { days });
+            match client.get_failure_trends(request).await {
+                Ok(resp) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    let inner = resp.into_inner();
+                    for entry in inner.daily {
+                        daily_map
+                            .entry(entry.date.clone())
+                            .and_modify(|existing| {
+                                existing.count += entry.count;
+                            })
+                            .or_insert(entry);
+                    }
+                    for entry in inner.by_tool {
+                        tool_map
+                            .entry(entry.tool_name.clone())
+                            .and_modify(|existing| {
+                                existing.count += entry.count;
+                            })
+                            .or_insert(entry);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %e,
+                        "failed to fetch failure trends"
+                    );
+                }
+            }
+        }
+
+        let mut daily: Vec<_> = daily_map.into_values().collect();
+        daily.sort_by(|a, b| a.date.cmp(&b.date));
+        let mut by_tool: Vec<_> = tool_map.into_values().collect();
+        by_tool.sort_by(|a, b| b.count.cmp(&a.count));
+        (daily, by_tool)
+    }
+
+    /// Fetch spec velocity from all agents.
+    /// Returns concatenated `Vec<SpecVelocityEntry>` (each agent contributes
+    /// its own projects, so entries are concatenated rather than merged).
+    #[allow(dead_code)] // Wired up by analytics screen tasks
+    pub async fn get_spec_velocity(
+        &mut self,
+        days: u32,
+        project: Option<String>,
+    ) -> Vec<nexus_core::proto::SpecVelocityEntry> {
+        let mut results = Vec::new();
+        for agent in &mut self.agents {
+            let client = match agent.client.as_mut() {
+                Some(c) => c,
+                None => continue,
+            };
+            let request = tonic::Request::new(nexus_core::proto::SpecVelocityRequest {
+                days,
+                project: project.clone(),
+            });
+            match client.get_spec_velocity(request).await {
+                Ok(resp) => {
+                    agent.last_seen = Some(Utc::now());
+                    agent.status = ConnectionStatus::Connected;
+                    agent.last_error = None;
+                    results.extend(resp.into_inner().entries);
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %agent.config.name,
+                        error = %e,
+                        "failed to fetch spec velocity"
+                    );
+                }
+            }
+        }
+        results
+    }
+
     /// Send a command to a session via the broker. Returns a streaming receiver
     /// of CommandOutput messages. Tries each connected agent until one owns the session.
     pub async fn send_command(

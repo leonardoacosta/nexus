@@ -182,9 +182,16 @@ fn render_agent_card(
         .style(Style::default().fg(colors::TEXT_DIM));
     frame.render_widget(cpu_gauge, rows[0]);
 
-    // --- CPU sparkline ---
-    if let Some(history) = app.health_history.get(&agent.info.name) {
-        let cpu_data: Vec<u64> = history.cpu.iter().copied().collect();
+    // --- CPU sparkline (prefer SQLite 24h data, fall back to ring buffer) ---
+    let cpu_data: Vec<u64> =
+        if let Some(ts_entries) = app.health_time_series.get(&agent.info.name) {
+            ts_entries.iter().map(|e| e.cpu_percent as u64).collect()
+        } else if let Some(history) = app.health_history.get(&agent.info.name) {
+            history.cpu.iter().copied().collect()
+        } else {
+            vec![]
+        };
+    if !cpu_data.is_empty() {
         let sparkline = Sparkline::default()
             .data(&cpu_data)
             .max(100)
@@ -209,12 +216,29 @@ fn render_agent_card(
         .style(Style::default().fg(colors::TEXT_DIM));
     frame.render_widget(ram_gauge, rows[2]);
 
-    // --- RAM sparkline ---
-    if let Some(history) = app.health_history.get(&agent.info.name) {
-        let ram_data: Vec<u64> = history.ram.iter().copied().collect();
+    // --- RAM sparkline (prefer SQLite 24h data, fall back to ring buffer) ---
+    let ram_data: Vec<u64> =
+        if let Some(ts_entries) = app.health_time_series.get(&agent.info.name) {
+            // Convert GB to a percentage-like scale (GB * 10) for sparkline resolution.
+            ts_entries
+                .iter()
+                .map(|e| (e.memory_used_gb * 10.0) as u64)
+                .collect()
+        } else if let Some(history) = app.health_history.get(&agent.info.name) {
+            history.ram.iter().copied().collect()
+        } else {
+            vec![]
+        };
+    if !ram_data.is_empty() {
+        // When using SQLite data the max is scaled (GB*10), otherwise ring buffer is 0-100%.
+        let ram_max = if app.health_time_series.contains_key(&agent.info.name) {
+            ram_data.iter().copied().max().unwrap_or(1)
+        } else {
+            100
+        };
         let sparkline = Sparkline::default()
             .data(&ram_data)
-            .max(100)
+            .max(ram_max)
             .style(Style::default().fg(ram_fill_color));
         frame.render_widget(sparkline, rows[3]);
     }

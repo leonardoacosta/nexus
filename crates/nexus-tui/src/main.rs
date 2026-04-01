@@ -49,6 +49,7 @@ pub(crate) enum KeyAction {
 // RPC commands sent from the event handler to the async runtime
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub(crate) enum RpcCommand {
     StartSession {
         agent_name: String,
@@ -68,6 +69,17 @@ pub(crate) enum RpcCommand {
     /// Config file changed on disk — carry the new config so the background
     /// task can update the NexusClient agent list.
     ReloadConfig(NexusConfig),
+    FetchSessionHistory {
+        days: u32,
+        project: Option<String>,
+    },
+    FetchFailureTrends {
+        days: u32,
+    },
+    FetchSpecVelocity {
+        days: u32,
+        project: Option<String>,
+    },
 }
 
 pub(crate) enum RpcResult {
@@ -87,6 +99,10 @@ pub(crate) enum RpcResult {
     ConfigChanged(usize, Vec<(String, u16)>),
     /// Spec list fetched from agent HTTP API.
     SpecList(Vec<app::SpecListEntry>),
+    HealthTimeSeries(Vec<(String, Vec<nexus_core::proto::HealthTimeSeriesEntry>)>),
+    SessionHistory(Vec<nexus_core::proto::SessionHistoryEntry>),
+    FailureTrends(Vec<nexus_core::proto::FailureTrendEntry>, Vec<nexus_core::proto::FailureByTool>),
+    SpecVelocity(Vec<nexus_core::proto::SpecVelocityEntry>),
 }
 
 #[tokio::main]
@@ -250,6 +266,11 @@ fn run_loop(
                         Some(format!("started session {}", &id[..8.min(id.len())]));
                     app.input_mode = InputMode::Normal;
                     app.current_screen = Screen::Dashboard;
+                    let _ = rpc_tx.try_send(RpcCommand::FetchSessionHistory {
+                        days: 7,
+                        project: None,
+                    });
+                    let _ = rpc_tx.try_send(RpcCommand::FetchFailureTrends { days: 7 });
                 }
                 RpcResult::StartErr(e) => {
                     app.status_message = Some(format!("start failed: {e}"));
@@ -304,6 +325,18 @@ fn run_loop(
                         .filter(|s| s.status == "unread" || s.status == "read")
                         .count();
                     app.cached_specs = specs;
+                }
+                RpcResult::HealthTimeSeries(data) => {
+                    app.update_health_time_series(data);
+                }
+                RpcResult::SessionHistory(entries) => {
+                    app.update_session_history(entries);
+                }
+                RpcResult::FailureTrends(daily, by_tool) => {
+                    app.update_failure_trends(daily, by_tool);
+                }
+                RpcResult::SpecVelocity(entries) => {
+                    app.update_spec_velocity(entries);
                 }
             }
         }
@@ -591,8 +624,11 @@ async fn background_task(
     let mut project_detail_interval = tokio::time::interval(Duration::from_secs(30));
     // Periodic spec list refresh (10s).
     let mut spec_interval = tokio::time::interval(Duration::from_secs(10));
+    // Periodic health timeseries refresh (30s).
+    let mut health_ts_interval = tokio::time::interval(Duration::from_secs(30));
     // Skip the immediate first tick so reconnects don't race with connect_all.
     reconnect_interval.reset();
+    health_ts_interval.reset();
 
     loop {
         tokio::select! {
@@ -634,6 +670,12 @@ async fn background_task(
                         specs.sort_by_key(|s: &app::SpecListEntry| s.status_sort_key());
                         let _ = rpc_result_tx.send(RpcResult::SpecList(specs)).await;
                     }
+                }
+            }
+            _ = health_ts_interval.tick() => {
+                let data = client.get_health_time_series(24).await;
+                if !data.is_empty() {
+                    let _ = rpc_result_tx.send(RpcResult::HealthTimeSeries(data)).await;
                 }
             }
             cmd = rpc_rx.recv() => {
@@ -700,6 +742,18 @@ async fn background_task(
                             }
                         };
                         let _ = rpc_result_tx.send(RpcResult::ProjectList(projects)).await;
+                    }
+                    Some(RpcCommand::FetchSessionHistory { days, project }) => {
+                        let entries = client.get_session_history(days, project).await;
+                        let _ = rpc_result_tx.send(RpcResult::SessionHistory(entries)).await;
+                    }
+                    Some(RpcCommand::FetchFailureTrends { days }) => {
+                        let (daily, by_tool) = client.get_failure_trends(days).await;
+                        let _ = rpc_result_tx.send(RpcResult::FailureTrends(daily, by_tool)).await;
+                    }
+                    Some(RpcCommand::FetchSpecVelocity { days, project }) => {
+                        let entries = client.get_spec_velocity(days, project).await;
+                        let _ = rpc_result_tx.send(RpcResult::SpecVelocity(entries)).await;
                     }
                     None => break,
                 }

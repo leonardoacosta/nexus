@@ -761,12 +761,11 @@ impl NexusDb {
         self.read(|conn| {
             let (sql, bind_values): (String, Vec<String>) = match since {
                 Some(s) => (
-                    format!(
-                        "SELECT timestamp, cpu_percent, memory_used_gb, memory_total_gb,
+                    "SELECT timestamp, cpu_percent, memory_used_gb, memory_total_gb,
                                 disk_used_gb, disk_total_gb, load1, load5, load15, uptime_seconds
                          FROM health_samples WHERE timestamp >= ?1
                          ORDER BY timestamp DESC LIMIT ?2"
-                    ),
+                        .to_string(),
                     vec![s.to_string()],
                 ),
                 None => (

@@ -94,9 +94,29 @@ fn render_spec_table(frame: &mut Frame, area: Rect, app: &mut App) {
                 _ => "\u{25CC}",
             };
 
-            let tasks = match (spec.tasks_done, spec.tasks_total) {
+            let tasks_base = match (spec.tasks_done, spec.tasks_total) {
                 (Some(done), Some(total)) => format!("{done}/{total}"),
                 _ => "-".to_string(),
+            };
+
+            // Velocity trend from snapshots.
+            let spec_snapshots: Vec<&nexus_core::proto::SpecVelocityEntry> = app
+                .spec_velocity
+                .iter()
+                .filter(|e| e.spec_name == spec.name && e.project == spec.project)
+                .collect();
+            let (trend_str, trend_color) = if spec_snapshots.len() >= 2 {
+                let earliest = spec_snapshots.first().unwrap().completed_tasks;
+                let latest = spec_snapshots.last().unwrap().completed_tasks;
+                if latest > earliest {
+                    (" \u{2191}", colors::PRIMARY) // ↑ green — progressing
+                } else if latest == earliest {
+                    (" \u{2192}", colors::WARNING) // → yellow — stalled
+                } else {
+                    (" \u{2193}", colors::ERROR) // ↓ red — regressing
+                }
+            } else {
+                ("", colors::TEXT_DIM)
             };
 
             let age = spec
@@ -119,7 +139,10 @@ fn render_spec_table(frame: &mut Frame, area: Rect, app: &mut App) {
                     Span::styled(format!("{status_dot} "), Style::default().fg(status_color)),
                     Span::styled(spec.status.clone(), Style::default().fg(status_color)),
                 ]),
-                Line::from(Span::styled(tasks, Style::default().fg(colors::TEXT_DIM))),
+                Line::from(vec![
+                    Span::styled(tasks_base, Style::default().fg(colors::TEXT_DIM)),
+                    Span::styled(trend_str, Style::default().fg(trend_color)),
+                ]),
                 Line::from(Span::styled(age, Style::default().fg(colors::TEXT_DIM))),
             ])
         })
@@ -170,7 +193,7 @@ fn render_spec_table(frame: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(10), // project
         Constraint::Fill(1),    // spec name
         Constraint::Length(14), // status
-        Constraint::Length(8),  // tasks
+        Constraint::Length(10), // tasks + trend
         Constraint::Length(12), // discovered
     ];
 

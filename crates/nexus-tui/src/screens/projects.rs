@@ -66,6 +66,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         "",
         "PROJECT",
         "SYNC",
+        "SPECS",
         "SESSIONS",
         "ACTIVE",
         "IDLE",
@@ -122,10 +123,40 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
             };
             let sync_span = Span::styled(sync_text, Style::default().fg(sync_color).bg(bg));
 
+            // Spec velocity: aggregate completed/total tasks for this project.
+            let done: i32 = app
+                .spec_velocity
+                .iter()
+                .filter(|e| e.project == p.name)
+                .map(|e| e.completed_tasks)
+                .sum();
+            let total: i32 = app
+                .spec_velocity
+                .iter()
+                .filter(|e| e.project == p.name)
+                .map(|e| e.total_tasks)
+                .sum();
+            let velocity_text = if total > 0 {
+                format!("{done}/{total}")
+            } else {
+                "\u{2014}".to_string()
+            };
+            let velocity_color = if total > 0 && done >= total {
+                colors::PRIMARY
+            } else if total > 0 {
+                colors::SECONDARY
+            } else {
+                colors::TEXT_DIM
+            };
+
             Row::new(vec![
                 Line::from(dot_span),
                 Line::from(name_display),
                 Line::from(sync_span),
+                Line::from(Span::styled(
+                    velocity_text,
+                    Style::default().fg(velocity_color).bg(bg),
+                )),
                 Line::from(p.total.to_string()),
                 Line::from(p.active.to_string()),
                 Line::from(p.idle.to_string()),
@@ -142,6 +173,7 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Length(2),  // dot
         Constraint::Length(20), // project name + [N]
         Constraint::Length(12), // sync status
+        Constraint::Length(8),  // specs velocity
         Constraint::Length(9),  // sessions
         Constraint::Length(7),  // active
         Constraint::Length(6),  // idle

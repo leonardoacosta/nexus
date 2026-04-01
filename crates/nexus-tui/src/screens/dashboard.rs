@@ -4,24 +4,31 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation,
-    ScrollbarState, Table,
+    ScrollbarState, Sparkline, Table,
 };
 
 use crate::app::{App, colors, format_age, session_type_indicator, status_color, status_dot};
 
 /// Render the session dashboard screen.
 pub fn render_dashboard(frame: &mut Frame, area: Rect, app: &mut App) {
-    // Layout: title (3), sessions table (remaining - 1), status bar (1).
+    // Layout: title (3), sessions table (remaining), trend sparkline (2), status bar (1).
+    let has_trend = !app.session_history.is_empty();
+    let trend_height = if has_trend { 2 } else { 0 };
+
     let chunks = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(1),
+        Constraint::Length(trend_height),
         Constraint::Length(1),
     ])
     .split(area);
 
     render_title_bar(frame, chunks[0], app);
     render_session_table(frame, chunks[1], app);
-    render_status_bar(frame, chunks[2], app);
+    if has_trend {
+        render_session_trend(frame, chunks[2], app);
+    }
+    render_status_bar(frame, chunks[3], app);
 }
 
 fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -247,6 +254,26 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
 }
 
+fn render_session_trend(frame: &mut Frame, area: Rect, app: &App) {
+    let session_data: Vec<u64> = app
+        .session_history
+        .iter()
+        .map(|e| e.session_count as u64)
+        .collect();
+    let sparkline = Sparkline::default()
+        .data(&session_data)
+        .style(Style::default().fg(colors::SECONDARY))
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    " Sessions/day ",
+                    Style::default().fg(colors::TEXT_DIM),
+                ))
+                .borders(Borders::NONE),
+        );
+    frame.render_widget(sparkline, area);
+}
+
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let sessions = app.session_count();
     let uptime = app.uptime_string();
@@ -307,6 +334,20 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         spans.push(Span::styled(
             format!(" \u{00B7} {} specs pending", app.pending_spec_count),
             Style::default().fg(colors::WARNING),
+        ));
+    }
+
+    // Show recent failure count badge.
+    let total_failures: i32 = app.failure_trends_daily.iter().map(|e| e.count).sum();
+    if total_failures > 0 {
+        let fail_color = if total_failures > 10 {
+            colors::ERROR
+        } else {
+            colors::WARNING
+        };
+        spans.push(Span::styled(
+            format!(" \u{00B7} \u{25B2} {total_failures} failures"),
+            Style::default().fg(fail_color),
         ));
     }
 

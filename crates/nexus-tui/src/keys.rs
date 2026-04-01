@@ -8,6 +8,27 @@ use tokio::sync::mpsc;
 use crate::app::{App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity};
 use crate::{KeyAction, RpcCommand};
 
+/// Send on-demand RPC fetches when navigating to a screen that needs
+/// analytics data. Called after every `current_screen` change.
+fn send_on_screen_enter(screen: Screen, rpc_tx: &mpsc::Sender<RpcCommand>) {
+    match screen {
+        Screen::Dashboard => {
+            let _ = rpc_tx.try_send(RpcCommand::FetchSessionHistory {
+                days: 7,
+                project: None,
+            });
+            let _ = rpc_tx.try_send(RpcCommand::FetchFailureTrends { days: 7 });
+        }
+        Screen::Projects | Screen::Specs => {
+            let _ = rpc_tx.try_send(RpcCommand::FetchSpecVelocity {
+                days: 7,
+                project: None,
+            });
+        }
+        _ => {}
+    }
+}
+
 /// Handle a key event. Returns the appropriate `KeyAction`.
 pub(crate) fn handle_key(
     app: &mut App,
@@ -179,7 +200,7 @@ pub(crate) fn handle_normal_key(
     match app.current_screen {
         Screen::Detail => handle_detail_key(app, key, rpc_tx),
         Screen::StreamAttach => handle_stream_key(app, key),
-        Screen::Specs => handle_specs_key(app, key),
+        Screen::Specs => handle_specs_key(app, key, rpc_tx),
         _ => handle_list_key(app, key, rpc_tx),
     }
 }
@@ -197,10 +218,12 @@ pub(crate) fn handle_list_key(
         }
         KeyCode::Tab => {
             app.next_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
             KeyAction::Continue
         }
         KeyCode::BackTab => {
             app.prev_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
             KeyAction::Continue
         }
         KeyCode::Char('j') | KeyCode::Down => {
@@ -325,7 +348,11 @@ pub(crate) fn handle_detail_key(
 }
 
 /// Key handling for the specs review screen.
-pub(crate) fn handle_specs_key(app: &mut App, key: KeyEvent) -> KeyAction {
+pub(crate) fn handle_specs_key(
+    app: &mut App,
+    key: KeyEvent,
+    rpc_tx: &mpsc::Sender<RpcCommand>,
+) -> KeyAction {
     // If a spec detail is open, handle detail-specific keys.
     if app.spec_detail.is_some() {
         return handle_spec_detail_key(app, key);
@@ -339,10 +366,12 @@ pub(crate) fn handle_specs_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::Tab => {
             app.next_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
             KeyAction::Continue
         }
         KeyCode::BackTab => {
             app.prev_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
             KeyAction::Continue
         }
         KeyCode::Char('j') | KeyCode::Down => {
@@ -846,6 +875,7 @@ pub(crate) fn execute_palette_action(
         PaletteAction::GoScreen(screen) => {
             app.current_screen = screen;
             app.selected_index = 0;
+            send_on_screen_enter(screen, rpc_tx);
         }
         PaletteAction::StartSession => {
             if let Some(agent_name) = app.begin_start_session() {

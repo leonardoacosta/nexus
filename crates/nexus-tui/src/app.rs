@@ -561,6 +561,19 @@ pub struct App {
     pub spec_detail: Option<SpecDetailState>,
     /// Number of specs with status "unread" or "read" (pending review).
     pub pending_spec_count: usize,
+
+    /// Cached health timeseries from SQLite (24h), keyed by agent name.
+    pub health_time_series: HashMap<String, Vec<nexus_core::proto::HealthTimeSeriesEntry>>,
+
+    /// Cached session history (daily counts/costs).
+    pub session_history: Vec<nexus_core::proto::SessionHistoryEntry>,
+
+    /// Cached failure trends (daily + by tool).
+    pub failure_trends_daily: Vec<nexus_core::proto::FailureTrendEntry>,
+    pub failure_trends_by_tool: Vec<nexus_core::proto::FailureByTool>,
+
+    /// Cached spec velocity entries.
+    pub spec_velocity: Vec<nexus_core::proto::SpecVelocityEntry>,
 }
 
 impl App {
@@ -605,6 +618,11 @@ impl App {
             cached_specs: Vec::new(),
             spec_detail: None,
             pending_spec_count: 0,
+            health_time_series: HashMap::new(),
+            session_history: Vec::new(),
+            failure_trends_daily: Vec::new(),
+            failure_trends_by_tool: Vec::new(),
+            spec_velocity: Vec::new(),
         }
     }
 
@@ -1180,6 +1198,38 @@ impl App {
             .num_seconds()
             .max(0) as u64;
         format_duration(secs)
+    }
+
+    pub fn update_health_time_series(
+        &mut self,
+        data: Vec<(String, Vec<nexus_core::proto::HealthTimeSeriesEntry>)>,
+    ) {
+        for (agent_name, samples) in data {
+            self.health_time_series.insert(agent_name, samples);
+        }
+    }
+
+    pub fn update_session_history(
+        &mut self,
+        entries: Vec<nexus_core::proto::SessionHistoryEntry>,
+    ) {
+        self.session_history = entries;
+    }
+
+    pub fn update_failure_trends(
+        &mut self,
+        daily: Vec<nexus_core::proto::FailureTrendEntry>,
+        by_tool: Vec<nexus_core::proto::FailureByTool>,
+    ) {
+        self.failure_trends_daily = daily;
+        self.failure_trends_by_tool = by_tool;
+    }
+
+    pub fn update_spec_velocity(
+        &mut self,
+        entries: Vec<nexus_core::proto::SpecVelocityEntry>,
+    ) {
+        self.spec_velocity = entries;
     }
 }
 
