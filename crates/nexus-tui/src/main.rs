@@ -27,7 +27,7 @@ use client::{ConnectionStatus, NexusClient};
 use keys::handle_key;
 use nexus_core::config::NexusConfig;
 use stream::{AlertEvent, StreamMessage};
-use ui_helpers::{handle_mouse, launch_editor, render_tabs};
+use ui_helpers::{handle_mouse, launch_editor, render_help_overlay, render_tabs};
 
 // ---------------------------------------------------------------------------
 // Key handler return value
@@ -238,6 +238,11 @@ fn run_loop(
             // Render notification settings panel overlay (if open).
             if app.input_mode == InputMode::NotificationPanel {
                 screens::notifications::render_notification_panel(frame, app);
+            }
+
+            // Render help overlay (if open).
+            if app.help_overlay {
+                render_help_overlay(frame, app);
             }
 
             // Render notification overlay on status bar (bottom row).
@@ -458,6 +463,9 @@ fn run_loop(
 
         // Tick notification manager (remove expired).
         app.notifications.tick();
+
+        // Clear expired two-step confirmations (auto-expire after 3s).
+        app.clear_expired_confirm();
 
         // Tick stream view notification (dismiss after ~15 ticks / ~3 seconds).
         if let Some(sv) = app.stream_view.as_mut()

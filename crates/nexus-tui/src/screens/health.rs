@@ -31,7 +31,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  Tab: switch  j/k: navigate  q: quit",
+            "  Tab: switch  j/k: navigate  n: notifications  q: quit",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))

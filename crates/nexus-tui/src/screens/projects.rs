@@ -2,7 +2,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, Table, Wrap,
+};
 
 use crate::app::{App, SyncStatus, colors, format_age};
 
@@ -29,7 +32,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  Tab: switch  j/k: navigate  e: notes  q: quit",
+            "  Tab: switch  j/k: navigate  n: notifications  e: edit notes  q: quit",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))
@@ -183,6 +186,8 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Fill(1),    // agents
     ];
 
+    let total_rows = summaries.len();
+
     let table = Table::new(rows, widths)
         .header(header)
         .column_spacing(1)
@@ -194,7 +199,24 @@ fn render_project_table(frame: &mut Frame, area: Rect, app: &App) {
                 .padding(Padding::horizontal(1)),
         );
 
-    frame.render_widget(table, area);
+    // Reserve 1 column on the right for the scrollbar.
+    let table_area = Rect {
+        width: area.width.saturating_sub(1),
+        ..area
+    };
+    let scrollbar_area = Rect {
+        x: area.x + area.width.saturating_sub(1),
+        width: 1,
+        ..area
+    };
+
+    frame.render_widget(table, table_area);
+
+    // Scrollbar.
+    let selected = app.selected_index.min(total_rows.saturating_sub(1));
+    let mut scrollbar_state = ScrollbarState::new(total_rows).position(selected);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+    frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {

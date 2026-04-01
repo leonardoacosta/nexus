@@ -5,7 +5,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
-use crate::app::{App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity};
+use crate::app::{self, App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity};
 use crate::{KeyAction, RpcCommand};
 
 /// Send on-demand RPC fetches when navigating to a screen that needs
@@ -43,6 +43,21 @@ pub(crate) fn handle_key(
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.should_quit = true;
         return KeyAction::Quit;
+    }
+
+    // Help overlay intercept: when open, only ? and Esc close it; swallow everything else.
+    if app.help_overlay {
+        match key.code {
+            KeyCode::Char('?') | KeyCode::Esc => app.close_help(),
+            _ => {} // Swallow all other keys
+        }
+        return KeyAction::Continue;
+    }
+
+    // ? toggles the help overlay on all screens when not in a text input mode.
+    if key.code == KeyCode::Char('?') && app.input_mode == InputMode::Normal {
+        app.toggle_help();
+        return KeyAction::Continue;
     }
 
     // Dispatch based on input mode.
@@ -284,6 +299,7 @@ pub(crate) fn handle_list_key(
                 let project = row.session.project.as_deref().unwrap_or("?");
                 let short_id = &session_id[..session_id.len().min(4)];
                 let label = format!("{project}#{short_id}");
+                app.save_previous_screen();
                 app.open_stream_attach(session_id, label, agent_name);
                 app.ensure_session_tab();
                 app.input_mode = InputMode::StreamInput;
@@ -329,6 +345,7 @@ pub(crate) fn handle_detail_key(
                 let project = session.project.as_deref().unwrap_or("?");
                 let short_id = &session_id[..session_id.len().min(4)];
                 let label = format!("{project}#{short_id}");
+                app.save_previous_screen();
                 app.open_stream_attach(session_id, label, agent_name);
                 app.ensure_session_tab();
                 app.input_mode = InputMode::StreamInput;
@@ -436,71 +453,79 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
             }
             KeyAction::Continue
         }
-        KeyCode::Char('a') => {
-            // Approve the spec via HTTP POST.
-            if let Some(ref mut detail) = app.spec_detail {
-                let project = detail.project.clone();
-                let name = detail.name.clone();
-                detail.status = "approved".to_string();
-                // Update the cached spec list entry too.
-                if let Some(entry) = app
-                    .cached_specs
-                    .iter_mut()
-                    .find(|s| s.project == project && s.name == name)
-                {
-                    entry.status = "approved".to_string();
+        KeyCode::Enter => {
+            if app.confirm_or_start(app::ConfirmKind::ApproveSpec) {
+                // Approve the spec via HTTP POST.
+                if let Some(ref mut detail) = app.spec_detail {
+                    let project = detail.project.clone();
+                    let name = detail.name.clone();
+                    detail.status = "approved".to_string();
+                    // Update the cached spec list entry too.
+                    if let Some(entry) = app
+                        .cached_specs
+                        .iter_mut()
+                        .find(|s| s.project == project && s.name == name)
+                    {
+                        entry.status = "approved".to_string();
+                    }
+                    // Recompute pending count.
+                    app.pending_spec_count = app
+                        .cached_specs
+                        .iter()
+                        .filter(|s| s.status == "unread" || s.status == "read")
+                        .count();
+                    let project_c = project.clone();
+                    let name_c = name.clone();
+                    tokio::spawn(async move {
+                        let client = reqwest::Client::new();
+                        let host =
+                            std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                        let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                        let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
+                        let _ = client.post(&url).send().await;
+                    });
+                    app.status_message = Some(format!("approved {project}/{name}"));
                 }
-                // Recompute pending count.
-                app.pending_spec_count = app
-                    .cached_specs
-                    .iter()
-                    .filter(|s| s.status == "unread" || s.status == "read")
-                    .count();
-                let project_c = project.clone();
-                let name_c = name.clone();
-                tokio::spawn(async move {
-                    let client = reqwest::Client::new();
-                    let host =
-                        std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
-                    let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
-                    let _ = client.post(&url).send().await;
-                });
-                app.status_message = Some(format!("approved {project}/{name}"));
+            } else {
+                app.status_message = Some("Press Enter again to confirm approval".to_string());
             }
             KeyAction::Continue
         }
-        KeyCode::Char('x') => {
-            // Reject the spec via HTTP POST.
-            if let Some(ref mut detail) = app.spec_detail {
-                let project = detail.project.clone();
-                let name = detail.name.clone();
-                detail.status = "rejected".to_string();
-                // Update the cached spec list entry too.
-                if let Some(entry) = app
-                    .cached_specs
-                    .iter_mut()
-                    .find(|s| s.project == project && s.name == name)
-                {
-                    entry.status = "rejected".to_string();
+        KeyCode::Backspace => {
+            if app.confirm_or_start(app::ConfirmKind::RejectSpec) {
+                // Reject the spec via HTTP POST.
+                if let Some(ref mut detail) = app.spec_detail {
+                    let project = detail.project.clone();
+                    let name = detail.name.clone();
+                    detail.status = "rejected".to_string();
+                    // Update the cached spec list entry too.
+                    if let Some(entry) = app
+                        .cached_specs
+                        .iter_mut()
+                        .find(|s| s.project == project && s.name == name)
+                    {
+                        entry.status = "rejected".to_string();
+                    }
+                    // Recompute pending count.
+                    app.pending_spec_count = app
+                        .cached_specs
+                        .iter()
+                        .filter(|s| s.status == "unread" || s.status == "read")
+                        .count();
+                    let project_c = project.clone();
+                    let name_c = name.clone();
+                    tokio::spawn(async move {
+                        let client = reqwest::Client::new();
+                        let host =
+                            std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                        let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                        let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/reject");
+                        let _ = client.post(&url).send().await;
+                    });
+                    app.status_message = Some(format!("rejected {project}/{name}"));
                 }
-                // Recompute pending count.
-                app.pending_spec_count = app
-                    .cached_specs
-                    .iter()
-                    .filter(|s| s.status == "unread" || s.status == "read")
-                    .count();
-                let project_c = project.clone();
-                let name_c = name.clone();
-                tokio::spawn(async move {
-                    let client = reqwest::Client::new();
-                    let host =
-                        std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
-                    let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/reject");
-                    let _ = client.post(&url).send().await;
-                });
-                app.status_message = Some(format!("rejected {project}/{name}"));
+            } else {
+                app.status_message = Some("Press Bksp again to confirm rejection".to_string());
             }
             KeyAction::Continue
         }
@@ -531,13 +556,21 @@ pub(crate) fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::PageUp => {
             if let Some(sv) = app.stream_view.as_mut() {
-                sv.page_up(20);
+                let page_size = crossterm::terminal::size()
+                    .map(|(_, h)| h as usize)
+                    .unwrap_or(20)
+                    .saturating_sub(5);
+                sv.page_up(page_size);
             }
             KeyAction::Continue
         }
         KeyCode::PageDown => {
             if let Some(sv) = app.stream_view.as_mut() {
-                sv.page_down(20);
+                let page_size = crossterm::terminal::size()
+                    .map(|(_, h)| h as usize)
+                    .unwrap_or(20)
+                    .saturating_sub(5);
+                sv.page_down(page_size);
             }
             KeyAction::Continue
         }

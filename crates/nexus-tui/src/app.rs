@@ -308,6 +308,7 @@ pub struct AgentData {
 pub struct SessionRow {
     pub session: Session,
     pub agent_name: String,
+    pub disconnected: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +475,17 @@ pub struct SpecDetailState {
 }
 
 // ---------------------------------------------------------------------------
+// Confirm kind for two-step destructive actions
+// ---------------------------------------------------------------------------
+
+/// Pending confirmation for destructive actions (approve/reject spec).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmKind {
+    ApproveSpec,
+    RejectSpec,
+}
+
+// ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
 
@@ -574,6 +586,15 @@ pub struct App {
 
     /// Cached spec velocity entries.
     pub spec_velocity: Vec<nexus_core::proto::SpecVelocityEntry>,
+
+    /// Screen to return to when closing Palette or StreamAttach.
+    pub previous_screen: Option<Screen>,
+
+    /// Whether the ? help overlay is showing.
+    pub help_overlay: bool,
+
+    /// Pending two-step confirmation action with timestamp.
+    pub confirm_action: Option<(ConfirmKind, std::time::Instant)>,
 }
 
 impl App {
@@ -623,6 +644,9 @@ impl App {
             failure_trends_daily: Vec::new(),
             failure_trends_by_tool: Vec::new(),
             spec_velocity: Vec::new(),
+            previous_screen: None,
+            help_overlay: false,
+            confirm_action: None,
         }
     }
 
@@ -755,16 +779,18 @@ impl App {
         &self.cached_project_summaries
     }
 
-    /// Flatten all connected agents' sessions into a list sorted by project name.
+    /// Flatten all agents' sessions into a list sorted by project name.
+    /// Sessions from disconnected agents are included but marked as such.
     fn recompute_sessions(&self) -> Vec<SessionRow> {
         let mut rows: Vec<SessionRow> = self
             .agents
             .iter()
-            .filter(|a| a.connected)
             .flat_map(|a| {
-                a.sessions.iter().map(|s| SessionRow {
+                let disconnected = !a.connected;
+                a.sessions.iter().map(move |s| SessionRow {
                     session: s.clone(),
                     agent_name: a.info.name.clone(),
+                    disconnected,
                 })
             })
             .collect();
@@ -890,11 +916,57 @@ impl App {
     }
 
     // -----------------------------------------------------------------------
+    // Previous screen helper
+    // -----------------------------------------------------------------------
+
+    pub fn save_previous_screen(&mut self) {
+        self.previous_screen = Some(self.current_screen);
+    }
+
+    // -----------------------------------------------------------------------
+    // Help overlay helpers
+    // -----------------------------------------------------------------------
+
+    pub fn toggle_help(&mut self) {
+        self.help_overlay = !self.help_overlay;
+    }
+
+    pub fn close_help(&mut self) {
+        self.help_overlay = false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Two-step confirm helpers
+    // -----------------------------------------------------------------------
+
+    /// Start a confirmation. Returns true if this is the confirming second press within 3s.
+    pub fn confirm_or_start(&mut self, kind: ConfirmKind) -> bool {
+        if let Some((pending_kind, started)) = self.confirm_action {
+            if pending_kind == kind && started.elapsed().as_secs() < 3 {
+                self.confirm_action = None;
+                return true; // Confirmed!
+            }
+        }
+        self.confirm_action = Some((kind, std::time::Instant::now()));
+        false
+    }
+
+    /// Clear expired confirmations (call each tick).
+    pub fn clear_expired_confirm(&mut self) {
+        if let Some((_, started)) = self.confirm_action {
+            if started.elapsed().as_secs() >= 3 {
+                self.confirm_action = None;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Palette helpers
     // -----------------------------------------------------------------------
 
     /// Open the command palette.
     pub fn open_palette(&mut self) {
+        self.save_previous_screen();
         self.input_mode = InputMode::PaletteInput;
         self.current_screen = Screen::Palette;
         self.palette_query.clear();
@@ -905,9 +977,8 @@ impl App {
     /// Close the palette and return to the previous normal screen.
     pub fn close_palette(&mut self) {
         self.input_mode = InputMode::Normal;
-        // Return to dashboard (palette is an overlay concept, but we track it
-        // as a screen variant for rendering).
-        self.current_screen = Screen::Dashboard;
+        self.current_screen = self.previous_screen.unwrap_or(Screen::Dashboard);
+        self.previous_screen = None;
         self.palette_query.clear();
         self.palette_results.clear();
     }

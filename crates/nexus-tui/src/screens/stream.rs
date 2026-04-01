@@ -170,7 +170,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     spans.push(Span::styled(
-        "  q: back  j/k: scroll  /: search  y: yank  v: filter",
+        "  q: back  j/k: scroll  /: search  y: yank  v: filter  i: input",
         Style::default().fg(colors::TEXT_DIM),
     ));
 
@@ -652,9 +652,9 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(sv) = sv {
         // Verbosity indicator
         let verbosity_label = match sv.verbosity {
-            StreamVerbosity::Minimal => "M",
-            StreamVerbosity::Normal => "N",
-            StreamVerbosity::Verbose => "V",
+            StreamVerbosity::Minimal => "MIN",
+            StreamVerbosity::Normal => "NRM",
+            StreamVerbosity::Verbose => "VRB",
         };
         spans.push(Span::styled(
             format!(" \u{00B7} [{verbosity_label}]"),

@@ -300,7 +300,7 @@ fn render_spec_detail(frame: &mut Frame, area: Rect, app: &mut App) {
             Style::default().fg(status_color),
         ),
         Span::styled(
-            "  a: approve  x: reject  Esc: back",
+            "  Enter: approve  Bksp: reject  Esc: back",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))

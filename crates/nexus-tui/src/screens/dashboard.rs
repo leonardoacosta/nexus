@@ -40,7 +40,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  Tab: switch  j/k: navigate  Enter: detail  q: quit",
+            "  Tab: switch  j/k: navigate  Enter: detail  a: attach  n: new  q: quit",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))
@@ -115,7 +115,11 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
         // Session data row.
         let status = row_data.session.status;
         let dot = status_dot(status);
-        let dot_color = status_color(status);
+        let dot_color = if row_data.disconnected {
+            colors::TEXT_DIM
+        } else {
+            status_color(status)
+        };
         let type_ind = session_type_indicator(&row_data.session);
         let branch = row_data.session.branch.as_deref().unwrap_or("-");
         let age = format_age(row_data.session.started_at);
@@ -126,20 +130,38 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
             .or(row_data.session.spec.as_deref())
             .unwrap_or("-");
 
+        // When the owning agent is disconnected, dim all cell text.
+        let text_fg = if row_data.disconnected {
+            colors::TEXT_DIM
+        } else {
+            colors::TEXT
+        };
+        let dim_fg = colors::TEXT_DIM;
+        let agent_fg = if row_data.disconnected {
+            colors::TEXT_DIM
+        } else {
+            colors::SECONDARY
+        };
+        let agent_label = if row_data.disconnected {
+            format!("{} (disconnected)", row_data.agent_name)
+        } else {
+            row_data.agent_name.clone()
+        };
+
         let status_cell = Line::from(vec![
             Span::styled(format!(" {dot} "), Style::default().fg(dot_color)),
-            Span::styled(type_ind.to_string(), Style::default().fg(colors::TEXT_DIM)),
+            Span::styled(type_ind.to_string(), Style::default().fg(dim_fg)),
         ]);
         let name_cell = Line::from(Span::styled(
             row_data.session.id.chars().take(8).collect::<String>(),
-            Style::default().fg(colors::TEXT_DIM),
+            Style::default().fg(dim_fg),
         ));
-        let branch_cell = Line::from(Span::styled(branch, Style::default().fg(colors::TEXT)));
-        let uptime_cell = Line::from(Span::styled(age, Style::default().fg(colors::TEXT_DIM)));
-        let cmd_cell = Line::from(Span::styled(cmd, Style::default().fg(colors::TEXT)));
+        let branch_cell = Line::from(Span::styled(branch, Style::default().fg(text_fg)));
+        let uptime_cell = Line::from(Span::styled(age, Style::default().fg(dim_fg)));
+        let cmd_cell = Line::from(Span::styled(cmd, Style::default().fg(text_fg)));
         let agent_cell = Line::from(Span::styled(
-            row_data.agent_name.clone(),
-            Style::default().fg(colors::SECONDARY),
+            agent_label,
+            Style::default().fg(agent_fg),
         ));
 
         session_to_flat.push(flat.len());
@@ -167,7 +189,7 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let header = Row::new(vec![
         Line::from(Span::styled(
-            " ST",
+            " STATUS",
             Style::default()
                 .fg(colors::TEXT_DIM)
                 .add_modifier(Modifier::BOLD),
@@ -211,7 +233,7 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
     .height(1);
 
     let widths = [
-        Constraint::Length(5),  // status dot + type indicator
+        Constraint::Length(8),  // status dot + type indicator
         Constraint::Length(10), // session id (8 chars)
         Constraint::Length(18), // branch
         Constraint::Length(10), // uptime
