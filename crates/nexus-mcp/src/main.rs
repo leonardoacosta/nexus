@@ -88,7 +88,7 @@ struct McpToolContent {
 
 fn agent_base_url() -> String {
     let host = std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7401".to_string());
+    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".to_string());
     format!("http://{}:{}", host, port)
 }
 
@@ -197,6 +197,27 @@ fn tool_definitions() -> Vec<McpTool> {
             }),
         },
         McpTool {
+            name: "apply_spec".to_string(),
+            description: "Check whether a spec is approved for implementation. Returns success \
+                          if the spec has 'approved' status, or an error if it is not yet \
+                          approved. Use this before running /apply to enforce the Nexus \
+                          approval gate.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Project code (e.g., 'oo', 'nx')"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Spec name (e.g., 'add-user-auth')"
+                    }
+                },
+                "required": ["project", "name"]
+            }),
+        },
+        McpTool {
             name: "get_health_history".to_string(),
             description: "Get historical health metrics (CPU, memory, disk, load) sampled \
                           every 30 seconds. Returns timeseries data for charting."
@@ -290,6 +311,78 @@ async fn execute_tool(
                     base_url, project, name_arg
                 ))
                 .json(&body)
+        }
+        "apply_spec" => {
+            let project = arguments.get("project").and_then(|v| v.as_str()).unwrap_or("");
+            let name_arg = arguments.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if project.is_empty() || name_arg.is_empty() {
+                return McpToolResult {
+                    content: vec![McpToolContent {
+                        content_type: "text".to_string(),
+                        text: "Missing required parameters: project and name".to_string(),
+                    }],
+                    is_error: true,
+                };
+            }
+            // Query the approval gate endpoint
+            let url = format!("{}/specs/{}/{}/status", base_url, project, name_arg);
+            let resp = client.get(&url).send().await;
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    let body: serde_json::Value = r.json().await.unwrap_or_default();
+                    let status = body.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    if status == "approved" {
+                        return McpToolResult {
+                            content: vec![McpToolContent {
+                                content_type: "text".to_string(),
+                                text: format!("Spec {}/{} is approved. Proceed with /apply.", project, name_arg),
+                            }],
+                            is_error: false,
+                        };
+                    } else {
+                        return McpToolResult {
+                            content: vec![McpToolContent {
+                                content_type: "text".to_string(),
+                                text: format!(
+                                    "Spec {}/{} is not approved (status: {}). Review and approve in Nexus TUI or call approve_spec first.",
+                                    project, name_arg, status
+                                ),
+                            }],
+                            is_error: true,
+                        };
+                    }
+                }
+                Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => {
+                    return McpToolResult {
+                        content: vec![McpToolContent {
+                            content_type: "text".to_string(),
+                            text: format!(
+                                "Spec {}/{} not found in Nexus. Agent may not have polled yet.",
+                                project, name_arg
+                            ),
+                        }],
+                        is_error: true,
+                    };
+                }
+                Ok(r) => {
+                    return McpToolResult {
+                        content: vec![McpToolContent {
+                            content_type: "text".to_string(),
+                            text: format!("Unexpected response from agent: {}", r.status()),
+                        }],
+                        is_error: true,
+                    };
+                }
+                Err(e) => {
+                    return McpToolResult {
+                        content: vec![McpToolContent {
+                            content_type: "text".to_string(),
+                            text: format!("Nexus agent unreachable: {}", e),
+                        }],
+                        is_error: true,
+                    };
+                }
+            }
         }
         "get_health_history" => {
             let hours = arguments
