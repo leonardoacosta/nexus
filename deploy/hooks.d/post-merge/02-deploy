@@ -40,6 +40,34 @@ CONFIG_DIR="$HOME/.config/nexus"
 REPO_DIR="$(git rev-parse --show-toplevel)"
 DEPLOY_DIR="$REPO_DIR/deploy"
 
+# Parse agents.toml for remote deploy targets.
+# Returns lines of "user@host" for agents that are NOT self_name or localhost.
+get_remote_agents() {
+    local config="$HOME/.config/nexus/agents.toml"
+    [[ ! -f "$config" ]] && return
+
+    local self_name
+    self_name=$(grep '^self_name' "$config" | sed 's/.*= *"//;s/".*//')
+
+    # Parse [[agents]] blocks — extract name, host, user
+    awk -v self="$self_name" '
+        /^\[\[agents\]\]/ { name=""; host=""; user="" }
+        /^name/ { gsub(/.*= *"|"/, "", $0); name=$0 }
+        /^host/ { gsub(/.*= *"|"/, "", $0); host=$0 }
+        /^user/ { gsub(/.*= *"|"/, "", $0); user=$0 }
+        /^$/ || /^\[/ {
+            if (name != "" && name != self && host != "localhost" && host != "127.0.0.1") {
+                print user "@" host
+            }
+        }
+        END {
+            if (name != "" && name != self && host != "localhost" && host != "127.0.0.1") {
+                print user "@" host
+            }
+        }
+    ' "$config"
+}
+
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
 info "rebuilding..."
@@ -106,5 +134,29 @@ case "$OS" in
         info "launchd agent loaded and running"
         ;;
 esac
+
+# ── Fan out to remote agents ─────────────────────────────────────
+
+REMOTES=$(get_remote_agents)
+if [[ -n "$REMOTES" ]]; then
+    info "deploying to remote agents..."
+    while IFS= read -r target; do
+        [[ -z "$target" ]] && continue
+        info "  → $target (backgrounded)"
+        (
+            sleep 2
+            if ssh -o ConnectTimeout=5 -o BatchMode=yes "$target" \
+                "cd ~/dev/nx && git pull --ff-only && deploy/hooks.d/post-merge/02-deploy --force" \
+                2>&1; then
+                echo "{\"event\":\"notification\",\"message\":\"Deploy succeeded on $target\"}" \
+                    | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true
+            else
+                echo "{\"event\":\"notification\",\"message\":\"Deploy FAILED on $target\"}" \
+                    | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true
+            fi
+        ) &
+    done <<< "$REMOTES"
+    info "remote deploys launched in background"
+fi
 
 info "deploy complete"
