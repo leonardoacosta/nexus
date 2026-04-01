@@ -34,22 +34,23 @@ impl ReceiverService {
         let full_title = format!("{} {}", icon, name);
 
         if cfg!(target_os = "macos") {
-            let mut cmd = Command::new("/opt/homebrew/bin/terminal-notifier");
+            // Use Nexus-Notifier.app (a copy of terminal-notifier with the NX icon
+            // baked into the .app bundle). Falls back to homebrew terminal-notifier.
+            let nexus_notifier = nexus_core::paths::home_dir()
+                .join(".local/share/Nexus-Notifier.app/Contents/MacOS/terminal-notifier");
+            let notifier_path = if nexus_notifier.exists() {
+                nexus_notifier
+            } else {
+                std::path::PathBuf::from("/opt/homebrew/bin/terminal-notifier")
+            };
+
+            let mut cmd = Command::new(&notifier_path);
             cmd.arg("-title")
                 .arg(&full_title)
                 .arg("-message")
                 .arg(message)
                 .arg("-sound")
                 .arg("default");
-
-            // Per-project icon on the notification banner.
-            // -appIcon overrides the app icon on the banner (transient popup).
-            // Note: Notification Center list always shows terminal-notifier's icon —
-            // macOS limitation without a fully signed .app bundle.
-            if let Some(icon_path) = crate::icons::get_icon_path(project.unwrap_or("")) {
-                cmd.arg("-appIcon")
-                    .arg(icon_path.to_string_lossy().as_ref());
-            }
 
             let result = cmd.output().await;
 

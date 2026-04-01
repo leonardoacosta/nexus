@@ -98,85 +98,125 @@ pub fn get_icon_path(code: &str) -> Option<PathBuf> {
     }
 }
 
-/// Ensure the Nexus.app bundle exists at `~/.local/share/Nexus.app` so that
-/// `terminal-notifier -sender com.nexus.agent` shows our icon in Notification Center.
+/// Ensure `Nexus-Notifier.app` exists at `~/.local/share/Nexus-Notifier.app`.
 ///
-/// This is a macOS-only concern — on Linux, notify-send uses different icon mechanisms.
-/// Called once at agent startup.
+/// This is a copy of terminal-notifier.app with the icon replaced by the Nexus NX
+/// icon and the bundle identifier changed to `com.nexus.notifier`. macOS shows the
+/// **sending app's bundle icon** in Notification Center — `-appIcon` is unreliable
+/// on modern macOS, so we bake the icon directly into the .app bundle.
+///
+/// Called once at agent startup. macOS-only.
 pub fn ensure_app_bundle() {
     if !cfg!(target_os = "macos") {
         return;
     }
 
     let home = nexus_core::paths::home_dir();
-    let app_dir = home.join(".local/share/Nexus.app/Contents");
-    let icns_path = app_dir.join("Resources/AppIcon.icns");
-    let plist_path = app_dir.join("Info.plist");
+    let notifier_app = home.join(".local/share/Nexus-Notifier.app");
+    let notifier_icns = notifier_app.join("Contents/Resources/Terminal.icns");
 
-    // Skip if already set up
-    if icns_path.exists() && plist_path.exists() {
-        debug!("Nexus.app bundle already exists");
-        return;
-    }
-
-    debug!("Creating Nexus.app bundle for notification icons");
-
-    // Create directory structure
-    for subdir in ["MacOS", "Resources"] {
-        if let Err(e) = std::fs::create_dir_all(app_dir.join(subdir)) {
-            warn!("Failed to create Nexus.app dirs: {}", e);
-            return;
+    // Skip if already set up (check for our icon, not terminal-notifier's default)
+    if notifier_app.exists() && notifier_icns.exists() {
+        // Quick size check — our icon is ~8KB, terminal-notifier's default is ~360KB
+        if let Ok(meta) = std::fs::metadata(&notifier_icns) {
+            if meta.len() < 50_000 {
+                debug!("Nexus-Notifier.app already exists with custom icon");
+                return;
+            }
         }
     }
 
-    // Write Info.plist
-    let plist = r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.nexus.agent</string>
-    <key>CFBundleName</key>
-    <string>Nexus</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
-    <key>LSUIElement</key>
-    <true/>
-</dict>
-</plist>"#;
+    // Find the source terminal-notifier.app
+    let source_app = find_terminal_notifier_app();
+    let Some(source) = source_app else {
+        warn!("terminal-notifier.app not found — cannot create Nexus-Notifier.app");
+        return;
+    };
 
-    if let Err(e) = std::fs::write(&plist_path, plist) {
-        warn!("Failed to write Nexus.app Info.plist: {}", e);
+    debug!("Creating Nexus-Notifier.app from {}", source.display());
+
+    // Copy the entire .app bundle
+    let _ = std::fs::remove_dir_all(&notifier_app);
+    if let Err(e) = copy_dir_recursive(&source, &notifier_app) {
+        warn!("Failed to copy terminal-notifier.app: {}", e);
         return;
     }
 
-    // Write the default nexus icon as a PNG to Resources/
-    // (terminal-notifier can use PNG directly via -appIcon as fallback)
-    let png_path = app_dir.join("Resources/AppIcon.png");
-    if let Err(e) = std::fs::write(&png_path, DEFAULT_ICON) {
-        warn!("Failed to write Nexus.app icon PNG: {}", e);
-        return;
-    }
+    // Create our .icns from the embedded PNG
+    let cache_dir = cache_dir();
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let png_path = cache_dir.join("nexus.png");
+    let _ = std::fs::write(&png_path, DEFAULT_ICON);
 
-    // Try to create .icns from PNG using sips + iconutil (macOS only)
-    if create_icns_from_png(&png_path, &icns_path) {
-        debug!("Created Nexus.app with .icns icon");
+    if create_icns_from_png(&png_path, &notifier_icns) {
+        debug!("Replaced icon with Nexus .icns");
     } else {
-        debug!("Created Nexus.app with PNG fallback (iconutil unavailable)");
+        warn!("Failed to create .icns — notifications will use terminal icon");
     }
+
+    // Update bundle identifier so it doesn't conflict with terminal-notifier
+    let plist_path = notifier_app.join("Contents/Info.plist");
+    let _ = std::process::Command::new("plutil")
+        .args(["-replace", "CFBundleIdentifier", "-string", "com.nexus.notifier"])
+        .arg(&plist_path)
+        .output();
+    let _ = std::process::Command::new("plutil")
+        .args(["-replace", "CFBundleName", "-string", "Nexus"])
+        .arg(&plist_path)
+        .output();
 
     // Register with Launch Services
     let _ = std::process::Command::new("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
         .arg("-f")
-        .arg(app_dir.parent().unwrap())
+        .arg(&notifier_app)
         .output();
 
-    tracing::info!("Nexus.app bundle created and registered for notification icons");
+    tracing::info!("Nexus-Notifier.app created and registered");
+}
+
+/// Locate terminal-notifier.app on the system.
+fn find_terminal_notifier_app() -> Option<std::path::PathBuf> {
+    // Homebrew Cellar (most common)
+    let cellar = std::path::PathBuf::from("/opt/homebrew/Cellar/terminal-notifier");
+    if cellar.exists() {
+        if let Ok(entries) = std::fs::read_dir(&cellar) {
+            for entry in entries.flatten() {
+                let app = entry.path().join("terminal-notifier.app");
+                if app.exists() {
+                    return Some(app);
+                }
+            }
+        }
+    }
+    // Intel Mac homebrew
+    let cellar_intel = std::path::PathBuf::from("/usr/local/Cellar/terminal-notifier");
+    if cellar_intel.exists() {
+        if let Ok(entries) = std::fs::read_dir(&cellar_intel) {
+            for entry in entries.flatten() {
+                let app = entry.path().join("terminal-notifier.app");
+                if app.exists() {
+                    return Some(app);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Recursively copy a directory.
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Convert a PNG to .icns using macOS sips + iconutil.
