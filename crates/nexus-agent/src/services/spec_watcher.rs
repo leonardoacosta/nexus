@@ -12,8 +12,8 @@
 //! are polled.
 
 use crate::claude_utils::notify::send_notification;
-use crate::services::project_status::{collect_all, ProjectStatusCache};
 use crate::services::Service;
+use crate::services::project_status::{ProjectStatusCache, collect_all};
 use anyhow::Result;
 use nexus_core::db::{NexusDb, SpecRecord, proposal_hash};
 use nexus_core::project_registry::{ProjectPath, ProjectRegistry, SpecSnapshot};
@@ -80,7 +80,10 @@ impl SpecEvent {
                 format!("{}: {} all tasks complete", project, name)
             }
             Self::HashChanged { project, name } => {
-                format!("Spec {} in {} was modified — needs re-review", name, project)
+                format!(
+                    "Spec {} in {} was modified — needs re-review",
+                    name, project
+                )
             }
         }
     }
@@ -244,6 +247,13 @@ fn process_project_specs(
                     if let Err(e) = db.upsert_spec(&updated) {
                         warn!("Failed to reset spec {}: {}", spec_id, e);
                     }
+                    // Audit event: proposal edited, spec reset (best-effort).
+                    let _ = db.log_event(
+                        "spec_hash_reset",
+                        "spec_watcher",
+                        &spec_id,
+                        Some("proposal edited after review — reset to unread"),
+                    );
                     if !first_tick {
                         events.push(SpecEvent::HashChanged {
                             project: project.to_string(),
@@ -255,8 +265,8 @@ fn process_project_specs(
 
                 // --- Task progress detection ---
                 if !first_tick {
-                    let was_incomplete = existing.tasks_done < existing.tasks_total
-                        || existing.tasks_total == 0;
+                    let was_incomplete =
+                        existing.tasks_done < existing.tasks_total || existing.tasks_total == 0;
                     let is_all_complete =
                         snap.completed_tasks == snap.total_tasks && snap.total_tasks > 0;
 
@@ -321,6 +331,8 @@ fn process_project_specs(
                 if let Err(e) = db.upsert_spec(&record) {
                     warn!("Failed to insert spec {}: {}", spec_id, e);
                 }
+                // Audit event: new spec discovered (best-effort).
+                let _ = db.log_event("spec_discovered", "spec_watcher", &spec_id, None);
                 if !first_tick {
                     events.push(SpecEvent::NewSpec {
                         project: project.to_string(),
@@ -342,6 +354,8 @@ fn process_project_specs(
                 if let Err(e) = db.update_spec_status(project, &existing.name, "archived") {
                     warn!("Failed to archive spec {}: {}", existing.id, e);
                 }
+                // Audit event: spec archived (best-effort).
+                let _ = db.log_event("spec_archived", "spec_watcher", &existing.id, None);
                 if !first_tick {
                     events.push(SpecEvent::Removed {
                         project: project.to_string(),

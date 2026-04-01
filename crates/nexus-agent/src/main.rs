@@ -20,10 +20,12 @@ use nexus_agent::failures::FailureBuffer;
 use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
-    AppState, credentials_handler, cron_handler, environment_handler, failures_handler,
-    health_handler, hooks_handler, list_commands_by_namespace_handler, list_commands_handler,
+    AppState, approve_spec_handler, credentials_handler, cron_handler, environment_handler,
+    events_handler, failures_handler, get_spec_handler, health_handler, hooks_handler,
+    list_commands_by_namespace_handler, list_commands_handler, list_specs_handler,
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
-    recommend_handler, run_command_handler, specs_all_handler, statusline_handler,
+    recommend_handler, reject_spec_handler, run_command_handler, specs_all_handler,
+    statusline_handler,
 };
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
@@ -116,8 +118,12 @@ async fn main() -> Result<()> {
     // Initialize the event broadcast channel (capacity 256).
     let event_broadcaster = Arc::new(events::EventBroadcaster::new(256));
 
-    // Initialize session registry with a reference to the broadcaster.
-    let registry = Arc::new(SessionRegistry::new(Arc::clone(&event_broadcaster)));
+    // Initialize session registry with a reference to the broadcaster and DB.
+    let registry = Arc::new(
+        SessionRegistry::new(Arc::clone(&event_broadcaster))
+            .with_db(Arc::clone(&db))
+            .await,
+    );
 
     // Start the health collector with a 5-second refresh interval.
     let health_collector = HealthCollector::spawn(Duration::from_secs(5));
@@ -265,7 +271,11 @@ async fn main() -> Result<()> {
 
     // Initialize and spawn the spec watcher service.
     spawn_service(
-        SpecWatcherService::new(project_registry.clone(), status_cache.clone(), Arc::clone(&db)),
+        SpecWatcherService::new(
+            project_registry.clone(),
+            status_cache.clone(),
+            Arc::clone(&db),
+        ),
         coordinator.token(),
     );
     tracing::info!("SpecWatcherService started");
@@ -323,17 +333,8 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Initialize the in-memory failure ring buffer for tool_use_fail tracking.
-    let failure_buffer = FailureBuffer::new();
-
-    // Bootstrap failure buffer from historical JSONL files (last 30 days).
-    {
-        let failures_dir = nexus_core::paths::home_dir().join(".claude/scripts/state/failures");
-        if failures_dir.is_dir() {
-            let count = failure_buffer.bootstrap_from_jsonl(&failures_dir).await;
-            tracing::info!("Imported {} failure events from JSONL files", count);
-        }
-    }
+    // Initialize the SQL-backed failure buffer (replaces the old VecDeque + JSONL bootstrap).
+    let failure_buffer = FailureBuffer::new(Arc::clone(&db));
 
     // Initialize shared cron state and spawn CronService.
     let cron_state = CronState::new();
@@ -361,6 +362,7 @@ async fn main() -> Result<()> {
         secret: effective_secret,
         http_client,
         credential_pool,
+        db: Arc::clone(&db),
     };
 
     let socket_http_client = app_state.http_client.clone();
@@ -374,6 +376,17 @@ async fn main() -> Result<()> {
         .route("/failures", get(failures_handler))
         .route("/cron", get(cron_handler))
         .route("/specs/all", get(specs_all_handler))
+        .route("/specs", get(list_specs_handler))
+        .route("/specs/{project}/{name}", get(get_spec_handler))
+        .route(
+            "/specs/{project}/{name}/approve",
+            axum::routing::post(approve_spec_handler),
+        )
+        .route(
+            "/specs/{project}/{name}/reject",
+            axum::routing::post(reject_spec_handler),
+        )
+        .route("/events", get(events_handler))
         .route("/commands", get(list_commands_handler))
         .route(
             "/commands/{namespace}",

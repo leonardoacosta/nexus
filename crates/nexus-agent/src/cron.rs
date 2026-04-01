@@ -174,8 +174,10 @@ impl CronService {
         // 6. Prune old SQLite records (sessions/failures/events: 30d, archived specs: 90d)
         match self.db.prune_old_records(30, 90) {
             Ok(stats) => {
-                let db_total =
-                    stats.sessions_deleted + stats.failures_deleted + stats.events_deleted + stats.specs_deleted;
+                let db_total = stats.sessions_deleted
+                    + stats.failures_deleted
+                    + stats.events_deleted
+                    + stats.specs_deleted;
                 if db_total > 0 {
                     details.push(format!(
                         "db: {} sessions, {} failures, {} events, {} specs",

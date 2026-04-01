@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use nexus_core::db::{NexusDb, SessionRecord, SessionUpdate};
 use nexus_core::proto::{self, session_event::Payload};
 use nexus_core::session::Session;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,8 @@ struct PendingSummary {
 pub struct SessionRegistry {
     sessions: RwLock<HashMap<String, Session>>,
     events: Arc<EventBroadcaster>,
+    /// Optional SQLite backing store for write-through persistence.
+    db: Option<Arc<NexusDb>>,
     /// Pending questions indexed by session ID. A question is present here
     /// when the session has emitted an AskUserQuestion-style notification and
     /// no answer has been dispatched yet.
@@ -63,10 +66,34 @@ impl SessionRegistry {
         Self {
             sessions: RwLock::new(HashMap::new()),
             events,
+            db: None,
             pending_questions: RwLock::new(HashMap::new()),
             session_summaries: RwLock::new(HashMap::new()),
             pending_summaries: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Set the DB backing store and load any previously active sessions.
+    pub async fn with_db(mut self, db: Arc<NexusDb>) -> Self {
+        // Load sessions that were active when the agent last shut down.
+        match db.load_active_sessions() {
+            Ok(records) => {
+                let mut map = self.sessions.write().await;
+                for record in &records {
+                    if let Some(session) = session_from_record(record) {
+                        map.insert(session.id.clone(), session);
+                    }
+                }
+                if !records.is_empty() {
+                    tracing::info!(count = records.len(), "recovered active sessions from DB");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load sessions from DB");
+            }
+        }
+        self.db = Some(db);
+        self
     }
 
     /// Return all tracked sessions.
@@ -95,6 +122,9 @@ impl SessionRegistry {
             }),
         ));
 
+        // Write-through to DB.
+        self.db_insert_session(&session);
+
         let mut map = self.sessions.write().await;
         map.insert(id.clone(), session);
         drop(map);
@@ -115,6 +145,8 @@ impl SessionRegistry {
                     reason: "session stopped via RPC".into(),
                 }),
             ));
+            // Write-through: mark session ended in DB.
+            self.db_end_session(id);
         }
 
         removed
@@ -154,6 +186,8 @@ impl SessionRegistry {
                         is_snapshot: false,
                     }),
                 ));
+                // Write-through to DB.
+                self.db_insert_session(&session);
                 entry.insert(session);
                 drop(map);
 
@@ -180,6 +214,8 @@ impl SessionRegistry {
                     reason: "session ended".into(),
                 }),
             ));
+            // Write-through: mark session ended in DB.
+            self.db_end_session(id);
             true
         } else {
             false
@@ -223,6 +259,16 @@ impl SessionRegistry {
             }),
         ));
 
+        // Write-through heartbeat to DB.
+        self.db_update_session(
+            id,
+            &SessionUpdate {
+                last_heartbeat: Some(now.to_rfc3339()),
+                status: Some(format!("{:?}", session.status).to_lowercase()),
+                ..Default::default()
+            },
+        );
+
         true
     }
 
@@ -237,18 +283,27 @@ impl SessionRegistry {
             return;
         };
 
+        let mut db_update = SessionUpdate::default();
+
         if let Some(ref rl) = telemetry.rate_limit {
             session.rate_limit_utilization = Some(rl.utilization);
             session.rate_limit_type = Some(rl.rate_limit_type.clone());
+            db_update.rate_limit_utilization = Some(rl.utilization);
+            db_update.rate_limit_type = Some(rl.rate_limit_type.clone());
         }
 
         if let Some(cost) = telemetry.cost_usd {
             session.total_cost_usd = Some(cost);
+            db_update.total_cost_usd = Some(cost);
         }
 
         if let Some(ref model) = telemetry.model {
             session.model = Some(model.clone());
+            db_update.model = Some(model.clone());
         }
+
+        // Write-through telemetry to DB.
+        self.db_update_session(id, &db_update);
     }
 
     /// Record a pending question for a session.
@@ -404,6 +459,130 @@ impl SessionRegistry {
             }
         }
     }
+}
+
+impl SessionRegistry {
+    // -------------------------------------------------------------------
+    // Private DB write-through helpers
+    // -------------------------------------------------------------------
+
+    /// Write-through: insert a session into the DB. Best-effort — logs warning on failure.
+    fn db_insert_session(&self, session: &Session) {
+        if let Some(ref db) = self.db {
+            let record = session_to_record(session);
+            if let Err(e) = db.insert_session(&record) {
+                tracing::warn!(session_id = %session.id, error = %e, "DB write-through: insert_session failed");
+            }
+            // Audit event: session start (best-effort).
+            if let Err(e) = db.log_event(
+                "session_start",
+                "registry",
+                &session.id,
+                session.project.as_deref(),
+            ) {
+                tracing::warn!(error = %e, "audit: failed to log session_start event");
+            }
+        }
+    }
+
+    /// Write-through: update a session in the DB. Best-effort.
+    fn db_update_session(&self, id: &str, update: &SessionUpdate) {
+        if let Some(ref db) = self.db
+            && let Err(e) = db.update_session(id, update)
+        {
+            tracing::warn!(session_id = %id, error = %e, "DB write-through: update_session failed");
+        }
+    }
+
+    /// Write-through: mark a session as ended in the DB. Best-effort.
+    fn db_end_session(&self, id: &str) {
+        if let Some(ref db) = self.db {
+            let now = chrono::Utc::now().to_rfc3339();
+            if let Err(e) = db.end_session(id, &now) {
+                tracing::warn!(session_id = %id, error = %e, "DB write-through: end_session failed");
+            }
+            // Audit event: session stop (best-effort).
+            if let Err(e) = db.log_event("session_stop", "registry", id, None) {
+                tracing::warn!(error = %e, "audit: failed to log session_stop event");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Conversion helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a `Session` to a `SessionRecord` for DB persistence.
+fn session_to_record(session: &Session) -> SessionRecord {
+    SessionRecord {
+        id: session.id.clone(),
+        pid: Some(session.pid as i64),
+        project: session.project.clone(),
+        cwd: Some(session.cwd.clone()),
+        branch: session.branch.clone(),
+        started_at: session.started_at.to_rfc3339(),
+        ended_at: None,
+        last_heartbeat: Some(session.last_heartbeat.to_rfc3339()),
+        status: Some(format!("{:?}", session.status).to_lowercase()),
+        model: session.model.clone(),
+        session_type: Some(format!("{:?}", session.session_type).to_lowercase()),
+        total_cost_usd: session.total_cost_usd,
+        rate_limit_utilization: session.rate_limit_utilization,
+        rate_limit_type: session.rate_limit_type.clone(),
+        tmux_target: session.tmux_target.clone(),
+        cc_session_id: session.cc_session_id.clone(),
+        agent: session.agent.clone(),
+    }
+}
+
+/// Convert a `SessionRecord` from the DB back into a `Session`.
+fn session_from_record(record: &SessionRecord) -> Option<Session> {
+    let started_at = chrono::DateTime::parse_from_rfc3339(&record.started_at)
+        .ok()?
+        .to_utc();
+    let last_heartbeat = record
+        .last_heartbeat
+        .as_ref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.to_utc())
+        .unwrap_or(started_at);
+
+    let status = match record.status.as_deref() {
+        Some("active") => nexus_core::session::SessionStatus::Active,
+        Some("idle") => nexus_core::session::SessionStatus::Idle,
+        Some("stale") => nexus_core::session::SessionStatus::Stale,
+        Some("errored") => nexus_core::session::SessionStatus::Errored,
+        _ => nexus_core::session::SessionStatus::Stale, // recovered sessions start as stale
+    };
+
+    let session_type = match record.session_type.as_deref() {
+        Some("managed") => nexus_core::session::SessionType::Managed,
+        Some("pooled") => nexus_core::session::SessionType::Pooled,
+        _ => nexus_core::session::SessionType::AdHoc,
+    };
+
+    Some(Session {
+        id: record.id.clone(),
+        pid: record.pid.unwrap_or(0) as u32,
+        project: record.project.clone(),
+        cwd: record.cwd.clone().unwrap_or_default(),
+        branch: record.branch.clone(),
+        started_at,
+        last_heartbeat,
+        status,
+        spec: None,
+        command: None,
+        agent: record.agent.clone(),
+        tmux_session: None,
+        cc_session_id: record.cc_session_id.clone(),
+        tmux_target: record.tmux_target.clone(),
+        rate_limit_utilization: record.rate_limit_utilization,
+        rate_limit_type: record.rate_limit_type.clone(),
+        total_cost_usd: record.total_cost_usd,
+        model: record.model.clone(),
+        session_type,
+    })
 }
 
 // ---------------------------------------------------------------------------

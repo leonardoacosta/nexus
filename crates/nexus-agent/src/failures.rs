@@ -1,46 +1,26 @@
-//! In-memory failure ring buffer for tool failure tracking.
+//! SQL-backed failure store for tool failure tracking.
 //!
-//! Stores `FailureEvent`s in a fixed-capacity `VecDeque` with a 30-day
-//! rolling window. Thread-safe via `Arc<RwLock<...>>` for concurrent
-//! reads from HTTP handlers and writes from the socket event handler.
+//! Replaced the in-memory `VecDeque` ring buffer with `NexusDb` queries.
+//! The `FailureBuffer` struct name is preserved for API compatibility.
 
 use std::collections::HashMap;
-use std::collections::VecDeque;
-use std::path::Path;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
+use nexus_core::db::{FailureRecord, NexusDb};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-
-/// Maximum number of events stored in the ring buffer.
-const MAX_CAPACITY: usize = 10_000;
-
-/// Rolling window duration in days.
-const ROLLING_WINDOW_DAYS: i64 = 30;
 
 /// A single tool failure event captured from CC telemetry.
+///
+/// This type is used at the ingestion boundary (socket handler) before
+/// converting to `FailureRecord` for DB storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailureEvent {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: chrono::DateTime<Utc>,
     pub tool_name: String,
     pub error_summary: String,
     pub project: String,
     pub session_id: String,
-}
-
-/// Raw JSONL entry for deserialization during bootstrap.
-///
-/// The `timestamp` field may carry a fixed UTC offset (e.g. `-05:00`), so we
-/// deserialize into `DateTime<chrono::FixedOffset>` and convert to UTC in the
-/// caller.
-#[derive(Debug, Deserialize)]
-struct JsonlEntry {
-    timestamp: DateTime<chrono::FixedOffset>,
-    tool_name: String,
-    error_summary: String,
-    project: String,
-    session_id: Option<String>,
 }
 
 /// Aggregated query result returned by `FailureBuffer::query`.
@@ -67,85 +47,70 @@ pub struct TrendEntry {
     pub count: usize,
 }
 
-/// Thread-safe in-memory ring buffer for failure events.
+/// SQL-backed failure store. Drop-in replacement for the old VecDeque buffer.
 #[derive(Debug, Clone)]
 pub struct FailureBuffer {
-    inner: Arc<RwLock<VecDeque<FailureEvent>>>,
+    db: Arc<NexusDb>,
 }
 
 impl FailureBuffer {
-    /// Create a new empty failure buffer.
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(VecDeque::with_capacity(MAX_CAPACITY))),
-        }
+    /// Create a new failure buffer backed by the given database.
+    pub fn new(db: Arc<NexusDb>) -> Self {
+        Self { db }
     }
 
-    /// Push a failure event into the buffer.
-    ///
-    /// Evicts the oldest entries if:
-    /// - The buffer is at capacity (`MAX_CAPACITY`)
-    /// - The oldest entry is older than the 30-day rolling window
+    /// Record a failure event (writes to SQLite).
     pub async fn push(&self, event: FailureEvent) {
-        let mut buf = self.inner.write().await;
-
-        // Evict entries older than the rolling window.
-        let cutoff = Utc::now() - Duration::days(ROLLING_WINDOW_DAYS);
-        while buf.front().is_some_and(|e| e.timestamp < cutoff) {
-            buf.pop_front();
+        let record = FailureRecord {
+            timestamp: event.timestamp.to_rfc3339(),
+            tool_name: event.tool_name,
+            error_summary: Some(event.error_summary),
+            project: Some(event.project),
+            session_id: Some(event.session_id),
+        };
+        if let Err(e) = self.db.insert_failure(&record) {
+            tracing::warn!(error = %e, "failed to insert failure into DB");
         }
-
-        // Evict oldest if at capacity.
-        if buf.len() >= MAX_CAPACITY {
-            buf.pop_front();
-        }
-
-        buf.push_back(event);
     }
 
     /// Query failures within the last `days` days.
     ///
     /// Returns aggregated counts by tool, project, top errors, and a daily
-    /// trend. If `days` is 0, queries the entire buffer.
+    /// trend. If `days` is 0, queries the entire table.
     pub async fn query(&self, days: u32) -> FailureQueryResult {
-        let buf = self.inner.read().await;
-
-        let cutoff = if days > 0 {
-            Utc::now() - Duration::days(i64::from(days))
+        let since = if days > 0 {
+            (Utc::now() - Duration::days(i64::from(days))).to_rfc3339()
         } else {
-            DateTime::<Utc>::MIN_UTC
+            "1970-01-01T00:00:00Z".to_string()
         };
 
-        let mut total = 0usize;
-        let mut by_tool: HashMap<String, usize> = HashMap::new();
-        let mut by_project: HashMap<String, usize> = HashMap::new();
-        let mut error_counts: HashMap<String, usize> = HashMap::new();
-        let mut daily_counts: HashMap<String, usize> = HashMap::new();
+        let trend_days = if days > 0 { i64::from(days) } else { 36500 };
 
-        for event in buf.iter() {
-            if event.timestamp < cutoff {
-                continue;
-            }
-            total += 1;
-            *by_tool.entry(event.tool_name.clone()).or_default() += 1;
-            *by_project.entry(event.project.clone()).or_default() += 1;
-            *error_counts.entry(event.error_summary.clone()).or_default() += 1;
+        let by_tool_raw = self.db.count_by_tool(&since).unwrap_or_default();
+        let by_project_raw = self.db.count_by_project(&since).unwrap_or_default();
+        let trend_raw = self.db.failure_trend(trend_days).unwrap_or_default();
+        let top_errors_raw = self.db.top_errors(&since, 10).unwrap_or_default();
 
-            let date_key = event.timestamp.format("%Y-%m-%d").to_string();
-            *daily_counts.entry(date_key).or_default() += 1;
-        }
-
-        // Sort errors by count descending, take top 10.
-        let mut top_errors: Vec<(String, usize)> = error_counts.into_iter().collect();
-        top_errors.sort_by(|a, b| b.1.cmp(&a.1));
-        top_errors.truncate(10);
-
-        // Build trend sorted by date descending (most recent first).
-        let mut trend: Vec<TrendEntry> = daily_counts
+        let total: usize = by_tool_raw.iter().map(|(_, c)| *c as usize).sum();
+        let by_tool: HashMap<String, usize> = by_tool_raw
             .into_iter()
-            .map(|(date, count)| TrendEntry { date, count })
+            .map(|(k, v)| (k, v as usize))
             .collect();
-        trend.sort_by(|a, b| b.date.cmp(&a.date));
+        let by_project: HashMap<String, usize> = by_project_raw
+            .into_iter()
+            .map(|(k, v)| (k, v as usize))
+            .collect();
+        let top_errors: Vec<(String, usize)> = top_errors_raw
+            .into_iter()
+            .map(|(summary, count, _tool)| (summary, count as usize))
+            .collect();
+        let trend: Vec<TrendEntry> = trend_raw
+            .into_iter()
+            .map(|(date, count)| TrendEntry {
+                date,
+                count: count as usize,
+            })
+            .collect();
 
         FailureQueryResult {
             total,
@@ -164,52 +129,41 @@ impl FailureBuffer {
     /// - `top_errors`: top 10, with tool name and truncated summary (60 chars)
     /// - `trend`: current vs previous period comparison with direction
     pub async fn query_http(&self, days: u32) -> HttpFailuresResponse {
-        let buf = self.inner.read().await;
-        let now = Utc::now();
         let period = i64::from(days);
-        let current_cutoff = now - Duration::days(period);
-        let previous_cutoff = current_cutoff - Duration::days(period);
+        let now = Utc::now();
+        let current_cutoff = (now - Duration::days(period)).to_rfc3339();
+        let previous_cutoff = (now - Duration::days(period * 2)).to_rfc3339();
 
-        let mut current_total: u64 = 0;
-        let mut previous_total: u64 = 0;
-        let mut by_tool: HashMap<String, u64> = HashMap::new();
-        let mut by_project: HashMap<String, u64> = HashMap::new();
-        // Key: truncated summary -> (count, tool_name of first occurrence)
-        let mut error_groups: HashMap<String, (u64, String)> = HashMap::new();
+        let current_total = self.db.count_failures_since(&current_cutoff).unwrap_or(0) as u64;
+        let previous_total = self
+            .db
+            .count_failures_between(&previous_cutoff, &current_cutoff)
+            .unwrap_or(0) as u64;
 
-        for event in buf.iter() {
-            if event.timestamp >= current_cutoff {
-                current_total += 1;
-                *by_tool.entry(event.tool_name.clone()).or_default() += 1;
+        let by_tool_raw = self.db.count_by_tool(&current_cutoff).unwrap_or_default();
+        let by_project_raw = self
+            .db
+            .count_by_project(&current_cutoff)
+            .unwrap_or_default();
+        let top_errors_raw = self.db.top_errors(&current_cutoff, 10).unwrap_or_default();
 
-                let proj = if event.project.is_empty() {
-                    "(global)".to_string()
-                } else {
-                    event.project.clone()
-                };
-                *by_project.entry(proj).or_default() += 1;
-
-                let summary = truncate_error_summary(&event.error_summary, 60);
-                let entry = error_groups
-                    .entry(summary)
-                    .or_insert((0, event.tool_name.clone()));
-                entry.0 += 1;
-            } else if event.timestamp >= previous_cutoff {
-                previous_total += 1;
-            }
-        }
-
-        // Sort top errors by count descending, take top 10.
-        let mut top_errors: Vec<HttpTopError> = error_groups
+        let by_tool: HashMap<String, u64> = by_tool_raw
             .into_iter()
-            .map(|(summary, (count, tool))| HttpTopError {
+            .map(|(k, v)| (k, v as u64))
+            .collect();
+        let by_project: HashMap<String, u64> = by_project_raw
+            .into_iter()
+            .map(|(k, v)| (k, v as u64))
+            .collect();
+
+        let top_errors: Vec<HttpTopError> = top_errors_raw
+            .into_iter()
+            .map(|(summary, count, tool)| HttpTopError {
                 summary,
-                count,
+                count: count as u64,
                 tool,
             })
             .collect();
-        top_errors.sort_by(|a, b| b.count.cmp(&a.count));
-        top_errors.truncate(10);
 
         let direction = if current_total > previous_total {
             "up"
@@ -232,114 +186,6 @@ impl FailureBuffer {
                 direction,
             },
         }
-    }
-
-    /// Return the current number of events in the buffer.
-    pub async fn len(&self) -> usize {
-        self.inner.read().await.len()
-    }
-
-    /// Return true if the buffer is empty.
-    pub async fn is_empty(&self) -> bool {
-        self.inner.read().await.is_empty()
-    }
-
-    /// Bootstrap the buffer from historical JSONL files on disk.
-    ///
-    /// Reads all `*.jsonl` files in `dir`, parses each line as a JSON object
-    /// with fields `timestamp`, `tool_name`, `error_summary`, `project`, and
-    /// `session_id`. Only imports entries from the last 30 days (consistent
-    /// with the buffer's rolling window). Malformed lines are silently skipped.
-    ///
-    /// Returns the number of events imported.
-    pub async fn bootstrap_from_jsonl(&self, dir: &Path) -> usize {
-        let cutoff = Utc::now() - Duration::days(ROLLING_WINDOW_DAYS);
-
-        // Collect and sort JSONL files so import order is deterministic.
-        let mut jsonl_files: Vec<std::path::PathBuf> = match tokio::fs::read_dir(dir).await {
-            Ok(mut entries) => {
-                let mut files = Vec::new();
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "jsonl") {
-                        files.push(path);
-                    }
-                }
-                files
-            }
-            Err(e) => {
-                tracing::warn!(dir = %dir.display(), error = %e, "failed to read failures JSONL directory");
-                return 0;
-            }
-        };
-        jsonl_files.sort();
-
-        let mut imported = 0usize;
-        let mut buf = self.inner.write().await;
-
-        for path in &jsonl_files {
-            let contents = match tokio::fs::read_to_string(path).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(path = %path.display(), error = %e, "failed to read JSONL file");
-                    continue;
-                }
-            };
-
-            for line in contents.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                // Parse the JSON line. Timestamps may carry a fixed offset
-                // (e.g. "-05:00"), so deserialize as FixedOffset first.
-                let raw: JsonlEntry = match serde_json::from_str(line) {
-                    Ok(v) => v,
-                    Err(_) => continue, // silently skip malformed lines
-                };
-
-                let ts_utc = raw.timestamp.to_utc();
-
-                // Only import entries within the rolling window.
-                if ts_utc < cutoff {
-                    continue;
-                }
-
-                let event = FailureEvent {
-                    timestamp: ts_utc,
-                    tool_name: raw.tool_name,
-                    error_summary: raw.error_summary,
-                    project: raw.project,
-                    session_id: raw.session_id.unwrap_or_default(),
-                };
-
-                // Evict oldest if at capacity.
-                if buf.len() >= MAX_CAPACITY {
-                    buf.pop_front();
-                }
-                buf.push_back(event);
-                imported += 1;
-            }
-        }
-
-        imported
-    }
-}
-
-impl Default for FailureBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Truncate an error summary to at most `max_len` characters (first line only).
-fn truncate_error_summary(s: &str, max_len: usize) -> String {
-    let first_line = s.lines().next().unwrap_or(s);
-    if first_line.len() > max_len {
-        format!("{}...", &first_line[..max_len])
-    } else {
-        first_line.to_string()
     }
 }
 
@@ -375,6 +221,13 @@ pub struct HttpTrend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_core::db::NexusDb;
+
+    fn test_db() -> Arc<NexusDb> {
+        let db = NexusDb::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        Arc::new(db)
+    }
 
     fn make_event(tool: &str, project: &str, error: &str) -> FailureEvent {
         FailureEvent {
@@ -386,7 +239,12 @@ mod tests {
         }
     }
 
-    fn make_event_at(tool: &str, project: &str, error: &str, ts: DateTime<Utc>) -> FailureEvent {
+    fn make_event_at(
+        tool: &str,
+        project: &str,
+        error: &str,
+        ts: chrono::DateTime<Utc>,
+    ) -> FailureEvent {
         FailureEvent {
             timestamp: ts,
             tool_name: tool.to_string(),
@@ -398,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn push_and_query_basic() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         buf.push(make_event("Bash", "oo", "command failed")).await;
         buf.push(make_event("Read", "tc", "file not found")).await;
         buf.push(make_event("Bash", "oo", "command failed")).await;
@@ -414,27 +272,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn evicts_old_entries_on_push() {
-        let buf = FailureBuffer::new();
-
-        // Insert an event from 31 days ago.
-        let old_ts = Utc::now() - Duration::days(31);
-        buf.push(make_event_at("Bash", "oo", "old error", old_ts))
-            .await;
-        assert_eq!(buf.len().await, 1);
-
-        // Push a new event — the old one should be evicted.
-        buf.push(make_event("Read", "tc", "new error")).await;
-        assert_eq!(buf.len().await, 1);
-
-        let result = buf.query(0).await;
-        assert_eq!(result.total, 1);
-        assert_eq!(*result.by_tool.get("Read").unwrap(), 1);
-    }
-
-    #[tokio::test]
     async fn query_respects_window() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
 
         // Event from 10 days ago.
         let ts_10d = Utc::now() - Duration::days(10);
@@ -455,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_buffer_query() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         let result = buf.query(7).await;
         assert_eq!(result.total, 0);
         assert!(result.by_tool.is_empty());
@@ -464,27 +303,11 @@ mod tests {
         assert!(result.trend.is_empty());
     }
 
-    #[tokio::test]
-    async fn capacity_eviction() {
-        let buf = FailureBuffer::new();
-
-        // Fill to capacity.
-        for i in 0..MAX_CAPACITY {
-            buf.push(make_event("Bash", "oo", &format!("error-{i}")))
-                .await;
-        }
-        assert_eq!(buf.len().await, MAX_CAPACITY);
-
-        // Push one more — oldest should be evicted.
-        buf.push(make_event("Read", "tc", "overflow")).await;
-        assert_eq!(buf.len().await, MAX_CAPACITY);
-    }
-
     // -- HTTP query tests --
 
     #[tokio::test]
     async fn query_http_empty_buffer() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         let resp = buf.query_http(7).await;
         assert_eq!(resp.period_days, 7);
         assert_eq!(resp.total, 0);
@@ -498,7 +321,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_http_aggregation() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         buf.push(make_event("Bash", "cc", "command failed")).await;
         buf.push(make_event("Edit", "cc", "old_string not found"))
             .await;
@@ -513,8 +336,7 @@ mod tests {
         assert_eq!(*resp.by_project.get("cc").unwrap(), 3);
         assert_eq!(*resp.by_project.get("oo").unwrap(), 1);
         assert_eq!(resp.top_errors.len(), 2);
-        // Both errors appear exactly twice — order between equal counts is not
-        // deterministic (HashMap-backed aggregation), so search by summary.
+        // Both errors appear exactly twice — search by summary.
         let edit_err = resp
             .top_errors
             .iter()
@@ -532,7 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_http_trend_up() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         // 3 events in current 7-day period.
         buf.push(make_event("Bash", "cc", "fail")).await;
         buf.push(make_event("Bash", "cc", "fail")).await;
@@ -550,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_http_trend_down() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         // 1 event in current 7-day period.
         buf.push(make_event("Bash", "cc", "fail")).await;
         // 3 events in previous 7-day period.
@@ -564,42 +386,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_http_truncates_long_errors() {
-        let buf = FailureBuffer::new();
-        let long_error = "a".repeat(100);
-        buf.push(make_event("Bash", "cc", &long_error)).await;
-
-        let resp = buf.query_http(7).await;
-        assert_eq!(resp.top_errors.len(), 1);
-        assert!(resp.top_errors[0].summary.len() <= 63); // 60 + "..."
-        assert!(resp.top_errors[0].summary.ends_with("..."));
-    }
-
-    #[tokio::test]
     async fn query_http_empty_project_becomes_global() {
-        let buf = FailureBuffer::new();
+        let buf = FailureBuffer::new(test_db());
         buf.push(make_event("Bash", "", "fail")).await;
 
         let resp = buf.query_http(7).await;
         assert_eq!(*resp.by_project.get("(global)").unwrap(), 1);
-    }
-
-    #[test]
-    fn truncate_error_summary_short() {
-        assert_eq!(truncate_error_summary("short", 60), "short");
-    }
-
-    #[test]
-    fn truncate_error_summary_long() {
-        let long = "x".repeat(100);
-        let result = truncate_error_summary(&long, 60);
-        assert_eq!(result.len(), 63);
-        assert!(result.ends_with("..."));
-    }
-
-    #[test]
-    fn truncate_error_summary_multiline() {
-        let multi = "first line\nsecond line\nthird line";
-        assert_eq!(truncate_error_summary(multi, 60), "first line");
     }
 }

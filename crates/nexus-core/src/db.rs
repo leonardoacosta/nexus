@@ -4,7 +4,7 @@
 //! schema migrations, spec governance CRUD, and retention cleanup.
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Mutex;
@@ -20,6 +20,12 @@ use std::sync::Mutex;
 /// through the mutex for simplicity in Phase 1.
 pub struct NexusDb {
     conn: Mutex<Connection>,
+}
+
+impl std::fmt::Debug for NexusDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NexusDb").finish_non_exhaustive()
+    }
 }
 
 impl NexusDb {
@@ -302,6 +308,421 @@ impl NexusDb {
     }
 
     // -----------------------------------------------------------------------
+    // Session CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a new session record.
+    pub fn insert_session(&self, session: &SessionRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO sessions (
+                    id, pid, project, cwd, branch, started_at, ended_at,
+                    last_heartbeat, status, model, session_type,
+                    total_cost_usd, rate_limit_utilization, rate_limit_type,
+                    tmux_target, cc_session_id, agent
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                params![
+                    session.id,
+                    session.pid,
+                    session.project,
+                    session.cwd,
+                    session.branch,
+                    session.started_at,
+                    session.ended_at,
+                    session.last_heartbeat,
+                    session.status,
+                    session.model,
+                    session.session_type,
+                    session.total_cost_usd,
+                    session.rate_limit_utilization,
+                    session.rate_limit_type,
+                    session.tmux_target,
+                    session.cc_session_id,
+                    session.agent,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Update a session with partial fields (heartbeat, telemetry).
+    pub fn update_session(&self, id: &str, updates: &SessionUpdate) -> Result<()> {
+        self.write(|conn| {
+            // Build SET clauses dynamically based on which fields are Some.
+            let mut sets: Vec<String> = Vec::new();
+            let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            let mut idx = 1u32;
+
+            if let Some(ref v) = updates.last_heartbeat {
+                sets.push(format!("last_heartbeat = ?{idx}"));
+                bind_values.push(Box::new(v.clone()));
+                idx += 1;
+            }
+            if let Some(ref v) = updates.status {
+                sets.push(format!("status = ?{idx}"));
+                bind_values.push(Box::new(v.clone()));
+                idx += 1;
+            }
+            if let Some(ref v) = updates.model {
+                sets.push(format!("model = ?{idx}"));
+                bind_values.push(Box::new(v.clone()));
+                idx += 1;
+            }
+            if let Some(v) = updates.total_cost_usd {
+                sets.push(format!("total_cost_usd = ?{idx}"));
+                bind_values.push(Box::new(v));
+                idx += 1;
+            }
+            if let Some(v) = updates.rate_limit_utilization {
+                sets.push(format!("rate_limit_utilization = ?{idx}"));
+                bind_values.push(Box::new(v));
+                idx += 1;
+            }
+            if let Some(ref v) = updates.rate_limit_type {
+                sets.push(format!("rate_limit_type = ?{idx}"));
+                bind_values.push(Box::new(v.clone()));
+                idx += 1;
+            }
+
+            if sets.is_empty() {
+                return Ok(());
+            }
+
+            let sql = format!("UPDATE sessions SET {} WHERE id = ?{idx}", sets.join(", "));
+            bind_values.push(Box::new(id.to_string()));
+
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                bind_values.iter().map(|b| b.as_ref()).collect();
+            conn.execute(&sql, params.as_slice())?;
+            Ok(())
+        })
+    }
+
+    /// Mark a session as ended.
+    pub fn end_session(&self, id: &str, ended_at: &str) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "UPDATE sessions SET ended_at = ?1, status = 'ended' WHERE id = ?2",
+                params![ended_at, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Load all sessions that were active (no `ended_at`) when the agent last shut down.
+    pub fn load_active_sessions(&self) -> Result<Vec<SessionRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, pid, project, cwd, branch, started_at, ended_at,
+                        last_heartbeat, status, model, session_type,
+                        total_cost_usd, rate_limit_utilization, rate_limit_type,
+                        tmux_target, cc_session_id, agent
+                 FROM sessions WHERE ended_at IS NULL",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(SessionRecord {
+                    id: row.get(0)?,
+                    pid: row.get(1)?,
+                    project: row.get(2)?,
+                    cwd: row.get(3)?,
+                    branch: row.get(4)?,
+                    started_at: row.get(5)?,
+                    ended_at: row.get(6)?,
+                    last_heartbeat: row.get(7)?,
+                    status: row.get(8)?,
+                    model: row.get(9)?,
+                    session_type: row.get(10)?,
+                    total_cost_usd: row.get(11)?,
+                    rate_limit_utilization: row.get(12)?,
+                    rate_limit_type: row.get(13)?,
+                    tmux_target: row.get(14)?,
+                    cc_session_id: row.get(15)?,
+                    agent: row.get(16)?,
+                })
+            })?;
+            let mut sessions = Vec::new();
+            for row in rows {
+                sessions.push(row?);
+            }
+            Ok(sessions)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Failure CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a failure event.
+    pub fn insert_failure(&self, failure: &FailureRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO failures (timestamp, tool_name, error_summary, project, session_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    failure.timestamp,
+                    failure.tool_name,
+                    failure.error_summary,
+                    failure.project,
+                    failure.session_id,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query failures with optional filters.
+    pub fn query_failures(&self, filters: &FailureQuery) -> Result<Vec<FailureRecord>> {
+        self.read(|conn| {
+            let mut conditions: Vec<String> = Vec::new();
+            let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            let mut idx = 1u32;
+
+            if let Some(ref tool) = filters.tool_name {
+                conditions.push(format!("tool_name = ?{idx}"));
+                bind_values.push(Box::new(tool.clone()));
+                idx += 1;
+            }
+            if let Some(ref project) = filters.project {
+                conditions.push(format!("project = ?{idx}"));
+                bind_values.push(Box::new(project.clone()));
+                idx += 1;
+            }
+            if let Some(ref since) = filters.since {
+                conditions.push(format!("timestamp >= ?{idx}"));
+                bind_values.push(Box::new(since.clone()));
+                idx += 1;
+            }
+
+            let where_clause = if conditions.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", conditions.join(" AND "))
+            };
+
+            let limit = filters.limit.unwrap_or(1000);
+            let sql = format!(
+                "SELECT timestamp, tool_name, error_summary, project, session_id
+                 FROM failures {where_clause}
+                 ORDER BY timestamp DESC LIMIT ?{idx}"
+            );
+            bind_values.push(Box::new(limit as i64));
+
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                bind_values.iter().map(|b| b.as_ref()).collect();
+
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params.as_slice(), |row| {
+                Ok(FailureRecord {
+                    timestamp: row.get(0)?,
+                    tool_name: row.get(1)?,
+                    error_summary: row.get(2)?,
+                    project: row.get(3)?,
+                    session_id: row.get(4)?,
+                })
+            })?;
+
+            let mut failures = Vec::new();
+            for row in rows {
+                failures.push(row?);
+            }
+            Ok(failures)
+        })
+    }
+
+    /// Count failures grouped by tool name since a given timestamp.
+    pub fn count_by_tool(&self, since: &str) -> Result<Vec<(String, i64)>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, COUNT(*) as cnt
+                 FROM failures WHERE timestamp >= ?1
+                 GROUP BY tool_name ORDER BY cnt DESC",
+            )?;
+            let rows = stmt.query_map(params![since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Count failures grouped by project since a given timestamp.
+    pub fn count_by_project(&self, since: &str) -> Result<Vec<(String, i64)>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT COALESCE(NULLIF(project, ''), '(global)'), COUNT(*) as cnt
+                 FROM failures WHERE timestamp >= ?1
+                 GROUP BY project ORDER BY cnt DESC",
+            )?;
+            let rows = stmt.query_map(params![since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Failure count per day for the last `days` days.
+    pub fn failure_trend(&self, days: i64) -> Result<Vec<(String, i64)>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT DATE(timestamp) as day, COUNT(*) as cnt
+                 FROM failures
+                 WHERE timestamp >= datetime('now', ?1)
+                 GROUP BY day ORDER BY day DESC",
+            )?;
+            let rows = stmt.query_map(params![format!("-{days} days")], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Count total failures in a time window (current period).
+    pub fn count_failures_since(&self, since: &str) -> Result<i64> {
+        self.read(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM failures WHERE timestamp >= ?1",
+                params![since],
+                |row| row.get(0),
+            )?;
+            Ok(count)
+        })
+    }
+
+    /// Count total failures in a time range (for previous period comparison).
+    pub fn count_failures_between(&self, from: &str, to: &str) -> Result<i64> {
+        self.read(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM failures WHERE timestamp >= ?1 AND timestamp < ?2",
+                params![from, to],
+                |row| row.get(0),
+            )?;
+            Ok(count)
+        })
+    }
+
+    /// Top error summaries (truncated to first line, 60 chars) since a timestamp.
+    pub fn top_errors(&self, since: &str, limit: usize) -> Result<Vec<(String, i64, String)>> {
+        self.read(|conn| {
+            // SQLite doesn't have a good SUBSTR-to-newline, so we fetch raw and
+            // truncate in Rust — same as the old in-memory code.
+            let mut stmt = conn
+                .prepare("SELECT error_summary, tool_name FROM failures WHERE timestamp >= ?1")?;
+            let rows = stmt.query_map(params![since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+
+            let mut groups: std::collections::HashMap<String, (i64, String)> =
+                std::collections::HashMap::new();
+            for row in rows {
+                let (error, tool) = row?;
+                let key = truncate_summary(&error, 60);
+                let entry = groups.entry(key).or_insert((0, tool));
+                entry.0 += 1;
+            }
+
+            let mut sorted: Vec<(String, i64, String)> = groups
+                .into_iter()
+                .map(|(summary, (count, tool))| (summary, count, tool))
+                .collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+            sorted.truncate(limit);
+            Ok(sorted)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Event logging
+    // -----------------------------------------------------------------------
+
+    /// Log an audit event.
+    pub fn log_event(
+        &self,
+        event_type: &str,
+        actor: &str,
+        target: &str,
+        details: Option<&str>,
+    ) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO events (timestamp, event_type, actor, target, details)
+                 VALUES (datetime('now'), ?1, ?2, ?3, ?4)",
+                params![event_type, actor, target, details],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query recent events with optional type and target filters.
+    pub fn query_events(
+        &self,
+        event_type: Option<&str>,
+        target: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<EventRecord>> {
+        self.read(|conn| {
+            let mut conditions: Vec<String> = Vec::new();
+            let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            let mut idx = 1u32;
+
+            if let Some(et) = event_type {
+                conditions.push(format!("event_type = ?{idx}"));
+                bind_values.push(Box::new(et.to_string()));
+                idx += 1;
+            }
+            if let Some(t) = target {
+                conditions.push(format!("target = ?{idx}"));
+                bind_values.push(Box::new(t.to_string()));
+                idx += 1;
+            }
+
+            let where_clause = if conditions.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", conditions.join(" AND "))
+            };
+
+            let sql = format!(
+                "SELECT id, timestamp, event_type, actor, target, details
+                 FROM events {where_clause}
+                 ORDER BY timestamp DESC LIMIT ?{idx}"
+            );
+            bind_values.push(Box::new(limit as i64));
+
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                bind_values.iter().map(|b| b.as_ref()).collect();
+
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params.as_slice(), |row| {
+                Ok(EventRecord {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: row.get(2)?,
+                    actor: row.get(3)?,
+                    target: row.get(4)?,
+                    details: row.get(5)?,
+                })
+            })?;
+
+            let mut events = Vec::new();
+            for row in rows {
+                events.push(row?);
+            }
+            Ok(events)
+        })
+    }
+
+    // -----------------------------------------------------------------------
     // Retention cleanup
     // -----------------------------------------------------------------------
 
@@ -447,6 +868,69 @@ pub struct SpecRecord {
     pub rejection_reason: Option<String>,
 }
 
+/// A row from the `sessions` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionRecord {
+    pub id: String,
+    pub pid: Option<i64>,
+    pub project: Option<String>,
+    pub cwd: Option<String>,
+    pub branch: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub last_heartbeat: Option<String>,
+    pub status: Option<String>,
+    pub model: Option<String>,
+    pub session_type: Option<String>,
+    pub total_cost_usd: Option<f64>,
+    pub rate_limit_utilization: Option<f32>,
+    pub rate_limit_type: Option<String>,
+    pub tmux_target: Option<String>,
+    pub cc_session_id: Option<String>,
+    pub agent: Option<String>,
+}
+
+/// Partial update for a session (heartbeat, telemetry fields).
+#[derive(Debug, Clone, Default)]
+pub struct SessionUpdate {
+    pub last_heartbeat: Option<String>,
+    pub status: Option<String>,
+    pub model: Option<String>,
+    pub total_cost_usd: Option<f64>,
+    pub rate_limit_utilization: Option<f32>,
+    pub rate_limit_type: Option<String>,
+}
+
+/// A row from the `failures` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FailureRecord {
+    pub timestamp: String,
+    pub tool_name: String,
+    pub error_summary: Option<String>,
+    pub project: Option<String>,
+    pub session_id: Option<String>,
+}
+
+/// Query parameters for filtering failures.
+#[derive(Debug, Clone, Default)]
+pub struct FailureQuery {
+    pub tool_name: Option<String>,
+    pub project: Option<String>,
+    pub since: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// A row from the `events` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EventRecord {
+    pub id: i64,
+    pub timestamp: String,
+    pub event_type: String,
+    pub actor: Option<String>,
+    pub target: Option<String>,
+    pub details: Option<String>,
+}
+
 /// Stats returned by `prune_old_records`.
 #[derive(Debug)]
 pub struct PruneStats {
@@ -465,6 +949,16 @@ pub fn proposal_hash(content: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content);
     format!("{:x}", hasher.finalize())
+}
+
+/// Truncate a string to at most `max_len` characters (first line only).
+fn truncate_summary(s: &str, max_len: usize) -> String {
+    let first_line = s.lines().next().unwrap_or(s);
+    if first_line.len() > max_len {
+        format!("{}...", &first_line[..max_len])
+    } else {
+        first_line.to_string()
+    }
 }
 
 /// Extension trait to convert `rusqlite::Error` into `Option` for missing rows.
@@ -769,5 +1263,248 @@ mod tests {
         let h1 = proposal_hash(b"version 1");
         let h2 = proposal_hash(b"version 2");
         assert_ne!(h1, h2);
+    }
+
+    // -------------------------------------------------------------------
+    // Task 4.4: Session persistence round-trip tests
+    // -------------------------------------------------------------------
+
+    fn make_session(id: &str, project: &str) -> SessionRecord {
+        SessionRecord {
+            id: id.to_string(),
+            pid: Some(1234),
+            project: Some(project.to_string()),
+            cwd: Some("/home/user/dev".to_string()),
+            branch: Some("main".to_string()),
+            started_at: chrono::Utc::now().to_rfc3339(),
+            ended_at: None,
+            last_heartbeat: Some(chrono::Utc::now().to_rfc3339()),
+            status: Some("active".to_string()),
+            model: Some("opus".to_string()),
+            session_type: Some("ad_hoc".to_string()),
+            total_cost_usd: Some(0.05),
+            rate_limit_utilization: Some(0.3),
+            rate_limit_type: Some("model".to_string()),
+            tmux_target: Some("main:0.1".to_string()),
+            cc_session_id: Some("cc-123".to_string()),
+            agent: Some("test-agent".to_string()),
+        }
+    }
+
+    #[test]
+    fn insert_and_load_session() {
+        let db = test_db();
+        let session = make_session("sess-1", "oo");
+        db.insert_session(&session).unwrap();
+
+        let active = db.load_active_sessions().unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "sess-1");
+        assert_eq!(active[0].project.as_deref(), Some("oo"));
+        assert_eq!(active[0].model.as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn update_session_partial() {
+        let db = test_db();
+        db.insert_session(&make_session("sess-2", "nx")).unwrap();
+
+        let update = SessionUpdate {
+            model: Some("sonnet".to_string()),
+            total_cost_usd: Some(1.5),
+            ..Default::default()
+        };
+        db.update_session("sess-2", &update).unwrap();
+
+        let active = db.load_active_sessions().unwrap();
+        assert_eq!(active[0].model.as_deref(), Some("sonnet"));
+        assert_eq!(active[0].total_cost_usd, Some(1.5));
+        // Unchanged fields remain.
+        assert_eq!(active[0].project.as_deref(), Some("nx"));
+    }
+
+    #[test]
+    fn end_session_removes_from_active() {
+        let db = test_db();
+        db.insert_session(&make_session("sess-3", "tc")).unwrap();
+
+        let now = chrono::Utc::now().to_rfc3339();
+        db.end_session("sess-3", &now).unwrap();
+
+        let active = db.load_active_sessions().unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[test]
+    fn load_active_sessions_excludes_ended() {
+        let db = test_db();
+        db.insert_session(&make_session("sess-a", "oo")).unwrap();
+        db.insert_session(&make_session("sess-b", "nx")).unwrap();
+
+        let now = chrono::Utc::now().to_rfc3339();
+        db.end_session("sess-a", &now).unwrap();
+
+        let active = db.load_active_sessions().unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "sess-b");
+    }
+
+    // -------------------------------------------------------------------
+    // Task 5.5: Failure aggregation tests
+    // -------------------------------------------------------------------
+
+    fn make_failure(tool: &str, project: &str, error: &str) -> FailureRecord {
+        FailureRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            tool_name: tool.to_string(),
+            error_summary: Some(error.to_string()),
+            project: Some(project.to_string()),
+            session_id: Some("test-session".to_string()),
+        }
+    }
+
+    #[test]
+    fn insert_and_query_failures() {
+        let db = test_db();
+        db.insert_failure(&make_failure("Bash", "oo", "command failed"))
+            .unwrap();
+        db.insert_failure(&make_failure("Read", "tc", "file not found"))
+            .unwrap();
+        db.insert_failure(&make_failure("Bash", "oo", "command failed"))
+            .unwrap();
+
+        let all = db.query_failures(&FailureQuery::default()).unwrap();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[test]
+    fn query_failures_with_tool_filter() {
+        let db = test_db();
+        db.insert_failure(&make_failure("Bash", "oo", "err"))
+            .unwrap();
+        db.insert_failure(&make_failure("Read", "tc", "err"))
+            .unwrap();
+
+        let bash_only = db
+            .query_failures(&FailureQuery {
+                tool_name: Some("Bash".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(bash_only.len(), 1);
+        assert_eq!(bash_only[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn count_by_tool_test() {
+        let db = test_db();
+        let cutoff = "2000-01-01T00:00:00Z";
+        db.insert_failure(&make_failure("Bash", "oo", "err"))
+            .unwrap();
+        db.insert_failure(&make_failure("Bash", "oo", "err"))
+            .unwrap();
+        db.insert_failure(&make_failure("Read", "tc", "err"))
+            .unwrap();
+
+        let counts = db.count_by_tool(cutoff).unwrap();
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts[0].0, "Bash");
+        assert_eq!(counts[0].1, 2);
+        assert_eq!(counts[1].0, "Read");
+        assert_eq!(counts[1].1, 1);
+    }
+
+    #[test]
+    fn count_by_project_empty_becomes_global() {
+        let db = test_db();
+        let cutoff = "2000-01-01T00:00:00Z";
+        db.insert_failure(&FailureRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            tool_name: "Bash".to_string(),
+            error_summary: Some("err".to_string()),
+            project: Some(String::new()),
+            session_id: None,
+        })
+        .unwrap();
+
+        let counts = db.count_by_project(cutoff).unwrap();
+        assert_eq!(counts[0].0, "(global)");
+    }
+
+    #[test]
+    fn top_errors_test() {
+        let db = test_db();
+        let cutoff = "2000-01-01T00:00:00Z";
+        for _ in 0..5 {
+            db.insert_failure(&make_failure("Bash", "oo", "command failed"))
+                .unwrap();
+        }
+        for _ in 0..3 {
+            db.insert_failure(&make_failure("Read", "tc", "file not found"))
+                .unwrap();
+        }
+
+        let top = db.top_errors(cutoff, 10).unwrap();
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].0, "command failed");
+        assert_eq!(top[0].1, 5);
+        assert_eq!(top[1].0, "file not found");
+        assert_eq!(top[1].1, 3);
+    }
+
+    // -------------------------------------------------------------------
+    // Event logging tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn log_and_query_events() {
+        let db = test_db();
+        db.log_event("session_start", "agent", "sess-1", Some("started"))
+            .unwrap();
+        db.log_event("session_stop", "agent", "sess-1", None)
+            .unwrap();
+
+        let all = db.query_events(None, None, 100).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn query_events_by_type() {
+        let db = test_db();
+        db.log_event("session_start", "agent", "sess-1", None)
+            .unwrap();
+        db.log_event("session_stop", "agent", "sess-1", None)
+            .unwrap();
+        db.log_event("spec_status", "watcher", "oo/spec", None)
+            .unwrap();
+
+        let starts = db.query_events(Some("session_start"), None, 100).unwrap();
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0].event_type, "session_start");
+    }
+
+    #[test]
+    fn query_events_by_target() {
+        let db = test_db();
+        db.log_event("session_start", "agent", "sess-1", None)
+            .unwrap();
+        db.log_event("session_start", "agent", "sess-2", None)
+            .unwrap();
+
+        let events = db.query_events(None, Some("sess-1"), 100).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn query_events_respects_limit() {
+        let db = test_db();
+        for i in 0..10 {
+            db.log_event("test", "agent", &format!("target-{i}"), None)
+                .unwrap();
+        }
+
+        let events = db.query_events(None, None, 3).unwrap();
+        assert_eq!(events.len(), 3);
     }
 }
