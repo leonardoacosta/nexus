@@ -19,6 +19,7 @@ use nexus_core::credentials::{
     AccountUsage, CachedUsage, CredentialAccount, UsageCache, best_available, fingerprint_token,
     is_managed_symlink, query_usage, sanitize_account_name,
 };
+use nexus_core::db::{CredentialPollRecord, NexusDb};
 use nexus_core::paths;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
@@ -86,6 +87,8 @@ pub struct CredentialPool {
     pub last_swap_time: RwLock<Option<Instant>>,
     /// Account name that was last swapped to (for debounce logging).
     pub last_swap_account: RwLock<Option<String>>,
+    /// Optional SQLite backing store for credential analytics.
+    pub db: Option<Arc<NexusDb>>,
 }
 
 impl CredentialPool {
@@ -97,6 +100,7 @@ impl CredentialPool {
             http_client,
             last_swap_time: RwLock::new(None),
             last_swap_account: RwLock::new(None),
+            db: None,
         }
     }
 
@@ -181,6 +185,21 @@ impl CredentialPool {
                             last_polled: now,
                         },
                     );
+
+                    // [4.1] Write poll to DB if available.
+                    if let Some(ref db) = self.db {
+                        let record = CredentialPollRecord {
+                            timestamp: now.to_rfc3339(),
+                            account: acct.name.clone(),
+                            five_hour_utilization: Some(usage.five_hour.utilization as f64),
+                            seven_day_utilization: Some(usage.seven_day.utilization as f64),
+                            five_hour_resets_at: Some(usage.five_hour.resets_at.to_rfc3339()),
+                            seven_day_resets_at: Some(usage.seven_day.resets_at.to_rfc3339()),
+                        };
+                        if let Err(e) = db.insert_credential_poll(&record) {
+                            warn!(account = %acct.name, error = %e, "failed to insert credential poll");
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!(account = %acct.name, error = %e, "failed to poll usage");
@@ -202,7 +221,8 @@ impl CredentialPool {
             }
         }
 
-        // Persist to disk.
+        // [4.4] DB is now source of truth — still persist disk cache as fallback
+        // for startup without DB, but this is secondary to the DB writes above.
         let cache_path = usage_cache_path();
         if let Some(parent) = cache_path.parent()
             && let Err(e) = std::fs::create_dir_all(parent)
@@ -232,6 +252,18 @@ impl CredentialPoolService {
         Self {
             pool: Arc::new(CredentialPool::new(http_client)),
             healthy: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Attach a SQLite backing store for credential analytics.
+    pub fn with_db(self, db: Arc<NexusDb>) -> Self {
+        // At this point there's only one Arc holder (before start()).
+        let mut pool =
+            Arc::try_unwrap(self.pool).expect("with_db must be called before pool() or start()");
+        pool.db = Some(db);
+        Self {
+            pool: Arc::new(pool),
+            healthy: self.healthy,
         }
     }
 
@@ -301,15 +333,66 @@ impl Service for CredentialPoolService {
             creds_dir.display()
         );
 
-        // Load cached usage if fresh.
-        let cache_path = usage_cache_path();
-        let cached = load_fresh_cache(&cache_path);
+        // [4.3] Load cached usage from DB first, fall back to disk cache.
+        let db_polls: Vec<CredentialPollRecord> = self
+            .pool
+            .db
+            .as_ref()
+            .and_then(|db| match db.latest_credential_polls() {
+                Ok(polls) if !polls.is_empty() => {
+                    info!(
+                        "Loaded {} latest credential polls from DB",
+                        polls.len()
+                    );
+                    Some(polls)
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    warn!(error = %e, "failed to load credential polls from DB");
+                    None
+                }
+            })
+            .unwrap_or_default();
 
-        // Merge cached usage into accounts.
+        let cache_path = usage_cache_path();
+        let cached = if db_polls.is_empty() {
+            load_fresh_cache(&cache_path)
+        } else {
+            None
+        };
+
+        // Merge usage data into accounts (prefer DB polls over disk cache).
         let accounts: Vec<CredentialAccount> = initial
             .into_iter()
             .map(|mut acct| {
-                if let Some(ref cache) = cached
+                // Try DB polls first.
+                if let Some(poll) = db_polls.iter().find(|p| p.account == acct.name) {
+                    let five_hour_resets = poll
+                        .five_hour_resets_at
+                        .as_ref()
+                        .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+                        .unwrap_or_else(Utc::now);
+                    let seven_day_resets = poll
+                        .seven_day_resets_at
+                        .as_ref()
+                        .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+                        .unwrap_or_else(Utc::now);
+                    let last_polled = poll
+                        .timestamp
+                        .parse::<DateTime<Utc>>()
+                        .unwrap_or_else(|_| Utc::now());
+                    acct.usage = Some(AccountUsage {
+                        five_hour: nexus_core::credentials::UsageWindow {
+                            utilization: poll.five_hour_utilization.unwrap_or(0.0) as f32,
+                            resets_at: five_hour_resets,
+                        },
+                        seven_day: nexus_core::credentials::UsageWindow {
+                            utilization: poll.seven_day_utilization.unwrap_or(0.0) as f32,
+                            resets_at: seven_day_resets,
+                        },
+                    });
+                    acct.last_polled = Some(last_polled);
+                } else if let Some(ref cache) = cached
                     && let Some(cu) = cache.accounts.get(&acct.name)
                 {
                     acct.usage = Some(AccountUsage {

@@ -20,8 +20,9 @@ use nexus_agent::failures::FailureBuffer;
 use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
-    AppState, approve_spec_handler, credentials_handler, cron_handler, environment_handler,
-    events_handler, failures_handler, get_spec_handler, health_handler, hooks_handler,
+    AppState, analytics_credentials_handler, analytics_health_handler, analytics_specs_handler,
+    approve_spec_handler, credentials_handler, cron_handler, environment_handler, events_handler,
+    failures_handler, get_spec_handler, health_handler, hooks_handler,
     list_commands_by_namespace_handler, list_commands_handler, list_specs_handler,
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
     read_spec_handler, recommend_handler, reject_spec_handler, run_command_handler,
@@ -125,8 +126,9 @@ async fn main() -> Result<()> {
             .await,
     );
 
-    // Start the health collector with a 5-second refresh interval.
-    let health_collector = HealthCollector::spawn(Duration::from_secs(5));
+    // Start the health collector with a 5-second refresh interval and DB sampling.
+    let health_collector =
+        HealthCollector::spawn_with_db(Duration::from_secs(5), Some(Arc::clone(&db)));
 
     let started_at = std::time::Instant::now();
 
@@ -165,8 +167,9 @@ async fn main() -> Result<()> {
         coordinator.token(),
     );
 
-    // Initialize and spawn the credential pool service.
-    let credential_pool_service = CredentialPoolService::new(http_client.clone());
+    // Initialize and spawn the credential pool service with DB backing.
+    let credential_pool_service =
+        CredentialPoolService::new(http_client.clone()).with_db(Arc::clone(&db));
     let credential_pool: Arc<CredentialPool> = credential_pool_service.pool();
     spawn_service(credential_pool_service, coordinator.token());
     tracing::info!("CredentialPoolService started");
@@ -405,6 +408,9 @@ async fn main() -> Result<()> {
             "/project/{code}/run",
             axum::routing::post(run_command_handler),
         )
+        .route("/analytics/health", get(analytics_health_handler))
+        .route("/analytics/specs", get(analytics_specs_handler))
+        .route("/analytics/credentials", get(analytics_credentials_handler))
         .with_state(app_state);
 
     let http_addr: std::net::SocketAddr = format!("{bind_address}:{HTTP_PORT}").parse()?;
@@ -438,6 +444,7 @@ async fn main() -> Result<()> {
         failure_buffer,
         http_client: socket_http_client,
         credential_pool: socket_credential_pool,
+        db: Arc::clone(&db),
     });
 
     tracing::info!(

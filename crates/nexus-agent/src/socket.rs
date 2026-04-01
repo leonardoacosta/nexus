@@ -30,6 +30,7 @@ use crate::rate_limit_interceptor::{self, InterceptResult};
 use crate::registry::SessionRegistry;
 use crate::services::credential_pool::CredentialPool;
 use crate::services::receiver::ReceiverService;
+use nexus_core::db::{NexusDb, NotificationRecord as DbNotificationRecord};
 
 /// Default socket path, overridable via `NEXUS_SOCKET` env var.
 const DEFAULT_SOCKET_PATH: &str = "/tmp/nexus-agent.sock";
@@ -87,6 +88,7 @@ pub struct SocketContext {
     pub failure_buffer: FailureBuffer,
     pub http_client: reqwest::Client,
     pub credential_pool: Arc<CredentialPool>,
+    pub db: Arc<NexusDb>,
 }
 
 /// Bind the Unix domain socket and run the accept loop.
@@ -128,7 +130,8 @@ pub async fn run_socket_service(ctx: SocketContext) -> Result<()> {
                         let failures = ctx.failure_buffer.clone();
                         let client = ctx.http_client.clone();
                         let pool = Arc::clone(&ctx.credential_pool);
-                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client, pool));
+                        let db = Arc::clone(&ctx.db);
+                        tokio::spawn(handle_connection(stream, reg, recv, tx, notif_cfg, relay, failures, client, pool, db));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "socket accept error");
@@ -165,6 +168,7 @@ async fn handle_connection(
     failure_buffer: FailureBuffer,
     http_client: reqwest::Client,
     credential_pool: Arc<CredentialPool>,
+    db: Arc<NexusDb>,
 ) {
     // Split into reader/writer halves so we can both read lines and write
     // command responses on the same stream.
@@ -190,6 +194,7 @@ async fn handle_connection(
                         &failure_buffer,
                         &http_client,
                         &credential_pool,
+                        &db,
                     )
                     .await;
                     continue;
@@ -234,6 +239,7 @@ async fn dispatch_event(
     failure_buffer: &FailureBuffer,
     http_client: &reqwest::Client,
     credential_pool: &Arc<CredentialPool>,
+    db: &Arc<NexusDb>,
 ) {
     match event {
         SocketEvent::SessionStart {
@@ -341,7 +347,19 @@ async fn dispatch_event(
                 .await;
                 match result {
                     // [4.4] Handled — suppress notification from TTS.
-                    InterceptResult::Handled => return,
+                    InterceptResult::Handled => {
+                        // [5.2] Log suppressed notification.
+                        let _ = db.insert_notification(&DbNotificationRecord {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            message: message.clone(),
+                            message_type: message_type.clone(),
+                            project: None,
+                            channels: Some("tts".to_string()),
+                            delivered: false,
+                            suppressed: true,
+                        });
+                        return;
+                    }
                     // [5.3] Exhausted — deliver exhaustion message via TTS.
                     InterceptResult::Exhausted(exhaustion_msg) => {
                         let tts_channels = vec!["tts".to_string()];
@@ -372,6 +390,17 @@ async fn dispatch_event(
 
             // Default channels to ["tts"] when not specified
             let effective_channels = channels.unwrap_or_else(|| vec!["tts".to_string()]);
+
+            // [5.1] Log delivered notification to DB.
+            let _ = db.insert_notification(&DbNotificationRecord {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                message: message.clone(),
+                message_type: message_type.clone(),
+                project: None,
+                channels: Some(effective_channels.join(",")),
+                delivered: true,
+                suppressed: false,
+            });
 
             if peer_relay_urls.is_empty() {
                 // role=primary: handle locally via ReceiverService

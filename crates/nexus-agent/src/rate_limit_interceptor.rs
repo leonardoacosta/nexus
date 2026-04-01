@@ -7,8 +7,9 @@
 
 use std::sync::Arc;
 
-use chrono::Local;
+use chrono::{Local, Utc};
 use nexus_core::credentials::CredentialAccount;
+use nexus_core::db::CredentialSwapRecord;
 
 use crate::dispatch::dispatch_answer;
 use crate::registry::SessionRegistry;
@@ -100,6 +101,19 @@ pub async fn handle_rate_limit(
                         session = session_id.unwrap_or("unknown"),
                         "Rotated credential on rate limit"
                     );
+
+                    // [4.2] Log swap to DB for analytics.
+                    if let Some(ref db) = pool.db {
+                        let swap_record = CredentialSwapRecord {
+                            timestamp: Utc::now().to_rfc3339(),
+                            from_account: current_account.clone(),
+                            to_account: target.name.clone(),
+                            trigger_session_id: session_id.map(String::from),
+                        };
+                        if let Err(e) = db.insert_credential_swap(&swap_record) {
+                            tracing::warn!("failed to log credential swap to DB: {}", e);
+                        }
+                    }
 
                     // [4.2] Step 4: Send "continue" to the session.
                     send_continue_to_session(registry, session_id).await;

@@ -196,6 +196,38 @@ fn tool_definitions() -> Vec<McpTool> {
                 "required": ["project", "name"]
             }),
         },
+        McpTool {
+            name: "get_health_history".to_string(),
+            description: "Get historical health metrics (CPU, memory, disk, load) sampled \
+                          every 30 seconds. Returns timeseries data for charting."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "hours": {
+                        "type": "integer",
+                        "description": "Number of hours of history to return (default: 24)"
+                    }
+                },
+                "required": []
+            }),
+        },
+        McpTool {
+            name: "get_credential_history".to_string(),
+            description: "Get historical credential usage polls and swap events. Shows \
+                          utilization trends and rotation history."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "hours": {
+                        "type": "integer",
+                        "description": "Number of hours of history to return (default: 24)"
+                    }
+                },
+                "required": []
+            }),
+        },
     ]
 }
 
@@ -258,6 +290,23 @@ async fn execute_tool(
                     base_url, project, name_arg
                 ))
                 .json(&body)
+        }
+        "get_health_history" => {
+            let hours = arguments
+                .get("hours")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(24);
+            client.get(format!("{}/analytics/health?hours={}", base_url, hours))
+        }
+        "get_credential_history" => {
+            let hours = arguments
+                .get("hours")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(24);
+            client.get(format!(
+                "{}/analytics/credentials?hours={}",
+                base_url, hours
+            ))
         }
         _ => {
             return McpToolResult {

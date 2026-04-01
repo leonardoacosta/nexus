@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use nexus_core::db::{HealthSampleRecord, NexusDb};
 use nexus_core::health::{ContainerStatus, MachineHealth};
 use sysinfo::System;
 use tokio::sync::RwLock;
@@ -8,6 +9,10 @@ use tokio::sync::RwLock;
 /// How many health ticks to wait between Docker container list refreshes.
 /// At a 5-second interval this means Docker is queried every 30 seconds.
 const DOCKER_REFRESH_TICKS: u32 = 6;
+
+/// How many health ticks to wait between writing a health sample to the DB.
+/// At a 5-second interval this means a DB sample every 30 seconds.
+const DB_SAMPLE_TICKS: u32 = 6;
 
 /// Shared health state that is periodically refreshed in the background.
 #[derive(Clone)]
@@ -23,6 +28,13 @@ impl HealthCollector {
     /// The `System` instance is created once and reused across refreshes to
     /// avoid the ~100-200 MB allocation cost of `System::new_all()` on every tick.
     pub fn spawn(interval: Duration) -> Self {
+        Self::spawn_with_db(interval, None)
+    }
+
+    /// Create a new collector with optional SQLite backing store for health
+    /// sampling. When `db` is `Some`, every 6th refresh tick (30s at 5s
+    /// interval) writes a `health_samples` row.
+    pub fn spawn_with_db(interval: Duration, db: Option<Arc<NexusDb>>) -> Self {
         let state = Arc::new(RwLock::new(MachineHealth::default()));
         let collector = Self {
             state: state.clone(),
@@ -51,6 +63,7 @@ impl HealthCollector {
             tick.tick().await;
 
             let mut docker_tick_counter: u32 = 0;
+            let mut db_sample_counter: u32 = 0;
             let mut cached_docker = docker_containers;
 
             loop {
@@ -90,6 +103,30 @@ impl HealthCollector {
                 }
 
                 sys = returned_sys;
+
+                // Write health sample to DB every DB_SAMPLE_TICKS cycles (30s).
+                db_sample_counter += 1;
+                if db_sample_counter >= DB_SAMPLE_TICKS {
+                    db_sample_counter = 0;
+                    if let Some(ref db) = db {
+                        let record = HealthSampleRecord {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            cpu_percent: Some(snapshot.cpu_percent as f64),
+                            memory_used_gb: Some(snapshot.memory_used_gb as f64),
+                            memory_total_gb: Some(snapshot.memory_total_gb as f64),
+                            disk_used_gb: Some(snapshot.disk_used_gb as f64),
+                            disk_total_gb: Some(snapshot.disk_total_gb as f64),
+                            load1: Some(snapshot.load_avg[0] as f64),
+                            load5: Some(snapshot.load_avg[1] as f64),
+                            load15: Some(snapshot.load_avg[2] as f64),
+                            uptime_seconds: Some(snapshot.uptime_seconds as i64),
+                        };
+                        if let Err(e) = db.insert_health_sample(&record) {
+                            tracing::warn!("failed to insert health sample: {}", e);
+                        }
+                    }
+                }
+
                 *state.write().await = snapshot;
             }
         });

@@ -92,7 +92,7 @@ impl NexusDb {
 
         let current_version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
-        let migrations: Vec<fn(&Connection) -> Result<()>> = vec![migrate_v1];
+        let migrations: Vec<fn(&Connection) -> Result<()>> = vec![migrate_v1, migrate_v2];
 
         for (i, migration) in migrations.iter().enumerate() {
             let version = (i + 1) as u32;
@@ -723,6 +723,385 @@ impl NexusDb {
     }
 
     // -----------------------------------------------------------------------
+    // Health samples CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a health sample.
+    pub fn insert_health_sample(&self, sample: &HealthSampleRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO health_samples (
+                    timestamp, cpu_percent, memory_used_gb, memory_total_gb,
+                    disk_used_gb, disk_total_gb, load1, load5, load15, uptime_seconds
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    sample.timestamp,
+                    sample.cpu_percent,
+                    sample.memory_used_gb,
+                    sample.memory_total_gb,
+                    sample.disk_used_gb,
+                    sample.disk_total_gb,
+                    sample.load1,
+                    sample.load5,
+                    sample.load15,
+                    sample.uptime_seconds,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query health samples since a given timestamp, ordered by timestamp descending.
+    pub fn query_health_samples(
+        &self,
+        since: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<HealthSampleRecord>> {
+        self.read(|conn| {
+            let (sql, bind_values): (String, Vec<String>) = match since {
+                Some(s) => (
+                    format!(
+                        "SELECT timestamp, cpu_percent, memory_used_gb, memory_total_gb,
+                                disk_used_gb, disk_total_gb, load1, load5, load15, uptime_seconds
+                         FROM health_samples WHERE timestamp >= ?1
+                         ORDER BY timestamp DESC LIMIT ?2"
+                    ),
+                    vec![s.to_string()],
+                ),
+                None => (
+                    "SELECT timestamp, cpu_percent, memory_used_gb, memory_total_gb,
+                            disk_used_gb, disk_total_gb, load1, load5, load15, uptime_seconds
+                     FROM health_samples ORDER BY timestamp DESC LIMIT ?1"
+                        .to_string(),
+                    vec![],
+                ),
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = bind_values.iter().map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>).collect();
+            all_params.push(Box::new(limit));
+            let rows = stmt.query_map(rusqlite::params_from_iter(all_params.iter().map(|p| p.as_ref())), |row| {
+                Ok(HealthSampleRecord {
+                    timestamp: row.get(0)?,
+                    cpu_percent: row.get(1)?,
+                    memory_used_gb: row.get(2)?,
+                    memory_total_gb: row.get(3)?,
+                    disk_used_gb: row.get(4)?,
+                    disk_total_gb: row.get(5)?,
+                    load1: row.get(6)?,
+                    load5: row.get(7)?,
+                    load15: row.get(8)?,
+                    uptime_seconds: row.get(9)?,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Spec snapshots CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a spec snapshot (timeseries progress record).
+    pub fn insert_spec_snapshot(&self, snapshot: &SpecSnapshotRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO spec_snapshots (timestamp, project, spec_name, completed_tasks, total_tasks)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    snapshot.timestamp,
+                    snapshot.project,
+                    snapshot.spec_name,
+                    snapshot.completed_tasks,
+                    snapshot.total_tasks,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get the latest snapshot for a specific spec (for dedup).
+    pub fn latest_spec_snapshot(
+        &self,
+        project: &str,
+        spec_name: &str,
+    ) -> Result<Option<SpecSnapshotRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT timestamp, project, spec_name, completed_tasks, total_tasks
+                 FROM spec_snapshots
+                 WHERE project = ?1 AND spec_name = ?2
+                 ORDER BY timestamp DESC LIMIT 1",
+            )?;
+            let result = stmt
+                .query_row(params![project, spec_name], |row| {
+                    Ok(SpecSnapshotRecord {
+                        timestamp: row.get(0)?,
+                        project: row.get(1)?,
+                        spec_name: row.get(2)?,
+                        completed_tasks: row.get(3)?,
+                        total_tasks: row.get(4)?,
+                    })
+                })
+                .optional()?;
+            Ok(result)
+        })
+    }
+
+    /// Query spec snapshots for a project, ordered by timestamp descending.
+    pub fn query_spec_snapshots(
+        &self,
+        project: &str,
+        limit: u32,
+    ) -> Result<Vec<SpecSnapshotRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT timestamp, project, spec_name, completed_tasks, total_tasks
+                 FROM spec_snapshots WHERE project = ?1
+                 ORDER BY timestamp DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![project, limit], |row| {
+                Ok(SpecSnapshotRecord {
+                    timestamp: row.get(0)?,
+                    project: row.get(1)?,
+                    spec_name: row.get(2)?,
+                    completed_tasks: row.get(3)?,
+                    total_tasks: row.get(4)?,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Credential polls CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a credential usage poll record.
+    pub fn insert_credential_poll(&self, poll: &CredentialPollRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO credential_polls (
+                    timestamp, account, five_hour_utilization, seven_day_utilization,
+                    five_hour_resets_at, seven_day_resets_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    poll.timestamp,
+                    poll.account,
+                    poll.five_hour_utilization,
+                    poll.seven_day_utilization,
+                    poll.five_hour_resets_at,
+                    poll.seven_day_resets_at,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query credential polls for an account, ordered by timestamp descending.
+    pub fn query_credential_polls(
+        &self,
+        account: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<CredentialPollRecord>> {
+        self.read(|conn| {
+            let (sql, bind_values): (String, Vec<String>) = match account {
+                Some(a) => (
+                    "SELECT timestamp, account, five_hour_utilization, seven_day_utilization,
+                            five_hour_resets_at, seven_day_resets_at
+                     FROM credential_polls WHERE account = ?1
+                     ORDER BY timestamp DESC LIMIT ?2"
+                        .to_string(),
+                    vec![a.to_string()],
+                ),
+                None => (
+                    "SELECT timestamp, account, five_hour_utilization, seven_day_utilization,
+                            five_hour_resets_at, seven_day_resets_at
+                     FROM credential_polls
+                     ORDER BY timestamp DESC LIMIT ?1"
+                        .to_string(),
+                    vec![],
+                ),
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = bind_values.iter().map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>).collect();
+            all_params.push(Box::new(limit));
+            let rows = stmt.query_map(rusqlite::params_from_iter(all_params.iter().map(|p| p.as_ref())), |row| {
+                Ok(CredentialPollRecord {
+                    timestamp: row.get(0)?,
+                    account: row.get(1)?,
+                    five_hour_utilization: row.get(2)?,
+                    seven_day_utilization: row.get(3)?,
+                    five_hour_resets_at: row.get(4)?,
+                    seven_day_resets_at: row.get(5)?,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Get the latest poll for each account (for startup bootstrap).
+    pub fn latest_credential_polls(&self) -> Result<Vec<CredentialPollRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT cp.timestamp, cp.account, cp.five_hour_utilization, cp.seven_day_utilization,
+                        cp.five_hour_resets_at, cp.seven_day_resets_at
+                 FROM credential_polls cp
+                 INNER JOIN (
+                     SELECT account, MAX(timestamp) as max_ts
+                     FROM credential_polls GROUP BY account
+                 ) latest ON cp.account = latest.account AND cp.timestamp = latest.max_ts",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(CredentialPollRecord {
+                    timestamp: row.get(0)?,
+                    account: row.get(1)?,
+                    five_hour_utilization: row.get(2)?,
+                    seven_day_utilization: row.get(3)?,
+                    five_hour_resets_at: row.get(4)?,
+                    seven_day_resets_at: row.get(5)?,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Credential swaps CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a credential swap event.
+    pub fn insert_credential_swap(&self, swap: &CredentialSwapRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO credential_swaps (timestamp, from_account, to_account, trigger_session_id)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    swap.timestamp,
+                    swap.from_account,
+                    swap.to_account,
+                    swap.trigger_session_id,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query credential swaps, ordered by timestamp descending.
+    pub fn query_credential_swaps(&self, limit: u32) -> Result<Vec<CredentialSwapRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT timestamp, from_account, to_account, trigger_session_id
+                 FROM credential_swaps ORDER BY timestamp DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |row| {
+                Ok(CredentialSwapRecord {
+                    timestamp: row.get(0)?,
+                    from_account: row.get(1)?,
+                    to_account: row.get(2)?,
+                    trigger_session_id: row.get(3)?,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Notifications CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a notification record.
+    pub fn insert_notification(&self, notification: &NotificationRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO notifications (
+                    timestamp, message, message_type, project, channels, delivered, suppressed
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    notification.timestamp,
+                    notification.message,
+                    notification.message_type,
+                    notification.project,
+                    notification.channels,
+                    notification.delivered as i32,
+                    notification.suppressed as i32,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query notifications, ordered by timestamp descending.
+    pub fn query_notifications(
+        &self,
+        project: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<NotificationRecord>> {
+        self.read(|conn| {
+            let (sql, bind_values): (String, Vec<String>) = match project {
+                Some(p) => (
+                    "SELECT timestamp, message, message_type, project, channels, delivered, suppressed
+                     FROM notifications WHERE project = ?1
+                     ORDER BY timestamp DESC LIMIT ?2"
+                        .to_string(),
+                    vec![p.to_string()],
+                ),
+                None => (
+                    "SELECT timestamp, message, message_type, project, channels, delivered, suppressed
+                     FROM notifications
+                     ORDER BY timestamp DESC LIMIT ?1"
+                        .to_string(),
+                    vec![],
+                ),
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = bind_values.iter().map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>).collect();
+            all_params.push(Box::new(limit));
+            let rows = stmt.query_map(rusqlite::params_from_iter(all_params.iter().map(|p| p.as_ref())), |row| {
+                Ok(NotificationRecord {
+                    timestamp: row.get(0)?,
+                    message: row.get(1)?,
+                    message_type: row.get(2)?,
+                    project: row.get(3)?,
+                    channels: row.get(4)?,
+                    delivered: row.get::<_, i32>(5)? != 0,
+                    suppressed: row.get::<_, i32>(6)? != 0,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
     // Retention cleanup
     // -----------------------------------------------------------------------
 
@@ -756,11 +1135,42 @@ impl NexusDb {
                 params![format!("-{spec_archive_days} days")],
             )?;
 
+            // V2 analytics tables — 30-day retention.
+            let health_samples_deleted = conn.execute(
+                "DELETE FROM health_samples WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let spec_snapshots_deleted = conn.execute(
+                "DELETE FROM spec_snapshots WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let credential_polls_deleted = conn.execute(
+                "DELETE FROM credential_polls WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let credential_swaps_deleted = conn.execute(
+                "DELETE FROM credential_swaps WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let notifications_deleted = conn.execute(
+                "DELETE FROM notifications WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
             Ok(PruneStats {
                 sessions_deleted,
                 failures_deleted,
                 events_deleted,
                 specs_deleted,
+                health_samples_deleted,
+                spec_snapshots_deleted,
+                credential_polls_deleted,
+                credential_swaps_deleted,
+                notifications_deleted,
             })
         })
     }
@@ -838,6 +1248,77 @@ fn migrate_v1(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+        ",
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// V2 Migration — analytics tables
+// ---------------------------------------------------------------------------
+
+fn migrate_v2(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS health_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            cpu_percent REAL,
+            memory_used_gb REAL,
+            memory_total_gb REAL,
+            disk_used_gb REAL,
+            disk_total_gb REAL,
+            load1 REAL,
+            load5 REAL,
+            load15 REAL,
+            uptime_seconds INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_health_timestamp ON health_samples(timestamp);
+
+        CREATE TABLE IF NOT EXISTS spec_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            project TEXT NOT NULL,
+            spec_name TEXT NOT NULL,
+            completed_tasks INTEGER,
+            total_tasks INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_spec_snap_project ON spec_snapshots(project, spec_name);
+        CREATE INDEX IF NOT EXISTS idx_spec_snap_timestamp ON spec_snapshots(timestamp);
+
+        CREATE TABLE IF NOT EXISTS credential_polls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            account TEXT NOT NULL,
+            five_hour_utilization REAL,
+            seven_day_utilization REAL,
+            five_hour_resets_at TEXT,
+            seven_day_resets_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cred_poll_account ON credential_polls(account);
+        CREATE INDEX IF NOT EXISTS idx_cred_poll_timestamp ON credential_polls(timestamp);
+
+        CREATE TABLE IF NOT EXISTS credential_swaps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            from_account TEXT NOT NULL,
+            to_account TEXT NOT NULL,
+            trigger_session_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cred_swap_timestamp ON credential_swaps(timestamp);
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            message TEXT NOT NULL,
+            message_type TEXT,
+            project TEXT,
+            channels TEXT,
+            delivered INTEGER NOT NULL DEFAULT 1,
+            suppressed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_notif_timestamp ON notifications(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_notif_project ON notifications(project);
         ",
     )?;
     Ok(())
@@ -938,6 +1419,72 @@ pub struct PruneStats {
     pub failures_deleted: usize,
     pub events_deleted: usize,
     pub specs_deleted: usize,
+    pub health_samples_deleted: usize,
+    pub spec_snapshots_deleted: usize,
+    pub credential_polls_deleted: usize,
+    pub credential_swaps_deleted: usize,
+    pub notifications_deleted: usize,
+}
+
+// ---------------------------------------------------------------------------
+// V2 Types — analytics tables
+// ---------------------------------------------------------------------------
+
+/// A row from the `health_samples` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HealthSampleRecord {
+    pub timestamp: String,
+    pub cpu_percent: Option<f64>,
+    pub memory_used_gb: Option<f64>,
+    pub memory_total_gb: Option<f64>,
+    pub disk_used_gb: Option<f64>,
+    pub disk_total_gb: Option<f64>,
+    pub load1: Option<f64>,
+    pub load5: Option<f64>,
+    pub load15: Option<f64>,
+    pub uptime_seconds: Option<i64>,
+}
+
+/// A row from the `spec_snapshots` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpecSnapshotRecord {
+    pub timestamp: String,
+    pub project: String,
+    pub spec_name: String,
+    pub completed_tasks: Option<u32>,
+    pub total_tasks: Option<u32>,
+}
+
+/// A row from the `credential_polls` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CredentialPollRecord {
+    pub timestamp: String,
+    pub account: String,
+    pub five_hour_utilization: Option<f64>,
+    pub seven_day_utilization: Option<f64>,
+    pub five_hour_resets_at: Option<String>,
+    pub seven_day_resets_at: Option<String>,
+}
+
+/// A row from the `credential_swaps` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CredentialSwapRecord {
+    pub timestamp: String,
+    pub from_account: String,
+    pub to_account: String,
+    pub trigger_session_id: Option<String>,
+}
+
+/// A row from the `notifications` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NotificationRecord {
+    pub timestamp: String,
+    pub message: String,
+    pub message_type: Option<String>,
+    pub project: Option<String>,
+    pub channels: Option<String>,
+    pub delivered: bool,
+    pub suppressed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,7 +1568,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -1031,7 +1578,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -1054,6 +1601,12 @@ mod tests {
         assert!(tables.contains(&"sessions".to_string()));
         assert!(tables.contains(&"failures".to_string()));
         assert!(tables.contains(&"events".to_string()));
+        // V2 tables.
+        assert!(tables.contains(&"health_samples".to_string()));
+        assert!(tables.contains(&"spec_snapshots".to_string()));
+        assert!(tables.contains(&"credential_polls".to_string()));
+        assert!(tables.contains(&"credential_swaps".to_string()));
+        assert!(tables.contains(&"notifications".to_string()));
     }
 
     #[test]
@@ -1506,5 +2059,321 @@ mod tests {
 
         let events = db.query_events(None, None, 3).unwrap();
         assert_eq!(events.len(), 3);
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Health samples tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_health_samples() {
+        let db = test_db();
+        let sample = HealthSampleRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            cpu_percent: Some(42.5),
+            memory_used_gb: Some(8.0),
+            memory_total_gb: Some(32.0),
+            disk_used_gb: Some(100.0),
+            disk_total_gb: Some(500.0),
+            load1: Some(1.5),
+            load5: Some(1.2),
+            load15: Some(0.9),
+            uptime_seconds: Some(86400),
+        };
+        db.insert_health_sample(&sample).unwrap();
+
+        let results = db.query_health_samples(None, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].cpu_percent, Some(42.5));
+        assert_eq!(results[0].uptime_seconds, Some(86400));
+    }
+
+    #[test]
+    fn query_health_samples_with_since() {
+        let db = test_db();
+        let old = HealthSampleRecord {
+            timestamp: "2020-01-01T00:00:00Z".to_string(),
+            cpu_percent: Some(10.0),
+            memory_used_gb: None,
+            memory_total_gb: None,
+            disk_used_gb: None,
+            disk_total_gb: None,
+            load1: None,
+            load5: None,
+            load15: None,
+            uptime_seconds: None,
+        };
+        db.insert_health_sample(&old).unwrap();
+
+        let recent = HealthSampleRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            cpu_percent: Some(50.0),
+            memory_used_gb: None,
+            memory_total_gb: None,
+            disk_used_gb: None,
+            disk_total_gb: None,
+            load1: None,
+            load5: None,
+            load15: None,
+            uptime_seconds: None,
+        };
+        db.insert_health_sample(&recent).unwrap();
+
+        let results = db
+            .query_health_samples(Some("2024-01-01T00:00:00Z"), 10)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].cpu_percent, Some(50.0));
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Spec snapshots tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_spec_snapshots() {
+        let db = test_db();
+        let snap = SpecSnapshotRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            project: "oo".to_string(),
+            spec_name: "add-feature".to_string(),
+            completed_tasks: Some(5),
+            total_tasks: Some(10),
+        };
+        db.insert_spec_snapshot(&snap).unwrap();
+
+        let results = db.query_spec_snapshots("oo", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].spec_name, "add-feature");
+        assert_eq!(results[0].completed_tasks, Some(5));
+    }
+
+    #[test]
+    fn latest_spec_snapshot_returns_most_recent() {
+        let db = test_db();
+        let snap1 = SpecSnapshotRecord {
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            project: "oo".to_string(),
+            spec_name: "feat".to_string(),
+            completed_tasks: Some(2),
+            total_tasks: Some(10),
+        };
+        db.insert_spec_snapshot(&snap1).unwrap();
+
+        let snap2 = SpecSnapshotRecord {
+            timestamp: "2024-01-02T00:00:00Z".to_string(),
+            project: "oo".to_string(),
+            spec_name: "feat".to_string(),
+            completed_tasks: Some(5),
+            total_tasks: Some(10),
+        };
+        db.insert_spec_snapshot(&snap2).unwrap();
+
+        let latest = db.latest_spec_snapshot("oo", "feat").unwrap().unwrap();
+        assert_eq!(latest.completed_tasks, Some(5));
+    }
+
+    #[test]
+    fn latest_spec_snapshot_none_for_missing() {
+        let db = test_db();
+        let result = db.latest_spec_snapshot("oo", "nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Credential polls tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_credential_polls() {
+        let db = test_db();
+        let poll = CredentialPollRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            account: "personal".to_string(),
+            five_hour_utilization: Some(0.45),
+            seven_day_utilization: Some(0.20),
+            five_hour_resets_at: Some("2024-01-01T12:00:00Z".to_string()),
+            seven_day_resets_at: Some("2024-01-07T00:00:00Z".to_string()),
+        };
+        db.insert_credential_poll(&poll).unwrap();
+
+        let results = db.query_credential_polls(Some("personal"), 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].five_hour_utilization, Some(0.45));
+    }
+
+    #[test]
+    fn latest_credential_polls_groups_by_account() {
+        let db = test_db();
+        // Two polls for "personal", one for "work".
+        db.insert_credential_poll(&CredentialPollRecord {
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            account: "personal".to_string(),
+            five_hour_utilization: Some(0.1),
+            seven_day_utilization: Some(0.05),
+            five_hour_resets_at: None,
+            seven_day_resets_at: None,
+        })
+        .unwrap();
+        db.insert_credential_poll(&CredentialPollRecord {
+            timestamp: "2024-01-02T00:00:00Z".to_string(),
+            account: "personal".to_string(),
+            five_hour_utilization: Some(0.5),
+            seven_day_utilization: Some(0.3),
+            five_hour_resets_at: None,
+            seven_day_resets_at: None,
+        })
+        .unwrap();
+        db.insert_credential_poll(&CredentialPollRecord {
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            account: "work".to_string(),
+            five_hour_utilization: Some(0.8),
+            seven_day_utilization: Some(0.6),
+            five_hour_resets_at: None,
+            seven_day_resets_at: None,
+        })
+        .unwrap();
+
+        let latest = db.latest_credential_polls().unwrap();
+        assert_eq!(latest.len(), 2);
+        // "personal" should have the most recent poll.
+        let personal = latest.iter().find(|p| p.account == "personal").unwrap();
+        assert_eq!(personal.five_hour_utilization, Some(0.5));
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Credential swaps tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_credential_swaps() {
+        let db = test_db();
+        let swap = CredentialSwapRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            from_account: "personal".to_string(),
+            to_account: "work".to_string(),
+            trigger_session_id: Some("sess-42".to_string()),
+        };
+        db.insert_credential_swap(&swap).unwrap();
+
+        let results = db.query_credential_swaps(10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].from_account, "personal");
+        assert_eq!(results[0].to_account, "work");
+        assert_eq!(results[0].trigger_session_id.as_deref(), Some("sess-42"));
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Notifications tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_notifications() {
+        let db = test_db();
+        let notif = NotificationRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            message: "OO — session started".to_string(),
+            message_type: Some("brief".to_string()),
+            project: Some("oo".to_string()),
+            channels: Some("[\"tts\",\"banner\"]".to_string()),
+            delivered: true,
+            suppressed: false,
+        };
+        db.insert_notification(&notif).unwrap();
+
+        let results = db.query_notifications(Some("oo"), 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].message, "OO — session started");
+        assert!(results[0].delivered);
+        assert!(!results[0].suppressed);
+    }
+
+    #[test]
+    fn insert_suppressed_notification() {
+        let db = test_db();
+        let notif = NotificationRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            message: "Suppressed msg".to_string(),
+            message_type: Some("brief".to_string()),
+            project: None,
+            channels: None,
+            delivered: false,
+            suppressed: true,
+        };
+        db.insert_notification(&notif).unwrap();
+
+        let results = db.query_notifications(None, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].delivered);
+        assert!(results[0].suppressed);
+    }
+
+    // -------------------------------------------------------------------
+    // V2: Pruning includes new tables
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn prune_removes_old_v2_records() {
+        let db = test_db();
+        let old_ts = "2020-01-01T00:00:00Z".to_string();
+
+        db.insert_health_sample(&HealthSampleRecord {
+            timestamp: old_ts.clone(),
+            cpu_percent: Some(10.0),
+            memory_used_gb: None,
+            memory_total_gb: None,
+            disk_used_gb: None,
+            disk_total_gb: None,
+            load1: None,
+            load5: None,
+            load15: None,
+            uptime_seconds: None,
+        })
+        .unwrap();
+
+        db.insert_spec_snapshot(&SpecSnapshotRecord {
+            timestamp: old_ts.clone(),
+            project: "oo".to_string(),
+            spec_name: "old".to_string(),
+            completed_tasks: Some(1),
+            total_tasks: Some(5),
+        })
+        .unwrap();
+
+        db.insert_credential_poll(&CredentialPollRecord {
+            timestamp: old_ts.clone(),
+            account: "test".to_string(),
+            five_hour_utilization: Some(0.1),
+            seven_day_utilization: None,
+            five_hour_resets_at: None,
+            seven_day_resets_at: None,
+        })
+        .unwrap();
+
+        db.insert_credential_swap(&CredentialSwapRecord {
+            timestamp: old_ts.clone(),
+            from_account: "a".to_string(),
+            to_account: "b".to_string(),
+            trigger_session_id: None,
+        })
+        .unwrap();
+
+        db.insert_notification(&NotificationRecord {
+            timestamp: old_ts,
+            message: "old notification".to_string(),
+            message_type: None,
+            project: None,
+            channels: None,
+            delivered: true,
+            suppressed: false,
+        })
+        .unwrap();
+
+        let stats = db.prune_old_records(30, 90).unwrap();
+        assert_eq!(stats.health_samples_deleted, 1);
+        assert_eq!(stats.spec_snapshots_deleted, 1);
+        assert_eq!(stats.credential_polls_deleted, 1);
+        assert_eq!(stats.credential_swaps_deleted, 1);
+        assert_eq!(stats.notifications_deleted, 1);
     }
 }

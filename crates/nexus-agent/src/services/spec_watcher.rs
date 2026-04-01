@@ -15,7 +15,7 @@ use crate::claude_utils::notify::send_notification;
 use crate::services::Service;
 use crate::services::project_status::{ProjectStatusCache, collect_all};
 use anyhow::Result;
-use nexus_core::db::{NexusDb, SpecRecord, proposal_hash};
+use nexus_core::db::{NexusDb, SpecRecord, SpecSnapshotRecord, proposal_hash};
 use nexus_core::project_registry::{ProjectPath, ProjectRegistry, SpecSnapshot};
 use std::collections::HashSet;
 use std::path::Path;
@@ -286,16 +286,43 @@ fn process_project_specs(
                 }
 
                 // Update task counts and hash in DB.
-                if (snap.completed_tasks != existing.tasks_done
-                    || snap.total_tasks != existing.tasks_total)
-                    && let Err(e) = db.update_spec_tasks(
+                if snap.completed_tasks != existing.tasks_done
+                    || snap.total_tasks != existing.tasks_total
+                {
+                    if let Err(e) = db.update_spec_tasks(
                         project,
                         &snap.name,
                         snap.completed_tasks,
                         snap.total_tasks,
-                    )
-                {
-                    warn!("Failed to update spec tasks {}: {}", spec_id, e);
+                    ) {
+                        warn!("Failed to update spec tasks {}: {}", spec_id, e);
+                    }
+
+                    // [3.1-3.2] Insert spec snapshot if completed_tasks changed (deduped).
+                    if snap.completed_tasks != existing.tasks_done {
+                        let should_insert = match db.latest_spec_snapshot(project, &snap.name) {
+                            Ok(Some(latest)) => {
+                                latest.completed_tasks != Some(snap.completed_tasks)
+                                    || latest.total_tasks != Some(snap.total_tasks)
+                            }
+                            _ => true,
+                        };
+                        if should_insert {
+                            let snapshot_record = SpecSnapshotRecord {
+                                timestamp: now.clone(),
+                                project: project.to_string(),
+                                spec_name: snap.name.clone(),
+                                completed_tasks: Some(snap.completed_tasks),
+                                total_tasks: Some(snap.total_tasks),
+                            };
+                            if let Err(e) = db.insert_spec_snapshot(&snapshot_record) {
+                                warn!(
+                                    "Failed to insert spec snapshot {}: {}",
+                                    spec_id, e
+                                );
+                            }
+                        }
+                    }
                 }
                 // Update hash if changed (but status wasn't read/approved, so no reset).
                 if hash != existing.proposal_hash {
