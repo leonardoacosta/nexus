@@ -1287,6 +1287,90 @@ pub async fn reject_spec_handler(
 }
 
 // ---------------------------------------------------------------------------
+// POST /specs/:project/:name/read — mark a spec as read
+// ---------------------------------------------------------------------------
+
+/// POST /specs/:project/:name/read — mark a spec as read.
+pub async fn read_spec_handler(
+    Path((project, name)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<nexus_core::db::SpecRecord>, (StatusCode, String)> {
+    let spec = state
+        .db
+        .get_spec(&project, &name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("spec {project}/{name} not found"),
+            )
+        })?;
+
+    // Only mark as read if currently unread.
+    if spec.status != "unread" {
+        // Already read or in a later state — return current record.
+        return Ok(Json(spec));
+    }
+
+    state
+        .db
+        .update_spec_status(&project, &name, "read")
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Log audit event (best-effort).
+    let _ = state
+        .db
+        .log_event("spec_read", "http", &format!("{project}/{name}"), None);
+
+    let updated = state
+        .db
+        .get_spec(&project, &name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "spec disappeared after update".to_string(),
+            )
+        })?;
+
+    Ok(Json(updated))
+}
+
+// ---------------------------------------------------------------------------
+// GET /specs/:project/:name/status — approval gate status check
+// ---------------------------------------------------------------------------
+
+/// Simple response for the approval gate status endpoint.
+#[derive(Debug, Serialize)]
+pub struct SpecStatusResponse {
+    pub status: String,
+}
+
+/// GET /specs/:project/:name/status — return just the current status.
+///
+/// This is the endpoint that `/apply` calls to check whether a spec has been
+/// approved before proceeding with implementation.
+pub async fn spec_status_handler(
+    Path((project, name)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<SpecStatusResponse>, (StatusCode, String)> {
+    let spec = state
+        .db
+        .get_spec(&project, &name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("spec {project}/{name} not found"),
+            )
+        })?;
+
+    Ok(Json(SpecStatusResponse {
+        status: spec.status,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // GET /events — query audit events
 // ---------------------------------------------------------------------------
 

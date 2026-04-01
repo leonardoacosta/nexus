@@ -96,19 +96,28 @@ pub(crate) fn launch_editor(
 pub(crate) fn render_tabs(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, app: &App) {
     use app::colors;
 
+    let pending = app.pending_spec_count;
+    let specs_label = if pending > 0 {
+        format!("  Specs ({pending})  ")
+    } else {
+        "  Specs  ".to_string()
+    };
+
     let tab_labels: Vec<Line<'_>> = vec![
         Line::from("  Dashboard  "),
         Line::from("  Health  "),
         Line::from("  Projects  "),
+        Line::from(specs_label),
     ];
 
-    // Map the current screen to a tab index (0, 1, or 2).
+    // Map the current screen to a tab index (0, 1, 2, or 3).
     // For transient screens (Detail, Palette, StreamAttach) keep highlighting
     // Dashboard (index 0) as the "home" tab.
     let selected_tab = match app.current_screen {
         app::Screen::Dashboard | app::Screen::Palette => 0,
         app::Screen::Health => 1,
         app::Screen::Projects => 2,
+        app::Screen::Specs => 3,
         app::Screen::Detail | app::Screen::StreamAttach => 0,
     };
 

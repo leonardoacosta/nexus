@@ -302,6 +302,14 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(colors::TEXT_DIM),
     ));
 
+    // Show pending spec count if any.
+    if app.pending_spec_count > 0 {
+        spans.push(Span::styled(
+            format!(" \u{00B7} {} specs pending", app.pending_spec_count),
+            Style::default().fg(colors::WARNING),
+        ));
+    }
+
     let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(colors::SURFACE));
 
     frame.render_widget(bar, area);

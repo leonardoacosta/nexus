@@ -142,18 +142,123 @@ fn tool_definitions() -> Vec<McpTool> {
                 "required": []
             }),
         },
+        McpTool {
+            name: "get_pending_specs".to_string(),
+            description: "Get all specs pending review (unread or read status). Shows which \
+                          proposals need approval before they can be applied."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        McpTool {
+            name: "approve_spec".to_string(),
+            description: "Approve a spec for implementation. The spec must be in 'read' or \
+                          'unread' status."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Project code (e.g., 'oo', 'nx')"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Spec name (e.g., 'add-user-auth')"
+                    }
+                },
+                "required": ["project", "name"]
+            }),
+        },
+        McpTool {
+            name: "reject_spec".to_string(),
+            description: "Reject a spec. The spec must be in 'read' or 'unread' status."
+                .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Project code (e.g., 'oo', 'nx')"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Spec name (e.g., 'add-user-auth')"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional rejection reason"
+                    }
+                },
+                "required": ["project", "name"]
+            }),
+        },
     ]
 }
 
 // ── Tool Execution ──────────────────────────────────────────────────────────
 
-async fn execute_tool(name: &str, client: &reqwest::Client) -> McpToolResult {
+async fn execute_tool(
+    name: &str,
+    arguments: &serde_json::Value,
+    client: &reqwest::Client,
+) -> McpToolResult {
     let base_url = agent_base_url();
-    let endpoint = match name {
-        "get_credential_status" => format!("{}/credentials", base_url),
-        "get_sessions" => format!("{}/statusline", base_url),
-        "get_recommendations" => format!("{}/recommend", base_url),
-        "get_all_specs" => format!("{}/specs/all", base_url),
+
+    // Build the request based on the tool name.
+    let request = match name {
+        "get_credential_status" => client.get(format!("{}/credentials", base_url)),
+        "get_sessions" => client.get(format!("{}/statusline", base_url)),
+        "get_recommendations" => client.get(format!("{}/recommend", base_url)),
+        "get_all_specs" => client.get(format!("{}/specs/all", base_url)),
+        "get_pending_specs" => client.get(format!("{}/specs?status=unread,read", base_url)),
+        "approve_spec" => {
+            let project = arguments
+                .get("project")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let name_arg = arguments.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if project.is_empty() || name_arg.is_empty() {
+                return McpToolResult {
+                    content: vec![McpToolContent {
+                        content_type: "text".to_string(),
+                        text: "Missing required parameters: project and name".to_string(),
+                    }],
+                    is_error: true,
+                };
+            }
+            client.post(format!(
+                "{}/specs/{}/{}/approve",
+                base_url, project, name_arg
+            ))
+        }
+        "reject_spec" => {
+            let project = arguments
+                .get("project")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let name_arg = arguments.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if project.is_empty() || name_arg.is_empty() {
+                return McpToolResult {
+                    content: vec![McpToolContent {
+                        content_type: "text".to_string(),
+                        text: "Missing required parameters: project and name".to_string(),
+                    }],
+                    is_error: true,
+                };
+            }
+            let reason = arguments.get("reason").and_then(|v| v.as_str());
+            let body = serde_json::json!({ "reason": reason });
+            client
+                .post(format!(
+                    "{}/specs/{}/{}/reject",
+                    base_url, project, name_arg
+                ))
+                .json(&body)
+        }
         _ => {
             return McpToolResult {
                 content: vec![McpToolContent {
@@ -165,7 +270,7 @@ async fn execute_tool(name: &str, client: &reqwest::Client) -> McpToolResult {
         }
     };
 
-    match client.get(&endpoint).send().await {
+    match request.send().await {
         Ok(resp) => {
             if resp.status().is_success() {
                 match resp.text().await {
@@ -185,10 +290,12 @@ async fn execute_tool(name: &str, client: &reqwest::Client) -> McpToolResult {
                     },
                 }
             } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
                 McpToolResult {
                     content: vec![McpToolContent {
                         content_type: "text".to_string(),
-                        text: format!("Agent returned HTTP {}", resp.status()),
+                        text: format!("Agent returned HTTP {}: {}", status, body),
                     }],
                     is_error: true,
                 }
@@ -260,7 +367,13 @@ async fn dispatch(req: &JsonRpcRequest, client: &reqwest::Client) -> JsonRpcResp
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            let tool_result = execute_tool(tool_name, client).await;
+            let arguments = req
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+
+            let tool_result = execute_tool(tool_name, &arguments, client).await;
 
             JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),

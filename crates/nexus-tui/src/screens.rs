@@ -7,4 +7,5 @@ pub mod health; // Screen 3: System health overview
 pub mod notifications; // Notification settings panel overlay
 pub mod palette; // Screen 5: Command palette overlay (spec 8)
 pub mod projects; // Screen 4: Project overview table
+pub mod specs; // Screen 6: Spec review (list + detail)
 pub mod stream; // Stream attach log view

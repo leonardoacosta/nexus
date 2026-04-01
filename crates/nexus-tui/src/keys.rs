@@ -179,6 +179,7 @@ pub(crate) fn handle_normal_key(
     match app.current_screen {
         Screen::Detail => handle_detail_key(app, key, rpc_tx),
         Screen::StreamAttach => handle_stream_key(app, key),
+        Screen::Specs => handle_specs_key(app, key),
         _ => handle_list_key(app, key, rpc_tx),
     }
 }
@@ -316,6 +317,161 @@ pub(crate) fn handle_detail_key(
             if let Some((session, _)) = &app.selected_session {
                 let id = session.id.clone();
                 let _ = rpc_tx.try_send(RpcCommand::StopSession { session_id: id });
+            }
+            KeyAction::Continue
+        }
+        _ => KeyAction::Continue,
+    }
+}
+
+/// Key handling for the specs review screen.
+pub(crate) fn handle_specs_key(app: &mut App, key: KeyEvent) -> KeyAction {
+    // If a spec detail is open, handle detail-specific keys.
+    if app.spec_detail.is_some() {
+        return handle_spec_detail_key(app, key);
+    }
+
+    // List mode keys.
+    match key.code {
+        KeyCode::Char('q') => {
+            app.should_quit = true;
+            KeyAction::Quit
+        }
+        KeyCode::Tab => {
+            app.next_screen();
+            KeyAction::Continue
+        }
+        KeyCode::BackTab => {
+            app.prev_screen();
+            KeyAction::Continue
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.move_down();
+            KeyAction::Continue
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.move_up();
+            KeyAction::Continue
+        }
+        KeyCode::Enter => {
+            // Open spec detail for the selected row.
+            if let Some(spec) = app.cached_specs.get(app.selected_index).cloned() {
+                app.spec_detail = Some(crate::app::SpecDetailState {
+                    project: spec.project.clone(),
+                    name: spec.name.clone(),
+                    status: spec.status.clone(),
+                    title: spec.title.clone(),
+                    summary: spec.summary.clone(),
+                    tasks_total: spec.tasks_total,
+                    tasks_done: spec.tasks_done,
+                    scroll_offset: 0,
+                });
+                // Fire-and-forget: mark spec as read via HTTP POST.
+                let project = spec.project;
+                let name = spec.name;
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let host =
+                        std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                    let url = format!("http://{host}:{port}/specs/{project}/{name}/read");
+                    let _ = client.post(&url).send().await;
+                });
+            }
+            KeyAction::Continue
+        }
+        KeyCode::Char(':') | KeyCode::Char('/') => {
+            app.open_palette();
+            KeyAction::Continue
+        }
+        _ => KeyAction::Continue,
+    }
+}
+
+/// Key handling for the spec detail view overlay.
+fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.spec_detail = None;
+            KeyAction::Continue
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Some(ref mut detail) = app.spec_detail {
+                detail.scroll_offset = detail.scroll_offset.saturating_add(1);
+            }
+            KeyAction::Continue
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Some(ref mut detail) = app.spec_detail {
+                detail.scroll_offset = detail.scroll_offset.saturating_sub(1);
+            }
+            KeyAction::Continue
+        }
+        KeyCode::Char('a') => {
+            // Approve the spec via HTTP POST.
+            if let Some(ref mut detail) = app.spec_detail {
+                let project = detail.project.clone();
+                let name = detail.name.clone();
+                detail.status = "approved".to_string();
+                // Update the cached spec list entry too.
+                if let Some(entry) = app
+                    .cached_specs
+                    .iter_mut()
+                    .find(|s| s.project == project && s.name == name)
+                {
+                    entry.status = "approved".to_string();
+                }
+                // Recompute pending count.
+                app.pending_spec_count = app
+                    .cached_specs
+                    .iter()
+                    .filter(|s| s.status == "unread" || s.status == "read")
+                    .count();
+                let project_c = project.clone();
+                let name_c = name.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let host =
+                        std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                    let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
+                    let _ = client.post(&url).send().await;
+                });
+                app.status_message = Some(format!("approved {project}/{name}"));
+            }
+            KeyAction::Continue
+        }
+        KeyCode::Char('x') => {
+            // Reject the spec via HTTP POST.
+            if let Some(ref mut detail) = app.spec_detail {
+                let project = detail.project.clone();
+                let name = detail.name.clone();
+                detail.status = "rejected".to_string();
+                // Update the cached spec list entry too.
+                if let Some(entry) = app
+                    .cached_specs
+                    .iter_mut()
+                    .find(|s| s.project == project && s.name == name)
+                {
+                    entry.status = "rejected".to_string();
+                }
+                // Recompute pending count.
+                app.pending_spec_count = app
+                    .cached_specs
+                    .iter()
+                    .filter(|s| s.status == "unread" || s.status == "read")
+                    .count();
+                let project_c = project.clone();
+                let name_c = name.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let host =
+                        std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                    let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/reject");
+                    let _ = client.post(&url).send().await;
+                });
+                app.status_message = Some(format!("rejected {project}/{name}"));
             }
             KeyAction::Continue
         }

@@ -24,8 +24,8 @@ use nexus_agent::http_handlers::{
     events_handler, failures_handler, get_spec_handler, health_handler, hooks_handler,
     list_commands_by_namespace_handler, list_commands_handler, list_specs_handler,
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
-    recommend_handler, reject_spec_handler, run_command_handler, specs_all_handler,
-    statusline_handler,
+    read_spec_handler, recommend_handler, reject_spec_handler, run_command_handler,
+    spec_status_handler, specs_all_handler, statusline_handler,
 };
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
@@ -386,6 +386,11 @@ async fn main() -> Result<()> {
             "/specs/{project}/{name}/reject",
             axum::routing::post(reject_spec_handler),
         )
+        .route(
+            "/specs/{project}/{name}/read",
+            axum::routing::post(read_spec_handler),
+        )
+        .route("/specs/{project}/{name}/status", get(spec_status_handler))
         .route("/events", get(events_handler))
         .route("/commands", get(list_commands_handler))
         .route(

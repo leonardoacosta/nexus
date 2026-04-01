@@ -85,6 +85,8 @@ pub(crate) enum RpcResult {
     /// agents.toml was modified on disk; carries the new agent count and
     /// updated endpoints so the alert stream can be resubscribed.
     ConfigChanged(usize, Vec<(String, u16)>),
+    /// Spec list fetched from agent HTTP API.
+    SpecList(Vec<app::SpecListEntry>),
 }
 
 #[tokio::main]
@@ -192,6 +194,7 @@ fn run_loop(
                 Screen::Detail => screens::detail::render_detail(frame, content_area, app),
                 Screen::Health => screens::health::render_health(frame, content_area, app),
                 Screen::Projects => screens::projects::render_projects(frame, content_area, app),
+                Screen::Specs => screens::specs::render_specs(frame, content_area, app),
                 Screen::Palette => {
                     // Render dashboard underneath, then overlay palette.
                     screens::dashboard::render_dashboard(frame, content_area, app);
@@ -294,6 +297,13 @@ fn run_loop(
                         .push(format!("config reloaded: {n} agents"), Severity::Info);
                     // Resubscribe alert stream to pick up new/changed agents.
                     *alert_rx = stream::subscribe_alert_stream(&new_endpoints);
+                }
+                RpcResult::SpecList(specs) => {
+                    app.pending_spec_count = specs
+                        .iter()
+                        .filter(|s| s.status == "unread" || s.status == "read")
+                        .count();
+                    app.cached_specs = specs;
                 }
             }
         }
@@ -579,6 +589,8 @@ async fn background_task(
     let mut reconnect_interval = tokio::time::interval(Duration::from_secs(5));
     // Periodic project details refresh (30s — git operations are slow).
     let mut project_detail_interval = tokio::time::interval(Duration::from_secs(30));
+    // Periodic spec list refresh (10s).
+    let mut spec_interval = tokio::time::interval(Duration::from_secs(10));
     // Skip the immediate first tick so reconnects don't race with connect_all.
     reconnect_interval.reset();
 
@@ -605,6 +617,23 @@ async fn background_task(
                 let details = client.list_projects_all_enriched().await;
                 if !details.is_empty() {
                     let _ = rpc_result_tx.send(RpcResult::ProjectDetails(details)).await;
+                }
+            }
+            _ = spec_interval.tick() => {
+                // Fetch specs from the first connected agent's HTTP API.
+                if let Some(agent) = client.agents.iter().find(|a| matches!(a.status, crate::client::ConnectionStatus::Connected)) {
+                    let url = format!("http://{}:{}/specs", agent.config.host, agent.config.port + 2);
+                    let http_client = reqwest::Client::builder()
+                        .timeout(Duration::from_secs(3))
+                        .build()
+                        .unwrap();
+                    if let Ok(resp) = http_client.get(&url).send().await
+                        && resp.status().is_success()
+                        && let Ok(mut specs) = resp.json::<Vec<app::SpecListEntry>>().await
+                    {
+                        specs.sort_by_key(|s: &app::SpecListEntry| s.status_sort_key());
+                        let _ = rpc_result_tx.send(RpcResult::SpecList(specs)).await;
+                    }
                 }
             }
             cmd = rpc_rx.recv() => {

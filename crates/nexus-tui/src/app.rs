@@ -201,12 +201,18 @@ pub enum Screen {
     Detail,
     Health,
     Projects,
+    Specs,
     Palette,
     StreamAttach,
 }
 
 /// Screens that participate in Tab-cycling.
-const TAB_SCREENS: [Screen; 3] = [Screen::Dashboard, Screen::Health, Screen::Projects];
+const TAB_SCREENS: [Screen; 4] = [
+    Screen::Dashboard,
+    Screen::Health,
+    Screen::Projects,
+    Screen::Specs,
+];
 
 impl Screen {
     pub fn next(self) -> Screen {
@@ -225,6 +231,7 @@ impl Screen {
             Screen::Detail => "SESSION DETAIL",
             Screen::Health => "HEALTH OVERVIEW",
             Screen::Projects => "PROJECT OVERVIEW",
+            Screen::Specs => "SPEC REVIEW",
             Screen::Palette => "COMMAND PALETTE",
             Screen::StreamAttach => "STREAM ATTACH",
         }
@@ -423,6 +430,50 @@ pub struct ProjectDetail {
 // NotificationPanelRow and NotificationPanelState — re-exported from crate::notification
 
 // ---------------------------------------------------------------------------
+// Spec review types
+// ---------------------------------------------------------------------------
+
+/// Lightweight spec record for the spec list view (mirrors SpecRecord from nexus-core).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SpecListEntry {
+    pub project: String,
+    pub name: String,
+    pub status: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub tasks_total: Option<i32>,
+    pub tasks_done: Option<i32>,
+    pub discovered_at: Option<String>,
+}
+
+impl SpecListEntry {
+    /// Sort key: unread=0, read=1, approved=2, applied=3, rejected=4, other=5.
+    pub fn status_sort_key(&self) -> u8 {
+        match self.status.as_str() {
+            "unread" => 0,
+            "read" => 1,
+            "approved" => 2,
+            "applied" => 3,
+            "rejected" => 4,
+            _ => 5,
+        }
+    }
+}
+
+/// State for the spec detail overlay view.
+#[derive(Debug, Clone)]
+pub struct SpecDetailState {
+    pub project: String,
+    pub name: String,
+    pub status: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub tasks_total: Option<i32>,
+    pub tasks_done: Option<i32>,
+    pub scroll_offset: usize,
+}
+
+// ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
 
@@ -502,6 +553,14 @@ pub struct App {
     cached_sessions: Vec<SessionRow>,
     /// Cached project summaries, recomputed on `update_agents`.
     cached_project_summaries: Vec<ProjectSummary>,
+
+    // Spec review screen state
+    /// Cached spec records fetched from the agent HTTP API.
+    pub cached_specs: Vec<SpecListEntry>,
+    /// Whether the spec detail view is open (showing proposal content).
+    pub spec_detail: Option<SpecDetailState>,
+    /// Number of specs with status "unread" or "read" (pending review).
+    pub pending_spec_count: usize,
 }
 
 impl App {
@@ -543,6 +602,9 @@ impl App {
             notification_panel: None,
             cached_sessions: Vec::new(),
             cached_project_summaries: Vec::new(),
+            cached_specs: Vec::new(),
+            spec_detail: None,
+            pending_spec_count: 0,
         }
     }
 
@@ -659,6 +721,7 @@ impl App {
             Screen::Detail => 0,
             Screen::Health => self.agents.len(),
             Screen::Projects => self.cached_project_summaries.len(),
+            Screen::Specs => self.cached_specs.len(),
             Screen::Palette => self.palette_results.len(),
             Screen::StreamAttach => 0,
         }
@@ -864,7 +927,12 @@ impl App {
         }
 
         // Screens.
-        for screen in [Screen::Dashboard, Screen::Health, Screen::Projects] {
+        for screen in [
+            Screen::Dashboard,
+            Screen::Health,
+            Screen::Projects,
+            Screen::Specs,
+        ] {
             entries.push(PaletteEntry {
                 label: format!("screen: {}", screen.title().to_ascii_lowercase()),
                 action: PaletteAction::GoScreen(screen),
@@ -1285,15 +1353,17 @@ mod tests {
 
     #[test]
     fn screen_next_cycles_through_tab_screens() {
-        // TAB_SCREENS = [Dashboard, Health, Projects]
+        // TAB_SCREENS = [Dashboard, Health, Projects, Specs]
         assert_eq!(Screen::Dashboard.next(), Screen::Health);
         assert_eq!(Screen::Health.next(), Screen::Projects);
-        assert_eq!(Screen::Projects.next(), Screen::Dashboard);
+        assert_eq!(Screen::Projects.next(), Screen::Specs);
+        assert_eq!(Screen::Specs.next(), Screen::Dashboard);
     }
 
     #[test]
     fn screen_prev_cycles_in_reverse() {
-        assert_eq!(Screen::Dashboard.prev(), Screen::Projects);
+        assert_eq!(Screen::Dashboard.prev(), Screen::Specs);
+        assert_eq!(Screen::Specs.prev(), Screen::Projects);
         assert_eq!(Screen::Projects.prev(), Screen::Health);
         assert_eq!(Screen::Health.prev(), Screen::Dashboard);
     }
@@ -1322,7 +1392,8 @@ mod tests {
     fn full_screen_cycle_returns_to_start() {
         let mut app = App::new();
         let start = app.current_screen;
-        // Cycle through all 3 tab screens and back.
+        // Cycle through all 4 tab screens and back.
+        app.next_screen();
         app.next_screen();
         app.next_screen();
         app.next_screen();
