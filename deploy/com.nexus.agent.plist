@@ -21,6 +21,8 @@
     <dict>
         <key>RUST_LOG</key>
         <string>info</string>
+        <key>PATH</key>
+        <string>/Users/${USER}/.local/bin:/Users/${USER}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 
     <key>StandardOutPath</key>
