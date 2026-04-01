@@ -393,6 +393,77 @@ message RunProjectCommandRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Analytics RPCs
+// ---------------------------------------------------------------------------
+
+message SessionHistoryRequest {
+  uint32 days = 1;
+  optional string project = 2;
+}
+
+message SessionHistoryEntry {
+  string date = 1;
+  int32 session_count = 2;
+  double total_cost_usd = 3;
+}
+
+message SessionHistoryResponse {
+  repeated SessionHistoryEntry entries = 1;
+}
+
+message FailureTrendsRequest {
+  uint32 days = 1;
+}
+
+message FailureTrendEntry {
+  string date = 1;
+  int32 count = 2;
+}
+
+message FailureByTool {
+  string tool_name = 1;
+  int32 count = 2;
+}
+
+message FailureTrendsResponse {
+  repeated FailureTrendEntry daily = 1;
+  repeated FailureByTool by_tool = 2;
+}
+
+message HealthTimeSeriesRequest {
+  uint32 hours = 1;
+}
+
+message HealthTimeSeriesEntry {
+  string timestamp = 1;
+  float cpu_percent = 2;
+  float memory_used_gb = 3;
+  float disk_used_gb = 4;
+  float load1 = 5;
+}
+
+message HealthTimeSeriesResponse {
+  repeated HealthTimeSeriesEntry samples = 1;
+}
+
+message SpecVelocityRequest {
+  uint32 days = 1;
+  optional string project = 2;
+}
+
+message SpecVelocityEntry {
+  string date = 1;
+  string project = 2;
+  string spec_name = 3;
+  int32 completed_tasks = 4;
+  int32 total_tasks = 5;
+}
+
+message SpecVelocityResponse {
+  repeated SpecVelocityEntry entries = 1;
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -412,4 +483,8 @@ service NexusAgent {
   rpc GetProjectStatus(ProjectStatusRequest) returns (ProjectStatusResponse);
   rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
   rpc RunProjectCommand(RunProjectCommandRequest) returns (stream CommandOutput);
+  rpc GetSessionHistory(SessionHistoryRequest) returns (SessionHistoryResponse);
+  rpc GetFailureTrends(FailureTrendsRequest) returns (FailureTrendsResponse);
+  rpc GetHealthTimeSeries(HealthTimeSeriesRequest) returns (HealthTimeSeriesResponse);
+  rpc GetSpecVelocity(SpecVelocityRequest) returns (SpecVelocityResponse);
 }

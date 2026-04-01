@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use nexus_core::db::NexusDb;
 use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
@@ -36,6 +37,9 @@ pub async fn start_test_server() -> SocketAddr {
     let session_pool = SessionPool::new(pool_config, project_registry.clone());
     let command_registry = CommandRegistry::with_default_dir();
 
+    let db = Arc::new(NexusDb::open_in_memory().expect("open in-memory DB"));
+    db.migrate().expect("migrate test DB");
+
     let service = NexusAgentService::new(AgentServiceConfig {
         registry: Arc::clone(&registry),
         events: Arc::clone(&broadcaster),
@@ -47,6 +51,7 @@ pub async fn start_test_server() -> SocketAddr {
         status_cache,
         session_pool,
         command_registry,
+        db,
     });
 
     // Bind to port 0 — the OS picks a free port.

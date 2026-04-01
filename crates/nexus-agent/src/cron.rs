@@ -8,15 +8,14 @@
 //! **drift** (weekly, Sunday ~09:00): Validates settings.json, checks for
 //! orphaned worktree memory directories.
 //!
-//! Both jobs log structured entries via [`CronLogger`] to
-//! `~/.config/nexus/cron-log.jsonl`. State is exposed via the shared
-//! [`CronState`] for the `/cron` HTTP endpoint to read.
+//! Job results are persisted to SQLite via `NexusDb::insert_cron_run`.
+//! In-memory [`CronState`] is updated for fast `/cron` HTTP reads.
 
-use crate::cron_state::{CronLogger, CronState};
+use crate::cron_state::CronState;
 use crate::services::Service;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveTime, Weekday};
-use nexus_core::db::NexusDb;
+use nexus_core::db::{CronRunRecord, NexusDb};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -28,17 +27,12 @@ use tracing::{debug, error, info, warn};
 
 pub struct CronService {
     state: CronState,
-    logger: Option<CronLogger>,
     db: Arc<NexusDb>,
 }
 
 impl CronService {
     pub fn new(state: CronState, db: Arc<NexusDb>) -> Self {
-        Self {
-            state,
-            logger: CronLogger::new(),
-            db,
-        }
+        Self { state, db }
     }
 }
 
@@ -93,6 +87,7 @@ impl CronService {
     // maintain job
     // -----------------------------------------------------------------------
     async fn run_maintain(&self) {
+        let start = std::time::Instant::now();
         info!("cron: maintain job starting");
         let mut total_pruned: u64 = 0;
         let mut total_bytes: u64 = 0;
@@ -177,14 +172,20 @@ impl CronService {
                 let db_total = stats.sessions_deleted
                     + stats.failures_deleted
                     + stats.events_deleted
-                    + stats.specs_deleted;
+                    + stats.specs_deleted
+                    + stats.cron_runs_deleted
+                    + stats.git_events_deleted
+                    + stats.lifecycle_deleted;
                 if db_total > 0 {
                     details.push(format!(
-                        "db: {} sessions, {} failures, {} events, {} specs",
+                        "db: {} sessions, {} failures, {} events, {} specs, {} cron, {} git, {} lifecycle",
                         stats.sessions_deleted,
                         stats.failures_deleted,
                         stats.events_deleted,
-                        stats.specs_deleted
+                        stats.specs_deleted,
+                        stats.cron_runs_deleted,
+                        stats.git_events_deleted,
+                        stats.lifecycle_deleted,
                     ));
                     total_pruned += db_total as u64;
                 }
@@ -208,35 +209,41 @@ impl CronService {
             parts.join("; ")
         };
 
+        let duration_ms = start.elapsed().as_millis() as i64;
+
         info!(
-            "cron: maintain complete — {} items, {} bytes freed",
-            total_pruned, total_bytes
+            "cron: maintain complete — {} items, {} bytes freed, {}ms",
+            total_pruned, total_bytes, duration_ms
         );
 
-        // Log via CronLogger (updates state + writes JSONL).
-        if let Some(ref logger) = self.logger {
-            if let Err(e) = logger
-                .log_maintain(&self.state, status, total_pruned, total_bytes, &details_str)
-                .await
-            {
-                warn!("cron: failed to write maintain log: {e}");
-            }
-        } else {
-            // Fallback: update state directly if logger unavailable.
-            self.state
-                .record_run(
-                    "maintain",
-                    status,
-                    &format!("pruned {} items, freed {} bytes", total_pruned, total_bytes),
-                )
-                .await;
+        // Write to SQLite DB.
+        if let Err(e) = self.db.insert_cron_run(&CronRunRecord {
+            id: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            job: "maintain".to_string(),
+            status: status.to_string(),
+            details: Some(details_str.clone()),
+            duration_ms: Some(duration_ms),
+        }) {
+            warn!("cron: failed to write maintain record to DB: {e}");
         }
+
+        // Update in-memory state for /cron endpoint.
+        let log_message = if total_pruned > 0 {
+            format!("pruned {} items, freed {} bytes", total_pruned, total_bytes)
+        } else {
+            "nothing to prune".to_string()
+        };
+        self.state
+            .record_run("maintain", status, &log_message)
+            .await;
     }
 
     // -----------------------------------------------------------------------
     // drift job
     // -----------------------------------------------------------------------
     async fn run_drift(&self) {
+        let start = std::time::Instant::now();
         info!("cron: drift job starting");
         let mut findings: Vec<String> = Vec::new();
 
@@ -295,25 +302,37 @@ impl CronService {
             severity
         };
 
+        let duration_ms = start.elapsed().as_millis() as i64;
+
         info!(
-            "cron: drift complete — {} finding(s), severity={}",
+            "cron: drift complete — {} finding(s), severity={}, {}ms",
             findings.len(),
-            severity
+            severity,
+            duration_ms
         );
 
-        // Log via CronLogger (updates state + writes JSONL).
-        if let Some(ref logger) = self.logger {
-            if let Err(e) = logger
-                .log_drift(&self.state, status, findings, severity)
-                .await
-            {
-                warn!("cron: failed to write drift log: {e}");
-            }
+        let details_str = if findings.is_empty() {
+            "no drift detected".to_string()
         } else {
-            self.state
-                .record_run("drift", status, "logger unavailable")
-                .await;
+            format!("{} findings: {}", findings.len(), findings.join(", "))
+        };
+
+        // Write to SQLite DB.
+        if let Err(e) = self.db.insert_cron_run(&CronRunRecord {
+            id: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            job: "drift".to_string(),
+            status: status.to_string(),
+            details: Some(details_str.clone()),
+            duration_ms: Some(duration_ms),
+        }) {
+            warn!("cron: failed to write drift record to DB: {e}");
         }
+
+        // Update in-memory state for /cron endpoint.
+        self.state
+            .record_run("drift", status, &details_str)
+            .await;
     }
 }
 

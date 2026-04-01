@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use nexus_core::db::NexusDb;
 use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::{self, nexus_agent_server::NexusAgent};
 use tonic::{Request, Response, Status};
@@ -12,6 +13,7 @@ use crate::services::project_status::ProjectStatusCache;
 use crate::services::session_pool::SessionPool;
 use crate::shutdown::ShutdownCoordinator;
 
+pub mod analytics;
 pub mod commands;
 pub mod sessions;
 pub mod status;
@@ -28,6 +30,7 @@ pub struct AgentServiceConfig {
     pub status_cache: ProjectStatusCache,
     pub session_pool: SessionPool,
     pub command_registry: CommandRegistry,
+    pub db: Arc<NexusDb>,
 }
 
 /// gRPC service implementation for the NexusAgent service.
@@ -43,6 +46,7 @@ pub struct NexusAgentService {
     pub(super) status_cache: ProjectStatusCache,
     pub(super) session_pool: SessionPool,
     pub(super) command_registry: CommandRegistry,
+    pub(super) db: Arc<NexusDb>,
 }
 
 impl NexusAgentService {
@@ -59,6 +63,7 @@ impl NexusAgentService {
             status_cache: cfg.status_cache,
             session_pool: cfg.session_pool,
             command_registry: cfg.command_registry,
+            db: cfg.db,
         }
     }
 }
@@ -220,5 +225,33 @@ impl NexusAgent for NexusAgentService {
         request: Request<proto::EventFilter>,
     ) -> Result<Response<Self::StreamEventsStream>, Status> {
         self.handle_stream_events(request).await
+    }
+
+    async fn get_session_history(
+        &self,
+        request: Request<proto::SessionHistoryRequest>,
+    ) -> Result<Response<proto::SessionHistoryResponse>, Status> {
+        self.handle_get_session_history(request).await
+    }
+
+    async fn get_failure_trends(
+        &self,
+        request: Request<proto::FailureTrendsRequest>,
+    ) -> Result<Response<proto::FailureTrendsResponse>, Status> {
+        self.handle_get_failure_trends(request).await
+    }
+
+    async fn get_health_time_series(
+        &self,
+        request: Request<proto::HealthTimeSeriesRequest>,
+    ) -> Result<Response<proto::HealthTimeSeriesResponse>, Status> {
+        self.handle_get_health_time_series(request).await
+    }
+
+    async fn get_spec_velocity(
+        &self,
+        request: Request<proto::SpecVelocityRequest>,
+    ) -> Result<Response<proto::SpecVelocityResponse>, Status> {
+        self.handle_get_spec_velocity(request).await
     }
 }

@@ -1501,6 +1501,69 @@ pub async fn analytics_credentials_handler(
     Json(AnalyticsCredentialsResponse { polls, swaps })
 }
 
+// ---------------------------------------------------------------------------
+// GET /analytics/git
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AnalyticsGitQuery {
+    pub project: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// GET /analytics/git?project=X&limit=N — return git event history.
+pub async fn analytics_git_handler(
+    State(state): State<AppState>,
+    Query(query): Query<AnalyticsGitQuery>,
+) -> Json<Vec<nexus_core::db::GitEventRecord>> {
+    let limit = query.limit.unwrap_or(200);
+    let result = state
+        .db
+        .query_git_events(query.project.as_deref(), limit);
+    Json(result.unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
+// GET /analytics/lifecycle
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AnalyticsLifecycleQuery {
+    pub limit: Option<u32>,
+}
+
+/// GET /analytics/lifecycle?limit=N — return agent lifecycle events.
+pub async fn analytics_lifecycle_handler(
+    State(state): State<AppState>,
+    Query(query): Query<AnalyticsLifecycleQuery>,
+) -> Json<Vec<nexus_core::db::AgentLifecycleRecord>> {
+    let limit = query.limit.unwrap_or(100);
+    let result = state.db.query_lifecycle_events(limit);
+    Json(result.unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
+// GET /analytics/cron
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AnalyticsCronQuery {
+    pub job: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// GET /analytics/cron?job=X&limit=N — return cron run history from DB.
+pub async fn analytics_cron_handler(
+    State(state): State<AppState>,
+    Query(query): Query<AnalyticsCronQuery>,
+) -> Json<Vec<nexus_core::db::CronRunRecord>> {
+    let limit = query.limit.unwrap_or(100);
+    let result = state
+        .db
+        .query_cron_runs(query.job.as_deref(), limit);
+    Json(result.unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -92,7 +92,8 @@ impl NexusDb {
 
         let current_version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
-        let migrations: Vec<fn(&Connection) -> Result<()>> = vec![migrate_v1, migrate_v2];
+        let migrations: Vec<fn(&Connection) -> Result<()>> =
+            vec![migrate_v1, migrate_v2, migrate_v3];
 
         for (i, migration) in migrations.iter().enumerate() {
             let version = (i + 1) as u32;
@@ -1102,6 +1103,201 @@ impl NexusDb {
     }
 
     // -----------------------------------------------------------------------
+    // Cron runs CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a cron run record.
+    pub fn insert_cron_run(&self, run: &CronRunRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO cron_runs (timestamp, job, status, details, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    run.timestamp,
+                    run.job,
+                    run.status,
+                    run.details,
+                    run.duration_ms,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query cron runs with optional job filter, ordered by timestamp descending.
+    pub fn query_cron_runs(
+        &self,
+        job: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<CronRunRecord>> {
+        self.read(|conn| {
+            let (sql, bind_values): (String, Vec<String>) = match job {
+                Some(j) => (
+                    "SELECT id, timestamp, job, status, details, duration_ms
+                     FROM cron_runs WHERE job = ?1
+                     ORDER BY timestamp DESC LIMIT ?2"
+                        .to_string(),
+                    vec![j.to_string()],
+                ),
+                None => (
+                    "SELECT id, timestamp, job, status, details, duration_ms
+                     FROM cron_runs
+                     ORDER BY timestamp DESC LIMIT ?1"
+                        .to_string(),
+                    vec![],
+                ),
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = bind_values
+                .iter()
+                .map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>)
+                .collect();
+            all_params.push(Box::new(limit));
+            let rows = stmt.query_map(
+                rusqlite::params_from_iter(all_params.iter().map(|p| p.as_ref())),
+                |row| {
+                    Ok(CronRunRecord {
+                        id: row.get(0)?,
+                        timestamp: row.get(1)?,
+                        job: row.get(2)?,
+                        status: row.get(3)?,
+                        details: row.get(4)?,
+                        duration_ms: row.get(5)?,
+                    })
+                },
+            )?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Git events CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert a git event record.
+    pub fn insert_git_event(&self, event: &GitEventRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO git_events (timestamp, project, event_type, old_ref, new_ref)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    event.timestamp,
+                    event.project,
+                    event.event_type,
+                    event.old_ref,
+                    event.new_ref,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query git events with optional project filter, ordered by timestamp descending.
+    pub fn query_git_events(
+        &self,
+        project: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<GitEventRecord>> {
+        self.read(|conn| {
+            let (sql, bind_values): (String, Vec<String>) = match project {
+                Some(p) => (
+                    "SELECT id, timestamp, project, event_type, old_ref, new_ref
+                     FROM git_events WHERE project = ?1
+                     ORDER BY timestamp DESC LIMIT ?2"
+                        .to_string(),
+                    vec![p.to_string()],
+                ),
+                None => (
+                    "SELECT id, timestamp, project, event_type, old_ref, new_ref
+                     FROM git_events
+                     ORDER BY timestamp DESC LIMIT ?1"
+                        .to_string(),
+                    vec![],
+                ),
+            };
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = bind_values
+                .iter()
+                .map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>)
+                .collect();
+            all_params.push(Box::new(limit));
+            let rows = stmt.query_map(
+                rusqlite::params_from_iter(all_params.iter().map(|p| p.as_ref())),
+                |row| {
+                    Ok(GitEventRecord {
+                        id: row.get(0)?,
+                        timestamp: row.get(1)?,
+                        project: row.get(2)?,
+                        event_type: row.get(3)?,
+                        old_ref: row.get(4)?,
+                        new_ref: row.get(5)?,
+                    })
+                },
+            )?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Agent lifecycle CRUD
+    // -----------------------------------------------------------------------
+
+    /// Insert an agent lifecycle event.
+    pub fn insert_lifecycle_event(&self, event: &AgentLifecycleRecord) -> Result<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO agent_lifecycle (timestamp, event_type, version, uptime_seconds, reason)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    event.timestamp,
+                    event.event_type,
+                    event.version,
+                    event.uptime_seconds,
+                    event.reason,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Query agent lifecycle events, ordered by timestamp descending.
+    pub fn query_lifecycle_events(&self, limit: u32) -> Result<Vec<AgentLifecycleRecord>> {
+        self.read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, timestamp, event_type, version, uptime_seconds, reason
+                 FROM agent_lifecycle ORDER BY timestamp DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |row| {
+                Ok(AgentLifecycleRecord {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: row.get(2)?,
+                    version: row.get(3)?,
+                    uptime_seconds: row.get(4)?,
+                    reason: row.get(5)?,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    // -----------------------------------------------------------------------
     // Retention cleanup
     // -----------------------------------------------------------------------
 
@@ -1161,6 +1357,22 @@ impl NexusDb {
                 params![format!("-{session_days} days")],
             )?;
 
+            // V3 consolidation tables — 30-day retention.
+            let cron_runs_deleted = conn.execute(
+                "DELETE FROM cron_runs WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let git_events_deleted = conn.execute(
+                "DELETE FROM git_events WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
+            let lifecycle_deleted = conn.execute(
+                "DELETE FROM agent_lifecycle WHERE timestamp < datetime('now', ?1)",
+                params![format!("-{session_days} days")],
+            )?;
+
             Ok(PruneStats {
                 sessions_deleted,
                 failures_deleted,
@@ -1171,6 +1383,9 @@ impl NexusDb {
                 credential_polls_deleted,
                 credential_swaps_deleted,
                 notifications_deleted,
+                cron_runs_deleted,
+                git_events_deleted,
+                lifecycle_deleted,
             })
         })
     }
@@ -1325,6 +1540,49 @@ fn migrate_v2(conn: &Connection) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// V3 Migration — consolidation tables (cron_runs, git_events, agent_lifecycle)
+// ---------------------------------------------------------------------------
+
+fn migrate_v3(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS cron_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            job TEXT NOT NULL,
+            status TEXT NOT NULL,
+            details TEXT,
+            duration_ms INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_cron_timestamp ON cron_runs(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_cron_job ON cron_runs(job);
+
+        CREATE TABLE IF NOT EXISTS git_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            project TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            old_ref TEXT,
+            new_ref TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_timestamp ON git_events(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_git_project ON git_events(project);
+
+        CREATE TABLE IF NOT EXISTS agent_lifecycle (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            version TEXT,
+            uptime_seconds INTEGER,
+            reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_lifecycle_timestamp ON agent_lifecycle(timestamp);
+        ",
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -1424,6 +1682,9 @@ pub struct PruneStats {
     pub credential_polls_deleted: usize,
     pub credential_swaps_deleted: usize,
     pub notifications_deleted: usize,
+    pub cron_runs_deleted: usize,
+    pub git_events_deleted: usize,
+    pub lifecycle_deleted: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -1485,6 +1746,43 @@ pub struct NotificationRecord {
     pub channels: Option<String>,
     pub delivered: bool,
     pub suppressed: bool,
+}
+
+// ---------------------------------------------------------------------------
+// V3 Types — consolidation tables
+// ---------------------------------------------------------------------------
+
+/// A row from the `cron_runs` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CronRunRecord {
+    pub id: Option<i64>,
+    pub timestamp: String,
+    pub job: String,
+    pub status: String,
+    pub details: Option<String>,
+    pub duration_ms: Option<i64>,
+}
+
+/// A row from the `git_events` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GitEventRecord {
+    pub id: Option<i64>,
+    pub timestamp: String,
+    pub project: String,
+    pub event_type: String,
+    pub old_ref: Option<String>,
+    pub new_ref: Option<String>,
+}
+
+/// A row from the `agent_lifecycle` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgentLifecycleRecord {
+    pub id: Option<i64>,
+    pub timestamp: String,
+    pub event_type: String,
+    pub version: Option<String>,
+    pub uptime_seconds: Option<i64>,
+    pub reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,7 +1866,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -1578,7 +1876,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -1607,6 +1905,10 @@ mod tests {
         assert!(tables.contains(&"credential_polls".to_string()));
         assert!(tables.contains(&"credential_swaps".to_string()));
         assert!(tables.contains(&"notifications".to_string()));
+        // V3 tables.
+        assert!(tables.contains(&"cron_runs".to_string()));
+        assert!(tables.contains(&"git_events".to_string()));
+        assert!(tables.contains(&"agent_lifecycle".to_string()));
     }
 
     #[test]
@@ -2375,5 +2677,157 @@ mod tests {
         assert_eq!(stats.credential_polls_deleted, 1);
         assert_eq!(stats.credential_swaps_deleted, 1);
         assert_eq!(stats.notifications_deleted, 1);
+    }
+
+    // -------------------------------------------------------------------
+    // V3 consolidation table tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn insert_and_query_cron_runs() {
+        let db = test_db();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        db.insert_cron_run(&CronRunRecord {
+            id: None,
+            timestamp: now.clone(),
+            job: "maintain".to_string(),
+            status: "success".to_string(),
+            details: Some("pruned 5 items".to_string()),
+            duration_ms: Some(120),
+        })
+        .unwrap();
+
+        db.insert_cron_run(&CronRunRecord {
+            id: None,
+            timestamp: now.clone(),
+            job: "drift".to_string(),
+            status: "success".to_string(),
+            details: None,
+            duration_ms: Some(50),
+        })
+        .unwrap();
+
+        // Query all
+        let all = db.query_cron_runs(None, 100).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Query by job
+        let maintain = db.query_cron_runs(Some("maintain"), 100).unwrap();
+        assert_eq!(maintain.len(), 1);
+        assert_eq!(maintain[0].job, "maintain");
+        assert_eq!(maintain[0].details.as_deref(), Some("pruned 5 items"));
+        assert_eq!(maintain[0].duration_ms, Some(120));
+    }
+
+    #[test]
+    fn insert_and_query_git_events() {
+        let db = test_db();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        db.insert_git_event(&GitEventRecord {
+            id: None,
+            timestamp: now.clone(),
+            project: "nx".to_string(),
+            event_type: "branch_switch".to_string(),
+            old_ref: Some("refs/heads/main".to_string()),
+            new_ref: Some("refs/heads/feature".to_string()),
+        })
+        .unwrap();
+
+        db.insert_git_event(&GitEventRecord {
+            id: None,
+            timestamp: now.clone(),
+            project: "oo".to_string(),
+            event_type: "new_commit".to_string(),
+            old_ref: Some("abc1234".to_string()),
+            new_ref: Some("def5678".to_string()),
+        })
+        .unwrap();
+
+        // Query all
+        let all = db.query_git_events(None, 100).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Query by project
+        let nx = db.query_git_events(Some("nx"), 100).unwrap();
+        assert_eq!(nx.len(), 1);
+        assert_eq!(nx[0].event_type, "branch_switch");
+        assert_eq!(nx[0].old_ref.as_deref(), Some("refs/heads/main"));
+    }
+
+    #[test]
+    fn insert_and_query_lifecycle_events() {
+        let db = test_db();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        db.insert_lifecycle_event(&AgentLifecycleRecord {
+            id: None,
+            timestamp: now.clone(),
+            event_type: "start".to_string(),
+            version: Some("0.1.0".to_string()),
+            uptime_seconds: None,
+            reason: None,
+        })
+        .unwrap();
+
+        db.insert_lifecycle_event(&AgentLifecycleRecord {
+            id: None,
+            timestamp: now.clone(),
+            event_type: "stop".to_string(),
+            version: Some("0.1.0".to_string()),
+            uptime_seconds: Some(3600),
+            reason: Some("SIGTERM".to_string()),
+        })
+        .unwrap();
+
+        let events = db.query_lifecycle_events(100).unwrap();
+        assert_eq!(events.len(), 2);
+
+        // Most recent first (both same timestamp, so by id DESC)
+        let stop_event = events.iter().find(|e| e.event_type == "stop").unwrap();
+        assert_eq!(stop_event.uptime_seconds, Some(3600));
+        assert_eq!(stop_event.reason.as_deref(), Some("SIGTERM"));
+    }
+
+    #[test]
+    fn prune_v3_tables() {
+        let db = test_db();
+        let old_ts = "2020-01-01T00:00:00Z".to_string();
+
+        db.insert_cron_run(&CronRunRecord {
+            id: None,
+            timestamp: old_ts.clone(),
+            job: "maintain".to_string(),
+            status: "success".to_string(),
+            details: None,
+            duration_ms: None,
+        })
+        .unwrap();
+
+        db.insert_git_event(&GitEventRecord {
+            id: None,
+            timestamp: old_ts.clone(),
+            project: "nx".to_string(),
+            event_type: "new_commit".to_string(),
+            old_ref: None,
+            new_ref: None,
+        })
+        .unwrap();
+
+        db.insert_lifecycle_event(&AgentLifecycleRecord {
+            id: None,
+            timestamp: old_ts.clone(),
+            event_type: "start".to_string(),
+            version: None,
+            uptime_seconds: None,
+            reason: None,
+        })
+        .unwrap();
+
+        let stats = db.prune_old_records(30, 90).unwrap();
+        assert_eq!(stats.cron_runs_deleted, 1);
+        assert_eq!(stats.git_events_deleted, 1);
+        assert_eq!(stats.lifecycle_deleted, 1);
     }
 }

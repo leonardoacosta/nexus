@@ -10,6 +10,7 @@ use crate::claude_utils::path::expand_home;
 use crate::claude_utils::project::get_projects;
 use crate::services::Service;
 use anyhow::{Context, Result};
+use nexus_core::db::{GitEventRecord, NexusDb};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -264,17 +265,64 @@ fn emit_event(event: &GitEvent) {
     }
 }
 
+/// Persist a git event to the SQLite database.
+fn persist_event(db: &NexusDb, event: &GitEvent) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let record = match event {
+        GitEvent::BranchSwitch {
+            repo,
+            old_branch,
+            new_branch,
+            ..
+        } => GitEventRecord {
+            id: None,
+            timestamp: now,
+            project: repo.clone(),
+            event_type: "branch_switch".to_string(),
+            old_ref: Some(short_branch_name(old_branch).to_string()),
+            new_ref: Some(short_branch_name(new_branch).to_string()),
+        },
+        GitEvent::NewCommit {
+            repo,
+            branch: _,
+            old_sha,
+            new_sha,
+        } => GitEventRecord {
+            id: None,
+            timestamp: now,
+            project: repo.clone(),
+            event_type: "new_commit".to_string(),
+            old_ref: Some(old_sha.get(..7).unwrap_or(old_sha).to_string()),
+            new_ref: Some(new_sha.get(..7).unwrap_or(new_sha).to_string()),
+        },
+        GitEvent::DetachedHead { repo, commit } => GitEventRecord {
+            id: None,
+            timestamp: now,
+            project: repo.clone(),
+            event_type: "detached_head".to_string(),
+            old_ref: None,
+            new_ref: Some(commit.get(..7).unwrap_or(commit).to_string()),
+        },
+    };
+    if let Err(e) = db.insert_git_event(&record) {
+        warn!("[git-watch] failed to persist event to DB: {e}");
+    }
+}
+
 // --- Service Implementation ---
 
 /// Git watch daemon service.
 ///
 /// Polls git repositories at a configurable interval to detect branch switches,
-/// new commits, and detached HEAD states. Events are logged via tracing.
+/// new commits, and detached HEAD states. Events are logged via tracing and
+/// persisted to SQLite via `NexusDb::insert_git_event`.
 pub struct GitWatchService {
     /// Polling interval in seconds
     interval_secs: u64,
     /// Whether the service is healthy
     healthy: Arc<AtomicBool>,
+    /// Optional database handle for persisting git events.
+    db: Option<Arc<NexusDb>>,
 }
 
 impl GitWatchService {
@@ -283,7 +331,14 @@ impl GitWatchService {
         Self {
             interval_secs,
             healthy: Arc::new(AtomicBool::new(false)),
+            db: None,
         }
+    }
+
+    /// Attach a database handle for persisting git events.
+    pub fn with_db(mut self, db: Arc<NexusDb>) -> Self {
+        self.db = Some(db);
+        self
     }
 }
 
@@ -333,6 +388,9 @@ impl Service for GitWatchService {
                     let events = poll_repos(&watch_paths, &mut states);
                     for event in &events {
                         emit_event(event);
+                        if let Some(ref db) = self.db {
+                            persist_event(db, event);
+                        }
                     }
                 }
             }

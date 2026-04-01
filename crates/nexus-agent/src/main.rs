@@ -20,7 +20,8 @@ use nexus_agent::failures::FailureBuffer;
 use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
-    AppState, analytics_credentials_handler, analytics_health_handler, analytics_specs_handler,
+    AppState, analytics_credentials_handler, analytics_cron_handler, analytics_git_handler,
+    analytics_health_handler, analytics_lifecycle_handler, analytics_specs_handler,
     approve_spec_handler, credentials_handler, cron_handler, environment_handler, events_handler,
     failures_handler, get_spec_handler, health_handler, hooks_handler,
     list_commands_by_namespace_handler, list_commands_handler, list_specs_handler,
@@ -111,6 +112,18 @@ async fn main() -> Result<()> {
     db.migrate()?;
     tracing::info!(path = %db_path.display(), "NexusDb initialized");
 
+    // Record agent startup in the lifecycle table.
+    if let Err(e) = db.insert_lifecycle_event(&nexus_core::db::AgentLifecycleRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        event_type: "start".to_string(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        uptime_seconds: None,
+        reason: None,
+    }) {
+        tracing::warn!("failed to record startup lifecycle event: {e}");
+    }
+
     // Stale socket cleanup: remove leftover socket file from a previous
     // crash, or bail if another instance is already running.
     let socket_path = socket::socket_path();
@@ -155,7 +168,7 @@ async fn main() -> Result<()> {
 
     // Cross-platform background services.
     spawn_service(
-        services::git_watch::GitWatchService::new(60),
+        services::git_watch::GitWatchService::new(60).with_db(Arc::clone(&db)),
         coordinator.token(),
     );
     spawn_service(
@@ -299,6 +312,7 @@ async fn main() -> Result<()> {
         status_cache: status_cache.clone(),
         session_pool,
         command_registry: command_registry.clone(),
+        db: Arc::clone(&db),
     });
 
     let bind_address = &nexus_config.bind_address;
@@ -411,6 +425,9 @@ async fn main() -> Result<()> {
         .route("/analytics/health", get(analytics_health_handler))
         .route("/analytics/specs", get(analytics_specs_handler))
         .route("/analytics/credentials", get(analytics_credentials_handler))
+        .route("/analytics/git", get(analytics_git_handler))
+        .route("/analytics/lifecycle", get(analytics_lifecycle_handler))
+        .route("/analytics/cron", get(analytics_cron_handler))
         .with_state(app_state);
 
     let http_addr: std::net::SocketAddr = format!("{bind_address}:{HTTP_PORT}").parse()?;
@@ -483,6 +500,19 @@ async fn main() -> Result<()> {
                 tracing::error!("socket service error: {}", e);
             }
         }
+    }
+
+    // Record agent shutdown in the lifecycle table.
+    let uptime_secs = started_at.elapsed().as_secs() as i64;
+    if let Err(e) = db.insert_lifecycle_event(&nexus_core::db::AgentLifecycleRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        event_type: "stop".to_string(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        uptime_seconds: Some(uptime_secs),
+        reason: Some("shutdown".to_string()),
+    }) {
+        tracing::warn!("failed to record shutdown lifecycle event: {e}");
     }
 
     tracing::info!("nexus-agent shutting down");
