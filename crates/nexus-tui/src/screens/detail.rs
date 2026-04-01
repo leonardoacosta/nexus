@@ -29,7 +29,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  q/Esc: back  a: stream  s: stop",
+            "  q/Esc: back  a: stream  s: stop  ?: help",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))

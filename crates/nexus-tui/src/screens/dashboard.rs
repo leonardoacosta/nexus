@@ -4,7 +4,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation,
-    ScrollbarState, Sparkline, Table,
+    ScrollbarState, Sparkline, Table, Wrap,
 };
 
 use crate::app::{App, colors, format_age, session_type_indicator, status_color, status_dot};
@@ -40,7 +40,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "  Tab: switch  j/k: navigate  Enter: detail  a: attach  n: new  /: palette  q: quit",
+            "  Tab: switch  j/k: navigate  Enter: detail  a: attach  n: new  /: palette  ?: help  q: quit",
             Style::default().fg(colors::TEXT_DIM),
         ),
     ]))
@@ -56,17 +56,44 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
     let sessions = app.cached_sessions().to_vec();
 
     if sessions.is_empty() {
-        let msg = Paragraph::new(Line::from(vec![Span::styled(
-            "No sessions. Waiting for agent data...",
-            Style::default().fg(colors::TEXT_DIM),
-        )]))
-        .block(
-            Block::default()
-                .border_type(BorderType::Rounded)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::TEXT_DIM))
-                .padding(Padding::horizontal(1)),
-        );
+        let welcome_lines = vec![
+            Line::from(Span::styled(
+                "Nexus",
+                Style::default().fg(colors::PRIMARY).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Monitor Claude Code sessions across all your machines.",
+                Style::default().fg(colors::TEXT),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  n", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
+                Span::styled("  Start a new session", Style::default().fg(colors::TEXT_DIM)),
+            ]),
+            Line::from(vec![
+                Span::styled("  ?", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
+                Span::styled("  Show all keybindings", Style::default().fg(colors::TEXT_DIM)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Tab", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
+                Span::styled("  Switch between screens", Style::default().fg(colors::TEXT_DIM)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Waiting for agent data...",
+                Style::default().fg(colors::TEXT_DIM),
+            )),
+        ];
+        let msg = Paragraph::new(welcome_lines)
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .border_type(BorderType::Rounded)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(colors::TEXT_DIM))
+                    .padding(Padding::horizontal(1)),
+            );
         frame.render_widget(msg, area);
         return;
     }

@@ -324,10 +324,7 @@ pub(crate) fn handle_list_key(
             }
             KeyAction::Continue
         }
-        KeyCode::Char('A') => {
-            app.status_message = Some("use 'a' for interactive stream".to_string());
-            KeyAction::Continue
-        }
+        KeyCode::Char('A') => KeyAction::Continue, // Silently ignore
         _ => KeyAction::Continue,
     }
 }
@@ -341,6 +338,18 @@ pub(crate) fn handle_detail_key(
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.close_detail();
+            KeyAction::Continue
+        }
+        KeyCode::Tab => {
+            app.close_detail();
+            app.next_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
+            KeyAction::Continue
+        }
+        KeyCode::BackTab => {
+            app.close_detail();
+            app.prev_screen();
+            send_on_screen_enter(app.current_screen, rpc_tx);
             KeyAction::Continue
         }
         KeyCode::Char('a') => {
@@ -460,6 +469,18 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
             KeyAction::Continue
         }
         KeyCode::Enter => {
+            // Guard: don't allow approve on finalized specs.
+            if let Some(ref detail) = app.spec_detail {
+                let status = &detail.status;
+                if status == "approved"
+                    || status == "applied"
+                    || status == "archived"
+                    || status == "rejected"
+                {
+                    app.status_message = Some(format!("Spec already {status}"));
+                    return KeyAction::Continue;
+                }
+            }
             if app.confirm_or_start(app::ConfirmKind::ApproveSpec) {
                 // Approve the spec via HTTP POST.
                 if let Some(ref mut detail) = app.spec_detail {
@@ -498,6 +519,18 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
             KeyAction::Continue
         }
         KeyCode::Backspace => {
+            // Guard: don't allow reject on finalized specs.
+            if let Some(ref detail) = app.spec_detail {
+                let status = &detail.status;
+                if status == "approved"
+                    || status == "applied"
+                    || status == "archived"
+                    || status == "rejected"
+                {
+                    app.status_message = Some(format!("Spec already {status}"));
+                    return KeyAction::Continue;
+                }
+            }
             if app.confirm_or_start(app::ConfirmKind::RejectSpec) {
                 // Reject the spec via HTTP POST.
                 if let Some(ref mut detail) = app.spec_detail {
@@ -548,9 +581,11 @@ pub(crate) fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::Char('j') | KeyCode::Down => {
             if let Some(sv) = app.stream_view.as_mut() {
-                // Use a reasonable default visible height; actual height is
-                // only known at render time. 20 is a safe lower bound.
-                sv.scroll_down(20);
+                let visible_height = crossterm::terminal::size()
+                    .map(|(_, h)| h as usize)
+                    .unwrap_or(20)
+                    .saturating_sub(5);
+                sv.scroll_down(visible_height);
             }
             KeyAction::Continue
         }
@@ -588,7 +623,11 @@ pub(crate) fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::Enter => {
             if let Some(sv) = app.stream_view.as_mut() {
-                sv.toggle_block_at_scroll(20);
+                let visible_height = crossterm::terminal::size()
+                    .map(|(_, h)| h as usize)
+                    .unwrap_or(20)
+                    .saturating_sub(5);
+                sv.toggle_block_at_scroll(visible_height);
             }
             KeyAction::Continue
         }

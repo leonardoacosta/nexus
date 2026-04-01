@@ -108,12 +108,23 @@ pub(crate) enum RpcResult {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load configuration.
-    let config = NexusConfig::load().map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to load config from {}: {e}",
-            NexusConfig::config_path().display()
-        )
-    })?;
+    let config = match NexusConfig::load() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(
+                "Config load failed ({}): {e}. Starting with no agents.",
+                NexusConfig::config_path().display()
+            );
+            NexusConfig {
+                agents: vec![],
+                role: nexus_core::config::AgentRole::Primary,
+                self_name: None,
+                pool: None,
+                bind_address: "127.0.0.1".to_string(),
+                secret: None,
+            }
+        }
+    };
 
     // Create gRPC client and attempt initial connections.
     let mut client = NexusClient::new(config);

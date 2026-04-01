@@ -170,7 +170,7 @@ fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     spans.push(Span::styled(
-        "  q: back  j/k: scroll  /: search  y: yank  v: filter  i: input",
+        "  q: back  j/k: scroll  /: search  y: yank  v: filter  i: input  ?: help",
         Style::default().fg(colors::TEXT_DIM),
     ));
 
@@ -598,7 +598,7 @@ fn render_input_bar(frame: &mut Frame, area: Rect, app: &mut App) {
         let content = Paragraph::new(Line::from(vec![
             Span::styled(" > ", Style::default().fg(colors::PRIMARY)),
             Span::styled(
-                "type a prompt, Ctrl+E for editor",
+                "press i to type a prompt, Ctrl+E for editor",
                 Style::default()
                     .fg(colors::TEXT_DIM)
                     .add_modifier(Modifier::DIM),
