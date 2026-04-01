@@ -42,9 +42,14 @@ impl ReceiverService {
                 .arg("-sound")
                 .arg("default");
 
-            // Add per-project icon if available
+            // Use Nexus.app bundle as sender so the NX icon appears in Notification Center.
+            // -sender changes the app identity (and icon) for both banner AND list view.
+            // -appIcon only affects the transient banner, not the grouped list.
+            cmd.arg("-sender").arg("com.nexus.agent");
+
+            // Also set per-project content image for visual project identity on the banner
             if let Some(icon_path) = crate::icons::get_icon_path(project.unwrap_or("")) {
-                cmd.arg("-appIcon")
+                cmd.arg("-contentImage")
                     .arg(icon_path.to_string_lossy().as_ref());
             }
 

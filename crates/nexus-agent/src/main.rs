@@ -90,6 +90,9 @@ async fn main() -> Result<()> {
 
     tracing::info!("nexus-agent starting");
 
+    // Ensure Nexus.app bundle exists for macOS notification icons.
+    nexus_agent::icons::ensure_app_bundle();
+
     // Resolve agent identity from hostname.
     let agent_host = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
