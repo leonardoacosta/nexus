@@ -22,6 +22,7 @@ PrivateTmp=false
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/.claude
+ReadWritePaths=%h/.config/nexus
 ReadWritePaths=%h/.local
 ReadWritePaths=/tmp
 
