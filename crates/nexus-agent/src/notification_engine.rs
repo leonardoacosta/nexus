@@ -5,7 +5,7 @@
 //! Message format rules:
 //!
 //! - **Verbose**: `"<PROJECT> — <agent_type> done, <done>/<total> tasks, <Xs>"`
-//!   e.g. `"OO — UI engineer done, 3/5 tasks, 45s"`
+//!   e.g. `"Otaku Odyssey — UI engineer done, 3/5 tasks, 45s"`
 //! - **Brief**: `"<PROJECT> spec done"`, `"<PROJECT> session started"`, etc.
 //! - **Error**: always announced regardless of verbosity or announce_* gates,
 //!   using the error message as-is prefixed with the project name if known.
@@ -474,27 +474,32 @@ mod tests {
     fn test_build_agent_complete_verbose() {
         let ev = LifecycleEvent::agent_complete("macbook", "oo", "ui-engineer", 45000, 3, 5);
         let n = build_agent_complete_message(&ev, Verbosity::Verbose);
-        assert_eq!(n.message, "OO — UI engineer done, 3/5 tasks, 45s");
+        // get_project_display("oo") returns display name from projects.json
+        let expected_prefix = crate::claude_utils::project::get_project_display("oo").1;
+        assert_eq!(n.message, format!("{} — UI engineer done, 3/5 tasks, 45s", expected_prefix));
     }
 
     #[test]
     fn test_build_agent_complete_brief() {
         let ev = LifecycleEvent::agent_complete("macbook", "oo", "ui-engineer", 45000, 3, 5);
         let n = build_agent_complete_message(&ev, Verbosity::Brief);
-        assert_eq!(n.message, "OO — UI engineer done");
+        let expected_prefix = crate::claude_utils::project::get_project_display("oo").1;
+        assert_eq!(n.message, format!("{} — UI engineer done", expected_prefix));
     }
 
     #[test]
     fn test_build_spec_complete_brief() {
         let ev = LifecycleEvent::spec_complete("homelab", "tl", "add-invoice-export", 8);
         let n = build_spec_complete_message(&ev, Verbosity::Brief);
-        assert_eq!(n.message, "TL — add-invoice-export done");
+        let expected_prefix = crate::claude_utils::project::get_project_display("tl").1;
+        assert_eq!(n.message, format!("{} — add-invoice-export done", expected_prefix));
     }
 
     #[test]
     fn test_build_spec_complete_verbose() {
         let ev = LifecycleEvent::spec_complete("homelab", "tl", "add-invoice-export", 8);
         let n = build_spec_complete_message(&ev, Verbosity::Verbose);
-        assert_eq!(n.message, "TL — add-invoice-export complete, 8 tasks");
+        let expected_prefix = crate::claude_utils::project::get_project_display("tl").1;
+        assert_eq!(n.message, format!("{} — add-invoice-export complete, 8 tasks", expected_prefix));
     }
 }
