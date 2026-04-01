@@ -319,6 +319,13 @@ impl ReceiverService {
                             .collect::<Vec<_>>(),
                     );
 
+                    // Skip suppression when meeting mode is active — messages will be
+                    // queued by the batch buffer (focus_session_active) instead of dropped.
+                    let meeting_active = {
+                        let state_guard = state.read().await;
+                        state_guard.is_meeting_active()
+                    };
+
                     let active_channels = {
                         let mut channels = available_channels.clone();
 
@@ -344,7 +351,7 @@ impl ReceiverService {
                             }
                         }
 
-                        {
+                        if !meeting_active {
                             let notification_config =
                                 crate::claude_utils::notification_config::load_notification_config(
                                 );
@@ -484,7 +491,7 @@ impl ReceiverService {
 
                         let batching_enabled = state_guard.config.batching.enabled;
 
-                        if batching_enabled {
+                        if batching_enabled || meeting_active {
                             let notification = QueuedNotification {
                                 message: req.message.clone(),
                                 notification_type: notification_type.to_string(),
