@@ -52,6 +52,13 @@ impl SuppressionChecker {
         result
     }
 
+    /// Check if the user is currently in a meeting (video call detected).
+    /// Convenience wrapper around `is_video_call_active()` for the meeting-aware
+    /// notification bridge.
+    pub async fn is_meeting_active(&mut self) -> bool {
+        self.is_video_call_active().await
+    }
+
     async fn detect_video_call(&self) -> bool {
         // Try wmctrl first
         if let Ok(output) = Command::new("wmctrl").arg("-l").output().await

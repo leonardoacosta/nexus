@@ -197,9 +197,85 @@ impl NotificationBatchBuffer {
         format!("Claude has been waiting ({} reminders)", count)
     }
 
+    /// Flush all queued notifications as a single summary message for post-meeting delivery.
+    ///
+    /// Returns `None` if no notifications were queued.
+    /// Returns the original message as-is if only one notification was queued.
+    /// Returns a concise summary for multiple notifications, e.g.:
+    /// "5 notifications while away: 2 builds passed, spec approved, 2 session updates"
+    pub fn flush_as_summary(&mut self) -> Option<String> {
+        // Collect all messages across all queues
+        let mut all_messages: Vec<QueuedNotification> = Vec::new();
+        for (_, queue) in self.queues.drain() {
+            all_messages.extend(queue);
+        }
+
+        if all_messages.is_empty() {
+            return None;
+        }
+
+        if all_messages.len() == 1 {
+            return Some(all_messages.into_iter().next().unwrap().message);
+        }
+
+        // Group by notification_type and count (preserving insertion order)
+        let mut type_counts: Vec<(String, usize)> = Vec::new();
+        let mut seen: HashMap<String, usize> = HashMap::new();
+        for msg in &all_messages {
+            let idx = seen.entry(msg.notification_type.clone()).or_insert_with(|| {
+                type_counts.push((msg.notification_type.clone(), 0));
+                type_counts.len() - 1
+            });
+            type_counts[*idx].1 += 1;
+        }
+
+        // Build summary parts
+        let parts: Vec<String> = type_counts
+            .iter()
+            .map(|(ntype, count)| {
+                if *count == 1 {
+                    friendly_type_label(ntype)
+                } else {
+                    format!("{} {}", count, friendly_type_label_plural(ntype))
+                }
+            })
+            .collect();
+
+        let total = all_messages.len();
+        Some(format!(
+            "{} notifications while away: {}",
+            total,
+            parts.join(", ")
+        ))
+    }
+
     /// Get total queued count
     pub fn total_queued(&self) -> usize {
         self.queues.values().map(|q| q.len()).sum()
+    }
+}
+
+/// Convert notification type to friendly singular label
+fn friendly_type_label(ntype: &str) -> String {
+    match ntype {
+        "quality_gates" => "build result".to_string(),
+        "reminders" => "reminder".to_string(),
+        "lifecycle" => "session update".to_string(),
+        "spec" => "spec event".to_string(),
+        "error" => "error alert".to_string(),
+        other => other.replace('_', " "),
+    }
+}
+
+/// Convert notification type to friendly plural label
+fn friendly_type_label_plural(ntype: &str) -> String {
+    match ntype {
+        "quality_gates" => "build results".to_string(),
+        "reminders" => "reminders".to_string(),
+        "lifecycle" => "session updates".to_string(),
+        "spec" => "spec events".to_string(),
+        "error" => "error alerts".to_string(),
+        other => format!("{}s", other.replace('_', " ")),
     }
 }
 
@@ -387,6 +463,74 @@ mod tests {
 
         let result = buffer.coalesce_reminders(&queue);
         assert_eq!(result, "Claude waiting 15 minutes (2 reminders suppressed)");
+    }
+
+    #[test]
+    fn test_flush_as_summary_mixed_types() {
+        let mut buffer = NotificationBatchBuffer::new(2000, true);
+        buffer.set_focus_session(true); // Ensure all messages are batched
+
+        // Add mixed notification types
+        buffer.add(QueuedNotification {
+            message: "Build passed for oo".to_string(),
+            notification_type: "quality_gates".to_string(),
+            project: Some("oo".to_string()),
+            received_at: Instant::now(),
+        });
+        buffer.add(QueuedNotification {
+            message: "Build passed for tc".to_string(),
+            notification_type: "quality_gates".to_string(),
+            project: Some("tc".to_string()),
+            received_at: Instant::now(),
+        });
+        buffer.add(QueuedNotification {
+            message: "Spec approved: add-auth".to_string(),
+            notification_type: "spec".to_string(),
+            project: None,
+            received_at: Instant::now(),
+        });
+        buffer.add(QueuedNotification {
+            message: "Session started on macbook".to_string(),
+            notification_type: "lifecycle".to_string(),
+            project: None,
+            received_at: Instant::now(),
+        });
+        buffer.add(QueuedNotification {
+            message: "Session ended on desktop".to_string(),
+            notification_type: "lifecycle".to_string(),
+            project: None,
+            received_at: Instant::now(),
+        });
+
+        let summary = buffer.flush_as_summary();
+        assert!(summary.is_some());
+        let s = summary.unwrap();
+        assert!(s.starts_with("5 notifications while away:"));
+        assert!(s.contains("2 build results"));
+        assert!(s.contains("spec event"));
+        assert!(s.contains("2 session updates"));
+    }
+
+    #[test]
+    fn test_flush_as_summary_single() {
+        let mut buffer = NotificationBatchBuffer::new(2000, true);
+        buffer.set_focus_session(true);
+
+        buffer.add(QueuedNotification {
+            message: "Build passed for oo".to_string(),
+            notification_type: "quality_gates".to_string(),
+            project: Some("oo".to_string()),
+            received_at: Instant::now(),
+        });
+
+        let summary = buffer.flush_as_summary();
+        assert_eq!(summary, Some("Build passed for oo".to_string()));
+    }
+
+    #[test]
+    fn test_flush_as_summary_empty() {
+        let mut buffer = NotificationBatchBuffer::new(2000, true);
+        assert_eq!(buffer.flush_as_summary(), None);
     }
 
     #[test]

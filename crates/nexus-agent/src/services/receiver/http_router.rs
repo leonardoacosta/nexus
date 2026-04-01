@@ -174,6 +174,7 @@ impl ReceiverService {
                 });
 
                 let pending_buffers = state_guard.buffer_count;
+                let meeting_active = state_guard.is_meeting_active();
 
                 drop(state_guard);
                 let dedup_cache_size = {
@@ -198,6 +199,7 @@ impl ReceiverService {
                     "queue": { "pending_buffers": pending_buffers },
                     "dedup_cache_size": dedup_cache_size,
                     "uptime_seconds": uptime_seconds,
+                    "meeting_active": meeting_active,
                 });
 
                 let body = serde_json::to_vec(&response).unwrap_or_default();

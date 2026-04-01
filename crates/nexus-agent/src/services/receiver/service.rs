@@ -7,7 +7,7 @@
 //! - `http_router` — Axum router builder and HTTP request dispatch
 //! - `delivery` — TTS, APNs, banner, iMessage delivery
 
-use super::PlaybackQueue;
+use super::{PlaybackMessage, PlaybackQueue};
 use super::http_router::build_receiver_router;
 use crate::config::NotificationsConfig;
 use crate::services::Service;
@@ -16,7 +16,7 @@ use anyhow::Result;
 use chrono::Utc;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn};
 
@@ -141,6 +141,15 @@ impl Service for ReceiverService {
     }
 
     async fn start(&self, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
+        // Crash recovery: reset meeting/focus state to prevent stale detection
+        // from a previous run blocking notifications on startup.
+        {
+            let mut state = self.state.write().await;
+            state.set_meeting_active(false);
+            state.notification_batch.set_focus_session(false);
+            tracing::debug!("Reset meeting/focus state on startup (crash recovery)");
+        }
+
         let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
             .parse()
             .map_err(|e| {
@@ -169,6 +178,71 @@ impl Service for ReceiverService {
             state.started_at = Some(Utc::now());
             state.playback_queue = Some(queue_handle);
         }
+
+        // Meeting detection polling — bridges suppression → focus_session → flush
+        let meeting_state = Arc::clone(&self.state);
+        let meeting_poll_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.tick().await; // skip first immediate tick
+
+            loop {
+                interval.tick().await;
+
+                // Acquire write lock to check and mutate meeting state.
+                // `suppression_checker.is_meeting_active()` requires `&mut self`.
+                let transition = {
+                    let mut state = meeting_state.write().await;
+                    let was_active = state.is_meeting_active();
+                    let is_active = state.suppression_checker.is_meeting_active().await;
+
+                    if is_active && !was_active {
+                        // Entered meeting — activate focus session
+                        info!("Meeting detected — activating notification queue");
+                        state.set_meeting_active(true);
+                        state.notification_batch.set_focus_session(true);
+                        None
+                    } else if !is_active && was_active {
+                        // Left meeting — deactivate and flush
+                        info!("Meeting ended — flushing queued notifications");
+                        state.set_meeting_active(false);
+                        state.notification_batch.set_focus_session(false);
+
+                        let summary = state.notification_batch.flush_as_summary();
+                        let queue = state.playback_queue.clone();
+                        // Return data so we can drop the lock before TTS delivery
+                        summary.map(|s| (s, queue))
+                    } else {
+                        None
+                    }
+                };
+
+                // Deliver summary outside the write lock to avoid blocking other operations
+                if let Some((summary, queue_handle)) = transition {
+                    info!(message = %summary, "Delivering post-meeting summary via TTS");
+                    if let Some(queue) = queue_handle {
+                        let mode =
+                            crate::claude_utils::notification_mode::get_notification_mode();
+                        let speak_req = SpeakRequest {
+                            message: summary,
+                            voice: None,
+                            priority: None,
+                            project: None,
+                            mode: None,
+                            notification_type: Some("meeting_summary".to_string()),
+                            message_type: MessageType::Brief,
+                            channels: None,
+                        };
+                        queue.try_send(PlaybackMessage {
+                            request: speak_req,
+                            mode,
+                            queued_at: Instant::now(),
+                        });
+                    } else {
+                        warn!("No playback queue available for post-meeting summary");
+                    }
+                }
+            }
+        });
 
         // Build the axum router for this receiver.
         let app = build_receiver_router(Arc::clone(&self.state));
@@ -217,6 +291,7 @@ impl Service for ReceiverService {
             }
         }
 
+        meeting_poll_handle.abort();
         info!("Flushing remaining buffers before shutdown");
         Self::flush_ready_buffers(Arc::clone(&self.state)).await;
 

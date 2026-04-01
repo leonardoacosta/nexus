@@ -41,6 +41,8 @@ pub struct ReceiverState {
     pub notification_history: Arc<Mutex<VecDeque<NotificationRecord>>>,
     pub message_store: Arc<Mutex<HashMap<String, StoredMessage>>>,
     pub last_notification: Option<LastNotificationInfo>,
+    /// Whether a meeting/video call is currently detected.
+    pub(crate) meeting_active: bool,
 }
 
 impl ReceiverState {
@@ -78,6 +80,7 @@ impl ReceiverState {
             ))),
             message_store: Arc::new(Mutex::new(HashMap::new())),
             last_notification: None,
+            meeting_active: false,
         }
     }
 
@@ -108,7 +111,18 @@ impl ReceiverState {
             ))),
             message_store: Arc::new(Mutex::new(HashMap::new())),
             last_notification: None,
+            meeting_active: false,
         }
+    }
+
+    /// Check if a meeting is currently detected.
+    pub(crate) fn is_meeting_active(&self) -> bool {
+        self.meeting_active
+    }
+
+    /// Set the meeting detection state.
+    pub(crate) fn set_meeting_active(&mut self, active: bool) {
+        self.meeting_active = active;
     }
 }
 
@@ -400,5 +414,26 @@ impl ReceiverService {
             }
             _ => message.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_meeting_state_transitions() {
+        let mut state = ReceiverState::new_default();
+
+        // Initial state
+        assert!(!state.is_meeting_active());
+
+        // Enter meeting
+        state.set_meeting_active(true);
+        assert!(state.is_meeting_active());
+
+        // Leave meeting
+        state.set_meeting_active(false);
+        assert!(!state.is_meeting_active());
     }
 }
