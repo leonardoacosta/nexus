@@ -20,6 +20,7 @@ tonic-prost = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }

@@ -16,7 +16,9 @@ use crate::cron_state::{CronLogger, CronState};
 use crate::services::Service;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveTime, Weekday};
+use nexus_core::db::NexusDb;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -27,13 +29,15 @@ use tracing::{debug, error, info, warn};
 pub struct CronService {
     state: CronState,
     logger: Option<CronLogger>,
+    db: Arc<NexusDb>,
 }
 
 impl CronService {
-    pub fn new(state: CronState) -> Self {
+    pub fn new(state: CronState, db: Arc<NexusDb>) -> Self {
         Self {
             state,
             logger: CronLogger::new(),
+            db,
         }
     }
 }
@@ -165,6 +169,25 @@ impl CronService {
                 total_bytes += bytes;
             }
             Err(e) => errors.push(format!("paste-cache prune: {e}")),
+        }
+
+        // 6. Prune old SQLite records (sessions/failures/events: 30d, archived specs: 90d)
+        match self.db.prune_old_records(30, 90) {
+            Ok(stats) => {
+                let db_total =
+                    stats.sessions_deleted + stats.failures_deleted + stats.events_deleted + stats.specs_deleted;
+                if db_total > 0 {
+                    details.push(format!(
+                        "db: {} sessions, {} failures, {} events, {} specs",
+                        stats.sessions_deleted,
+                        stats.failures_deleted,
+                        stats.events_deleted,
+                        stats.specs_deleted
+                    ));
+                    total_pruned += db_total as u64;
+                }
+            }
+            Err(e) => errors.push(format!("db prune: {e}")),
         }
 
         let status = if errors.is_empty() {

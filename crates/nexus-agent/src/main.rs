@@ -4,6 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{Router, routing::get};
 use nexus_core::config::{AgentRole, NexusConfig, NotificationConfig};
+use nexus_core::db::NexusDb;
 use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tokio::sync::{RwLock, mpsc};
@@ -100,6 +101,12 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| agent_host.clone());
 
     tracing::info!(%agent_name, ?role, "agent identity resolved");
+
+    // Initialize the SQLite backing store.
+    let db_path = nexus_core::paths::nexus_config_dir().join("nexus.db");
+    let db = Arc::new(NexusDb::open(&db_path)?);
+    db.migrate()?;
+    tracing::info!(path = %db_path.display(), "NexusDb initialized");
 
     // Stale socket cleanup: remove leftover socket file from a previous
     // crash, or bail if another instance is already running.
@@ -258,7 +265,7 @@ async fn main() -> Result<()> {
 
     // Initialize and spawn the spec watcher service.
     spawn_service(
-        SpecWatcherService::new(project_registry.clone(), status_cache.clone()),
+        SpecWatcherService::new(project_registry.clone(), status_cache.clone(), Arc::clone(&db)),
         coordinator.token(),
     );
     tracing::info!("SpecWatcherService started");
@@ -330,7 +337,10 @@ async fn main() -> Result<()> {
 
     // Initialize shared cron state and spawn CronService.
     let cron_state = CronState::new();
-    spawn_service(CronService::new(cron_state.clone()), coordinator.token());
+    spawn_service(
+        CronService::new(cron_state.clone(), Arc::clone(&db)),
+        coordinator.token(),
+    );
 
     // Clone credential pool for the socket service (before moving into AppState).
     let socket_credential_pool = Arc::clone(&credential_pool);

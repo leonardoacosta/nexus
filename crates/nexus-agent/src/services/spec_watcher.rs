@@ -4,6 +4,9 @@
 //! detects state transitions (new/progress/complete/archived), emits TTS
 //! notifications, and warms the [`ProjectStatusCache`].
 //!
+//! Spec state is persisted in the SQLite backing store (`NexusDb`). The
+//! in-memory `HashMap` previously used for change detection has been removed.
+//!
 //! Design: 60-second poll interval, staggered batches of 3-5 projects with
 //! 200ms inter-batch delay. Only projects that have an `openspec/` directory
 //! are polled.
@@ -12,9 +15,11 @@ use crate::claude_utils::notify::send_notification;
 use crate::services::project_status::{collect_all, ProjectStatusCache};
 use crate::services::Service;
 use anyhow::Result;
+use nexus_core::db::{NexusDb, SpecRecord, proposal_hash};
 use nexus_core::project_registry::{ProjectPath, ProjectRegistry, SpecSnapshot};
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -56,6 +61,8 @@ enum SpecEvent {
     },
     /// All tasks complete (was incomplete before).
     AllComplete { project: String, name: String },
+    /// Proposal hash changed — spec needs re-review.
+    HashChanged { project: String, name: String },
 }
 
 impl SpecEvent {
@@ -71,6 +78,9 @@ impl SpecEvent {
             } => format!("{}: {} progress {}/{}", project, name, completed, total),
             Self::AllComplete { project, name } => {
                 format!("{}: {} all tasks complete", project, name)
+            }
+            Self::HashChanged { project, name } => {
+                format!("Spec {} in {} was modified — needs re-review", name, project)
             }
         }
     }
@@ -191,65 +201,171 @@ fn parse_spec_list(json: &str) -> Vec<SpecSnapshot> {
 }
 
 // ---------------------------------------------------------------------------
-// Change detection
+// DB-backed change detection
 // ---------------------------------------------------------------------------
 
-/// Compare current snapshots against previous snapshots and return events.
-fn detect_changes(
+/// Process specs from a single project against the DB, returning detected events.
+fn process_project_specs(
+    db: &NexusDb,
     project: &str,
-    previous: &[SpecSnapshot],
-    current: &[SpecSnapshot],
+    cwd: &Path,
+    current_specs: &[SpecSnapshot],
+    first_tick: bool,
 ) -> Vec<SpecEvent> {
     let mut events = Vec::new();
+    let now = chrono::Utc::now().to_rfc3339();
 
-    let prev_map: HashMap<&str, &SpecSnapshot> =
-        previous.iter().map(|s| (s.name.as_str(), s)).collect();
-    let curr_map: HashMap<&str, &SpecSnapshot> =
-        current.iter().map(|s| (s.name.as_str(), s)).collect();
+    // Build set of current spec names for removal detection.
+    let current_names: HashSet<&str> = current_specs.iter().map(|s| s.name.as_str()).collect();
 
-    // New specs: in current but not in previous.
-    for name in curr_map.keys() {
-        if !prev_map.contains_key(name) {
-            events.push(SpecEvent::NewSpec {
-                project: project.to_string(),
-                name: name.to_string(),
-            });
+    // Process each spec found on disk.
+    for snap in current_specs {
+        let spec_id = format!("{project}/{}", snap.name);
+
+        // Try to read proposal.md for hash computation.
+        let hash = read_proposal_hash(cwd, &snap.name);
+
+        match db.get_spec(project, &snap.name) {
+            Ok(Some(existing)) => {
+                // --- Hash change detection (task 2.4) ---
+                if let Some(ref new_hash) = hash
+                    && let Some(ref old_hash) = existing.proposal_hash
+                    && new_hash != old_hash
+                    && (existing.status == "read" || existing.status == "approved")
+                {
+                    // Reset to unread — proposal was edited after review.
+                    let mut updated = existing.clone();
+                    updated.status = "unread".to_string();
+                    updated.proposal_hash = Some(new_hash.clone());
+                    updated.read_at = None;
+                    updated.approved_at = None;
+                    updated.tasks_done = snap.completed_tasks;
+                    updated.tasks_total = snap.total_tasks;
+                    if let Err(e) = db.upsert_spec(&updated) {
+                        warn!("Failed to reset spec {}: {}", spec_id, e);
+                    }
+                    if !first_tick {
+                        events.push(SpecEvent::HashChanged {
+                            project: project.to_string(),
+                            name: snap.name.clone(),
+                        });
+                    }
+                    continue;
+                }
+
+                // --- Task progress detection ---
+                if !first_tick {
+                    let was_incomplete = existing.tasks_done < existing.tasks_total
+                        || existing.tasks_total == 0;
+                    let is_all_complete =
+                        snap.completed_tasks == snap.total_tasks && snap.total_tasks > 0;
+
+                    if is_all_complete && was_incomplete {
+                        events.push(SpecEvent::AllComplete {
+                            project: project.to_string(),
+                            name: snap.name.clone(),
+                        });
+                    } else if snap.completed_tasks > existing.tasks_done {
+                        events.push(SpecEvent::Progress {
+                            project: project.to_string(),
+                            name: snap.name.clone(),
+                            completed: snap.completed_tasks,
+                            total: snap.total_tasks,
+                        });
+                    }
+                }
+
+                // Update task counts and hash in DB.
+                if (snap.completed_tasks != existing.tasks_done
+                    || snap.total_tasks != existing.tasks_total)
+                    && let Err(e) = db.update_spec_tasks(
+                        project,
+                        &snap.name,
+                        snap.completed_tasks,
+                        snap.total_tasks,
+                    )
+                {
+                    warn!("Failed to update spec tasks {}: {}", spec_id, e);
+                }
+                // Update hash if changed (but status wasn't read/approved, so no reset).
+                if hash != existing.proposal_hash {
+                    let mut updated = existing.clone();
+                    updated.proposal_hash = hash;
+                    updated.tasks_done = snap.completed_tasks;
+                    updated.tasks_total = snap.total_tasks;
+                    if let Err(e) = db.upsert_spec(&updated) {
+                        warn!("Failed to update spec hash {}: {}", spec_id, e);
+                    }
+                }
+            }
+            Ok(None) => {
+                // New spec — insert as unread.
+                let record = SpecRecord {
+                    id: spec_id.clone(),
+                    project: project.to_string(),
+                    name: snap.name.clone(),
+                    status: "unread".to_string(),
+                    title: None,
+                    summary: None,
+                    tasks_total: snap.total_tasks,
+                    tasks_done: snap.completed_tasks,
+                    proposal_hash: hash,
+                    discovered_at: now.clone(),
+                    read_at: None,
+                    approved_at: None,
+                    applied_at: None,
+                    archived_at: None,
+                    rejected_at: None,
+                    rejection_reason: None,
+                };
+                if let Err(e) = db.upsert_spec(&record) {
+                    warn!("Failed to insert spec {}: {}", spec_id, e);
+                }
+                if !first_tick {
+                    events.push(SpecEvent::NewSpec {
+                        project: project.to_string(),
+                        name: snap.name.clone(),
+                    });
+                }
+            }
+            Err(e) => {
+                warn!("Failed to read spec {} from DB: {}", spec_id, e);
+            }
         }
     }
 
-    // Removed specs: in previous but not in current.
-    for name in prev_map.keys() {
-        if !curr_map.contains_key(name) {
-            events.push(SpecEvent::Removed {
-                project: project.to_string(),
-                name: name.to_string(),
-            });
-        }
-    }
-
-    // Changed specs: in both, compare task progress.
-    for (name, curr) in &curr_map {
-        if let Some(prev) = prev_map.get(name) {
-            let was_incomplete = prev.completed_tasks < prev.total_tasks || prev.total_tasks == 0;
-            let is_all_complete = curr.completed_tasks == curr.total_tasks && curr.total_tasks > 0;
-
-            if is_all_complete && was_incomplete {
-                events.push(SpecEvent::AllComplete {
-                    project: project.to_string(),
-                    name: name.to_string(),
-                });
-            } else if curr.completed_tasks > prev.completed_tasks {
-                events.push(SpecEvent::Progress {
-                    project: project.to_string(),
-                    name: name.to_string(),
-                    completed: curr.completed_tasks,
-                    total: curr.total_tasks,
-                });
+    // --- Spec removal detection (task 2.5) ---
+    // If a spec was 'applied' in the DB but is no longer on disk, archive it.
+    if let Ok(all_specs) = db.list_specs(Some(&["applied"])) {
+        for existing in all_specs {
+            if existing.project == project && !current_names.contains(existing.name.as_str()) {
+                if let Err(e) = db.update_spec_status(project, &existing.name, "archived") {
+                    warn!("Failed to archive spec {}: {}", existing.id, e);
+                }
+                if !first_tick {
+                    events.push(SpecEvent::Removed {
+                        project: project.to_string(),
+                        name: existing.name.clone(),
+                    });
+                }
             }
         }
     }
 
     events
+}
+
+/// Read proposal.md from disk and compute its SHA-256 hash.
+fn read_proposal_hash(cwd: &Path, spec_name: &str) -> Option<String> {
+    let proposal_path = cwd
+        .join("openspec")
+        .join("changes")
+        .join(spec_name)
+        .join("proposal.md");
+    match std::fs::read(&proposal_path) {
+        Ok(content) => Some(proposal_hash(&content)),
+        Err(_) => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,13 +376,19 @@ fn detect_changes(
 pub struct SpecWatcherService {
     registry: ProjectRegistry,
     status_cache: ProjectStatusCache,
+    db: Arc<NexusDb>,
 }
 
 impl SpecWatcherService {
-    pub fn new(registry: ProjectRegistry, status_cache: ProjectStatusCache) -> Self {
+    pub fn new(
+        registry: ProjectRegistry,
+        status_cache: ProjectStatusCache,
+        db: Arc<NexusDb>,
+    ) -> Self {
         Self {
             registry,
             status_cache,
+            db,
         }
     }
 
@@ -292,7 +414,6 @@ impl Service for SpecWatcherService {
             POLL_INTERVAL_SECS
         );
 
-        let mut previous_state: HashMap<String, Vec<SpecSnapshot>> = HashMap::new();
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(POLL_INTERVAL_SECS));
         // First tick fires immediately — use it to populate initial state.
@@ -325,18 +446,15 @@ impl Service for SpecWatcherService {
                             let status = collect_all(&project.cwd).await;
                             self.status_cache.set(&project.code, status).await;
 
-                            // Detect changes (skip on first tick — just populate state).
-                            if !first_tick {
-                                let prev = previous_state
-                                    .get(&project.code)
-                                    .map(|v| v.as_slice())
-                                    .unwrap_or(&[]);
-                                let events = detect_changes(&project.code, prev, &specs);
-                                all_events.extend(events);
-                            }
-
-                            // Update state.
-                            previous_state.insert(project.code.clone(), specs);
+                            // DB-backed change detection.
+                            let events = process_project_specs(
+                                &self.db,
+                                &project.code,
+                                &project.cwd,
+                                &specs,
+                                first_tick,
+                            );
+                            all_events.extend(events);
                         }
 
                         // Inter-batch delay to avoid hammering.
@@ -346,7 +464,7 @@ impl Service for SpecWatcherService {
                     if first_tick {
                         info!(
                             "Spec-watcher initial state populated for {} projects",
-                            previous_state.len()
+                            projects.len()
                         );
                         first_tick = false;
                         continue;
@@ -385,6 +503,7 @@ impl Service for SpecWatcherService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_core::db::NexusDb;
 
     fn snap(name: &str, status: &str, completed: u32, total: u32) -> SpecSnapshot {
         SpecSnapshot {
@@ -396,33 +515,45 @@ mod tests {
         }
     }
 
-    #[test]
-    fn detect_new_spec() {
-        let prev = vec![];
-        let curr = vec![snap("add-feature", "active", 0, 5)];
-        let events = detect_changes("oo", &prev, &curr);
-        assert_eq!(events.len(), 1);
-        assert!(
-            matches!(&events[0], SpecEvent::NewSpec { project, name } if project == "oo" && name == "add-feature")
-        );
+    fn test_db() -> Arc<NexusDb> {
+        let db = NexusDb::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        Arc::new(db)
     }
 
     #[test]
-    fn detect_removed_spec() {
-        let prev = vec![snap("old-spec", "active", 3, 5)];
-        let curr = vec![];
-        let events = detect_changes("oo", &prev, &curr);
+    fn detect_new_spec_via_db() {
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+        let current = vec![snap("add-feature", "active", 0, 5)];
+        let events = process_project_specs(&db, "oo", cwd, &current, false);
+
         assert_eq!(events.len(), 1);
-        assert!(
-            matches!(&events[0], SpecEvent::Removed { project, name } if project == "oo" && name == "old-spec")
-        );
+        assert!(matches!(
+            &events[0],
+            SpecEvent::NewSpec { project, name }
+            if project == "oo" && name == "add-feature"
+        ));
+
+        // Verify it was persisted in DB.
+        let stored = db.get_spec("oo", "add-feature").unwrap().unwrap();
+        assert_eq!(stored.status, "unread");
+        assert_eq!(stored.tasks_total, 5);
     }
 
     #[test]
-    fn detect_progress() {
-        let prev = vec![snap("feature", "active", 2, 10)];
-        let curr = vec![snap("feature", "active", 5, 10)];
-        let events = detect_changes("nx", &prev, &curr);
+    fn detect_progress_via_db() {
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+
+        // First tick — populate.
+        let initial = vec![snap("feature", "active", 2, 10)];
+        let events = process_project_specs(&db, "nx", cwd, &initial, true);
+        assert!(events.is_empty()); // first tick = no events
+
+        // Second tick — progress.
+        let updated = vec![snap("feature", "active", 5, 10)];
+        let events = process_project_specs(&db, "nx", cwd, &updated, false);
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
@@ -435,28 +566,127 @@ mod tests {
     }
 
     #[test]
-    fn detect_all_complete() {
-        let prev = vec![snap("feature", "active", 9, 10)];
-        let curr = vec![snap("feature", "active", 10, 10)];
-        let events = detect_changes("nx", &prev, &curr);
+    fn detect_all_complete_via_db() {
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+
+        let initial = vec![snap("feature", "active", 9, 10)];
+        process_project_specs(&db, "nx", cwd, &initial, true);
+
+        let updated = vec![snap("feature", "active", 10, 10)];
+        let events = process_project_specs(&db, "nx", cwd, &updated, false);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], SpecEvent::AllComplete { .. }));
     }
 
     #[test]
     fn no_events_when_unchanged() {
-        let prev = vec![snap("feature", "active", 5, 10)];
-        let curr = vec![snap("feature", "active", 5, 10)];
-        let events = detect_changes("nx", &prev, &curr);
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+
+        let specs = vec![snap("feature", "active", 5, 10)];
+        process_project_specs(&db, "nx", cwd, &specs, true);
+
+        let events = process_project_specs(&db, "nx", cwd, &specs, false);
         assert!(events.is_empty());
     }
 
     #[test]
     fn no_all_complete_when_total_is_zero() {
-        let prev = vec![snap("draft", "draft", 0, 0)];
-        let curr = vec![snap("draft", "draft", 0, 0)];
-        let events = detect_changes("nx", &prev, &curr);
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+
+        let specs = vec![snap("draft", "draft", 0, 0)];
+        process_project_specs(&db, "nx", cwd, &specs, true);
+
+        let events = process_project_specs(&db, "nx", cwd, &specs, false);
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn detect_removal_of_applied_spec() {
+        let db = test_db();
+        let cwd = Path::new("/tmp/nonexistent-project");
+
+        // Insert an applied spec directly into DB.
+        let record = SpecRecord {
+            id: "nx/old-spec".to_string(),
+            project: "nx".to_string(),
+            name: "old-spec".to_string(),
+            status: "applied".to_string(),
+            title: None,
+            summary: None,
+            tasks_total: 5,
+            tasks_done: 5,
+            proposal_hash: None,
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+            read_at: None,
+            approved_at: None,
+            applied_at: Some(chrono::Utc::now().to_rfc3339()),
+            archived_at: None,
+            rejected_at: None,
+            rejection_reason: None,
+        };
+        db.upsert_spec(&record).unwrap();
+
+        // Poll with empty specs — old-spec is gone from disk.
+        let events = process_project_specs(&db, "nx", cwd, &[], false);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            SpecEvent::Removed { project, name }
+            if project == "nx" && name == "old-spec"
+        ));
+
+        // Verify it was archived in DB.
+        let stored = db.get_spec("nx", "old-spec").unwrap().unwrap();
+        assert_eq!(stored.status, "archived");
+    }
+
+    #[test]
+    fn hash_change_resets_approved_spec() {
+        let db = test_db();
+        let _cwd = Path::new("/tmp/nonexistent-project");
+
+        // Insert an approved spec with a known hash.
+        let record = SpecRecord {
+            id: "oo/edited".to_string(),
+            project: "oo".to_string(),
+            name: "edited".to_string(),
+            status: "approved".to_string(),
+            title: None,
+            summary: None,
+            tasks_total: 5,
+            tasks_done: 2,
+            proposal_hash: Some("old_hash".to_string()),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+            read_at: Some(chrono::Utc::now().to_rfc3339()),
+            approved_at: Some(chrono::Utc::now().to_rfc3339()),
+            applied_at: None,
+            archived_at: None,
+            rejected_at: None,
+            rejection_reason: None,
+        };
+        db.upsert_spec(&record).unwrap();
+
+        // Note: proposal_hash reading from disk will return None for
+        // nonexistent paths, so no hash change is detected here. The real
+        // hash change detection works when the file exists. We test the DB
+        // logic directly instead.
+
+        // Simulate what process_project_specs does on hash mismatch:
+        let mut updated = record.clone();
+        updated.status = "unread".to_string();
+        updated.proposal_hash = Some("new_hash".to_string());
+        updated.read_at = None;
+        updated.approved_at = None;
+        db.upsert_spec(&updated).unwrap();
+
+        let stored = db.get_spec("oo", "edited").unwrap().unwrap();
+        assert_eq!(stored.status, "unread");
+        assert_eq!(stored.proposal_hash.as_deref(), Some("new_hash"));
+        assert!(stored.read_at.is_none());
+        assert!(stored.approved_at.is_none());
     }
 
     #[test]

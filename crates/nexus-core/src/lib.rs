@@ -2,6 +2,7 @@ pub mod agent;
 pub mod command;
 pub mod config;
 pub mod credentials;
+pub mod db;
 pub mod health;
 pub mod lifecycle;
 pub mod notes;
