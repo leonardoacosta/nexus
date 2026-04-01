@@ -9,6 +9,7 @@ use nexus_core::project_registry::ProjectRegistry;
 use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tokio::sync::{RwLock, mpsc};
 use tonic::transport::Server;
+use tower_http::timeout::TimeoutLayer;
 use tracing_subscriber::EnvFilter;
 
 use nexus_agent::cron::CronService;
@@ -41,8 +42,7 @@ use nexus_agent::services::spec_watcher::SpecWatcherService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
-const GRPC_PORT: u16 = 7400;
-const HTTP_PORT: u16 = 7402;
+use nexus_core::{DEFAULT_GRPC_PORT, DEFAULT_HTTP_PORT};
 
 /// Spawn a service and wire it to the cancellation token for shutdown.
 ///
@@ -152,14 +152,17 @@ async fn main() -> Result<()> {
             .await,
     );
 
-    // Start the health collector with a 5-second refresh interval and DB sampling.
-    let health_collector =
-        HealthCollector::spawn_with_db(Duration::from_secs(5), Some(Arc::clone(&db)));
-
     let started_at = std::time::Instant::now();
 
     // Create the shutdown coordinator shared between signal handler and gRPC service.
     let coordinator = Arc::new(ShutdownCoordinator::new());
+
+    // Start the health collector with a 5-second refresh interval and DB sampling.
+    let health_collector = HealthCollector::spawn_with_db(
+        Duration::from_secs(5),
+        Some(Arc::clone(&db)),
+        coordinator.token(),
+    );
 
     // Build a shared HTTP client for outbound requests (reused by services and
     // the HTTP handler layer to avoid per-request connection pool overhead).
@@ -256,7 +259,10 @@ async fn main() -> Result<()> {
             let (tx, rx) = mpsc::channel::<nexus_core::lifecycle::LifecycleEvent>(256);
 
             // Start hot-reload watcher for notifications.toml.
-            nexus_agent::notification_engine::spawn_config_watcher(Arc::clone(&config_arc));
+            nexus_agent::notification_engine::spawn_config_watcher(
+                Arc::clone(&config_arc),
+                coordinator.token(),
+            );
 
             // Start the NotificationEngine — drains rx and delivers TTS.
             let engine = NotificationEngine::new(Arc::clone(&config_arc), Arc::clone(&receiver));
@@ -272,7 +278,7 @@ async fn main() -> Result<()> {
                 tracing::info!("EventForwarder: no peers configured, skipping");
             } else {
                 tracing::info!(peer_count = peers.len(), "EventForwarder starting");
-                EventForwarder::new(peers).spawn(tx.clone());
+                EventForwarder::new(peers).spawn(tx.clone(), coordinator.token());
             }
 
             tracing::info!("NotificationEngine and EventForwarder started (role=primary)");
@@ -331,7 +337,7 @@ async fn main() -> Result<()> {
     let bind_address = &nexus_config.bind_address;
     let effective_secret = nexus_config.effective_secret();
 
-    let grpc_addr = format!("{bind_address}:{GRPC_PORT}").parse()?;
+    let grpc_addr = format!("{bind_address}:{DEFAULT_GRPC_PORT}").parse()?;
     tracing::info!("gRPC server listening on {}", grpc_addr);
 
     // Cancellation token for socket service — cancelled when the agent shuts down.
@@ -350,16 +356,24 @@ async fn main() -> Result<()> {
 
     // Start stale session detection background task (30s interval).
     let stale_registry = Arc::clone(&registry);
+    let stale_token = coordinator.token();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
-            interval.tick().await;
-            stale_registry
-                .detect_stale(
-                    std::time::Duration::from_secs(300), // 5min → Stale
-                    std::time::Duration::from_secs(900), // 15min → Remove
-                )
-                .await;
+            tokio::select! {
+                _ = stale_token.cancelled() => {
+                    tracing::info!("stale session detection: shutdown signal received");
+                    break;
+                }
+                _ = interval.tick() => {
+                    stale_registry
+                        .detect_stale(
+                            std::time::Duration::from_secs(300), // 5min → Stale
+                            std::time::Duration::from_secs(900), // 15min → Remove
+                        )
+                        .await;
+                }
+            }
         }
     });
 
@@ -441,9 +455,13 @@ async fn main() -> Result<()> {
         .route("/analytics/git", get(analytics_git_handler))
         .route("/analytics/lifecycle", get(analytics_lifecycle_handler))
         .route("/analytics/cron", get(analytics_cron_handler))
-        .with_state(app_state);
+        .with_state(app_state)
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ));
 
-    let http_addr: std::net::SocketAddr = format!("{bind_address}:{HTTP_PORT}").parse()?;
+    let http_addr: std::net::SocketAddr = format!("{bind_address}:{DEFAULT_HTTP_PORT}").parse()?;
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     tracing::info!("HTTP health server listening on {}", http_addr);
 
@@ -478,7 +496,7 @@ async fn main() -> Result<()> {
     });
 
     tracing::info!(
-        "listening on gRPC={bind_address}:{GRPC_PORT} HTTP={bind_address}:{HTTP_PORT} socket={}",
+        "listening on gRPC={bind_address}:{DEFAULT_GRPC_PORT} HTTP={bind_address}:{DEFAULT_HTTP_PORT} socket={}",
         socket_path.display()
     );
 

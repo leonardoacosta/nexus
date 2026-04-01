@@ -10,6 +10,7 @@ name = "nexus-mcp"
 path = "src/main.rs"
 
 [dependencies]
+nexus-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }

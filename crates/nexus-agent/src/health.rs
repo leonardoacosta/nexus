@@ -27,19 +27,24 @@ impl HealthCollector {
     /// CPU percentage requires two samples, so the first reading may be low.
     /// The `System` instance is created once and reused across refreshes to
     /// avoid the ~100-200 MB allocation cost of `System::new_all()` on every tick.
-    pub fn spawn(interval: Duration) -> Self {
-        Self::spawn_with_db(interval, None)
+    pub fn spawn(interval: Duration, token: tokio_util::sync::CancellationToken) -> Self {
+        Self::spawn_with_db(interval, None, token)
     }
 
     /// Create a new collector with optional SQLite backing store for health
     /// sampling. When `db` is `Some`, every 6th refresh tick (30s at 5s
     /// interval) writes a `health_samples` row.
-    pub fn spawn_with_db(interval: Duration, db: Option<Arc<NexusDb>>) -> Self {
+    pub fn spawn_with_db(
+        interval: Duration,
+        db: Option<Arc<NexusDb>>,
+        token: tokio_util::sync::CancellationToken,
+    ) -> Self {
         let state = Arc::new(RwLock::new(MachineHealth::default()));
         let collector = Self {
             state: state.clone(),
         };
 
+        let child_token = token.child_token();
         tokio::spawn(async move {
             // Allocate the System instance once, then refresh in-place on each tick.
             let mut sys = tokio::task::spawn_blocking(|| {
@@ -67,7 +72,13 @@ impl HealthCollector {
             let mut cached_docker = docker_containers;
 
             loop {
-                tick.tick().await;
+                tokio::select! {
+                    _ = child_token.cancelled() => {
+                        tracing::info!("health_collector: shutdown signal received");
+                        break;
+                    }
+                    _ = tick.tick() => {}
+                }
 
                 // Refresh Docker container list every DOCKER_REFRESH_TICKS cycles.
                 docker_tick_counter += 1;

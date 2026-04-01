@@ -80,7 +80,7 @@ pub struct AgentConfig {
 }
 
 fn default_port() -> u16 {
-    7400
+    crate::DEFAULT_GRPC_PORT
 }
 
 fn default_bind_address() -> String {

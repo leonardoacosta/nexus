@@ -222,7 +222,7 @@ impl NexusAgentService {
             agents: vec![proto::AgentInfo {
                 name: self.agent_name.clone(),
                 host: self.agent_host.clone(),
-                port: 7400,
+                port: nexus_core::DEFAULT_GRPC_PORT as u32,
             }],
         }))
     }

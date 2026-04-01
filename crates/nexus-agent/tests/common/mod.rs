@@ -29,8 +29,8 @@ pub async fn start_test_server() -> SocketAddr {
     // Build the same dependency graph as main.rs.
     let broadcaster = Arc::new(EventBroadcaster::new(256));
     let registry = Arc::new(SessionRegistry::new(Arc::clone(&broadcaster)));
-    let health = HealthCollector::spawn(Duration::from_secs(60)); // long interval — tests don't need refreshes
     let coordinator = Arc::new(ShutdownCoordinator::new());
+    let health = HealthCollector::spawn(Duration::from_secs(60), coordinator.token()); // long interval — tests don't need refreshes
     let project_registry = ProjectRegistry::load_empty();
     let status_cache = ProjectStatusCache::new(Duration::from_secs(30));
     let pool_config = nexus_core::config::PoolConfig::default();

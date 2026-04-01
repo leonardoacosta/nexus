@@ -483,7 +483,11 @@ fn fetch_statusline() -> Option<StatuslineResponse> {
         .timeout(std::time::Duration::from_secs(1))
         .build()
         .ok()?;
-    let resp = client.get("http://localhost:7401/statusline").send().ok()?;
+    let url = nexus_core::local_http_base_url(nexus_core::DEFAULT_HTTP_PORT);
+    let resp = client
+        .get(format!("{url}/statusline"))
+        .send()
+        .ok()?;
     resp.json().ok()
 }
 

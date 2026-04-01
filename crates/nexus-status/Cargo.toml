@@ -10,6 +10,7 @@ name = "nexus-status"
 path = "src/main.rs"
 
 [dependencies]
+nexus-core = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

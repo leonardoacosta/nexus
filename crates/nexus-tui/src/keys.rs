@@ -371,7 +371,10 @@ pub(crate) fn handle_detail_key(
             // Stop the currently viewed session.
             if let Some((session, _)) = &app.selected_session {
                 let id = session.id.clone();
-                let _ = rpc_tx.try_send(RpcCommand::StopSession { session_id: id });
+                if rpc_tx.try_send(RpcCommand::StopSession { session_id: id }).is_err() {
+                    tracing::warn!("RPC channel full, stop-session command dropped");
+                    app.status_message = Some("command dropped (channel full), try again".into());
+                }
             }
             KeyAction::Continue
         }
@@ -434,7 +437,8 @@ pub(crate) fn handle_specs_key(
                     let client = reqwest::Client::new();
                     let host =
                         std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-                    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                    let port = std::env::var("NEXUS_AGENT_PORT")
+                        .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
                     let url = format!("http://{host}:{port}/specs/{project}/{name}/read");
                     let _ = client.post(&url).send().await;
                 });
@@ -507,7 +511,8 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
                         let client = reqwest::Client::new();
                         let host =
                             std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-                        let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                        let port = std::env::var("NEXUS_AGENT_PORT")
+                            .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
                         let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
                         let _ = client.post(&url).send().await;
                     });
@@ -557,7 +562,8 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
                         let client = reqwest::Client::new();
                         let host =
                             std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-                        let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".into());
+                        let port = std::env::var("NEXUS_AGENT_PORT")
+                            .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
                         let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/reject");
                         let _ = client.post(&url).send().await;
                     });
@@ -961,7 +967,10 @@ pub(crate) fn execute_palette_action(
             }
         }
         PaletteAction::StopSession { session_id } => {
-            let _ = rpc_tx.try_send(RpcCommand::StopSession { session_id });
+            if rpc_tx.try_send(RpcCommand::StopSession { session_id }).is_err() {
+                tracing::warn!("RPC channel full, stop-session command dropped");
+                app.status_message = Some("command dropped (channel full), try again".into());
+            }
         }
     }
 }
@@ -1084,13 +1093,19 @@ pub(crate) fn handle_cwd_input_key(
             let project = app.start_project.clone();
             let cwd = app.start_cwd.clone();
 
-            let _ = rpc_tx.try_send(RpcCommand::StartSession {
-                agent_name,
-                project,
-                cwd,
-            });
-
-            app.status_message = Some("starting session...".to_string());
+            if rpc_tx
+                .try_send(RpcCommand::StartSession {
+                    agent_name,
+                    project,
+                    cwd,
+                })
+                .is_err()
+            {
+                tracing::warn!("RPC channel full, start-session command dropped");
+                app.status_message = Some("command dropped (channel full), try again".into());
+            } else {
+                app.status_message = Some("starting session...".to_string());
+            }
             // Stay in current mode until we get the result.
             app.input_mode = InputMode::Normal;
             app.start_project.clear();

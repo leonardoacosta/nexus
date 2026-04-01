@@ -88,7 +88,8 @@ struct McpToolContent {
 
 fn agent_base_url() -> String {
     let host = std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("NEXUS_AGENT_PORT").unwrap_or_else(|_| "7402".to_string());
+    let port = std::env::var("NEXUS_AGENT_PORT")
+        .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
     format!("http://{}:{}", host, port)
 }
 

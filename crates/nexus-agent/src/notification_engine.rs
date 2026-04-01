@@ -36,7 +36,10 @@ use crate::services::receiver::ReceiverService;
 ///
 /// The watcher stays alive as long as the returned task is running. A 100 ms
 /// debounce window coalesces rapid successive writes (e.g. editor flush + fsync).
-pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
+pub fn spawn_config_watcher(
+    config: Arc<RwLock<NotificationConfig>>,
+    token: tokio_util::sync::CancellationToken,
+) {
     let config_path = NotificationConfig::config_path();
 
     // Bridge: notify fires on an OS thread; we forward a unit signal into a
@@ -68,14 +71,23 @@ pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
         return;
     }
 
+    let child_token = token.child_token();
     tokio::spawn(async move {
         // Keep the watcher alive inside the task.
         let _watcher = watcher;
 
         loop {
-            // Wait for the next raw filesystem event.
-            if notify_rx.recv().await.is_none() {
-                break;
+            // Wait for the next raw filesystem event or cancellation.
+            tokio::select! {
+                _ = child_token.cancelled() => {
+                    tracing::info!("notification_engine: config watcher shutting down");
+                    break;
+                }
+                msg = notify_rx.recv() => {
+                    if msg.is_none() {
+                        break;
+                    }
+                }
             }
 
             // Debounce: drain any additional events within 100 ms.
@@ -83,6 +95,10 @@ pub fn spawn_config_watcher(config: Arc<RwLock<NotificationConfig>>) {
             tokio::pin!(debounce);
             loop {
                 tokio::select! {
+                    _ = child_token.cancelled() => {
+                        tracing::info!("notification_engine: config watcher shutting down during debounce");
+                        return;
+                    }
                     _ = &mut debounce => break,
                     extra = notify_rx.recv() => {
                         if extra.is_none() {

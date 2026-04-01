@@ -15,9 +15,10 @@
 use crate::services::Service;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use crate::usage_api::query_usage;
 use nexus_core::credentials::{
     AccountUsage, CachedUsage, CredentialAccount, UsageCache, best_available, fingerprint_token,
-    is_managed_symlink, query_usage, sanitize_account_name,
+    is_managed_symlink, sanitize_account_name,
 };
 use nexus_core::db::{CredentialPollRecord, NexusDb};
 use nexus_core::paths;
@@ -137,17 +138,32 @@ impl CredentialPool {
     pub async fn swap_credential(&self, target: &CredentialAccount) -> Result<()> {
         let link_path = paths::home_dir().join(".claude").join(".credentials.json");
 
-        // Remove existing file/symlink (ignore if missing).
-        tokio::fs::remove_file(&link_path).await.ok();
+        // Atomic swap via temp symlink + rename(2).
+        // rename(2) on Unix is atomic — no gap where the file is missing.
+        let tmp_link = link_path.with_extension("tmp");
 
-        // Create new symlink.
-        tokio::fs::symlink(&target.path, &link_path)
+        // Remove stale temp symlink if it exists (from a previous crash).
+        tokio::fs::remove_file(&tmp_link).await.ok();
+
+        // Create temp symlink pointing to the new target.
+        tokio::fs::symlink(&target.path, &tmp_link)
             .await
             .with_context(|| {
                 format!(
-                    "failed to symlink {} -> {}",
-                    link_path.display(),
+                    "failed to create temp symlink {} -> {}",
+                    tmp_link.display(),
                     target.path.display()
+                )
+            })?;
+
+        // Atomic rename: tmp -> real. This is a single rename(2) syscall.
+        tokio::fs::rename(&tmp_link, &link_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to atomically swap {} -> {}",
+                    tmp_link.display(),
+                    link_path.display()
                 )
             })?;
 

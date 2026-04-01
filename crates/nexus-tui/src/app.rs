@@ -719,7 +719,14 @@ impl App {
 
         if let Some(sv) = &self.stream_view {
             let session_id = sv.session_id.clone();
-            let _ = rpc_tx.try_send(crate::RpcCommand::SendCommand { session_id, prompt });
+            if rpc_tx
+                .try_send(crate::RpcCommand::SendCommand { session_id, prompt })
+                .is_err()
+            {
+                tracing::warn!("RPC channel full, send-command dropped");
+                self.status_message =
+                    Some("command dropped (channel full), try again".into());
+            }
         }
 
         true

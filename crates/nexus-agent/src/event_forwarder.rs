@@ -28,9 +28,14 @@ impl EventForwarder {
 
     /// Spawn one background task per peer. Each task streams events and sends them
     /// as `LifecycleEvent` on `notification_tx`. Reconnects every 30 seconds on failure.
-    pub fn spawn(self, notification_tx: mpsc::Sender<LifecycleEvent>) {
+    pub fn spawn(
+        self,
+        notification_tx: mpsc::Sender<LifecycleEvent>,
+        token: tokio_util::sync::CancellationToken,
+    ) {
         for peer in self.peers {
             let tx = notification_tx.clone();
+            let child_token = token.child_token();
             tokio::spawn(async move {
                 loop {
                     tracing::info!(peer = %peer.name, "event_forwarder: connecting to peer");
@@ -49,7 +54,16 @@ impl EventForwarder {
                             );
                         }
                     }
-                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    tokio::select! {
+                        _ = child_token.cancelled() => {
+                            tracing::info!(
+                                peer = %peer.name,
+                                "event_forwarder: shutdown signal received, stopping"
+                            );
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                    }
                 }
             });
         }

@@ -149,11 +149,11 @@ async fn main() -> Result<()> {
     execute!(std::io::stdout(), EnableMouseCapture)?;
 
     // Channel for background poll results.
-    let (poll_tx, mut poll_rx) = mpsc::channel::<Vec<AgentData>>(4);
+    let (poll_tx, mut poll_rx) = mpsc::channel::<Vec<AgentData>>(16);
 
     // Channel for RPC commands from the event loop.
-    let (rpc_tx, rpc_rx) = mpsc::channel::<RpcCommand>(4);
-    let (rpc_result_tx, mut rpc_result_rx) = mpsc::channel::<RpcResult>(4);
+    let (rpc_tx, rpc_rx) = mpsc::channel::<RpcCommand>(32);
+    let (rpc_result_tx, mut rpc_result_rx) = mpsc::channel::<RpcResult>(32);
 
     // Move client into the background task that handles both polling and RPCs.
     tokio::spawn(background_task(
@@ -716,23 +716,29 @@ async fn background_task(
                     }
                     Some(RpcCommand::SendCommand { session_id, prompt }) => {
                         match client.send_command(&session_id, &prompt).await {
-                            Ok(mut stream) => {
-                                loop {
-                                    match stream.message().await {
-                                        Ok(Some(output)) => {
-                                            let _ = rpc_result_tx.send(RpcResult::CommandOutput(output)).await;
-                                        }
-                                        Ok(None) => {
-                                            let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
-                                            break;
-                                        }
-                                        Err(e) => {
-                                            tracing::warn!(%e, "send_command stream error");
-                                            let _ = rpc_result_tx.send(RpcResult::CommandStreamDone).await;
-                                            break;
+                            Ok(stream) => {
+                                let tx = rpc_result_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut stream = stream;
+                                    loop {
+                                        match stream.message().await {
+                                            Ok(Some(output)) => {
+                                                if tx.send(RpcResult::CommandOutput(output)).await.is_err() {
+                                                    break; // receiver dropped
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let _ = tx.send(RpcResult::CommandStreamDone).await;
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(%e, "send_command stream error");
+                                                let _ = tx.send(RpcResult::CommandStreamDone).await;
+                                                break;
+                                            }
                                         }
                                     }
-                                }
+                                });
                             }
                             Err(e) => {
                                 tracing::warn!(%e, "send_command failed");

@@ -60,6 +60,9 @@ pub struct StreamViewState {
 
     /// Current terminal width for text wrapping (updated by the render loop).
     pub terminal_width: u16,
+
+    /// Cached total display lines — invalidated on push/toggle.
+    cached_total_display_lines: usize,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -103,6 +106,7 @@ impl StreamViewState {
             code_blocks: Vec::new(),
             notification_message: None,
             terminal_width: 120,
+            cached_total_display_lines: 0,
         }
     }
 
@@ -146,16 +150,26 @@ impl StreamViewState {
     }
 
     pub fn push_stream_line(&mut self, entry: StreamLine) {
+        self.cached_total_display_lines += entry.display_lines();
         self.lines.push(entry);
         if self.lines.len() > MAX_STREAM_LINES {
             let excess = self.lines.len() - MAX_STREAM_LINES;
+            let drained_display: usize = self.lines[..excess]
+                .iter()
+                .map(|l| l.display_lines())
+                .sum();
+            self.cached_total_display_lines -= drained_display;
             self.lines.drain(0..excess);
             self.scroll_offset = self.scroll_offset.saturating_sub(excess);
         }
     }
 
     pub fn total_display_lines(&self) -> usize {
-        self.lines.iter().map(|l| l.display_lines()).sum()
+        self.cached_total_display_lines
+    }
+
+    fn recompute_display_lines(&mut self) {
+        self.cached_total_display_lines = self.lines.iter().map(|l| l.display_lines()).sum();
     }
 
     pub fn scroll_up(&mut self) {
@@ -214,7 +228,8 @@ impl StreamViewState {
             }
             display_pos += entry_display;
         }
-        let total = self.total_display_lines();
+        self.recompute_display_lines();
+        let total = self.cached_total_display_lines;
         let max = total.saturating_sub(visible_height);
         if self.auto_scroll {
             self.scroll_offset = max;

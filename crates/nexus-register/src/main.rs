@@ -49,7 +49,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     use std::time::Duration;
     use tonic::transport::Endpoint;
 
-    let endpoint = Endpoint::from_static("http://localhost:7400")
+    let url = nexus_core::local_http_base_url(nexus_core::DEFAULT_GRPC_PORT);
+    let endpoint = Endpoint::from_shared(url)
+        .expect("valid endpoint URL")
         .connect_timeout(Duration::from_millis(500))
         .timeout(Duration::from_secs(1));
 

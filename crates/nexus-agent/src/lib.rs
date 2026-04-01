@@ -19,3 +19,4 @@ pub mod registry;
 pub mod services;
 pub mod shutdown;
 pub mod socket;
+pub mod usage_api;

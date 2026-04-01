@@ -280,7 +280,7 @@ async fn test_list_agents() {
     assert_eq!(agents.len(), 1, "should report exactly one agent (itself)");
     assert_eq!(agents[0].name, "test-agent");
     assert_eq!(agents[0].host, "localhost");
-    assert_eq!(agents[0].port, 7400);
+    assert_eq!(agents[0].port, u32::from(nexus_core::DEFAULT_GRPC_PORT));
 }
 
 // ---------------------------------------------------------------------------
