@@ -78,6 +78,16 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env().add_directive("nexus_agent=info".parse()?))
         .init();
 
+    // Load ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)
+    // Mirrors the systemd EnvironmentFile=-%h/.env pattern for macOS launchd.
+    if let Some(home) = std::env::var_os("HOME") {
+        let env_path = std::path::PathBuf::from(home).join(".env");
+        match dotenvy::from_path(&env_path) {
+            Ok(()) => tracing::info!("loaded env from {}", env_path.display()),
+            Err(e) => tracing::debug!("no .env loaded from {}: {}", env_path.display(), e),
+        }
+    }
+
     tracing::info!("nexus-agent starting");
 
     // Resolve agent identity from hostname.

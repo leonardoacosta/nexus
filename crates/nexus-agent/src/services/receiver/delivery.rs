@@ -9,9 +9,23 @@ use crate::config::NotificationsConfig;
 use crate::services::receiver::service::{AudioHealth, ReceiverService, SpeakRequest};
 use anyhow::Result;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::fs;
 use tokio::process::Command;
 use tracing::{debug, error, info, warn};
+
+/// Session-scoped dedup flag for ElevenLabs failure alerts.
+/// Resets on agent restart (process-level static). Ensures only the first
+/// failure in a session triggers a desktop notification.
+static ELEVENLABS_ALERT_SENT: AtomicBool = AtomicBool::new(false);
+
+/// Classified ElevenLabs error for user-facing alert messages.
+struct ElevenLabsErrorCategory {
+    /// Short label (e.g., "quota exhausted", "invalid API key")
+    label: &'static str,
+    /// Actionable guidance (e.g., "Top up credits to restore voice.")
+    action: &'static str,
+}
 
 impl ReceiverService {
     /// Show desktop notification using terminal-notifier (macOS) or notify-send (Linux)
@@ -20,15 +34,21 @@ impl ReceiverService {
         let full_title = format!("{} {}", icon, name);
 
         if cfg!(target_os = "macos") {
-            let result = Command::new("/opt/homebrew/bin/terminal-notifier")
-                .arg("-title")
+            let mut cmd = Command::new("/opt/homebrew/bin/terminal-notifier");
+            cmd.arg("-title")
                 .arg(&full_title)
                 .arg("-message")
                 .arg(message)
                 .arg("-sound")
-                .arg("default")
-                .output()
-                .await;
+                .arg("default");
+
+            // Add per-project icon if available
+            if let Some(icon_path) = crate::icons::get_icon_path(project.unwrap_or("")) {
+                cmd.arg("-appIcon")
+                    .arg(icon_path.to_string_lossy().as_ref());
+            }
+
+            let result = cmd.output().await;
 
             match result {
                 Ok(output) if output.status.success() => {
@@ -272,7 +292,22 @@ impl ReceiverService {
                         }
                     }
                     Err(e) => {
-                        warn!("ElevenLabs failed: {}. Falling back to system TTS", e);
+                        let error_str = e.to_string();
+                        warn!("ElevenLabs failed: {}. Falling back to system TTS", error_str);
+
+                        // First-failure alert: notify user via desktop notification (once per session)
+                        if ELEVENLABS_ALERT_SENT
+                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_ok()
+                        {
+                            let category = Self::classify_elevenlabs_error(&error_str);
+                            let alert_msg = format!(
+                                "ElevenLabs {} — using system TTS. {}",
+                                category.label, category.action
+                            );
+                            warn!("Sending ElevenLabs degradation alert to desktop");
+                            Self::show_notification("Nexus TTS", &alert_msg, None).await;
+                        }
                     }
                 }
             }
@@ -292,6 +327,40 @@ impl ReceiverService {
                 )
             }
             Err(e) => (false, Some(e), None),
+        }
+    }
+
+    /// Classify an ElevenLabs error string into a user-facing category.
+    fn classify_elevenlabs_error(error: &str) -> ElevenLabsErrorCategory {
+        let lower = error.to_lowercase();
+        if lower.contains("quota_exceeded") || lower.contains("quota") {
+            ElevenLabsErrorCategory {
+                label: "quota exhausted",
+                action: "Top up credits to restore voice.",
+            }
+        } else if lower.contains("invalid_api_key") || lower.contains("invalid api key") {
+            ElevenLabsErrorCategory {
+                label: "invalid API key",
+                action: "Check ELEVENLABS_API_KEY in ~/.env.",
+            }
+        } else if lower.contains("rate_limit") || lower.contains("rate limit") {
+            ElevenLabsErrorCategory {
+                label: "rate limited",
+                action: "Will retry automatically on next notification.",
+            }
+        } else if lower.contains("timeout")
+            || lower.contains("timed out")
+            || lower.contains("connection")
+        {
+            ElevenLabsErrorCategory {
+                label: "connection failed",
+                action: "Check network connectivity.",
+            }
+        } else {
+            ElevenLabsErrorCategory {
+                label: "unavailable",
+                action: "Check logs for details.",
+            }
         }
     }
 
