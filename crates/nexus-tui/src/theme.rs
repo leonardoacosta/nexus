@@ -76,11 +76,11 @@ pub fn status_color(status: SessionStatus) -> Color {
     }
 }
 
-/// Type indicator for a session: [M] if managed (has tmux_session), [A] if ad-hoc.
+/// Type indicator for a session: [MNG] if managed (has tmux_session), [ADH] if ad-hoc.
 pub fn session_type_indicator(session: &Session) -> &'static str {
     if session.tmux_session.is_some() {
-        "[M]"
+        "[MNG]"
     } else {
-        "[A]"
+        "[ADH]"
     }
 }

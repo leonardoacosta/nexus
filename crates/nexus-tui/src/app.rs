@@ -941,11 +941,22 @@ impl App {
 
     /// Start a confirmation. Returns true if this is the confirming second press within 3s.
     pub fn confirm_or_start(&mut self, kind: ConfirmKind) -> bool {
-        if let Some((pending_kind, started)) = self.confirm_action {
-            if pending_kind == kind && started.elapsed().as_secs() < 3 {
-                self.confirm_action = None;
-                return true; // Confirmed!
-            }
+        if let Some((pending_kind, started)) = self.confirm_action
+            && pending_kind == kind
+            && started.elapsed().as_secs() < 3
+        {
+            self.confirm_action = None;
+            return true; // Confirmed!
+        }
+        // If replacing a different pending action, note the cancellation.
+        if let Some((old_kind, _)) = self.confirm_action
+            && old_kind != kind
+        {
+            let cancelled = match old_kind {
+                ConfirmKind::ApproveSpec => "Approval",
+                ConfirmKind::RejectSpec => "Rejection",
+            };
+            self.status_message = Some(format!("{cancelled} cancelled."));
         }
         self.confirm_action = Some((kind, std::time::Instant::now()));
         false
@@ -953,10 +964,10 @@ impl App {
 
     /// Clear expired confirmations (call each tick).
     pub fn clear_expired_confirm(&mut self) {
-        if let Some((_, started)) = self.confirm_action {
-            if started.elapsed().as_secs() >= 3 {
-                self.confirm_action = None;
-            }
+        if let Some((_, started)) = self.confirm_action
+            && started.elapsed().as_secs() >= 3
+        {
+            self.confirm_action = None;
         }
     }
 
@@ -1087,11 +1098,12 @@ impl App {
         self.current_screen = Screen::StreamAttach;
     }
 
-    /// Leave stream attach view and return to dashboard.
+    /// Leave stream attach view and return to the previous screen.
     pub fn close_stream_attach(&mut self) {
         self.stream_view = None;
         self.active_tab = None;
-        self.current_screen = Screen::Dashboard;
+        self.current_screen = self.previous_screen.unwrap_or(Screen::Dashboard);
+        self.previous_screen = None;
     }
 
     /// Ensure the current stream session is tracked as a tab.

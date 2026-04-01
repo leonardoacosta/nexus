@@ -254,6 +254,9 @@ pub(crate) fn handle_list_key(
             if app.current_screen == Screen::Dashboard
                 && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
             {
+                if row.disconnected {
+                    app.status_message = Some("Agent disconnected — session may be unavailable".to_string());
+                }
                 let session = row.session.clone();
                 // Find the agent info.
                 let agent_info = app
@@ -294,6 +297,9 @@ pub(crate) fn handle_list_key(
             if app.current_screen == Screen::Dashboard
                 && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
             {
+                if row.disconnected {
+                    app.status_message = Some("Agent disconnected — session may be unavailable".to_string());
+                }
                 let session_id = row.session.id.clone();
                 let agent_name = row.agent_name.clone();
                 let project = row.session.project.as_deref().unwrap_or("?");
