@@ -388,6 +388,45 @@ async fn dispatch_event(
                 }
             }
 
+            // Check if meeting is active — queue to batch buffer instead of delivering
+            {
+                let state = receiver.state().read().await;
+                if state.is_meeting_active() {
+                    // Queue for post-meeting delivery
+                    use crate::services::receiver::QueuedNotification;
+                    let notification = QueuedNotification {
+                        message: message.clone(),
+                        notification_type: message_type
+                            .clone()
+                            .unwrap_or_else(|| "background_tasks".to_string()),
+                        project: None,
+                        received_at: std::time::Instant::now(),
+                    };
+                    drop(state);
+                    {
+                        let mut state = receiver.state().write().await;
+                        state.notification_batch.add(notification);
+                    }
+
+                    // Update DB record to show suppressed/queued
+                    let _ = db.insert_notification(&DbNotificationRecord {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        message: message.clone(),
+                        message_type: message_type.clone(),
+                        project: None,
+                        channels: Some("queued".to_string()),
+                        delivered: false,
+                        suppressed: true,
+                    });
+
+                    tracing::info!(
+                        message = %message,
+                        "Meeting active — notification queued for post-meeting delivery"
+                    );
+                    return;
+                }
+            }
+
             // Default channels to ["tts"] when not specified
             let effective_channels = channels.unwrap_or_else(|| vec!["tts".to_string()]);
 
