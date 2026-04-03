@@ -23,6 +23,7 @@ mod buffer;
 mod dedup;
 mod delivery;
 mod http_router;
+pub mod meeting_queue;
 mod notification_batch;
 mod playback_queue;
 mod service;
@@ -45,6 +46,7 @@ pub use service::{
     AudioHealth, Channel, ErrorResponse, HealthResponse, MessageType, PlayRequest, ReceiverService,
     SpeakRequest, StoredMessage, SuccessResponse,
 };
+pub use meeting_queue::{HeldNotification, MeetingQueue, MeetingTransition, ProjectSummary};
 pub use suppression::SuppressionChecker;
 pub use tts::{TtsOrchestrator, TtsResult, split_into_chunks};
 pub use tts_elevenlabs::{ElevenLabsClient, ElevenLabsConfig, ElevenLabsVoiceSettings};

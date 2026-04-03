@@ -22,13 +22,17 @@
 
 ## Data Scope
 
-- Sessions discovered via file watching (~/.claude/projects/*/sessions.json)
+- Sessions tracked via Unix socket events from Claude Code hooks
 - System health via sysinfo crate (CPU, RAM, disk)
 - Agent registry via TOML config file
-- No database — all state is ephemeral or file-based
+- Central SQLite on homelab (datastore role) — 12 tables, all agents
+- Credentials, specs, git events, failures, notifications all centralized
 
 ## Architecture Notes
 
-> Peer-to-peer via Tailscale. No central hub.
-> Each machine runs nexus-agent (axum). TUI aggregates via HTTP/WebSocket.
+> Tailscale mesh with role-based topology:
+> - **datastore** (homelab) — hosts nexus.db, serves /ingest + /analytics, always on
+> - **notifier** (Mac) — NotificationEngine, TTS, banners, meeting detection
 > Cargo workspace: nexus-core (shared), nexus-agent (daemon), nexus-tui (client).
+> TUI queries homelab as single source of truth for data views.
+> gRPC StreamEvents still peer-to-peer for real-time session updates.

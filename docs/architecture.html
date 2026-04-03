@@ -3,512 +3,790 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nexus Architecture — Single Host</title>
+<title>Nexus — Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
-
   :root {
-    --bg: #0D0D0D;
-    --surface: #1A1A1A;
-    --surface-hi: #2A2A2A;
-    --primary: #00D26A;
-    --primary-bright: #39FF14;
-    --primary-dim: #0A4A2A;
-    --secondary: #00CED1;
-    --warning: #FFB700;
-    --error: #FF3B3B;
-    --text: #C0C0C0;
-    --text-dim: #666666;
-    --border: #333333;
-    --mono: 'JetBrains Mono', monospace;
-    --sans: 'Space Grotesk', sans-serif;
+    --cream: #f5f0e8;
+    --paper: #faf7f2;
+    --ink: #1a1712;
+    --ink-dim: #8a837a;
+    --ink-light: #b5afa6;
+    --rust: #c0462b;
+    --rust-dim: rgba(192, 70, 43, 0.08);
+    --teal: #1a6b5a;
+    --teal-dim: rgba(26, 107, 90, 0.06);
+    --navy: #2a3a5c;
+    --navy-dim: rgba(42, 58, 92, 0.06);
+    --amber: #b8860b;
+    --amber-dim: rgba(184, 134, 11, 0.06);
+    --rule: rgba(26, 23, 18, 0.10);
+    --rule-strong: rgba(26, 23, 18, 0.20);
+
+    --serif: 'Instrument Serif', 'Georgia', serif;
+    --mono: 'IBM Plex Mono', 'SF Mono', monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --cream: #1a1916;
+      --paper: #222019;
+      --ink: #e8e2d8;
+      --ink-dim: #8a837a;
+      --ink-light: #5a554e;
+      --rust: #e8714a;
+      --rust-dim: rgba(232, 113, 74, 0.12);
+      --teal: #4ecda0;
+      --teal-dim: rgba(78, 205, 160, 0.08);
+      --navy: #7ea3d4;
+      --navy-dim: rgba(126, 163, 212, 0.08);
+      --amber: #e8b84a;
+      --amber-dim: rgba(232, 184, 74, 0.08);
+      --rule: rgba(232, 226, 216, 0.08);
+      --rule-strong: rgba(232, 226, 216, 0.15);
+    }
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
     line-height: 1.6;
-    padding: 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 100%;
+    margin: 0;
+    padding: 60px 48px 80px;
+  }
+
+  /* ---- Header ---- */
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 24px;
+    margin-bottom: 48px;
   }
 
   h1 {
-    font-family: var(--mono);
-    font-weight: 700;
-    font-size: 1.8rem;
-    color: var(--primary);
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    margin-bottom: 0.5rem;
-    border-bottom: 2px solid var(--primary-dim);
-    padding-bottom: 0.5rem;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 64px;
+    letter-spacing: -2px;
+    line-height: 1;
+    margin-bottom: 8px;
   }
 
-  .subtitle {
-    color: var(--text-dim);
-    font-size: 0.85rem;
-    margin-bottom: 3rem;
-    font-family: var(--mono);
+  .tagline {
+    color: var(--ink-dim);
+    font-style: italic;
+    font-family: var(--serif);
+    font-size: 18px;
   }
+
+  .meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 16px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--ink-dim);
+  }
+
+  .meta-val { color: var(--ink); font-weight: 600; }
+
+  /* ---- Sections ---- */
+  section { margin-bottom: 56px; }
 
   h2 {
-    font-family: var(--mono);
-    font-weight: 600;
-    font-size: 1.1rem;
-    color: var(--secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin: 3rem 0 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 32px;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
   }
 
   h2 .num {
-    background: var(--primary-dim);
-    color: var(--primary);
-    width: 28px;
-    height: 28px;
+    color: var(--rust);
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    vertical-align: super;
+    margin-right: 6px;
+  }
+
+  .section-rule {
+    width: 40px;
+    height: 2px;
+    background: var(--rust);
+    margin-bottom: 20px;
+  }
+
+  p.lead {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: none;
+    margin-bottom: 24px;
+  }
+
+  /* ---- Crate Cards ---- */
+  .crates {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--rule-strong);
+    border: 1px solid var(--rule-strong);
+    margin-bottom: 32px;
+  }
+
+  .crate-card {
+    background: var(--paper);
+    padding: 24px 20px;
+  }
+
+  .crate-card .name {
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .crate-card .binary {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-bottom: 12px;
+  }
+
+  .crate-card .desc {
+    font-size: 12px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+  }
+
+  .crate-card .loc {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .crate-card .loc-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--ink-light);
+  }
+
+  .color-rust .name { color: var(--rust); }
+  .color-teal .name { color: var(--teal); }
+  .color-navy .name { color: var(--navy); }
+
+  /* ---- Diagram ---- */
+  .diagram-frame {
+    background: var(--paper);
+    border: 1px solid var(--rule-strong);
+    padding: 32px 24px 24px;
+    position: relative;
+    margin-bottom: 16px;
+    overflow: auto;
+  }
+
+  .diagram-frame .mermaid {
+    display: flex;
+    justify-content: center;
+    transition: transform 0.2s ease;
+    transform-origin: top center;
+  }
+
+  .diagram-label {
+    position: absolute;
+    top: 10px;
+    left: 16px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--ink-light);
+  }
+
+  .zoom-controls {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    display: flex;
+    gap: 1px;
+    z-index: 10;
+  }
+
+  .zoom-controls button {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    flex-shrink: 0;
+    transition: all 0.15s;
   }
 
-  .diagram {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 2rem;
-    margin: 1rem 0 2rem;
-    overflow-x: auto;
-    position: relative;
+  .zoom-controls button:hover {
+    background: var(--cream);
+    color: var(--ink);
   }
 
-  .diagram::before {
-    content: attr(data-label);
-    position: absolute;
-    top: -10px;
-    left: 16px;
-    background: var(--surface);
-    padding: 0 8px;
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
+  .diagram-frame.is-zoomed { cursor: grab; }
+  .diagram-frame.is-panning { cursor: grabbing; user-select: none; }
 
-  pre {
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    line-height: 1.65;
-    color: var(--text);
-    white-space: pre;
-    overflow-x: auto;
-  }
+  .mermaid .nodeLabel { font-family: var(--mono) !important; font-size: 12px !important; }
+  .mermaid .edgeLabel { font-family: var(--mono) !important; font-size: 10px !important; }
 
-  .g { color: var(--primary); }
-  .gb { color: var(--primary-bright); }
-  .c { color: var(--secondary); }
-  .w { color: var(--warning); }
-  .r { color: var(--error); }
-  .d { color: var(--text-dim); }
-  .t { color: var(--text); }
-  .b { font-weight: 600; }
+  .diagram-caption {
+    font-size: 11px;
+    color: var(--ink-dim);
+    font-style: italic;
+    font-family: var(--serif);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
 
   .legend {
     display: flex;
-    gap: 1.5rem;
+    gap: 20px;
     flex-wrap: wrap;
-    margin: 1rem 0;
-    font-family: var(--mono);
-    font-size: 0.72rem;
+    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--ink-dim);
   }
 
-  .legend-item {
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  /* ---- Flow Steps ---- */
+  .flow {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 0;
+    margin-bottom: 32px;
+  }
+
+  .flow-line {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
   }
 
-  .legend-dot {
+  .flow-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
+    background: var(--rust);
+    margin-top: 6px;
     flex-shrink: 0;
   }
 
-  .meta-table {
+  .flow-stem {
+    width: 1px;
+    flex: 1;
+    background: var(--rule-strong);
+  }
+
+  .flow-step {
+    padding: 4px 0 28px 12px;
+  }
+
+  .flow-step .step-label {
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    margin-bottom: 2px;
+  }
+
+  .flow-step .step-desc {
+    font-size: 12px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+  }
+
+  .flow-step code {
+    font-size: 11px;
+    background: var(--rust-dim);
+    color: var(--rust);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  /* ---- Two Column ---- */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--rule-strong);
+    border: 1px solid var(--rule-strong);
+    margin-bottom: 24px;
+  }
+
+  .two-col > div {
+    background: var(--paper);
+    padding: 16px 20px;
+  }
+
+  .two-col .col-title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .two-col ul {
+    list-style: none;
+    font-size: 12px;
+  }
+
+  .two-col li {
+    padding: 3px 0;
+    color: var(--ink-dim);
+  }
+
+  .two-col li strong {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ---- Ref Table ---- */
+  .ref-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: var(--mono);
-    font-size: 0.75rem;
-    margin: 1rem 0;
+    font-size: 12px;
   }
 
-  .meta-table th {
-    text-align: left;
-    color: var(--primary);
-    border-bottom: 1px solid var(--border);
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-size: 0.7rem;
-  }
-
-  .meta-table td {
-    padding: 0.4rem 1rem;
-    border-bottom: 1px solid var(--surface-hi);
+  .ref-table td {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--rule);
     vertical-align: top;
   }
 
-  .meta-table td:first-child {
-    color: var(--secondary);
-    white-space: nowrap;
+  .ref-table td:first-child { padding-right: 12px; }
+
+  .ref-table code {
+    font-size: 11px;
+    background: var(--teal-dim);
+    color: var(--teal);
+    padding: 1px 4px;
+    border-radius: 2px;
   }
 
-  .meta-table tr:hover td {
-    background: var(--surface-hi);
+  .ref-table .port {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--rust);
   }
 
-  .note {
-    background: var(--primary-dim);
-    border-left: 3px solid var(--primary);
-    padding: 0.75rem 1rem;
-    margin: 1rem 0;
-    font-size: 0.82rem;
-    border-radius: 0 4px 4px 0;
+  /* ---- Aside ---- */
+  .aside {
+    border-left: 2px solid var(--amber);
+    padding: 12px 16px;
+    background: var(--amber-dim);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    margin-bottom: 24px;
   }
 
-  .note code {
-    background: rgba(0,210,106,0.15);
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-    font-family: var(--mono);
-    font-size: 0.75rem;
-    color: var(--primary-bright);
+  .aside strong { color: var(--ink); }
+
+  /* ---- Footer ---- */
+  .colophon {
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    font-size: 10px;
+    color: var(--ink-light);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
   }
 
-  .cols {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+  /* ---- Animation ---- */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
-  @media (max-width: 800px) {
-    .cols { grid-template-columns: 1fr; }
-    body { padding: 1rem; }
+  .reveal {
+    animation: fadeIn 0.5s ease both;
+    animation-delay: calc(var(--d, 0) * 0.04s);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; }
+  }
+
+  @media (max-width: 700px) {
+    .page { padding: 32px 16px 60px; }
+    h1 { font-size: 40px; }
+    h2 { font-size: 24px; }
+    .crates, .two-col { grid-template-columns: 1fr; }
+    .meta { flex-wrap: wrap; gap: 12px; }
   }
 </style>
 </head>
 <body>
 
-<h1>Nexus Architecture</h1>
-<p class="subtitle">Single-host topology &mdash; homelab (omarchy) &mdash; March 2026</p>
+<div class="page">
 
-<!-- ================================================================== -->
-<h2><span class="num">1</span> Service Topology</h2>
-<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
-  What runs on the homelab, what ports, how processes connect.
-</p>
+  <header class="masthead reveal" style="--d:0">
+    <h1>Nexus</h1>
+    <div class="tagline">A developer operations daemon disguised as a TUI.</div>
+    <div class="meta">
+      <span><span class="meta-val">3</span> crates</span>
+      <span><span class="meta-val">14</span> services</span>
+      <span><span class="meta-val">45.8K</span> lines</span>
+      <span><span class="meta-val">Rust 2024</span></span>
+    </div>
+  </header>
 
-<div class="diagram" data-label="processes &amp; ports">
-<pre>
-<span class="d">  ┌─────────────────────────────────────────────────────────────────────┐</span>
-<span class="d">  │</span> <span class="g b">HOMELAB (omarchy)</span>                                                   <span class="d">│</span>
-<span class="d">  │</span>                                                                     <span class="d">│</span>
-<span class="d">  │</span>  <span class="c b">nexus-agent</span>  <span class="d">(systemd user service, always-on)</span>                    <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> gRPC  <span class="g">0.0.0.0:7400</span>  <span class="d">── all session/command RPCs</span>              <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> HTTP  <span class="g">0.0.0.0:7401</span>  <span class="d">── GET /health (JSON)</span>                   <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> <span class="w">SessionRegistry</span>    <span class="d">── in-memory HashMap&lt;String, Session&gt;</span>    <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> <span class="w">EventBroadcaster</span>   <span class="d">── broadcast channel (cap 256)</span>           <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> <span class="w">HealthCollector</span>    <span class="d">── sysinfo refresh every 5s</span>              <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">└──</span> <span class="w">StaleDetector</span>      <span class="d">── background task every 30s</span>             <span class="d">│</span>
-<span class="d">  │</span>                                                                     <span class="d">│</span>
-<span class="d">  │</span>  <span class="c b">nexus-register</span>  <span class="d">(CLI, invoked by CC hooks)</span>                       <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">└──</span> gRPC client <span class="d">──▶</span> <span class="g">localhost:7400</span>  <span class="d">(500ms timeout, exit 0)</span>    <span class="d">│</span>
-<span class="d">  │</span>                                                                     <span class="d">│</span>
-<span class="d">  │</span>  <span class="c b">nexus</span> <span class="d">(TUI binary, launched by user)</span>                               <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">└──</span> gRPC client <span class="d">──▶</span> <span class="g">localhost:7400</span>  <span class="d">(+ remote agents via Tailscale)</span><span class="d">│</span>
-<span class="d">  │</span>                                                                     <span class="d">│</span>
-<span class="d">  │</span>  <span class="gb b">Claude Code sessions</span>  <span class="d">(1-N interactive terminal processes)</span>       <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">├──</span> Each fires <span class="w">SessionStart</span> / <span class="w">PostToolUse</span> / <span class="w">Stop</span> hooks           <span class="d">│</span>
-<span class="d">  │</span>  <span class="d">└──</span> Hooks invoke <span class="c">nexus-register</span> <span class="d">start / heartbeat / stop</span>           <span class="d">│</span>
-<span class="d">  │</span>                                                                     <span class="d">│</span>
-<span class="d">  └─────────────────────────────────────────────────────────────────────┘</span>
-</pre>
+  <!-- 01 ---- SYSTEM ---- -->
+  <section>
+    <h2 class="reveal" style="--d:2"><span class="num">01</span>The System</h2>
+    <div class="section-rule reveal" style="--d:3"></div>
+
+    <p class="lead reveal" style="--d:4">
+      Each dev machine runs a <em>nexus-agent</em> daemon with a distinct role.
+      The homelab is the <strong>datastore</strong> — always on, hosts the central DB, serves queries.
+      The Mac is the <strong>notifier</strong> — owns TTS, banners, and meeting detection.
+      The TUI queries the homelab as the single source of truth.
+    </p>
+
+    <div class="diagram-frame reveal" style="--d:5">
+      <span class="diagram-label">Proposed Topology</span>
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)" title="Zoom in">+</button>
+        <button onclick="zoomDiagram(this, 0.8)" title="Zoom out">&minus;</button>
+        <button onclick="resetZoom(this)" title="Reset">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+graph LR
+
+subgraph tailscale["Tailscale Network"]
+  direction LR
+
+  subgraph mac["MacBook - notifier"]
+    direction TB
+    MAC_S1["CC Session 1"]
+    MAC_S2["CC Session 2"]
+    MAC_SOCK["Unix Socket"]
+    MAC_GRPC["gRPC :7400 StreamEvents"]
+    MAC_HTTP["HTTP :7402 /health"]
+    MAC_NE["NotificationEngine\nrules - dedup - meeting queue\nchannel routing"]
+    MAC_TTS["TtsService\nElevenLabs / say\nplayback - ducking"]
+    TUI["nexus TUI"]
+
+    MAC_S1 -->|JSON| MAC_SOCK
+    MAC_S2 -->|JSON| MAC_SOCK
+    MAC_SOCK --> MAC_NE
+    MAC_NE -->|TTS only| MAC_TTS
+    TUI --> MAC_GRPC
+  end
+
+  subgraph homelab["Homelab - datastore"]
+    direction TB
+    HL_S1["CC Session 1"]
+    HL_S2["CC Session 2"]
+    HL_SN["CC Session N"]
+    HL_SOCK["Unix Socket"]
+    HL_GRPC["gRPC :7400\nGetSessions StreamEvents\nSendCommand - 18 RPCs"]
+    HL_HTTP["HTTP :7402\n/ingest /specs /analytics\n/events /notifications"]
+    HL_GIT["GitWatch\n~/dev/*/.git - 60s"]
+    HL_SPEC["SpecWatcher\nopenspec/ - FS notify"]
+    HL_CRED["CredentialPool\ncredentials/ - 5min poll"]
+    HL_SESS["SessionPool\nwarm sessions"]
+    HL_DB[("nexus.db\n12 tables - all agents")]
+
+    HL_S1 -->|JSON| HL_SOCK
+    HL_S2 -->|JSON| HL_SOCK
+    HL_SN -->|JSON| HL_SOCK
+    HL_GIT -->|write| HL_DB
+    HL_SPEC -->|write| HL_DB
+    HL_CRED -->|r/w| HL_DB
+    HL_SESS -->|read| HL_DB
+    HL_HTTP -->|r/w| HL_DB
+    HL_GRPC -->|read| HL_DB
+  end
+
+  HL_GRPC -->|StreamEvents| MAC_NE
+  MAC_HTTP -->|POST /ingest| HL_HTTP
+  TUI -->|HTTP queries| HL_HTTP
+  TUI -->|gRPC| HL_GRPC
+end
+
+subgraph external["External Services"]
+  direction LR
+  EL["ElevenLabs TTS API"]
+  APNS["Apple Watch APNs"]
+  BAN["Desktop Banners"]
+  ANTH["Anthropic Usage API"]
+end
+
+MAC_TTS -->|HTTPS| EL
+MAC_NE -->|HTTP/2| APNS
+MAC_NE --> BAN
+HL_CRED -->|HTTPS| ANTH
+
+%% 0:S1-SOCK 1:S2-SOCK 2:SOCK-NE 3:NE-TTS 4:TUI-GRPC
+%% 5:HL_S1 6:HL_S2 7:HL_SN 8:GIT-DB 9:SPEC-DB
+%% 10:CRED-DB 11:SESS-DB 12:HTTP-DB 13:GRPC-DB
+%% 14:HL_GRPC-NE 15:MAC_HTTP-HL 16:TUI-HL_HTTP 17:TUI-HL_GRPC
+%% 18:TTS-EL 19:NE-APNS 20:NE-BAN 21:CRED-ANTH
+
+linkStyle 0,1,5,6,7 stroke:#daa520,stroke-width:2px
+linkStyle 2,3,20 stroke:#888888,stroke-width:1.5px
+linkStyle 4,14,17 stroke:#2ecc71,stroke-width:2.5px
+linkStyle 8,9,10,11,12,13 stroke:#e67e22,stroke-width:2px
+linkStyle 15,16,18,19,21 stroke:#5dade2,stroke-width:2.5px
+      </pre>
+    </div>
+
+    <div class="legend reveal" style="--d:6">
+      <div class="legend-item"><div class="legend-dot" style="background:#daa520"></div> JSON (socket)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> gRPC</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#5dade2"></div> HTTP / HTTPS</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e67e22"></div> SQLite</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#888888"></div> Internal</div>
+    </div>
+
+    <div class="diagram-caption reveal" style="--d:7">
+      Homelab is the data primary (always on, hosts DB). Mac is the notification edge (TTS, banners, meeting detection). TUI queries homelab as single source of truth.
+    </div>
+  </section>
+
+  <!-- 02 ---- CRATES ---- -->
+  <section>
+    <h2 class="reveal" style="--d:7"><span class="num">02</span>Crates</h2>
+    <div class="section-rule reveal" style="--d:8"></div>
+
+    <div class="crates reveal" style="--d:9">
+      <div class="crate-card color-teal">
+        <div class="name">nexus-core</div>
+        <div class="binary">library crate</div>
+        <div class="desc">Shared types, protobuf definitions, config, project registry, SQLite schema.</div>
+        <div class="loc">8.5K</div>
+        <div class="loc-label">lines</div>
+      </div>
+      <div class="crate-card color-rust">
+        <div class="name">nexus-agent</div>
+        <div class="binary">bin: nexus-agent</div>
+        <div class="desc">Per-machine daemon. Role-based: datastore (DB + API) or notifier (TTS + banners). gRPC + HTTP.</div>
+        <div class="loc">29K</div>
+        <div class="loc-label">lines</div>
+      </div>
+      <div class="crate-card color-navy">
+        <div class="name">nexus-tui</div>
+        <div class="binary">bin: nexus</div>
+        <div class="desc">Ratatui terminal UI. Dashboard, session detail, SSH+tmux attach, project views.</div>
+        <div class="loc">8.3K</div>
+        <div class="loc-label">lines</div>
+      </div>
+    </div>
+
+    <div class="aside reveal" style="--d:10">
+      <strong>Both binaries depend on nexus-core.</strong> They never depend on each other — all runtime communication is gRPC and HTTP over Tailscale. The agent binary supports two roles: <strong>datastore</strong> (homelab — hosts DB, serves queries) and <strong>notifier</strong> (Mac — TTS, banners, meeting detection).
+    </div>
+  </section>
+
+  <!-- 03 ---- NOTIFICATION FLOW ---- -->
+  <section>
+    <h2 class="reveal" style="--d:11"><span class="num">03</span>Notification Flow</h2>
+    <div class="section-rule reveal" style="--d:12"></div>
+
+    <p class="lead reveal" style="--d:13">
+      The NotificationEngine is the single orchestrator — it owns channel routing,
+      meeting detection, banner delivery, and APNs push. TtsService only handles audio.
+    </p>
+
+    <div class="flow reveal" style="--d:14">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-stem"></div></div>
+      <div class="flow-step">
+        <div class="step-label">Incoming event</div>
+        <div class="step-desc">Local CC hook → Unix socket → lifecycle channel, or remote agent → gRPC StreamEvents. All events enter NotificationEngine.</div>
+      </div>
+
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-stem"></div></div>
+      <div class="flow-step">
+        <div class="step-label">NotificationEngine — rules + dedup</div>
+        <div class="step-desc">Per-project rules applied. Duplicates dropped. Mode (Full / NoDuck / System / Silent) determines available channels.</div>
+      </div>
+
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-stem"></div></div>
+      <div class="flow-step">
+        <div class="step-label">NotificationEngine — meeting check</div>
+        <div class="step-desc">Mic active or Teams/Zoom/FaceTime window → queued per-project. APNs still fires immediately.</div>
+      </div>
+
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-stem"></div></div>
+      <div class="flow-step">
+        <div class="step-label">NotificationEngine — channel dispatch</div>
+        <div class="step-desc"><strong>Banner</strong> → Nexus-Notifier.app (fire-and-forget) · <strong>APNs</strong> → Apple Watch HTTP/2 push (fire-and-forget) · <strong>TTS</strong> → forwards to TtsService</div>
+      </div>
+
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-stem"></div></div>
+      <div class="flow-step">
+        <div class="step-label">TtsService — audio only</div>
+        <div class="step-desc">Playback queue (serial, batched). ElevenLabs → system fallback. Media ducking. No channel routing — just plays audio.</div>
+      </div>
+
+      <div class="flow-line"><div class="flow-dot" style="background:var(--teal)"></div><div class="flow-stem" style="background:transparent"></div></div>
+      <div class="flow-step">
+        <div class="step-label" style="color:var(--teal)">Meeting ends → Summary</div>
+        <div class="step-desc">NotificationEngine flushes queue → per-project banner + TTS: <em>"3 updates for OO while away."</em></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 ---- SERVICES ---- -->
+  <section>
+    <h2 class="reveal" style="--d:17"><span class="num">04</span>Services</h2>
+    <div class="section-rule reveal" style="--d:18"></div>
+
+    <div class="two-col reveal" style="--d:19">
+      <div>
+        <div class="col-title" style="color:var(--rust)">Both Agents</div>
+        <ul>
+          <li><strong>gRPC :7400</strong> — StreamEvents, GetSessions, 18 RPCs</li>
+          <li><strong>HTTP :7402</strong> — REST API (+/ingest on datastore)</li>
+          <li><strong>Socket Listener</strong> — /tmp/nexus-agent.sock</li>
+          <li><strong>Health Collector</strong> — sysinfo every 5s</li>
+          <li><strong>GitWatch</strong> — polls ~/dev/*/.git, 60s</li>
+          <li><strong>SpecWatcher</strong> — watches openspec/ dirs, FS notify</li>
+          <li><strong>CredentialPool</strong> — OAuth rotation, 5min usage poll</li>
+          <li><strong>SessionPool</strong> — warm pre-spawned CC sessions</li>
+        </ul>
+      </div>
+      <div>
+        <div class="col-title" style="color:var(--rust)">Mac Only <span style="font-weight:400;color:var(--ink-dim)">(role: notifier)</span></div>
+        <ul>
+          <li><strong>NotificationEngine</strong> — rules, dedup, meeting queue, channel routing, banner dispatch, APNs push</li>
+          <li><strong>TtsService</strong> — ElevenLabs / say, playback queue, media ducking (TTS only)</li>
+          <li><strong>EventForwarder</strong> — subscribes to homelab gRPC stream</li>
+          <li><strong>MeetingQueue</strong> — mic + window detection, per-project hold</li>
+        </ul>
+        <div class="col-title" style="color:var(--teal); margin-top:16px">Homelab Only <span style="font-weight:400;color:var(--ink-dim)">(role: datastore)</span></div>
+        <ul>
+          <li><strong>nexus.db</strong> — central SQLite, 12 tables, all agents write here</li>
+          <li><strong>POST /ingest</strong> — batched insert endpoint for remote agents</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 ---- REFERENCE ---- -->
+  <section>
+    <h2 class="reveal" style="--d:21"><span class="num">05</span>Quick Reference</h2>
+    <div class="section-rule reveal" style="--d:22"></div>
+
+    <div class="two-col reveal" style="--d:23">
+      <div>
+        <div class="col-title">Ports</div>
+        <table class="ref-table">
+          <tr><td class="port">7400</td><td>gRPC — real-time streams + RPCs</td></tr>
+          <tr><td class="port">7402</td><td>HTTP — API, queries, /ingest</td></tr>
+          <tr><td class="port" style="color:var(--ink-dim); text-decoration:line-through">9999</td><td style="color:var(--ink-dim)">Eliminated — merged into :7402</td></tr>
+          <tr><td class="port" style="color:var(--amber)">sock</td><td>Unix — CC hooks</td></tr>
+        </table>
+      </div>
+      <div>
+        <div class="col-title">Roles</div>
+        <table class="ref-table">
+          <tr><td style="font-weight:600">datastore</td><td>Hosts nexus.db, serves /ingest + /analytics, always on</td></tr>
+          <tr><td style="font-weight:600">notifier</td><td>NotificationEngine, TTS, banners, meeting detection</td></tr>
+        </table>
+        <div class="col-title" style="margin-top:12px">Config</div>
+        <table class="ref-table">
+          <tr><td><code>agents.toml</code></td><td>Fleet config + roles</td></tr>
+          <tr><td><code>notifications.toml</code></td><td>Per-project rules</td></tr>
+          <tr><td><code>nexus.db</code></td><td>Central DB (homelab)</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="colophon reveal" style="--d:25">
+    Nexus &mdash; Rust 2024 &bull; Tokio &bull; Axum &bull; Tonic &bull; Ratatui &bull; Tailscale
+  </div>
+
 </div>
 
-<div class="legend">
-  <div class="legend-item"><div class="legend-dot" style="background:var(--primary)"></div> Ports / addresses</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--secondary)"></div> Binaries</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--warning)"></div> Internal components / events</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--primary-bright)"></div> Claude Code</div>
-</div>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
 
-<!-- ================================================================== -->
-<h2><span class="num">2</span> Session Lifecycle</h2>
-<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
-  Two paths: ad-hoc (CC hooks) and managed (TUI-initiated). Both converge at the registry.
-</p>
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-<div class="diagram" data-label="ad-hoc sessions (cc hooks)">
-<pre>
-<span class="gb b">CC starts</span>  <span class="d">──▶</span>  <span class="w">SessionStart hook</span>  <span class="d">──▶</span>  <span class="c">nexus-register start</span>
-                                           <span class="d">│</span>
-                                           <span class="d">│</span> gRPC <span class="t">RegisterSession</span>
-                                           <span class="d">▼</span>
-                                     <span class="g b">nexus-agent</span>
-                                           <span class="d">│</span>
-                                           <span class="d">│</span> <span class="t">registry.register_adhoc()</span>
-                                           <span class="d">▼</span>
-                                     <span class="w">SessionRegistry</span>  <span class="d">──▶</span>  <span class="gb">SessionStarted</span> event
-                                           <span class="d">│</span>
-<span class="gb b">CC tool use</span>  <span class="d">─▶</span>  <span class="w">PostToolUse hook</span>  <span class="d">──▶</span>  <span class="c">nexus-register heartbeat</span>
-                                           <span class="d">│</span>
-                                           <span class="d">│</span> gRPC <span class="t">Heartbeat</span>
-                                           <span class="d">▼</span>
-                                     <span class="t">registry.heartbeat()</span>  <span class="d">──▶</span>  <span class="gb">HeartbeatReceived</span> event
-                                                                 <span class="d">(+ StatusChanged if Stale→Active)</span>
-                                           <span class="d">│</span>
-<span class="gb b">CC stops</span>  <span class="d">───▶</span>  <span class="w">Stop hook</span>  <span class="d">──────────▶</span>  <span class="c">nexus-register stop</span>
-                                           <span class="d">│</span>
-                                           <span class="d">│</span> gRPC <span class="t">UnregisterSession</span>
-                                           <span class="d">▼</span>
-                                     <span class="t">registry.unregister()</span>  <span class="d">──▶</span>  <span class="r">SessionStopped</span> event
-</pre>
-</div>
-
-<div class="diagram" data-label="managed sessions (tui-initiated)">
-<pre>
-<span class="c b">TUI</span> <span class="d">press</span> <span class="g">n</span>  <span class="d">──▶</span>  <span class="t">StartSession RPC</span>  <span class="d">{ project, cwd }</span>
-                         <span class="d">│</span>
-                         <span class="d">▼</span>
-                   <span class="g b">nexus-agent</span>
-                         <span class="d">│</span>
-                   <span class="d">1.</span> <span class="t">Generate UUID</span>
-                   <span class="d">2.</span> <span class="t">Session { pid: 0, cc_session_id: uuid }</span>
-                   <span class="d">3.</span> <span class="t">registry.register_managed()</span>  <span class="d">──▶</span>  <span class="gb">SessionStarted</span>
-                   <span class="d">4.</span> <span class="w">Bootstrap:</span>
-                         <span class="d">│</span>
-                         <span class="d">│</span>  <span class="t">claude -p --session-id &lt;uuid&gt;</span>
-                         <span class="d">│</span>  <span class="t">  --output-format stream-json --verbose</span>
-                         <span class="d">│</span>  <span class="t">  --dangerously-skip-permissions</span>
-                         <span class="d">│</span>  <span class="t">  "Acknowledge with: Ready."</span>
-                         <span class="d">│</span>
-                         <span class="d">▼</span>
-                   <span class="g">Session resumable</span> via <span class="t">--resume &lt;uuid&gt;</span>
-</pre>
-</div>
-
-<div class="diagram" data-label="stale detection (background)">
-<pre>
-<span class="d">every 30s:</span>
-
-  <span class="t">for each session where tmux_session.is_none():</span>
-
-    <span class="t">idle_seconds()</span> <span class="d">&gt;</span> <span class="r b">900s</span> <span class="d">(15 min)</span>  <span class="d">──▶</span>  <span class="r">REMOVE</span>  <span class="d">+ emit</span> <span class="r">SessionStopped</span>
-                                             <span class="d">"stale session removed"</span>
-
-    <span class="t">idle_seconds()</span> <span class="d">&gt;</span> <span class="w b">300s</span> <span class="d">(5 min)</span>   <span class="d">──▶</span>  <span class="w">STALE</span>   <span class="d">+ emit</span> <span class="w">StatusChanged</span>
-                                             <span class="d">Active → Stale</span>
-
-    <span class="t">heartbeat arrives on Stale</span>       <span class="d">──▶</span>  <span class="g">REVIVE</span>  <span class="d">+ emit</span> <span class="g">StatusChanged</span>
-                                             <span class="d">Stale → Active</span>
-</pre>
-</div>
-
-<!-- ================================================================== -->
-<h2><span class="num">3</span> Command Broker Flow</h2>
-<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
-  User types a prompt in the TUI &rarr; agent spawns CC subprocess &rarr; output streams back.
-</p>
-
-<div class="diagram" data-label="sendcommand rpc sequence">
-<pre>
-<span class="c b">TUI</span>                          <span class="g b">Agent</span>                         <span class="gb b">CC subprocess</span>
- <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span> <span class="t">SendCommand</span>                 <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span>  <span class="d">{ session_id, prompt }</span>     <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">├──────────────────────────▶</span>  <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span> <span class="t">1. heartbeat(session_id)</span>     <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span> <span class="t">2. lookup session in registry</span><span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span> <span class="t">3. resolve resume_id / cwd</span>  <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span> <span class="w">spawn process:</span>                <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>  <span class="t">NEXUS_SUBPROCESS=1</span>          <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>  <span class="t">claude -p</span>                   <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>   <span class="g">--resume &lt;id&gt;</span> <span class="d">(managed)</span>    <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>   <span class="w">--session-id &lt;new&gt;</span> <span class="d">(adhoc)</span> <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>   <span class="t">--stream-json --verbose</span>    <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>   <span class="t">"&lt;prompt&gt;"</span>                 <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">├─────────────────────────────▶│</span>
- <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span>  <span class="gb">stream: TextChunk</span>          <span class="d">│</span>  <span class="d">stdout line (stream-json)</span>   <span class="d">│</span>
- <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
- <span class="d">│</span>  <span class="w">stream: ToolUseInfo</span>        <span class="d">│</span>  <span class="d">parser.parse_stream_json()</span>  <span class="d">│</span>
- <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
- <span class="d">│</span>  <span class="w">stream: ToolResult</span>         <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
- <span class="d">│</span>  <span class="g">stream: CommandDone</span>        <span class="d">│</span>  <span class="d">process exit</span>                <span class="d">│</span>
- <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span>  <span class="d">│◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│</span>
- <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span> <span class="t">input bar re-enabled</span>        <span class="d">│</span>                               <span class="d">│</span>
- <span class="d">│</span>                              <span class="d">│</span>                               <span class="d">│</span>
-</pre>
-</div>
-
-<div class="note">
-  <strong>NEXUS_SUBPROCESS=1</strong> &mdash; prevents the CC subprocess from firing nexus hooks
-  (which would register/unregister itself and corrupt the parent session). All three hooks
-  (<code>start</code>, <code>heartbeat</code>, <code>stop</code>) check this var and exit immediately.
-</div>
-
-<!-- ================================================================== -->
-<h2><span class="num">4</span> Metadata &amp; Proto Messages</h2>
-<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;">
-  What data is sent in each RPC, what fields each message carries.
-</p>
-
-<div class="cols">
-
-<div class="diagram" data-label="registration rpcs">
-<table class="meta-table">
-<tr><th>RPC</th><th>Request fields</th><th>Response</th></tr>
-<tr>
-  <td>RegisterSession</td>
-  <td>session_id, pid, cwd,<br>project?, branch?, command?</td>
-  <td>session_id, created (bool)</td>
-</tr>
-<tr>
-  <td>UnregisterSession</td>
-  <td>session_id</td>
-  <td>found (bool)</td>
-</tr>
-<tr>
-  <td>Heartbeat</td>
-  <td>session_id</td>
-  <td>found (bool)</td>
-</tr>
-<tr>
-  <td>StartSession</td>
-  <td>project, cwd, args[]</td>
-  <td>session_id, tmux_session,<br>session_type</td>
-</tr>
-<tr>
-  <td>StopSession</td>
-  <td>id</td>
-  <td>success, message?</td>
-</tr>
-</table>
-</div>
-
-<div class="diagram" data-label="query &amp; streaming rpcs">
-<table class="meta-table">
-<tr><th>RPC</th><th>Request</th><th>Response</th></tr>
-<tr>
-  <td>GetSessions</td>
-  <td>status?, project?,<br>session_type?</td>
-  <td>Session[], agent_name,<br>agent_host</td>
-</tr>
-<tr>
-  <td>GetSession</td>
-  <td>id</td>
-  <td>Session</td>
-</tr>
-<tr>
-  <td>GetHealth</td>
-  <td>(empty)</td>
-  <td>agent_name, agent_host,<br>uptime, session_count,<br>MachineHealth</td>
-</tr>
-<tr>
-  <td>StreamEvents</td>
-  <td>session_id?</td>
-  <td><em>stream</em> SessionEvent</td>
-</tr>
-<tr>
-  <td>SendCommand</td>
-  <td>session_id, prompt</td>
-  <td><em>stream</em> CommandOutput</td>
-</tr>
-</table>
-</div>
-
-</div>
-
-<div class="diagram" data-label="session data model">
-<pre>
-<span class="g b">Session</span> <span class="d">{</span>
-  <span class="c">id</span>              <span class="d">: String</span>        <span class="d">// UUID, primary key</span>
-  <span class="c">pid</span>             <span class="d">: u32</span>           <span class="d">// OS PID; <span class="w b">0 = managed</span>, &gt;0 = ad-hoc</span>
-  <span class="c">project</span>         <span class="d">: Option</span>        <span class="d">// "oo", "nx", etc.</span>
-  <span class="c">cwd</span>             <span class="d">: String</span>        <span class="d">// working directory</span>
-  <span class="c">branch</span>          <span class="d">: Option</span>        <span class="d">// git branch (not populated yet)</span>
-  <span class="c">started_at</span>      <span class="d">: Timestamp</span>     <span class="d">// creation time</span>
-  <span class="c">last_heartbeat</span>  <span class="d">: Timestamp</span>     <span class="d">// updated by Heartbeat RPC</span>
-  <span class="c">status</span>          <span class="d">: enum</span>          <span class="d">// <span class="g">Active</span> | <span class="w">Idle</span> | <span class="w">Stale</span> | <span class="r">Errored</span></span>
-  <span class="c">cc_session_id</span>   <span class="d">: Option</span>        <span class="d">// CC UUID for --resume</span>
-  <span class="c">tmux_session</span>    <span class="d">: Option</span>        <span class="d">// legacy, always None now</span>
-  <span class="c">spec</span>            <span class="d">: Option</span>        <span class="d">// openspec name (not populated)</span>
-  <span class="c">command</span>         <span class="d">: Option</span>        <span class="d">// initial command (not populated)</span>
-  <span class="c">agent</span>           <span class="d">: Option</span>        <span class="d">// agent name (not populated)</span>
-<span class="d">}</span>
-</pre>
-</div>
-
-<div class="diagram" data-label="command output stream types">
-<pre>
-<span class="g b">CommandOutput</span> <span class="d">.content oneof {</span>
-
-  <span class="c">TextChunk</span>    <span class="d">{ text, partial }</span>       <span class="d">// assistant response text</span>
-                                          <span class="d">// partial=true for streaming tokens</span>
-
-  <span class="w">ToolUseInfo</span>  <span class="d">{ tool_name,</span>             <span class="d">// "Bash", "Read", "Edit" etc.</span>
-               <span class="d">  input_preview }</span>        <span class="d">// first 200 chars of tool input</span>
-
-  <span class="w">ToolResult</span>   <span class="d">{ tool_name,</span>             <span class="d">// tool that ran</span>
-               <span class="d">  output_preview,</span>        <span class="d">// first 500 chars of output</span>
-               <span class="d">  success }</span>              <span class="d">// true/false</span>
-
-  <span class="r">CommandError</span> <span class="d">{ message,</span>               <span class="d">// error description</span>
-               <span class="d">  exit_code }</span>            <span class="d">// CC process exit code</span>
-
-  <span class="g">CommandDone</span>  <span class="d">{ duration_ms,</span>           <span class="d">// total command time</span>
-               <span class="d">  tool_calls }</span>           <span class="d">// num_turns from CC</span>
-<span class="d">}</span>
-</pre>
-</div>
-
-<div class="diagram" data-label="session event stream types">
-<pre>
-<span class="g b">SessionEvent</span> <span class="d">.payload oneof {</span>
-
-  <span class="gb">SessionStarted</span>     <span class="d">{ session: Session }</span>
-  <span class="c">HeartbeatReceived</span>  <span class="d">{ last_heartbeat: Timestamp }</span>
-  <span class="w">StatusChanged</span>      <span class="d">{ old_status, new_status }</span>
-  <span class="r">SessionStopped</span>     <span class="d">{ reason: String }</span>
-<span class="d">}</span>
-</pre>
-</div>
-
-<div class="note" style="margin-top:2rem;border-left-color:var(--secondary);">
-  <strong>No persistence</strong> &mdash; the registry is an in-memory
-  <code>RwLock&lt;HashMap&gt;</code>. Sessions are lost on agent restart. Ad-hoc sessions
-  self-heal via the next CC heartbeat hook. Managed sessions require a new
-  <code>StartSession</code> from the TUI.
-</div>
-
-<p style="color:var(--text-dim);font-size:0.72rem;font-family:var(--mono);margin-top:3rem;text-align:right;">
-  generated by nexus session &bull; March 2026
-</p>
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    look: 'classic',
+    layout: 'elk',
+    themeVariables: {
+      primaryColor: isDark ? '#2a2520' : '#faf7f2',
+      primaryBorderColor: isDark ? '#e8714a' : '#c0462b',
+      primaryTextColor: isDark ? '#e8e2d8' : '#1a1712',
+      secondaryColor: isDark ? '#1a2a25' : '#f0faf5',
+      secondaryBorderColor: isDark ? '#4ecda0' : '#1a6b5a',
+      secondaryTextColor: isDark ? '#e8e2d8' : '#1a1712',
+      tertiaryColor: isDark ? '#1a2030' : '#f0f4fa',
+      tertiaryBorderColor: isDark ? '#7ea3d4' : '#2a3a5c',
+      tertiaryTextColor: isDark ? '#e8e2d8' : '#1a1712',
+      lineColor: isDark ? '#5a554e' : '#8a837a',
+      fontSize: '12px',
+      fontFamily: "'IBM Plex Mono', monospace",
+    }
+  });
+</script>
+<script>
+  function updateZoomState(f) {
+    var t = f.querySelector('.mermaid');
+    f.classList.toggle('is-zoomed', parseFloat(t.dataset.zoom || '1') > 1);
+  }
+  function zoomDiagram(btn, factor) {
+    var f = btn.closest('.diagram-frame'), t = f.querySelector('.mermaid');
+    var n = Math.min(Math.max(parseFloat(t.dataset.zoom || '1') * factor, 0.3), 5);
+    t.dataset.zoom = n; t.style.transform = 'scale(' + n + ')'; updateZoomState(f);
+  }
+  function resetZoom(btn) {
+    var f = btn.closest('.diagram-frame'), t = f.querySelector('.mermaid');
+    t.dataset.zoom = '1'; t.style.transform = 'scale(1)'; updateZoomState(f);
+  }
+  document.querySelectorAll('.diagram-frame').forEach(function(f) {
+    f.addEventListener('wheel', function(e) {
+      if (!e.ctrlKey && !e.metaKey) return; e.preventDefault();
+      var t = f.querySelector('.mermaid');
+      var n = Math.min(Math.max(parseFloat(t.dataset.zoom || '1') * (e.deltaY < 0 ? 1.1 : 0.9), 0.3), 5);
+      t.dataset.zoom = n; t.style.transform = 'scale(' + n + ')'; updateZoomState(f);
+    }, { passive: false });
+    var sx, sy, sl, st;
+    f.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.zoom-controls')) return;
+      if (parseFloat(f.querySelector('.mermaid').dataset.zoom || '1') <= 1) return;
+      f.classList.add('is-panning'); sx = e.clientX; sy = e.clientY; sl = f.scrollLeft; st = f.scrollTop;
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!f.classList.contains('is-panning')) return;
+      f.scrollLeft = sl - (e.clientX - sx); f.scrollTop = st - (e.clientY - sy);
+    });
+    window.addEventListener('mouseup', function() { f.classList.remove('is-panning'); });
+  });
+</script>
 
 </body>
 </html>

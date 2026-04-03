@@ -3,8 +3,8 @@
 //! Contains `ReceiverState`, mode/type management, and message store functions.
 
 use super::{
-    Deduplicator, MessageBuffer, NotificationBatchBuffer, PlaybackMessage, PlaybackQueueHandle,
-    SuppressionChecker,
+    Deduplicator, MeetingQueue, MessageBuffer, NotificationBatchBuffer, PlaybackMessage,
+    PlaybackQueueHandle, SuppressionChecker,
 };
 use crate::config::NotificationsConfig;
 use crate::services::receiver::service::{
@@ -37,6 +37,7 @@ pub struct ReceiverState {
     pub(crate) operation_start_times: HashMap<String, Instant>,
     pub(crate) last_imessage_times: HashMap<String, Instant>,
     pub(crate) suppression_checker: SuppressionChecker,
+    pub(crate) meeting_queue: MeetingQueue,
     pub playback_queue: Option<PlaybackQueueHandle>,
     pub notification_history: Arc<Mutex<VecDeque<NotificationRecord>>>,
     pub message_store: Arc<Mutex<HashMap<String, StoredMessage>>>,
@@ -74,6 +75,7 @@ impl ReceiverState {
             operation_start_times: HashMap::new(),
             last_imessage_times: HashMap::new(),
             suppression_checker: SuppressionChecker::new(),
+            meeting_queue: MeetingQueue::new(),
             playback_queue: None,
             notification_history: Arc::new(Mutex::new(VecDeque::with_capacity(
                 NOTIFICATION_HISTORY_CAPACITY,
@@ -105,6 +107,7 @@ impl ReceiverState {
             operation_start_times: HashMap::new(),
             last_imessage_times: HashMap::new(),
             suppression_checker: SuppressionChecker::new(),
+            meeting_queue: MeetingQueue::new(),
             playback_queue: None,
             notification_history: Arc::new(Mutex::new(VecDeque::with_capacity(
                 NOTIFICATION_HISTORY_CAPACITY,

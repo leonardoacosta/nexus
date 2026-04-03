@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — System Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============ THEME — Blueprint aesthetic ============ */
+  :root {
+    --font-body: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+    --bg: #0b1120;
+    --surface: #111827;
+    --surface2: #1a2335;
+    --surface3: #222d42;
+    --border: rgba(99, 179, 237, 0.12);
+    --border-bright: rgba(99, 179, 237, 0.25);
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+
+    --blue: #3b82f6;
+    --blue-dim: rgba(59, 130, 246, 0.12);
+    --cyan: #22d3ee;
+    --cyan-dim: rgba(34, 211, 238, 0.10);
+    --green: #34d399;
+    --green-dim: rgba(52, 211, 153, 0.10);
+    --amber: #fbbf24;
+    --amber-dim: rgba(251, 191, 36, 0.10);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167, 139, 250, 0.10);
+    --rose: #fb7185;
+    --rose-dim: rgba(251, 113, 133, 0.10);
+    --orange: #fb923c;
+    --orange-dim: rgba(251, 146, 60, 0.10);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f0f4f8;
+      --surface: #ffffff;
+      --surface2: #e8edf4;
+      --surface3: #dce3ed;
+      --border: rgba(30, 58, 138, 0.10);
+      --border-bright: rgba(30, 58, 138, 0.20);
+      --text: #1e293b;
+      --text-dim: #64748b;
+
+      --blue: #2563eb;
+      --blue-dim: rgba(37, 99, 235, 0.08);
+      --cyan: #0891b2;
+      --cyan-dim: rgba(8, 145, 178, 0.08);
+      --green: #059669;
+      --green-dim: rgba(5, 150, 105, 0.08);
+      --amber: #d97706;
+      --amber-dim: rgba(217, 119, 6, 0.08);
+      --purple: #7c3aed;
+      --purple-dim: rgba(124, 58, 237, 0.08);
+      --rose: #e11d48;
+      --rose-dim: rgba(225, 29, 72, 0.08);
+      --orange: #ea580c;
+      --orange-dim: rgba(234, 88, 12, 0.08);
+    }
+  }
+
+  /* ============ RESET ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-wrap: break-word;
+    padding: 40px;
+  }
+
+  /* ============ NAV ============ */
+  .wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 170px 1fr;
+    gap: 0 40px;
+  }
+  .main { min-width: 0; }
+
+  .toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    padding: 14px 0;
+    grid-row: 1 / -1;
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+  }
+  .toc::-webkit-scrollbar { width: 3px; }
+  .toc::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 2px; }
+
+  .toc-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    padding: 0 0 10px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toc a {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    line-height: 1.4;
+    margin-bottom: 1px;
+  }
+  .toc a:hover { color: var(--text); background: var(--surface2); }
+  .toc a.active { color: var(--text); border-left-color: var(--cyan); }
+
+  @media (max-width: 1000px) {
+    .wrap { grid-template-columns: 1fr; padding-top: 0; }
+    body { padding: 16px; padding-top: 0; }
+    .toc {
+      position: sticky; top: 0; z-index: 200;
+      max-height: none;
+      display: flex; gap: 4px; align-items: center;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 0;
+      margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+      grid-row: auto;
+    }
+    .toc::-webkit-scrollbar { display: none; }
+    .toc-title { display: none; }
+    .toc a {
+      white-space: nowrap; flex-shrink: 0;
+      border-left: none; border-bottom: 2px solid transparent;
+      border-radius: 4px 4px 0 0; padding: 6px 10px; font-size: 10px;
+    }
+    .toc a.active { border-left: none; border-bottom-color: var(--cyan); background: var(--surface); }
+    .main { padding-top: 20px; }
+    .sec-head { scroll-margin-top: 52px; }
+  }
+
+  /* ============ ANIMATION ============ */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate {
+    animation: fadeUp 0.4s ease-out both;
+    animation-delay: calc(var(--i, 0) * 0.06s);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+    }
+    .mermaid-wrap .mermaid { transition: none; }
+  }
+
+  /* ============ HEADINGS ============ */
+  h1 {
+    font-size: 42px; font-weight: 700; letter-spacing: -1.5px;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-family: var(--font-mono); font-size: 12px;
+    margin-bottom: 32px;
+  }
+  .sec-head {
+    font-size: 20px; font-weight: 600; letter-spacing: -0.5px;
+    margin: 40px 0 16px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sec-head .tag {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .tag-blue { background: var(--blue-dim); color: var(--blue); }
+  .tag-green { background: var(--green-dim); color: var(--green); }
+  .tag-amber { background: var(--amber-dim); color: var(--amber); }
+  .tag-purple { background: var(--purple-dim); color: var(--purple); }
+  .tag-rose { background: var(--rose-dim); color: var(--rose); }
+  .tag-cyan { background: var(--cyan-dim); color: var(--cyan); }
+  .tag-orange { background: var(--orange-dim); color: var(--orange); }
+
+  .description {
+    font-size: 14px; line-height: 1.7; color: var(--text-dim);
+    margin-bottom: 24px; max-width: 700px;
+  }
+  .description code {
+    font-family: var(--font-mono); font-size: 12px;
+    background: var(--cyan-dim); color: var(--cyan);
+    padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* ============ MERMAID ============ */
+  .mermaid-wrap {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    overflow: auto;
+    margin-bottom: 24px;
+  }
+  .mermaid-wrap .mermaid {
+    display: flex; justify-content: center;
+    transition: transform 0.2s ease;
+    transform-origin: top center;
+  }
+
+  .zoom-controls {
+    position: absolute; top: 8px; right: 8px;
+    display: flex; gap: 2px; z-index: 10;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px;
+  }
+  .zoom-controls button {
+    width: 28px; height: 28px; border: none;
+    background: transparent; color: var(--text-dim);
+    font-family: var(--font-mono); font-size: 14px;
+    cursor: pointer; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .zoom-controls button:hover { background: var(--border); color: var(--text); }
+
+  .mermaid-wrap { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .mermaid-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .mermaid-wrap::-webkit-scrollbar-track { background: transparent; }
+  .mermaid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .mermaid-wrap.is-zoomed { cursor: grab; }
+  .mermaid-wrap.is-panning { cursor: grabbing; user-select: none; }
+
+  .mermaid .nodeLabel { font-family: var(--font-body) !important; font-size: 14px !important; }
+  .mermaid .edgeLabel { font-family: var(--font-mono) !important; font-size: 11px !important; }
+  .mermaid .node rect, .mermaid .node circle, .mermaid .node polygon { stroke-width: 1.5px !important; }
+  .mermaid .edge-pattern-solid { stroke-width: 1.5px !important; }
+
+  /* ============ LEGEND ============ */
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* ============ INFO TABLE ============ */
+  .info-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; margin-bottom: 24px;
+  }
+  .info-table th {
+    text-align: left; font-family: var(--font-mono);
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); padding: 8px 12px;
+    border-bottom: 2px solid var(--border-bright);
+    background: var(--surface);
+    position: sticky; top: 0;
+  }
+  .info-table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .info-table tr:hover td { background: var(--surface2); }
+  .info-table code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--cyan-dim); color: var(--cyan);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .info-table .port {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  }
+
+  /* ============ STAT CARDS ============ */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 28px; font-weight: 700; letter-spacing: -1px;
+  }
+  .stat-card .label {
+    font-family: var(--font-mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); margin-top: 4px;
+  }
+
+  /* ============ CALLOUT ============ */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px; font-size: 13px;
+    line-height: 1.6; color: var(--text-dim);
+    margin-bottom: 24px;
+  }
+  .callout strong { color: var(--text); }
+  .callout code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--cyan-dim); color: var(--cyan);
+    padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width: 768px) {
+    h1 { font-size: 26px; }
+    .mermaid-wrap { padding: 16px 12px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <nav class="toc" id="toc">
+    <div class="toc-title">Architecture</div>
+    <a href="#s0">Overview</a>
+    <a href="#s1">Topology</a>
+    <a href="#s2">Crate Map</a>
+    <a href="#s3">Agent Services</a>
+    <a href="#s4">Notification Pipeline</a>
+    <a href="#s5">Socket Protocol</a>
+    <a href="#s6">Ports &amp; Config</a>
+    <a href="#s7">External Infra</a>
+    <a href="#s8">Scope Analysis</a>
+  </nav>
+
+  <div class="main">
+
+    <h1 class="animate" style="--i:0">Nexus</h1>
+    <p class="subtitle animate" style="--i:1">system architecture &mdash; 3 crates, 14 services, 45.8K lines of rust</p>
+
+    <p class="description animate" style="--i:2">
+      Per-machine daemon + terminal UI for managing Claude Code sessions across a Tailscale mesh.
+      The agent provides session lifecycle, health monitoring, and a full notification engine.
+      The TUI aggregates sessions from all agents via gRPC.
+    </p>
+
+    <div class="stats animate" style="--i:3">
+      <div class="stat-card"><div class="value" style="color:var(--cyan)">3</div><div class="label">Crates</div></div>
+      <div class="stat-card"><div class="value" style="color:var(--blue)">14</div><div class="label">Services</div></div>
+      <div class="stat-card"><div class="value" style="color:var(--green)">18</div><div class="label">gRPC RPCs</div></div>
+      <div class="stat-card"><div class="value" style="color:var(--amber)">45.8K</div><div class="label">Lines</div></div>
+      <div class="stat-card"><div class="value" style="color:var(--purple)">625</div><div class="label">Tests</div></div>
+    </div>
+
+    <!-- ====== S0: Overview ====== -->
+    <div id="s0" class="sec-head animate" style="--i:4"><span class="tag tag-cyan">Overview</span> High-Level Topology</div>
+
+    <div class="mermaid-wrap animate" style="--i:5">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)" title="Zoom in">+</button>
+        <button onclick="zoomDiagram(this, 0.8)" title="Zoom out">&minus;</button>
+        <button onclick="resetZoom(this)" title="Reset">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph TB
+          subgraph CC["Claude Code Sessions"]
+            CC1["CC Session 1<br/>(project: oo)"]
+            CC2["CC Session 2<br/>(project: tc)"]
+            CC3["CC Session N"]
+          end
+
+          subgraph Agent1["nexus-agent (Primary)"]
+            direction TB
+            SOCK1["Unix Socket<br/>/tmp/nexus-agent.sock"]
+            GRPC1["gRPC :7400"]
+            HTTP1["HTTP API :7402"]
+            RCV["ReceiverService :9999<br/>TTS + Notifications"]
+            NE["NotificationEngine"]
+            EF["EventForwarder"]
+            DB1["SQLite<br/>nexus.db"]
+          end
+
+          subgraph Agent2["nexus-agent (Remote)"]
+            direction TB
+            SOCK2["Unix Socket"]
+            GRPC2["gRPC :7400"]
+            HTTP2["HTTP API :7402"]
+            DB2["SQLite"]
+          end
+
+          TUI["nexus-tui<br/>Terminal UI"]
+
+          subgraph External["External Services"]
+            EL["ElevenLabs API"]
+            APNS["Apple APNs"]
+            ANTH["Anthropic Usage API"]
+            TS["Tailscale Mesh"]
+          end
+
+          CC1 & CC2 & CC3 -->|"JSON events"| SOCK1
+          SOCK1 --> NE
+          NE --> RCV
+          RCV -->|"HTTPS"| EL
+          RCV -->|"HTTP/2"| APNS
+          RCV -->|"macOS say"| SYS["System TTS"]
+          RCV -->|"terminal-notifier"| BAN["Desktop Banner"]
+
+          Agent2 -->|"HTTP relay :9999"| RCV
+
+          EF -->|"gRPC StreamEvents"| GRPC2
+          TUI -->|"gRPC :7400"| GRPC1
+          TUI -->|"gRPC :7400"| GRPC2
+          TUI -->|"HTTP :7402"| HTTP1
+
+          Agent1 -->|"HTTPS"| ANTH
+          Agent2 -->|"HTTPS"| ANTH
+
+          GRPC1 <-->|"WireGuard"| TS
+          GRPC2 <-->|"WireGuard"| TS
+
+          classDef crate fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#e2e8f0
+          classDef service fill:#1a2e1a,stroke:#34d399,stroke-width:1.5px,color:#e2e8f0
+          classDef external fill:#2e1a2e,stroke:#a78bfa,stroke-width:1.5px,color:#e2e8f0
+          classDef socket fill:#2e2a1a,stroke:#fbbf24,stroke-width:1.5px,color:#e2e8f0
+
+          class CC1,CC2,CC3 socket
+          class TUI crate
+          class GRPC1,GRPC2,HTTP1,HTTP2,SOCK1,SOCK2 service
+          class RCV,NE,EF,DB1,DB2 service
+          class EL,APNS,ANTH,TS,SYS,BAN external
+      </pre>
+    </div>
+
+    <div class="legend animate" style="--i:6">
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--blue)"></div> Crate / Binary</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--green)"></div> Internal Service</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--purple)"></div> External</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--amber)"></div> CC Session</div>
+    </div>
+
+    <!-- ====== S1: Topology ====== -->
+    <div id="s1" class="sec-head animate" style="--i:7"><span class="tag tag-blue">Topology</span> Multi-Machine Communication</div>
+
+    <div class="mermaid-wrap animate" style="--i:8">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)">+</button>
+        <button onclick="zoomDiagram(this, 0.8)">&minus;</button>
+        <button onclick="resetZoom(this)">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph LR
+          subgraph MacBook["MacBook (Primary)"]
+            A1["nexus-agent<br/>role: primary"]
+            T1["nexus-tui"]
+            R1["ReceiverService :9999"]
+            NE1["NotificationEngine"]
+            EF1["EventForwarder"]
+          end
+
+          subgraph DevServer["Dev Server (Remote)"]
+            A2["nexus-agent<br/>role: agent"]
+          end
+
+          subgraph Cloud["Cloud Server (Remote)"]
+            A3["nexus-agent<br/>role: agent"]
+          end
+
+          T1 -->|"gRPC queries"| A1
+          T1 -->|"gRPC queries"| A2
+          T1 -->|"gRPC queries"| A3
+
+          EF1 -->|"gRPC StreamEvents"| A2
+          EF1 -->|"gRPC StreamEvents"| A3
+
+          A2 -->|"HTTP relay"| R1
+          A3 -->|"HTTP relay"| R1
+
+          R1 --> NE1
+
+          classDef primary fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#e2e8f0
+          classDef remote fill:#1a2e2e,stroke:#22d3ee,stroke-width:1.5px,color:#e2e8f0
+          classDef tui fill:#2e1a2e,stroke:#a78bfa,stroke-width:1.5px,color:#e2e8f0
+
+          class A1,R1,NE1,EF1 primary
+          class A2,A3 remote
+          class T1 tui
+      </pre>
+    </div>
+
+    <div class="callout animate" style="--i:9">
+      <strong>Star topology for notifications.</strong> Remote agents relay <code>notification</code> events to the primary's ReceiverService via HTTP POST to <code>:9999/speak</code>. The TUI queries all agents directly — peer-to-peer for data, star for notifications.
+    </div>
+
+    <!-- ====== S2: Crate Map ====== -->
+    <div id="s2" class="sec-head animate" style="--i:10"><span class="tag tag-green">Crates</span> Dependency Graph</div>
+
+    <div class="mermaid-wrap animate" style="--i:11">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)">+</button>
+        <button onclick="zoomDiagram(this, 0.8)">&minus;</button>
+        <button onclick="resetZoom(this)">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph BT
+          CORE["nexus-core<br/>Shared types, proto, config<br/>~8.5K lines"]
+          AGENT["nexus-agent<br/>Per-machine daemon<br/>~29K lines"]
+          TUI["nexus-tui<br/>Terminal UI client<br/>~8.3K lines"]
+
+          AGENT -->|"depends on"| CORE
+          TUI -->|"depends on"| CORE
+          AGENT x--x TUI
+
+          classDef core fill:#1a2e1a,stroke:#34d399,stroke-width:2px,color:#e2e8f0
+          classDef agent fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#e2e8f0
+          classDef tui fill:#2e1a2e,stroke:#a78bfa,stroke-width:2px,color:#e2e8f0
+
+          class CORE core
+          class AGENT agent
+          class TUI tui
+      </pre>
+    </div>
+
+    <table class="info-table animate" style="--i:12">
+      <thead>
+        <tr><th>Crate</th><th>Binary</th><th>Lines</th><th>Responsibility</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>nexus-core</code></td>
+          <td>&mdash;</td>
+          <td>~8,500</td>
+          <td>Shared types, protobuf definitions, config parsing, project registry, SQLite schema, path utilities</td>
+        </tr>
+        <tr>
+          <td><code>nexus-agent</code></td>
+          <td><code>nexus-agent</code></td>
+          <td>~29,000</td>
+          <td>Per-machine daemon: gRPC server, HTTP API, session registry, notification engine, all services</td>
+        </tr>
+        <tr>
+          <td><code>nexus-tui</code></td>
+          <td><code>nexus</code></td>
+          <td>~8,300</td>
+          <td>Terminal UI: ratatui-based dashboard, session detail, attach (SSH + tmux), project views</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ====== S3: Agent Services ====== -->
+    <div id="s3" class="sec-head animate" style="--i:13"><span class="tag tag-amber">Services</span> Agent Internal Architecture</div>
+
+    <div class="mermaid-wrap animate" style="--i:14">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)">+</button>
+        <button onclick="zoomDiagram(this, 0.8)">&minus;</button>
+        <button onclick="resetZoom(this)">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph TD
+          MAIN["main.rs<br/>Service Orchestrator"]
+
+          subgraph Core["Core Services"]
+            GRPC["gRPC Server :7400<br/>18 RPCs"]
+            HTTP["HTTP API :7402<br/>REST endpoints"]
+            SOCKET["Unix Socket Listener<br/>/tmp/nexus-agent.sock"]
+            HEALTH["Health Collector<br/>5s sysinfo refresh"]
+            STALE["Stale Session Detector<br/>30s sweep"]
+            CRON["Cron Service<br/>Scheduled tasks"]
+          end
+
+          subgraph Notification["Notification Engine (Primary)"]
+            NE["NotificationEngine<br/>Event → Rules → Delivery"]
+            EF["EventForwarder<br/>gRPC peer streams"]
+            RCV["ReceiverService :9999<br/>20 sub-modules"]
+          end
+
+          subgraph Watchers["File/State Watchers"]
+            GIT["GitWatch<br/>60s poll per project"]
+            SPEC["SpecWatcher<br/>openspec directory watch"]
+            CRED_W["CredentialWatcher<br/>2s file poll"]
+          end
+
+          subgraph Platform["Platform Services"]
+            LAUNCH["LaunchdHealth<br/>macOS 60s"]
+            SYSD["SystemdHealth<br/>Linux 30s"]
+            MACOS["MacOSIntegration<br/>macOS 30s"]
+            SMON["ServerMonitor<br/>Linux 30s"]
+          end
+
+          subgraph Data["Data Services"]
+            POOL["CredentialPool<br/>OAuth rotation"]
+            SESS["SessionPool<br/>Warm pre-spawned sessions"]
+            PROJ["ProjectStatusCache<br/>30s TTL"]
+            CMD["CommandRegistry<br/>~/.claude/commands/"]
+            TELE["SyncTelemetry<br/>2min flush"]
+          end
+
+          MAIN --> Core
+          MAIN --> Notification
+          MAIN --> Watchers
+          MAIN --> Platform
+          MAIN --> Data
+
+          SOCKET -->|"events"| NE
+          NE --> RCV
+          EF -->|"peer events"| NE
+
+          classDef core fill:#1e3a5f,stroke:#3b82f6,stroke-width:1.5px,color:#e2e8f0
+          classDef notif fill:#2e1a1a,stroke:#fb7185,stroke-width:1.5px,color:#e2e8f0
+          classDef watch fill:#2e2a1a,stroke:#fbbf24,stroke-width:1.5px,color:#e2e8f0
+          classDef platform fill:#1a2e2e,stroke:#22d3ee,stroke-width:1.5px,color:#e2e8f0
+          classDef data fill:#1a2e1a,stroke:#34d399,stroke-width:1.5px,color:#e2e8f0
+
+          class GRPC,HTTP,SOCKET,HEALTH,STALE,CRON core
+          class NE,EF,RCV notif
+          class GIT,SPEC,CRED_W watch
+          class LAUNCH,SYSD,MACOS,SMON platform
+          class POOL,SESS,PROJ,CMD,TELE data
+          class MAIN core
+      </pre>
+    </div>
+
+    <table class="info-table animate" style="--i:15">
+      <thead>
+        <tr><th>Service</th><th>Category</th><th>Interval</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ReceiverService</code></td><td style="color:var(--rose)">Notification</td><td>HTTP</td><td>TTS orchestration (ElevenLabs → system fallback), APNs, banners, meeting queue, dedup, batching</td></tr>
+        <tr><td><code>NotificationEngine</code></td><td style="color:var(--rose)">Notification</td><td>Event-driven</td><td>Applies per-project rules to lifecycle events, routes to ReceiverService</td></tr>
+        <tr><td><code>EventForwarder</code></td><td style="color:var(--rose)">Notification</td><td>Streaming</td><td>Subscribes to peer gRPC streams, converts proto events to lifecycle events</td></tr>
+        <tr><td><code>CredentialPool</code></td><td style="color:var(--green)">Data</td><td>5 min</td><td>Manages OAuth credential rotation, polls Anthropic usage API</td></tr>
+        <tr><td><code>CredentialWatcher</code></td><td style="color:var(--amber)">Watcher</td><td>2 sec</td><td>Watches credential files for changes, triggers HTTP client refresh</td></tr>
+        <tr><td><code>SessionPool</code></td><td style="color:var(--green)">Data</td><td>On-demand</td><td>Warm pre-spawned CC sessions per project, idle eviction</td></tr>
+        <tr><td><code>GitWatch</code></td><td style="color:var(--amber)">Watcher</td><td>60 sec</td><td>Polls git status for registered projects, stores in DB</td></tr>
+        <tr><td><code>SpecWatcher</code></td><td style="color:var(--amber)">Watcher</td><td>FS notify</td><td>Watches openspec directories, stores snapshots in DB</td></tr>
+        <tr><td><code>SyncTelemetry</code></td><td style="color:var(--green)">Data</td><td>2 min</td><td>Flushes pending telemetry from JSONL queue</td></tr>
+        <tr><td><code>ProjectStatusCache</code></td><td style="color:var(--green)">Data</td><td>30 sec TTL</td><td>Caches beads + git + spec status per project</td></tr>
+        <tr><td><code>CommandRegistry</code></td><td style="color:var(--green)">Data</td><td>Startup</td><td>Scans <code>~/.claude/commands/</code> for user-defined commands</td></tr>
+        <tr><td><code>LaunchdHealth</code></td><td style="color:var(--cyan)">Platform</td><td>60 sec</td><td>macOS launchd service health monitoring</td></tr>
+        <tr><td><code>SystemdHealth</code></td><td style="color:var(--cyan)">Platform</td><td>30 sec</td><td>Linux systemd service health monitoring</td></tr>
+        <tr><td><code>MacOSIntegration</code></td><td style="color:var(--cyan)">Platform</td><td>30 sec</td><td>macOS-specific integrations</td></tr>
+        <tr><td><code>ServerMonitor</code></td><td style="color:var(--cyan)">Platform</td><td>30 sec</td><td>Linux server health metrics</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ====== S4: Notification Pipeline ====== -->
+    <div id="s4" class="sec-head animate" style="--i:16"><span class="tag tag-rose">Pipeline</span> Notification Flow</div>
+
+    <div class="mermaid-wrap animate" style="--i:17">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)">+</button>
+        <button onclick="zoomDiagram(this, 0.8)">&minus;</button>
+        <button onclick="resetZoom(this)">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph TD
+          IN["Incoming Notification<br/>(socket event or HTTP relay)"]
+          DEDUP{"Duplicate?"}
+          MODE{"Mode Check<br/>Full / NoDuck / System / Silent"}
+          MEET{"Meeting<br/>Active?"}
+          DND{"DND<br/>Active?"}
+
+          QUEUE["Meeting Queue<br/>(per-project hold)"]
+          POLL["15s Poll Loop"]
+          ENDED{"Meeting<br/>Ended?"}
+          SUMMARY["Per-Project Summary<br/>TTS + Banner"]
+
+          CHAN["Channel Router"]
+          TTS["TTS Channel"]
+          BANNER["Banner Channel"]
+          APNS_CH["APNs Channel"]
+
+          BUFFER["Playback Queue<br/>(serial, batched)"]
+          DUCK["Media Duck"]
+          E11["ElevenLabs API"]
+          SYS["System TTS<br/>(macOS say)"]
+          PLAY["afplay"]
+
+          NOTIF["Nexus-Notifier.app<br/>(custom icon)"]
+          WATCH["Apple Watch<br/>APNs push"]
+
+          IN --> DEDUP
+          DEDUP -->|"Yes"| DROP["Drop"]
+          DEDUP -->|"No"| MODE
+          MODE -->|"Silent"| APNS_ONLY["APNs only"]
+          MODE -->|"Full/NoDuck/System"| MEET
+
+          MEET -->|"Yes"| QUEUE
+          QUEUE -.-> POLL
+          POLL --> ENDED
+          ENDED -->|"Yes"| SUMMARY
+          ENDED -->|"No"| POLL
+          SUMMARY --> CHAN
+
+          MEET -->|"No"| DND
+          DND -->|"Yes"| APNS_ONLY
+          DND -->|"No"| CHAN
+
+          CHAN --> TTS
+          CHAN --> BANNER
+          CHAN --> APNS_CH
+
+          TTS --> BUFFER
+          BUFFER --> DUCK
+          DUCK --> E11
+          E11 -->|"fallback"| SYS
+          E11 --> PLAY
+          SYS --> PLAY
+
+          BANNER --> NOTIF
+          APNS_CH --> WATCH
+
+          classDef decision fill:#2e2a1a,stroke:#fbbf24,stroke-width:1.5px,color:#e2e8f0
+          classDef channel fill:#1e3a5f,stroke:#3b82f6,stroke-width:1.5px,color:#e2e8f0
+          classDef external fill:#2e1a2e,stroke:#a78bfa,stroke-width:1.5px,color:#e2e8f0
+          classDef queue fill:#2e1a1a,stroke:#fb7185,stroke-width:1.5px,color:#e2e8f0
+          classDef drop fill:#1a1a1a,stroke:#64748b,stroke-width:1px,color:#64748b
+
+          class DEDUP,MODE,MEET,DND,ENDED decision
+          class TTS,BANNER,APNS_CH,CHAN channel
+          class E11,SYS,PLAY,NOTIF,WATCH external
+          class QUEUE,POLL,SUMMARY queue
+          class DROP,APNS_ONLY drop
+      </pre>
+    </div>
+
+    <div class="callout animate" style="--i:18">
+      <strong>Meeting queue (new).</strong> When a meeting is detected (mic active, Teams/Zoom window, or FaceTime), notifications are held per-project. A 15-second poll loop checks when the meeting ends, then delivers a summary: <code>"3 updates for OO while you were away. First: Build passed. Latest: Deploy complete."</code>
+    </div>
+
+    <!-- ====== S5: Socket Protocol ====== -->
+    <div id="s5" class="sec-head animate" style="--i:19"><span class="tag tag-purple">Protocol</span> Unix Socket Events</div>
+
+    <p class="description animate" style="--i:20">
+      Claude Code hooks communicate with the agent via newline-delimited JSON on <code>/tmp/nexus-agent.sock</code>.
+      Two message types: fire-and-forget events (tagged by <code>"event"</code>) and request-response commands (tagged by <code>"command"</code>).
+    </p>
+
+    <table class="info-table animate" style="--i:21">
+      <thead>
+        <tr><th>Event</th><th>Direction</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>session_start</code></td><td>CC → Agent</td><td>Register session (id, project, cwd, model, pid, branch)</td></tr>
+        <tr><td><code>session_stop</code></td><td>CC → Agent</td><td>Unregister session</td></tr>
+        <tr><td><code>session_heartbeat</code></td><td>CC → Agent</td><td>Keep session marked active</td></tr>
+        <tr><td><code>notification</code></td><td>CC → Agent</td><td>TTS/banner/APNs delivery (with message, type, channels)</td></tr>
+        <tr><td><code>answer</code></td><td>CC → Agent</td><td>Dispatch answer to CC session via <code>tmux send-keys</code></td></tr>
+        <tr><td><code>agent_spawn</code></td><td>CC → Agent</td><td>Sub-agent started within a session</td></tr>
+        <tr><td><code>agent_complete</code></td><td>CC → Agent</td><td>Sub-agent finished</td></tr>
+        <tr><td><code>telemetry</code></td><td>CC → Agent</td><td>Cost, rate-limit, token counts, tool failures</td></tr>
+        <tr><td><code>session_summary</code></td><td>CC → Agent</td><td>End-of-session aggregate stats</td></tr>
+        <tr><td><code>deploy_status</code></td><td>CC → Agent</td><td>Deployment lifecycle events</td></tr>
+      </tbody>
+    </table>
+
+    <table class="info-table animate" style="--i:22">
+      <thead>
+        <tr><th>Command</th><th>Direction</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>mode_query</code></td><td>Req → Resp</td><td>Query current notification mode</td></tr>
+        <tr><td><code>mode_set</code></td><td>Req → Resp</td><td>Set notification mode (full/noduck/system/silent)</td></tr>
+        <tr><td><code>mode_cycle</code></td><td>Req → Resp</td><td>Cycle to next notification mode</td></tr>
+        <tr><td><code>history</code></td><td>Req → Resp</td><td>Recent notification history</td></tr>
+        <tr><td><code>type_set</code> / <code>type_clear</code></td><td>Req → Resp</td><td>Per-type notification mode overrides</td></tr>
+        <tr><td><code>notification_rules</code></td><td>Req → Resp</td><td>Query per-project notification rules</td></tr>
+        <tr><td><code>notification_set</code></td><td>Req → Resp</td><td>Mutate per-project rules, persist to TOML</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ====== S6: Ports & Config ====== -->
+    <div id="s6" class="sec-head animate" style="--i:23"><span class="tag tag-orange">Infra</span> Ports &amp; Configuration</div>
+
+    <table class="info-table animate" style="--i:24">
+      <thead>
+        <tr><th>Port</th><th>Protocol</th><th>Service</th><th>Consumer</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="port" style="color:var(--cyan)">7400</td><td>gRPC (tonic)</td><td>NexusAgent service</td><td>TUI, peer agents</td></tr>
+        <tr><td class="port" style="color:var(--blue)">7402</td><td>HTTP (axum)</td><td>REST API</td><td>TUI, scripts</td></tr>
+        <tr><td class="port" style="color:var(--rose)">9999</td><td>HTTP (axum)</td><td>ReceiverService</td><td>Remote agents (relay), internal</td></tr>
+        <tr><td class="port" style="color:var(--amber)">&mdash;</td><td>Unix socket</td><td>/tmp/nexus-agent.sock</td><td>Claude Code hooks</td></tr>
+      </tbody>
+    </table>
+
+    <table class="info-table animate" style="--i:25">
+      <thead>
+        <tr><th>Config Path</th><th>Format</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>~/.config/nexus/agents.toml</code></td><td>TOML</td><td>Agent fleet: hosts, ports, roles, pool config</td></tr>
+        <tr><td><code>~/.config/nexus/notifications.toml</code></td><td>TOML</td><td>Per-project notification rules</td></tr>
+        <tr><td><code>~/.config/nexus/nexus.db</code></td><td>SQLite</td><td>Specs, health, sessions, failures, cron state</td></tr>
+        <tr><td><code>~/.config/nexus/credentials/</code></td><td>JSON dir</td><td>OAuth credential pool for rotation</td></tr>
+        <tr><td><code>~/.claude/scripts/config/projects.json</code></td><td>JSON</td><td>Project registry (code, name, path)</td></tr>
+        <tr><td><code>~/.claude/scripts/notifications/config/notifications.json</code></td><td>JSON</td><td>Extended notification config (types, suppression, cost)</td></tr>
+        <tr><td><code>~/.env</code></td><td>dotenv</td><td>Secrets: ELEVENLABS_API_KEY, APNS keys</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ====== S7: External ====== -->
+    <div id="s7" class="sec-head animate" style="--i:26"><span class="tag tag-purple">External</span> Infrastructure Dependencies</div>
+
+    <table class="info-table animate" style="--i:27">
+      <thead>
+        <tr><th>System</th><th>Protocol</th><th>Used By</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ElevenLabs API</td><td>HTTPS</td><td>ReceiverService</td><td>TTS voice generation (primary only)</td></tr>
+        <tr><td>Apple APNs</td><td>HTTP/2</td><td>ReceiverService</td><td>Push notifications to Apple Watch</td></tr>
+        <tr><td>Anthropic Usage API</td><td>HTTPS</td><td>CredentialPool</td><td>Rate limit utilization for credential rotation</td></tr>
+        <tr><td>Tailscale</td><td>WireGuard</td><td>All agents</td><td>Mesh networking between machines</td></tr>
+        <tr><td>macOS <code>say</code></td><td>Local CLI</td><td>ReceiverService</td><td>Fallback system TTS</td></tr>
+        <tr><td>Nexus-Notifier.app</td><td>Local CLI</td><td>ReceiverService</td><td>Desktop banners with NX icon</td></tr>
+        <tr><td>tmux</td><td>Local CLI</td><td>Socket handler</td><td>Dispatching answers to CC sessions</td></tr>
+        <tr><td>SQLite</td><td>Local file</td><td>nexus-core</td><td>Persistent storage for all state</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ====== S8: Scope ====== -->
+    <div id="s8" class="sec-head animate" style="--i:28"><span class="tag tag-rose">Analysis</span> Scope Breakdown</div>
+
+    <div class="callout animate" style="--i:29">
+      <strong>Identity question.</strong> ~82% of codebase is notification infrastructure, ~18% is the original TUI/session harness. Nexus has evolved from "TUI SSH harness" into "developer operations daemon." The notification engine alone (20 files, 8.1K lines) has more code than the TUI.
+    </div>
+
+    <div class="mermaid-wrap animate" style="--i:30">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)">+</button>
+        <button onclick="zoomDiagram(this, 0.8)">&minus;</button>
+        <button onclick="resetZoom(this)">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        pie title Lines of Code by Domain
+          "TTS / Notifications" : 8100
+          "Credential Management" : 2000
+          "Session Management" : 3000
+          "TUI (ratatui)" : 8300
+          "Core Types / Config" : 8500
+          "Platform Services" : 3000
+          "Watchers / Telemetry" : 2500
+          "HTTP / gRPC / Socket" : 3500
+          "Other Agent Code" : 6900
+      </pre>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /wrap -->
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    look: 'classic',
+    layout: 'elk',
+    themeVariables: {
+      primaryColor: isDark ? '#1e3a5f' : '#dbeafe',
+      primaryBorderColor: isDark ? '#3b82f6' : '#2563eb',
+      primaryTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      secondaryColor: isDark ? '#1a2e1a' : '#d1fae5',
+      secondaryBorderColor: isDark ? '#34d399' : '#059669',
+      secondaryTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      tertiaryColor: isDark ? '#2e2a1a' : '#fef3c7',
+      tertiaryBorderColor: isDark ? '#fbbf24' : '#d97706',
+      tertiaryTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      lineColor: isDark ? '#64748b' : '#94a3b8',
+      fontSize: '14px',
+      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+      noteBkgColor: isDark ? '#1a2335' : '#f0f4f8',
+      noteTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      noteBorderColor: isDark ? '#3b82f6' : '#2563eb',
+      pie1: '#3b82f6',
+      pie2: '#fb7185',
+      pie3: '#34d399',
+      pie4: '#a78bfa',
+      pie5: '#22d3ee',
+      pie6: '#fbbf24',
+      pie7: '#fb923c',
+      pie8: '#64748b',
+      pie9: '#94a3b8',
+      pieTitleTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      pieSectionTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      pieLegendTextColor: isDark ? '#e2e8f0' : '#1e293b',
+      pieOuterStrokeColor: isDark ? '#1a2335' : '#e2e8f0',
+      pieStrokeWidth: '1px',
+    }
+  });
+</script>
+<script>
+  function updateZoomState(wrap) {
+    var target = wrap.querySelector('.mermaid');
+    var zoom = parseFloat(target.dataset.zoom || '1');
+    wrap.classList.toggle('is-zoomed', zoom > 1);
+  }
+  function zoomDiagram(btn, factor) {
+    var wrap = btn.closest('.mermaid-wrap');
+    var target = wrap.querySelector('.mermaid');
+    var current = parseFloat(target.dataset.zoom || '1');
+    var next = Math.min(Math.max(current * factor, 0.3), 5);
+    target.dataset.zoom = next;
+    target.style.transform = 'scale(' + next + ')';
+    updateZoomState(wrap);
+  }
+  function resetZoom(btn) {
+    var wrap = btn.closest('.mermaid-wrap');
+    var target = wrap.querySelector('.mermaid');
+    target.dataset.zoom = '1';
+    target.style.transform = 'scale(1)';
+    updateZoomState(wrap);
+  }
+
+  document.querySelectorAll('.mermaid-wrap').forEach(function(wrap) {
+    wrap.addEventListener('wheel', function(e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      var target = wrap.querySelector('.mermaid');
+      var current = parseFloat(target.dataset.zoom || '1');
+      var factor = e.deltaY < 0 ? 1.1 : 0.9;
+      var next = Math.min(Math.max(current * factor, 0.3), 5);
+      target.dataset.zoom = next;
+      target.style.transform = 'scale(' + next + ')';
+      updateZoomState(wrap);
+    }, { passive: false });
+
+    var startX, startY, scrollL, scrollT;
+    wrap.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.zoom-controls')) return;
+      var target = wrap.querySelector('.mermaid');
+      if (parseFloat(target.dataset.zoom || '1') <= 1) return;
+      wrap.classList.add('is-panning');
+      startX = e.clientX; startY = e.clientY;
+      scrollL = wrap.scrollLeft; scrollT = wrap.scrollTop;
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!wrap.classList.contains('is-panning')) return;
+      wrap.scrollLeft = scrollL - (e.clientX - startX);
+      wrap.scrollTop = scrollT - (e.clientY - startY);
+    });
+    window.addEventListener('mouseup', function() {
+      wrap.classList.remove('is-panning');
+    });
+  });
+
+  // Scroll spy
+  (function() {
+    const toc = document.getElementById('toc');
+    const links = toc.querySelectorAll('a');
+    const sections = [];
+    links.forEach(link => {
+      const id = link.getAttribute('href').slice(1);
+      const el = document.getElementById(id);
+      if (el) sections.push({ id, el, link });
+    });
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          links.forEach(l => l.classList.remove('active'));
+          const match = sections.find(s => s.el === entry.target);
+          if (match) {
+            match.link.classList.add('active');
+            if (window.innerWidth <= 1000) {
+              match.link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+          }
+        }
+      });
+    }, { rootMargin: '-10% 0px -80% 0px' });
+    sections.forEach(s => observer.observe(s.el));
+    links.forEach(link => {
+      link.addEventListener('click', e => {
+        e.preventDefault();
+        const id = link.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          history.replaceState(null, '', '#' + id);
+        }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

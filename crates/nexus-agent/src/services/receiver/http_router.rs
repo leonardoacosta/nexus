@@ -365,27 +365,70 @@ impl ReceiverService {
                                     )
                                     .await
                                 {
-                                    info!(
-                                        "Focus mode active ({}): suppressing tts+banner, allowing apns for: {:?}",
-                                        reason, req.message
-                                    );
-                                    channels.retain(|ch| *ch == Channel::Apns);
-                                    if channels.is_empty() {
+                                    // Meeting/DND active: queue notification for post-meeting summary
+                                    if reason == "meeting_active" {
+                                        use super::meeting_queue::HeldNotification;
+
+                                        // Update meeting state (may trigger Started transition)
+                                        state_guard.meeting_queue.set_meeting_active(true);
+
+                                        state_guard.meeting_queue.enqueue(HeldNotification {
+                                            message: req.message.clone(),
+                                            project: req.project.clone(),
+                                            notification_type: notification_type.to_string(),
+                                            received_at: Utc::now(),
+                                        });
+
+                                        let queued_count = state_guard.meeting_queue.total_count();
+                                        let project_count = state_guard.meeting_queue.project_count();
+
                                         info!(
-                                            "Notification fully suppressed: {} for: {:?}",
+                                            "Meeting active: queued notification ({} total, {} projects) for: {:?}",
+                                            queued_count, project_count, req.message
+                                        );
+
+                                        // Still allow APNs through during meeting
+                                        channels.retain(|ch| *ch == Channel::Apns);
+                                        if channels.is_empty() {
+                                            let response = SuccessResponse {
+                                                success: true,
+                                                message: Some(format!(
+                                                    "Queued for post-meeting summary ({} held)",
+                                                    queued_count
+                                                )),
+                                                played: Some(false),
+                                                provider: None,
+                                                mode_resolved: Some(effective_mode.to_string()),
+                                                mode_source: Some(mode_source.clone()),
+                                            };
+                                            let body =
+                                                serde_json::to_vec(&response).unwrap_or_default();
+                                            return (200, "application/json".to_string(), body);
+                                        }
+                                    } else {
+                                        // DND: suppress as before
+                                        info!(
+                                            "Focus mode active ({}): suppressing tts+banner, allowing apns for: {:?}",
                                             reason, req.message
                                         );
-                                        let response = SuccessResponse {
-                                            success: true,
-                                            message: Some(format!("Suppressed ({})", reason)),
-                                            played: Some(false),
-                                            provider: None,
-                                            mode_resolved: Some(effective_mode.to_string()),
-                                            mode_source: Some(mode_source.clone()),
-                                        };
-                                        let body =
-                                            serde_json::to_vec(&response).unwrap_or_default();
-                                        return (200, "application/json".to_string(), body);
+                                        channels.retain(|ch| *ch == Channel::Apns);
+                                        if channels.is_empty() {
+                                            info!(
+                                                "Notification fully suppressed: {} for: {:?}",
+                                                reason, req.message
+                                            );
+                                            let response = SuccessResponse {
+                                                success: true,
+                                                message: Some(format!("Suppressed ({})", reason)),
+                                                played: Some(false),
+                                                provider: None,
+                                                mode_resolved: Some(effective_mode.to_string()),
+                                                mode_source: Some(mode_source.clone()),
+                                            };
+                                            let body =
+                                                serde_json::to_vec(&response).unwrap_or_default();
+                                            return (200, "application/json".to_string(), body);
+                                        }
                                     }
                                 }
                             }

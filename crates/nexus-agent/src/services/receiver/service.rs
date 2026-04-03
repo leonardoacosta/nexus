@@ -9,6 +9,7 @@
 
 use super::{PlaybackMessage, PlaybackQueue};
 use super::http_router::build_receiver_router;
+use super::meeting_queue::MeetingTransition;
 use crate::config::NotificationsConfig;
 use crate::services::Service;
 use crate::services::receiver::state::ReceiverState;
@@ -18,7 +19,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, mpsc};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 // Re-export types from the types module so existing imports continue to work.
 pub use super::types::*;
@@ -114,6 +115,144 @@ impl ReceiverService {
 impl Default for ReceiverService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Meeting queue polling and flush
+// ---------------------------------------------------------------------------
+
+impl ReceiverService {
+    /// Poll meeting state and flush queued notifications when meeting ends.
+    ///
+    /// Called every 15 seconds by the service loop. Checks if a meeting is
+    /// still active and, on the Ended transition, drains the queue and delivers
+    /// per-project summaries via TTS + banner.
+    pub(crate) async fn poll_meeting_state(
+        state: Arc<RwLock<ReceiverState>>,
+        config: &NotificationsConfig,
+    ) {
+        // Check if there's anything to do (avoid lock contention when idle)
+        let has_queued = {
+            let state_guard = state.read().await;
+            state_guard.meeting_queue.is_meeting_active()
+                || state_guard.meeting_queue.total_count() > 0
+        };
+
+        if !has_queued {
+            return;
+        }
+
+        // Perform the meeting detection check
+        let still_in_meeting = {
+            let mut state_guard = state.write().await;
+            state_guard.suppression_checker.is_meeting_active().await
+        };
+
+        // Update meeting state and check for transitions
+        let transition = {
+            let mut state_guard = state.write().await;
+            state_guard.meeting_queue.set_meeting_active(still_in_meeting)
+        };
+
+        if transition == MeetingTransition::Ended {
+            info!("Meeting ended — flushing queued notifications as summaries");
+            Self::flush_meeting_queue(state, config).await;
+        }
+    }
+
+    /// Flush the meeting queue: drain per-project summaries and deliver each
+    /// as a TTS notification + banner.
+    async fn flush_meeting_queue(
+        state: Arc<RwLock<ReceiverState>>,
+        config: &NotificationsConfig,
+    ) {
+        let summaries = {
+            let mut state_guard = state.write().await;
+            state_guard.meeting_queue.drain()
+        };
+
+        if summaries.is_empty() {
+            debug!("Meeting queue was empty, nothing to flush");
+            return;
+        }
+
+        info!(
+            "Delivering {} post-meeting summaries",
+            summaries.len()
+        );
+
+        let queue_handle = {
+            let state_guard = state.read().await;
+            state_guard.playback_queue.clone()
+        };
+
+        for summary in &summaries {
+            let (icon, name) = crate::claude_utils::project::get_project_display(
+                summary.project.as_deref().unwrap_or(""),
+            );
+            let banner_title = format!("{} {}", icon, name);
+
+            // Build banner message — show count + last few messages
+            let banner_body = if summary.count == 1 {
+                summary.messages[0].clone()
+            } else {
+                let recent: Vec<&str> = summary
+                    .messages
+                    .iter()
+                    .rev()
+                    .take(3)
+                    .map(|s| s.as_str())
+                    .collect();
+                format!(
+                    "{} updates while in meeting:\n{}",
+                    summary.count,
+                    recent.into_iter().rev().collect::<Vec<_>>().join("\n")
+                )
+            };
+
+            // Send banner notification with project title/icon
+            Self::show_notification(
+                &banner_title,
+                &banner_body,
+                summary.project.as_deref(),
+            )
+            .await;
+
+            // Queue TTS summary through the playback queue
+            if let Some(ref queue) = queue_handle {
+                use super::playback_queue::PlaybackMessage;
+                use std::time::Instant;
+
+                let mode = crate::claude_utils::notification_mode::get_notification_mode();
+                let speak_req = SpeakRequest {
+                    message: summary.tts_message.clone(),
+                    voice: summary.project.as_ref().map(|p| {
+                        config
+                            .project_voices
+                            .get_voice_for_project(p, &config.elevenlabs.voice_id)
+                            .to_string()
+                    }),
+                    priority: None,
+                    project: summary.project.clone(),
+                    mode: None,
+                    notification_type: Some("meeting_summary".to_string()),
+                    message_type: super::service::MessageType::Brief,
+                    channels: None,
+                };
+                queue.try_send(PlaybackMessage {
+                    request: speak_req,
+                    mode,
+                    queued_at: Instant::now(),
+                });
+            }
+        }
+
+        info!(
+            "Post-meeting summaries delivered: {} projects, {} total notifications",
+            summaries.len(),
+            summaries.iter().map(|s| s.count).sum::<usize>()
+        );
     }
 }
 
@@ -258,6 +397,8 @@ impl Service for ReceiverService {
         let mut message_prune_interval = tokio::time::interval(Duration::from_secs(
             super::state::MESSAGE_PRUNE_INTERVAL_SECS,
         ));
+        // Poll for meeting state changes every 15 seconds
+        let mut meeting_poll_interval = tokio::time::interval(Duration::from_secs(15));
 
         loop {
             tokio::select! {
@@ -279,6 +420,14 @@ impl Service for ReceiverService {
                         Arc::clone(&state_guard.message_store)
                     };
                     Self::prune_message_store(&store);
+                }
+
+                _ = meeting_poll_interval.tick() => {
+                    let state = Arc::clone(&self.state);
+                    let config = self.config.clone();
+                    tokio::spawn(async move {
+                        Self::poll_meeting_state(state, &config).await;
+                    });
                 }
 
                 result = &mut axum_handle => {
