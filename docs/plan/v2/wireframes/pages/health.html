@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Machine Health</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .machine-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .machine-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .machine-name {
+      font-size: 16px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    .machine-uptime {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .machine-sparklines {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .sparkline-card {
+      padding: 10px;
+      background: var(--bg-primary);
+      border-radius: var(--radius);
+    }
+
+    .sparkline-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .docker-list {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .docker-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 12px;
+      font-family: var(--font-mono);
+    }
+
+    .docker-name {
+      color: var(--text-secondary);
+    }
+
+    .machine-offline {
+      opacity: 0.5;
+      border-style: dashed;
+    }
+
+    .machine-offline .machine-name {
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 1024px) {
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .machine-sparklines {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="../index.html">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li>
+          <a href="projects.html">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+          </a>
+        </li>
+        <li>
+          <a href="health.html" class="active">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="settings.html">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>Machine Health</h2>
+          <div class="subtitle">System metrics across all connected machines</div>
+        </div>
+        <div class="page-header-actions">
+          <span class="status status-active"><span class="status-dot"></span> 3 online</span>
+          &nbsp;&nbsp;
+          <span class="status status-offline"><span class="status-dot"></span> 1 offline</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-value">4</span>
+          <span class="stat-label">Total Machines</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">3</span>
+          <span class="stat-label">Online</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">12</span>
+          <span class="stat-label">Active Sessions</span>
+        </div>
+      </div>
+
+      <!-- Machine: dev-01 -->
+      <div class="card-grid" style="grid-template-columns: 1fr; margin-bottom: 16px;">
+        <div class="machine-card">
+          <div class="machine-card-header">
+            <div>
+              <span class="machine-name">dev-01</span>
+              <span style="margin-left: 8px;">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+              </span>
+              <span style="margin-left: 8px;" class="badge badge-project">5 sessions</span>
+            </div>
+            <span class="machine-uptime">Uptime: 14d 6h 23m</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">CPU</span>
+              <span class="metric-value">34%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill low" style="width: 34%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">RAM</span>
+              <span class="metric-value">67%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill mid" style="width: 67%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Disk</span>
+              <span class="metric-value">52%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill mid" style="width: 52%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Docker</span>
+              <span class="metric-value">6</span>
+              <div style="font-size: 11px; color: var(--text-muted);">containers running</div>
+            </div>
+          </div>
+
+          <div class="machine-sparklines">
+            <div class="sparkline-card">
+              <div class="sparkline-label">CPU (1h)</div>
+              <div class="sparkline-placeholder"></div>
+            </div>
+            <div class="sparkline-card">
+              <div class="sparkline-label">RAM (1h)</div>
+              <div class="sparkline-placeholder"></div>
+            </div>
+          </div>
+
+          <div class="docker-list">
+            <div class="docker-item">
+              <span class="docker-name">postgres:16</span>
+              <span class="status status-active"><span class="status-dot"></span></span>
+            </div>
+            <div class="docker-item">
+              <span class="docker-name">redis:7-alpine</span>
+              <span class="status status-active"><span class="status-dot"></span></span>
+            </div>
+            <div class="docker-item">
+              <span class="docker-name">nexus-agent</span>
+              <span class="status status-active"><span class="status-dot"></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Machine: dev-02 -->
+      <div class="card-grid" style="grid-template-columns: 1fr; margin-bottom: 16px;">
+        <div class="machine-card">
+          <div class="machine-card-header">
+            <div>
+              <span class="machine-name">dev-02</span>
+              <span style="margin-left: 8px;">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+              </span>
+              <span style="margin-left: 8px;" class="badge badge-project">4 sessions</span>
+            </div>
+            <span class="machine-uptime">Uptime: 3d 11h 47m</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">CPU</span>
+              <span class="metric-value">78%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill mid" style="width: 78%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">RAM</span>
+              <span class="metric-value">89%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill high" style="width: 89%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Disk</span>
+              <span class="metric-value">41%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill low" style="width: 41%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Docker</span>
+              <span class="metric-value">3</span>
+              <div style="font-size: 11px; color: var(--text-muted);">containers running</div>
+            </div>
+          </div>
+
+          <div class="machine-sparklines">
+            <div class="sparkline-card">
+              <div class="sparkline-label">CPU (1h)</div>
+              <div class="sparkline-placeholder"></div>
+            </div>
+            <div class="sparkline-card">
+              <div class="sparkline-label">RAM (1h)</div>
+              <div class="sparkline-placeholder"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Machine: dev-03 -->
+      <div class="card-grid" style="grid-template-columns: 1fr; margin-bottom: 16px;">
+        <div class="machine-card">
+          <div class="machine-card-header">
+            <div>
+              <span class="machine-name">dev-03</span>
+              <span style="margin-left: 8px;">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+              </span>
+              <span style="margin-left: 8px;" class="badge badge-project">3 sessions</span>
+            </div>
+            <span class="machine-uptime">Uptime: 28d 2h 15m</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">CPU</span>
+              <span class="metric-value">12%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill low" style="width: 12%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">RAM</span>
+              <span class="metric-value">45%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill low" style="width: 45%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Disk</span>
+              <span class="metric-value">38%</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill low" style="width: 38%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Docker</span>
+              <span class="metric-value">2</span>
+              <div style="font-size: 11px; color: var(--text-muted);">containers running</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Machine: dev-04 (offline) -->
+      <div class="card-grid" style="grid-template-columns: 1fr; margin-bottom: 16px;">
+        <div class="machine-card machine-offline">
+          <div class="machine-card-header">
+            <div>
+              <span class="machine-name">dev-04</span>
+              <span style="margin-left: 8px;">
+                <span class="status status-offline"><span class="status-dot"></span> Offline</span>
+              </span>
+            </div>
+            <span class="machine-uptime">Last seen: 12m ago</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">CPU</span>
+              <span class="metric-value" style="color: var(--text-muted);">--</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">RAM</span>
+              <span class="metric-value" style="color: var(--text-muted);">--</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Disk</span>
+              <span class="metric-value" style="color: var(--text-muted);">--</span>
+              <div class="metric-bar">
+                <div class="metric-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Docker</span>
+              <span class="metric-value" style="color: var(--text-muted);">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

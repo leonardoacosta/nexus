@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Brand Board</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap');
+
+  /* We load Geist via fontsource CDN since Google Fonts doesn't host it */
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0A0A0B;
+    --surface: #111113;
+    --surface-raised: #1A1A1D;
+    --surface-overlay: #222225;
+    --border: #27272A;
+    --border-bright: #3F3F46;
+    --fg: #FAFAFA;
+    --fg-dim: #A1A1AA;
+    --fg-muted: #71717A;
+    --fg-ghost: #52525B;
+    --primary: #3B82F6;
+    --primary-hover: #2563EB;
+    --success: #22C55E;
+    --warning: #EAB308;
+    --error: #EF4444;
+    --font-sans: 'Geist Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    padding: 48px 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .header {
+    margin-bottom: 64px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 2.25rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+  }
+  .header .tagline {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--fg-dim);
+  }
+  .header .meta {
+    margin-top: 16px;
+    font-size: 0.75rem;
+    color: var(--fg-ghost);
+    font-family: var(--font-mono);
+  }
+
+  /* Section */
+  .section {
+    margin-bottom: 56px;
+  }
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+    font-family: var(--font-mono);
+  }
+
+  /* Color Swatches */
+  .palette-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .swatch {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: border-color 150ms ease;
+  }
+  .swatch:hover {
+    border-color: var(--border-bright);
+  }
+  .swatch-color {
+    height: 64px;
+    position: relative;
+  }
+  .swatch-info {
+    padding: 10px 12px;
+    background: var(--surface);
+  }
+  .swatch-name {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--fg);
+    margin-bottom: 2px;
+  }
+  .swatch-hex {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+  }
+  .swatch-contrast {
+    font-size: 0.6875rem;
+    font-family: var(--font-mono);
+    color: var(--fg-ghost);
+    margin-top: 2px;
+  }
+  .swatch.copied .swatch-hex::after {
+    content: ' copied';
+    color: var(--success);
+  }
+
+  /* Typography Samples */
+  .type-sample {
+    margin-bottom: 16px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+  }
+  .type-meta {
+    min-width: 120px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+    flex-shrink: 0;
+  }
+  .type-preview {
+    flex: 1;
+  }
+
+  /* Voice Examples */
+  .voice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .voice-card {
+    padding: 16px 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .voice-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-ghost);
+    font-family: var(--font-mono);
+    margin-bottom: 8px;
+  }
+  .voice-text {
+    font-size: 0.9375rem;
+    color: var(--fg);
+    line-height: 1.5;
+  }
+  .voice-anti {
+    border-color: rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.04);
+  }
+  .voice-anti .voice-label {
+    color: var(--error);
+  }
+
+  /* Personality */
+  .personality-grid {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .personality-tag {
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .personality-bar {
+    width: 48px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  .personality-bar-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+
+  /* Logomark */
+  .logomark-zone {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .logomark {
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    color: var(--fg);
+  }
+  .logomark-sm { font-size: 1.25rem; }
+  .logomark-md { font-size: 2rem; }
+  .logomark-lg { font-size: 3rem; }
+  .logomark-xl { font-size: 4.5rem; }
+
+  /* Spacing Reference */
+  .spacing-grid {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .spacing-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .spacing-block {
+    background: var(--primary);
+    border-radius: 4px;
+    opacity: 0.6;
+  }
+  .spacing-label {
+    font-size: 0.6875rem;
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+  }
+
+  /* Status Dots Demo */
+  .status-row {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+    font-family: var(--font-mono);
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-dot.success { background: var(--success); box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+  .status-dot.warning { background: var(--warning); box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
+  .status-dot.error { background: var(--error); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+  .status-dot.active { background: var(--primary); box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
+
+  /* Two-column layout helper */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; }
+  }
+
+  /* Radius Reference */
+  .radius-grid {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .radius-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .radius-block {
+    width: 56px;
+    height: 56px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-bright);
+  }
+  .radius-label {
+    font-size: 0.6875rem;
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <h1>Nexus</h1>
+  <div class="tagline">See every session. Control any machine.</div>
+  <div class="meta">Brand Board v2 &mdash; Dark-first developer dashboard</div>
+</header>
+
+<!-- Color Palette -->
+<section class="section">
+  <div class="section-title">Color Palette</div>
+
+  <div style="margin-bottom: 16px; font-size: 0.75rem; color: var(--fg-ghost); font-family: var(--font-mono);">
+    Click any swatch to copy hex value
+  </div>
+
+  <!-- Neutrals -->
+  <div style="margin-bottom: 8px; font-size: 0.8125rem; font-weight: 500; color: var(--fg-dim);">Neutrals</div>
+  <div class="palette-grid" style="margin-bottom: 20px;">
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #0A0A0B; border-bottom: 1px solid var(--border);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Background</div>
+        <div class="swatch-hex">#0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #111113;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Surface</div>
+        <div class="swatch-hex">#111113</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #1A1A1D;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Raised</div>
+        <div class="swatch-hex">#1A1A1D</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #222225;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Overlay</div>
+        <div class="swatch-hex">#222225</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #27272A;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Border</div>
+        <div class="swatch-hex">#27272A</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #3F3F46;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Border Bright</div>
+        <div class="swatch-hex">#3F3F46</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #52525B;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Ghost</div>
+        <div class="swatch-hex">#52525B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #71717A;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Muted</div>
+        <div class="swatch-hex">#71717A</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text -->
+  <div style="margin-bottom: 8px; font-size: 0.8125rem; font-weight: 500; color: var(--fg-dim);">Text</div>
+  <div class="palette-grid" style="margin-bottom: 20px;">
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #FAFAFA;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Foreground</div>
+        <div class="swatch-hex">#FAFAFA</div>
+        <div class="swatch-contrast">15.3:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #A1A1AA;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Dim</div>
+        <div class="swatch-hex">#A1A1AA</div>
+        <div class="swatch-contrast">7.5:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #71717A;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Muted</div>
+        <div class="swatch-hex">#71717A</div>
+        <div class="swatch-contrast">4.7:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #52525B;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Ghost</div>
+        <div class="swatch-hex">#52525B</div>
+        <div class="swatch-contrast">3.2:1 on #0A0A0B</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Semantic -->
+  <div style="margin-bottom: 8px; font-size: 0.8125rem; font-weight: 500; color: var(--fg-dim);">Semantic</div>
+  <div class="palette-grid">
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #3B82F6;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Primary</div>
+        <div class="swatch-hex">#3B82F6</div>
+        <div class="swatch-contrast">4.6:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #2563EB;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Primary Hover</div>
+        <div class="swatch-hex">#2563EB</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #22C55E;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Success</div>
+        <div class="swatch-hex">#22C55E</div>
+        <div class="swatch-contrast">6.3:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #EAB308;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Warning</div>
+        <div class="swatch-hex">#EAB308</div>
+        <div class="swatch-contrast">9.2:1 on #0A0A0B</div>
+      </div>
+    </div>
+    <div class="swatch" onclick="copySwatch(this)">
+      <div class="swatch-color" style="background: #EF4444;"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Error</div>
+        <div class="swatch-hex">#EF4444</div>
+        <div class="swatch-contrast">4.6:1 on #0A0A0B</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Typography -->
+<section class="section">
+  <div class="section-title">Typography</div>
+
+  <div class="type-sample">
+    <div class="type-meta">Display / 36px<br>Geist Sans 700</div>
+    <div class="type-preview" style="font-size: 2.25rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.25;">
+      12 active sessions
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">H1 / 30px<br>Geist Sans 700</div>
+    <div class="type-preview" style="font-size: 1.875rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1.25;">
+      Session Dashboard
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">H2 / 24px<br>Geist Sans 600</div>
+    <div class="type-preview" style="font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3;">
+      Machine Health
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">H3 / 20px<br>Geist Sans 600</div>
+    <div class="type-preview" style="font-size: 1.25rem; font-weight: 600; line-height: 1.4;">
+      Active Agents
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">Body / 16px<br>Geist Sans 400</div>
+    <div class="type-preview" style="font-size: 1rem; color: var(--fg-dim);">
+      Streaming session output from dev-server-01 via Tailscale. Last heartbeat 2s ago.
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">Small / 14px<br>Geist Sans 400</div>
+    <div class="type-preview" style="font-size: 0.875rem; color: var(--fg-muted);">
+      Updated 3 minutes ago &middot; 4 files changed
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">Mono Data / 14px<br>Geist Mono 400</div>
+    <div class="type-preview" style="font-size: 0.875rem; font-family: var(--font-mono); color: var(--fg-dim);">
+      cpu: 42% &middot; mem: 3.2G/16G &middot; disk: 67% &middot; uptime: 14d 7h
+    </div>
+  </div>
+
+  <div class="type-sample">
+    <div class="type-meta">Mono XS / 12px<br>Geist Mono 500</div>
+    <div class="type-preview" style="font-size: 0.75rem; font-family: var(--font-mono); font-weight: 500; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em;">
+      SESSION ID: nx-a7f3b2
+    </div>
+  </div>
+</section>
+
+<!-- Voice Examples -->
+<section class="section">
+  <div class="section-title">Voice &amp; Tone</div>
+
+  <div class="voice-grid" style="margin-bottom: 16px;">
+    <div class="voice-card">
+      <div class="voice-label">Status Message</div>
+      <div class="voice-text">3 sessions active across 2 machines</div>
+    </div>
+    <div class="voice-card">
+      <div class="voice-label">Error State</div>
+      <div class="voice-text">Agent unreachable. Last seen 4m ago.</div>
+    </div>
+    <div class="voice-card">
+      <div class="voice-label">Empty State</div>
+      <div class="voice-text">No active sessions</div>
+    </div>
+    <div class="voice-card">
+      <div class="voice-label">Action Confirmation</div>
+      <div class="voice-text">Session attached</div>
+    </div>
+    <div class="voice-card">
+      <div class="voice-label">Health Summary</div>
+      <div class="voice-text">dev-server-01: healthy &middot; dev-server-02: degraded (89% disk)</div>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 8px; font-size: 0.8125rem; font-weight: 500; color: var(--error);">Anti-patterns</div>
+  <div class="voice-grid">
+    <div class="voice-card voice-anti">
+      <div class="voice-label">Never</div>
+      <div class="voice-text">"Oops! It looks like we can't reach your agent right now. Don't worry, we'll keep trying!"</div>
+    </div>
+    <div class="voice-card voice-anti">
+      <div class="voice-label">Never</div>
+      <div class="voice-text">"Welcome to Nexus! Let's get you started with a quick tour of your dashboard."</div>
+    </div>
+    <div class="voice-card voice-anti">
+      <div class="voice-label">Never</div>
+      <div class="voice-text">"You haven't connected any machines yet. Click the button below to add your first agent."</div>
+    </div>
+  </div>
+</section>
+
+<!-- Personality Panel -->
+<section class="section">
+  <div class="section-title">Personality</div>
+  <div class="personality-grid">
+    <div class="personality-tag">
+      Direct
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 95%;"></div></div>
+    </div>
+    <div class="personality-tag">
+      Precise
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 90%;"></div></div>
+    </div>
+    <div class="personality-tag">
+      Utilitarian
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 88%;"></div></div>
+    </div>
+    <div class="personality-tag">
+      Confident
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 85%;"></div></div>
+    </div>
+    <div class="personality-tag">
+      Fast
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 92%;"></div></div>
+    </div>
+    <div class="personality-tag" style="color: var(--fg-ghost); border-color: var(--border);">
+      Friendly
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 20%; background: var(--fg-ghost);"></div></div>
+    </div>
+    <div class="personality-tag" style="color: var(--fg-ghost); border-color: var(--border);">
+      Playful
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 5%; background: var(--fg-ghost);"></div></div>
+    </div>
+    <div class="personality-tag" style="color: var(--fg-ghost); border-color: var(--border);">
+      Formal
+      <div class="personality-bar"><div class="personality-bar-fill" style="width: 15%; background: var(--fg-ghost);"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Logomark -->
+<section class="section">
+  <div class="section-title">Text Mark</div>
+  <div style="padding: 32px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+    <div class="logomark-zone">
+      <span class="logomark logomark-xl">Nexus</span>
+      <span class="logomark logomark-lg">Nexus</span>
+      <span class="logomark logomark-md">Nexus</span>
+      <span class="logomark logomark-sm">Nexus</span>
+    </div>
+    <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
+      <div class="logomark-zone">
+        <span class="logomark logomark-xl" style="font-family: var(--font-mono); letter-spacing: -0.02em;">nexus</span>
+        <span class="logomark logomark-lg" style="font-family: var(--font-mono); letter-spacing: -0.02em;">nexus</span>
+        <span class="logomark logomark-md" style="font-family: var(--font-mono); letter-spacing: -0.02em;">nexus</span>
+        <span class="logomark logomark-sm" style="font-family: var(--font-mono); letter-spacing: -0.02em;">nexus</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Status Indicators -->
+<section class="section">
+  <div class="section-title">Status Indicators</div>
+  <div class="status-row">
+    <div class="status-item">
+      <div class="status-dot success"></div>
+      <span style="color: var(--success);">Healthy</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot active"></div>
+      <span style="color: var(--primary);">Active</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot warning"></div>
+      <span style="color: var(--warning);">Degraded</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot error"></div>
+      <span style="color: var(--error);">Error</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot" style="background: var(--fg-ghost);"></div>
+      <span style="color: var(--fg-ghost);">Offline</span>
+    </div>
+  </div>
+</section>
+
+<!-- Spacing Reference -->
+<section class="section">
+  <div class="section-title">Spacing Scale</div>
+  <div class="spacing-grid">
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 4px; height: 4px;"></div>
+      <div class="spacing-label">1 / 4px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 8px; height: 8px;"></div>
+      <div class="spacing-label">2 / 8px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 12px; height: 12px;"></div>
+      <div class="spacing-label">3 / 12px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 16px; height: 16px;"></div>
+      <div class="spacing-label">4 / 16px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 24px; height: 24px;"></div>
+      <div class="spacing-label">6 / 24px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 32px; height: 32px;"></div>
+      <div class="spacing-label">8 / 32px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 48px; height: 48px;"></div>
+      <div class="spacing-label">12 / 48px</div>
+    </div>
+    <div class="spacing-item">
+      <div class="spacing-block" style="width: 64px; height: 64px;"></div>
+      <div class="spacing-label">16 / 64px</div>
+    </div>
+  </div>
+</section>
+
+<!-- Border Radius -->
+<section class="section">
+  <div class="section-title">Border Radius</div>
+  <div class="radius-grid">
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 0;"></div>
+      <div class="radius-label">none</div>
+    </div>
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 4px;"></div>
+      <div class="radius-label">sm / 4px</div>
+    </div>
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 6px;"></div>
+      <div class="radius-label">md / 6px</div>
+    </div>
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 8px;"></div>
+      <div class="radius-label">lg / 8px</div>
+    </div>
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 12px;"></div>
+      <div class="radius-label">xl / 12px</div>
+    </div>
+    <div class="radius-item">
+      <div class="radius-block" style="border-radius: 9999px;"></div>
+      <div class="radius-label">full</div>
+    </div>
+  </div>
+</section>
+
+<script>
+function copySwatch(el) {
+  const hex = el.querySelector('.swatch-hex').textContent.trim();
+  navigator.clipboard.writeText(hex).then(() => {
+    el.classList.add('copied');
+    setTimeout(() => el.classList.remove('copied'), 1200);
+  });
+}
+</script>
+
+</body>
+</html>

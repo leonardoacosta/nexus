@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Session Detail</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .session-layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 16px;
+    }
+
+    .session-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .session-info-item {
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .session-info-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+
+    .session-info-value {
+      font-size: 14px;
+      font-weight: 500;
+      font-family: var(--font-mono);
+    }
+
+    .terminal-wrapper {
+      position: relative;
+    }
+
+    .terminal-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    .terminal-toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .terminal-toolbar-right {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-wrapper .terminal {
+      border-radius: 0 0 var(--radius) var(--radius);
+      min-height: 400px;
+    }
+
+    .session-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sidebar-panel {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .sidebar-panel h3 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .activity-item {
+      display: flex;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .activity-item:last-child {
+      border-bottom: none;
+    }
+
+    .activity-time {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .activity-text {
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 1024px) {
+      .session-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="../index.html">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li>
+          <a href="projects.html">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+          </a>
+        </li>
+        <li>
+          <a href="health.html">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="settings.html">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../index.html">Dashboard</a>
+        <span class="sep">/</span>
+        <a href="project-detail.html">co</a>
+        <span class="sep">/</span>
+        <span>refactor auth middleware</span>
+      </div>
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>refactor auth middleware</h2>
+          <div class="subtitle">
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+            &nbsp;&middot;&nbsp;
+            <span class="badge badge-project">co</span>
+            &nbsp;&middot;&nbsp;
+            <span class="badge badge-machine">dev-01</span>
+            &nbsp;&middot;&nbsp;
+            Leo
+          </div>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary">Interact</button>
+          <button class="btn">Stream Only</button>
+        </div>
+      </div>
+
+      <!-- Session info strip -->
+      <div class="session-info">
+        <div class="session-info-item">
+          <div class="session-info-label">Duration</div>
+          <div class="session-info-value">12m 34s</div>
+        </div>
+        <div class="session-info-item">
+          <div class="session-info-label">Machine</div>
+          <div class="session-info-value">dev-01</div>
+        </div>
+        <div class="session-info-item">
+          <div class="session-info-label">Project</div>
+          <div class="session-info-value">co</div>
+        </div>
+        <div class="session-info-item">
+          <div class="session-info-label">Model</div>
+          <div class="session-info-value">opus-4</div>
+        </div>
+        <div class="session-info-item">
+          <div class="session-info-label">Tokens</div>
+          <div class="session-info-value">84.2k</div>
+        </div>
+      </div>
+
+      <!-- Two-column layout -->
+      <div class="session-layout">
+
+        <!-- Terminal stream -->
+        <div class="terminal-wrapper">
+          <div class="terminal-toolbar">
+            <div class="terminal-toolbar-left">
+              <span class="status status-active"><span class="status-dot"></span> Streaming</span>
+              <span>80x24</span>
+            </div>
+            <div class="terminal-toolbar-right">
+              <button class="btn btn-sm">Copy</button>
+              <button class="btn btn-sm">Fullscreen</button>
+            </div>
+          </div>
+          <div class="terminal">
+<span class="prompt">$</span> claude "refactor the auth middleware to use the new guard pattern"<br><br>
+<span class="output">I'll refactor the auth middleware across the 4 route files. Let me start<br>
+by reading the current implementation.<br><br>
+
+Reading src/server/api/routers/admin.ts...<br>
+Reading src/server/api/routers/billing.ts...<br>
+Reading src/server/api/routers/projects.ts...<br>
+Reading src/server/api/routers/teams.ts...<br><br>
+
+I can see the pattern. Each router uses inline auth checks. I'll extract<br>
+these into a shared guard middleware.<br><br>
+
+Writing src/server/auth/guards.ts...<br>
+Updating src/server/api/routers/admin.ts...<br>
+Updating src/server/api/routers/billing.ts...<br></span>
+<span class="cursor"></span>
+          </div>
+        </div>
+
+        <!-- Session sidebar -->
+        <div class="session-sidebar">
+
+          <div class="sidebar-panel">
+            <h3>Activity Log</h3>
+            <div class="activity-item">
+              <span class="activity-time">12:34</span>
+              <span class="activity-text">Session started</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-time">12:35</span>
+              <span class="activity-text">Reading 4 route files</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-time">12:37</span>
+              <span class="activity-text">Created guards.ts</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-time">12:38</span>
+              <span class="activity-text">Updating admin.ts</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-time">12:40</span>
+              <span class="activity-text">Updating billing.ts</span>
+            </div>
+          </div>
+
+          <div class="sidebar-panel">
+            <h3>Files Changed</h3>
+            <div class="activity-item">
+              <span class="activity-text" style="font-family: var(--font-mono); font-size: 11px;">+ src/server/auth/guards.ts</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-text" style="font-family: var(--font-mono); font-size: 11px;">~ routers/admin.ts</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-text" style="font-family: var(--font-mono); font-size: 11px;">~ routers/billing.ts</span>
+            </div>
+          </div>
+
+          <div class="sidebar-panel">
+            <h3>Session Participants</h3>
+            <div class="activity-item">
+              <span class="activity-text">Leo (owner)</span>
+            </div>
+            <div class="activity-item">
+              <span class="activity-text" style="color: var(--text-muted);">Mateo (streaming)</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

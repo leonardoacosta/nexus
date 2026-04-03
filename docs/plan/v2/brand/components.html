@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Component Samples</title>
+<style>
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
+    font-weight: 600; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Sans';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');
+    font-weight: 700; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: swap;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0A0A0B;
+    --surface: #111113;
+    --surface-raised: #1A1A1D;
+    --surface-overlay: #222225;
+    --border: #27272A;
+    --border-bright: #3F3F46;
+    --fg: #FAFAFA;
+    --fg-dim: #A1A1AA;
+    --fg-muted: #71717A;
+    --fg-ghost: #52525B;
+    --primary: #3B82F6;
+    --primary-hover: #2563EB;
+    --primary-ghost: rgba(59, 130, 246, 0.12);
+    --success: #22C55E;
+    --success-ghost: rgba(34, 197, 94, 0.12);
+    --warning: #EAB308;
+    --warning-ghost: rgba(234, 179, 8, 0.12);
+    --error: #EF4444;
+    --error-ghost: rgba(239, 68, 68, 0.12);
+    --font-sans: 'Geist Sans', system-ui, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --transition: 150ms ease;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    padding: 48px 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 { font-size: 1.875rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px; }
+  .subtitle { font-size: 0.875rem; color: var(--fg-muted); font-family: var(--font-mono); margin-bottom: 48px; }
+
+  .section { margin-bottom: 56px; }
+  .section-title {
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--fg-muted); margin-bottom: 20px; font-family: var(--font-mono);
+  }
+
+  .component-grid {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start;
+  }
+
+  /* ===== 1. Buttons ===== */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--font-sans); font-size: 0.875rem; font-weight: 500;
+    padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid transparent;
+    cursor: pointer; transition: all var(--transition); line-height: 1.25;
+    text-decoration: none; white-space: nowrap;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--primary); outline-offset: 2px;
+  }
+
+  .btn-primary {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+  }
+  .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .btn-primary:active { background: #1D4ED8; }
+  .btn-primary.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: var(--surface-raised); color: var(--fg); border-color: var(--border);
+  }
+  .btn-secondary:hover { background: var(--surface-overlay); border-color: var(--border-bright); }
+  .btn-secondary:active { background: var(--border); }
+  .btn-secondary.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent; color: var(--fg-dim); border-color: transparent;
+  }
+  .btn-ghost:hover { background: var(--surface-raised); color: var(--fg); }
+  .btn-ghost:active { background: var(--surface-overlay); }
+  .btn-ghost.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-destructive {
+    background: var(--error); color: #fff; border-color: var(--error);
+  }
+  .btn-destructive:hover { background: #DC2626; border-color: #DC2626; }
+  .btn-destructive:active { background: #B91C1C; }
+  .btn-destructive.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-sm { padding: 4px 10px; font-size: 0.8125rem; }
+  .btn-lg { padding: 10px 20px; font-size: 1rem; }
+
+  /* ===== 2. Text Input ===== */
+  .field { display: flex; flex-direction: column; gap: 6px; width: 320px; }
+  .field-label {
+    font-size: 0.8125rem; font-weight: 500; color: var(--fg);
+  }
+  .field-input {
+    font-family: var(--font-mono); font-size: 0.875rem;
+    padding: 8px 12px; border-radius: var(--radius-md);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--fg); transition: border-color var(--transition);
+    outline: none;
+  }
+  .field-input::placeholder { color: var(--fg-ghost); }
+  .field-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ghost); }
+  .field-input.error { border-color: var(--error); }
+  .field-input.error:focus { box-shadow: 0 0 0 3px var(--error-ghost); }
+  .field-hint { font-size: 0.75rem; color: var(--fg-muted); }
+  .field-error { font-size: 0.75rem; color: var(--error); }
+
+  /* ===== 3. Card ===== */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    overflow: hidden; width: 360px; transition: border-color var(--transition);
+  }
+  .card:hover { border-color: var(--border-bright); }
+  .card-img {
+    height: 160px; background: var(--surface-raised);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-ghost);
+    border-bottom: 1px solid var(--border);
+  }
+  .card-body { padding: 16px; }
+  .card-title { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+  .card-text { font-size: 0.875rem; color: var(--fg-dim); margin-bottom: 12px; line-height: 1.5; }
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-top: 1px solid var(--border);
+  }
+  .card-meta { font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-muted); }
+
+  /* ===== 4. Badge / Tag / Pill ===== */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.75rem; font-weight: 500; font-family: var(--font-mono);
+    padding: 2px 8px; border-radius: var(--radius-sm); line-height: 1.5;
+  }
+  .badge-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .badge-primary { background: var(--primary-ghost); color: var(--primary); }
+  .badge-primary .badge-dot { background: var(--primary); }
+  .badge-success { background: var(--success-ghost); color: var(--success); }
+  .badge-success .badge-dot { background: var(--success); }
+  .badge-warning { background: var(--warning-ghost); color: var(--warning); }
+  .badge-warning .badge-dot { background: var(--warning); }
+  .badge-error { background: var(--error-ghost); color: var(--error); }
+  .badge-error .badge-dot { background: var(--error); }
+  .badge-neutral { background: var(--surface-raised); color: var(--fg-muted); border: 1px solid var(--border); }
+
+  .pill {
+    display: inline-flex; align-items: center;
+    font-size: 0.75rem; font-weight: 500; font-family: var(--font-mono);
+    padding: 2px 10px; border-radius: 9999px;
+    background: var(--surface-raised); color: var(--fg-dim); border: 1px solid var(--border);
+  }
+
+  /* ===== 5. Navigation Item ===== */
+  .nav-demo {
+    display: flex; flex-direction: column; gap: 2px;
+    width: 240px; padding: 8px; background: var(--surface);
+    border-radius: var(--radius-lg); border: 1px solid var(--border);
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: var(--radius-md);
+    font-size: 0.875rem; font-weight: 400; color: var(--fg-muted);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .nav-item:hover { background: var(--surface-raised); color: var(--fg); }
+  .nav-item.active {
+    background: var(--primary-ghost); color: var(--primary); font-weight: 500;
+  }
+  .nav-icon {
+    width: 18px; height: 18px; flex-shrink: 0; opacity: 0.6;
+  }
+  .nav-item.active .nav-icon { opacity: 1; }
+  .nav-item:hover .nav-icon { opacity: 1; }
+  .nav-count {
+    margin-left: auto; font-size: 0.75rem; font-family: var(--font-mono);
+    color: var(--fg-ghost); font-weight: 400;
+  }
+  .nav-item.active .nav-count { color: var(--primary); }
+
+  /* ===== 6. Alert / Notification ===== */
+  .alert {
+    display: flex; gap: 12px; padding: 12px 16px;
+    border-radius: var(--radius-lg); border: 1px solid;
+    font-size: 0.875rem; line-height: 1.5; width: 100%; max-width: 520px;
+  }
+  .alert-icon { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; }
+  .alert-content { flex: 1; }
+  .alert-title { font-weight: 600; margin-bottom: 2px; }
+  .alert-text { color: var(--fg-dim); font-size: 0.8125rem; }
+
+  .alert-info { background: var(--primary-ghost); border-color: rgba(59, 130, 246, 0.2); color: var(--fg); }
+  .alert-info .alert-icon { color: var(--primary); }
+  .alert-success { background: var(--success-ghost); border-color: rgba(34, 197, 94, 0.2); color: var(--fg); }
+  .alert-success .alert-icon { color: var(--success); }
+  .alert-warning { background: var(--warning-ghost); border-color: rgba(234, 179, 8, 0.2); color: var(--fg); }
+  .alert-warning .alert-icon { color: var(--warning); }
+  .alert-error { background: var(--error-ghost); border-color: rgba(239, 68, 68, 0.2); color: var(--fg); }
+  .alert-error .alert-icon { color: var(--error); }
+
+  /* ===== 7. Select, Checkbox, Radio ===== */
+  .select-wrap { position: relative; width: 240px; }
+  .select-native {
+    width: 100%; font-family: var(--font-sans); font-size: 0.875rem;
+    padding: 8px 32px 8px 12px; border-radius: var(--radius-md);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--fg); cursor: pointer; appearance: none;
+    outline: none; transition: border-color var(--transition);
+  }
+  .select-native:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ghost); }
+  .select-arrow {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    pointer-events: none; color: var(--fg-muted);
+  }
+
+  .check-group { display: flex; flex-direction: column; gap: 10px; }
+  .check-item {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    font-size: 0.875rem; color: var(--fg-dim);
+  }
+  .check-box {
+    width: 18px; height: 18px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-bright); background: var(--surface);
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition); flex-shrink: 0;
+  }
+  .check-item:hover .check-box { border-color: var(--primary); }
+  .check-item.checked .check-box {
+    background: var(--primary); border-color: var(--primary);
+  }
+  .check-item.checked .check-box svg { display: block; }
+  .check-item .check-box svg { display: none; }
+  .check-item.disabled { opacity: 0.4; cursor: not-allowed; }
+  .check-item.error .check-box { border-color: var(--error); }
+
+  .radio-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid var(--border-bright); background: var(--surface);
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition); flex-shrink: 0;
+  }
+  .check-item:hover .radio-dot { border-color: var(--primary); }
+  .check-item.checked .radio-dot { border-color: var(--primary); }
+  .check-item.checked .radio-dot::after {
+    content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--primary);
+  }
+  .check-item.disabled .radio-dot { opacity: 0.4; }
+
+  /* ===== 8. Typography Hierarchy ===== */
+  .type-stack { display: flex; flex-direction: column; gap: 12px; }
+  .type-row {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 12px 16px; background: var(--surface);
+    border-radius: var(--radius-md); border: 1px solid var(--border);
+  }
+  .type-label {
+    font-size: 0.6875rem; font-family: var(--font-mono); color: var(--fg-ghost);
+    min-width: 40px; flex-shrink: 0; text-transform: uppercase;
+  }
+
+  /* Helpers */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+  .demo-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .demo-spacer { height: 1px; }
+</style>
+</head>
+<body>
+
+<h1>Component Samples</h1>
+<p class="subtitle">10 core components using Nexus design tokens</p>
+
+<!-- 1. Buttons -->
+<section class="section">
+  <div class="section-title">1. Buttons</div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Primary</div>
+  <div class="demo-row" style="margin-bottom: 16px;">
+    <button class="btn btn-primary btn-sm">Small</button>
+    <button class="btn btn-primary">Default</button>
+    <button class="btn btn-primary btn-lg">Large</button>
+    <button class="btn btn-primary" style="background: var(--primary-hover); border-color: var(--primary-hover);">Hover</button>
+    <button class="btn btn-primary disabled">Disabled</button>
+  </div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Secondary</div>
+  <div class="demo-row" style="margin-bottom: 16px;">
+    <button class="btn btn-secondary btn-sm">Small</button>
+    <button class="btn btn-secondary">Default</button>
+    <button class="btn btn-secondary btn-lg">Large</button>
+    <button class="btn btn-secondary" style="background: var(--surface-overlay); border-color: var(--border-bright);">Hover</button>
+    <button class="btn btn-secondary disabled">Disabled</button>
+  </div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Ghost</div>
+  <div class="demo-row" style="margin-bottom: 16px;">
+    <button class="btn btn-ghost btn-sm">Small</button>
+    <button class="btn btn-ghost">Default</button>
+    <button class="btn btn-ghost btn-lg">Large</button>
+    <button class="btn btn-ghost" style="background: var(--surface-raised); color: var(--fg);">Hover</button>
+    <button class="btn btn-ghost disabled">Disabled</button>
+  </div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Destructive</div>
+  <div class="demo-row">
+    <button class="btn btn-destructive btn-sm">Small</button>
+    <button class="btn btn-destructive">Default</button>
+    <button class="btn btn-destructive btn-lg">Large</button>
+    <button class="btn btn-destructive" style="background: #DC2626;">Hover</button>
+    <button class="btn btn-destructive disabled">Disabled</button>
+  </div>
+</section>
+
+<!-- 2. Text Input -->
+<section class="section">
+  <div class="section-title">2. Text Input</div>
+  <div class="two-col">
+    <div>
+      <div class="field" style="margin-bottom: 16px;">
+        <label class="field-label">Agent hostname</label>
+        <input class="field-input" type="text" placeholder="e.g. dev-server-01" value="dev-server-01">
+        <div class="field-hint">Tailscale hostname of the target machine</div>
+      </div>
+      <div class="field" style="margin-bottom: 16px;">
+        <label class="field-label">Agent hostname</label>
+        <input class="field-input" type="text" placeholder="e.g. dev-server-01">
+        <div class="field-hint">Empty / placeholder state</div>
+      </div>
+    </div>
+    <div>
+      <div class="field" style="margin-bottom: 16px;">
+        <label class="field-label">Port</label>
+        <input class="field-input error" type="text" value="99999">
+        <div class="field-error">Port must be between 1 and 65535</div>
+      </div>
+      <div class="field" style="margin-bottom: 16px;">
+        <label class="field-label">Agent hostname</label>
+        <input class="field-input" type="text" placeholder="Disabled" disabled style="opacity: 0.4; cursor: not-allowed;">
+        <div class="field-hint">Disabled state</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Card -->
+<section class="section">
+  <div class="section-title">3. Card</div>
+  <div class="component-grid">
+    <div class="card">
+      <div class="card-img">Session preview area</div>
+      <div class="card-body">
+        <div class="card-title">dev-server-01</div>
+        <div class="card-text">3 active sessions running across 2 projects. CPU at 42%, memory nominal.</div>
+      </div>
+      <div class="card-footer">
+        <div class="card-meta">Last seen 2s ago</div>
+        <span class="badge badge-success"><span class="badge-dot"></span>Healthy</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-img" style="background: rgba(234, 179, 8, 0.06);">Session preview area</div>
+      <div class="card-body">
+        <div class="card-title">build-server-02</div>
+        <div class="card-text">1 active session. Disk usage at 89% — consider cleanup.</div>
+      </div>
+      <div class="card-footer">
+        <div class="card-meta">Last seen 4s ago</div>
+        <span class="badge badge-warning"><span class="badge-dot"></span>Degraded</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Badge / Tag / Pill -->
+<section class="section">
+  <div class="section-title">4. Badge / Tag / Pill</div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Semantic badges</div>
+  <div class="demo-row" style="margin-bottom: 20px;">
+    <span class="badge badge-primary"><span class="badge-dot"></span>Active</span>
+    <span class="badge badge-success"><span class="badge-dot"></span>Healthy</span>
+    <span class="badge badge-warning"><span class="badge-dot"></span>Degraded</span>
+    <span class="badge badge-error"><span class="badge-dot"></span>Error</span>
+    <span class="badge badge-neutral">Offline</span>
+  </div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Text-only badges</div>
+  <div class="demo-row" style="margin-bottom: 20px;">
+    <span class="badge badge-primary">v2.0.1</span>
+    <span class="badge badge-success">Connected</span>
+    <span class="badge badge-neutral">3 sessions</span>
+  </div>
+
+  <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Pills</div>
+  <div class="demo-row">
+    <span class="pill">nexus-core</span>
+    <span class="pill">nexus-agent</span>
+    <span class="pill">nexus-tui</span>
+    <span class="pill">typescript</span>
+  </div>
+</section>
+
+<!-- 5. Navigation -->
+<section class="section">
+  <div class="section-title">5. Navigation</div>
+  <div class="component-grid">
+    <div class="nav-demo">
+      <div class="nav-item active">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        Dashboard
+        <span class="nav-count">12</span>
+      </div>
+      <div class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="8" x2="22" y2="8"/></svg>
+        Sessions
+        <span class="nav-count">7</span>
+      </div>
+      <div class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="4"/><circle cx="12" cy="10" r="3"/><path d="M7 20v-1a5 5 0 0 1 10 0v1"/></svg>
+        Machines
+        <span class="nav-count">3</span>
+      </div>
+      <div class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Health
+      </div>
+      <div class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        Projects
+        <span class="nav-count">14</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Alert / Notification -->
+<section class="section">
+  <div class="section-title">6. Alert / Notification</div>
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div class="alert alert-info">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <div class="alert-content">
+        <div class="alert-title">New agent detected</div>
+        <div class="alert-text">dev-server-03 appeared on the Tailscale network. Add to agents.toml to start tracking.</div>
+      </div>
+    </div>
+    <div class="alert alert-success">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div class="alert-content">
+        <div class="alert-title">Session attached</div>
+        <div class="alert-text">Connected to session nx-a7f3b2 on dev-server-01.</div>
+      </div>
+    </div>
+    <div class="alert alert-warning">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="alert-content">
+        <div class="alert-title">Disk usage high</div>
+        <div class="alert-text">build-server-02 at 89% disk. Consider clearing old build artifacts.</div>
+      </div>
+    </div>
+    <div class="alert alert-error">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      <div class="alert-content">
+        <div class="alert-title">Agent unreachable</div>
+        <div class="alert-text">dev-server-02 has not responded in 4 minutes. Last known state: 5 active sessions.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. Select, Checkbox, Radio -->
+<section class="section">
+  <div class="section-title">7. Select, Checkbox, Radio</div>
+  <div class="two-col">
+    <div>
+      <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Select</div>
+      <div class="field" style="margin-bottom: 20px;">
+        <label class="field-label">Filter by machine</label>
+        <div class="select-wrap">
+          <select class="select-native">
+            <option>All machines</option>
+            <option>dev-server-01</option>
+            <option>dev-server-02</option>
+            <option>build-server-02</option>
+          </select>
+          <svg class="select-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Checkboxes</div>
+      <div class="check-group">
+        <label class="check-item checked">
+          <div class="check-box">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          Show active sessions
+        </label>
+        <label class="check-item">
+          <div class="check-box"></div>
+          Show idle sessions
+        </label>
+        <label class="check-item error">
+          <div class="check-box"></div>
+          Required field
+        </label>
+        <label class="check-item disabled">
+          <div class="check-box"></div>
+          Disabled option
+        </label>
+      </div>
+    </div>
+    <div>
+      <div style="margin-bottom: 16px; font-size: 0.8125rem; color: var(--fg-dim);">Radio buttons</div>
+      <div class="check-group">
+        <label class="check-item checked">
+          <div class="radio-dot"></div>
+          Stream only (read-only)
+        </label>
+        <label class="check-item">
+          <div class="radio-dot"></div>
+          Full interactive control
+        </label>
+        <label class="check-item disabled">
+          <div class="radio-dot"></div>
+          Disabled option
+        </label>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. Typography Hierarchy -->
+<section class="section">
+  <div class="section-title">8. Typography Hierarchy</div>
+  <div class="type-stack">
+    <div class="type-row">
+      <span class="type-label">H1</span>
+      <span style="font-size: 1.875rem; font-weight: 700; letter-spacing: -0.025em;">Session Dashboard</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">H2</span>
+      <span style="font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em;">Machine Health</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">H3</span>
+      <span style="font-size: 1.25rem; font-weight: 600;">Active Agents</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">H4</span>
+      <span style="font-size: 1.125rem; font-weight: 600;">Session Details</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">Body</span>
+      <span style="font-size: 1rem; color: var(--fg-dim);">Streaming session output from dev-server-01 via Tailscale. Last heartbeat 2 seconds ago.</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">Small</span>
+      <span style="font-size: 0.875rem; color: var(--fg-muted);">Updated 3 minutes ago &middot; 4 files changed &middot; nx-a7f3b2</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">Mono</span>
+      <span style="font-size: 0.875rem; font-family: var(--font-mono); color: var(--fg-dim);">cpu: 42% &middot; mem: 3.2G/16G &middot; disk: 67% &middot; uptime: 14d 7h</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">Code</span>
+      <span style="font-size: 0.8125rem; font-family: var(--font-mono); padding: 2px 8px; background: var(--surface-raised); border-radius: 4px; border: 1px solid var(--border);">nexus-register --start --session nx-a7f3b2</span>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Data Table Row (Bonus: dashboard-specific) -->
+<section class="section">
+  <div class="section-title">9. Data Table Row</div>
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+    <!-- Header -->
+    <div style="display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 120px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-ghost); text-transform: uppercase; letter-spacing: 0.05em;">
+      <span>Session</span>
+      <span>Project</span>
+      <span>Machine</span>
+      <span>Duration</span>
+      <span style="text-align: right;">Status</span>
+    </div>
+    <!-- Row 1 -->
+    <div style="display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 120px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 0.875rem; align-items: center; transition: background 150ms ease; cursor: pointer;" onmouseover="this.style.background='var(--surface-raised)'" onmouseout="this.style.background='transparent'">
+      <span style="font-family: var(--font-mono); color: var(--fg);">nx-a7f3b2</span>
+      <span style="color: var(--fg-dim);">nexus</span>
+      <span style="color: var(--fg-muted);">dev-01</span>
+      <span style="font-family: var(--font-mono); color: var(--fg-muted);">2h 14m</span>
+      <span style="text-align: right;"><span class="badge badge-success"><span class="badge-dot"></span>Active</span></span>
+    </div>
+    <!-- Row 2 -->
+    <div style="display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 120px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 0.875rem; align-items: center; cursor: pointer;" onmouseover="this.style.background='var(--surface-raised)'" onmouseout="this.style.background='transparent'">
+      <span style="font-family: var(--font-mono); color: var(--fg);">nx-c2d8e1</span>
+      <span style="color: var(--fg-dim);">oo</span>
+      <span style="color: var(--fg-muted);">dev-01</span>
+      <span style="font-family: var(--font-mono); color: var(--fg-muted);">45m</span>
+      <span style="text-align: right;"><span class="badge badge-primary"><span class="badge-dot"></span>Streaming</span></span>
+    </div>
+    <!-- Row 3 -->
+    <div style="display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 120px; padding: 10px 16px; font-size: 0.875rem; align-items: center; cursor: pointer;" onmouseover="this.style.background='var(--surface-raised)'" onmouseout="this.style.background='transparent'">
+      <span style="font-family: var(--font-mono); color: var(--fg-muted);">nx-e9f1a3</span>
+      <span style="color: var(--fg-muted);">tc</span>
+      <span style="color: var(--fg-muted);">build-02</span>
+      <span style="font-family: var(--font-mono); color: var(--fg-ghost);">ended</span>
+      <span style="text-align: right;"><span class="badge badge-neutral">Closed</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- 10. Status Metric Card (Bonus: dashboard-specific) -->
+<section class="section">
+  <div class="section-title">10. Metric Cards</div>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px;">
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Active Sessions</div>
+      <div style="font-size: 2.25rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1;">12</div>
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--success); margin-top: 4px;">+3 from yesterday</div>
+    </div>
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px;">
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Machines Online</div>
+      <div style="font-size: 2.25rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1;">3<span style="font-size: 1rem; font-weight: 400; color: var(--fg-muted);">/4</span></div>
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--warning); margin-top: 4px;">1 degraded</div>
+    </div>
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px;">
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Avg CPU</div>
+      <div style="font-size: 2.25rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1;">42<span style="font-size: 1rem; font-weight: 400; color: var(--fg-muted);">%</span></div>
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-ghost); margin-top: 4px;">across 3 machines</div>
+    </div>
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px;">
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Projects</div>
+      <div style="font-size: 2.25rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1;">14</div>
+      <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--primary); margin-top: 4px;">5 with active sessions</div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

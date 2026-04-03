@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Settings</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 24px;
+    }
+
+    .settings-nav {
+      list-style: none;
+    }
+
+    .settings-nav li {
+      margin-bottom: 2px;
+    }
+
+    .settings-nav a {
+      display: block;
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: all var(--transition);
+    }
+
+    .settings-nav a:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .settings-nav a.active {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .settings-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .settings-section h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .settings-section p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .agent-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .agent-row:last-child {
+      border-bottom: none;
+    }
+
+    .agent-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .agent-hostname {
+      font-weight: 500;
+      font-family: var(--font-mono);
+      font-size: 14px;
+    }
+
+    .agent-url {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .agent-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    @media (max-width: 768px) {
+      .settings-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="../index.html">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li>
+          <a href="projects.html">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+          </a>
+        </li>
+        <li>
+          <a href="health.html">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="settings.html" class="active">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>Settings</h2>
+          <div class="subtitle">Configure agents, preferences, and notification behavior</div>
+        </div>
+      </div>
+
+      <div class="settings-layout">
+
+        <!-- Settings nav -->
+        <ul class="settings-nav">
+          <li><a href="#" class="active">Agents</a></li>
+          <li><a href="#">Notifications</a></li>
+          <li><a href="#">Credentials</a></li>
+          <li><a href="#">Appearance</a></li>
+        </ul>
+
+        <!-- Settings content -->
+        <div>
+
+          <!-- Agents section -->
+          <div class="settings-section">
+            <h3>Agent Configuration</h3>
+            <p>Manage the machines running nexus-agent on your Tailscale network. Agents are discovered from ~/.config/nexus/agents.toml.</p>
+
+            <div class="agent-row">
+              <div class="agent-info">
+                <span class="agent-hostname">dev-01</span>
+                <span class="agent-url">100.64.0.1:7400</span>
+              </div>
+              <div class="agent-actions">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+                <button class="btn btn-sm">Test</button>
+                <button class="btn btn-sm">Remove</button>
+              </div>
+            </div>
+
+            <div class="agent-row">
+              <div class="agent-info">
+                <span class="agent-hostname">dev-02</span>
+                <span class="agent-url">100.64.0.2:7400</span>
+              </div>
+              <div class="agent-actions">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+                <button class="btn btn-sm">Test</button>
+                <button class="btn btn-sm">Remove</button>
+              </div>
+            </div>
+
+            <div class="agent-row">
+              <div class="agent-info">
+                <span class="agent-hostname">dev-03</span>
+                <span class="agent-url">100.64.0.3:7400</span>
+              </div>
+              <div class="agent-actions">
+                <span class="status status-active"><span class="status-dot"></span> Online</span>
+                <button class="btn btn-sm">Test</button>
+                <button class="btn btn-sm">Remove</button>
+              </div>
+            </div>
+
+            <div class="agent-row">
+              <div class="agent-info">
+                <span class="agent-hostname">dev-04</span>
+                <span class="agent-url">100.64.0.4:7400</span>
+              </div>
+              <div class="agent-actions">
+                <span class="status status-offline"><span class="status-dot"></span> Offline</span>
+                <button class="btn btn-sm">Test</button>
+                <button class="btn btn-sm">Remove</button>
+              </div>
+            </div>
+
+            <div style="margin-top: 16px;">
+              <button class="btn">Add Agent</button>
+            </div>
+          </div>
+
+          <!-- Config file section -->
+          <div class="settings-section">
+            <h3>Configuration File</h3>
+            <p>agents.toml location and current content.</p>
+
+            <div class="form-group">
+              <label class="form-label">Config Path</label>
+              <input type="text" class="form-input" value="~/.config/nexus/agents.toml" readonly>
+              <div class="form-hint">Hot-reloaded. Changes take effect immediately.</div>
+            </div>
+
+            <div class="terminal" style="min-height: auto; padding: 12px; font-size: 12px;">
+<span style="color: var(--text-muted);"># ~/.config/nexus/agents.toml</span><br>
+<br>
+<span style="color: var(--accent);">[[agents]]</span><br>
+<span style="color: var(--text-secondary);">name</span> = <span style="color: var(--green);">"dev-01"</span><br>
+<span style="color: var(--text-secondary);">host</span> = <span style="color: var(--green);">"100.64.0.1"</span><br>
+<span style="color: var(--text-secondary);">port</span> = <span style="color: var(--orange);">7400</span><br>
+<br>
+<span style="color: var(--accent);">[[agents]]</span><br>
+<span style="color: var(--text-secondary);">name</span> = <span style="color: var(--green);">"dev-02"</span><br>
+<span style="color: var(--text-secondary);">host</span> = <span style="color: var(--green);">"100.64.0.2"</span><br>
+<span style="color: var(--text-secondary);">port</span> = <span style="color: var(--orange);">7400</span><br>
+<br>
+<span style="color: var(--accent);">[[agents]]</span><br>
+<span style="color: var(--text-secondary);">name</span> = <span style="color: var(--green);">"dev-03"</span><br>
+<span style="color: var(--text-secondary);">host</span> = <span style="color: var(--green);">"100.64.0.3"</span><br>
+<span style="color: var(--text-secondary);">port</span> = <span style="color: var(--orange);">7400</span><br>
+<br>
+<span style="color: var(--accent);">[[agents]]</span><br>
+<span style="color: var(--text-secondary);">name</span> = <span style="color: var(--green);">"dev-04"</span><br>
+<span style="color: var(--text-secondary);">host</span> = <span style="color: var(--green);">"100.64.0.4"</span><br>
+<span style="color: var(--text-secondary);">port</span> = <span style="color: var(--orange);">7400</span>
+            </div>
+          </div>
+
+          <!-- Notifications section -->
+          <div class="settings-section">
+            <h3>Notification Preferences</h3>
+            <p>Configure meeting-aware notification queuing and TTS behavior.</p>
+
+            <div class="form-group">
+              <label class="form-label">Session Completion Alerts</label>
+              <select class="form-input">
+                <option>Desktop notification + TTS</option>
+                <option>Desktop notification only</option>
+                <option>TTS only</option>
+                <option>Disabled</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Meeting Mode Behavior</label>
+              <select class="form-input">
+                <option>Queue notifications until meeting ends</option>
+                <option>Silent desktop notifications only</option>
+                <option>Suppress all notifications</option>
+              </select>
+              <div class="form-hint">Detects meetings via calendar integration or manual toggle.</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Health Alert Threshold</label>
+              <div style="display: flex; gap: 12px;">
+                <div style="flex: 1;">
+                  <label class="form-label" style="font-size: 11px;">CPU %</label>
+                  <input type="number" class="form-input" value="90">
+                </div>
+                <div style="flex: 1;">
+                  <label class="form-label" style="font-size: 11px;">RAM %</label>
+                  <input type="number" class="form-input" value="90">
+                </div>
+                <div style="flex: 1;">
+                  <label class="form-label" style="font-size: 11px;">Disk %</label>
+                  <input type="number" class="form-input" value="85">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Credentials section -->
+          <div class="settings-section">
+            <h3>Credential Pool</h3>
+            <p>Shared API credentials rotated across Claude Code sessions to avoid rate limits.</p>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Credential</th>
+                    <th>Sessions Using</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="font-family: var(--font-mono); font-size: 12px;">anthropic-key-1</td>
+                    <td>4</td>
+                    <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-family: var(--font-mono); font-size: 12px;">anthropic-key-2</td>
+                    <td>3</td>
+                    <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-family: var(--font-mono); font-size: 12px;">anthropic-key-3</td>
+                    <td>5</td>
+                    <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Projects</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="../index.html">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li>
+          <a href="projects.html" class="active">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+            <span class="nav-badge">14</span>
+          </a>
+        </li>
+        <li>
+          <a href="health.html">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="settings.html">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>Projects</h2>
+          <div class="subtitle">All registered projects across your machines</div>
+        </div>
+        <div class="page-header-actions">
+          <div class="cmd-palette-hint">
+            Filter projects...
+            <kbd>/</kbd>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-value">14</span>
+          <span class="stat-label">Total Projects</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">8</span>
+          <span class="stat-label">With Active Sessions</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">4</span>
+          <span class="stat-label">Machines</span>
+        </div>
+      </div>
+
+      <!-- Project table -->
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Active Sessions</th>
+              <th>Machines</th>
+              <th>Last Activity</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="cursor: pointer;" onclick="window.location='project-detail.html'">
+              <td>
+                <span style="font-weight: 600;">co</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Compass</span>
+              </td>
+              <td><span class="badge badge-project">3</span></td>
+              <td>
+                <span class="badge badge-machine">dev-01</span>
+                <span class="badge badge-machine">dev-02</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">2m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">tc</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">TechCrunch</span>
+              </td>
+              <td><span class="badge badge-project">2</span></td>
+              <td>
+                <span class="badge badge-machine">dev-01</span>
+                <span class="badge badge-machine">dev-03</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">3m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">mv</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Moovie</span>
+              </td>
+              <td><span class="badge badge-project">1</span></td>
+              <td>
+                <span class="badge badge-machine">dev-02</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">18m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">tl</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Timeline</span>
+              </td>
+              <td><span class="badge badge-project">2</span></td>
+              <td>
+                <span class="badge badge-machine">dev-01</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">7m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">ss</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">SaaS Starter</span>
+              </td>
+              <td><span class="badge badge-project">2</span></td>
+              <td>
+                <span class="badge badge-machine">dev-03</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">11m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">la</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Landing</span>
+              </td>
+              <td><span class="badge badge-project">1</span></td>
+              <td>
+                <span class="badge badge-machine">dev-02</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">25m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">cl</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Clerk</span>
+              </td>
+              <td><span class="badge badge-project">1</span></td>
+              <td>
+                <span class="badge badge-machine">dev-01</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">34m ago</td>
+              <td><span class="status status-active"><span class="status-dot"></span> Active</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">cx</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Convex</span>
+              </td>
+              <td><span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">0</span></td>
+              <td>
+                <span style="color: var(--text-muted); font-size: 12px;">&mdash;</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">2h ago</td>
+              <td><span class="status status-idle"><span class="status-dot"></span> Idle</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">oo</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">OO Platform</span>
+              </td>
+              <td><span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">0</span></td>
+              <td>
+                <span style="color: var(--text-muted); font-size: 12px;">&mdash;</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">5h ago</td>
+              <td><span class="status status-idle"><span class="status-dot"></span> Idle</span></td>
+            </tr>
+            <tr style="cursor: pointer;">
+              <td>
+                <span style="font-weight: 600;">nx</span>
+                <span style="color: var(--text-muted); margin-left: 6px; font-size: 12px;">Nexus</span>
+              </td>
+              <td><span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">0</span></td>
+              <td>
+                <span style="color: var(--text-muted); font-size: 12px;">&mdash;</span>
+              </td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">1d ago</td>
+              <td><span class="status status-idle"><span class="status-dot"></span> Idle</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

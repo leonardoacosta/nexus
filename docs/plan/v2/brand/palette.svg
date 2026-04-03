@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Geist+Mono&amp;display=swap');
+      text { font-family: 'Geist Mono', monospace; }
+      .label { font-size: 11px; fill: #71717A; }
+      .hex { font-size: 13px; font-weight: 500; }
+      .section-title { font-size: 14px; font-weight: 600; fill: #FAFAFA; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="520" fill="#0A0A0B" rx="8"/>
+
+  <!-- Title -->
+  <text x="32" y="36" class="section-title" font-size="18">Nexus — Color Palette</text>
+
+  <!-- ===== Neutrals Row ===== -->
+  <text x="32" y="76" class="section-title">Neutrals</text>
+
+  <!-- Background -->
+  <rect x="32" y="88" width="100" height="64" rx="6" fill="#0A0A0B" stroke="#27272A" stroke-width="1"/>
+  <text x="82" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#0A0A0B</text>
+  <text x="82" y="140" text-anchor="middle" class="label">Background</text>
+
+  <!-- Surface -->
+  <rect x="144" y="88" width="100" height="64" rx="6" fill="#111113"/>
+  <text x="194" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#111113</text>
+  <text x="194" y="140" text-anchor="middle" class="label">Surface</text>
+
+  <!-- Surface Raised -->
+  <rect x="256" y="88" width="100" height="64" rx="6" fill="#1A1A1D"/>
+  <text x="306" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#1A1A1D</text>
+  <text x="306" y="140" text-anchor="middle" class="label">Raised</text>
+
+  <!-- Overlay -->
+  <rect x="368" y="88" width="100" height="64" rx="6" fill="#222225"/>
+  <text x="418" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#222225</text>
+  <text x="418" y="140" text-anchor="middle" class="label">Overlay</text>
+
+  <!-- Border -->
+  <rect x="480" y="88" width="100" height="64" rx="6" fill="#27272A"/>
+  <text x="530" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#27272A</text>
+  <text x="530" y="140" text-anchor="middle" class="label">Border</text>
+
+  <!-- Border Bright -->
+  <rect x="592" y="88" width="100" height="64" rx="6" fill="#3F3F46"/>
+  <text x="642" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#3F3F46</text>
+  <text x="642" y="140" text-anchor="middle" class="label">Border Bright</text>
+
+  <!-- Ghost -->
+  <rect x="704" y="88" width="100" height="64" rx="6" fill="#52525B"/>
+  <text x="754" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#52525B</text>
+  <text x="754" y="140" text-anchor="middle" class="label">Ghost</text>
+
+  <!-- Muted -->
+  <rect x="816" y="88" width="100" height="64" rx="6" fill="#71717A"/>
+  <text x="866" y="120" text-anchor="middle" class="hex" fill="#FAFAFA">#71717A</text>
+  <text x="866" y="140" text-anchor="middle" class="label">Muted</text>
+
+  <!-- ===== Text Row ===== -->
+  <text x="32" y="192" class="section-title">Text</text>
+
+  <!-- Foreground -->
+  <rect x="32" y="204" width="100" height="64" rx="6" fill="#FAFAFA"/>
+  <text x="82" y="236" text-anchor="middle" class="hex" fill="#0A0A0B">#FAFAFA</text>
+  <text x="82" y="256" text-anchor="middle" class="label" fill="#52525B">Foreground</text>
+
+  <!-- Dim -->
+  <rect x="144" y="204" width="100" height="64" rx="6" fill="#A1A1AA"/>
+  <text x="194" y="236" text-anchor="middle" class="hex" fill="#0A0A0B">#A1A1AA</text>
+  <text x="194" y="256" text-anchor="middle" class="label" fill="#52525B">Dim</text>
+
+  <!-- Muted Text -->
+  <rect x="256" y="204" width="100" height="64" rx="6" fill="#71717A"/>
+  <text x="306" y="236" text-anchor="middle" class="hex" fill="#FAFAFA">#71717A</text>
+  <text x="306" y="256" text-anchor="middle" class="label">Muted</text>
+
+  <!-- Ghost Text -->
+  <rect x="368" y="204" width="100" height="64" rx="6" fill="#52525B"/>
+  <text x="418" y="236" text-anchor="middle" class="hex" fill="#FAFAFA">#52525B</text>
+  <text x="418" y="256" text-anchor="middle" class="label">Ghost</text>
+
+  <!-- ===== Semantic Row ===== -->
+  <text x="32" y="308" class="section-title">Semantic</text>
+
+  <!-- Primary -->
+  <rect x="32" y="320" width="100" height="64" rx="6" fill="#3B82F6"/>
+  <text x="82" y="352" text-anchor="middle" class="hex" fill="#FFFFFF">#3B82F6</text>
+  <text x="82" y="372" text-anchor="middle" class="label" fill="rgba(255,255,255,0.7)">Primary</text>
+
+  <!-- Primary Hover -->
+  <rect x="144" y="320" width="100" height="64" rx="6" fill="#2563EB"/>
+  <text x="194" y="352" text-anchor="middle" class="hex" fill="#FFFFFF">#2563EB</text>
+  <text x="194" y="372" text-anchor="middle" class="label" fill="rgba(255,255,255,0.7)">Primary Hover</text>
+
+  <!-- Success -->
+  <rect x="288" y="320" width="100" height="64" rx="6" fill="#22C55E"/>
+  <text x="338" y="352" text-anchor="middle" class="hex" fill="#FFFFFF">#22C55E</text>
+  <text x="338" y="372" text-anchor="middle" class="label" fill="rgba(255,255,255,0.7)">Success</text>
+
+  <!-- Warning -->
+  <rect x="400" y="320" width="100" height="64" rx="6" fill="#EAB308"/>
+  <text x="450" y="352" text-anchor="middle" class="hex" fill="#0A0A0B">#EAB308</text>
+  <text x="450" y="372" text-anchor="middle" class="label" fill="rgba(10,10,11,0.7)">Warning</text>
+
+  <!-- Error -->
+  <rect x="512" y="320" width="100" height="64" rx="6" fill="#EF4444"/>
+  <text x="562" y="352" text-anchor="middle" class="hex" fill="#FFFFFF">#EF4444</text>
+  <text x="562" y="372" text-anchor="middle" class="label" fill="rgba(255,255,255,0.7)">Error</text>
+
+  <!-- Info -->
+  <rect x="624" y="320" width="100" height="64" rx="6" fill="#3B82F6"/>
+  <text x="674" y="352" text-anchor="middle" class="hex" fill="#FFFFFF">#3B82F6</text>
+  <text x="674" y="372" text-anchor="middle" class="label" fill="rgba(255,255,255,0.7)">Info</text>
+
+  <!-- ===== Ghost Variants Row ===== -->
+  <text x="32" y="424" class="section-title">Ghost Variants (12% opacity fills)</text>
+
+  <rect x="32" y="436" width="100" height="64" rx="6" fill="rgba(59,130,246,0.12)" stroke="#27272A" stroke-width="1"/>
+  <text x="82" y="468" text-anchor="middle" class="hex" fill="#3B82F6">Primary</text>
+  <text x="82" y="488" text-anchor="middle" class="label">12% fill</text>
+
+  <rect x="144" y="436" width="100" height="64" rx="6" fill="rgba(34,197,94,0.12)" stroke="#27272A" stroke-width="1"/>
+  <text x="194" y="468" text-anchor="middle" class="hex" fill="#22C55E">Success</text>
+  <text x="194" y="488" text-anchor="middle" class="label">12% fill</text>
+
+  <rect x="256" y="436" width="100" height="64" rx="6" fill="rgba(234,179,8,0.12)" stroke="#27272A" stroke-width="1"/>
+  <text x="306" y="468" text-anchor="middle" class="hex" fill="#EAB308">Warning</text>
+  <text x="306" y="488" text-anchor="middle" class="label">12% fill</text>
+
+  <rect x="368" y="436" width="100" height="64" rx="6" fill="rgba(239,68,68,0.12)" stroke="#27272A" stroke-width="1"/>
+  <text x="418" y="468" text-anchor="middle" class="hex" fill="#EF4444">Error</text>
+  <text x="418" y="488" text-anchor="middle" class="label">12% fill</text>
+</svg>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Project: co</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="../index.html">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li>
+          <a href="projects.html" class="active">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+          </a>
+        </li>
+        <li>
+          <a href="health.html">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="settings.html">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="projects.html">Projects</a>
+        <span class="sep">/</span>
+        <span>co</span>
+      </div>
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>co <span style="font-weight: 400; color: var(--text-muted);">&mdash; Compass</span></h2>
+          <div class="subtitle">3 active sessions across 2 machines</div>
+        </div>
+        <div class="page-header-actions">
+          <span class="status status-active"><span class="status-dot"></span> Active</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-value">3</span>
+          <span class="stat-label">Active Sessions</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">2</span>
+          <span class="stat-label">Machines</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">2</span>
+          <span class="stat-label">Team Members</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">47</span>
+          <span class="stat-label">Sessions (30d)</span>
+        </div>
+      </div>
+
+      <!-- Active Sessions -->
+      <div class="section-header">
+        <span class="section-title">Active Sessions</span>
+      </div>
+
+      <div class="card-grid" style="margin-bottom: 32px;">
+        <a href="session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">refactor auth middleware</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Claude is implementing the new auth guard pattern across 4 route files.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-01</span></span>
+            <span>Leo &middot; 12m</span>
+          </div>
+        </a>
+
+        <a href="session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">fix stripe webhook handler</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Debugging webhook signature verification failure on subscription events.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-01</span></span>
+            <span>Mateo &middot; 5m</span>
+          </div>
+        </a>
+
+        <a href="session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">add e2e tests for onboarding</span>
+            <span class="status status-idle"><span class="status-dot"></span> Idle</span>
+          </div>
+          <div class="card-body">
+            Waiting for user input &mdash; test assertions need review.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-02</span></span>
+            <span>Priya &middot; 23m</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Recent Sessions -->
+      <div class="section-header">
+        <span class="section-title">Recent Sessions (completed)</span>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>User</th>
+              <th>Machine</th>
+              <th>Duration</th>
+              <th>Ended</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight: 500;">migrate billing page to RSC</td>
+              <td>Leo</td>
+              <td><span class="badge badge-machine">dev-01</span></td>
+              <td style="font-family: var(--font-mono); font-size: 12px;">34m</td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">1h ago</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 500;">fix hydration mismatch in nav</td>
+              <td>Mateo</td>
+              <td><span class="badge badge-machine">dev-03</span></td>
+              <td style="font-family: var(--font-mono); font-size: 12px;">8m</td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">2h ago</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 500;">add team invite flow</td>
+              <td>Leo</td>
+              <td><span class="badge badge-machine">dev-01</span></td>
+              <td style="font-family: var(--font-mono); font-size: 12px;">52m</td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">4h ago</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 500;">update drizzle schema for roles</td>
+              <td>Leo</td>
+              <td><span class="badge badge-machine">dev-02</span></td>
+              <td style="font-family: var(--font-mono); font-size: 12px;">19m</td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">6h ago</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 500;">scaffold project settings page</td>
+              <td>Priya</td>
+              <td><span class="badge badge-machine">dev-02</span></td>
+              <td style="font-family: var(--font-mono); font-size: 12px;">27m</td>
+              <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">1d ago</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

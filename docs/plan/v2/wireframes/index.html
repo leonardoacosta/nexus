@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v2 — Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Nexus</h1>
+        <span>v2.0</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li>
+          <a href="index.html" class="active">
+            <span class="nav-icon">&#9632;</span>
+            <span>Dashboard</span>
+            <span class="nav-badge">12</span>
+          </a>
+        </li>
+        <li>
+          <a href="pages/projects.html">
+            <span class="nav-icon">&#9830;</span>
+            <span>Projects</span>
+            <span class="nav-badge">14</span>
+          </a>
+        </li>
+        <li>
+          <a href="pages/health.html">
+            <span class="nav-icon">&#9829;</span>
+            <span>Health</span>
+          </a>
+        </li>
+        <li>
+          <a href="pages/settings.html">
+            <span class="nav-icon">&#9881;</span>
+            <span>Settings</span>
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="kbd-hint">/ command palette</span>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h2>Dashboard</h2>
+          <div class="subtitle">All active Claude Code sessions across your machines</div>
+        </div>
+        <div class="page-header-actions">
+          <div class="cmd-palette-hint">
+            Search sessions...
+            <kbd>/</kbd>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-value">12</span>
+          <span class="stat-label">Active Sessions</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">4</span>
+          <span class="stat-label">Machines Online</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">8</span>
+          <span class="stat-label">Projects</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">3</span>
+          <span class="stat-label">Team Members</span>
+        </div>
+      </div>
+
+      <!-- Session group: co -->
+      <div class="section-header">
+        <span class="section-title">co &mdash; 3 sessions</span>
+        <a href="pages/project-detail.html" class="btn btn-sm">View Project</a>
+      </div>
+      <div class="card-grid" style="margin-bottom: 24px;">
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">refactor auth middleware</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Claude is implementing the new auth guard pattern across 4 route files.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-01</span></span>
+            <span>Leo &middot; 12m</span>
+          </div>
+        </a>
+
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">fix stripe webhook handler</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Debugging webhook signature verification failure on subscription events.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-01</span></span>
+            <span>Mateo &middot; 5m</span>
+          </div>
+        </a>
+
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">add e2e tests for onboarding</span>
+            <span class="status status-idle"><span class="status-dot"></span> Idle</span>
+          </div>
+          <div class="card-body">
+            Waiting for user input — test assertions need review.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-02</span></span>
+            <span>Priya &middot; 23m</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Session group: tc -->
+      <div class="section-header">
+        <span class="section-title">tc &mdash; 2 sessions</span>
+        <a href="pages/project-detail.html" class="btn btn-sm">View Project</a>
+      </div>
+      <div class="card-grid" style="margin-bottom: 24px;">
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">migrate dashboard to server actions</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Converting tRPC mutations to Next.js Server Actions in the admin panel.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-03</span></span>
+            <span>Leo &middot; 8m</span>
+          </div>
+        </a>
+
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">optimize query N+1 in feed</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Batching Drizzle queries to eliminate N+1 in timeline feed.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-01</span></span>
+            <span>Mateo &middot; 3m</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Session group: mv -->
+      <div class="section-header">
+        <span class="section-title">mv &mdash; 1 session</span>
+        <a href="pages/project-detail.html" class="btn btn-sm">View Project</a>
+      </div>
+      <div class="card-grid" style="margin-bottom: 24px;">
+        <a href="pages/session.html" class="card" style="text-decoration: none; color: inherit;">
+          <div class="card-header">
+            <span class="card-title">implement video upload pipeline</span>
+            <span class="status status-active"><span class="status-dot"></span> Active</span>
+          </div>
+          <div class="card-body">
+            Building the chunked upload handler with progress tracking.
+          </div>
+          <div class="card-footer">
+            <span><span class="badge badge-machine">dev-02</span></span>
+            <span>Leo &middot; 18m</span>
+          </div>
+        </a>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>
