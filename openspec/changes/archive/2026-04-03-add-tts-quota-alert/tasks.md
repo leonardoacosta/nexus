@@ -18,4 +18,4 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Verify alert fires on first ElevenLabs failure by temporarily using invalid API key, confirm desktop notification appears [owner:user]
+- [x] [4.1] Verify alert fires on first ElevenLabs failure by temporarily using invalid API key, confirm desktop notification appears [owner:user]

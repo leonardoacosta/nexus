@@ -19,4 +19,4 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Manual verification: trigger notification with project code, confirm icon appears in macOS Notification Center [owner:user]
+- [x] [4.1] Manual verification: trigger notification with project code, confirm icon appears in macOS Notification Center [owner:user]
