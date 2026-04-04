@@ -5,7 +5,7 @@ import * as schema from "./schema";
 /**
  * Create a postgres.js connection and wrap it with Drizzle.
  *
- * The connection string is read from POSTGRES_URL (supplied by Doppler).
+ * The connection string is read from POSTGRES_URL (.env at project root).
  * Call this once at startup — the returned `db` instance is safe to reuse.
  */
 export function createDb(url?: string) {
@@ -13,7 +13,7 @@ export function createDb(url?: string) {
   if (!connectionString) {
     throw new Error(
       "POSTGRES_URL environment variable is required. " +
-        "Set it via Doppler or pass a URL directly.",
+        "Set it in .env at project root or pass a URL directly.",
     );
   }
 
