@@ -21,3 +21,18 @@ name = "macbook"
 host = "macbook"          # Tailscale MagicDNS hostname
 port = 7400
 user = "nyaptor"
+
+# ── Dashboard environment (add to ~/.env on the homelab) ────────────
+#
+# The Nexus Dashboard reads NEXUS_AGENTS to know which agent hosts to
+# poll. Format: "name:host:port" comma-separated.
+#
+# Example (add to ~/.env on homelab, sourced by nexus-dashboard.service):
+#   NEXUS_AGENTS="homelab:homelab:7400,macbook:macbook:7400"
+#
+# Hosts use Tailscale MagicDNS names. The dashboard at
+# https://nexus.leonardoacosta.dev is Tailscale-only — accessible only
+# when connected to the Tailscale network.
+#
+# Required Traefik cert resolver env var (add to Traefik's environment):
+#   CF_DNS_API_TOKEN="your-cloudflare-api-token"
