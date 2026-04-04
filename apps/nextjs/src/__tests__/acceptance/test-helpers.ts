@@ -6,7 +6,7 @@
 import type { Session } from "@nexus/core";
 import type { WithAgent, AgentStatus } from "@/lib/agent-client";
 import type { HealthMetrics } from "@nexus/core";
-import type { Project } from "@nexus/core";
+import type { DiscoveredProject } from "@nexus/core";
 
 export function makeSession(overrides: Partial<WithAgent<Session>> = {}): WithAgent<Session> {
   return {
@@ -74,12 +74,14 @@ export function makeHealthMetrics(
   };
 }
 
-export function makeProject(overrides: Partial<WithAgent<Project>> = {}): WithAgent<Project> {
+export function makeProject(
+  overrides: Partial<DiscoveredProject> = {},
+): DiscoveredProject {
   return {
     name: "nexus",
+    path: "/home/user/dev/nexus",
     active_sessions: 2,
     total_sessions: 5,
-    machines: ["dev-server", "build-box"],
     agent: "dev-server",
     ...overrides,
   };
