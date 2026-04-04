@@ -315,10 +315,7 @@ export function startServer(port: number = PORT, db?: Db) {
         // Register as viewer (both stream and interact get output)
         streamManager.addViewer(ws);
 
-        logger.debug("ws: open", {
-          sessionId: ws.data.sessionId,
-          mode: ws.data.mode,
-        });
+        logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: open");
       },
 
       message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
@@ -369,10 +366,7 @@ export function startServer(port: number = PORT, db?: Db) {
 
         streamManager.removeViewer(ws);
 
-        logger.debug("ws: close", {
-          sessionId: ws.data.sessionId,
-          mode: ws.data.mode,
-        });
+        logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: close");
 
         // Stop ping timer if no sockets remain
         if (allSockets.size === 0) {
@@ -394,6 +388,6 @@ export function startServer(port: number = PORT, db?: Db) {
     },
   });
 
-  logger.info("nexus-agent started", { port: server.port });
+  logger.info({ port: server.port }, "nexus-agent started");
   return server;
 }

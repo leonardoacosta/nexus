@@ -111,7 +111,7 @@ export class MockPtySource implements PtySource {
     this._cols = cols;
     this._rows = rows;
     this._lastResize = { cols, rows };
-    logger.debug("mock-pty: resize", { cols, rows });
+    logger.debug({ cols, rows }, "mock-pty: resize");
   }
 
   close(): void {

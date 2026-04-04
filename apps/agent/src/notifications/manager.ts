@@ -50,13 +50,13 @@ export class NotificationManager {
         // Drop: mark as expired immediately
         await markNotificationExpired(this.db, row.id);
         row.status = "expired";
-        logger.info("notification dropped (meeting active, rule=drop)", { id: row.id });
+        logger.info({ id: row.id }, "notification dropped (meeting active, rule=drop)");
         return row;
       }
 
       if (rule.meeting_behavior === "buffer") {
         // Buffer: keep as queued, will be flushed when meeting ends
-        logger.info("notification buffered (meeting active)", { id: row.id });
+        logger.info({ id: row.id }, "notification buffered (meeting active)");
         return row;
       }
 
@@ -78,10 +78,7 @@ export class NotificationManager {
       if (success) delivered++;
     }
 
-    logger.info("notification flush complete", {
-      total: queued.length,
-      delivered,
-    });
+    logger.info({ total: queued.length, delivered }, "notification flush complete");
 
     return delivered;
   }

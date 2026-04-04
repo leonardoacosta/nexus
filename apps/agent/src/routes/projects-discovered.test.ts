@@ -19,7 +19,7 @@ mock.module("node:fs", () => ({
 }));
 
 // Mock ../db/sessions so queryRecentSessions doesn't hit a real DB
-const mockQueryRecentSessions = mock(() => Promise.resolve([]));
+const mockQueryRecentSessions = mock((): Promise<{ id: string; project: string; machine: string; status: string; startedAt: string; lastActivity: string; endedAt: string | null; pid: number | null; cwd: string | null }[]> => Promise.resolve([]));
 
 mock.module("../db/sessions", () => ({
   queryRecentSessions: mockQueryRecentSessions,

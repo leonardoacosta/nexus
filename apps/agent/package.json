@@ -12,6 +12,7 @@
   "dependencies": {
     "@nexus/core": "workspace:*",
     "@nexus/db": "workspace:*",
+    "@sentry/node": "^8.0.0",
     "drizzle-orm": "^0.44.2",
     "systeminformation": "^5.31.5"
   },

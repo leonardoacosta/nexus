@@ -23,6 +23,7 @@ notification = []
 
 [dependencies]
 nexus-core = { workspace = true }
+sentry = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 axum = { workspace = true }

@@ -51,9 +51,7 @@ export function createSessionManager(): SessionManager {
           sessionType: "ad_hoc",
         };
         sessions.set(event.session_id, session);
-        logger.info("session-manager: session started", {
-          id: event.session_id,
-        });
+        logger.info({ id: event.session_id }, "session-manager: session started");
         break;
       }
       case "session_update": {
@@ -64,13 +62,11 @@ export function createSessionManager(): SessionManager {
           if (existing.status === "idle") {
             existing.status = "active";
           }
-          logger.debug("session-manager: session updated", {
-            id: event.session_id,
-          });
+          logger.debug({ id: event.session_id }, "session-manager: session updated");
         } else {
           logger.warn(
-            "session-manager: update for unknown session",
             { id: event.session_id },
+            "session-manager: update for unknown session",
           );
         }
         break;
@@ -80,13 +76,11 @@ export function createSessionManager(): SessionManager {
         if (existing) {
           existing.status = "ended";
           existing.endedAt = new Date().toISOString();
-          logger.info("session-manager: session ended", {
-            id: event.session_id,
-          });
+          logger.info({ id: event.session_id }, "session-manager: session ended");
         } else {
           logger.warn(
-            "session-manager: end for unknown session",
             { id: event.session_id },
+            "session-manager: end for unknown session",
           );
         }
         break;
@@ -115,9 +109,7 @@ export function createSessionManager(): SessionManager {
       const lastActivity = new Date(session.lastHeartbeat).getTime();
       if (now - lastActivity > IDLE_THRESHOLD_MS) {
         session.status = "idle";
-        logger.info("session-manager: session marked idle", {
-          id: session.id,
-        });
+        logger.info({ id: session.id }, "session-manager: session marked idle");
       }
     }
   }

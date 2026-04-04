@@ -65,14 +65,14 @@ export function createWatcherBridge(
       if (!event.type) return;
       options.onEvent(event);
     } catch {
-      logger.warn("watcher-bridge: failed to parse line", { line: trimmed });
+      logger.warn({ line: trimmed }, "watcher-bridge: failed to parse line");
     }
   }
 
   function spawn(): void {
     if (stopped) return;
 
-    logger.info("watcher-bridge: spawning watcher", { binaryPath });
+    logger.info({ binaryPath }, "watcher-bridge: spawning watcher");
     lineBuffer = "";
 
     proc = Bun.spawn([binaryPath], {
@@ -109,7 +109,7 @@ export function createWatcherBridge(
           lineBuffer = "";
         }
       } catch (err) {
-        logger.error("watcher-bridge: stdout stream closed unexpectedly", { error: err });
+        logger.error({ error: err }, "watcher-bridge: stdout stream closed unexpectedly");
       }
     })();
 
@@ -121,7 +121,7 @@ export function createWatcherBridge(
 
       if (stopped) return;
 
-      logger.warn("watcher-bridge: watcher exited", { code, backoffMs });
+      logger.warn({ code, backoffMs }, "watcher-bridge: watcher exited");
       restartTimer = setTimeout(() => {
         backoffMs = Math.min(backoffMs * 2, 30_000);
         spawn();
@@ -139,7 +139,7 @@ export function createWatcherBridge(
     try {
       void stdin.flush();
     } catch (err) {
-      logger.warn("watcher-bridge: stdin flush failed", { error: err });
+      logger.warn({ error: err }, "watcher-bridge: stdin flush failed");
     }
   }
 

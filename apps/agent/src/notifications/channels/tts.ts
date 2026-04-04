@@ -10,10 +10,7 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
   if (!apiKey) {
-    logger.info("tts notification (stub — no ELEVENLABS_API_KEY)", {
-      id: notification.id,
-      body: notification.body,
-    });
+    logger.info({ id: notification.id, body: notification.body }, "tts notification (stub — no ELEVENLABS_API_KEY)");
     return true;
   }
 
@@ -35,20 +32,17 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
     );
 
     if (!res.ok) {
-      logger.error("tts API error", {
-        id: notification.id,
-        status: res.status,
-      });
+      logger.error({ id: notification.id, status: res.status }, "tts API error");
       return false;
     }
 
-    logger.info("tts notification sent", { id: notification.id });
+    logger.info({ id: notification.id }, "tts notification sent");
     return true;
   } catch (err) {
-    logger.error("tts notification failed", {
+    logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
-    });
+    }, "tts notification failed");
     return false;
   }
 }

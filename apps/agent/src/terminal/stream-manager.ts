@@ -47,7 +47,7 @@ export class StreamManager {
       unsubscribe,
     });
 
-    logger.debug("stream-manager: attached", { sessionId });
+    logger.debug({ sessionId }, "stream-manager: attached");
   }
 
   /** Get the PtySource for a session (if attached). */
@@ -73,10 +73,7 @@ export class StreamManager {
       ws.sendBinary(new TextEncoder().encode(joined));
     }
 
-    logger.debug("stream-manager: viewer added", {
-      sessionId,
-      viewerCount: stream.viewers.size,
-    });
+    logger.debug({ sessionId, viewerCount: stream.viewers.size }, "stream-manager: viewer added");
   }
 
   /** Remove a viewer WebSocket. */
@@ -99,13 +96,10 @@ export class StreamManager {
           // ignore
         }
       }
-      logger.debug("stream-manager: interactive writer released", { sessionId });
+      logger.debug({ sessionId }, "stream-manager: interactive writer released");
     }
 
-    logger.debug("stream-manager: viewer removed", {
-      sessionId,
-      viewerCount: stream.viewers.size,
-    });
+    logger.debug({ sessionId, viewerCount: stream.viewers.size }, "stream-manager: viewer removed");
   }
 
   /**
@@ -122,7 +116,7 @@ export class StreamManager {
     }
 
     stream.interactiveWriter = ws;
-    logger.debug("stream-manager: writer claimed", { sessionId });
+    logger.debug({ sessionId }, "stream-manager: writer claimed");
     return true;
   }
 
@@ -155,7 +149,7 @@ export class StreamManager {
     stream.interactiveWriter = null;
     this.sessions.delete(sessionId);
 
-    logger.debug("stream-manager: session ended", { sessionId });
+    logger.debug({ sessionId }, "stream-manager: session ended");
   }
 
   /** Detach all sessions. */

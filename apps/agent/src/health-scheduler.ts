@@ -29,7 +29,7 @@ export class HealthScheduler {
   start(): void {
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
-    logger.info("health scheduler started", { intervalMs: this.intervalMs });
+    logger.info({ intervalMs: this.intervalMs }, "health scheduler started");
   }
 
   /** Stop the scheduler. */
@@ -59,9 +59,7 @@ export class HealthScheduler {
         rawJson: JSON.stringify(metrics),
       });
     } catch (err) {
-      logger.error("health scheduler tick failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "health scheduler tick failed");
     }
   }
 }

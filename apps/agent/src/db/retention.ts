@@ -26,10 +26,10 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
     .delete(sessionEvents)
     .where(lt(sessionEvents.timestamp, eventsCutoff));
 
-  logger.info("retention cleanup complete", {
+  logger.info({
     health_deleted: healthDeleted.count,
     events_deleted: eventsDeleted.count,
-  });
+  }, "retention cleanup complete");
 }
 
 /**

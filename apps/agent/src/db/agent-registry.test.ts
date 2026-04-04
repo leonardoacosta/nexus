@@ -8,23 +8,17 @@ describe("upsertSelfInRegistry", () => {
     let capturedValues: Record<string, unknown> | null = null;
     let capturedConflictSet: Record<string, unknown> | null = null;
 
-    // Create a chainable mock that captures the insert values
+    // Create a chainable mock that captures insert values and conflict set
     const onConflictDoUpdate = mock(async (opts: { set: Record<string, unknown> }) => {
       capturedConflictSet = opts.set;
     });
-    const valuesMock = mock(() => ({ onConflictDoUpdate }));
-    const insertMock = mock(() => ({ values: valuesMock }));
-
-    const mockDb = { insert: insertMock } as unknown as import("@nexus/db").Db;
-
-    // Intercept values() to capture what was passed
-    const origValues = valuesMock.getMockImplementation?.();
-    // Wrap valuesMock to capture args
-    const wrappedValues = mock((vals: Record<string, unknown>) => {
+    const valuesMock = mock((vals: Record<string, unknown>) => {
       capturedValues = vals;
       return { onConflictDoUpdate };
     });
-    insertMock.mockImplementation(() => ({ values: wrappedValues }));
+    const insertMock = mock((_table?: unknown) => ({ values: valuesMock }));
+
+    const mockDb = { insert: insertMock } as unknown as import("@nexus/db").Db;
 
     await upsertSelfInRegistry(mockDb);
 

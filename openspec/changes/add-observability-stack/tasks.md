@@ -9,17 +9,17 @@
 - [x] 1.6 Verify: `LOG_LEVEL=debug bun run apps/nexus-register/src/index.ts start` emits structured JSON [beads:nx-47ab]
 
 ## 2. Phase 2 — Sentry Integration
-- [ ] 2.1 Add `@sentry/node` to `apps/agent/package.json`, create `apps/agent/src/instrument.ts` with `Sentry.init()` [beads:nx-bdno]
-- [ ] 2.2 Add `@sentry/nextjs` to `apps/nextjs/package.json`, create `apps/nextjs/sentry.server.config.ts` and `sentry.client.config.ts` [beads:nx-v1yt]
-- [ ] 2.3 Add `sentry` crate to `Cargo.toml` workspace dependencies [beads:nx-4dit]
-- [ ] 2.4 Initialize Sentry in `crates/nexus-agent/src/main.rs` — `sentry::init()` with DSN, environment, release [beads:nx-qmw4]
-- [ ] 2.5 Initialize Sentry in `crates/nexus-tui/src/main.rs` [beads:nx-jo6o]
-- [ ] 2.6 Initialize Sentry in `crates/nexus-mcp/src/main.rs` [beads:nx-prbv]
+- [x] 2.1 Add `@sentry/node` to `apps/agent/package.json`, create `apps/agent/src/instrument.ts` with `Sentry.init()` [beads:nx-bdno]
+- [x] 2.2 Add `@sentry/nextjs` to `apps/nextjs/package.json`, create `apps/nextjs/sentry.server.config.ts` and `sentry.client.config.ts` [beads:nx-v1yt]
+- [x] 2.3 Add `sentry` crate to `Cargo.toml` workspace dependencies [beads:nx-4dit]
+- [x] 2.4 Initialize Sentry in `crates/nexus-agent/src/main.rs` — `sentry::init()` with DSN, environment, release [beads:nx-qmw4]
+- [x] 2.5 Initialize Sentry in `crates/nexus-tui/src/main.rs` [beads:nx-jo6o]
+- [x] 2.6 Initialize Sentry in `crates/nexus-mcp/src/main.rs` [beads:nx-prbv]
 - [ ] 2.7 Add breadcrumbs in `crates/nexus-agent/src/services/credential_pool.rs` — credential rotation events [beads:nx-nudq]
 - [ ] 2.8 Add breadcrumbs in `crates/nexus-agent/src/notification_engine.rs` — notification delivery [beads:nx-od80]
 - [ ] 2.9 Add breadcrumbs in `crates/nexus-agent/src/grpc/` — gRPC call failures [beads:nx-go4f]
-- [ ] 2.10 Configure `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in `.env` template / Doppler [beads:nx-725f]
-- [ ] 2.11 Verify: trigger a panic in dev and confirm it appears in Sentry dashboard [beads:nx-jz8w]
+- [x] 2.10 Configure `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in `.env` template / Doppler [beads:nx-725f]
+- [x] 2.11 Verify: trigger a panic in dev and confirm it appears in Sentry dashboard [beads:nx-jz8w]
 
 ## 3. Phase 2b — Sentry AI Agent Monitoring
 - [ ] 3.1 Identify all Anthropic API call sites — `crates/nexus-agent/src/usage_api.rs` (`query_usage`), `crates/nexus-agent/src/services/credential_pool.rs` [beads:nx-cyeh]

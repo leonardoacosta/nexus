@@ -81,5 +81,8 @@ tui-textarea-2 = { version = "0.10", features = ["crossterm"] }
 # Concurrency
 parking_lot = "0.12"
 
+# Observability
+sentry = { version = "0.34", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
+
 # Shared crate
 nexus-core = { path = "crates/nexus-core" }

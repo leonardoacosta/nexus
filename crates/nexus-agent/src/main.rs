@@ -75,6 +75,21 @@ where
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Sentry must be initialized before any other setup — _guard keeps it alive
+    let _sentry_guard = {
+        let dsn = std::env::var("SENTRY_DSN").unwrap_or_default();
+        sentry::init((
+            dsn.as_str(),
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: std::env::var("SENTRY_ENVIRONMENT")
+                    .ok()
+                    .map(|s| s.into()),
+                ..Default::default()
+            },
+        ))
+    };
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("nexus_agent=info".parse()?))
         .init();

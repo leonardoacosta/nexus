@@ -10,10 +10,7 @@ export async function sendSlackNotification(notification: NotificationRow): Prom
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
   if (!webhookUrl) {
-    logger.info("slack notification (stub — no SLACK_WEBHOOK_URL)", {
-      id: notification.id,
-      title: notification.title,
-    });
+    logger.info({ id: notification.id, title: notification.title }, "slack notification (stub — no SLACK_WEBHOOK_URL)");
     return true;
   }
 
@@ -38,20 +35,17 @@ export async function sendSlackNotification(notification: NotificationRow): Prom
     });
 
     if (!res.ok) {
-      logger.error("slack webhook error", {
-        id: notification.id,
-        status: res.status,
-      });
+      logger.error({ id: notification.id, status: res.status }, "slack webhook error");
       return false;
     }
 
-    logger.info("slack notification sent", { id: notification.id });
+    logger.info({ id: notification.id }, "slack notification sent");
     return true;
   } catch (err) {
-    logger.error("slack notification failed", {
+    logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
-    });
+    }, "slack notification failed");
     return false;
   }
 }

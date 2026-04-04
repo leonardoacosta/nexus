@@ -543,6 +543,21 @@ async fn dispatch(req: &JsonRpcRequest, client: &reqwest::Client) -> JsonRpcResp
 
 #[tokio::main]
 async fn main() {
+    // Sentry must be initialized before any other setup — _guard keeps it alive
+    let _sentry_guard = {
+        let dsn = std::env::var("SENTRY_DSN").unwrap_or_default();
+        sentry::init((
+            dsn.as_str(),
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: std::env::var("SENTRY_ENVIRONMENT")
+                    .ok()
+                    .map(|s| s.into()),
+                ..Default::default()
+            },
+        ))
+    };
+
     // Tracing goes to stderr so stdout is reserved for JSON-RPC.
     tracing_subscriber::fmt()
         .with_env_filter(

@@ -1,3 +1,4 @@
+import "./instrument";
 import { logger } from "@nexus/core";
 import { startServer, healthCollector } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
@@ -11,18 +12,14 @@ let db: ReturnType<typeof openDatabase>;
 try {
   db = openDatabase();
 } catch (err) {
-  logger.error("Failed to open database — agent cannot start", {
-    error: err instanceof Error ? err.message : String(err),
-  });
+  logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to open database — agent cannot start");
   process.exit(1);
 }
 const server = startServer(undefined, db);
 
 // Register this agent in the DB (non-fatal — agent still serves if this fails)
 upsertSelfInRegistry(db).catch((err) => {
-  logger.warn("agent self-registration failed — will retry on next restart", {
-    error: err instanceof Error ? err.message : String(err),
-  });
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "agent self-registration failed — will retry on next restart");
 });
 
 const sessionManager = createSessionManager();
@@ -43,9 +40,7 @@ try {
   logger.info("watcher bridge started");
 } catch (err) {
   // Watcher binary not found — agent still runs, just without session detection
-  logger.warn("watcher bridge unavailable, session detection disabled", {
-    error: err instanceof Error ? err.message : String(err),
-  });
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "watcher bridge unavailable, session detection disabled");
 }
 
 function shutdown() {

@@ -9,16 +9,13 @@ import type { NotificationRow } from "../buffer";
  */
 export async function sendDesktopNotification(notification: NotificationRow): Promise<boolean> {
   try {
-    logger.info("desktop notification sent", {
-      id: notification.id,
-      title: notification.title,
-    });
+    logger.info({ id: notification.id, title: notification.title }, "desktop notification sent");
     return true;
   } catch (err) {
-    logger.error("desktop notification failed", {
+    logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
-    });
+    }, "desktop notification failed");
     return false;
   }
 }

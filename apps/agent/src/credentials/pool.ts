@@ -50,7 +50,7 @@ export class CredentialPool {
       leasedAt: null,
       cooldownUntil: null,
     });
-    logger.info("credential added to pool", { id: credential.id, name: credential.name });
+    logger.info({ id: credential.id, name: credential.name }, "credential added to pool");
   }
 
   /**
@@ -67,7 +67,7 @@ export class CredentialPool {
     );
 
     if (available.length === 0) {
-      logger.warn("credential pool exhausted", { type });
+      logger.warn({ type }, "credential pool exhausted");
       return null;
     }
 
@@ -77,10 +77,7 @@ export class CredentialPool {
     await updateCredentialStatus(this.db, credential.id, "leased", leasedBy, now, null);
 
     const updated = await getCredentialById(this.db, credential.id);
-    logger.info("credential leased", {
-      id: credential.id,
-      leasedBy,
-    });
+    logger.info({ id: credential.id, leasedBy }, "credential leased");
 
     return updated;
   }
@@ -89,20 +86,17 @@ export class CredentialPool {
   async release(id: string): Promise<boolean> {
     const credential = await getCredentialById(this.db, id);
     if (!credential) {
-      logger.warn("release failed — credential not found", { id });
+      logger.warn({ id }, "release failed — credential not found");
       return false;
     }
 
     if (credential.status !== "leased") {
-      logger.warn("release failed — credential not in leased state", {
-        id,
-        status: credential.status,
-      });
+      logger.warn({ id, status: credential.status }, "release failed — credential not in leased state");
       return false;
     }
 
     await updateCredentialStatus(this.db, id, "available", null, null, null);
-    logger.info("credential released", { id });
+    logger.info({ id }, "credential released");
     return true;
   }
 
@@ -120,10 +114,7 @@ export class CredentialPool {
     const cooldownUntil = new Date(Date.now() + this.cooldownMs).toISOString();
     await updateCredentialStatus(this.db, id, "cooldown", null, null, cooldownUntil);
 
-    logger.info("credential on cooldown (rate limited)", {
-      id,
-      cooldown_until: cooldownUntil,
-    });
+    logger.info({ id, cooldown_until: cooldownUntil }, "credential on cooldown (rate limited)");
 
     const cooledDown = (await getCredentialById(this.db, id))!;
 
@@ -143,7 +134,7 @@ export class CredentialPool {
     const expired = await queryExpiredCooldowns(this.db);
     for (const credential of expired) {
       await updateCredentialStatus(this.db, credential.id, "available", null, null, null);
-      logger.info("credential recovered from cooldown", { id: credential.id });
+      logger.info({ id: credential.id }, "credential recovered from cooldown");
     }
     return expired.length;
   }
@@ -154,7 +145,7 @@ export class CredentialPool {
     const stale = await queryStaleLeases(this.db, threshold);
     for (const credential of stale) {
       await updateCredentialStatus(this.db, credential.id, "available", null, null, null);
-      logger.info("stale lease released", { id: credential.id });
+      logger.info({ id: credential.id }, "stale lease released");
     }
     return stale.length;
   }

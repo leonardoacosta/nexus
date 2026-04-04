@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 nexus-core = { workspace = true }
+sentry = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost-types = { workspace = true }
