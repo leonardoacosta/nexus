@@ -14,7 +14,7 @@ export default async function SettingsPage() {
   const agentConfigs = await fetchAgentConfigs();
 
   // Fetch commands from each online agent
-  const client = getClient();
+  const client = await getClient();
   const commandsData = await Promise.all(
     agentStatuses.map(async (agent) => {
       if (!agent.online) {

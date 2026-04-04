@@ -14,7 +14,7 @@ export interface SessionsResult {
  * Returns sessions sorted: active first, then by last heartbeat descending.
  */
 export async function fetchSessions(): Promise<SessionsResult> {
-  const client = getClient();
+  const client = await getClient();
   const sessions = await client.fetchAllSessions();
   const agentCount = client.getAgentStatuses().length;
 

@@ -16,7 +16,7 @@ export interface SettingsResult {
  * Used by the settings page to display agent connection status.
  */
 export async function fetchAgentStatuses(): Promise<SettingsResult> {
-  const client = getClient();
+  const client = await getClient();
   // Trigger a lightweight fetch to refresh agent online/offline status
   await client.fetchAllHealth();
   const agentStatuses = client.getAgentStatuses();
@@ -32,7 +32,7 @@ export async function startSession(
   project: string,
   path: string,
 ): Promise<{ session_name: string; started: boolean }> {
-  const client = getClient();
+  const client = await getClient();
   return client.startSession(agentName, { project, path });
 }
 
@@ -49,7 +49,7 @@ export async function fetchAgentConfigs(): Promise<
     projects_dir: string;
   } | null>
 > {
-  const client = getClient();
+  const client = await getClient();
   const agents = client.getAgentStatuses();
   return Promise.all(agents.map((a) => client.fetchAgentSelf(a.name)));
 }
@@ -96,6 +96,6 @@ export async function saveCommand(
   commandName: string,
   content: string,
 ): Promise<{ updated: boolean; path: string }> {
-  const client = getClient();
+  const client = await getClient();
   return client.updateCommand(agentName, commandName, content);
 }

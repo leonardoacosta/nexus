@@ -13,7 +13,7 @@ export interface ProjectsResult {
  * Sorted by active session count descending, then alphabetically.
  */
 export async function fetchProjects(): Promise<ProjectsResult> {
-  const client = getClient();
+  const client = await getClient();
   const projects = await client.fetchDiscoveredProjects();
 
   const sorted = [...projects].sort((a, b) => {

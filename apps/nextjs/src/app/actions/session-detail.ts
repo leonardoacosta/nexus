@@ -18,14 +18,14 @@ export interface SessionDetailResult {
 export async function fetchSessionDetail(
   sessionId: string,
 ): Promise<SessionDetailResult | null> {
-  const client = getClient();
+  const client = await getClient();
   const statuses = client.getAgentStatuses();
 
   // Try each agent until we find the session
   for (const status of statuses) {
     const session = await client.fetchSession(status.name, sessionId);
     if (session) {
-      const host = getAgentHost(status.name);
+      const host = await getAgentHost(status.name);
       return { session, agentHost: host ?? "127.0.0.1:7400" };
     }
   }

@@ -14,7 +14,7 @@ export interface HealthResult {
  * Returns per-machine health data plus agent online/offline statuses.
  */
 export async function fetchHealth(): Promise<HealthResult> {
-  const client = getClient();
+  const client = await getClient();
   const metrics = await client.fetchAllHealth();
   const statuses = client.getAgentStatuses();
 
