@@ -126,7 +126,6 @@ fi
 
 echo ""
 info "Config directory: $CONFIG_DIR"
-info "Edit $CONFIG_DIR/agents.toml to register remote agents."
 
 # ── Dashboard install (--dashboard flag) ───────────────────────────
 

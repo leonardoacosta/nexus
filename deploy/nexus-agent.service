@@ -12,7 +12,6 @@ ExecStart=%h/.local/bin/nexus-agent
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
-Environment=NEXUS_PROJECTS_DIR=%h/dev
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 
 # Notification env vars (absorbed from retired claude-daemon)

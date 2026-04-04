@@ -86,6 +86,8 @@ case "$OS" in
         install -m 644 "$DEPLOY_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
         systemctl --user daemon-reload
         systemctl --user enable nexus-agent
+        info "running database migrations..."
+        (cd "$REPO_DIR" && pnpm --filter @nexus/db db:migrate) || fail "db:migrate failed"
         systemctl --user start nexus-agent
         info "systemd service enabled and started"
         ;;
