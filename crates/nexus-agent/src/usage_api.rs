@@ -26,22 +26,75 @@ struct UsageApiPeriod {
 ///
 /// Calls `GET https://api.anthropic.com/api/oauth/usage` with a Bearer token
 /// and the `anthropic-beta: oauth-2025-04-20` header.
+///
+/// Adds Sentry scope tags and breadcrumbs for AI monitoring ([3.2]/[3.4]).
 pub async fn query_usage(
     client: &reqwest::Client,
     access_token: &str,
 ) -> anyhow::Result<AccountUsage> {
-    let resp = client
+    // [3.4] Tag the current scope so all events from this operation carry AI metadata.
+    sentry::configure_scope(|scope| {
+        scope.set_tag("ai.provider", "anthropic");
+        scope.set_tag("ai.operation", "usage_query");
+    });
+
+    let start = std::time::Instant::now();
+
+    let result = client
         .get("https://api.anthropic.com/api/oauth/usage")
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .header("anthropic-beta", "oauth-2025-04-20")
         .timeout(std::time::Duration::from_secs(5))
         .send()
-        .await?
-        .error_for_status()?;
+        .await
+        .and_then(|r| r.error_for_status());
 
-    let api: UsageApiResponse = resp.json().await?;
-    parse_usage_response(api)
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(resp) => {
+            // [3.2] Record a successful breadcrumb with timing info.
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "http".into(),
+                category: Some("ai.request".into()),
+                message: Some(format!(
+                    "Anthropic usage API query completed in {}ms",
+                    elapsed_ms
+                )),
+                level: sentry::Level::Info,
+                data: {
+                    let mut m = sentry::protocol::Map::new();
+                    m.insert("ai.provider".into(), "anthropic".into());
+                    m.insert("ai.operation".into(), "usage_query".into());
+                    m.insert("duration_ms".into(), elapsed_ms.into());
+                    m
+                },
+                ..Default::default()
+            });
+
+            let api: UsageApiResponse = resp.json().await?;
+            parse_usage_response(api)
+        }
+        Err(err) => {
+            // [3.2] Record a failure breadcrumb.
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "http".into(),
+                category: Some("ai.request".into()),
+                message: Some(format!("Anthropic usage API query failed: {}", err)),
+                level: sentry::Level::Error,
+                data: {
+                    let mut m = sentry::protocol::Map::new();
+                    m.insert("ai.provider".into(), "anthropic".into());
+                    m.insert("ai.operation".into(), "usage_query".into());
+                    m.insert("duration_ms".into(), elapsed_ms.into());
+                    m
+                },
+                ..Default::default()
+            });
+            Err(err.into())
+        }
+    }
 }
 
 /// Convert the raw API response into our domain type.

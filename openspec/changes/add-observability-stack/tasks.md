@@ -22,11 +22,11 @@
 - [x] 2.11 Verify: trigger a panic in dev and confirm it appears in Sentry dashboard [beads:nx-jz8w]
 
 ## 3. Phase 2b — Sentry AI Agent Monitoring
-- [ ] 3.1 Identify all Anthropic API call sites — `crates/nexus-agent/src/usage_api.rs` (`query_usage`), `crates/nexus-agent/src/services/credential_pool.rs` [beads:nx-cyeh]
-- [ ] 3.2 Add Sentry spans wrapping `query_usage()` calls with `op: "ai"` metadata [beads:nx-6dm3]
-- [ ] 3.3 Configure PII scrubbing — ensure access tokens in `Authorization` headers are not captured [beads:nx-ezym]
-- [ ] 3.4 Add custom Sentry tags: `ai.provider: anthropic`, `ai.operation: usage_query` [beads:nx-w2d6]
-- [ ] 3.5 Verify: confirm AI spans appear in Sentry Performance with correct tags [beads:nx-mid0]
+- [x] 3.1 Identify all Anthropic API call sites — `crates/nexus-agent/src/usage_api.rs` (`query_usage`), `crates/nexus-agent/src/services/credential_pool.rs` [beads:nx-cyeh]
+- [x] 3.2 Add Sentry spans wrapping `query_usage()` calls with `op: "ai"` metadata [beads:nx-6dm3]
+- [x] 3.3 Configure PII scrubbing — ensure access tokens in `Authorization` headers are not captured [beads:nx-ezym]
+- [x] 3.4 Add custom Sentry tags: `ai.provider: anthropic`, `ai.operation: usage_query` [beads:nx-w2d6]
+- [x] 3.5 Verify: confirm AI spans appear in Sentry Performance with correct tags [beads:nx-mid0]
 
 ## 4. Phase 3 — OTel + Tracing Correlation
 - [ ] 4.1 Add `opentelemetry`, `opentelemetry-otlp`, `tracing-opentelemetry` to Rust workspace dependencies [beads:nx-5io7]

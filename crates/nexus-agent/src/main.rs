@@ -85,6 +85,19 @@ async fn main() -> Result<()> {
                 environment: std::env::var("SENTRY_ENVIRONMENT")
                     .ok()
                     .map(|s| s.into()),
+                // [3.3] Do not attach PII (IP addresses, usernames, etc.) by default.
+                send_default_pii: false,
+                // [3.3] Strip Authorization header values before any event is sent.
+                before_send: Some(Arc::new(|mut event| {
+                    if let Some(ref mut request) = event.request {
+                        for (key, val) in request.headers.iter_mut() {
+                            if key.to_lowercase() == "authorization" {
+                                *val = "[REDACTED]".to_string();
+                            }
+                        }
+                    }
+                    Some(event)
+                })),
                 ..Default::default()
             },
         ))
