@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Project } from "@nexus/core";
+import type { DiscoveredProject } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
 import { fetchProjects } from "@/app/actions/projects";
 import { ProjectCard } from "./ProjectCard";
 
 interface ProjectsPollerProps {
-  initialProjects: WithAgent<Project>[];
+  initialProjects: WithAgent<DiscoveredProject>[];
 }
 
 export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
@@ -42,7 +42,7 @@ export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
       >
         <p style={{ fontSize: "var(--font-size-lg)" }}>No projects found</p>
         <p style={{ fontSize: "var(--font-size-sm)", marginTop: "var(--space-2)" }}>
-          Projects will appear when sessions are running.
+          No projects found. Make sure agents are running and NEXUS_PROJECTS_DIR is configured.
         </p>
       </div>
     );

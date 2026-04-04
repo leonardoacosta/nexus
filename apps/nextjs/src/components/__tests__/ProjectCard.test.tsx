@@ -1,8 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { ProjectCard } from "../ProjectCard";
-import type { Project } from "@nexus/core";
-import type { WithAgent } from "@/lib/agent-client";
+import type { DiscoveredProject } from "@nexus/core";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -20,12 +19,16 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-function makeProject(overrides: Partial<WithAgent<Project>> = {}): WithAgent<Project> {
+vi.mock("@/app/actions/settings", () => ({
+  startSession: vi.fn().mockResolvedValue({ session_name: "test", started: true }),
+}));
+
+function makeProject(overrides: Partial<DiscoveredProject> = {}): DiscoveredProject {
   return {
     name: "nexus",
+    path: "/home/user/dev/nexus",
     active_sessions: 3,
     total_sessions: 7,
-    machines: ["dev-server", "build-box"],
     agent: "dev-server",
     ...overrides,
   };
@@ -46,12 +49,9 @@ describe("ProjectCard", () => {
     expect(total.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders machine badges", () => {
+  it("renders Start Session button", () => {
     render(<ProjectCard project={makeProject()} />);
-    const devServers = screen.getAllByText("dev-server");
-    expect(devServers.length).toBeGreaterThanOrEqual(1);
-    const buildBoxes = screen.getAllByText("build-box");
-    expect(buildBoxes.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "Start Session" })).toBeDefined();
   });
 
   it("links to project detail page", () => {
