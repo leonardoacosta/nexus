@@ -4,13 +4,13 @@
 
 ## Agent Batch
 
-- [ ] [1.1] [P-1] Read `NEXUS_PROJECTS_DIR` env var (default `~/dev`) at startup, store in `AppState.projects_dir` [owner:api-engineer] [beads:nx-3xz]
-- [ ] [1.2] [P-1] Add `GET /projects/discovered` handler — accept `depth` query param (1–3, default 1), recursively scan `projects_dir` filtering by project markers (`.git/`, `package.json`, `Cargo.toml`), skip symlinks, 5 s timeout, merge with `SessionRegistry` active counts, cap at 200 with `truncated` flag [owner:api-engineer] [beads:nx-25n]
-- [ ] [1.3] [P-1] Add `POST /session/start` handler — validate tmux available + path exists, run `tmux new-window -d -c <path> -n <project>-<ts>` + send-keys `claude`, return `{ session_name, started }` [owner:api-engineer] [beads:nx-cg3]
-- [ ] [1.4] [P-1] Add `GET /agent/self` handler — return `{ name, host, port, role, projects_dir }` from `AppState` [owner:api-engineer] [beads:nx-gem]
-- [ ] [1.5] [P-2] Register new routes in `http_handlers/mod.rs` and wire into axum router in `main.rs` [owner:api-engineer] [beads:nx-2ur]
-- [ ] [1.6] [P-2] Add `Environment=NEXUS_PROJECTS_DIR=%h/dev` to `deploy/nexus-agent.service` [owner:api-engineer] [beads:nx-5vo]
-- [ ] [1.7] [P-2] Add `PUT /commands/:name` handler — validate non-empty content, resolve path from existing `GET /commands` registry, write atomically via tmp file + rename, return updated `CommandInfo` [owner:api-engineer] [beads:nx-sat9]
+- [x] [1.1] [P-1] Read `NEXUS_PROJECTS_DIR` env var (default `~/dev`) at startup, store in `AppState.projects_dir` [owner:api-engineer] [beads:nx-3xz]
+- [x] [1.2] [P-1] Add `GET /projects/discovered` handler — accept `depth` query param (1–3, default 1), recursively scan `projects_dir` filtering by project markers (`.git/`, `package.json`, `Cargo.toml`), skip symlinks, 5 s timeout, merge with `SessionRegistry` active counts, cap at 200 with `truncated` flag [owner:api-engineer] [beads:nx-25n]
+- [x] [1.3] [P-1] Add `POST /session/start` handler — validate tmux available + path exists, run `tmux new-window -d -c <path> -n <project>-<ts>` + send-keys `claude`, return `{ session_name, started }` [owner:api-engineer] [beads:nx-cg3]
+- [x] [1.4] [P-1] Add `GET /agent/self` handler — return `{ name, host, port, role, projects_dir }` from `AppState` [owner:api-engineer] [beads:nx-gem]
+- [x] [1.5] [P-2] Register new routes in `http_handlers/mod.rs` and wire into axum router in `main.rs` [owner:api-engineer] [beads:nx-2ur]
+- [x] [1.6] [P-2] Add `Environment=NEXUS_PROJECTS_DIR=%h/dev` to `deploy/nexus-agent.service` [owner:api-engineer] [beads:nx-5vo]
+- [x] [1.7] [P-2] Add `PUT /commands/:name` handler — validate non-empty content, resolve path from existing `GET /commands` registry, write atomically via tmp file + rename, return updated `CommandInfo` [owner:api-engineer] [beads:nx-sat9]
 
 ## Core Batch
 

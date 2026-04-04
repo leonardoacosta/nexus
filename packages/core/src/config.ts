@@ -8,6 +8,7 @@ export const AgentConfigSchema = z.object({
   host: z.string(),
   port: z.number().int().positive(),
   user: z.string().optional(),
+  projects_dir: z.string().optional(),
 });
 
 /** Schema for the full nexus config file */

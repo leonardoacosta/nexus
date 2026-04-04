@@ -1,6 +1,6 @@
 export type { Session, SessionStatus, SessionType } from "./types/session";
 export type { HealthMetrics, ProcessInfo } from "./types/health";
-export type { Project } from "./types/project";
+export type { Project, DiscoveredProject, DiscoveredProjectsResponse } from "./types/project";
 export type { WatcherEvent, WatcherCommand } from "./types/ipc";
 export type {
   Notification,
