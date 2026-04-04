@@ -6,7 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/nexus-agent
-Restart=always
+# Restart on crash: systemd will automatically restart the agent after non-zero
+# exit or signal-killed processes. RestartSec adds a 5-second backoff to avoid
+# tight restart loops during persistent failures.
+Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin

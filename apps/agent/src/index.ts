@@ -1,1 +1,3 @@
-console.log("nexus-agent starting...");
+import { startServer } from "./server";
+
+startServer();
