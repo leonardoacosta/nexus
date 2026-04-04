@@ -3,10 +3,12 @@ export interface Session {
   id: string;
   pid: number;
   project: string | null;
+  machine: string;
   cwd: string;
   branch: string | null;
   startedAt: string;
   lastHeartbeat: string;
+  endedAt: string | null;
   status: SessionStatus;
   spec: string | null;
   command: string | null;
@@ -24,6 +26,6 @@ export interface Session {
   sessionType: SessionType;
 }
 
-export type SessionStatus = "active" | "idle" | "stale" | "errored";
+export type SessionStatus = "active" | "idle" | "ended" | "stale" | "errored";
 
 export type SessionType = "ad_hoc" | "managed" | "pooled";

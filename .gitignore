@@ -45,3 +45,6 @@ dist/
 
 # Turborepo
 .turbo/
+
+# Compiled binaries
+apps/agent/nexus-agent

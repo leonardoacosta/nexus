@@ -1,4 +1,5 @@
 export type { Session, SessionStatus, SessionType } from "./types/session";
+export type { WatcherEvent, WatcherCommand } from "./types/ipc";
 export { logger } from "./logger";
 export type { LogLevel, LogEntry } from "./logger";
 export {
