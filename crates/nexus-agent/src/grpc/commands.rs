@@ -42,7 +42,18 @@ impl NexusAgentService {
             .registry
             .get_by_id(&session_id)
             .await
-            .ok_or_else(|| Status::not_found(format!("session not found: {session_id}")))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC SendCommand failed: session not found: {session_id}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("session not found: {session_id}"))
+            })?;
 
         // 2. Determine the CC session ID for --resume.
         let resume_id = session
@@ -126,13 +137,37 @@ impl NexusAgentService {
         // Validate project exists.
         self.project_registry
             .resolve(&req.project)
-            .ok_or_else(|| Status::not_found(format!("project not found: {}", req.project)))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC RunProjectCommand failed: project not found: {}",
+                        req.project
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("project not found: {}", req.project))
+            })?;
 
         // Validate command exists in registry.
         self.command_registry
             .get(&req.command)
             .await
-            .ok_or_else(|| Status::not_found(format!("command not found: {}", req.command)))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC RunProjectCommand failed: command not found: {}",
+                        req.command
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("command not found: {}", req.command))
+            })?;
 
         // Construct prompt: /<command> <args joined by space>
         let prompt = if req.args.is_empty() {
@@ -171,7 +206,18 @@ impl NexusAgentService {
         let project = self
             .project_registry
             .resolve(&project_code)
-            .ok_or_else(|| Status::not_found(format!("project not found: {project_code}")))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC SendCommand (pool) failed: project not found: {project_code}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("project not found: {project_code}"))
+            })?;
 
         let cwd = project.cwd.to_string_lossy().into_owned();
 
@@ -180,7 +226,18 @@ impl NexusAgentService {
             .session_pool
             .get_or_create(&project_code)
             .await
-            .map_err(|e| Status::unavailable(e.to_string()))?;
+            .map_err(|e| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC SendCommand (pool) failed: session pool unavailable for {project_code}: {e}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::unavailable(e.to_string())
+            })?;
 
         // Check if this is a brand-new (Warming) session — need to create a real CC session.
         // Peek at the pool status to decide.

@@ -15,9 +15,9 @@
 - [x] 2.4 Initialize Sentry in `crates/nexus-agent/src/main.rs` — `sentry::init()` with DSN, environment, release [beads:nx-qmw4]
 - [x] 2.5 Initialize Sentry in `crates/nexus-tui/src/main.rs` [beads:nx-jo6o]
 - [x] 2.6 Initialize Sentry in `crates/nexus-mcp/src/main.rs` [beads:nx-prbv]
-- [ ] 2.7 Add breadcrumbs in `crates/nexus-agent/src/services/credential_pool.rs` — credential rotation events [beads:nx-nudq]
-- [ ] 2.8 Add breadcrumbs in `crates/nexus-agent/src/notification_engine.rs` — notification delivery [beads:nx-od80]
-- [ ] 2.9 Add breadcrumbs in `crates/nexus-agent/src/grpc/` — gRPC call failures [beads:nx-go4f]
+- [x] 2.7 Add breadcrumbs in `crates/nexus-agent/src/services/credential_pool.rs` — credential rotation events [beads:nx-nudq]
+- [x] 2.8 Add breadcrumbs in `crates/nexus-agent/src/notification_engine.rs` — notification delivery [beads:nx-od80]
+- [x] 2.9 Add breadcrumbs in `crates/nexus-agent/src/grpc/` — gRPC call failures [beads:nx-go4f]
 - [x] 2.10 Configure `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in `.env` template / Doppler [beads:nx-725f]
 - [x] 2.11 Verify: trigger a panic in dev and confirm it appears in Sentry dashboard [beads:nx-jz8w]
 

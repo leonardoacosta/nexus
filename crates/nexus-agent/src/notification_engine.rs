@@ -31,6 +31,8 @@ use tracing::debug;
 
 use crate::services::receiver::ReceiverService;
 
+use sentry;
+
 /// Spawn a background task that watches `notifications.toml` for modifications
 /// and atomically swaps the shared config on reload.
 ///
@@ -152,9 +154,23 @@ impl NotificationEngine {
     /// Spawn a background task that drains `rx` and processes each event.
     pub fn spawn(self, mut rx: mpsc::Receiver<LifecycleEvent>) {
         tokio::spawn(async move {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "info".into(),
+                category: Some("notification.delivery".into()),
+                message: Some("notification engine started".into()),
+                level: sentry::Level::Info,
+                ..Default::default()
+            });
             while let Some(event) = rx.recv().await {
                 self.process(&event).await;
             }
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "info".into(),
+                category: Some("notification.delivery".into()),
+                message: Some("notification engine stopped (channel closed)".into()),
+                level: sentry::Level::Info,
+                ..Default::default()
+            });
             tracing::info!("notification_engine: channel closed, stopping");
         });
     }
@@ -166,6 +182,16 @@ impl NotificationEngine {
 
         // Errors always fire regardless of other settings.
         if let LifecycleEventKind::Error { ref message, .. } = event.kind {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("notification.delivery".into()),
+                message: Some(format!(
+                    "error notification received for project '{}': {}",
+                    event.project, message
+                )),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
             if rules.announce_errors {
                 let prefix = if event.project.is_empty() {
                     String::new()
@@ -274,6 +300,16 @@ impl NotificationEngine {
                 ch_refs,
             )
             .await;
+        sentry::add_breadcrumb(sentry::Breadcrumb {
+            ty: "info".into(),
+            category: Some("notification.delivery".into()),
+            message: Some(format!(
+                "notification delivered: {} (type={})",
+                notification.message, notification.message_type
+            )),
+            level: sentry::Level::Info,
+            ..Default::default()
+        });
     }
 }
 

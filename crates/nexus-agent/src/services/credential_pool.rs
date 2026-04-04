@@ -14,6 +14,7 @@
 
 use crate::services::Service;
 use anyhow::{Context, Result};
+use sentry;
 use chrono::{DateTime, Utc};
 use crate::usage_api::query_usage;
 use nexus_core::credentials::{
@@ -132,11 +133,26 @@ impl CredentialPool {
     pub async fn record_swap(&self, account_name: &str) {
         *self.last_swap_time.write().await = Some(Instant::now());
         *self.last_swap_account.write().await = Some(account_name.to_string());
+        sentry::add_breadcrumb(sentry::Breadcrumb {
+            ty: "info".into(),
+            category: Some("credential.rotation".into()),
+            message: Some(format!("Rotation triggered: swapped to account '{}'", account_name)),
+            level: sentry::Level::Info,
+            ..Default::default()
+        });
     }
 
     /// Atomic symlink swap: point `~/.claude/.credentials.json` at `target`.
     pub async fn swap_credential(&self, target: &CredentialAccount) -> Result<()> {
         let link_path = paths::home_dir().join(".claude").join(".credentials.json");
+
+        sentry::add_breadcrumb(sentry::Breadcrumb {
+            ty: "info".into(),
+            category: Some("credential.rotation".into()),
+            message: Some(format!("Swap initiated for account '{}'", target.name)),
+            level: sentry::Level::Info,
+            ..Default::default()
+        });
 
         // Atomic swap via temp symlink + rename(2).
         // rename(2) on Unix is atomic — no gap where the file is missing.
@@ -146,7 +162,7 @@ impl CredentialPool {
         tokio::fs::remove_file(&tmp_link).await.ok();
 
         // Create temp symlink pointing to the new target.
-        tokio::fs::symlink(&target.path, &tmp_link)
+        let symlink_result = tokio::fs::symlink(&target.path, &tmp_link)
             .await
             .with_context(|| {
                 format!(
@@ -154,10 +170,20 @@ impl CredentialPool {
                     tmp_link.display(),
                     target.path.display()
                 )
-            })?;
+            });
+        if let Err(ref e) = symlink_result {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("credential.rotation".into()),
+                message: Some(format!("Swap failed for account '{}': {}", target.name, e)),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
+            return symlink_result.map(|_| ());
+        }
 
         // Atomic rename: tmp -> real. This is a single rename(2) syscall.
-        tokio::fs::rename(&tmp_link, &link_path)
+        let rename_result = tokio::fs::rename(&tmp_link, &link_path)
             .await
             .with_context(|| {
                 format!(
@@ -165,7 +191,17 @@ impl CredentialPool {
                     tmp_link.display(),
                     link_path.display()
                 )
-            })?;
+            });
+        if let Err(ref e) = rename_result {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("credential.rotation".into()),
+                message: Some(format!("Swap failed for account '{}': {}", target.name, e)),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
+            return rename_result.map(|_| ());
+        }
 
         *self.active_account.write().await = Some(target.name.clone());
         info!(
@@ -173,6 +209,17 @@ impl CredentialPool {
             path = %target.path.display(),
             "Swapped active credential"
         );
+
+        sentry::add_breadcrumb(sentry::Breadcrumb {
+            ty: "info".into(),
+            category: Some("credential.rotation".into()),
+            message: Some(format!(
+                "Swap succeeded: active credential is now '{}'",
+                target.name
+            )),
+            level: sentry::Level::Info,
+            ..Default::default()
+        });
 
         Ok(())
     }
@@ -193,6 +240,18 @@ impl CredentialPool {
             match query_usage(&self.http_client, &acct.access_token).await {
                 Ok(usage) => {
                     debug!(account = %acct.name, "polled usage OK");
+                    sentry::add_breadcrumb(sentry::Breadcrumb {
+                        ty: "info".into(),
+                        category: Some("credential.rotation".into()),
+                        message: Some(format!(
+                            "Poll succeeded for account '{}': 5h={:.2} 7d={:.2}",
+                            acct.name,
+                            usage.five_hour.utilization,
+                            usage.seven_day.utilization,
+                        )),
+                        level: sentry::Level::Info,
+                        ..Default::default()
+                    });
                     cache.accounts.insert(
                         acct.name.clone(),
                         CachedUsage {
@@ -219,6 +278,16 @@ impl CredentialPool {
                 }
                 Err(e) => {
                     warn!(account = %acct.name, error = %e, "failed to poll usage");
+                    sentry::add_breadcrumb(sentry::Breadcrumb {
+                        ty: "error".into(),
+                        category: Some("credential.rotation".into()),
+                        message: Some(format!(
+                            "Poll failed for account '{}': {}",
+                            acct.name, e
+                        )),
+                        level: sentry::Level::Error,
+                        ..Default::default()
+                    });
                 }
             }
         }

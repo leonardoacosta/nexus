@@ -69,7 +69,19 @@ impl NexusAgentService {
         let project_path = self
             .project_registry
             .resolve(&req.project)
-            .ok_or_else(|| Status::not_found(format!("unknown project: {}", req.project)))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC GetProjectStatus failed: unknown project: {}",
+                        req.project
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("unknown project: {}", req.project))
+            })?;
 
         let status = self
             .status_cache

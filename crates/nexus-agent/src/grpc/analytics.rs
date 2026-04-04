@@ -50,7 +50,16 @@ impl NexusAgentService {
                 }
                 Ok(results)
             })
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            .map_err(|e| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!("gRPC GetSessionHistory failed: {e}")),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::internal(format!("db error: {e}"))
+            })?;
 
         Ok(Response::new(proto::SessionHistoryResponse { entries }))
     }
@@ -66,7 +75,16 @@ impl NexusAgentService {
         let daily = self
             .db
             .failure_trend(days)
-            .map_err(|e| Status::internal(format!("db error: {e}")))?
+            .map_err(|e| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!("gRPC GetFailureTrends (failure_trend) failed: {e}")),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::internal(format!("db error: {e}"))
+            })?
             .into_iter()
             .map(|(date, count)| proto::FailureTrendEntry {
                 date,
@@ -78,7 +96,16 @@ impl NexusAgentService {
         let by_tool = self
             .db
             .count_by_tool(&since.to_rfc3339())
-            .map_err(|e| Status::internal(format!("db error: {e}")))?
+            .map_err(|e| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!("gRPC GetFailureTrends (count_by_tool) failed: {e}")),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::internal(format!("db error: {e}"))
+            })?
             .into_iter()
             .map(|(tool_name, count)| proto::FailureByTool {
                 tool_name,
@@ -104,7 +131,16 @@ impl NexusAgentService {
         let samples = self
             .db
             .query_health_samples(Some(&since.to_rfc3339()), 10_000)
-            .map_err(|e| Status::internal(format!("db error: {e}")))?
+            .map_err(|e| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!("gRPC GetHealthTimeSeries failed: {e}")),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::internal(format!("db error: {e}"))
+            })?
             .into_iter()
             .map(|s| proto::HealthTimeSeriesEntry {
                 timestamp: s.timestamp,
@@ -131,14 +167,37 @@ impl NexusAgentService {
             Some(project) => self
                 .db
                 .query_spec_snapshots(project, limit)
-                .map_err(|e| Status::internal(format!("db error: {e}")))?,
+                .map_err(|e| {
+                    sentry::add_breadcrumb(sentry::Breadcrumb {
+                        ty: "error".into(),
+                        category: Some("grpc.call".into()),
+                        message: Some(format!(
+                            "gRPC GetSpecVelocity (project={project}) failed: {e}"
+                        )),
+                        level: sentry::Level::Error,
+                        ..Default::default()
+                    });
+                    Status::internal(format!("db error: {e}"))
+                })?,
             None => {
                 let mut all = Vec::new();
                 for proj in self.project_registry.all() {
                     let mut snaps = self
                         .db
                         .query_spec_snapshots(&proj.code, limit)
-                        .map_err(|e| Status::internal(format!("db error: {e}")))?;
+                        .map_err(|e| {
+                            sentry::add_breadcrumb(sentry::Breadcrumb {
+                                ty: "error".into(),
+                                category: Some("grpc.call".into()),
+                                message: Some(format!(
+                                    "gRPC GetSpecVelocity (project={}) failed: {e}",
+                                    proj.code
+                                )),
+                                level: sentry::Level::Error,
+                                ..Default::default()
+                            });
+                            Status::internal(format!("db error: {e}"))
+                        })?;
                     all.append(&mut snaps);
                 }
                 all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));

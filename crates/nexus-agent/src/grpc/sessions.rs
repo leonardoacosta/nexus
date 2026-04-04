@@ -38,10 +38,21 @@ impl NexusAgentService {
 
         match self.registry.get_by_id(&session_id).await {
             Some(session) => Ok(Response::new(super::session_to_proto(&session))),
-            None => Err(Status::not_found(format!(
-                "session not found: {}",
-                session_id
-            ))),
+            None => {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC GetSession failed: session not found: {session_id}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Err(Status::not_found(format!(
+                    "session not found: {}",
+                    session_id
+                )))
+            }
         }
     }
 
@@ -55,6 +66,16 @@ impl NexusAgentService {
         if let Some(ref target) = req.target_agent
             && target != &self.agent_name
         {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("grpc.call".into()),
+                message: Some(format!(
+                    "gRPC StartSession failed: agent '{}' does not match target '{target}'",
+                    self.agent_name
+                )),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
             return Err(Status::not_found(format!(
                 "Agent '{}' does not match target '{}'",
                 self.agent_name, target
@@ -121,6 +142,15 @@ impl NexusAgentService {
                     session_id = %session_id,
                     "bootstrap prompt completed successfully"
                 );
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "info".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC StartSession bootstrap succeeded for session {session_id}"
+                    )),
+                    level: sentry::Level::Info,
+                    ..Default::default()
+                });
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -132,6 +162,16 @@ impl NexusAgentService {
                     stdout = %stdout,
                     "bootstrap prompt failed — session registered but may not be resumable"
                 );
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC StartSession bootstrap failed for session {session_id}: exit_code={}",
+                        output.status.code().unwrap_or(-1)
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
             }
             Err(e) => {
                 tracing::warn!(
@@ -139,6 +179,15 @@ impl NexusAgentService {
                     error = %e,
                     "failed to spawn bootstrap prompt — session registered but may not be resumable"
                 );
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC StartSession failed to spawn bootstrap for session {session_id}: {e}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
             }
         }
 
@@ -159,10 +208,30 @@ impl NexusAgentService {
             .registry
             .get_by_id(&session_id)
             .await
-            .ok_or_else(|| Status::not_found(format!("session not found: {session_id}")))?;
+            .ok_or_else(|| {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC StopSession failed: session not found: {session_id}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
+                Status::not_found(format!("session not found: {session_id}"))
+            })?;
 
         let pid = session.pid;
         if pid == 0 {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("grpc.call".into()),
+                message: Some(format!(
+                    "gRPC StopSession failed: session {session_id} has no valid PID"
+                )),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
             return Err(Status::failed_precondition(format!(
                 "session {session_id} has no valid PID"
             )));
@@ -187,6 +256,15 @@ impl NexusAgentService {
                 }));
             }
             Err(e) => {
+                sentry::add_breadcrumb(sentry::Breadcrumb {
+                    ty: "error".into(),
+                    category: Some("grpc.call".into()),
+                    message: Some(format!(
+                        "gRPC StopSession failed: could not send SIGTERM to pid {pid}: {e}"
+                    )),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
                 return Err(Status::internal(format!(
                     "failed to send SIGTERM to pid {pid}: {e}"
                 )));
