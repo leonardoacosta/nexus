@@ -1,7 +1,7 @@
 "use server";
 
 import type { AgentConfig } from "@nexus/core";
-import { eq } from "drizzle-orm";
+import { eq } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
 import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";

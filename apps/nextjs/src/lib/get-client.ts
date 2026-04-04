@@ -2,7 +2,7 @@ import { AgentClient } from "./agent-client";
 import type { AgentConfig } from "@nexus/core";
 import { getDb } from "./db";
 import { agents } from "@nexus/db";
-import { eq } from "drizzle-orm";
+import { eq } from "@nexus/db";
 
 /**
  * Read enabled agents from the database.
