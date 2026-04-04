@@ -56,13 +56,13 @@ Packages: `packages/core`, `packages/db`, `packages/ui`, `apps/agent`, `apps/nex
 - **When** `layout.tsx` imports from `"next"`
 - **Then** no "Cannot find module 'next'" diagnostic is reported
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: All package tsconfigs extend tsconfig.base.json
 
-Each of the six package `tsconfig.json` files MUST change `"extends": "../../tsconfig.json"` to `"extends": "../../tsconfig.base.json"`. No other extends change is permitted.
+Each of the six package `tsconfig.json` files MUST use `"extends": "../../tsconfig.base.json"`. No other extends change is permitted.
 
-#### Scenario: extends path is correct after change
+#### Scenario: extends path is correct
 - **Given** `packages/core/tsconfig.json` is updated
 - **When** `cat packages/core/tsconfig.json | jq '.extends'`
 - **Then** the output is `"../../tsconfig.base.json"`
