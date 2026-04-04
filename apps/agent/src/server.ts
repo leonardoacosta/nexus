@@ -6,6 +6,21 @@ import os from "node:os";
 import { handleGetSessions, handleGetSessionById } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
 import { handleGetHealthHistory } from "./routes/health-history";
+import {
+  initNotificationRoutes,
+  handleSendNotification,
+  handleMeetingStart,
+  handleMeetingEnd,
+  handleMeetingStatus,
+} from "./routes/notifications";
+import {
+  initCredentialRoutes,
+  handleAddCredential,
+  handleLeaseCredential,
+  handleReleaseCredential,
+  handleListCredentials,
+  handleReportRateLimit,
+} from "./routes/credentials";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
 
@@ -94,7 +109,7 @@ const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
 
 /** Create the route dispatch handler, optionally backed by a SQLite DB. */
 function createRequestHandler(db?: Database) {
-  return function handleRequest(request: Request, server: import("bun").Server): Response | undefined {
+  return function handleRequest(request: Request, server: import("bun").Server): Response | Promise<Response> | undefined {
     const url = new URL(request.url);
 
     // ── WebSocket upgrade routes ──────────────────────────────────────────
@@ -195,6 +210,55 @@ function createRequestHandler(db?: Database) {
       if (url.pathname === "/health/history" && request.method === "GET") {
         return withCors(request, handleGetHealthHistory(db, url));
       }
+
+      // ── Notification routes ──────────────────────────────────────────
+      if (url.pathname === "/notifications/send" && request.method === "POST") {
+        return handleSendNotification(db, request).then((r) => withCors(request, r));
+      }
+
+      if (url.pathname === "/meeting/start" && request.method === "POST") {
+        return withCors(request, handleMeetingStart());
+      }
+
+      if (url.pathname === "/meeting/end" && request.method === "POST") {
+        return handleMeetingEnd().then((r) => withCors(request, r));
+      }
+
+      if (url.pathname === "/meeting/status" && request.method === "GET") {
+        return withCors(request, handleMeetingStatus());
+      }
+
+      // ── Credential routes ────────────────────────────────────────────
+      if (url.pathname === "/credentials" && request.method === "POST") {
+        return handleAddCredential(request).then((r) => withCors(request, r));
+      }
+
+      if (url.pathname === "/credentials" && request.method === "GET") {
+        return withCors(request, handleListCredentials());
+      }
+
+      if (url.pathname === "/credentials/lease" && request.method === "POST") {
+        return handleLeaseCredential(request).then((r) => withCors(request, r));
+      }
+
+      const credReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
+      if (credReleaseMatch && request.method === "POST") {
+        return withCors(request, handleReleaseCredential(credReleaseMatch[1]!));
+      }
+
+      const credRateLimitMatch = url.pathname.match(
+        /^\/credentials\/([^/]+)\/report-rate-limit$/,
+      );
+      if (credRateLimitMatch && request.method === "POST") {
+        return handleReportRateLimit(credRateLimitMatch[1]!, request).then((r) =>
+          withCors(request, r),
+        );
+      }
+
+      // GET /credentials/status — pool overview
+      if (url.pathname === "/credentials/status" && request.method === "GET") {
+        return withCors(request, handleListCredentials());
+      }
     }
 
     return withCors(
@@ -210,6 +274,12 @@ function createRequestHandler(db?: Database) {
 export { healthCollector, streamManager };
 
 export function startServer(port: number = PORT, db?: Database) {
+  // Initialize subsystems that need the DB
+  if (db) {
+    initNotificationRoutes(db);
+    initCredentialRoutes(db);
+  }
+
   const handler = createRequestHandler(db);
 
   const server = Bun.serve<WsData>({

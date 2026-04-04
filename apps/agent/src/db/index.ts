@@ -13,3 +13,25 @@ export type { HealthSnapshotRow } from "./health";
 export { appendSessionEvent, querySessionEvents } from "./events";
 export type { SessionEventRow } from "./events";
 export { runRetentionCleanup, scheduleRetention } from "./retention";
+
+// Notification buffer
+export {
+  insertNotification,
+  queryNotificationsByStatus,
+  markNotificationDelivered,
+  markNotificationExpired,
+  getNotificationById,
+} from "../notifications/buffer";
+export type { NotificationRow } from "../notifications/buffer";
+
+// Credential store
+export {
+  insertCredential,
+  getCredentialById,
+  queryAllCredentials,
+  queryCredentialsByStatus,
+  updateCredentialStatus,
+  queryExpiredCooldowns,
+  queryStaleLeases,
+} from "../credentials/store";
+export type { CredentialRow } from "../credentials/store";

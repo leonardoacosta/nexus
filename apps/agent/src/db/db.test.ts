@@ -95,11 +95,12 @@ describe("migration runner", () => {
 
   it("is idempotent — running twice does not error", () => {
     const migrationsDir = join(import.meta.dir, "../../migrations");
+    const countBefore = (db.query("SELECT name FROM _migrations").all()).length;
     // Second run should be a no-op
     expect(() => runMigrations(db, migrationsDir)).not.toThrow();
 
     const rows = db.query("SELECT name FROM _migrations").all();
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(countBefore);
   });
 
   it("applies multiple migration files in order", () => {
