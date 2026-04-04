@@ -4,6 +4,7 @@ import type { HealthMetrics } from "@nexus/core";
 import os from "node:os";
 import { handleGetSessions, handleGetSessionById } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
+import { handleGetHealthHistory } from "./routes/health-history";
 import { HealthCollector } from "./health-collector";
 
 const PORT = 7400;
@@ -104,6 +105,11 @@ function createRequestHandler(db?: Database) {
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
         return withCors(request, handleGetProjects(db));
+      }
+
+      // GET /health/history
+      if (url.pathname === "/health/history" && request.method === "GET") {
+        return withCors(request, handleGetHealthHistory(db, url));
       }
     }
 

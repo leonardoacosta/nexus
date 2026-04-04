@@ -8,6 +8,10 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 /**
  * Delete health_snapshots older than 30 days and session_events older than
  * 90 days.
+ *
+ * NOTE: health_snapshots retention is already handled here — the
+ * HealthScheduler writes rows that this cleanup prunes after 30 days.
+ * No additional retention logic is needed for the health history feature.
  */
 export function runRetentionCleanup(db: Database): void {
   const healthCutoff = new Date(

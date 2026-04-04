@@ -1,10 +1,21 @@
 import { logger } from "@nexus/core";
-import { startServer } from "./server";
+import { startServer, healthCollector } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
 import { createSessionManager } from "./session-manager";
+import { openDatabase } from "./db/database";
+import { HealthScheduler } from "./health-scheduler";
+import { scheduleRetention } from "./db/retention";
 
-const server = startServer();
+const db = openDatabase();
+const server = startServer(undefined, db);
 const sessionManager = createSessionManager();
+
+// Health snapshot scheduler — persists metrics to SQLite every 30s
+const healthScheduler = new HealthScheduler(healthCollector, db);
+healthScheduler.start();
+
+// Retention cleanup — prunes old snapshots/events every 24h
+const stopRetention = scheduleRetention(db);
 
 let watcherBridge: ReturnType<typeof createWatcherBridge> | null = null;
 
@@ -22,9 +33,12 @@ try {
 
 function shutdown() {
   logger.info("shutting down nexus-agent");
+  healthScheduler.stop();
+  stopRetention();
   sessionManager.stop();
   watcherBridge?.shutdown();
   server.stop();
+  db.close();
   process.exit(0);
 }
 
