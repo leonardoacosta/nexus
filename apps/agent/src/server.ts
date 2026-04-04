@@ -5,6 +5,8 @@ import type { HealthMetrics } from "@nexus/core";
 import os from "node:os";
 import { handleGetSessions, handleGetSessionById } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
+import { handleGetAgentSelf } from "./routes/agent-self";
+import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
 import {
   initNotificationRoutes,
@@ -204,6 +206,14 @@ function createRequestHandler(db?: Db) {
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
         return handleGetProjects(db).then((r) => withCors(request, r));
+      }
+
+      if (url.pathname === "/agent/self" && request.method === "GET") {
+        return handleGetAgentSelf(db).then((r) => withCors(request, r));
+      }
+
+      if (url.pathname === "/projects/discovered" && request.method === "GET") {
+        return handleGetDiscoveredProjects(db).then((r) => withCors(request, r));
       }
 
       // GET /health/history

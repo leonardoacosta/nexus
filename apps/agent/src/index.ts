@@ -3,6 +3,7 @@ import { startServer, healthCollector } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
 import { createSessionManager } from "./session-manager";
 import { openDatabase } from "./db/database";
+import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
 
@@ -16,6 +17,14 @@ try {
   process.exit(1);
 }
 const server = startServer(undefined, db);
+
+// Register this agent in the DB (non-fatal — agent still serves if this fails)
+upsertSelfInRegistry(db).catch((err) => {
+  logger.warn("agent self-registration failed — will retry on next restart", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+});
+
 const sessionManager = createSessionManager();
 
 // Health snapshot scheduler — persists metrics to PostgreSQL every 30s
