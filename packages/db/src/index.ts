@@ -8,4 +8,5 @@ export {
   sessionEvents,
   notifications,
   credentials,
+  agents,
 } from "./schema";
