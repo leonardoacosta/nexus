@@ -1,31 +1,15 @@
+# traefik-routing Specification
+
+## Purpose
+Traefik dynamic config routing nexus.leonardoacosta.dev to the Nexus dashboard via Tailscale + TLS.
+
 # Spec: Traefik routing for nexus.leonardoacosta.dev
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Traefik dynamic config file
 
-`deploy/traefik/nexus-dashboard.yml` MUST define a Traefik file-provider configuration that:
-- Routes `Host("nexus.leonardoacosta.dev")` to `http://localhost:3100`
-- Enables TLS with cert resolver `cloudflare` (Let's Encrypt DNS-01 via Cloudflare)
-- Entrypoints: `websecure` (443)
-- HTTP → HTTPS redirect handled at Traefik entrypoint level (not in this file)
-
-```yaml
-# Shape of the required config (not the implementation — engineer writes the final file)
-http:
-  routers:
-    nexus-dashboard:
-      rule: Host(`nexus.leonardoacosta.dev`)
-      entryPoints: [websecure]
-      service: nexus-dashboard
-      tls:
-        certResolver: cloudflare
-  services:
-    nexus-dashboard:
-      loadBalancer:
-        servers:
-          - url: http://localhost:3100
-```
+`deploy/traefik/nexus-dashboard.yml` MUST define a Traefik file-provider configuration routing `Host("nexus.leonardoacosta.dev")` to `http://localhost:3100`, with TLS cert resolver `cloudflare` (Let's Encrypt DNS-01) on the `websecure` entrypoint.
 
 #### Scenario: Traefik routes nexus.leonardoacosta.dev to dashboard
 - **Given** the yml is in Traefik's dynamic config directory and Traefik is running
