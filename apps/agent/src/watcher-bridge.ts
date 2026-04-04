@@ -1,17 +1,29 @@
 import { logger } from "@nexus/core";
 import type { WatcherEvent, WatcherCommand } from "@nexus/core";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
-/** Resolve the watcher binary path — prefer release, fall back to debug. */
+/** Resolve the watcher binary path — prefer release, fall back to debug.
+ *
+ * When running as a compiled Bun binary, `import.meta.dir` resolves to `/`
+ * (not the source directory). So we first look beside the agent binary using
+ * `process.execPath`, then fall back to the source-relative path for dev runs.
+ */
 function resolveWatcherBinary(): string {
+  // Production: look for nexus-watcher beside the agent binary
+  const binDir = dirname(process.execPath);
+  const beside = join(binDir, "nexus-watcher");
+  if (existsSync(beside)) return beside;
+
+  // Development fallback: relative to source tree
   const base = join(import.meta.dir, "../../../packages/watcher/target");
   const release = join(base, "release/nexus-watcher");
   if (existsSync(release)) return release;
   const debug = join(base, "debug/nexus-watcher");
   if (existsSync(debug)) return debug;
+
   throw new Error(
-    `Watcher binary not found at ${release} or ${debug}. Build with: cargo build -p nexus-watcher`,
+    `Watcher binary not found at ${beside}, ${release}, or ${debug}. Build with: cd packages/watcher && cargo build --release`,
   );
 }
 

@@ -1,3 +1,6 @@
+// Project data comes from live agent sessions — must render on each request
+export const dynamic = "force-dynamic";
+
 import { fetchProjects } from "../actions/projects";
 import { ProjectsPoller } from "@/components/ProjectsPoller";
 

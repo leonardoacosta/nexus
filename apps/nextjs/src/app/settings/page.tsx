@@ -1,3 +1,7 @@
+// Agent status depends on live agent connectivity — force server-render on each request
+// so "Offline/Online" reflects the current state, not a stale build-time snapshot.
+export const dynamic = "force-dynamic";
+
 import { fetchAgentStatuses, fetchAgentConfigs } from "../actions/settings";
 import { getClient } from "@/lib/get-client";
 import { AgentStatusList } from "@/components/AgentStatusList";

@@ -1,3 +1,6 @@
+// Live agent health data — must render on each request
+export const dynamic = "force-dynamic";
+
 import { fetchHealth } from "../actions/health";
 import { HealthPoller } from "@/components/HealthPoller";
 
