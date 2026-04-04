@@ -4,6 +4,8 @@ set -euo pipefail
 # Nexus Agent — pre-push deploy hook
 # Builds release on pushes to main, installs, and enables service.
 # Aborts push on build failure. Skip with: SKIP_DEPLOY=1 git push
+#
+# v2 stack: Bun (agent, nexus-register) + Rust (watcher only)
 
 GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
@@ -36,17 +38,7 @@ if [[ "$PUSHING_MAIN" -eq 0 ]]; then
     exit 0
 fi
 
-# ── Ensure protoc is available (required by prost-build) ─────────
-
-if ! command -v protoc &>/dev/null; then
-    info "protoc not found, installing..."
-    case "$(uname -s)" in
-        Darwin) brew install protobuf ;;
-        Linux)  sudo apt-get install -y protobuf-compiler ;;
-    esac
-fi
-
-# ── Build release ─────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────
 
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nexus"
@@ -55,37 +47,34 @@ DEPLOY_DIR="$REPO_DIR/deploy"
 
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
-info "building release..."
 START=$(date +%s)
 
-if ! cargo build --release; then
-    fail "release build failed, push aborted"
-fi
+# ── Build Bun binaries ────────────────────────────────────────────
+
+info "building Bun agent..."
+(cd "$REPO_DIR/apps/agent" && bun run build) || fail "apps/agent build failed"
+
+info "building Bun nexus-register..."
+(cd "$REPO_DIR/apps/nexus-register" && bun run build) || fail "apps/nexus-register build failed"
+
+# ── Build Rust watcher ────────────────────────────────────────────
+
+info "building Rust watcher..."
+(cd "$REPO_DIR/packages/watcher" && cargo build --release --manifest-path Cargo.toml) \
+    || fail "packages/watcher build failed"
 
 ELAPSED=$(( $(date +%s) - START ))
 info "built in ${ELAPSED}s"
 
 # ── Install binaries ──────────────────────────────────────────────
 
-install -m 755 target/release/nexus-agent "$BIN_DIR/nexus-agent"
-install -m 755 target/release/nexus "$BIN_DIR/nexus"
-install -m 755 target/release/nexus-register "$BIN_DIR/nexus-register"
+# Stop agent before replacing binary (avoid "Text file busy")
+systemctl --user stop nexus-agent 2>/dev/null || true
+
+install -m 755 "$REPO_DIR/apps/agent/nexus-agent"              "$BIN_DIR/nexus-agent"
+install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register"  "$BIN_DIR/nexus-register"
+install -m 755 "$REPO_DIR/packages/watcher/target/release/nexus-watcher" "$BIN_DIR/nexus-watcher"
 info "binaries installed to $BIN_DIR/"
-
-# ── Configure agents.toml ─────────────────────────────────────────
-
-if [[ ! -f "$CONFIG_DIR/agents.toml" ]]; then
-    LOCAL_HOST="$(hostname -s)"
-    LOCAL_USER="$(whoami)"
-    info "seeding default agents.toml (local agent: $LOCAL_HOST)"
-    cat > "$CONFIG_DIR/agents.toml" <<EOF
-[[agents]]
-name = "$LOCAL_HOST"
-host = "localhost"
-port = 7400
-user = "$LOCAL_USER"
-EOF
-fi
 
 # ── Install and enable service ────────────────────────────────────
 
@@ -97,15 +86,14 @@ case "$OS" in
         install -m 644 "$DEPLOY_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
         systemctl --user daemon-reload
         systemctl --user enable nexus-agent
-        systemctl --user restart nexus-agent
-        info "systemd service enabled and restarted"
+        systemctl --user start nexus-agent
+        info "systemd service enabled and started"
         ;;
     Darwin)
         LAUNCH_DIR="$HOME/Library/LaunchAgents"
         PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
         mkdir -p "$LAUNCH_DIR"
         sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
-        # Unload first if already loaded (idempotent restart)
         launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
         launchctl load "$PLIST"
         info "launchd agent loaded and running"
