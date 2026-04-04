@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { fetchSessions } from "./actions/sessions";
 import { SessionListPoller } from "@/components/SessionListPoller";
 

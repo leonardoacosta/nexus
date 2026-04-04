@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { fetchSessions } from "@/app/actions/sessions";
 import { SessionCard } from "@/components/SessionCard";
