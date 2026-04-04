@@ -5,15 +5,16 @@
 ## Agent Batch
 
 - [ ] [1.1] [P-1] Read `NEXUS_PROJECTS_DIR` env var (default `~/dev`) at startup, store in `AppState.projects_dir` [owner:api-engineer] [beads:nx-3xz]
-- [ ] [1.2] [P-1] Add `GET /projects/discovered` handler — scan `projects_dir` immediate children, merge with `SessionRegistry` active counts, return `Vec<DiscoveredProject>` JSON, cap at 200 [owner:api-engineer] [beads:nx-25n]
+- [ ] [1.2] [P-1] Add `GET /projects/discovered` handler — accept `depth` query param (1–3, default 1), recursively scan `projects_dir` filtering by project markers (`.git/`, `package.json`, `Cargo.toml`), skip symlinks, 5 s timeout, merge with `SessionRegistry` active counts, cap at 200 with `truncated` flag [owner:api-engineer] [beads:nx-25n]
 - [ ] [1.3] [P-1] Add `POST /session/start` handler — validate tmux available + path exists, run `tmux new-window -d -c <path> -n <project>-<ts>` + send-keys `claude`, return `{ session_name, started }` [owner:api-engineer] [beads:nx-cg3]
 - [ ] [1.4] [P-1] Add `GET /agent/self` handler — return `{ name, host, port, role, projects_dir }` from `AppState` [owner:api-engineer] [beads:nx-gem]
 - [ ] [1.5] [P-2] Register new routes in `http_handlers/mod.rs` and wire into axum router in `main.rs` [owner:api-engineer] [beads:nx-2ur]
 - [ ] [1.6] [P-2] Add `Environment=NEXUS_PROJECTS_DIR=%h/dev` to `deploy/nexus-agent.service` [owner:api-engineer] [beads:nx-5vo]
+- [ ] [1.7] [P-2] Add `PUT /commands/:name` handler — validate non-empty content, resolve path from existing `GET /commands` registry, write atomically via tmp file + rename, return updated `CommandInfo` [owner:api-engineer] [beads:nx-sat9]
 
 ## Core Batch
 
-- [ ] [2.1] [P-1] Add `DiscoveredProject` interface to `packages/core/src/types/project.ts` with fields `name`, `path`, `active_sessions`, `total_sessions`, `agent` [owner:types-engineer] [beads:nx-31d]
+- [ ] [2.1] [P-1] Add `DiscoveredProject` interface to `packages/core/src/types/project.ts` with fields `name`, `path`, `active_sessions`, `total_sessions`, `agent`, and optional `truncated?: boolean` on the list response wrapper [owner:types-engineer] [beads:nx-31d]
 - [ ] [2.2] [P-1] Add optional `projects_dir: z.string().optional()` to `AgentConfigSchema` in `packages/core/src/config.ts` [owner:types-engineer] [beads:nx-q29]
 - [ ] [2.3] [P-1] Export `DiscoveredProject` from `packages/core/src/index.ts` [owner:types-engineer] [beads:nx-215]
 - [ ] [2.4] [P-2] Add `fetchDiscoveredProjects(agent)` method to `AgentClient` in `agent-client.ts` — calls `GET /projects/discovered`, tags each entry with `agent` name [owner:api-engineer] [beads:nx-18s]
@@ -24,14 +25,16 @@
 - [ ] [2.9] [P-2] Update `app/actions/projects.ts` `fetchProjects()` to call `fetchDiscoveredProjects()` across all agents [owner:api-engineer] [beads:nx-bzmd]
 - [ ] [2.10] [P-2] Add `startSession()` and `fetchAgentConfigs()` server actions to `app/actions/settings.ts` [owner:api-engineer] [beads:nx-uk2o]
 - [ ] [2.11] [P-2] Add `saveAgentConfig()` server action that writes/updates `~/.config/nexus/dashboard.json` [owner:api-engineer] [beads:nx-f6vd]
+- [ ] [2.12] [P-2] Add `updateCommand(agent, name, content)` method to `AgentClient` — calls `PUT /commands/:name` with `{ content }` body [owner:api-engineer] [beads:nx-rs5v]
+- [ ] [2.13] [P-2] Add `saveCommand()` server action to `app/actions/settings.ts` — calls `updateCommand` on the owning agent, propagates errors to client [owner:api-engineer] [beads:nx-fok7]
 
 ## UI Batch
 
 - [ ] [3.1] [P-1] Update `ProjectsPoller` to accept and render `WithAgent<DiscoveredProject>[]`, update prop types [owner:ui-engineer] [beads:nx-v70z]
 - [ ] [3.2] [P-1] Update `ProjectCard` to accept `DiscoveredProject` — add "Start Session" button with optimistic `starting` state, show inline error if action fails [owner:ui-engineer] [beads:nx-y56o]
 - [ ] [3.3] [P-1] Create `AgentManagementPanel` component — list agents with frontmatter table, Add Agent form (name/host/port/projects_dir), Remove button per agent [owner:ui-engineer] [beads:nx-elcg]
-- [ ] [3.4] [P-1] Create `CommandsBrowserPanel` component — fetch commands from all online agents, group by Global vs Project source, show name/description/tier/cost badges [owner:ui-engineer] [beads:nx-c913]
-- [ ] [3.5] [P-2] Integrate `AgentManagementPanel` and `CommandsBrowserPanel` into Settings page layout [owner:ui-engineer] [beads:nx-yvtp]
+- [ ] [3.4] [P-1] Create `CommandsEditorPanel` component — fetch commands from all online agents, group by Global vs Project source, show name/description/tier/cost badges; clicking a command opens an inline textarea editor with full file content; Save button calls `saveCommand` server action with optimistic disable + error display [owner:ui-engineer] [beads:nx-c913]
+- [ ] [3.5] [P-2] Integrate `AgentManagementPanel` and `CommandsEditorPanel` into Settings page layout [owner:ui-engineer] [beads:nx-yvtp]
 - [ ] [3.6] [P-2] Update `ProjectsPage` server component to pass `initialProjects` from updated `fetchProjects()` [owner:ui-engineer] [beads:nx-sca5]
 
 ## E2E Batch

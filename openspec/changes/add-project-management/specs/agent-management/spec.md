@@ -53,3 +53,25 @@ Then homelab commands are shown; macbook is listed as "offline — commands unav
 Given the commands list includes `apply` with tier `Action` and cost `High`
 When the Commands Browser renders
 Then the entry shows name "apply", description text, and badges "Action" and "High"
+
+### Requirement: commands-editor
+The nexus-agent MUST expose `PUT /commands/:name` which SHALL accept `{ content: string }` and write the updated file content atomically (tmp file + rename) to the command's original path on disk. The endpoint MUST reject empty content with `400 { error: "content must not be empty" }`. The Settings page Commands section MUST allow selecting a command to open an inline editor showing full file content (frontmatter + body). Saving SHALL call the `PUT /commands/:name` endpoint on the owning agent.
+
+#### Scenario: select command opens inline editor
+Given the Commands Browser shows the `apply` command
+When the user clicks on it
+Then an inline editor panel opens showing the full markdown content of the `apply.md` file
+
+#### Scenario: save updated command
+Given the user has edited the content of `apply.md` in the inline editor
+When they click Save
+Then `PUT /commands/apply` is called with the new content, the file is written atomically on the agent, and the editor shows a success confirmation
+
+#### Scenario: empty content rejected
+Given the user clears all content in the inline editor
+When they click Save
+Then the agent returns `400 { error: "content must not be empty" }` and the editor shows the error without overwriting the file
+
+#### Scenario: atomic write ensures no partial files
+Given the agent receives valid content for `PUT /commands/apply`
+Then the agent writes to a tmp file first, then atomically renames it to the target path — if the rename fails, the original file is unchanged
