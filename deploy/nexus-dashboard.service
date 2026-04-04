@@ -10,6 +10,8 @@ WorkingDirectory=%h/dev/nx/apps/nextjs
 # Require a production build before starting.
 # Run: cd ~/dev/nx/apps/nextjs && pnpm build
 ExecStartPre=/bin/sh -c 'test -d "%h/dev/nx/apps/nextjs/.next" || { echo "ERROR: .next/ not found — run pnpm build in apps/nextjs first"; exit 1; }'
+# Allow Traefik (Docker homelab network) to reach this service on port 3100
+ExecStartPre=-/usr/bin/iptables -I INPUT 1 -s 172.20.0.0/16 -p tcp --dport 3100 -j ACCEPT
 ExecStart=%h/.local/share/pnpm/pnpm start
 
 Restart=on-failure
