@@ -14,7 +14,7 @@
     "rootDir": ".",
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
       ]
     },
     "allowJs": true,
