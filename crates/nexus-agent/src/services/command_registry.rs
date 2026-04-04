@@ -274,6 +274,24 @@ impl CommandRegistry {
             .cloned()
     }
 
+    /// Return the filesystem path for a command by full_name.
+    /// E.g. `"audit:code"` → `commands_dir/audit/code.md`
+    /// Returns `None` if the file does not exist.
+    pub fn get_path(&self, full_name: &str) -> Option<PathBuf> {
+        let parts: Vec<&str> = full_name.split(':').collect();
+        let mut path = self.commands_dir.clone();
+        for part in &parts {
+            path = path.join(part);
+        }
+        path.set_extension("md");
+        if path.exists() { Some(path) } else { None }
+    }
+
+    /// Return the commands directory path.
+    pub fn commands_dir(&self) -> &PathBuf {
+        &self.commands_dir
+    }
+
     /// Re-scan the commands directory and replace the cached command list.
     pub async fn refresh(&self) {
         let commands = scan_commands(&self.commands_dir);

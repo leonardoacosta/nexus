@@ -21,14 +21,15 @@ use nexus_agent::failures::FailureBuffer;
 use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
-    AppState, analytics_credentials_handler, analytics_cron_handler, analytics_git_handler,
-    analytics_health_handler, analytics_lifecycle_handler, analytics_specs_handler,
-    approve_spec_handler, credentials_handler, cron_handler, environment_handler, events_handler,
-    failures_handler, get_spec_handler, health_handler, hooks_handler,
-    list_commands_by_namespace_handler, list_commands_handler, list_specs_handler,
-    project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
-    read_spec_handler, recommend_handler, reject_spec_handler, run_command_handler,
-    spec_status_handler, specs_all_handler, statusline_handler,
+    AppState, agent_self_handler, analytics_credentials_handler, analytics_cron_handler,
+    analytics_git_handler, analytics_health_handler, analytics_lifecycle_handler,
+    analytics_specs_handler, approve_spec_handler, credentials_handler, cron_handler,
+    discovered_projects_handler, environment_handler, events_handler, failures_handler,
+    get_spec_handler, health_handler, hooks_handler, list_commands_by_namespace_handler,
+    list_commands_handler, list_specs_handler, project_beads_handler, project_git_handler,
+    project_specs_handler, project_status_handler, read_spec_handler, recommend_handler,
+    reject_spec_handler, run_command_handler, session_start_handler, spec_status_handler,
+    specs_all_handler, statusline_handler, update_command_handler,
 };
 use nexus_agent::notification_engine::NotificationEngine;
 use nexus_agent::registry::SessionRegistry;
@@ -392,6 +393,17 @@ async fn main() -> Result<()> {
     // Clone credential pool for the socket service (before moving into AppState).
     let socket_credential_pool = Arc::clone(&credential_pool);
 
+    // Resolve projects_dir from NEXUS_PROJECTS_DIR (default ~/dev, tilde expanded).
+    let projects_dir = {
+        let raw = std::env::var("NEXUS_PROJECTS_DIR").unwrap_or_else(|_| "~/dev".to_string());
+        if raw.starts_with("~/") {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+            format!("{}{}", home, &raw[1..])
+        } else {
+            raw
+        }
+    };
+
     // Build the HTTP health server on port 7401.
     let app_state = AppState {
         registry: Arc::clone(&registry),
@@ -409,6 +421,7 @@ async fn main() -> Result<()> {
         http_client,
         credential_pool,
         db: Arc::clone(&db),
+        projects_dir,
     };
 
     let socket_http_client = app_state.http_client.clone();
@@ -443,6 +456,13 @@ async fn main() -> Result<()> {
             "/commands/{namespace}",
             get(list_commands_by_namespace_handler),
         )
+        .route(
+            "/commands/:name",
+            axum::routing::put(update_command_handler),
+        )
+        .route("/agent/self", get(agent_self_handler))
+        .route("/projects/discovered", get(discovered_projects_handler))
+        .route("/session/start", axum::routing::post(session_start_handler))
         .route("/project/{code}/status", get(project_status_handler))
         .route("/project/{code}/beads", get(project_beads_handler))
         .route("/project/{code}/git", get(project_git_handler))

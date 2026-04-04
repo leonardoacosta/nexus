@@ -5,10 +5,13 @@
 //! types are also defined here so `main.rs` only needs to import from this
 //! module.
 
+mod agent;
 mod analytics;
+mod command_write;
 mod commands;
 mod credentials;
 mod cron;
+mod discovered_projects;
 mod environment;
 mod events;
 mod failures;
@@ -16,6 +19,7 @@ mod health;
 mod hooks;
 mod projects;
 mod recommend;
+mod session_start;
 mod specs;
 mod statusline;
 
@@ -60,20 +64,25 @@ pub struct AppState {
     pub credential_pool: Arc<CredentialPool>,
     /// SQLite backing store for spec governance, events, and queries.
     pub db: Arc<nexus_core::db::NexusDb>,
+    /// Base directory where projects live (from NEXUS_PROJECTS_DIR, default ~/dev).
+    pub projects_dir: String,
 }
 
 // ---------------------------------------------------------------------------
 // Re-exports — handler functions
 // ---------------------------------------------------------------------------
 
+pub use agent::agent_self_handler;
 pub use analytics::{
     analytics_credentials_handler, analytics_cron_handler, analytics_git_handler,
     analytics_health_handler, analytics_lifecycle_handler, analytics_specs_handler,
 };
+pub use command_write::{update_command_handler, UpdateCommandBody};
 pub use commands::{
     list_commands_by_namespace_handler, list_commands_handler, run_command_handler, validate_secret,
 };
 pub use credentials::credentials_handler;
+pub use discovered_projects::discovered_projects_handler;
 pub use cron::cron_handler;
 pub use environment::environment_handler;
 pub use events::events_handler;
@@ -84,6 +93,7 @@ pub use projects::{
     project_beads_handler, project_git_handler, project_specs_handler, project_status_handler,
 };
 pub use recommend::recommend_handler;
+pub use session_start::{session_start_handler, SessionStartBody};
 pub use specs::{
     approve_spec_handler, get_spec_handler, list_specs_handler, read_spec_handler,
     reject_spec_handler, spec_status_handler, specs_all_handler,
