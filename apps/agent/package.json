@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nexus/core": "workspace:*"
+    "@nexus/core": "workspace:*",
+    "systeminformation": "^5.31.5"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
