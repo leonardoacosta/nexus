@@ -12,13 +12,16 @@
  */
 
 import type { WatcherEvent } from "@nexus/core";
+import { createLogger } from "@nexus/core";
 import { detectProject, resolveSessionId } from "./detect";
 import { writeEvent } from "./event-writer";
+
+const log = createLogger("nexus-register");
 
 const command = process.argv[2];
 
 if (!command || !["start", "stop", "heartbeat"].includes(command)) {
-  console.error("Usage: nexus-register <start|stop|heartbeat>");
+  log.error("Usage: nexus-register <start|stop|heartbeat>");
   process.exit(1);
 }
 
@@ -54,7 +57,7 @@ switch (command) {
     break;
 
   default:
-    console.error(`Unknown command: ${command}`);
+    log.error({ command }, "Unknown command");
     process.exit(1);
 }
 

@@ -14,8 +14,8 @@ export type {
   Credential,
   CredentialStatus,
 } from "./types/credential";
-export { logger } from "./logger";
-export type { LogLevel, LogEntry } from "./logger";
+export { logger, createLogger } from "./logger";
+export type { Logger } from "./logger";
 export {
   parseConfig,
   AgentConfigSchema,

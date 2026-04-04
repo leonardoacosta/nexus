@@ -1,46 +1,34 @@
-type LogLevel = "debug" | "info" | "warn" | "error";
+import pino from "pino";
 
-interface LogEntry {
-  timestamp: string;
-  level: LogLevel;
-  message: string;
-  context?: Record<string, unknown>;
+const level = process.env.LOG_LEVEL ?? "info";
+
+/**
+ * Root Pino logger instance.
+ * All module loggers are children of this root — LOG_LEVEL changes propagate automatically.
+ */
+const root = pino({
+  level,
+  base: undefined, // omit pid/hostname from every line
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
+/**
+ * Create a named child logger for a specific module or component.
+ * Each child inherits the root level and transport config.
+ *
+ * @example
+ *   const log = createLogger("agent:health");
+ *   log.info({ cpu: 42 }, "health snapshot written");
+ */
+export function createLogger(name: string): pino.Logger {
+  return root.child({ name });
 }
 
-function formatEntry(entry: LogEntry): string {
-  return JSON.stringify(entry);
-}
+/**
+ * Singleton logger for code that doesn't warrant a named module.
+ * Prefer createLogger() for new code.
+ */
+export const logger = createLogger("nexus");
 
-function log(
-  level: LogLevel,
-  message: string,
-  context?: Record<string, unknown>,
-): void {
-  const entry: LogEntry = {
-    timestamp: new Date().toISOString(),
-    level,
-    message,
-    ...(context !== undefined ? { context } : {}),
-  };
-  const line = formatEntry(entry);
-  if (level === "error") {
-    console.error(line);
-  } else if (level === "warn") {
-    console.warn(line);
-  } else {
-    console.log(line);
-  }
-}
-
-export const logger = {
-  debug: (message: string, context?: Record<string, unknown>) =>
-    log("debug", message, context),
-  info: (message: string, context?: Record<string, unknown>) =>
-    log("info", message, context),
-  warn: (message: string, context?: Record<string, unknown>) =>
-    log("warn", message, context),
-  error: (message: string, context?: Record<string, unknown>) =>
-    log("error", message, context),
-};
-
-export type { LogLevel, LogEntry };
+export type Logger = pino.Logger;
+export type { Level as LogLevel } from "pino";
