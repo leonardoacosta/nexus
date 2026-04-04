@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { fetchSessionDetail } from "@/app/actions/session-detail";
 import { Badge, StatusDot } from "@/components/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
+import { LazyTerminalPanel } from "@/components/LazyTerminalPanel";
 
 function getStatusDotStatus(status: string): "active" | "idle" | "ended" {
   if (status === "active") return "active";
@@ -16,11 +17,13 @@ export default async function SessionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await fetchSessionDetail(id);
+  const result = await fetchSessionDetail(id);
 
-  if (!session) {
+  if (!result) {
     notFound();
   }
+
+  const { session, agentHost } = result;
 
   const duration = formatDuration(
     Date.now() - new Date(session.startedAt).getTime(),
@@ -69,43 +72,9 @@ export default async function SessionDetailPage({
           minHeight: "calc(100vh - 200px)",
         }}
       >
-        {/* Left: Terminal placeholder */}
-        <div
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-            minHeight: 400,
-          }}
-        >
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: "var(--radius-md)",
-              background: "var(--color-surface-raised)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "var(--font-size-xl)",
-              color: "var(--color-fg-ghost)",
-            }}
-          >
-            &gt;_
-          </div>
-          <p
-            style={{
-              color: "var(--color-fg-muted)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            Terminal streaming coming soon
-          </p>
+        {/* Left: Terminal */}
+        <div style={{ minHeight: 400 }}>
+          <LazyTerminalPanel agentHost={agentHost} sessionId={session.id} />
         </div>
 
         {/* Right: Metadata sidebar */}

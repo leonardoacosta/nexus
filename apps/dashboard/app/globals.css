@@ -1,4 +1,5 @@
 @import "./tokens.css";
+@import "@xterm/xterm/css/xterm.css";
 
 /* ========================================
    Dark Theme — Global Reset & Base Styles

@@ -14,6 +14,9 @@
   "dependencies": {
     "@nexus/core": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
     "geist": "^1.7.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
