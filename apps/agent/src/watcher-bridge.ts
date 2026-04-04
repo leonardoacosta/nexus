@@ -75,7 +75,7 @@ export function createWatcherBridge(
     }, 60_000);
 
     // Read stdout as a stream, parse newline-delimited JSON
-    const reader = proc.stdout.getReader();
+    const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
 
     void (async () => {
@@ -122,9 +122,9 @@ export function createWatcherBridge(
       logger.warn("watcher-bridge: cannot send command, no active process");
       return;
     }
-    const writer = proc.stdin.getWriter();
-    void writer.write(new TextEncoder().encode(JSON.stringify(command) + "\n"));
-    writer.releaseLock();
+    const stdin = proc.stdin as import("bun").FileSink;
+    stdin.write(new TextEncoder().encode(JSON.stringify(command) + "\n"));
+    void stdin.flush();
   }
 
   function shutdown(): void {

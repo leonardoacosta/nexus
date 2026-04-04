@@ -94,7 +94,7 @@ describe("AgentClient", () => {
         if (url.includes("100.64.0.1")) return jsonResponse(sessions1);
         if (url.includes("100.64.0.2")) return jsonResponse(sessions2);
         throw new Error("connection refused");
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllSessions();
@@ -117,7 +117,7 @@ describe("AgentClient", () => {
         if (url.includes("100.64.0.1")) return jsonResponse(h1);
         if (url.includes("100.64.0.2")) return jsonResponse(h2);
         throw new Error("connection refused");
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllHealth();
@@ -138,7 +138,7 @@ describe("AgentClient", () => {
         if (url.includes("100.64.0.1")) return jsonResponse(p1);
         if (url.includes("100.64.0.2")) return jsonResponse(p2);
         throw new Error("connection refused");
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllProjects();
@@ -153,7 +153,7 @@ describe("AgentClient", () => {
     test("fetchSession returns a single session from the named agent", async () => {
       const session = makeSession("s1");
 
-      globalThis.fetch = mock(async () => jsonResponse(session)) as FetchFn;
+      globalThis.fetch = mock(async () => jsonResponse(session)) as unknown as FetchFn;
 
       const client = new AgentClient(agents);
       const result = await client.fetchSession("dev-1", "s1");
@@ -172,7 +172,7 @@ describe("AgentClient", () => {
     test("offline agent is tracked with lastSeen=null", async () => {
       globalThis.fetch = mock(async () => {
         throw new Error("connection refused");
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient([{ name: "dead", host: "10.0.0.1", port: 7400 }]);
       const result = await client.fetchAllSessions();
@@ -199,7 +199,7 @@ describe("AgentClient", () => {
             });
           }
         });
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient([{ name: "slow", host: "10.0.0.1", port: 7400 }]);
 
@@ -232,7 +232,7 @@ describe("AgentClient", () => {
           throw new Error("ECONNRESET");
         }
         return jsonResponse(sessions);
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient([{ name: "flaky", host: "10.0.0.1", port: 7400 }]);
       const result = await client.fetchAllSessions();
@@ -259,7 +259,7 @@ describe("AgentClient", () => {
         if (url.includes("100.64.0.2")) return jsonResponse(sessions2);
         // offline agent
         throw new Error("connection refused");
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllSessions();
@@ -290,7 +290,7 @@ describe("AgentClient", () => {
       globalThis.fetch = mock(async () => {
         callCount++;
         return jsonResponse(sessions);
-      }) as FetchFn;
+      }) as unknown as FetchFn;
 
       const client = new AgentClient([{ name: "dev", host: "10.0.0.1", port: 7400 }]);
 

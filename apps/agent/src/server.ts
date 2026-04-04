@@ -109,7 +109,7 @@ const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
 
 /** Create the route dispatch handler, optionally backed by a database. */
 function createRequestHandler(db?: Db) {
-  return function handleRequest(request: Request, server: import("bun").Server): Response | Promise<Response> | undefined {
+  return function handleRequest(request: Request, server: import("bun").Server<WsData>): Response | Promise<Response> | undefined {
     const url = new URL(request.url);
 
     // ── WebSocket upgrade routes ──────────────────────────────────────────
@@ -123,7 +123,7 @@ function createRequestHandler(db?: Db) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const upgraded = server.upgrade<WsData>(request, {
+      const upgraded = server.upgrade(request, {
         data: { sessionId, mode: "stream" },
       });
       if (!upgraded) {
@@ -141,7 +141,7 @@ function createRequestHandler(db?: Db) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const upgraded = server.upgrade<WsData>(request, {
+      const upgraded = server.upgrade(request, {
         data: { sessionId, mode: "interact" },
       });
       if (!upgraded) {

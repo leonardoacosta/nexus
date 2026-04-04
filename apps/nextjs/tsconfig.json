@@ -17,6 +17,7 @@
         "./src/*"
       ]
     },
+    "types": ["@types/bun", "@testing-library/jest-dom"],
     "allowJs": true,
     "noEmit": true,
     "incremental": true

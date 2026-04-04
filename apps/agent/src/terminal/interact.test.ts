@@ -219,7 +219,8 @@ describe("WebSocket interact: invalid session", () => {
   it("returns 404 for non-existent session", async () => {
     const res = await fetch(`${baseUrl}/sessions/nonexistent/interact`);
     expect(res.status).toBe(404);
-    const body = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = await res.json() as any;
     expect(body.error).toBe("session not found");
   });
 });

@@ -197,7 +197,8 @@ describe("/health endpoint", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
-    const body = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = await res.json() as any;
 
     // Required fields
     expect(typeof body.hostname).toBe("string");
@@ -220,7 +221,8 @@ describe("/health endpoint", () => {
     const res = await fetch(`${baseUrl}/health?detail=true`);
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = await res.json() as any;
 
     expect(Array.isArray(body.network)).toBe(true);
     expect(body.processes).toBeDefined();
