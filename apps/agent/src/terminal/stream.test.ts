@@ -145,8 +145,7 @@ describe("WebSocket stream: invalid session", () => {
     // Attempt HTTP upgrade on unknown session — server returns 404 before upgrade
     const res = await fetch(`${baseUrl}/sessions/nonexistent/stream`);
     expect(res.status).toBe(404);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as any;
+    const body = await res.json() as { error: string };
     expect(body.error).toBe("session not found");
   });
 });

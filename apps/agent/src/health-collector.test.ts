@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, beforeEach, afterAll } from "bun:test";
+import type { HealthMetrics } from "@nexus/core";
 
 // ── Mock systeminformation before importing the collector ────────────────────
 
@@ -197,8 +198,7 @@ describe("/health endpoint", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as any;
+    const body = await res.json() as HealthMetrics;
 
     // Required fields
     expect(typeof body.hostname).toBe("string");
@@ -221,12 +221,11 @@ describe("/health endpoint", () => {
     const res = await fetch(`${baseUrl}/health?detail=true`);
     expect(res.status).toBe(200);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as any;
+    const body = await res.json() as HealthMetrics;
 
     expect(Array.isArray(body.network)).toBe(true);
     expect(body.processes).toBeDefined();
-    expect(Array.isArray(body.processes.top_cpu)).toBe(true);
-    expect(Array.isArray(body.processes.top_ram)).toBe(true);
+    expect(Array.isArray(body.processes!.top_cpu)).toBe(true);
+    expect(Array.isArray(body.processes!.top_ram)).toBe(true);
   });
 });

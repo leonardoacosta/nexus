@@ -1,4 +1,5 @@
 import { describe, expect, it, afterAll } from "bun:test";
+import type { HealthMetrics } from "@nexus/core";
 import { startServer, healthCollector } from "./server";
 
 const server = startServer(0);
@@ -15,8 +16,7 @@ describe("/health", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as any;
+    const body = await res.json() as HealthMetrics;
     expect(body).toHaveProperty("hostname");
     expect(typeof body.hostname).toBe("string");
     expect(body).toHaveProperty("uptime_seconds");
