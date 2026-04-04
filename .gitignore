@@ -33,3 +33,15 @@ docs/screenshots
 .dolt/
 *.db
 .beads-credential-key
+
+# Node / pnpm
+node_modules/
+
+# Next.js
+.next/
+
+# Build outputs
+dist/
+
+# Turborepo
+.turbo/

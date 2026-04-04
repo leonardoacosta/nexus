@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "status": "pending",
+  "mode": "consolidated",
+  "created_at": "2026-04-03T18:00:00Z",
+  "plan_dir": "docs/plan/v2",
+  "spec_names": [
+    "add-monorepo-scaffold", "add-agent-skeleton", "add-rust-file-watcher",
+    "add-agent-service-config", "add-agent-config-loader",
+    "add-session-detection", "add-health-monitoring", "add-sqlite-store",
+    "add-session-api", "add-nexus-register-hook", "add-health-history",
+    "add-dashboard-layout", "add-session-list-page", "add-health-page",
+    "add-projects-page", "add-command-palette", "add-agent-client",
+    "add-session-detail-page",
+    "add-terminal-stream-ws", "add-terminal-interact-ws",
+    "add-xterm-widget", "add-interactive-mode",
+    "add-notification-system", "add-credential-pool",
+    "add-settings-page", "add-acceptance-tests"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Foundation A — scaffold + watcher",
+      "specs": [
+        {"name": "add-monorepo-scaffold", "tasks": 13},
+        {"name": "add-rust-file-watcher", "tasks": 8}
+      ],
+      "total_tasks": 21
+    },
+    {
+      "wave": 2,
+      "label": "Foundation B — agent + config",
+      "specs": [
+        {"name": "add-agent-skeleton", "tasks": 8},
+        {"name": "add-agent-service-config", "tasks": 5},
+        {"name": "add-agent-config-loader", "tasks": 7}
+      ],
+      "total_tasks": 20
+    },
+    {
+      "wave": 3,
+      "label": "Core A — detection + SQLite",
+      "specs": [
+        {"name": "add-session-detection", "tasks": 16},
+        {"name": "add-sqlite-store", "tasks": 23}
+      ],
+      "total_tasks": 39
+    },
+    {
+      "wave": 4,
+      "label": "Core B — health + API",
+      "specs": [
+        {"name": "add-health-monitoring", "tasks": 15},
+        {"name": "add-session-api", "tasks": 17}
+      ],
+      "total_tasks": 32
+    },
+    {
+      "wave": 5,
+      "label": "Core C — register hook + history",
+      "specs": [
+        {"name": "add-nexus-register-hook", "tasks": 18},
+        {"name": "add-health-history", "tasks": 13}
+      ],
+      "total_tasks": 31
+    },
+    {
+      "wave": 6,
+      "label": "Dashboard A — layout + agent client",
+      "specs": [
+        {"name": "add-dashboard-layout", "tasks": 15},
+        {"name": "add-agent-client", "tasks": 7}
+      ],
+      "total_tasks": 22
+    },
+    {
+      "wave": 7,
+      "label": "Dashboard B — pages",
+      "specs": [
+        {"name": "add-session-list-page", "tasks": 10},
+        {"name": "add-health-page", "tasks": 9},
+        {"name": "add-projects-page", "tasks": 5},
+        {"name": "add-session-detail-page", "tasks": 6}
+      ],
+      "total_tasks": 30
+    },
+    {
+      "wave": 8,
+      "label": "Dashboard C — command palette",
+      "specs": [
+        {"name": "add-command-palette", "tasks": 5}
+      ],
+      "total_tasks": 5
+    },
+    {
+      "wave": 9,
+      "label": "Interaction A — WebSocket backend",
+      "specs": [
+        {"name": "add-terminal-stream-ws", "tasks": 10},
+        {"name": "add-terminal-interact-ws", "tasks": 11}
+      ],
+      "total_tasks": 21
+    },
+    {
+      "wave": 10,
+      "label": "Interaction B — frontend terminal",
+      "specs": [
+        {"name": "add-xterm-widget", "tasks": 10},
+        {"name": "add-interactive-mode", "tasks": 10}
+      ],
+      "total_tasks": 20
+    },
+    {
+      "wave": 11,
+      "label": "Polish A — notifications + credentials",
+      "specs": [
+        {"name": "add-notification-system", "tasks": 11},
+        {"name": "add-credential-pool", "tasks": 11}
+      ],
+      "total_tasks": 22
+    },
+    {
+      "wave": 12,
+      "label": "Polish B — settings + acceptance",
+      "specs": [
+        {"name": "add-settings-page", "tasks": 9},
+        {"name": "add-acceptance-tests", "tasks": 18}
+      ],
+      "total_tasks": 27
+    }
+  ],
+  "completed_waves": [],
+  "decisions": [
+    {
+      "date": "2026-04-03",
+      "decision": "Split roadmap 5 waves into 12 sub-waves to respect 40-task guardrail",
+      "rationale": "Wave 2 had 102 tasks, Wave 3 had 57, others near limit. Sub-waves keep each under 40 tasks for agent coherence.",
+      "source": "guardrail",
+      "affected_waves": [1,2,3,4,5,6,7,8,9,10,11,12],
+      "affected_specs": []
+    }
+  ]
+}

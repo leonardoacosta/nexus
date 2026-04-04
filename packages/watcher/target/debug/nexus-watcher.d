@@ -1,0 +1,1 @@
+/home/nyaptor/dev/nx/packages/watcher/target/debug/nexus-watcher: /home/nyaptor/dev/nx/packages/watcher/src/ipc.rs /home/nyaptor/dev/nx/packages/watcher/src/main.rs /home/nyaptor/dev/nx/packages/watcher/src/watcher.rs
