@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Session } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
-import { Badge, StatusDot } from "@/components/ui";
+import { Badge, StatusDot } from "@nexus/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 
 interface SessionCardProps {

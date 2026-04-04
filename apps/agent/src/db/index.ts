@@ -1,5 +1,4 @@
 export { openDatabase } from "./database";
-export { runMigrations } from "./migrate";
 export {
   insertSession,
   updateSessionStatus,
@@ -13,6 +12,16 @@ export type { HealthSnapshotRow } from "./health";
 export { appendSessionEvent, querySessionEvents } from "./events";
 export type { SessionEventRow } from "./events";
 export { runRetentionCleanup, scheduleRetention } from "./retention";
+
+// Re-export @nexus/db for convenience
+export type { Db } from "@nexus/db";
+export {
+  sessions,
+  healthSnapshots,
+  sessionEvents,
+  notifications,
+  credentials,
+} from "@nexus/db";
 
 // Notification buffer
 export {

@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import {
   queryActiveSessions,
   queryRecentSessions,
@@ -31,14 +31,14 @@ export function clearSessionsCache(): void {
 }
 
 /** Fetch all displayable sessions (active + recent), with caching. */
-function getCachedSessions(db: Database): SessionRow[] {
+async function getCachedSessions(db: Db): Promise<SessionRow[]> {
   const now = Date.now();
   if (sessionsCache && now < sessionsCache.expiry) {
     return sessionsCache.data;
   }
 
-  const active = queryActiveSessions(db);
-  const recent = queryRecentSessions(db, 24);
+  const active = await queryActiveSessions(db);
+  const recent = await queryRecentSessions(db, 24);
 
   // Merge, dedup by id (active takes precedence)
   const map = new Map<string, SessionRow>();
@@ -55,7 +55,7 @@ function getCachedSessions(db: Database): SessionRow[] {
 // ── Route handlers ─────────────────────────────────────────────────────────
 
 /** GET /sessions — list sessions, optionally filtered by project and/or status. */
-export function handleGetSessions(db: Database, url: URL): Response {
+export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
   const projectFilter = url.searchParams.get("project") ?? undefined;
   const statusFilter = url.searchParams.get("status") ?? undefined;
 
@@ -69,7 +69,7 @@ export function handleGetSessions(db: Database, url: URL): Response {
     );
   }
 
-  let sessions = getCachedSessions(db);
+  let sessions = await getCachedSessions(db);
 
   if (projectFilter) {
     sessions = sessions.filter((s) => s.project === projectFilter);
@@ -85,8 +85,8 @@ export function handleGetSessions(db: Database, url: URL): Response {
 }
 
 /** GET /sessions/{id} — single session by ID, 404 if not found. */
-export function handleGetSessionById(db: Database, id: string): Response {
-  const session = getSessionById(db, id);
+export async function handleGetSessionById(db: Db, id: string): Promise<Response> {
+  const session = await getSessionById(db, id);
   if (!session) {
     return new Response(
       JSON.stringify({ error: "session not found" }),

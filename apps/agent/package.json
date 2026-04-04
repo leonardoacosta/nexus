@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@nexus/core": "workspace:*",
+    "@nexus/db": "workspace:*",
+    "drizzle-orm": "^0.44.2",
     "systeminformation": "^5.31.5"
   },
   "devDependencies": {

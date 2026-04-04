@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchSessionDetail } from "@/app/actions/session-detail";
-import { Badge, StatusDot } from "@/components/ui";
+import { Badge, StatusDot } from "@nexus/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 import { LazyTerminalPanel } from "@/components/LazyTerminalPanel";
 

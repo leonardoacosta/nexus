@@ -7,7 +7,7 @@
 
 import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
-import { Gauge } from "@/components/ui";
+import { Gauge } from "@nexus/ui";
 
 afterEach(() => {
   cleanup();

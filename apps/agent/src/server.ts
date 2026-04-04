@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import type { ServerWebSocket } from "bun";
 import { logger } from "@nexus/core";
 import type { HealthMetrics } from "@nexus/core";
@@ -107,8 +107,8 @@ function withCors(request: Request, response: Response): Response {
 const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
 const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
 
-/** Create the route dispatch handler, optionally backed by a SQLite DB. */
-function createRequestHandler(db?: Database) {
+/** Create the route dispatch handler, optionally backed by a database. */
+function createRequestHandler(db?: Db) {
   return function handleRequest(request: Request, server: import("bun").Server): Response | Promise<Response> | undefined {
     const url = new URL(request.url);
 
@@ -192,23 +192,23 @@ function createRequestHandler(db?: Database) {
     if (db) {
       // GET /sessions
       if (url.pathname === "/sessions" && request.method === "GET") {
-        return withCors(request, handleGetSessions(db, url));
+        return handleGetSessions(db, url).then((r) => withCors(request, r));
       }
 
       // GET /sessions/{id}
       const sessionMatch = url.pathname.match(/^\/sessions\/(.+)$/);
       if (sessionMatch && request.method === "GET") {
-        return withCors(request, handleGetSessionById(db, sessionMatch[1]!));
+        return handleGetSessionById(db, sessionMatch[1]!).then((r) => withCors(request, r));
       }
 
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
-        return withCors(request, handleGetProjects(db));
+        return handleGetProjects(db).then((r) => withCors(request, r));
       }
 
       // GET /health/history
       if (url.pathname === "/health/history" && request.method === "GET") {
-        return withCors(request, handleGetHealthHistory(db, url));
+        return handleGetHealthHistory(db, url).then((r) => withCors(request, r));
       }
 
       // ── Notification routes ──────────────────────────────────────────
@@ -234,7 +234,7 @@ function createRequestHandler(db?: Database) {
       }
 
       if (url.pathname === "/credentials" && request.method === "GET") {
-        return withCors(request, handleListCredentials());
+        return handleListCredentials().then((r) => withCors(request, r));
       }
 
       if (url.pathname === "/credentials/lease" && request.method === "POST") {
@@ -243,7 +243,7 @@ function createRequestHandler(db?: Database) {
 
       const credReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
       if (credReleaseMatch && request.method === "POST") {
-        return withCors(request, handleReleaseCredential(credReleaseMatch[1]!));
+        return handleReleaseCredential(credReleaseMatch[1]!).then((r) => withCors(request, r));
       }
 
       const credRateLimitMatch = url.pathname.match(
@@ -257,7 +257,7 @@ function createRequestHandler(db?: Database) {
 
       // GET /credentials/status — pool overview
       if (url.pathname === "/credentials/status" && request.method === "GET") {
-        return withCors(request, handleListCredentials());
+        return handleListCredentials().then((r) => withCors(request, r));
       }
     }
 
@@ -273,7 +273,7 @@ function createRequestHandler(db?: Database) {
 
 export { healthCollector, streamManager };
 
-export function startServer(port: number = PORT, db?: Database) {
+export function startServer(port: number = PORT, db?: Db) {
   // Initialize subsystems that need the DB
   if (db) {
     initNotificationRoutes(db);

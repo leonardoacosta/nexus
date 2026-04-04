@@ -1,38 +1,29 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
+import { sessionEvents } from "@nexus/db";
+import { eq, asc } from "drizzle-orm";
 
-/** Row shape stored in the `session_events` table. */
-export interface SessionEventRow {
-  id?: number;
-  session_id: string;
-  event_type: string;
-  timestamp: string;
-  metadata: string | null;
-}
+/** Row shape returned from the `session_events` table. */
+export type SessionEventRow = typeof sessionEvents.$inferSelect;
+
+/** Insert value shape (no `id` — it's auto-generated). */
+type SessionEventInsert = typeof sessionEvents.$inferInsert;
 
 /** Append a new event for a session. */
-export function appendSessionEvent(
-  db: Database,
-  event: Omit<SessionEventRow, "id">,
-): void {
-  db.query(
-    `INSERT INTO session_events (session_id, event_type, timestamp, metadata)
-     VALUES ($session_id, $event_type, $timestamp, $metadata)`,
-  ).run({
-    $session_id: event.session_id,
-    $event_type: event.event_type,
-    $timestamp: event.timestamp,
-    $metadata: event.metadata,
-  });
+export async function appendSessionEvent(
+  db: Db,
+  event: Omit<SessionEventInsert, "id">,
+): Promise<void> {
+  await db.insert(sessionEvents).values(event);
 }
 
 /** Query all events for a given session, ordered by timestamp ascending. */
-export function querySessionEvents(
-  db: Database,
+export async function querySessionEvents(
+  db: Db,
   sessionId: string,
-): SessionEventRow[] {
+): Promise<SessionEventRow[]> {
   return db
-    .query(
-      `SELECT * FROM session_events WHERE session_id = $session_id ORDER BY timestamp ASC`,
-    )
-    .all({ $session_id: sessionId }) as SessionEventRow[];
+    .select()
+    .from(sessionEvents)
+    .where(eq(sessionEvents.sessionId, sessionId))
+    .orderBy(asc(sessionEvents.timestamp));
 }

@@ -10,7 +10,7 @@ const db = openDatabase();
 const server = startServer(undefined, db);
 const sessionManager = createSessionManager();
 
-// Health snapshot scheduler — persists metrics to SQLite every 30s
+// Health snapshot scheduler — persists metrics to PostgreSQL every 30s
 const healthScheduler = new HealthScheduler(healthCollector, db);
 healthScheduler.start();
 
@@ -38,7 +38,6 @@ function shutdown() {
   sessionManager.stop();
   watcherBridge?.shutdown();
   server.stop();
-  db.close();
   process.exit(0);
 }
 

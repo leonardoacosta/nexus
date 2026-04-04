@@ -1,5 +1,5 @@
 import type { AgentStatus } from "@/lib/agent-client";
-import { Card } from "@/components/ui";
+import { Card } from "@nexus/ui";
 import { formatRelativeTime } from "@/lib/format";
 
 interface OfflineMachineCardProps {

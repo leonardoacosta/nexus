@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
@@ -11,7 +11,7 @@ let manager: NotificationManager | null = null;
 let meetingState: MeetingState | null = null;
 
 /** Initialize notification routes with a database connection. */
-export function initNotificationRoutes(db: Database): void {
+export function initNotificationRoutes(db: Db): void {
   meetingState = new MeetingState();
   manager = new NotificationManager(db, meetingState);
 }
@@ -29,7 +29,7 @@ export function resetNotificationRoutes(): void {
 
 /** POST /notifications/send — queue a notification. */
 export async function handleSendNotification(
-  db: Database,
+  db: Db,
   request: Request,
 ): Promise<Response> {
   if (!manager) {
@@ -77,7 +77,7 @@ export async function handleSendNotification(
     body: notifBody as string,
     project: (project as string) ?? null,
     priority: (priority as NotificationPriority) ?? "normal",
-    created_at: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   });
 
   return jsonResponse(notification, 201);

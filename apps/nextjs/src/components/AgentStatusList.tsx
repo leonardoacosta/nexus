@@ -1,5 +1,5 @@
 import type { AgentStatus } from "@/lib/agent-client";
-import { Card, StatusDot, Badge } from "@/components/ui";
+import { Card, StatusDot, Badge } from "@nexus/ui";
 import { formatRelativeTime } from "@/lib/format";
 
 interface AgentStatusListProps {

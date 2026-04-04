@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core";
 import {
   insertNotification,
@@ -16,9 +16,9 @@ import { routeNotification, findMatchingRule } from "./router";
  */
 export class NotificationManager {
   private meetingState: MeetingState;
-  private db: Database;
+  private db: Db;
 
-  constructor(db: Database, meetingState?: MeetingState) {
+  constructor(db: Db, meetingState?: MeetingState) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
   }
@@ -32,15 +32,15 @@ export class NotificationManager {
    * Send a notification: check meeting state, then buffer or route.
    * Returns the notification row with its assigned id.
    */
-  async send(notification: Omit<NotificationRow, "status" | "sent_at">): Promise<NotificationRow> {
+  async send(notification: Omit<NotificationRow, "status" | "sentAt">): Promise<NotificationRow> {
     const row: NotificationRow = {
       ...notification,
       status: "queued",
-      sent_at: null,
+      sentAt: null,
     };
 
     // Always persist to buffer first
-    insertNotification(this.db, row);
+    await insertNotification(this.db, row);
 
     // Check meeting state
     if (this.meetingState.active) {
@@ -48,7 +48,7 @@ export class NotificationManager {
 
       if (rule.meeting_behavior === "drop") {
         // Drop: mark as expired immediately
-        markNotificationExpired(this.db, row.id);
+        await markNotificationExpired(this.db, row.id);
         row.status = "expired";
         logger.info("notification dropped (meeting active, rule=drop)", { id: row.id });
         return row;
@@ -70,7 +70,7 @@ export class NotificationManager {
 
   /** Flush all buffered (queued) notifications — called when meeting ends. */
   async flush(): Promise<number> {
-    const queued = queryNotificationsByStatus(this.db, "queued");
+    const queued = await queryNotificationsByStatus(this.db, "queued");
     let delivered = 0;
 
     for (const notification of queued) {
@@ -92,7 +92,7 @@ export class NotificationManager {
     const allSucceeded = results.length > 0 && results.every((r) => r.success);
 
     if (allSucceeded) {
-      markNotificationDelivered(this.db, notification.id);
+      await markNotificationDelivered(this.db, notification.id);
       notification.status = "delivered";
     }
 

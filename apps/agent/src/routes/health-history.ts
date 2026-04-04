@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import { queryHealthTimeSeries } from "../db/health";
 import type { HealthSnapshotRow } from "../db/health";
 
@@ -44,16 +44,16 @@ export function downsample(
       diskCount = 0;
 
     for (const row of bucket) {
-      if (row.cpu_percent !== null) {
-        cpuSum += row.cpu_percent;
+      if (row.cpuPercent !== null) {
+        cpuSum += row.cpuPercent;
         cpuCount++;
       }
-      if (row.ram_percent !== null) {
-        ramSum += row.ram_percent;
+      if (row.ramPercent !== null) {
+        ramSum += row.ramPercent;
         ramCount++;
       }
-      if (row.disk_percent !== null) {
-        diskSum += row.disk_percent;
+      if (row.diskPercent !== null) {
+        diskSum += row.diskPercent;
         diskCount++;
       }
     }
@@ -73,9 +73,9 @@ export function downsample(
 function toPoint(row: HealthSnapshotRow): HealthHistoryPoint {
   return {
     timestamp: row.timestamp,
-    cpu_percent: row.cpu_percent,
-    ram_percent: row.ram_percent,
-    disk_percent: row.disk_percent,
+    cpu_percent: row.cpuPercent,
+    ram_percent: row.ramPercent,
+    disk_percent: row.diskPercent,
   };
 }
 
@@ -90,7 +90,7 @@ function round(n: number): number {
  * Returns a sparkline-ready array of health data points, automatically
  * downsampled when the raw count exceeds MAX_POINTS (200).
  */
-export function handleGetHealthHistory(db: Database, url: URL): Response {
+export async function handleGetHealthHistory(db: Db, url: URL): Promise<Response> {
   const hoursParam = url.searchParams.get("hours");
   const hours = hoursParam ? Number(hoursParam) : 24;
 
@@ -101,7 +101,7 @@ export function handleGetHealthHistory(db: Database, url: URL): Response {
     );
   }
 
-  const rows = queryHealthTimeSeries(db, hours);
+  const rows = await queryHealthTimeSeries(db, hours);
 
   const points =
     rows.length > MAX_POINTS ? downsample(rows, MAX_POINTS) : rows.map(toPoint);

@@ -1,4 +1,6 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
+import { healthSnapshots, sessionEvents } from "@nexus/db";
+import { lt } from "drizzle-orm";
 import { logger } from "@nexus/core";
 
 const HEALTH_RETENTION_DAYS = 30;
@@ -8,12 +10,8 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 /**
  * Delete health_snapshots older than 30 days and session_events older than
  * 90 days.
- *
- * NOTE: health_snapshots retention is already handled here — the
- * HealthScheduler writes rows that this cleanup prunes after 30 days.
- * No additional retention logic is needed for the health history feature.
  */
-export function runRetentionCleanup(db: Database): void {
+export async function runRetentionCleanup(db: Db): Promise<void> {
   const healthCutoff = new Date(
     Date.now() - HEALTH_RETENTION_DAYS * 86_400_000,
   ).toISOString();
@@ -21,28 +19,28 @@ export function runRetentionCleanup(db: Database): void {
     Date.now() - EVENTS_RETENTION_DAYS * 86_400_000,
   ).toISOString();
 
-  const healthDeleted = db
-    .query(`DELETE FROM health_snapshots WHERE timestamp < $cutoff`)
-    .run({ $cutoff: healthCutoff });
-  const eventsDeleted = db
-    .query(`DELETE FROM session_events WHERE timestamp < $cutoff`)
-    .run({ $cutoff: eventsCutoff });
+  const healthDeleted = await db
+    .delete(healthSnapshots)
+    .where(lt(healthSnapshots.timestamp, healthCutoff));
+  const eventsDeleted = await db
+    .delete(sessionEvents)
+    .where(lt(sessionEvents.timestamp, eventsCutoff));
 
   logger.info("retention cleanup complete", {
-    health_deleted: healthDeleted.changes,
-    events_deleted: eventsDeleted.changes,
+    health_deleted: healthDeleted.count,
+    events_deleted: eventsDeleted.count,
   });
 }
 
 /**
  * Run retention cleanup immediately, then schedule it to repeat every 24
- * hours.  Returns a cleanup function that cancels the interval.
+ * hours. Returns a cleanup function that cancels the interval.
  */
-export function scheduleRetention(db: Database): () => void {
-  runRetentionCleanup(db);
+export function scheduleRetention(db: Db): () => void {
+  void runRetentionCleanup(db);
 
   const timer = setInterval(() => {
-    runRetentionCleanup(db);
+    void runRetentionCleanup(db);
   }, CLEANUP_INTERVAL_MS);
 
   return () => clearInterval(timer);

@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
 import { logger } from "@nexus/core";
@@ -13,11 +13,11 @@ export class HealthScheduler {
   private intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private collector: HealthCollector;
-  private db: Database;
+  private db: Db;
 
   constructor(
     collector: HealthCollector,
-    db: Database,
+    db: Db,
     intervalMs: number = DEFAULT_INTERVAL_MS,
   ) {
     this.collector = collector;
@@ -50,13 +50,13 @@ export class HealthScheduler {
       const diskPercent =
         metrics.disk.length > 0 ? (metrics.disk[0]?.percent ?? null) : null;
 
-      insertHealthSnapshot(this.db, {
+      await insertHealthSnapshot(this.db, {
         timestamp: new Date().toISOString(),
-        cpu_percent: metrics.cpu.overall_percent,
-        ram_percent: metrics.ram.percent,
-        disk_percent: diskPercent,
-        docker_containers: metrics.docker?.containers ?? null,
-        raw_json: JSON.stringify(metrics),
+        cpuPercent: metrics.cpu.overall_percent,
+        ramPercent: metrics.ram.percent,
+        diskPercent,
+        dockerContainers: metrics.docker?.containers ?? null,
+        rawJson: JSON.stringify(metrics),
       });
     } catch (err) {
       logger.error("health scheduler tick failed", {

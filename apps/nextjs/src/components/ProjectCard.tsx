@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Project } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
-import { Badge } from "@/components/ui";
+import { Badge } from "@nexus/ui";
 
 interface ProjectCardProps {
   project: WithAgent<Project>;

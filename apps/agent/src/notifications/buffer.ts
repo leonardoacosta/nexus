@@ -1,72 +1,53 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
+import { notifications } from "@nexus/db";
 import type { NotificationStatus } from "@nexus/core";
+import { eq, asc } from "drizzle-orm";
 
-/** Row shape stored in the `notifications` table. */
-export interface NotificationRow {
-  id: string;
-  channel: string;
-  title: string;
-  body: string;
-  project: string | null;
-  priority: string;
-  status: string;
-  created_at: string;
-  sent_at: string | null;
-}
+/** Row shape returned from the `notifications` table. */
+export type NotificationRow = typeof notifications.$inferSelect;
 
 /** Insert a notification into the buffer. */
-export function insertNotification(db: Database, row: NotificationRow): void {
-  db.query(
-    `INSERT INTO notifications (id, channel, title, body, project, priority, status, created_at, sent_at)
-     VALUES ($id, $channel, $title, $body, $project, $priority, $status, $created_at, $sent_at)`,
-  ).run({
-    $id: row.id,
-    $channel: row.channel,
-    $title: row.title,
-    $body: row.body,
-    $project: row.project,
-    $priority: row.priority,
-    $status: row.status,
-    $created_at: row.created_at,
-    $sent_at: row.sent_at,
-  });
+export async function insertNotification(db: Db, row: NotificationRow): Promise<void> {
+  await db.insert(notifications).values(row);
 }
 
 /** Query all notifications with a given status. */
-export function queryNotificationsByStatus(
-  db: Database,
+export async function queryNotificationsByStatus(
+  db: Db,
   status: NotificationStatus,
-): NotificationRow[] {
+): Promise<NotificationRow[]> {
   return db
-    .query(`SELECT * FROM notifications WHERE status = $status ORDER BY created_at ASC`)
-    .all({ $status: status }) as NotificationRow[];
+    .select()
+    .from(notifications)
+    .where(eq(notifications.status, status))
+    .orderBy(asc(notifications.createdAt));
 }
 
 /** Mark a notification as delivered. */
-export function markNotificationDelivered(db: Database, id: string): void {
-  db.query(
-    `UPDATE notifications SET status = 'delivered', sent_at = $sent_at WHERE id = $id`,
-  ).run({
-    $id: id,
-    $sent_at: new Date().toISOString(),
-  });
+export async function markNotificationDelivered(db: Db, id: string): Promise<void> {
+  await db
+    .update(notifications)
+    .set({ status: "delivered", sentAt: new Date().toISOString() })
+    .where(eq(notifications.id, id));
 }
 
 /** Mark a notification as expired. */
-export function markNotificationExpired(db: Database, id: string): void {
-  db.query(`UPDATE notifications SET status = 'expired' WHERE id = $id`).run({
-    $id: id,
-  });
+export async function markNotificationExpired(db: Db, id: string): Promise<void> {
+  await db
+    .update(notifications)
+    .set({ status: "expired" })
+    .where(eq(notifications.id, id));
 }
 
 /** Get a single notification by id. */
-export function getNotificationById(
-  db: Database,
+export async function getNotificationById(
+  db: Db,
   id: string,
-): NotificationRow | null {
-  return (
-    (db.query(`SELECT * FROM notifications WHERE id = $id`).get({ $id: id }) as
-      | NotificationRow
-      | undefined) ?? null
-  );
+): Promise<NotificationRow | null> {
+  const rows = await db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.id, id))
+    .limit(1);
+  return rows[0] ?? null;
 }

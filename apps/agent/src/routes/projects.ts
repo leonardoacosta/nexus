@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import type { Project } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
@@ -57,7 +57,7 @@ function aggregateProjects(sessions: SessionRow[]): Project[] {
 // ── Route handler ──────────────────────────────────────────────────────────
 
 /** GET /projects — aggregated project list with session counts and machine lists. */
-export function handleGetProjects(db: Database): Response {
+export async function handleGetProjects(db: Db): Promise<Response> {
   const now = Date.now();
   if (projectsCache && now < projectsCache.expiry) {
     return new Response(JSON.stringify(projectsCache.data), {
@@ -67,7 +67,7 @@ export function handleGetProjects(db: Database): Response {
   }
 
   // Use a broad window so we include recently ended sessions too
-  const sessions = queryRecentSessions(db, 24 * 30); // 30 days
+  const sessions = await queryRecentSessions(db, 24 * 30); // 30 days
   const projects = aggregateProjects(sessions);
 
   projectsCache = { data: projects, expiry: now + PROJECTS_CACHE_TTL_MS };

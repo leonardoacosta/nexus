@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core";
 import {
   insertCredential,
@@ -19,13 +19,13 @@ const DEFAULT_LEASE_TTL_MS = 30 * 60 * 1000;
 
 /** Credential pool with lease/release/cooldown lifecycle. */
 export class CredentialPool {
-  private db: Database;
+  private db: Db;
   private cooldownMs: number;
   private leaseTtlMs: number;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    db: Database,
+    db: Db,
     options?: { cooldownMs?: number; leaseTtlMs?: number },
   ) {
     this.db = db;
@@ -34,18 +34,21 @@ export class CredentialPool {
   }
 
   /** Add a new credential to the pool. */
-  add(credential: {
+  async add(credential: {
     id: string;
     name: string;
     type: string;
     value_encrypted: string;
-  }): void {
-    insertCredential(this.db, {
-      ...credential,
+  }): Promise<void> {
+    await insertCredential(this.db, {
+      id: credential.id,
+      name: credential.name,
+      type: credential.type,
+      valueEncrypted: credential.value_encrypted,
       status: "available",
-      leased_by: null,
-      leased_at: null,
-      cooldown_until: null,
+      leasedBy: null,
+      leasedAt: null,
+      cooldownUntil: null,
     });
     logger.info("credential added to pool", { id: credential.id, name: credential.name });
   }
@@ -54,12 +57,12 @@ export class CredentialPool {
    * Lease the next available credential of the given type (round-robin).
    * Returns the credential row or null if the pool is exhausted.
    */
-  lease(type: string, leasedBy: string): CredentialRow | null {
+  async lease(type: string, leasedBy: string): Promise<CredentialRow | null> {
     // First, recover any expired cooldowns
-    this.recoverExpiredCooldowns();
+    await this.recoverExpiredCooldowns();
 
     // Find first available credential of this type
-    const available = queryCredentialsByStatus(this.db, "available").filter(
+    const available = (await queryCredentialsByStatus(this.db, "available")).filter(
       (c) => c.type === type,
     );
 
@@ -71,9 +74,9 @@ export class CredentialPool {
     const credential = available[0]!;
     const now = new Date().toISOString();
 
-    updateCredentialStatus(this.db, credential.id, "leased", leasedBy, now, null);
+    await updateCredentialStatus(this.db, credential.id, "leased", leasedBy, now, null);
 
-    const updated = getCredentialById(this.db, credential.id);
+    const updated = await getCredentialById(this.db, credential.id);
     logger.info("credential leased", {
       id: credential.id,
       leasedBy,
@@ -83,8 +86,8 @@ export class CredentialPool {
   }
 
   /** Release a leased credential back to available. */
-  release(id: string): boolean {
-    const credential = getCredentialById(this.db, id);
+  async release(id: string): Promise<boolean> {
+    const credential = await getCredentialById(this.db, id);
     if (!credential) {
       logger.warn("release failed — credential not found", { id });
       return false;
@@ -98,7 +101,7 @@ export class CredentialPool {
       return false;
     }
 
-    updateCredentialStatus(this.db, id, "available", null, null, null);
+    await updateCredentialStatus(this.db, id, "available", null, null, null);
     logger.info("credential released", { id });
     return true;
   }
@@ -107,50 +110,50 @@ export class CredentialPool {
    * Put a credential on cooldown (e.g., after rate limit detection).
    * Returns the next available credential of the same type, or null.
    */
-  reportRateLimit(
+  async reportRateLimit(
     id: string,
     leasedBy: string,
-  ): { cooledDown: CredentialRow; next: CredentialRow | null } | null {
-    const credential = getCredentialById(this.db, id);
+  ): Promise<{ cooledDown: CredentialRow; next: CredentialRow | null } | null> {
+    const credential = await getCredentialById(this.db, id);
     if (!credential) return null;
 
     const cooldownUntil = new Date(Date.now() + this.cooldownMs).toISOString();
-    updateCredentialStatus(this.db, id, "cooldown", null, null, cooldownUntil);
+    await updateCredentialStatus(this.db, id, "cooldown", null, null, cooldownUntil);
 
     logger.info("credential on cooldown (rate limited)", {
       id,
       cooldown_until: cooldownUntil,
     });
 
-    const cooledDown = getCredentialById(this.db, id)!;
+    const cooledDown = (await getCredentialById(this.db, id))!;
 
     // Try to lease the next available credential of the same type
-    const next = this.lease(credential.type, leasedBy);
+    const next = await this.lease(credential.type, leasedBy);
 
     return { cooledDown, next };
   }
 
   /** List all credentials with status info (no values exposed). */
-  list(): Array<Omit<CredentialRow, "value_encrypted">> {
-    return queryAllCredentials(this.db).map(({ value_encrypted: _, ...rest }) => rest);
+  async list(): Promise<Array<Omit<CredentialRow, "valueEncrypted">>> {
+    return (await queryAllCredentials(this.db)).map(({ valueEncrypted: _, ...rest }) => rest);
   }
 
   /** Recover credentials whose cooldown has expired. */
-  recoverExpiredCooldowns(): number {
-    const expired = queryExpiredCooldowns(this.db);
+  async recoverExpiredCooldowns(): Promise<number> {
+    const expired = await queryExpiredCooldowns(this.db);
     for (const credential of expired) {
-      updateCredentialStatus(this.db, credential.id, "available", null, null, null);
+      await updateCredentialStatus(this.db, credential.id, "available", null, null, null);
       logger.info("credential recovered from cooldown", { id: credential.id });
     }
     return expired.length;
   }
 
   /** Clean up stale leases (leased longer than TTL). */
-  cleanupStaleLeases(): number {
+  async cleanupStaleLeases(): Promise<number> {
     const threshold = new Date(Date.now() - this.leaseTtlMs).toISOString();
-    const stale = queryStaleLeases(this.db, threshold);
+    const stale = await queryStaleLeases(this.db, threshold);
     for (const credential of stale) {
-      updateCredentialStatus(this.db, credential.id, "available", null, null, null);
+      await updateCredentialStatus(this.db, credential.id, "available", null, null, null);
       logger.info("stale lease released", { id: credential.id });
     }
     return stale.length;
@@ -159,8 +162,8 @@ export class CredentialPool {
   /** Start periodic cleanup of expired cooldowns and stale leases. */
   startCleanup(intervalMs: number = 60_000): void {
     this.cleanupTimer = setInterval(() => {
-      this.recoverExpiredCooldowns();
-      this.cleanupStaleLeases();
+      void this.recoverExpiredCooldowns();
+      void this.cleanupStaleLeases();
     }, intervalMs);
   }
 

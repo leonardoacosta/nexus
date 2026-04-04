@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { HealthMetrics } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
-import { Card, Gauge, Sparkline } from "@/components/ui";
+import { Card, Gauge, Sparkline } from "@nexus/ui";
 import { formatUptime, formatBytes } from "@/lib/format";
 
 interface MachineCardProps {

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
 import { fetchSessions } from "@/app/actions/sessions";
-import { StatusDot, Badge } from "@/components/ui";
+import { StatusDot, Badge } from "@nexus/ui";
 
 // ---------------------------------------------------------------------------
 // Fuzzy match — case-insensitive substring across multiple fields

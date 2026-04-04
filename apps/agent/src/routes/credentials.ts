@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Db } from "@nexus/db";
 import { CredentialPool } from "../credentials/pool";
 
 // Singleton pool — initialized once via initCredentialRoutes()
@@ -6,7 +6,7 @@ let pool: CredentialPool | null = null;
 
 /** Initialize credential routes with a database connection. */
 export function initCredentialRoutes(
-  db: Database,
+  db: Db,
   options?: { cooldownMs?: number; leaseTtlMs?: number },
 ): void {
   pool = new CredentialPool(db, options);
@@ -52,7 +52,7 @@ export async function handleAddCredential(request: Request): Promise<Response> {
   }
 
   try {
-    pool.add({
+    await pool.add({
       id: id as string,
       name: name as string,
       type: type as string,
@@ -90,24 +90,24 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
     return jsonResponse({ error: "leased_by is required and must be a string" }, 400);
   }
 
-  const credential = pool.lease(type as string, leased_by as string);
+  const credential = await pool.lease(type as string, leased_by as string);
 
   if (!credential) {
     return jsonResponse({ error: "no available credentials of this type" }, 409);
   }
 
   // Don't expose the encrypted value
-  const { value_encrypted: _, ...safe } = credential;
+  const { valueEncrypted: _, ...safe } = credential;
   return jsonResponse(safe);
 }
 
 /** POST /credentials/{id}/release — release a leased credential. */
-export function handleReleaseCredential(id: string): Response {
+export async function handleReleaseCredential(id: string): Promise<Response> {
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
 
-  const success = pool.release(id);
+  const success = await pool.release(id);
 
   if (!success) {
     return jsonResponse({ error: "credential not found or not in leased state" }, 404);
@@ -117,12 +117,12 @@ export function handleReleaseCredential(id: string): Response {
 }
 
 /** GET /credentials — list all credentials (no values). */
-export function handleListCredentials(): Response {
+export async function handleListCredentials(): Promise<Response> {
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
 
-  return jsonResponse(pool.list());
+  return jsonResponse(await pool.list());
 }
 
 /** POST /credentials/{id}/report-rate-limit — report rate limit, trigger cooldown + rotation. */
@@ -147,16 +147,16 @@ export async function handleReportRateLimit(
     return jsonResponse({ error: "leased_by is required and must be a string" }, 400);
   }
 
-  const result = pool.reportRateLimit(id, leased_by as string);
+  const result = await pool.reportRateLimit(id, leased_by as string);
 
   if (!result) {
     return jsonResponse({ error: "credential not found" }, 404);
   }
 
-  const { value_encrypted: _1, ...cooledDown } = result.cooledDown;
+  const { valueEncrypted: _1, ...cooledDown } = result.cooledDown;
   const next = result.next
     ? (() => {
-        const { value_encrypted: _2, ...safe } = result.next!;
+        const { valueEncrypted: _2, ...safe } = result.next!;
         return safe;
       })()
     : null;

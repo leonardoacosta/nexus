@@ -30,7 +30,7 @@ vi.mock("@/app/actions/session-detail", () => ({
 
 // Since the page is a Server Component (async), we can't render it directly.
 // Instead, we test the metadata sidebar concept by rendering an inline version.
-import { Badge, StatusDot } from "@/components/ui";
+import { Badge, StatusDot } from "@nexus/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 
 function MetadataSidebar({
