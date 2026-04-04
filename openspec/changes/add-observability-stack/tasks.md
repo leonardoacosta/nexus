@@ -6,7 +6,7 @@
 - [x] 1.3 Export `createLogger` and `Logger` type from `packages/core/src/index.ts` [beads:nx-pxtd]
 - [x] 1.4 Replace `console.error` in `apps/nexus-register/src/index.ts` with Pino logger [beads:nx-66up]
 - [x] 1.5 Add `pino-pretty` as devDependency for local development [beads:nx-2aaj]
-- [ ] 1.6 Verify: `LOG_LEVEL=debug bun run apps/nexus-register/src/index.ts start` emits structured JSON [beads:nx-47ab]
+- [x] 1.6 Verify: `LOG_LEVEL=debug bun run apps/nexus-register/src/index.ts start` emits structured JSON [beads:nx-47ab]
 
 ## 2. Phase 2 — Sentry Integration
 - [ ] 2.1 Add `@sentry/node` to `apps/agent/package.json`, create `apps/agent/src/instrument.ts` with `Sentry.init()` [beads:nx-bdno]
