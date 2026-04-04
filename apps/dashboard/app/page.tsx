@@ -1,7 +1,26 @@
-export default function Home() {
+import { fetchSessions } from "./actions/sessions";
+import { SessionListPoller } from "@/components/SessionListPoller";
+
+export default async function Home() {
+  const { sessions, agentCount } = await fetchSessions();
+
   return (
-    <main>
-      <h1>Nexus Dashboard</h1>
-    </main>
+    <div>
+      <h1
+        style={{
+          fontSize: "var(--font-size-2xl)",
+          fontWeight: "var(--font-weight-bold)",
+          color: "var(--color-fg)",
+          marginBottom: "var(--space-6)",
+          letterSpacing: "var(--tracking-tight)",
+        }}
+      >
+        Dashboard
+      </h1>
+      <SessionListPoller
+        initialSessions={sessions}
+        initialAgentCount={agentCount}
+      />
+    </div>
   );
 }
