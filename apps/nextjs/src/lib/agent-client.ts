@@ -4,6 +4,8 @@ import type {
   Session,
   HealthMetrics,
   Project,
+  DiscoveredProject,
+  DiscoveredProjectsResponse,
 } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
@@ -138,6 +140,33 @@ export class AgentClient {
     });
   }
 
+  async fetchDiscoveredProjects(): Promise<WithAgent<DiscoveredProject>[]> {
+    return this.cache.get("all-discovered-projects", CACHE_TTL_LONG_MS, async () => {
+      const settled = await Promise.allSettled(
+        this.agents.map(async (agent) => {
+          const res = await fetchWithRetry(`${agentBaseUrl(agent)}/projects/discovered`);
+          const data = (await res.json()) as DiscoveredProjectsResponse;
+          this.markOnline(agent.name);
+          return { name: agent.name, data };
+        }),
+      );
+
+      const merged: WithAgent<DiscoveredProject>[] = [];
+      for (let i = 0; i < settled.length; i++) {
+        const result = settled[i]!;
+        const agentName = this.agents[i]!.name;
+        if (result.status === "fulfilled") {
+          for (const project of result.value.data.projects) {
+            merged.push({ ...project, agent: result.value.name });
+          }
+        } else {
+          this.markOffline(agentName);
+        }
+      }
+      return merged;
+    });
+  }
+
   // ---- Single-agent fetches ------------------------------------------------
 
   async fetchSession(agentName: string, sessionId: string): Promise<WithAgent<Session> | null> {
@@ -174,6 +203,125 @@ export class AgentClient {
     } catch {
       this.markOffline(agentName);
       return null;
+    }
+  }
+
+  async startSession(
+    agentName: string,
+    body: { project: string; path: string },
+  ): Promise<{ session_name: string; started: boolean }> {
+    const agent = this.findAgent(agentName);
+    if (!agent) throw new Error(`Agent not found: ${agentName}`);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${agentBaseUrl(agent)}/session/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      this.markOnline(agentName);
+      return (await res.json()) as { session_name: string; started: boolean };
+    } catch (err) {
+      clearTimeout(timer);
+      this.markOffline(agentName);
+      throw err;
+    }
+  }
+
+  async fetchAgentSelf(agentName: string): Promise<{
+    name: string;
+    host: string;
+    port: number;
+    role: string;
+    projects_dir: string;
+  } | null> {
+    const agent = this.findAgent(agentName);
+    if (!agent) return null;
+    try {
+      const res = await fetchWithRetry(`${agentBaseUrl(agent)}/agent/self`);
+      this.markOnline(agentName);
+      return (await res.json()) as {
+        name: string;
+        host: string;
+        port: number;
+        role: string;
+        projects_dir: string;
+      };
+    } catch {
+      this.markOffline(agentName);
+      return null;
+    }
+  }
+
+  async fetchAgentCommands(agentName: string): Promise<{
+    commands: Array<{
+      name: string;
+      namespace: string;
+      full_name: string;
+      description: string;
+      tier: string;
+      cost: string;
+    }>;
+  } | null> {
+    const agent = this.findAgent(agentName);
+    if (!agent) return null;
+    try {
+      const res = await fetchWithRetry(`${agentBaseUrl(agent)}/commands`);
+      this.markOnline(agentName);
+      return (await res.json()) as {
+        commands: Array<{
+          name: string;
+          namespace: string;
+          full_name: string;
+          description: string;
+          tier: string;
+          cost: string;
+        }>;
+      };
+    } catch {
+      this.markOffline(agentName);
+      return null;
+    }
+  }
+
+  async updateCommand(
+    agentName: string,
+    name: string,
+    content: string,
+  ): Promise<{ updated: boolean; path: string }> {
+    const agent = this.findAgent(agentName);
+    if (!agent) throw new Error(`Agent not found: ${agentName}`);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `${agentBaseUrl(agent)}/commands/${encodeURIComponent(name)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+          signal: controller.signal,
+        },
+      );
+      clearTimeout(timer);
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      this.markOnline(agentName);
+      return (await res.json()) as { updated: boolean; path: string };
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
     }
   }
 
