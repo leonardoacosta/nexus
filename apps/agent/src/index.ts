@@ -6,7 +6,15 @@ import { openDatabase } from "./db/database";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
 
-const db = openDatabase();
+let db: ReturnType<typeof openDatabase>;
+try {
+  db = openDatabase();
+} catch (err) {
+  logger.error("Failed to open database — agent cannot start", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+  process.exit(1);
+}
 const server = startServer(undefined, db);
 const sessionManager = createSessionManager();
 

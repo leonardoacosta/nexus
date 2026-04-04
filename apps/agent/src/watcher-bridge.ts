@@ -96,8 +96,8 @@ export function createWatcherBridge(
           processLine(lineBuffer);
           lineBuffer = "";
         }
-      } catch {
-        // Stream closed — handled by exited promise below
+      } catch (err) {
+        logger.error("watcher-bridge: stdout stream closed unexpectedly", { error: err });
       }
     })();
 
@@ -124,7 +124,11 @@ export function createWatcherBridge(
     }
     const stdin = proc.stdin as import("bun").FileSink;
     stdin.write(new TextEncoder().encode(JSON.stringify(command) + "\n"));
-    void stdin.flush();
+    try {
+      void stdin.flush();
+    } catch (err) {
+      logger.warn("watcher-bridge: stdin flush failed", { error: err });
+    }
   }
 
   function shutdown(): void {

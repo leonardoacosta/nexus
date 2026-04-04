@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { AgentClient } from "./agent-client";
 import type { AgentConfig, Session, HealthMetrics, Project } from "@nexus/core";
 
@@ -58,8 +58,6 @@ function makeProject(name: string): Project {
 // Mock fetch helper
 // ---------------------------------------------------------------------------
 
-type FetchFn = typeof globalThis.fetch;
-
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -72,15 +70,9 @@ function jsonResponse(data: unknown, status = 200): Response {
 // ---------------------------------------------------------------------------
 
 describe("AgentClient", () => {
-  let originalFetch: FetchFn;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
-
-  function restoreFetch() {
-    globalThis.fetch = originalFetch;
-  }
 
   // ---- Online agent: returns sessions/health data -------------------------
 
@@ -89,12 +81,12 @@ describe("AgentClient", () => {
       const sessions1 = [makeSession("s1"), makeSession("s2")];
       const sessions2 = [makeSession("s3")];
 
-      globalThis.fetch = mock(async (input: string | URL | Request) => {
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
         if (url.includes("100.64.0.1")) return jsonResponse(sessions1);
         if (url.includes("100.64.0.2")) return jsonResponse(sessions2);
         throw new Error("connection refused");
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllSessions();
@@ -104,20 +96,18 @@ describe("AgentClient", () => {
       expect(result.filter((s) => s.agent === "dev-1").length).toBe(2);
       expect(result.filter((s) => s.agent === "dev-2").length).toBe(1);
       expect(result[0]!.agent).toBe("dev-1");
-
-      restoreFetch();
     });
 
     test("fetchAllHealth returns health tagged with agent name", async () => {
       const h1 = makeHealth("dev-1");
       const h2 = makeHealth("dev-2");
 
-      globalThis.fetch = mock(async (input: string | URL | Request) => {
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
         if (url.includes("100.64.0.1")) return jsonResponse(h1);
         if (url.includes("100.64.0.2")) return jsonResponse(h2);
         throw new Error("connection refused");
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllHealth();
@@ -125,20 +115,18 @@ describe("AgentClient", () => {
       expect(result.length).toBe(2);
       expect(result.find((h) => h.agent === "dev-1")?.hostname).toBe("dev-1");
       expect(result.find((h) => h.agent === "dev-2")?.hostname).toBe("dev-2");
-
-      restoreFetch();
     });
 
     test("fetchAllProjects returns projects tagged with agent name", async () => {
       const p1 = [makeProject("nx"), makeProject("co")];
       const p2 = [makeProject("nx")];
 
-      globalThis.fetch = mock(async (input: string | URL | Request) => {
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
         if (url.includes("100.64.0.1")) return jsonResponse(p1);
         if (url.includes("100.64.0.2")) return jsonResponse(p2);
         throw new Error("connection refused");
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllProjects();
@@ -146,14 +134,12 @@ describe("AgentClient", () => {
       expect(result.length).toBe(3);
       expect(result.filter((p) => p.agent === "dev-1").length).toBe(2);
       expect(result.filter((p) => p.agent === "dev-2").length).toBe(1);
-
-      restoreFetch();
     });
 
     test("fetchSession returns a single session from the named agent", async () => {
       const session = makeSession("s1");
 
-      globalThis.fetch = mock(async () => jsonResponse(session)) as unknown as FetchFn;
+      vi.stubGlobal("fetch", async () => jsonResponse(session));
 
       const client = new AgentClient(agents);
       const result = await client.fetchSession("dev-1", "s1");
@@ -161,8 +147,6 @@ describe("AgentClient", () => {
       expect(result).not.toBeNull();
       expect(result!.id).toBe("s1");
       expect(result!.agent).toBe("dev-1");
-
-      restoreFetch();
     });
   });
 
@@ -170,9 +154,9 @@ describe("AgentClient", () => {
 
   describe("offline agent", () => {
     test("offline agent is tracked with lastSeen=null", async () => {
-      globalThis.fetch = mock(async () => {
+      vi.stubGlobal("fetch", async () => {
         throw new Error("connection refused");
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient([{ name: "dead", host: "10.0.0.1", port: 7400 }]);
       const result = await client.fetchAllSessions();
@@ -184,22 +168,22 @@ describe("AgentClient", () => {
       expect(statuses[0]!.name).toBe("dead");
       expect(statuses[0]!.online).toBe(false);
       expect(statuses[0]!.lastSeen).toBeNull();
-
-      restoreFetch();
     });
 
     test("timeout aborts after 3 seconds", async () => {
-      globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-        // Simulate a request that hangs until aborted
-        return new Promise<Response>((_, reject) => {
-          const signal = init?.signal;
-          if (signal) {
-            signal.addEventListener("abort", () => {
-              reject(new DOMException("The operation was aborted.", "AbortError"));
-            });
-          }
-        });
-      }) as unknown as FetchFn;
+      vi.stubGlobal(
+        "fetch",
+        async (_input: string | URL | Request, init?: RequestInit) => {
+          return new Promise<Response>((_, reject) => {
+            const signal = init?.signal;
+            if (signal) {
+              signal.addEventListener("abort", () => {
+                reject(new DOMException("The operation was aborted.", "AbortError"));
+              });
+            }
+          });
+        },
+      );
 
       const client = new AgentClient([{ name: "slow", host: "10.0.0.1", port: 7400 }]);
 
@@ -214,8 +198,6 @@ describe("AgentClient", () => {
 
       const statuses = client.getAgentStatuses();
       expect(statuses[0]!.online).toBe(false);
-
-      restoreFetch();
     }, 15_000);
   });
 
@@ -226,13 +208,11 @@ describe("AgentClient", () => {
       let callCount = 0;
       const sessions = [makeSession("retry-s1")];
 
-      globalThis.fetch = mock(async () => {
+      vi.stubGlobal("fetch", async () => {
         callCount++;
-        if (callCount === 1) {
-          throw new Error("ECONNRESET");
-        }
+        if (callCount === 1) throw new Error("ECONNRESET");
         return jsonResponse(sessions);
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient([{ name: "flaky", host: "10.0.0.1", port: 7400 }]);
       const result = await client.fetchAllSessions();
@@ -241,8 +221,6 @@ describe("AgentClient", () => {
       expect(result[0]!.id).toBe("retry-s1");
       expect(result[0]!.agent).toBe("flaky");
       expect(callCount).toBe(2); // initial + 1 retry
-
-      restoreFetch();
     });
   });
 
@@ -253,13 +231,13 @@ describe("AgentClient", () => {
       const sessions1 = [makeSession("m1")];
       const sessions2 = [makeSession("m2"), makeSession("m3")];
 
-      globalThis.fetch = mock(async (input: string | URL | Request) => {
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
         if (url.includes("100.64.0.1")) return jsonResponse(sessions1);
         if (url.includes("100.64.0.2")) return jsonResponse(sessions2);
         // offline agent
         throw new Error("connection refused");
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient(agents);
       const result = await client.fetchAllSessions();
@@ -275,8 +253,6 @@ describe("AgentClient", () => {
 
       const onlineAgents = statuses.filter((s) => s.online);
       expect(onlineAgents.length).toBe(2);
-
-      restoreFetch();
     });
   });
 
@@ -287,10 +263,10 @@ describe("AgentClient", () => {
       let callCount = 0;
       const sessions = [makeSession("cached-1")];
 
-      globalThis.fetch = mock(async () => {
+      vi.stubGlobal("fetch", async () => {
         callCount++;
         return jsonResponse(sessions);
-      }) as unknown as FetchFn;
+      });
 
       const client = new AgentClient([{ name: "dev", host: "10.0.0.1", port: 7400 }]);
 
@@ -301,8 +277,6 @@ describe("AgentClient", () => {
       expect(result2.length).toBe(1);
       // fetch should only have been called once due to cache
       expect(callCount).toBe(1);
-
-      restoreFetch();
     });
   });
 });
