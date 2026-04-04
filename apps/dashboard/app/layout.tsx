@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Sidebar } from "@/components/Sidebar";
+import { CommandPaletteProvider } from "@/components/CommandPaletteProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
           <Sidebar />
           <main className="main-content">{children}</main>
         </div>
+        <CommandPaletteProvider />
       </body>
     </html>
   );
