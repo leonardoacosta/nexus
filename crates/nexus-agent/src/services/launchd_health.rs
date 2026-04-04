@@ -54,17 +54,20 @@ pub fn resolve_health_path() -> PathBuf {
 }
 
 /// Write a health report to disk. Returns an error on failure rather than panicking.
-pub fn write_health_file(health: &DaemonHealth, path: &PathBuf) -> Result<(), String> {
+pub async fn write_health_file(health: &DaemonHealth, path: &PathBuf) -> Result<(), String> {
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| format!("Failed to create health directory: {}", e))?;
     }
 
     let json = serde_json::to_string_pretty(health)
         .map_err(|e| format!("Failed to serialize health report: {}", e))?;
 
-    std::fs::write(path, json).map_err(|e| format!("Failed to write health file: {}", e))?;
+    tokio::fs::write(path, json)
+        .await
+        .map_err(|e| format!("Failed to write health file: {}", e))?;
 
     Ok(())
 }
@@ -136,7 +139,7 @@ mod macos_impl {
 
             // Write initial health report
             let health = DaemonHealth::new(start_time, self.collect_service_statuses());
-            if let Err(e) = write_health_file(&health, &self.health_path) {
+            if let Err(e) = write_health_file(&health, &self.health_path).await {
                 error!("Failed to write initial health report: {}", e);
             }
 
@@ -151,7 +154,7 @@ mod macos_impl {
                             start_time,
                             self.collect_service_statuses(),
                         );
-                        if let Err(e) = write_health_file(&health, &self.health_path) {
+                        if let Err(e) = write_health_file(&health, &self.health_path).await {
                             error!("Failed to write health report: {}", e);
                         }
                     }
@@ -161,9 +164,7 @@ mod macos_impl {
             self.healthy.store(false, Ordering::SeqCst);
 
             // Clean up health file on shutdown
-            if self.health_path.exists() {
-                let _ = std::fs::remove_file(&self.health_path);
-            }
+            let _ = tokio::fs::remove_file(&self.health_path).await;
 
             Ok(())
         }
@@ -281,8 +282,8 @@ mod tests {
         assert_eq!(health.status, "healthy");
     }
 
-    #[test]
-    fn test_write_health_file() {
+    #[tokio::test]
+    async fn test_write_health_file() {
         let tmp_dir = TempDir::new().expect("should create temp dir");
         let health_path = tmp_dir.path().join("state").join("daemon-health.json");
 
@@ -297,7 +298,7 @@ mod tests {
             status: "healthy".to_string(),
         };
 
-        let result = write_health_file(&health, &health_path);
+        let result = write_health_file(&health, &health_path).await;
         assert!(result.is_ok(), "write should succeed");
         assert!(health_path.exists(), "health file should exist");
 
@@ -307,8 +308,8 @@ mod tests {
         assert_eq!(parsed.uptime_secs, 120);
     }
 
-    #[test]
-    fn test_write_health_file_creates_parent_dirs() {
+    #[tokio::test]
+    async fn test_write_health_file_creates_parent_dirs() {
         let tmp_dir = TempDir::new().expect("should create temp dir");
         let health_path = tmp_dir
             .path()
@@ -324,7 +325,7 @@ mod tests {
             status: "healthy".to_string(),
         };
 
-        let result = write_health_file(&health, &health_path);
+        let result = write_health_file(&health, &health_path).await;
         assert!(result.is_ok());
         assert!(health_path.exists());
     }

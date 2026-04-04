@@ -62,7 +62,7 @@ pub async fn cleanup_stale_socket(path: &PathBuf) -> Result<()> {
         }
         Err(_) => {
             tracing::warn!(path = %path.display(), "removing stale socket");
-            std::fs::remove_file(path)?;
+            tokio::fs::remove_file(path).await?;
         }
     }
 
@@ -143,7 +143,7 @@ pub async fn run_socket_service(ctx: SocketContext) -> Result<()> {
 
     // Remove the socket file so nothing tries to connect to a dead socket.
     if path.exists() {
-        if let Err(e) = std::fs::remove_file(&path) {
+        if let Err(e) = tokio::fs::remove_file(&path).await {
             tracing::warn!(error = %e, "failed to remove socket file on shutdown");
         } else {
             tracing::info!(path = %path.display(), "socket file removed");

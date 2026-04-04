@@ -241,7 +241,7 @@ impl CredentialPool {
         // for startup without DB, but this is secondary to the DB writes above.
         let cache_path = usage_cache_path();
         if let Some(parent) = cache_path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent)
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
         {
             warn!(error = %e, "failed to create state dir for usage cache");
             return;
@@ -309,7 +309,7 @@ impl Service for CredentialPoolService {
                 .with_context(|| format!("failed to create {}", creds_dir.display()))?;
         }
 
-        let mut initial = scan_credential_files(&creds_dir);
+        let mut initial = scan_credential_files(&creds_dir).await;
 
         // ── Bootstrap import from CC [2.2] ─────────────────────────────
         // If pool is empty and ~/.claude/.credentials.json is a real file
@@ -555,7 +555,7 @@ async fn handle_fs_event(
     }
 
     // Create or modify — re-parse the file.
-    match parse_credential_file(path) {
+    match parse_credential_file(path).await {
         Ok(acct) => {
             let mut accounts = pool.accounts.write().await;
             if let Some(existing) = accounts.iter_mut().find(|a| a.name == acct.name) {
@@ -645,8 +645,9 @@ fn derive_account_name(path: &Path) -> String {
 }
 
 /// Parse a single credential JSON file into a `CredentialAccount`.
-fn parse_credential_file(path: &Path) -> Result<CredentialAccount> {
-    let content = std::fs::read_to_string(path)
+async fn parse_credential_file(path: &Path) -> Result<CredentialAccount> {
+    let content = tokio::fs::read_to_string(path)
+        .await
         .with_context(|| format!("failed to read {}", path.display()))?;
     let cred: CredentialFile = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
@@ -673,8 +674,8 @@ fn parse_credential_file(path: &Path) -> Result<CredentialAccount> {
 }
 
 /// Scan the credentials directory for all JSON files and parse them.
-fn scan_credential_files(dir: &Path) -> Vec<CredentialAccount> {
-    let entries = match std::fs::read_dir(dir) {
+async fn scan_credential_files(dir: &Path) -> Vec<CredentialAccount> {
+    let mut dir_entries = match tokio::fs::read_dir(dir).await {
         Ok(e) => e,
         Err(e) => {
             warn!(
@@ -687,10 +688,15 @@ fn scan_credential_files(dir: &Path) -> Vec<CredentialAccount> {
     };
 
     let mut accounts = Vec::new();
-    for entry in entries.flatten() {
+    while let Ok(Some(entry)) = dir_entries.next_entry().await {
         let path = entry.path();
-        if path.is_file() && is_credential_json(&path) {
-            match parse_credential_file(&path) {
+        let is_file = entry
+            .file_type()
+            .await
+            .map(|ft| ft.is_file())
+            .unwrap_or(false);
+        if is_file && is_credential_json(&path) {
+            match parse_credential_file(&path).await {
                 Ok(acct) => accounts.push(acct),
                 Err(e) => {
                     debug!(
@@ -747,7 +753,7 @@ async fn bootstrap_import_credential(
         pool_path.display()
     );
 
-    parse_credential_file(&pool_path)
+    parse_credential_file(&pool_path).await
 }
 
 /// Import a credential file from CC into the pool directory (watcher bridge).
@@ -784,7 +790,7 @@ pub async fn import_credential_to_pool(
         pool_path.display()
     );
 
-    Ok(Some(parse_credential_file(&pool_path)?))
+    Ok(Some(parse_credential_file(&pool_path).await?))
 }
 
 /// Try to discover a human-readable name for a credential account by querying the API.
@@ -905,8 +911,8 @@ mod tests {
         assert!(!is_credential_json(Path::new("noext")));
     }
 
-    #[test]
-    fn test_parse_credential_file() {
+    #[tokio::test]
+    async fn test_parse_credential_file() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("acct-personal.json");
         fs::write(
@@ -920,15 +926,15 @@ mod tests {
         )
         .unwrap();
 
-        let acct = parse_credential_file(&path).unwrap();
+        let acct = parse_credential_file(&path).await.unwrap();
         assert_eq!(acct.name, "personal");
         assert_eq!(acct.access_token, "tok-abc123");
         assert!(acct.expires_at.is_some());
         assert!(acct.usage.is_none());
     }
 
-    #[test]
-    fn test_parse_credential_file_no_expiry() {
+    #[tokio::test]
+    async fn test_parse_credential_file_no_expiry() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("acct-work.json");
         fs::write(
@@ -941,21 +947,21 @@ mod tests {
         )
         .unwrap();
 
-        let acct = parse_credential_file(&path).unwrap();
+        let acct = parse_credential_file(&path).await.unwrap();
         assert_eq!(acct.name, "work");
         assert!(acct.expires_at.is_none());
     }
 
-    #[test]
-    fn test_parse_credential_file_bad_json() {
+    #[tokio::test]
+    async fn test_parse_credential_file_bad_json() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("bad.json");
         fs::write(&path, "not json").unwrap();
-        assert!(parse_credential_file(&path).is_err());
+        assert!(parse_credential_file(&path).await.is_err());
     }
 
-    #[test]
-    fn test_scan_credential_files() {
+    #[tokio::test]
+    async fn test_scan_credential_files() {
         let tmp = TempDir::new().unwrap();
 
         // Valid credential
@@ -978,7 +984,7 @@ mod tests {
         // Invalid JSON — should be skipped
         fs::write(tmp.path().join("broken.json"), "not json").unwrap();
 
-        let accounts = scan_credential_files(tmp.path());
+        let accounts = scan_credential_files(tmp.path()).await;
         assert_eq!(accounts.len(), 2);
 
         let names: Vec<&str> = accounts.iter().map(|a| a.name.as_str()).collect();
@@ -986,9 +992,9 @@ mod tests {
         assert!(names.contains(&"b"));
     }
 
-    #[test]
-    fn test_scan_nonexistent_dir() {
-        let accounts = scan_credential_files(Path::new("/tmp/nonexistent-nx-test-dir"));
+    #[tokio::test]
+    async fn test_scan_nonexistent_dir() {
+        let accounts = scan_credential_files(Path::new("/tmp/nonexistent-nx-test-dir")).await;
         assert!(accounts.is_empty());
     }
 

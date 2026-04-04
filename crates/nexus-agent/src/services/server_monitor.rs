@@ -179,7 +179,7 @@ async fn collect_health(state_path: &Path) -> ServerHealth {
     let timestamp = chrono::Utc::now().to_rfc3339();
 
     // Read /proc/meminfo
-    let memory_usage_pct = match std::fs::read_to_string("/proc/meminfo") {
+    let memory_usage_pct = match tokio::fs::read_to_string("/proc/meminfo").await {
         Ok(contents) => parse_meminfo(&contents).map(|info| {
             let used = info.total_kb.saturating_sub(info.available_kb);
             let pct = (used as f64 / info.total_kb as f64) * 100.0;
@@ -192,7 +192,7 @@ async fn collect_health(state_path: &Path) -> ServerHealth {
     };
 
     // Read /proc/loadavg
-    let load_avg_1m = match std::fs::read_to_string("/proc/loadavg") {
+    let load_avg_1m = match tokio::fs::read_to_string("/proc/loadavg").await {
         Ok(contents) => parse_loadavg(&contents),
         Err(e) => {
             debug!("Could not read /proc/loadavg: {}", e);
@@ -269,7 +269,7 @@ impl Service for ServerMonitorService {
 
         // Ensure parent directory exists
         if let Some(parent) = self.state_path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent)
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
         {
             error!(
                 "Failed to create state directory {}: {}",
@@ -315,7 +315,7 @@ impl Service for ServerMonitorService {
                     // Write state file
                     match serde_json::to_string_pretty(&health) {
                         Ok(json) => {
-                            if let Err(e) = std::fs::write(&self.state_path, json) {
+                            if let Err(e) = tokio::fs::write(&self.state_path, json).await {
                                 error!(
                                     "Failed to write server health state: {}",
                                     e

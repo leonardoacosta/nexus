@@ -91,7 +91,9 @@ async fn main() -> Result<()> {
     tracing::info!("nexus-agent starting");
 
     // Ensure Nexus.app bundle exists for macOS notification icons.
-    nexus_agent::icons::ensure_app_bundle();
+    tokio::task::spawn_blocking(|| nexus_agent::icons::ensure_app_bundle())
+        .await
+        .ok();
 
     // Resolve agent identity from hostname.
     let agent_host = hostname::get()

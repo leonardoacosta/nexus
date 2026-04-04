@@ -208,14 +208,14 @@ impl IMessageReaderService {
     }
 
     /// Persist messages buffer to disk for HTTP endpoint access
-    fn persist_to_disk(messages: &[IMessageRecord]) {
+    async fn persist_to_disk(messages: &[IMessageRecord]) {
         let home = std::env::var("HOME").unwrap_or_default();
         let messages_path = PathBuf::from(&home).join(".claude/state/imessages.json");
         if let Some(parent) = messages_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            let _ = tokio::fs::create_dir_all(parent).await;
         }
         if let Ok(json) = serde_json::to_string_pretty(messages) {
-            if let Err(e) = std::fs::write(&messages_path, json) {
+            if let Err(e) = tokio::fs::write(&messages_path, json).await {
                 warn!("Failed to persist iMessages to disk: {}", e);
             }
         }
@@ -329,7 +329,7 @@ impl crate::services::Service for IMessageReaderService {
                                 }
 
                                 // Persist to disk for HTTP endpoint access
-                                Self::persist_to_disk(&messages);
+                                Self::persist_to_disk(&messages).await;
                             }
                         }
                         Err(e) => {
