@@ -1,0 +1,224 @@
+{
+  "version": 2,
+  "plan_name": "audit-wave-1",
+  "created_at": "2026-04-04T00:00:00Z",
+  "project": "nexus",
+  "project_path": "/home/nyaptor/dev/nx",
+  "mode": "consolidated",
+  "decisions": [],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Security P1s",
+      "specs": [
+        {
+          "name": "fix-terminal-attach-security",
+          "path": "openspec/changes/fix-terminal-attach-security",
+          "priority": 1,
+          "task_count": 14,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:24:39.682146"
+        },
+        {
+          "name": "fix-credential-mgmt-security",
+          "path": "openspec/changes/fix-credential-mgmt-security",
+          "priority": 1,
+          "task_count": 14,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:24:39.682148"
+        },
+        {
+          "name": "fix-tui-client-stability",
+          "path": "openspec/changes/fix-tui-client-stability",
+          "priority": 1,
+          "task_count": 7,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:24:39.682149"
+        }
+      ],
+      "phases": [
+        "DB",
+        "API",
+        "E2E"
+      ],
+      "total_tasks": 35
+    },
+    {
+      "wave": 2,
+      "label": "Session Lifecycle P1",
+      "specs": [
+        {
+          "name": "fix-session-management-lifecycle",
+          "path": "openspec/changes/fix-session-management-lifecycle",
+          "priority": 1,
+          "task_count": 26,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:38:58.158840"
+        }
+      ],
+      "phases": [
+        "API",
+        "UI",
+        "E2E"
+      ],
+      "total_tasks": 26
+    },
+    {
+      "wave": 3,
+      "label": "API Reliability",
+      "specs": [
+        {
+          "name": "fix-project-registry-api",
+          "path": "openspec/changes/fix-project-registry-api",
+          "priority": 1,
+          "task_count": 17,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:51:27.187031"
+        },
+        {
+          "name": "fix-notification-engine-reliability",
+          "path": "openspec/changes/fix-notification-engine-reliability",
+          "priority": 1,
+          "task_count": 15,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T21:51:27.187037"
+        }
+      ],
+      "phases": [
+        "API",
+        "UI",
+        "E2E"
+      ],
+      "total_tasks": 32
+    },
+    {
+      "wave": 4,
+      "label": "Health Monitoring",
+      "specs": [
+        {
+          "name": "fix-health-monitoring-types",
+          "path": "openspec/changes/fix-health-monitoring-types",
+          "priority": 2,
+          "task_count": 15,
+          "status": "merged",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "merged_at": "2026-04-04T22:02:32.996434"
+        }
+      ],
+      "phases": [
+        "DB",
+        "API",
+        "E2E"
+      ],
+      "total_tasks": 15
+    }
+  ],
+  "status": "completed",
+  "current_wave": null,
+  "started_at": "2026-04-04T20:47:41.526178",
+  "completed_at": "2026-04-04T22:02:32.996424",
+  "completed_waves": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "completed_specs": [
+    "fix-terminal-attach-security",
+    "fix-credential-mgmt-security",
+    "fix-tui-client-stability",
+    "fix-session-management-lifecycle",
+    "fix-project-registry-api",
+    "fix-notification-engine-reliability",
+    "fix-health-monitoring-types"
+  ],
+  "failed_specs": [],
+  "pre_audit_sha": "c8017ee",
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [
+      "DB",
+      "API",
+      "E2E",
+      "UI"
+    ],
+    "task_results": {
+      "fix-terminal-attach-security": {
+        "API": {
+          "completed": [
+            "all"
+          ],
+          "failed": []
+        },
+        "E2E": {
+          "completed": [
+            "all"
+          ],
+          "failed": []
+        }
+      },
+      "fix-credential-mgmt-security": {
+        "DB": {
+          "completed": [
+            "DB-1",
+            "DB-2",
+            "DB-3"
+          ],
+          "failed": []
+        },
+        "API": {
+          "completed": [
+            "all"
+          ],
+          "failed": []
+        },
+        "E2E": {
+          "completed": [
+            "all"
+          ],
+          "failed": []
+        }
+      },
+      "fix-tui-client-stability": {
+        "API": {
+          "completed": [
+            "all"
+          ],
+          "failed": []
+        }
+      },
+      "fix-session-management-lifecycle": {},
+      "fix-project-registry-api": {},
+      "fix-notification-engine-reliability": {},
+      "fix-health-monitoring-types": {}
+    },
+    "phase_started_at": {
+      "DB": "2026-04-04T20:47:46.634443"
+    },
+    "phase_completed_at": {
+      "DB": "2026-04-04T20:59:58.109299",
+      "API": "2026-04-04T21:11:38.033487",
+      "E2E": "2026-04-04T21:24:39.682136"
+    }
+  }
+}

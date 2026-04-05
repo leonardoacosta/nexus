@@ -1884,6 +1884,7 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
+ "subtle",
  "sysinfo",
  "tempfile",
  "tokio",
