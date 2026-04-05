@@ -15,6 +15,13 @@
       "when": 1775354314447,
       "tag": "0001_rename_value_encrypted_to_value_plaintext",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775357616088,
+      "tag": "0002_bitter_nova",
+      "breakpoints": true
     }
   ]
 }

@@ -37,24 +37,7 @@ impl NexusAgentService {
             agent_host: self.agent_host.clone(),
             uptime_seconds: self.started_at.elapsed().as_secs(),
             session_count: sessions.len() as u32,
-            machine: Some(proto::MachineHealth {
-                cpu_percent: machine.cpu_percent,
-                memory_used_gb: machine.memory_used_gb,
-                memory_total_gb: machine.memory_total_gb,
-                disk_used_gb: machine.disk_used_gb,
-                disk_total_gb: machine.disk_total_gb,
-                load_avg: machine.load_avg.to_vec(),
-                uptime_seconds: machine.uptime_seconds,
-                docker_containers: machine
-                    .docker_containers
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|c| proto::ContainerStatus {
-                        name: c.name,
-                        running: c.running,
-                    })
-                    .collect(),
-            }),
+            machine: Some((&machine).into()),
             latest_rate_limit,
         };
 

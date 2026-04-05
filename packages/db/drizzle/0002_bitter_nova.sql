@@ -1,0 +1,1 @@
+CREATE INDEX "health_snapshots_timestamp_idx" ON "health_snapshots" USING btree ("timestamp");

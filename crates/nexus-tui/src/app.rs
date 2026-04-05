@@ -1220,15 +1220,10 @@ impl App {
                     .entry(agent.info.name.clone())
                     .or_insert_with(AgentHealthHistory::new);
 
-                let cpu_sample = health.cpu_percent.clamp(0.0, 100.0) as u64;
+                let cpu_sample = health.cpu.overall_percent.clamp(0.0, 100.0) as u64;
                 entry.push_cpu(cpu_sample);
 
-                let ram_sample = if health.memory_total_gb > 0.0 {
-                    ((health.memory_used_gb / health.memory_total_gb) * 100.0).clamp(0.0, 100.0)
-                        as u64
-                } else {
-                    0
-                };
+                let ram_sample = health.ram.percent.clamp(0.0, 100.0) as u64;
                 entry.push_ram(ram_sample);
             }
         }

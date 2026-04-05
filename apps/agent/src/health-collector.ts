@@ -1,4 +1,5 @@
 import type { HealthMetrics, ProcessInfo } from "@nexus/core";
+import { logger } from "@nexus/core";
 import si from "systeminformation";
 import os from "node:os";
 
@@ -82,8 +83,8 @@ export class HealthCollector {
   private async tick(): Promise<void> {
     try {
       this.latest = await this.collect();
-    } catch {
-      // Collection failed — keep stale data rather than crashing
+    } catch (err) {
+      logger.warn({ err }, "health collection tick failed");
     }
   }
 
@@ -97,7 +98,8 @@ export class HealthCollector {
         containers: containers.length,
         running: containers.filter((c) => c.state === "running").length,
       };
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, "docker collection failed");
       return null;
     }
   }

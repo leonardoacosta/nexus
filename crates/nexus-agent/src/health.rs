@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nexus_core::db::{HealthSampleRecord, NexusDb};
-use nexus_core::health::{ContainerStatus, MachineHealth};
+use nexus_core::health::{CpuHealth, DiskHealth, DockerHealth, MachineHealth, RamHealth};
 use sysinfo::System;
 use tokio::sync::RwLock;
 
@@ -58,10 +58,10 @@ impl HealthCollector {
             .unwrap_or_else(|_| System::new());
 
             // Populate the initial snapshot immediately.
-            let docker_containers = tokio::task::spawn_blocking(detect_docker_containers)
+            let docker = tokio::task::spawn_blocking(detect_docker)
                 .await
                 .unwrap_or(None);
-            *state.write().await = build_health_from_system(&sys, docker_containers.clone());
+            *state.write().await = build_health_from_system(&sys, docker.clone());
 
             let mut tick = tokio::time::interval(interval);
             // Skip the first immediate tick — we already have data above.
@@ -69,7 +69,7 @@ impl HealthCollector {
 
             let mut docker_tick_counter: u32 = 0;
             let mut db_sample_counter: u32 = 0;
-            let mut cached_docker = docker_containers;
+            let mut cached_docker = docker;
 
             loop {
                 tokio::select! {
@@ -96,7 +96,7 @@ impl HealthCollector {
                     tokio::task::spawn_blocking(move || {
                         sys.refresh_all();
                         let updated_docker = if refresh_docker {
-                            detect_docker_containers()
+                            detect_docker()
                         } else {
                             None
                         };
@@ -122,20 +122,33 @@ impl HealthCollector {
                 if db_sample_counter >= DB_SAMPLE_TICKS {
                     db_sample_counter = 0;
                     if let Some(ref db) = db {
+                        let (disk_used_gb, disk_total_gb) =
+                            snapshot.disk.iter().fold((0f64, 0f64), |(u, t), d| {
+                                (
+                                    u + d.used_bytes as f64 / 1_073_741_824.0,
+                                    t + d.total_bytes as f64 / 1_073_741_824.0,
+                                )
+                            });
                         let record = HealthSampleRecord {
                             timestamp: chrono::Utc::now().to_rfc3339(),
-                            cpu_percent: Some(snapshot.cpu_percent as f64),
-                            memory_used_gb: Some(snapshot.memory_used_gb as f64),
-                            memory_total_gb: Some(snapshot.memory_total_gb as f64),
-                            disk_used_gb: Some(snapshot.disk_used_gb as f64),
-                            disk_total_gb: Some(snapshot.disk_total_gb as f64),
-                            load1: Some(snapshot.load_avg[0] as f64),
-                            load5: Some(snapshot.load_avg[1] as f64),
-                            load15: Some(snapshot.load_avg[2] as f64),
+                            cpu_percent: Some(snapshot.cpu.overall_percent as f64),
+                            memory_used_gb: Some(snapshot.ram.used_bytes as f64 / 1_073_741_824.0),
+                            memory_total_gb: Some(
+                                snapshot.ram.total_bytes as f64 / 1_073_741_824.0,
+                            ),
+                            disk_used_gb: Some(disk_used_gb),
+                            disk_total_gb: Some(disk_total_gb),
+                            load1: Some(snapshot.cpu.load_average[0] as f64),
+                            load5: Some(snapshot.cpu.load_average[1] as f64),
+                            load15: Some(snapshot.cpu.load_average[2] as f64),
                             uptime_seconds: Some(snapshot.uptime_seconds as i64),
                         };
                         if let Err(e) = db.insert_health_sample(&record) {
-                            tracing::warn!("failed to insert health sample: {}", e);
+                            tracing::warn!("health sample insert failed, retrying: {}", e);
+                            std::thread::sleep(Duration::from_secs(1));
+                            if let Err(e2) = db.insert_health_sample(&record) {
+                                tracing::warn!("health sample insert failed after retry: {}", e2);
+                            }
                         }
                     }
                 }
@@ -154,96 +167,116 @@ impl HealthCollector {
 }
 
 /// Build a `MachineHealth` snapshot from an already-refreshed `System`.
-fn build_health_from_system(
-    sys: &System,
-    docker_containers: Option<Vec<ContainerStatus>>,
-) -> MachineHealth {
-    let cpu_percent = sys.global_cpu_usage();
+fn build_health_from_system(sys: &System, docker: Option<DockerHealth>) -> MachineHealth {
+    let overall_percent = sys.global_cpu_usage();
+    let per_core_percent = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
 
-    let memory_used_gb = sys.used_memory() as f32 / 1_073_741_824.0;
-    let memory_total_gb = sys.total_memory() as f32 / 1_073_741_824.0;
+    let la = System::load_average();
+    let load_average = [la.one as f32, la.five as f32, la.fifteen as f32];
 
-    let (disk_used_gb, disk_total_gb) = {
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        let mut used: u64 = 0;
-        let mut total: u64 = 0;
-        for disk in disks.list() {
-            total += disk.total_space();
-            used += disk.total_space() - disk.available_space();
-        }
-        (
-            used as f32 / 1_073_741_824.0,
-            total as f32 / 1_073_741_824.0,
-        )
+    let ram_total = sys.total_memory();
+    let ram_used = sys.used_memory();
+    let ram_percent = if ram_total > 0 {
+        (ram_used as f32 / ram_total as f32) * 100.0
+    } else {
+        0.0
     };
 
-    let load_avg = {
-        let la = System::load_average();
-        [la.one as f32, la.five as f32, la.fifteen as f32]
+    let disks = {
+        let disk_list = sysinfo::Disks::new_with_refreshed_list();
+        disk_list
+            .list()
+            .iter()
+            .map(|d| {
+                let total = d.total_space();
+                let used = total.saturating_sub(d.available_space());
+                let pct = if total > 0 {
+                    (used as f32 / total as f32) * 100.0
+                } else {
+                    0.0
+                };
+                DiskHealth {
+                    mount: d.mount_point().to_string_lossy().to_string(),
+                    total_bytes: total,
+                    used_bytes: used,
+                    percent: pct,
+                }
+            })
+            .collect()
     };
 
+    let hostname = System::host_name().unwrap_or_else(|| "unknown".to_string());
     let uptime_seconds = System::uptime();
 
     MachineHealth {
-        cpu_percent,
-        memory_used_gb,
-        memory_total_gb,
-        disk_used_gb,
-        disk_total_gb,
-        load_avg,
+        hostname,
         uptime_seconds,
-        docker_containers,
+        cpu: CpuHealth {
+            overall_percent,
+            per_core_percent,
+            load_average,
+        },
+        ram: RamHealth {
+            total_bytes: ram_total,
+            used_bytes: ram_used,
+            percent: ram_percent,
+        },
+        disk: disks,
+        docker,
     }
 }
 
 /// Fallback snapshot when spawn_blocking panics.
 fn collect_fallback() -> MachineHealth {
-    MachineHealth {
-        cpu_percent: 0.0,
-        memory_used_gb: 0.0,
-        memory_total_gb: 0.0,
-        disk_used_gb: 0.0,
-        disk_total_gb: 0.0,
-        load_avg: [0.0; 3],
-        uptime_seconds: 0,
-        docker_containers: None,
-    }
+    MachineHealth::default()
 }
 
 /// Detect running Docker containers by shelling out to `docker ps`.
 ///
 /// Returns `None` if Docker is not installed or the command fails.
-fn detect_docker_containers() -> Option<Vec<ContainerStatus>> {
+fn detect_docker() -> Option<DockerHealth> {
     let output = std::process::Command::new("docker")
         .args(["ps", "--format", "{{json .}}"])
-        .output()
-        .ok()?;
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::warn!("docker ps command failed to execute: {}", e);
+            return None;
+        }
+    };
 
     if !output.status.success() {
+        tracing::warn!(
+            "docker ps returned non-zero exit code: {}",
+            output.status.code().unwrap_or(-1)
+        );
         return None;
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut containers = Vec::new();
+    let mut total: u32 = 0;
+    let mut running: u32 = 0;
 
     for line in stdout.lines() {
         if line.trim().is_empty() {
             continue;
         }
-        // Docker JSON output includes "Names" and "State" fields.
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
-            let name = value
-                .get("Names")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let running = value
+            total += 1;
+            let is_running = value
                 .get("State")
                 .and_then(|v| v.as_str())
                 .is_some_and(|s| s == "running");
-            containers.push(ContainerStatus { name, running });
+            if is_running {
+                running += 1;
+            }
         }
     }
 
-    Some(containers)
+    Some(DockerHealth {
+        containers: total,
+        running,
+    })
 }

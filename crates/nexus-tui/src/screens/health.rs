@@ -173,11 +173,11 @@ fn render_agent_card(
     let rows = Layout::vertical(row_constraints).split(inner);
 
     // --- CPU gauge ---
-    let cpu_ratio = (health.cpu_percent / 100.0).clamp(0.0, 1.0) as f64;
-    let cpu_fill_color = cpu_color(health.cpu_percent);
+    let cpu_ratio = (health.cpu.overall_percent / 100.0).clamp(0.0, 1.0) as f64;
+    let cpu_fill_color = cpu_color(health.cpu.overall_percent);
     let cpu_gauge = LineGauge::default()
         .ratio(cpu_ratio)
-        .label(format!("CPU  {:.1}%", health.cpu_percent))
+        .label(format!("CPU  {:.1}%", health.cpu.overall_percent))
         .filled_style(Style::default().fg(cpu_fill_color))
         .style(Style::default().fg(colors::TEXT_DIM));
     frame.render_widget(cpu_gauge, rows[0]);
@@ -200,18 +200,13 @@ fn render_agent_card(
     }
 
     // --- RAM gauge ---
-    let ram_ratio = if health.memory_total_gb > 0.0 {
-        (health.memory_used_gb / health.memory_total_gb).clamp(0.0, 1.0) as f64
-    } else {
-        0.0
-    };
+    let ram_ratio = (health.ram.percent / 100.0).clamp(0.0, 1.0) as f64;
     let ram_fill_color = ram_color(ram_ratio as f32);
+    let ram_used_gb = health.ram.used_bytes as f64 / 1_073_741_824.0;
+    let ram_total_gb = health.ram.total_bytes as f64 / 1_073_741_824.0;
     let ram_gauge = LineGauge::default()
         .ratio(ram_ratio)
-        .label(format!(
-            "RAM  {:.1}/{:.1} GB",
-            health.memory_used_gb, health.memory_total_gb
-        ))
+        .label(format!("RAM  {ram_used_gb:.1}/{ram_total_gb:.1} GB"))
         .filled_style(Style::default().fg(ram_fill_color))
         .style(Style::default().fg(colors::TEXT_DIM));
     frame.render_widget(ram_gauge, rows[2]);
@@ -243,19 +238,22 @@ fn render_agent_card(
         frame.render_widget(sparkline, rows[3]);
     }
 
-    // --- Disk gauge ---
-    let disk_ratio = if health.disk_total_gb > 0.0 {
-        (health.disk_used_gb / health.disk_total_gb).clamp(0.0, 1.0) as f64
+    // --- Disk gauge — aggregate across all mount points ---
+    let (agg_disk_used, agg_disk_total) = health
+        .disk
+        .iter()
+        .fold((0u64, 0u64), |(u, t), d| (u + d.used_bytes, t + d.total_bytes));
+    let disk_ratio = if agg_disk_total > 0 {
+        ((agg_disk_used as f64) / (agg_disk_total as f64)).clamp(0.0, 1.0)
     } else {
         0.0
     };
     let disk_fill_color = ram_color(disk_ratio as f32); // reuse threshold logic
+    let disk_used_gb = agg_disk_used as f64 / 1_073_741_824.0;
+    let disk_total_gb = agg_disk_total as f64 / 1_073_741_824.0;
     let disk_gauge = LineGauge::default()
         .ratio(disk_ratio)
-        .label(format!(
-            "Disk {:.1}/{:.1} GB",
-            health.disk_used_gb, health.disk_total_gb
-        ))
+        .label(format!("Disk {disk_used_gb:.1}/{disk_total_gb:.1} GB"))
         .filled_style(Style::default().fg(disk_fill_color))
         .style(Style::default().fg(colors::TEXT_DIM));
     frame.render_widget(disk_gauge, rows[4]);
@@ -266,7 +264,9 @@ fn render_agent_card(
         Span::styled(
             format!(
                 "{:.2} {:.2} {:.2}",
-                health.load_avg[0], health.load_avg[1], health.load_avg[2]
+                health.cpu.load_average[0],
+                health.cpu.load_average[1],
+                health.cpu.load_average[2]
             ),
             Style::default().fg(colors::TEXT),
         ),
@@ -279,13 +279,12 @@ fn render_agent_card(
     frame.render_widget(Paragraph::new(load_line), rows[5]);
 
     // --- Docker ---
-    if let Some(containers) = &health.docker_containers {
-        let running = containers.iter().filter(|c| c.running).count();
-        let stopped = containers.len() - running;
+    if let Some(ref d) = health.docker {
+        let stopped = d.containers.saturating_sub(d.running);
         let docker_line = Line::from(vec![
             Span::styled("Docker: ", Style::default().fg(colors::TEXT_DIM)),
             Span::styled(
-                format!("{running} running"),
+                format!("{} running", d.running),
                 Style::default().fg(colors::PRIMARY),
             ),
             Span::styled(

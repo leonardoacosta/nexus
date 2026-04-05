@@ -3,7 +3,7 @@ import { healthSnapshots, sessionEvents } from "@nexus/db";
 import { lt } from "drizzle-orm";
 import { logger } from "@nexus/core";
 
-const HEALTH_RETENTION_DAYS = 30;
+const HEALTH_RETENTION_DAYS = Number(process.env.HEALTH_RETENTION_DAYS ?? "30");
 const EVENTS_RETENTION_DAYS = 90;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 

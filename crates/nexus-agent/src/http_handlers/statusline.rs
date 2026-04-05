@@ -63,21 +63,15 @@ pub async fn statusline_handler(State(state): State<AppState>) -> Json<Statuslin
 
     let daemon_count = statusline_sessions.len();
 
-    let mem_percent = if machine.memory_total_gb > 0.0 {
-        (machine.memory_used_gb / machine.memory_total_gb) * 100.0
-    } else {
-        0.0
-    };
-
     let git = get_git_status_cached().await;
 
     Json(StatuslineResponse {
         sessions: statusline_sessions,
         git,
         machine: StatuslineMachine {
-            cpu_percent: machine.cpu_percent,
-            mem_percent,
-            load_1m: machine.load_avg[0],
+            cpu_percent: machine.cpu.overall_percent,
+            mem_percent: machine.ram.percent,
+            load_1m: machine.cpu.load_average[0],
         },
         uptime_seconds: state.started_at.elapsed().as_secs(),
         daemon_count,

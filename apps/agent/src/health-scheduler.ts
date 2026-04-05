@@ -43,23 +43,31 @@ export class HealthScheduler {
 
   /** Run a single collection + persist cycle. */
   private async tick(): Promise<void> {
+    const metrics = await this.collector.collect();
+
+    // Use the first disk entry's percent as the aggregate disk_percent
+    const diskPercent =
+      metrics.disk.length > 0 ? (metrics.disk[0]?.percent ?? null) : null;
+
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      cpuPercent: metrics.cpu.overall_percent,
+      ramPercent: metrics.ram.percent,
+      diskPercent,
+      dockerContainers: metrics.docker?.containers ?? null,
+      rawJson: JSON.stringify(metrics),
+    };
+
     try {
-      const metrics = await this.collector.collect();
-
-      // Use the first disk entry's percent as the aggregate disk_percent
-      const diskPercent =
-        metrics.disk.length > 0 ? (metrics.disk[0]?.percent ?? null) : null;
-
-      await insertHealthSnapshot(this.db, {
-        timestamp: new Date().toISOString(),
-        cpuPercent: metrics.cpu.overall_percent,
-        ramPercent: metrics.ram.percent,
-        diskPercent,
-        dockerContainers: metrics.docker?.containers ?? null,
-        rawJson: JSON.stringify(metrics),
-      });
+      await insertHealthSnapshot(this.db, snapshot);
     } catch (err) {
-      logger.error({ error: err instanceof Error ? err.message : String(err) }, "health scheduler tick failed");
+      logger.warn({ err }, "health snapshot insert failed, retrying in 2s");
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      try {
+        await insertHealthSnapshot(this.db, snapshot);
+      } catch (retryErr) {
+        logger.error({ err: retryErr }, "health snapshot insert failed after retry");
+      }
     }
   }
 }

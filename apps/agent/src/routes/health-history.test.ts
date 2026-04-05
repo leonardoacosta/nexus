@@ -11,7 +11,7 @@ import type { HealthSnapshotRow } from "../db/health";
 
 // ── 4.1 Scheduler writes snapshots to DB ──────────────────────────────────
 
-describe.skip("HealthScheduler (requires live PG)", () => {
+describe.skipIf(!process.env.POSTGRES_URL)("HealthScheduler (requires live PG)", () => {
   it("writes a snapshot to the database on each tick", () => {
     expect(true).toBe(true);
   });
@@ -19,7 +19,7 @@ describe.skip("HealthScheduler (requires live PG)", () => {
 
 // ── 4.2 GET /health/history returns time-series data ──────────────────────
 
-describe.skip("GET /health/history (requires live PG)", () => {
+describe.skipIf(!process.env.POSTGRES_URL)("GET /health/history (requires live PG)", () => {
   it("returns time-series data for ?hours=1", () => {
     expect(true).toBe(true);
   });

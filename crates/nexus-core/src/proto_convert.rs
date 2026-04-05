@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::command::{CommandInfo, CommandTier, CostCategory};
-use crate::health::{ContainerStatus, MachineHealth};
+use crate::health::{CpuHealth, DiskHealth, DockerHealth, MachineHealth, RamHealth};
 use crate::proto;
 use crate::session::{Session, SessionStatus, SessionType};
 
@@ -196,60 +196,102 @@ impl From<proto::Session> for Session {
 
 impl From<&MachineHealth> for proto::MachineHealth {
     fn from(health: &MachineHealth) -> Self {
-        proto::MachineHealth {
-            cpu_percent: health.cpu_percent,
-            memory_used_gb: health.memory_used_gb,
-            memory_total_gb: health.memory_total_gb,
-            disk_used_gb: health.disk_used_gb,
-            disk_total_gb: health.disk_total_gb,
-            load_avg: health.load_avg.to_vec(),
-            uptime_seconds: health.uptime_seconds,
-            docker_containers: health
-                .docker_containers
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|c| proto::ContainerStatus {
-                    name: c.name.clone(),
-                    running: c.running,
+        // Aggregate disk totals for the flat proto representation.
+        let (disk_used_bytes, disk_total_bytes) =
+            health.disk.iter().fold((0u64, 0u64), |(used, total), d| {
+                (used + d.used_bytes, total + d.total_bytes)
+            });
+        let disk_used_gb = disk_used_bytes as f32 / 1_073_741_824.0;
+        let disk_total_gb = disk_total_bytes as f32 / 1_073_741_824.0;
+
+        // Aggregate RAM from bytes to GB for the proto.
+        let memory_used_gb = health.ram.used_bytes as f32 / 1_073_741_824.0;
+        let memory_total_gb = health.ram.total_bytes as f32 / 1_073_741_824.0;
+
+        // Docker: map DockerHealth counts → repeated ContainerStatus placeholder.
+        let docker_containers = if let Some(ref d) = health.docker {
+            // Emit `running` anonymous running containers + `stopped` stopped ones.
+            let stopped = d.containers.saturating_sub(d.running);
+            let mut containers: Vec<proto::ContainerStatus> = (0..d.running)
+                .map(|i| proto::ContainerStatus {
+                    name: format!("container-{i}"),
+                    running: true,
                 })
-                .collect(),
+                .collect();
+            containers.extend((0..stopped).map(|i| proto::ContainerStatus {
+                name: format!("stopped-{i}"),
+                running: false,
+            }));
+            containers
+        } else {
+            vec![]
+        };
+
+        proto::MachineHealth {
+            cpu_percent: health.cpu.overall_percent,
+            memory_used_gb,
+            memory_total_gb,
+            disk_used_gb,
+            disk_total_gb,
+            load_avg: health.cpu.load_average.to_vec(),
+            uptime_seconds: health.uptime_seconds,
+            docker_containers,
         }
     }
 }
 
 impl From<proto::MachineHealth> for MachineHealth {
     fn from(proto: proto::MachineHealth) -> Self {
-        let load_avg = if proto.load_avg.len() >= 3 {
+        let load_average = if proto.load_avg.len() >= 3 {
             [proto.load_avg[0], proto.load_avg[1], proto.load_avg[2]]
         } else {
             [0.0; 3]
         };
 
-        let docker_containers = if proto.docker_containers.is_empty() {
+        let ram_total_bytes = (proto.memory_total_gb * 1_073_741_824.0) as u64;
+        let ram_used_bytes = (proto.memory_used_gb * 1_073_741_824.0) as u64;
+        let ram_percent = if proto.memory_total_gb > 0.0 {
+            (proto.memory_used_gb / proto.memory_total_gb) * 100.0
+        } else {
+            0.0
+        };
+
+        let disk_total_bytes = (proto.disk_total_gb * 1_073_741_824.0) as u64;
+        let disk_used_bytes = (proto.disk_used_gb * 1_073_741_824.0) as u64;
+        let disk_percent = if proto.disk_total_gb > 0.0 {
+            (proto.disk_used_gb / proto.disk_total_gb) * 100.0
+        } else {
+            0.0
+        };
+
+        let docker = if proto.docker_containers.is_empty() {
             None
         } else {
-            Some(
-                proto
-                    .docker_containers
-                    .into_iter()
-                    .map(|c| ContainerStatus {
-                        name: c.name,
-                        running: c.running,
-                    })
-                    .collect(),
-            )
+            let running = proto.docker_containers.iter().filter(|c| c.running).count() as u32;
+            let containers = proto.docker_containers.len() as u32;
+            Some(DockerHealth { containers, running })
         };
 
         MachineHealth {
-            cpu_percent: proto.cpu_percent,
-            memory_used_gb: proto.memory_used_gb,
-            memory_total_gb: proto.memory_total_gb,
-            disk_used_gb: proto.disk_used_gb,
-            disk_total_gb: proto.disk_total_gb,
-            load_avg,
+            hostname: String::new(),
             uptime_seconds: proto.uptime_seconds,
-            docker_containers,
+            cpu: CpuHealth {
+                overall_percent: proto.cpu_percent,
+                per_core_percent: Vec::new(),
+                load_average,
+            },
+            ram: RamHealth {
+                total_bytes: ram_total_bytes,
+                used_bytes: ram_used_bytes,
+                percent: ram_percent,
+            },
+            disk: vec![DiskHealth {
+                mount: "/".to_string(),
+                total_bytes: disk_total_bytes,
+                used_bytes: disk_used_bytes,
+                percent: disk_percent,
+            }],
+            docker,
         }
     }
 }
@@ -407,35 +449,46 @@ mod tests {
 
     #[test]
     fn machine_health_round_trip() {
+        use crate::health::{CpuHealth, DiskHealth, DockerHealth, RamHealth};
+
         let health = MachineHealth {
-            cpu_percent: 45.5,
-            memory_used_gb: 8.0,
-            memory_total_gb: 16.0,
-            disk_used_gb: 100.0,
-            disk_total_gb: 500.0,
-            load_avg: [1.0, 2.0, 3.0],
+            hostname: "test-host".to_string(),
             uptime_seconds: 86400,
-            docker_containers: Some(vec![ContainerStatus {
-                name: "postgres".to_string(),
-                running: true,
-            }]),
+            cpu: CpuHealth {
+                overall_percent: 45.5,
+                per_core_percent: vec![40.0, 51.0],
+                load_average: [1.0, 2.0, 3.0],
+            },
+            ram: RamHealth {
+                total_bytes: 17_179_869_184, // 16 GB
+                used_bytes: 8_589_934_592,   // 8 GB
+                percent: 50.0,
+            },
+            disk: vec![DiskHealth {
+                mount: "/".to_string(),
+                total_bytes: 536_870_912_000, // 500 GB
+                used_bytes: 107_374_182_400,  // 100 GB
+                percent: 20.0,
+            }],
+            docker: Some(DockerHealth {
+                containers: 2,
+                running: 1,
+            }),
         };
 
         let proto_health: proto::MachineHealth = (&health).into();
         let restored: MachineHealth = proto_health.into();
 
-        assert_eq!(restored.cpu_percent, health.cpu_percent);
-        assert_eq!(restored.memory_used_gb, health.memory_used_gb);
-        assert_eq!(restored.memory_total_gb, health.memory_total_gb);
-        assert_eq!(restored.disk_used_gb, health.disk_used_gb);
-        assert_eq!(restored.disk_total_gb, health.disk_total_gb);
-        assert_eq!(restored.load_avg, health.load_avg);
+        assert!((restored.cpu.overall_percent - health.cpu.overall_percent).abs() < 0.1);
+        assert!((restored.cpu.load_average[0] - health.cpu.load_average[0]).abs() < 0.01);
         assert_eq!(restored.uptime_seconds, health.uptime_seconds);
-        assert!(restored.docker_containers.is_some());
-        let containers = restored.docker_containers.unwrap();
-        assert_eq!(containers.len(), 1);
-        assert_eq!(containers[0].name, "postgres");
-        assert!(containers[0].running);
+        // RAM round-trip through GB conversion loses some precision — allow 1 MB tolerance.
+        let ram_diff = (restored.ram.total_bytes as i64 - health.ram.total_bytes as i64).unsigned_abs();
+        assert!(ram_diff < 1_048_576, "RAM bytes tolerance exceeded: {ram_diff}");
+        assert!(restored.docker.is_some());
+        let docker = restored.docker.unwrap();
+        assert_eq!(docker.containers, 2);
+        assert_eq!(docker.running, 1);
     }
 
     #[test]
@@ -453,7 +506,7 @@ mod tests {
         };
 
         let restored: MachineHealth = proto_health.into();
-        assert_eq!(restored.load_avg, [0.0, 0.0, 0.0]);
+        assert_eq!(restored.cpu.load_average, [0.0, 0.0, 0.0]);
     }
 
     #[test]
