@@ -449,4 +449,58 @@ mod tests {
         let best = best_available(&accounts).unwrap();
         assert_eq!(best.name, "fresh");
     }
+
+    // ── E2E-2: CredentialAccount serialization must NOT emit access_token ──
+
+    /// [E2E-2] `CredentialAccount` with a non-empty access_token must not
+    /// include the `access_token` field in its JSON serialization.
+    /// This guards against accidental token exposure in API responses.
+    #[test]
+    fn credential_account_serialization_omits_access_token() {
+        let account = CredentialAccount {
+            name: "personal".to_string(),
+            path: PathBuf::from("/home/user/.config/nexus/pool/personal.json"),
+            access_token: "sk-ant-super-secret-token-that-must-not-appear".to_string(),
+            expires_at: None,
+            usage: None,
+            last_polled: None,
+        };
+
+        let json = serde_json::to_string(&account).expect("serialization must succeed");
+
+        assert!(
+            !json.contains("access_token"),
+            "JSON must not contain 'access_token' key, got: {json}"
+        );
+        assert!(
+            !json.contains("sk-ant-super-secret-token-that-must-not-appear"),
+            "JSON must not contain the token value, got: {json}"
+        );
+
+        // Sanity check: other fields are still present.
+        assert!(json.contains("\"personal\""), "name field must be serialized");
+    }
+
+    /// [E2E-2] Deserializing a JSON that *does* contain an access_token key
+    /// must NOT populate the field (serde(skip) blocks both directions).
+    #[test]
+    fn credential_account_deserialization_ignores_access_token_key() {
+        let json = r#"{
+            "name": "work",
+            "path": "/tmp/work.json",
+            "access_token": "should-be-ignored",
+            "expires_at": null,
+            "usage": null,
+            "last_polled": null
+        }"#;
+
+        let account: CredentialAccount =
+            serde_json::from_str(json).expect("deserialization must succeed");
+
+        assert!(
+            account.access_token.is_empty(),
+            "access_token must be empty after deserialization, got: '{}'",
+            account.access_token
+        );
+    }
 }

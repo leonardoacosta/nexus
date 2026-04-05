@@ -16,7 +16,7 @@
 
 ## E2E Batch
 
-- [ ] E2E-1: Add concurrent lease race test in `apps/agent/src/credentials/credentials.test.ts` — spawn two simultaneous `lease()` calls, assert exactly one succeeds and one returns `null` (covers nx-bpii)
-- [ ] E2E-2: Run `cargo test -p nexus-core` and confirm `CredentialAccount` serialization test does not emit `access_token`
-- [ ] E2E-3: Run `cargo test -p nexus-agent` and confirm `validate_secret` tests pass with constant-time path
-- [ ] E2E-4: Run `pnpm typecheck` and `pnpm lint` in workspace root; confirm zero errors
+- [x] E2E-1: Add concurrent lease race test in `apps/agent/src/credentials/credentials.test.ts` — spawn two simultaneous `lease()` calls, assert exactly one succeeds and one returns `null` (covers nx-bpii)
+- [x] E2E-2: Run `cargo test -p nexus-core` and confirm `CredentialAccount` serialization test does not emit `access_token`
+- [x] E2E-3: Run `cargo test -p nexus-agent` and confirm `validate_secret` tests pass with constant-time path
+- [x] E2E-4: Run `pnpm typecheck` and `pnpm lint` in workspace root; confirm zero errors

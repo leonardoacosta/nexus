@@ -15,7 +15,6 @@ export function watchConfig(
   onChange: (config: NexusConfig) => void,
 ): () => void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let watcher: FSWatcher;
 
   const reload = () => {
     const result = parseConfig(path);
@@ -26,7 +25,7 @@ export function watchConfig(
     // the previous config stays in effect.
   };
 
-  watcher = watch(path, () => {
+  const watcher: FSWatcher = watch(path, () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(reload, 500);
   });

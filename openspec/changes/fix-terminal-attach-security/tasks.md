@@ -13,9 +13,9 @@
 
 ## E2E Batch
 
-- [ ] 2.1 [e2e-engineer] Test: unauthenticated WebSocket upgrade is rejected with HTTP 401 — nx-4wn2
-- [ ] 2.2 [e2e-engineer] Test: connection beyond `MAX_CONCURRENT_CONNECTIONS` receives HTTP 429 — nx-dtk5
-- [ ] 2.3 [e2e-engineer] Test: SIGTERM with active PTY session — process exits cleanly, no zombie children — nx-acu2
-- [ ] 2.4 [e2e-engineer] Test: resize message with NaN/Infinity/out-of-range values is rejected with error frame — nx-wjqs
-- [ ] 2.5 [e2e-engineer] Test: pong timeout closes connection and ends session when no viewers remain — nx-bg01
-- [ ] 2.6 [e2e-engineer] Test: invalid session ID in URL returns 400 — nx-j2ap
+- [x] 2.1 [e2e-engineer] Test: unauthenticated WebSocket upgrade is rejected with HTTP 401 — nx-4wn2
+- [x] 2.2 [e2e-engineer] Test: connection beyond `MAX_CONCURRENT_CONNECTIONS` receives HTTP 429 — nx-dtk5
+- [x] 2.3 [e2e-engineer] Test: SIGTERM with active PTY session — process exits cleanly, no zombie children — nx-acu2
+- [x] 2.4 [e2e-engineer] Test: resize message with NaN/Infinity/out-of-range values is rejected with error frame — nx-wjqs
+- [x] 2.5 [e2e-engineer] Test: pong timeout closes connection and ends session when no viewers remain — nx-bg01
+- [x] 2.6 [e2e-engineer] Test: invalid session ID in URL returns 400 — nx-j2ap
