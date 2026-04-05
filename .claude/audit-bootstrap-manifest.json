@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "generated_at": "2026-04-05T00:56:42.964229Z",
+  "generator": "audit:init",
+  "project": "nx",
+  "project_path": "/home/nyaptor/dev/nx",
+  "discovery_hash": "e9c913e50801",
+  "domains": {
+    "session-management": {
+      "routes_hash": "2926cad3496b",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-session-management.md",
+      "memory_file": ".claude/audit/memory/session-management-memory.md"
+    },
+    "credential-mgmt": {
+      "routes_hash": "376469642ae8",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-credential-mgmt.md",
+      "memory_file": ".claude/audit/memory/credential-mgmt-memory.md"
+    },
+    "health-monitoring": {
+      "routes_hash": "0ad8eb19dc0a",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-health-monitoring.md",
+      "memory_file": ".claude/audit/memory/health-monitoring-memory.md"
+    },
+    "project-registry": {
+      "routes_hash": "7be9e49363c0",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-project-registry.md",
+      "memory_file": ".claude/audit/memory/project-registry-memory.md"
+    },
+    "notification-engine": {
+      "routes_hash": "8b3e70ce2bb5",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-notification-engine.md",
+      "memory_file": ".claude/audit/memory/notification-engine-memory.md"
+    },
+    "tui-client": {
+      "routes_hash": "0bdf50e08943",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-tui-client.md",
+      "memory_file": ".claude/audit/memory/tui-client-memory.md"
+    },
+    "terminal-attach": {
+      "routes_hash": "6dfe24ee9049",
+      "agent_model": "single",
+      "command_file": ".claude/commands/audit-terminal-attach.md",
+      "memory_file": ".claude/audit/memory/terminal-attach-memory.md"
+    }
+  },
+  "personas_file": ".claude/audit/personas.json",
+  "global_files": [
+    ".claude/commands/audit-all.md",
+    ".claude/commands/audit-waves.md",
+    ".claude/commands/audit-diff.md"
+  ]
+}

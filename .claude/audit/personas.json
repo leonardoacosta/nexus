@@ -1,0 +1,22 @@
+{
+  "personas": [
+    {
+      "name": "developer",
+      "display_name": "Developer (local)",
+      "email": "developer@nexus.local",
+      "password": "n/a — CLI tool, no auth",
+      "roles": ["user"],
+      "domains": ["session-management", "credential-mgmt", "health-monitoring", "project-registry", "notification-engine", "tui-client", "terminal-attach"],
+      "notes": "Primary persona. Uses TUI and web dashboard to monitor sessions across machines. Interacts with agent via HTTP API on port 7400."
+    },
+    {
+      "name": "agent-daemon",
+      "display_name": "Agent Daemon (system)",
+      "email": "n/a",
+      "password": "n/a — system process",
+      "roles": ["system"],
+      "domains": ["session-management", "credential-mgmt", "health-monitoring", "notification-engine"],
+      "notes": "Per-machine daemon. Not interactive. Exposes HTTP API on :7400, manages credentials, collects health."
+    }
+  ]
+}
