@@ -31,3 +31,26 @@ Components to be discovered in first audit cycle.
 - First audit cycle — establish baseline
 - Customize "What to check" entries based on actual findings
 - Add domain-specific GCF categories after first review
+
+## Wave 2026-04-04
+
+### Issues Found
+| Sev | Description | Issue |
+|-----|-------------|-------|
+| P1 | Rust MachineHealth vs TypeScript HealthMetrics type mismatch | nx-5zv2 |
+| P2 | Docker unavailability silently ignored | nx-y34w |
+| P2 | DB write failure on health sample — no retry | nx-m3p3 |
+| P2 | HealthCollector has no logging | nx-qcrz |
+| P2 | Retention hardcoded to 30 days | nx-kxaa |
+| P2 | HealthScheduler.tick() swallows Docker errors | nx-sdot |
+| P2 | healthSnapshots missing timestamp index | nx-lzdu |
+| P2 | 5 integration tests skipped | nx-it4u |
+| P3 | OTel span has low granularity | nx-v6pq |
+| P3 | System::refresh_all() every 5s is heavy | nx-9ju0 |
+| P3 | HealthPoller shows stale data without error indicator | nx-u047 |
+| P3 | HealthScheduler only uses disk[0] | nx-k7xa |
+
+### Notes for next audit
+- Confirm canonical health schema in nexus-core covers both Rust and TS
+- Verify timestamp index migration applied
+- Check Docker error surfacing in HealthScheduler

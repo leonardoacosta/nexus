@@ -30,3 +30,24 @@ Components to be discovered in first audit cycle.
 - First audit cycle — establish baseline
 - Customize "What to check" entries based on actual findings
 - Add domain-specific GCF categories after first review
+
+## Wave 2026-04-04
+
+### Issues Found
+| Sev | Description | Issue |
+|-----|-------------|-------|
+| P1 | No auth on WebSocket PTY attach — any Tailscale peer | nx-4wn2 |
+| P1 | No rate limiting — unbounded WebSocket connections | nx-dtk5 |
+| P1 | streamManager.shutdown() never called on SIGTERM | nx-acu2 |
+| P2 | No backpressure — OOM risk under fast PTY output | nx-g7ru |
+| P2 | Dead client via pong timeout leaves PTY running | nx-bg01 |
+| P2 | resize message allows NaN/Infinity values | nx-wjqs |
+| P2 | No reconnect support on client disconnect | nx-zeu7 |
+| P3 | No real PtySource — only MockPtySource | nx-9evk |
+| P3 | Session ID not validated — path traversal risk | nx-j2ap |
+| P3 | CORS isTailscaleOrigin is cosmetic | nx-xxq5 |
+
+### Notes for next audit
+- Verify auth fix covers both /stream and /interact routes
+- Check if streamManager.shutdown() properly drains in-flight writes
+- Validate resize range enforcement in pty.resize() call

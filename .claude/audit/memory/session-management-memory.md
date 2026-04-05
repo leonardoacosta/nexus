@@ -34,3 +34,24 @@ Components to be discovered in first audit cycle.
 - First audit cycle — establish baseline
 - Customize "What to check" entries based on actual findings
 - Add domain-specific GCF categories after first review
+
+## Wave 2026-04-04
+
+### Issues Found
+| Sev | Description | Issue |
+|-----|-------------|-------|
+| P1 | Spawn failure leaks orphaned session in registry | nx-q75y |
+| P1 | No duplicate session guard in register_managed | nx-8oib |
+| P1 | VALID_STATUSES missing 'stale' and 'errored' | nx-0554 |
+| P2 | SIGKILL fire-and-forget — registry removes before death confirmed | nx-spkw |
+| P2 | handle_register_session accepts zero pid and empty fields | nx-4fci |
+| P2 | get/register/unregister/heartbeat missing OTel spans | nx-zan1 |
+| P2 | All integration tests skipped post-PG migration | nx-jl1z |
+| P2 | sweepIdle never evicts ended sessions — unbounded Map | nx-7f05 |
+| P2 | Session detail page missing loading.tsx + error.tsx | nx-ia5f |
+| P3 | Missing tests for session status transitions | nx-xlxx |
+
+### Notes for next audit
+- Verify registration rollback on spawn failure (Entry API usage)
+- Check if all 6 handlers now have #[tracing::instrument]
+- Verify integration tests un-skipped with real PG fixture
