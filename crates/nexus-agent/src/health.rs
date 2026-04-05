@@ -81,13 +81,15 @@ impl HealthCollector {
                 }
 
                 // Refresh Docker container list every DOCKER_REFRESH_TICKS cycles.
-                docker_tick_counter += 1;
-                let refresh_docker = docker_tick_counter >= DOCKER_REFRESH_TICKS;
-                if refresh_docker {
-                    docker_tick_counter = 0;
-                }
-
-                let docker_snapshot = cached_docker.clone();
+                let (refresh_docker, docker_snapshot) = {
+                    let _span = tracing::info_span!("health.collect").entered();
+                    docker_tick_counter += 1;
+                    let refresh_docker = docker_tick_counter >= DOCKER_REFRESH_TICKS;
+                    if refresh_docker {
+                        docker_tick_counter = 0;
+                    }
+                    (refresh_docker, cached_docker.clone())
+                };
 
                 // Move sys into a blocking thread for the refresh, then get it back.
                 let (returned_sys, snapshot, updated_docker) =

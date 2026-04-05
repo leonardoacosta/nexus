@@ -72,6 +72,7 @@ impl EventForwarder {
 
 /// Connect to a single peer's gRPC endpoint and stream events until the connection
 /// is closed or an error occurs.
+#[tracing::instrument(name = "grpc.stream_events", skip(tx), fields(peer = %peer.name))]
 async fn subscribe_to_peer(
     peer: &AgentConfig,
     tx: &mpsc::Sender<LifecycleEvent>,

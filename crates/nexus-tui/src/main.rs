@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 use notify::{EventKind, RecursiveMode, Watcher};
@@ -121,6 +123,40 @@ async fn main() -> Result<()> {
             },
         ))
     };
+
+    // OTel tracer: only init if OTEL_EXPORTER_OTLP_ENDPOINT is set
+    let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+
+    if let Some(ref endpoint) = otel_endpoint {
+        use opentelemetry::trace::TracerProvider as _;
+        use opentelemetry_otlp::WithExportConfig;
+
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .build()
+            .expect("failed to build OTel span exporter");
+
+        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+            .build();
+
+        let tracer = provider.tracer("nexus_tui");
+        opentelemetry::global::set_tracer_provider(provider);
+
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_tui=info".parse().unwrap()))
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_opentelemetry::layer().with_tracer(tracer))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_tui=info".parse().unwrap()))
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     // Load configuration.
     let config = match NexusConfig::load() {

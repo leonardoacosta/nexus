@@ -10,7 +10,8 @@ use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tokio::sync::{RwLock, mpsc};
 use tonic::transport::Server;
 use tower_http::timeout::TimeoutLayer;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use nexus_agent::cron::CronService;
 use nexus_agent::cron_state::CronState;
@@ -103,9 +104,39 @@ async fn main() -> Result<()> {
         ))
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("nexus_agent=info".parse()?))
-        .init();
+    // OTel tracer: only init if OTEL_EXPORTER_OTLP_ENDPOINT is set
+    let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+
+    if let Some(ref endpoint) = otel_endpoint {
+        use opentelemetry::trace::TracerProvider as _;
+        use opentelemetry_otlp::WithExportConfig;
+
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .build()
+            .expect("failed to build OTel span exporter");
+
+        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+            .build();
+
+        let tracer = provider.tracer("nexus_agent");
+        opentelemetry::global::set_tracer_provider(provider);
+
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_agent=info".parse()?))
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_opentelemetry::layer().with_tracer(tracer))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_agent=info".parse()?))
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     // Load ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)
     // Mirrors the systemd EnvironmentFile=-%h/.env pattern for macOS launchd.

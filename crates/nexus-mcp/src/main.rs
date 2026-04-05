@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 // ── JSON-RPC 2.0 Types ─────────────────────────────────────────────────────
 
@@ -559,12 +560,39 @@ async fn main() {
     };
 
     // Tracing goes to stderr so stdout is reserved for JSON-RPC.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env().add_directive("nexus_mcp=info".parse().unwrap()),
-        )
-        .with_writer(std::io::stderr)
-        .init();
+    // OTel tracer: only init if OTEL_EXPORTER_OTLP_ENDPOINT is set
+    let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+
+    if let Some(ref endpoint) = otel_endpoint {
+        use opentelemetry::trace::TracerProvider as _;
+        use opentelemetry_otlp::WithExportConfig;
+
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .build()
+            .expect("failed to build OTel span exporter");
+
+        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+            .build();
+
+        let tracer = provider.tracer("nexus_mcp");
+        opentelemetry::global::set_tracer_provider(provider);
+
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_mcp=info".parse().unwrap()))
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("nexus_mcp=info".parse().unwrap()))
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .init();
+    }
 
     tracing::info!("nexus-mcp starting (base_url={})", agent_base_url());
 

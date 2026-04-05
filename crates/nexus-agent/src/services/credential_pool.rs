@@ -143,6 +143,7 @@ impl CredentialPool {
     }
 
     /// Atomic symlink swap: point `~/.claude/.credentials.json` at `target`.
+    #[tracing::instrument(name = "credential.rotation", skip(self), fields(target_account = %target.name))]
     pub async fn swap_credential(&self, target: &CredentialAccount) -> Result<()> {
         let link_path = paths::home_dir().join(".claude").join(".credentials.json");
 

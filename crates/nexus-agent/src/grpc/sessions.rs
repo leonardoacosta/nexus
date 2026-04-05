@@ -56,6 +56,7 @@ impl NexusAgentService {
         }
     }
 
+    #[tracing::instrument(name = "session.start", skip(self, request))]
     pub(super) async fn handle_start_session(
         &self,
         request: Request<proto::StartSessionRequest>,
@@ -198,11 +199,13 @@ impl NexusAgentService {
         }))
     }
 
+    #[tracing::instrument(name = "session.stop", skip(self, request), fields(session_id))]
     pub(super) async fn handle_stop_session(
         &self,
         request: Request<proto::SessionId>,
     ) -> Result<Response<proto::StopResult>, Status> {
         let session_id = request.into_inner().id;
+        tracing::Span::current().record("session_id", &session_id.as_str());
 
         let session = self
             .registry
