@@ -48,4 +48,5 @@ dist/
 
 # Compiled binaries
 apps/agent/nexus-agent
+apps/agent/nexus-register
 apps/nexus-register/nexus-register
