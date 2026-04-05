@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 pub struct CredentialAccount {
     pub name: String,
     pub path: PathBuf,
+    /// Access token is never serialized to JSON to prevent accidental exposure.
+    /// Populate this field programmatically after deserialization (e.g. by reading
+    /// the credential file directly) — it will never be populated from a JSON key.
+    #[serde(skip)]
     pub access_token: String,
     pub expires_at: Option<DateTime<Utc>>,
     pub usage: Option<AccountUsage>,

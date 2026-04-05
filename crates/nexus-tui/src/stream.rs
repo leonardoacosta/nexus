@@ -3,6 +3,13 @@ use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, info, warn};
 
+/// Maximum number of reconnection attempts before giving up.
+const MAX_RECONNECT_ATTEMPTS: u32 = 5;
+
+/// Bounded channel capacity for session stream messages.
+/// Keeps memory bounded when the TUI render loop is slower than the stream.
+const STREAM_CHANNEL_CAPACITY: usize = 64;
+
 use nexus_core::proto::nexus_agent_client::NexusAgentClient;
 use nexus_core::proto::{EventFilter, SessionEvent, SessionId};
 
@@ -31,6 +38,8 @@ pub enum StreamMessage {
     },
     /// The agent signalled it is shutting down (GoingAway event).
     AgentGoingAway { agent_name: String, reason: String },
+    /// The stream could not be re-established after `MAX_RECONNECT_ATTEMPTS`.
+    Disconnected { reason: String },
 }
 
 /// A notification-worthy event detected from the background alert stream.
@@ -50,47 +59,72 @@ pub fn subscribe_session_stream(
     session_id: String,
     agent_name: String,
 ) -> mpsc::Receiver<StreamMessage> {
-    let (tx, rx) = mpsc::channel::<StreamMessage>(256);
+    // Task 1.6: Use named bounded capacity to avoid blocking the stream task.
+    let (tx, rx) = mpsc::channel::<StreamMessage>(STREAM_CHANNEL_CAPACITY);
     let agents = agents.to_vec();
     let sid = session_id.clone();
     let aname = agent_name.clone();
 
     tokio::spawn(async move {
         info!(session_id = %sid, agent_count = agents.len(), "stream: subscribing to session events");
-        for (host, port) in &agents {
-            let endpoint = format!("http://{host}:{port}");
-            debug!(%endpoint, session_id = %sid, "stream: attempting connection");
-            let channel = match Endpoint::from_shared(endpoint.clone()) {
-                Ok(ep) => match ep
-                    .connect_timeout(std::time::Duration::from_secs(2))
-                    .connect()
-                    .await
-                {
-                    Ok(ch) => {
-                        info!(%endpoint, "stream: connected successfully");
-                        ch
-                    }
+
+        // Task 1.3: Retry loop with exponential backoff.
+        // Back-off: min(2^attempt, 30) seconds, up to MAX_RECONNECT_ATTEMPTS.
+        let mut attempt: u32 = 0;
+
+        loop {
+            let mut connected = false;
+
+            for (host, port) in &agents {
+                let endpoint = format!("http://{host}:{port}");
+                debug!(%endpoint, session_id = %sid, attempt, "stream: attempting connection");
+                let channel = match Endpoint::from_shared(endpoint.clone()) {
+                    Ok(ep) => match ep
+                        .connect_timeout(std::time::Duration::from_secs(2))
+                        .connect()
+                        .await
+                    {
+                        Ok(ch) => {
+                            info!(%endpoint, "stream: connected successfully");
+                            ch
+                        }
+                        Err(e) => {
+                            warn!(%endpoint, %e, "stream: failed to connect");
+                            continue;
+                        }
+                    },
                     Err(e) => {
-                        warn!(%endpoint, %e, "stream: failed to connect");
+                        warn!(%endpoint, %e, "stream: invalid endpoint");
                         continue;
                     }
-                },
-                Err(e) => {
-                    warn!(%endpoint, %e, "stream: invalid endpoint");
-                    continue;
-                }
-            };
+                };
 
-            if let Err(e) = run_session_stream(channel, &sid, &aname, &tx).await {
-                warn!(%e, "stream: session stream ended");
-            } else {
-                debug!("stream: session stream ended cleanly (no more events)");
+                connected = true;
+                if let Err(e) = run_session_stream(channel, &sid, &aname, &tx).await {
+                    warn!(%e, attempt, "stream: session stream ended with error");
+                } else {
+                    debug!(attempt, "stream: session stream ended cleanly (no more events)");
+                }
+                break;
             }
-            // If stream ends, we don't reconnect — the view will show
-            // what was collected.
-            return;
+
+            if !connected {
+                warn!(attempt, "stream: could not connect to any agent");
+            }
+
+            attempt += 1;
+            if attempt > MAX_RECONNECT_ATTEMPTS {
+                let reason = format!("stream disconnected after {MAX_RECONNECT_ATTEMPTS} attempts");
+                warn!(%reason, "stream: giving up");
+                let _ = tx.send(StreamMessage::Disconnected { reason }).await;
+                return;
+            }
+
+            // Exponential back-off: min(2^attempt, 30) seconds.
+            let backoff_secs = (1u64 << attempt).min(30);
+            warn!(attempt, backoff_secs, "stream: will retry after backoff");
+            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
         }
-        warn!("stream: could not connect to any agent for session stream");
     });
 
     rx
@@ -124,12 +158,11 @@ async fn run_session_stream(
         };
 
         // Send session metadata so the title bar can display a type badge.
-        let _ = tx
-            .send(StreamMessage::SessionMeta {
-                session_type: session_type.to_string(),
-                status: status.to_string(),
-            })
-            .await;
+        // Task 1.6: Use try_send (drop-oldest pattern) to avoid blocking.
+        let _ = tx.try_send(StreamMessage::SessionMeta {
+            session_type: session_type.to_string(),
+            status: status.to_string(),
+        });
 
         let line = format!(
             "[now]    {} ACTIVE   project={} type={} pid={}",
@@ -138,19 +171,13 @@ async fn run_session_stream(
             session_type,
             session.pid,
         );
-        let _ = tx
-            .send(StreamMessage::Line(StreamLine {
-                text: format!("── session snapshot ({status}) ──"),
-            }))
-            .await;
-        let _ = tx
-            .send(StreamMessage::Line(StreamLine { text: line }))
-            .await;
-        let _ = tx
-            .send(StreamMessage::Line(StreamLine {
-                text: "── live events ──".to_string(),
-            }))
-            .await;
+        let _ = tx.try_send(StreamMessage::Line(StreamLine {
+            text: format!("── session snapshot ({status}) ──"),
+        }));
+        let _ = tx.try_send(StreamMessage::Line(StreamLine { text: line }));
+        let _ = tx.try_send(StreamMessage::Line(StreamLine {
+            text: "── live events ──".to_string(),
+        }));
     }
 
     debug!(%session_id, "stream: calling StreamEvents RPC");
@@ -177,6 +204,7 @@ async fn run_session_stream(
                 if is_heartbeat {
                     // Extract the heartbeat timestamp and send as a Heartbeat message
                     // (no log line emitted — title bar indicator handles display).
+                    // Task 1.6: try_send drops the message when buffer is full rather than blocking.
                     let ts = event
                         .ts
                         .as_ref()
@@ -186,10 +214,8 @@ async fn run_session_stream(
                                 .unwrap_or_else(|| "??:??:??".to_string())
                         })
                         .unwrap_or_else(|| "??:??:??".to_string());
-                    if tx
-                        .send(StreamMessage::Heartbeat { timestamp: ts })
-                        .await
-                        .is_err()
+                    if tx.try_send(StreamMessage::Heartbeat { timestamp: ts }).is_err()
+                        && tx.is_closed()
                     {
                         debug!("stream: receiver dropped (view closed)");
                         break;
@@ -199,25 +225,19 @@ async fn run_session_stream(
                 {
                     // Agent is shutting down — signal the TUI to begin reconnecting.
                     let reason = g.reason.clone();
-                    let _ = tx
-                        .send(StreamMessage::AgentGoingAway {
-                            agent_name: agent_name.to_string(),
-                            reason: reason.clone(),
-                        })
-                        .await;
+                    let _ = tx.try_send(StreamMessage::AgentGoingAway {
+                        agent_name: agent_name.to_string(),
+                        reason: reason.clone(),
+                    });
                     // Also emit a log line so the user can see it in the stream view.
                     let line = format_event(&event);
-                    let _ = tx
-                        .send(StreamMessage::Line(StreamLine { text: line }))
-                        .await;
+                    let _ = tx.try_send(StreamMessage::Line(StreamLine { text: line }));
                     // Stream will end shortly as the agent shuts down; stop reading.
                     break;
                 } else {
                     let line = format_event(&event);
-                    if tx
-                        .send(StreamMessage::Line(StreamLine { text: line }))
-                        .await
-                        .is_err()
+                    if tx.try_send(StreamMessage::Line(StreamLine { text: line })).is_err()
+                        && tx.is_closed()
                     {
                         debug!("stream: receiver dropped (view closed)");
                         break;

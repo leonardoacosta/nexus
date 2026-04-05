@@ -1,6 +1,6 @@
 import "./instrument";
 import { logger } from "@nexus/core";
-import { startServer, healthCollector } from "./server";
+import { startServer, healthCollector, streamManager } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
 import { createSessionManager } from "./session-manager";
 import { openDatabase } from "./db/database";
@@ -49,6 +49,8 @@ function shutdown() {
   stopRetention();
   sessionManager.stop();
   watcherBridge?.shutdown();
+  // Task 1.4: Shut down all active PTY streams before stopping the HTTP server
+  streamManager.shutdown();
   server.stop();
   process.exit(0);
 }

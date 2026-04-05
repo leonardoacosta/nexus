@@ -1,4 +1,6 @@
 import type { Db } from "@nexus/db";
+import { credentials } from "@nexus/db";
+import { eq, and } from "drizzle-orm";
 import { logger } from "@nexus/core";
 import {
   insertCredential,
@@ -56,30 +58,52 @@ export class CredentialPool {
   /**
    * Lease the next available credential of the given type (round-robin).
    * Returns the credential row or null if the pool is exhausted.
+   *
+   * The read + update is wrapped in a transaction with SELECT FOR UPDATE to
+   * prevent concurrent callers from double-leasing the same credential.
    */
   async lease(type: string, leasedBy: string): Promise<CredentialRow | null> {
-    // First, recover any expired cooldowns
+    // First, recover any expired cooldowns (outside transaction — best-effort)
     await this.recoverExpiredCooldowns();
 
-    // Find first available credential of this type
-    const available = (await queryCredentialsByStatus(this.db, "available")).filter(
-      (c) => c.type === type,
-    );
+    const result = await this.db.transaction(async (tx) => {
+      // SELECT ... FOR UPDATE to lock the row against concurrent leases
+      const rows = await tx
+        .select()
+        .from(credentials)
+        .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
+        .for("update")
+        .limit(1);
 
-    if (available.length === 0) {
+      if (rows.length === 0) {
+        return null;
+      }
+
+      const credential = rows[0]!;
+      const now = new Date().toISOString();
+
+      await tx
+        .update(credentials)
+        .set({ status: "leased", leasedBy, leasedAt: now, cooldownUntil: null })
+        .where(eq(credentials.id, credential.id));
+
+      // Re-fetch within the transaction to get the final state
+      const updated = await tx
+        .select()
+        .from(credentials)
+        .where(eq(credentials.id, credential.id))
+        .limit(1);
+
+      return updated[0] ?? null;
+    });
+
+    if (result === null) {
       logger.warn({ type }, "credential pool exhausted");
       return null;
     }
 
-    const credential = available[0]!;
-    const now = new Date().toISOString();
-
-    await updateCredentialStatus(this.db, credential.id, "leased", leasedBy, now, null);
-
-    const updated = await getCredentialById(this.db, credential.id);
-    logger.info({ id: credential.id, leasedBy }, "credential leased");
-
-    return updated;
+    logger.info({ id: result.id, leasedBy }, "credential leased");
+    return result;
   }
 
   /** Release a leased credential back to available. */

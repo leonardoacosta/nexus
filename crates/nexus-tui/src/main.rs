@@ -32,6 +32,22 @@ use stream::{AlertEvent, StreamMessage};
 use ui_helpers::{handle_mouse, launch_editor, render_help_overlay, render_tabs};
 
 // ---------------------------------------------------------------------------
+// Named timing constants (~5 ticks/sec at 200ms poll interval)
+// ---------------------------------------------------------------------------
+
+/// Debounce window for duplicate session status events in the stream view.
+/// At ~5 ticks/sec this corresponds to a 5-second suppression window.
+const STATUS_DEBOUNCE_SECS: u64 = 5;
+
+/// Number of ticks before dismissing a stream-view notification overlay.
+/// At ~5 ticks/sec this is approximately 3 seconds of display time.
+const NOTIFICATION_DISMISS_TICKS: usize = 15;
+
+/// Number of ticks without a heartbeat before marking the stream stale.
+/// At ~5 ticks/sec this corresponds to approximately 10 seconds of silence.
+const HEARTBEAT_STALE_TICKS: usize = 50;
+
+// ---------------------------------------------------------------------------
 // Key handler return value
 // ---------------------------------------------------------------------------
 
@@ -92,6 +108,8 @@ pub(crate) enum RpcResult {
     CommandOutput(nexus_core::proto::CommandOutput),
     CommandStreamDone,
     ProjectList(Vec<String>),
+    /// Failed to list projects — carries the error message for display.
+    ProjectListErr(String),
     /// Enriched project details fetched from all agents (name -> detail).
     ProjectDetails(std::collections::HashMap<String, app::ProjectDetail>),
     /// One or more agents reconnected successfully.
@@ -368,6 +386,10 @@ fn run_loop(
                     app.start_project_idx = 0;
                     app.start_project_filter.clear();
                 }
+                RpcResult::ProjectListErr(e) => {
+                    app.notifications
+                        .push(format!("project list failed: {e}"), Severity::Error);
+                }
                 RpcResult::ProjectDetails(map) => {
                     // Merge enriched project details into the app state.
                     for (name, detail) in map {
@@ -440,11 +462,11 @@ fn run_loop(
                         status: _,
                     } => {
                         if let Some(sv) = app.stream_view.as_mut() {
-                            // Debounce: skip if same status text within 5 seconds.
+                            // Debounce: skip if same status text within STATUS_DEBOUNCE_SECS.
                             let debounced =
                                 sv.last_status_event.as_ref().is_some_and(|(text, ts)| {
                                     text == &session_type
-                                        && ts.elapsed() < std::time::Duration::from_secs(5)
+                                        && ts.elapsed() < std::time::Duration::from_secs(STATUS_DEBOUNCE_SECS)
                                 });
                             if !debounced {
                                 sv.last_status_event =
@@ -483,6 +505,19 @@ fn run_loop(
                         if let Some(sv) = app.stream_view.as_mut() {
                             sv.push_line(StyledLine::new(
                                 format!("\u{26A0} agent shutting down ({reason}), reconnecting..."),
+                                LineStyle::Error,
+                            ));
+                        }
+                    }
+                    // Task 1.4: Stream exhausted all reconnect attempts — show error banner.
+                    StreamMessage::Disconnected { reason } => {
+                        app.notifications.push(
+                            format!("\u{26A0} stream disconnected: {reason}"),
+                            Severity::Error,
+                        );
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.push_line(StyledLine::new(
+                                format!("\u{26A0} stream disconnected: {reason}"),
                                 LineStyle::Error,
                             ));
                         }
@@ -529,12 +564,12 @@ fn run_loop(
         // Clear expired two-step confirmations (auto-expire after 3s).
         app.clear_expired_confirm();
 
-        // Tick stream view notification (dismiss after ~15 ticks / ~3 seconds).
+        // Tick stream view notification (dismiss after NOTIFICATION_DISMISS_TICKS / ~3 seconds).
         if let Some(sv) = app.stream_view.as_mut()
             && let Some((_, ref mut age)) = sv.notification_message
         {
             *age += 1;
-            if *age > 15 {
+            if *age > NOTIFICATION_DISMISS_TICKS {
                 sv.notification_message = None;
             }
         }
@@ -542,11 +577,11 @@ fn run_loop(
         // Increment frame counter for animations (spinner, etc.).
         app.tick_count = app.tick_count.wrapping_add(1);
 
-        // Heartbeat staleness check: if alive but no heartbeat for ~10 seconds
-        // (>50 ticks at ~5 ticks/sec), mark stale and emit a warning line.
+        // Heartbeat staleness check: if alive but no heartbeat for HEARTBEAT_STALE_TICKS
+        // (~10 seconds at ~5 ticks/sec), mark stale and emit a warning line.
         if let Some(sv) = app.stream_view.as_mut()
             && sv.heartbeat_alive
-            && app.tick_count.wrapping_sub(sv.last_heartbeat_tick) > 50
+            && app.tick_count.wrapping_sub(sv.last_heartbeat_tick) > HEARTBEAT_STALE_TICKS
         {
             sv.heartbeat_alive = false;
             sv.system_event_count += 1;
@@ -572,6 +607,16 @@ fn run_loop(
                 },
                 Event::Mouse(mouse) => {
                     handle_mouse(app, mouse);
+                }
+                // Task 1.2: Handle terminal resize — update ratatui's viewport and
+                // force an immediate redraw on the next loop iteration.
+                Event::Resize(cols, rows) => {
+                    terminal.resize(ratatui::layout::Rect {
+                        x: 0,
+                        y: 0,
+                        width: cols,
+                        height: rows,
+                    })?;
                 }
                 _ => {}
             }
@@ -700,6 +745,17 @@ async fn background_task(
     reconnect_interval.reset();
     health_ts_interval.reset();
 
+    // Task 1.1: Build reqwest client once before the polling loop to avoid per-tick
+    // allocation and surface construction failures early.
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap_or_else(|e| {
+            tracing::error!(%e, "failed to build reqwest HTTP client");
+            // Fall back to a default client — this should never fail in practice.
+            reqwest::Client::new()
+        });
+
     loop {
         tokio::select! {
             _ = interval.tick() => {
@@ -729,10 +785,7 @@ async fn background_task(
                 // Fetch specs from the first connected agent's HTTP API.
                 if let Some(agent) = client.agents.iter().find(|a| matches!(a.status, crate::client::ConnectionStatus::Connected)) {
                     let url = format!("http://{}:{}/specs", agent.config.host, agent.config.port + 2);
-                    let http_client = reqwest::Client::builder()
-                        .timeout(Duration::from_secs(3))
-                        .build()
-                        .unwrap();
+                    // Task 1.1: Use pre-built client (moved above the loop)
                     if let Ok(resp) = http_client.get(&url).send().await
                         && resp.status().is_success()
                         && let Ok(mut specs) = resp.json::<Vec<app::SpecListEntry>>().await
@@ -810,14 +863,17 @@ async fn background_task(
                         let _ = poll_tx.send(data).await;
                     }
                     Some(RpcCommand::ListProjects { agent_name }) => {
-                        let projects = match client.list_projects(&agent_name).await {
-                            Ok(p) => p,
+                        match client.list_projects(&agent_name).await {
+                            Ok(projects) => {
+                                let _ = rpc_result_tx.send(RpcResult::ProjectList(projects)).await;
+                            }
                             Err(e) => {
                                 tracing::warn!(%e, "list_projects failed");
-                                Vec::new()
+                                let _ = rpc_result_tx
+                                    .send(RpcResult::ProjectListErr(e.to_string()))
+                                    .await;
                             }
-                        };
-                        let _ = rpc_result_tx.send(RpcResult::ProjectList(projects)).await;
+                        }
                     }
                     Some(RpcCommand::FetchSessionHistory { days, project }) => {
                         let entries = client.get_session_history(days, project).await;

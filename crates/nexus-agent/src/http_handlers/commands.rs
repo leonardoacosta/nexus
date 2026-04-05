@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
+use subtle::ConstantTimeEq;
 
 use super::AppState;
 
@@ -60,11 +61,11 @@ pub async fn run_command_handler(
     // Shared-secret auth gate.
     if let Some(ref expected) = state.secret {
         let provided = headers.get("x-nexus-secret").and_then(|v| v.to_str().ok());
-        match provided {
-            Some(val) if val == expected => {} // OK
-            _ => {
-                return Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string()));
-            }
+        let ok = provided
+            .map(|val| bool::from(val.as_bytes().ct_eq(expected.as_bytes())))
+            .unwrap_or(false);
+        if !ok {
+            return Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string()));
         }
     }
 
@@ -109,10 +110,11 @@ pub fn validate_secret(
 ) -> Result<(), (StatusCode, String)> {
     if let Some(secret) = expected {
         let provided = headers.get("x-nexus-secret").and_then(|v| v.to_str().ok());
-        match provided {
-            Some(val) if val == secret => Ok(()),
-            _ => Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string())),
-        }
+        // Use constant-time comparison to prevent timing-based secret leakage.
+        let ok = provided
+            .map(|val| bool::from(val.as_bytes().ct_eq(secret.as_bytes())))
+            .unwrap_or(false);
+        if ok { Ok(()) } else { Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string())) }
     } else {
         Ok(())
     }

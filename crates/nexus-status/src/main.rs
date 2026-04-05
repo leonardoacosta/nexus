@@ -369,7 +369,13 @@ fn read_access_token() -> Option<String> {
 }
 
 fn fetch_api_curl<T: serde::de::DeserializeOwned>(token: &str, endpoint: &str) -> Option<T> {
-    let output = std::process::Command::new("curl")
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    // Pass the Authorization header via stdin (-H @-) so the bearer token is
+    // not exposed in process arguments (visible via /proc/<pid>/cmdline).
+    let auth_header = format!("Authorization: Bearer {}", token);
+    let mut child = Command::new("curl")
         .args([
             "-s",
             "--max-time",
@@ -377,13 +383,22 @@ fn fetch_api_curl<T: serde::de::DeserializeOwned>(token: &str, endpoint: &str) -
             "-H",
             "Accept: application/json",
             "-H",
-            &format!("Authorization: Bearer {}", token),
+            "@-",
             "-H",
             "anthropic-beta: oauth-2025-04-20",
             endpoint,
         ])
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
         .ok()?;
+
+    // Write the auth header to curl's stdin.
+    if let Some(ref mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(auth_header.as_bytes());
+    }
+
+    let output = child.wait_with_output().ok()?;
 
     if !output.status.success() {
         return None;

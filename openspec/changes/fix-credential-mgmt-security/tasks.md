@@ -6,13 +6,13 @@
 
 ## API Batch
 
-- [ ] API-1: Add `#[serde(skip)]` to `access_token` field in `CredentialAccount` (`crates/nexus-core/src/credentials.rs:12`)
-- [ ] API-2: Audit all call sites that access `CredentialAccount` fields after JSON deserialization and confirm `access_token` is populated via struct field, not JSON key
-- [ ] API-3: Add `subtle` crate dependency to `crates/nexus-agent/Cargo.toml`
-- [ ] API-4: Replace `==` with `subtle::ConstantTimeEq` byte-slice comparison in `validate_secret` (`crates/nexus-agent/src/http_handlers/commands.rs:113`)
-- [ ] API-5: Wrap `CredentialPool.lease()` read+update in a `db.transaction()` block with `SELECT ... FOR UPDATE` (`apps/agent/src/credentials/pool.ts:60-83`)
-- [ ] API-6: Replace `tokio::fs::write` calls at `credential_pool.rs:804` and `credential_pool.rs:853` with `OpenOptions`+`OpenOptionsExt::mode(0o600)` writes
-- [ ] API-7 (P3): Refactor `fetch_api_curl` in `crates/nexus-status/src/main.rs:371-386` to pass the Authorization header via stdin or a temp file rather than a CLI argument
+- [x] API-1: Add `#[serde(skip)]` to `access_token` field in `CredentialAccount` (`crates/nexus-core/src/credentials.rs:12`)
+- [x] API-2: Audit all call sites that access `CredentialAccount` fields after JSON deserialization and confirm `access_token` is populated via struct field, not JSON key
+- [x] API-3: Add `subtle` crate dependency to `crates/nexus-agent/Cargo.toml`
+- [x] API-4: Replace `==` with `subtle::ConstantTimeEq` byte-slice comparison in `validate_secret` (`crates/nexus-agent/src/http_handlers/commands.rs:113`)
+- [x] API-5: Wrap `CredentialPool.lease()` read+update in a `db.transaction()` block with `SELECT ... FOR UPDATE` (`apps/agent/src/credentials/pool.ts:60-83`)
+- [x] API-6: Replace `tokio::fs::write` calls at `credential_pool.rs:804` and `credential_pool.rs:853` with `OpenOptions`+`OpenOptionsExt::mode(0o600)` writes
+- [x] API-7 (P3): Refactor `fetch_api_curl` in `crates/nexus-status/src/main.rs:371-386` to pass the Authorization header via stdin or a temp file rather than a CLI argument
 
 ## E2E Batch
 

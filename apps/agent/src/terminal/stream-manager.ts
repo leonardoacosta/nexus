@@ -32,6 +32,15 @@ export class StreamManager {
 
     const unsubscribe = pty.onData((data) => {
       for (const ws of viewers) {
+        // Disconnect slow viewers whose send buffer exceeds 1 MB (task 1.5)
+        if (ws.getBufferedAmount() > 1024 * 1024) {
+          try {
+            ws.close(1008, "send buffer overflow — viewer too slow");
+          } catch {
+            // ignore — will be cleaned up on close event
+          }
+          continue;
+        }
         try {
           ws.sendBinary(data);
         } catch {
@@ -150,6 +159,11 @@ export class StreamManager {
     this.sessions.delete(sessionId);
 
     logger.debug({ sessionId }, "stream-manager: session ended");
+  }
+
+  /** Return the number of active viewers for a session (0 if session not found). */
+  viewerCount(sessionId: string): number {
+    return this.sessions.get(sessionId)?.viewers.size ?? 0;
   }
 
   /** Detach all sessions. */

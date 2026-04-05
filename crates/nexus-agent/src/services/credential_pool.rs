@@ -25,6 +25,8 @@ use nexus_core::db::{CredentialPollRecord, NexusDb};
 use nexus_core::paths;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
+use std::io::Write as IoWrite;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -800,10 +802,23 @@ async fn bootstrap_import_credential(
     let pool_filename = format!("acct-{}.json", fingerprint);
     let pool_path = pool_dir.join(&pool_filename);
 
-    // Copy to pool dir.
-    tokio::fs::write(&pool_path, &content)
+    // Copy to pool dir with restricted permissions (0o600 — owner read/write only).
+    {
+        let path = pool_path.clone();
+        let data = content.clone();
+        tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+                .and_then(|mut f| f.write_all(data.as_bytes()))
+        })
         .await
+        .with_context(|| format!("spawn_blocking failed for {}", pool_path.display()))?
         .with_context(|| format!("failed to write {}", pool_path.display()))?;
+    }
 
     // Convert .credentials.json to symlink pointing at the pool copy.
     tokio::fs::remove_file(cc_creds_path).await.ok();
@@ -849,10 +864,23 @@ pub async fn import_credential_to_pool(
     let pool_filename = format!("acct-{}.json", fingerprint);
     let pool_path = pool_dir.join(&pool_filename);
 
-    // Write (or overwrite) the pool file — handles token refresh.
-    tokio::fs::write(&pool_path, &content)
+    // Write (or overwrite) the pool file with restricted permissions (0o600).
+    {
+        let path = pool_path.clone();
+        let data = content.clone();
+        tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+                .and_then(|mut f| f.write_all(data.as_bytes()))
+        })
         .await
+        .with_context(|| format!("spawn_blocking failed for {}", pool_path.display()))?
         .with_context(|| format!("failed to write {}", pool_path.display()))?;
+    }
 
     info!(
         fingerprint = %fingerprint,

@@ -28,6 +28,20 @@ import { StreamManager, type WsData } from "./terminal/stream-manager";
 
 const PORT = 7400;
 
+// ── Security: attach secret ─────────────────────────────────────────────────
+const _attachSecretRaw = process.env.NEXUS_ATTACH_SECRET;
+if (!_attachSecretRaw) {
+  logger.error("NEXUS_ATTACH_SECRET is not set — refusing to start (fail-closed)");
+  process.exit(1);
+}
+const ATTACH_SECRET: string = _attachSecretRaw;
+
+// ── Connection limit ────────────────────────────────────────────────────────
+const MAX_CONCURRENT_CONNECTIONS = 50;
+
+// ── Session ID validation ───────────────────────────────────────────────────
+const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
 const healthCollector = new HealthCollector();
 healthCollector.start();
 
@@ -50,6 +64,11 @@ function startPingTimer(): void {
       // Set a deadline for pong response
       const timeout = setTimeout(() => {
         pongDeadlines.delete(ws);
+        // Clean up viewer state before closing (task 1.6)
+        streamManager.removeViewer(ws);
+        if (streamManager.viewerCount(ws.data.sessionId) === 0) {
+          streamManager.endSession(ws.data.sessionId);
+        }
         try {
           ws.close(1001, "pong timeout");
         } catch {
@@ -118,6 +137,18 @@ function createRequestHandler(db?: Db) {
     const streamMatch = url.pathname.match(WS_STREAM_RE);
     if (streamMatch) {
       const sessionId = streamMatch[1]!;
+      // Task 1.8: Validate session ID against safe pattern
+      if (!SESSION_ID_RE.test(sessionId)) {
+        return new Response("Bad Request", { status: 400 });
+      }
+      // Task 1.2: Validate secret header
+      if (request.headers.get("x-nexus-secret") !== ATTACH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      // Task 1.3: Enforce connection limit
+      if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
       if (!streamManager.getPty(sessionId)) {
         // No PTY attached — session doesn't exist or isn't streamable
         return new Response(JSON.stringify({ error: "session not found" }), {
@@ -137,6 +168,18 @@ function createRequestHandler(db?: Db) {
     const interactMatch = url.pathname.match(WS_INTERACT_RE);
     if (interactMatch) {
       const sessionId = interactMatch[1]!;
+      // Task 1.8: Validate session ID against safe pattern
+      if (!SESSION_ID_RE.test(sessionId)) {
+        return new Response("Bad Request", { status: 400 });
+      }
+      // Task 1.2: Validate secret header
+      if (request.headers.get("x-nexus-secret") !== ATTACH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      // Task 1.3: Enforce connection limit
+      if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
       if (!streamManager.getPty(sessionId)) {
         return new Response(JSON.stringify({ error: "session not found" }), {
           status: 404,
@@ -331,9 +374,19 @@ export function startServer(port: number = PORT, db?: Db) {
           try {
             const parsed = JSON.parse(msg);
             if (parsed.type === "resize" && typeof parsed.cols === "number" && typeof parsed.rows === "number") {
+              // Task 1.7: Validate cols/rows ranges
+              const cols = parsed.cols;
+              const rows = parsed.rows;
+              if (
+                !Number.isFinite(cols) || !Number.isInteger(cols) || cols < 1 || cols > 500 ||
+                !Number.isFinite(rows) || !Number.isInteger(rows) || rows < 1 || rows > 300
+              ) {
+                ws.sendText(JSON.stringify({ type: "error", message: "Invalid resize dimensions" }));
+                return;
+              }
               const pty = streamManager.getPty(sessionId);
               if (pty) {
-                pty.resize(parsed.cols, parsed.rows);
+                pty.resize(cols, rows);
               }
               return;
             }
