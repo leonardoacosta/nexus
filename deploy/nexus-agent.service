@@ -15,7 +15,7 @@ Environment=RUST_LOG=info
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 
 # Notification env vars (absorbed from retired claude-daemon)
-# Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, DOPPLER_TOKEN, etc.)
+# Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)
 EnvironmentFile=-%h/.env
 
 # Security hardening (matching claude-daemon)
