@@ -1,3 +1,11 @@
+/** Thrown when a meeting state transition is invalid. */
+export class InvalidStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidStateError";
+  }
+}
+
 /** In-memory meeting state with manual toggle (calendar integration later). */
 export class MeetingState {
   private _inMeeting = false;
@@ -5,12 +13,18 @@ export class MeetingState {
 
   /** Start a meeting — notifications will be buffered. */
   start(): void {
+    if (this._inMeeting) {
+      throw new InvalidStateError("cannot start: meeting already active");
+    }
     this._inMeeting = true;
     this._startedAt = new Date().toISOString();
   }
 
   /** End the current meeting — triggers flush of buffered notifications. */
   end(): void {
+    if (!this._inMeeting) {
+      throw new InvalidStateError("cannot end: no meeting active");
+    }
     this._inMeeting = false;
     this._startedAt = null;
   }

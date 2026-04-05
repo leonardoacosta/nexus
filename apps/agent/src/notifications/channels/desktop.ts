@@ -1,4 +1,5 @@
 import { logger } from "@nexus/core";
+import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
 /**
@@ -12,10 +13,11 @@ export async function sendDesktopNotification(notification: NotificationRow): Pr
     logger.info({ id: notification.id, title: notification.title }, "desktop notification sent");
     return true;
   } catch (err) {
+    captureException(err);
     logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
     }, "desktop notification failed");
-    return false;
+    throw err;
   }
 }

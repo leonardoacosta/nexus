@@ -29,7 +29,10 @@ mock.module("../db/sessions", () => ({
 import {
   handleGetDiscoveredProjects,
   clearDiscoveredProjectsCache,
+  expandProjectsDir,
 } from "./projects-discovered";
+import os from "node:os";
+import path from "node:path";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +54,32 @@ function dirent(name: string, isDir: boolean) {
   return { name, isDirectory: () => isDir };
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Tilde expansion tests (Spec 1, task 3.1) ──────────────────────────────────
+
+describe("expandProjectsDir", () => {
+  it("expands leading ~ to home directory", () => {
+    const result = expandProjectsDir("~/dev");
+    expect(result).toBe(path.join(os.homedir(), "dev"));
+    expect(path.isAbsolute(result)).toBe(true);
+  });
+
+  it("returns absolute path unchanged", () => {
+    const result = expandProjectsDir("/tmp/projects");
+    expect(result).toBe("/tmp/projects");
+  });
+
+  it("resolves relative path to absolute via path.resolve", () => {
+    const result = expandProjectsDir("relative/path");
+    expect(path.isAbsolute(result)).toBe(true);
+  });
+
+  it("expands ~/ prefix to home directory", () => {
+    const result = expandProjectsDir("~/foo/bar");
+    expect(result).toBe(path.join(os.homedir(), "foo", "bar"));
+  });
+});
+
+// ── handleGetDiscoveredProjects tests ─────────────────────────────────────────
 
 describe("handleGetDiscoveredProjects", () => {
   beforeEach(() => {
@@ -77,7 +105,92 @@ describe("handleGetDiscoveredProjects", () => {
     expect(body).toEqual({ error: "Agent not registered" });
   });
 
-  // ── Test 2: filters non-git dirs ─────────────────────────────────────────
+  // ── Test 2: empty dir (Spec 1, task 3.2 — empty dir) ────────────────────
+
+  it("returns { projects: [], truncated: false } for empty directory", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/tmp/empty-projects",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    mockReaddirSync.mockImplementation(() => []);
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as { projects: unknown[]; truncated: boolean };
+    expect(body.projects).toEqual([]);
+    expect(body.truncated).toBe(false);
+  });
+
+  // ── Test 3: readdirSync error (Spec 1, task 3.2 — error path) ────────────
+
+  it("returns { error: ... } when readdirSync throws", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/nonexistent",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    mockReaddirSync.mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory");
+    });
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("ENOENT");
+  });
+
+  // ── Test 4: 101 entries → truncated: true (Spec 1, task 3.2) ─────────────
+
+  it("sets truncated: true when more than 100 git repos exist", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/tmp/many-projects",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    // 101 directories
+    const dirs = Array.from({ length: 101 }, (_, i) =>
+      dirent(`repo-${String(i).padStart(3, "0")}`, true),
+    );
+    mockReaddirSync.mockImplementation(
+      () => dirs as unknown as ReturnType<typeof import("node:fs").readdirSync>,
+    );
+
+    // All dirs have .git
+    mockExistsSync.mockImplementation((p: string) => p.endsWith("/.git"));
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as { projects: unknown[]; truncated: boolean };
+    expect(body.projects.length).toBe(100);
+    expect(body.truncated).toBe(true);
+  });
+
+  // ── Test 5: filters non-git dirs ─────────────────────────────────────────
 
   it("returns only git repos (3 of 4 dirs) and hasActiveSessions false for all", async () => {
     const agentRow = {
@@ -121,16 +234,15 @@ describe("handleGetDiscoveredProjects", () => {
 
     const body = await res.json() as {
       projects: Array<{ name: string; hasActiveSessions: boolean }>;
-      projectsDir: string;
-      total: number;
+      truncated: boolean;
     };
 
     expect(body.projects.length).toBe(3);
-    expect(body.total).toBe(3);
+    expect(body.truncated).toBe(false);
     expect(body.projects.every((p) => p.hasActiveSessions === false)).toBe(true);
   });
 
-  // ── Test 3: cross-references sessions correctly ──────────────────────────
+  // ── Test 6: cross-references sessions correctly ──────────────────────────
 
   it("marks alpha as having active sessions and beta as not", async () => {
     const agentRow = {
@@ -190,5 +302,30 @@ describe("handleGetDiscoveredProjects", () => {
 
     expect(beta).toBeDefined();
     expect(beta!.hasActiveSessions).toBe(false);
+  });
+
+  // ── Test 7: response shape uses { projects, truncated } not old { total, projectsDir } ──
+
+  it("response has truncated field and no projectsDir or total fields", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/tmp/shape-test",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    mockReaddirSync.mockImplementation(() => []);
+
+    const res = await handleGetDiscoveredProjects(db);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect("truncated" in body).toBe(true);
+    expect("projectsDir" in body).toBe(false);
+    expect("total" in body).toBe(false);
   });
 });

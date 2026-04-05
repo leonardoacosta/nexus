@@ -5,8 +5,24 @@ import type {
   HealthMetrics,
   Project,
   DiscoveredProject,
-  DiscoveredProjectsResponse,
 } from "@nexus/core";
+
+// ---------------------------------------------------------------------------
+// Agent wire types (what the agent's GET /projects/discovered actually returns)
+// ---------------------------------------------------------------------------
+
+/** Project entry as returned by the agent endpoint (before client mapping). */
+interface AgentProject {
+  name: string;
+  path: string;
+  hasActiveSessions: boolean;
+}
+
+/** Wire response from GET /projects/discovered. */
+interface AgentDiscoveredResponse {
+  projects: AgentProject[];
+  truncated: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -145,25 +161,46 @@ export class AgentClient {
       const settled = await Promise.allSettled(
         this.agents.map(async (agent) => {
           const res = await fetchWithRetry(`${agentBaseUrl(agent)}/projects/discovered`);
-          const data = (await res.json()) as DiscoveredProjectsResponse;
+          const data = (await res.json()) as AgentDiscoveredResponse;
           this.markOnline(agent.name);
           return { name: agent.name, data };
         }),
       );
 
-      const merged: WithAgent<DiscoveredProject>[] = [];
+      // Deduplicate by name+path across agents, incrementing machineCount for duplicates.
+      const dedupMap = new Map<
+        string,
+        WithAgent<DiscoveredProject> & { machineCount: number }
+      >();
+
       for (let i = 0; i < settled.length; i++) {
         const result = settled[i]!;
         const agentName = this.agents[i]!.name;
         if (result.status === "fulfilled") {
           for (const project of result.value.data.projects) {
-            merged.push({ ...project, agent: result.value.name });
+            const key = `${project.name}|${project.path}`;
+            const existing = dedupMap.get(key);
+            if (existing) {
+              existing.machineCount++;
+            } else {
+              // Map agent wire format → core DiscoveredProject
+              const mapped: WithAgent<DiscoveredProject> & { machineCount: number } = {
+                name: project.name,
+                path: project.path,
+                active_sessions: project.hasActiveSessions ? 1 : 0,
+                total_sessions: 0,
+                agent: result.value.name,
+                machineCount: 1,
+              };
+              dedupMap.set(key, mapped);
+            }
           }
         } else {
           this.markOffline(agentName);
         }
       }
-      return merged;
+
+      return Array.from(dedupMap.values());
     });
   }
 

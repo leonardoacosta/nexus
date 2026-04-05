@@ -364,13 +364,16 @@ async fn dispatch_event(
                     InterceptResult::Exhausted(exhaustion_msg) => {
                         let tts_channels = vec!["tts".to_string()];
                         if peer_relay_urls.is_empty() {
-                            receiver
+                            if let Err(e) = receiver
                                 .speak_from_socket(
                                     &exhaustion_msg,
                                     Some("brief"),
                                     Some(&tts_channels),
                                 )
-                                .await;
+                                .await
+                            {
+                                tracing::warn!(error = %e, "socket: speak_from_socket failed (exhaustion)");
+                            }
                         } else {
                             relay_notification_to_peers(
                                 peer_relay_urls,
@@ -443,9 +446,12 @@ async fn dispatch_event(
 
             if peer_relay_urls.is_empty() {
                 // role=primary: handle locally via ReceiverService
-                receiver
+                if let Err(e) = receiver
                     .speak_from_socket(&message, message_type.as_deref(), Some(&effective_channels))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(error = %e, "socket: speak_from_socket failed (notification)");
+                }
             } else {
                 // role=agent: relay to primary peer(s) via HTTP
                 relay_notification_to_peers(
@@ -659,13 +665,16 @@ async fn dispatch_event(
                         // [5.3] Deliver exhaustion notification via TTS.
                         let tts_channels = vec!["tts".to_string()];
                         if peer_relay_urls.is_empty() {
-                            receiver
+                            if let Err(e) = receiver
                                 .speak_from_socket(
                                     &exhaustion_msg,
                                     Some("brief"),
                                     Some(&tts_channels),
                                 )
-                                .await;
+                                .await
+                            {
+                                tracing::warn!(error = %e, "socket: speak_from_socket failed (telemetry exhaustion)");
+                            }
                         } else {
                             relay_notification_to_peers(
                                 peer_relay_urls,

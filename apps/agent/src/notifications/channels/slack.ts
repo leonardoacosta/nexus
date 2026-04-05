@@ -1,4 +1,5 @@
 import { logger } from "@nexus/core";
+import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
 /**
@@ -35,17 +36,20 @@ export async function sendSlackNotification(notification: NotificationRow): Prom
     });
 
     if (!res.ok) {
+      const err = new Error(`Slack webhook error: HTTP ${res.status}`);
+      captureException(err);
       logger.error({ id: notification.id, status: res.status }, "slack webhook error");
-      return false;
+      throw err;
     }
 
     logger.info({ id: notification.id }, "slack notification sent");
     return true;
   } catch (err) {
+    captureException(err);
     logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
     }, "slack notification failed");
-    return false;
+    throw err;
   }
 }

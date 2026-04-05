@@ -1,7 +1,10 @@
 import type { Db } from "@nexus/db";
 import type { Project } from "@nexus/core";
+import { createLogger } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
+
+const log = createLogger("agent:routes:projects");
 
 // ── Simple cache with TTL ──────────────────────────────────────────────────
 
@@ -58,8 +61,13 @@ function aggregateProjects(sessions: SessionRow[]): Project[] {
 
 /** GET /projects — aggregated project list with session counts and machine lists. */
 export async function handleGetProjects(db: Db): Promise<Response> {
+  const start = Date.now();
+  const route = "/projects";
   const now = Date.now();
+
   if (projectsCache && now < projectsCache.expiry) {
+    const durationMs = Date.now() - start;
+    log.info({ route, durationMs, count: projectsCache.data.length, fromCache: true }, "projects request");
     return new Response(JSON.stringify(projectsCache.data), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -71,6 +79,9 @@ export async function handleGetProjects(db: Db): Promise<Response> {
   const projects = aggregateProjects(sessions);
 
   projectsCache = { data: projects, expiry: now + PROJECTS_CACHE_TTL_MS };
+
+  const durationMs = Date.now() - start;
+  log.info({ route, durationMs, count: projects.length, fromCache: false }, "projects request");
 
   return new Response(JSON.stringify(projects), {
     status: 200,

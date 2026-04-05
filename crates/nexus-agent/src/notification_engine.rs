@@ -293,13 +293,16 @@ impl NotificationEngine {
             channels = ?ch_refs,
             "notification_engine: delivering"
         );
-        self.receiver
+        if let Err(e) = self.receiver
             .speak_from_socket(
                 &notification.message,
                 Some(&notification.message_type),
                 ch_refs,
             )
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, "notification_engine: speak_from_socket failed");
+        }
         sentry::add_breadcrumb(sentry::Breadcrumb {
             ty: "info".into(),
             category: Some("notification.delivery".into()),

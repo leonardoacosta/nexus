@@ -1,8 +1,11 @@
 import type { NotificationChannel, NotificationRule } from "@nexus/core";
+import { createLogger } from "@nexus/core";
 import type { NotificationRow } from "./buffer";
 import { sendDesktopNotification } from "./channels/desktop";
 import { sendTtsNotification } from "./channels/tts";
 import { sendSlackNotification } from "./channels/slack";
+
+const log = createLogger("agent:notifications:router");
 
 /** Default routing rules when no project-specific rule matches. */
 const DEFAULT_RULES: NotificationRule[] = [
@@ -63,10 +66,12 @@ export async function routeNotification(
 
   for (const channel of rule.channels) {
     const handler = CHANNEL_HANDLERS[channel];
-    if (handler) {
-      const success = await handler(notification);
-      results.push({ channel, success });
+    if (handler === undefined) {
+      log.warn({ channel, notificationId: notification.id }, "unknown notification channel");
+      continue;
     }
+    const success = await handler(notification);
+    results.push({ channel, success });
   }
 
   return results;

@@ -4,20 +4,36 @@ import { eq } from "drizzle-orm";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
+import { createLogger } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Logger ─────────────────────────────────────────────────────────────────
 
-interface DiscoveredProject {
+const log = createLogger("agent:routes:projects-discovered");
+
+// ── Tilde expansion ────────────────────────────────────────────────────────
+
+/** Expand a leading `~` to the user's home directory, then resolve to absolute. */
+export function expandProjectsDir(raw: string): string {
+  const expanded = raw.startsWith("~")
+    ? path.join(os.homedir(), raw.slice(1))
+    : raw;
+  return path.resolve(expanded);
+}
+
+// ── Route-level types (agent produces these; client maps to core DiscoveredProject) ──
+
+/** A git-repo entry as returned by this agent's GET /projects/discovered endpoint. */
+export interface AgentDiscoveredProject {
   name: string;
   path: string;
   hasActiveSessions: boolean;
 }
 
-interface DiscoveredProjectsResponse {
-  projects: DiscoveredProject[];
-  projectsDir: string;
-  total: number;
+/** Wire format returned by GET /projects/discovered. */
+export interface AgentDiscoveredProjectsResponse {
+  projects: AgentDiscoveredProject[];
+  truncated: boolean;
 }
 
 // ── Simple cache with TTL ──────────────────────────────────────────────────
@@ -27,7 +43,7 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
-let discoveredCache: CacheEntry<DiscoveredProjectsResponse> | null = null;
+let discoveredCache: CacheEntry<AgentDiscoveredProjectsResponse | { error: string }> | null = null;
 const CACHE_TTL_MS = 5_000; // 5 seconds
 
 /** Clear the discovered projects cache (useful for testing). */
@@ -39,9 +55,16 @@ export function clearDiscoveredProjectsCache(): void {
 
 /** GET /projects/discovered — git repos found under the agent's projectsDir. */
 export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
+  const start = Date.now();
+  const route = "/projects/discovered";
+
   const now = Date.now();
   if (discoveredCache && now < discoveredCache.expiry) {
-    return new Response(JSON.stringify(discoveredCache.data), {
+    const durationMs = Date.now() - start;
+    const cached = discoveredCache.data;
+    const count = "projects" in cached ? (cached as AgentDiscoveredProjectsResponse).projects.length : 0;
+    log.info({ route, durationMs, count, fromCache: true }, "projects-discovered request");
+    return new Response(JSON.stringify(cached), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -62,20 +85,31 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     });
   }
 
-  const projectsDir = agent.projectsDir ?? "";
+  const rawProjectsDir = agent.projectsDir ?? "";
 
   // 4. Empty projectsDir — return early without scanning
-  if (!projectsDir) {
-    const empty: DiscoveredProjectsResponse = {
+  if (!rawProjectsDir) {
+    const empty: AgentDiscoveredProjectsResponse = {
       projects: [],
-      projectsDir: "",
-      total: 0,
+      truncated: false,
     };
     discoveredCache = { data: empty, expiry: now + CACHE_TTL_MS };
+    const durationMs = Date.now() - start;
+    log.info({ route, durationMs, count: 0, fromCache: false }, "projects-discovered request");
     return new Response(JSON.stringify(empty), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // 3. Tilde expansion and absolute-path check
+  const projectsDir = expandProjectsDir(rawProjectsDir);
+
+  if (!path.isAbsolute(projectsDir)) {
+    return new Response(
+      JSON.stringify({ error: "projectsDir must resolve to an absolute path" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   // 7. Fetch recent sessions to cross-reference
@@ -85,21 +119,19 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
   let entries: fs.Dirent[] = [];
   try {
     entries = fs.readdirSync(projectsDir, { withFileTypes: true });
-  } catch {
-    // Directory doesn't exist or isn't readable
-    const fallback: DiscoveredProjectsResponse = {
-      projects: [],
-      projectsDir,
-      total: 0,
-    };
-    discoveredCache = { data: fallback, expiry: now + CACHE_TTL_MS };
-    return new Response(JSON.stringify(fallback), {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ route, projectsDir, error: message }, "readdirSync failed");
+    const errResp = { error: message };
+    discoveredCache = { data: errResp, expiry: now + CACHE_TTL_MS };
+    return new Response(JSON.stringify(errResp), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  const projects: DiscoveredProject[] = [];
+  const projects: AgentDiscoveredProject[] = [];
+  let truncated = false;
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -118,19 +150,24 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     projects.push({ name, path: fullPath, hasActiveSessions });
 
     // 9. Cap at 100 results
-    if (projects.length >= 100) break;
+    if (projects.length >= 100) {
+      truncated = true;
+      break;
+    }
   }
 
   // Sort alphabetically by name
   projects.sort((a, b) => a.name.localeCompare(b.name));
 
-  const result: DiscoveredProjectsResponse = {
+  const result: AgentDiscoveredProjectsResponse = {
     projects,
-    projectsDir,
-    total: projects.length,
+    truncated,
   };
 
   discoveredCache = { data: result, expiry: now + CACHE_TTL_MS };
+
+  const durationMs = Date.now() - start;
+  log.info({ route, durationMs, count: projects.length, fromCache: false }, "projects-discovered request");
 
   return new Response(JSON.stringify(result), {
     status: 200,

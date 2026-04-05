@@ -1,4 +1,5 @@
 import { logger } from "@nexus/core";
+import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
 /**
@@ -32,17 +33,20 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
     );
 
     if (!res.ok) {
+      const err = new Error(`TTS API error: HTTP ${res.status}`);
+      captureException(err);
       logger.error({ id: notification.id, status: res.status }, "tts API error");
-      return false;
+      throw err;
     }
 
     logger.info({ id: notification.id }, "tts notification sent");
     return true;
   } catch (err) {
+    captureException(err);
     logger.error({
       id: notification.id,
       error: err instanceof Error ? err.message : String(err),
     }, "tts notification failed");
-    return false;
+    throw err;
   }
 }

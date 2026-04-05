@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{debug, info, warn};
 
+/// Default timeout for the speak pipeline (ms). Overridable via `NEXUS_SPEAK_TIMEOUT_MS`.
+const SPEAK_TIMEOUT_MS: u64 = 5_000;
+
 // Re-export types from the types module so existing imports continue to work.
 pub use super::types::*;
 
@@ -70,12 +73,15 @@ impl ReceiverService {
     }
 
     /// Route a notification through the full speak pipeline via socket.
+    ///
+    /// Returns `Ok(true)` on success, `Err` on timeout or HTTP non-2xx.
+    /// Callers should log on error and continue — do not propagate panics.
     pub async fn speak_from_socket(
         &self,
         message: &str,
         message_type: Option<&str>,
         channels: Option<&[String]>,
-    ) {
+    ) -> anyhow::Result<bool> {
         let mut map = serde_json::Map::new();
         map.insert(
             "message".into(),
@@ -98,17 +104,41 @@ impl ReceiverService {
             Ok(b) => b,
             Err(e) => {
                 warn!("speak_from_socket: failed to serialize request: {}", e);
-                return;
+                return Err(anyhow::anyhow!("speak_from_socket: serialize error: {}", e));
             }
         };
-        let (status, _, _) =
-            Self::handle_request("POST", "/speak", &body, Arc::clone(&self.state)).await;
+
+        let timeout_ms = std::env::var("NEXUS_SPEAK_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(SPEAK_TIMEOUT_MS);
+
+        let state = Arc::clone(&self.state);
+        let fut = Self::handle_request("POST", "/speak", &body, state);
+
+        let (status, _, _) = match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            fut,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                let anyhow_err = anyhow::anyhow!("speak_from_socket: timeout after {}ms", timeout_ms);
+                sentry::capture_error(&err);
+                warn!("speak_from_socket: timed out after {}ms", timeout_ms);
+                return Err(anyhow_err);
+            }
+        };
+
         if status >= 400 {
-            warn!(
-                "speak_from_socket: handle_request returned status {}",
-                status
-            );
+            let msg = format!("speak_from_socket: handle_request returned status {status}");
+            sentry::capture_message(&msg, sentry::Level::Error);
+            warn!("{}", msg);
+            return Err(anyhow::anyhow!("{}", msg));
         }
+
+        Ok(true)
     }
 }
 
