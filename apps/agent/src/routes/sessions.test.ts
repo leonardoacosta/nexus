@@ -1,19 +1,22 @@
 /**
  * Session route integration tests.
  *
- * These tests previously used bun:sqlite in-memory databases and passed the
- * Database instance to startServer(). After the migration to PostgreSQL +
- * Drizzle, they require a live PG connection.
+ * These tests require a live PostgreSQL connection. They are automatically
+ * skipped when `POSTGRES_URL` is not set in the environment, so they run
+ * cleanly in local dev without setup and in CI when a real PG is available.
  *
- * To run these tests:
- *   1. Set POSTGRES_URL to a test database (not production!)
+ * To run locally:
+ *   1. Start a PostgreSQL instance (see docker-compose.test.yml at project root)
  *   2. Run `pnpm db:push` in packages/db to create tables
- *   3. Remove `.skip` from the describe blocks below
+ *   3. export POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test
+ *   4. bun test apps/agent/src/routes/sessions.test.ts
  */
 
 import { describe, expect, it } from "bun:test";
 
-describe.skip("GET /sessions (requires live PG)", () => {
+const hasPg = !!process.env.POSTGRES_URL;
+
+describe.skipIf(!hasPg)("GET /sessions (requires live PG)", () => {
   it("returns sessions array", () => {
     expect(true).toBe(true);
   });
@@ -23,7 +26,7 @@ describe.skip("GET /sessions (requires live PG)", () => {
   });
 });
 
-describe.skip("GET /sessions?project= (requires live PG)", () => {
+describe.skipIf(!hasPg)("GET /sessions?project= (requires live PG)", () => {
   it("filters by project name", () => {
     expect(true).toBe(true);
   });
@@ -33,7 +36,7 @@ describe.skip("GET /sessions?project= (requires live PG)", () => {
   });
 });
 
-describe.skip("GET /sessions?status= (requires live PG)", () => {
+describe.skipIf(!hasPg)("GET /sessions?status= (requires live PG)", () => {
   it("filters by status", () => {
     expect(true).toBe(true);
   });
@@ -43,7 +46,7 @@ describe.skip("GET /sessions?status= (requires live PG)", () => {
   });
 });
 
-describe.skip("GET /sessions/{id} (requires live PG)", () => {
+describe.skipIf(!hasPg)("GET /sessions/{id} (requires live PG)", () => {
   it("returns a single session by ID", () => {
     expect(true).toBe(true);
   });
@@ -53,7 +56,7 @@ describe.skip("GET /sessions/{id} (requires live PG)", () => {
   });
 });
 
-describe.skip("GET /projects (requires live PG)", () => {
+describe.skipIf(!hasPg)("GET /projects (requires live PG)", () => {
   it("returns aggregated project list", () => {
     expect(true).toBe(true);
   });
@@ -63,7 +66,7 @@ describe.skip("GET /projects (requires live PG)", () => {
   });
 });
 
-describe.skip("GET /sessions?status=invalid (requires live PG)", () => {
+describe.skipIf(!hasPg)("GET /sessions?status=invalid (requires live PG)", () => {
   it("returns 400 for invalid status value", () => {
     expect(true).toBe(true);
   });

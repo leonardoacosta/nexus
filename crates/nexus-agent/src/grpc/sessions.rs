@@ -10,6 +10,7 @@ use uuid::Uuid;
 use super::NexusAgentService;
 
 impl NexusAgentService {
+    #[tracing::instrument(name = "session.get_all", skip(self, request))]
     pub(super) async fn handle_get_sessions(
         &self,
         request: Request<proto::SessionFilter>,
@@ -30,11 +31,13 @@ impl NexusAgentService {
         }))
     }
 
+    #[tracing::instrument(name = "session.get", skip(self, request), fields(session_id))]
     pub(super) async fn handle_get_session(
         &self,
         request: Request<proto::SessionId>,
     ) -> Result<Response<proto::Session>, Status> {
         let session_id = request.into_inner().id;
+        tracing::Span::current().record("session_id", session_id.as_str());
 
         match self.registry.get_by_id(&session_id).await {
             Some(session) => Ok(Response::new(super::session_to_proto(&session))),
@@ -106,7 +109,27 @@ impl NexusAgentService {
             req.cwd.clone()
         };
 
-        // Register the managed session in the registry.
+        // Dedup guard: if a non-errored session already exists for this cwd, return it.
+        {
+            let all_sessions = self.registry.get_all().await;
+            if let Some(existing) = all_sessions
+                .iter()
+                .find(|s| s.cwd == cwd && s.status != nexus_core::session::SessionStatus::Errored)
+            {
+                tracing::info!(
+                    existing_session_id = %existing.id,
+                    cwd = %cwd,
+                    "dedup: returning existing non-ended session for cwd"
+                );
+                return Ok(Response::new(proto::StartSessionResponse {
+                    session_id: existing.id.clone(),
+                    tmux_session: existing.tmux_session.clone().unwrap_or_default(),
+                    session_type: proto::SessionType::Managed.into(),
+                }));
+            }
+        }
+
+        // Build the session record.
         let mut session = Session::new(0, cwd.clone());
         session.id = session_id.clone();
         session.cc_session_id = Some(session_id.clone());
@@ -116,8 +139,6 @@ impl NexusAgentService {
             Some(req.project)
         };
         session.tmux_session = None;
-
-        self.registry.register_managed(session).await;
 
         // Run a bootstrap command to establish the CC conversation.
         let bootstrap_prompt = format!(
@@ -152,6 +173,9 @@ impl NexusAgentService {
                     level: sentry::Level::Info,
                     ..Default::default()
                 });
+
+                // Register only after successful bootstrap.
+                self.registry.register_managed(session).await;
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -161,7 +185,7 @@ impl NexusAgentService {
                     exit_code = output.status.code().unwrap_or(-1),
                     stderr = %stderr,
                     stdout = %stdout,
-                    "bootstrap prompt failed — session registered but may not be resumable"
+                    "bootstrap prompt failed — session not registered"
                 );
                 sentry::add_breadcrumb(sentry::Breadcrumb {
                     ty: "error".into(),
@@ -173,12 +197,16 @@ impl NexusAgentService {
                     level: sentry::Level::Error,
                     ..Default::default()
                 });
+                return Err(Status::internal(format!(
+                    "bootstrap prompt failed with exit code {}",
+                    output.status.code().unwrap_or(-1)
+                )));
             }
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,
                     error = %e,
-                    "failed to spawn bootstrap prompt — session registered but may not be resumable"
+                    "failed to spawn bootstrap prompt — session not registered"
                 );
                 sentry::add_breadcrumb(sentry::Breadcrumb {
                     ty: "error".into(),
@@ -189,6 +217,7 @@ impl NexusAgentService {
                     level: sentry::Level::Error,
                     ..Default::default()
                 });
+                return Err(Status::internal(e.to_string()));
             }
         }
 
@@ -205,24 +234,20 @@ impl NexusAgentService {
         request: Request<proto::SessionId>,
     ) -> Result<Response<proto::StopResult>, Status> {
         let session_id = request.into_inner().id;
-        tracing::Span::current().record("session_id", &session_id.as_str());
+        tracing::Span::current().record("session_id", session_id.as_str());
 
-        let session = self
-            .registry
-            .get_by_id(&session_id)
-            .await
-            .ok_or_else(|| {
-                sentry::add_breadcrumb(sentry::Breadcrumb {
-                    ty: "error".into(),
-                    category: Some("grpc.call".into()),
-                    message: Some(format!(
-                        "gRPC StopSession failed: session not found: {session_id}"
-                    )),
-                    level: sentry::Level::Error,
-                    ..Default::default()
-                });
-                Status::not_found(format!("session not found: {session_id}"))
-            })?;
+        let session = self.registry.get_by_id(&session_id).await.ok_or_else(|| {
+            sentry::add_breadcrumb(sentry::Breadcrumb {
+                ty: "error".into(),
+                category: Some("grpc.call".into()),
+                message: Some(format!(
+                    "gRPC StopSession failed: session not found: {session_id}"
+                )),
+                level: sentry::Level::Error,
+                ..Default::default()
+            });
+            Status::not_found(format!("session not found: {session_id}"))
+        })?;
 
         let pid = session.pid;
         if pid == 0 {
@@ -313,11 +338,23 @@ impl NexusAgentService {
         }))
     }
 
+    #[tracing::instrument(name = "session.register", skip(self, request))]
     pub(super) async fn handle_register_session(
         &self,
         request: Request<proto::RegisterSessionRequest>,
     ) -> Result<Response<proto::RegisterSessionResponse>, Status> {
         let req = request.into_inner();
+
+        // Upfront validation guards.
+        if req.pid == 0 {
+            return Err(Status::invalid_argument("pid must be non-zero"));
+        }
+        if req.cwd.is_empty() {
+            return Err(Status::invalid_argument("cwd must not be empty"));
+        }
+        if req.session_id.is_empty() {
+            return Err(Status::invalid_argument("session_id must not be empty"));
+        }
 
         let mut session = Session::new(req.pid, req.cwd);
         session.id = req.session_id.clone();
@@ -336,6 +373,7 @@ impl NexusAgentService {
         }))
     }
 
+    #[tracing::instrument(name = "session.unregister", skip(self, request))]
     pub(super) async fn handle_unregister_session(
         &self,
         request: Request<proto::UnregisterSessionRequest>,
@@ -346,6 +384,7 @@ impl NexusAgentService {
         Ok(Response::new(proto::UnregisterSessionResponse { found }))
     }
 
+    #[tracing::instrument(name = "session.heartbeat", skip(self, request))]
     pub(super) async fn handle_heartbeat(
         &self,
         request: Request<proto::HeartbeatRequest>,

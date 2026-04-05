@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchSessionDetail } from "@/app/actions/session-detail";
 import { Badge, StatusDot } from "@nexus/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 import { LazyTerminalPanel } from "@/components/LazyTerminalPanel";
+import SessionDetailLoading from "./loading";
 
 function getStatusDotStatus(status: string): "active" | "idle" | "ended" {
   if (status === "active") return "active";
@@ -11,12 +13,7 @@ function getStatusDotStatus(status: string): "active" | "idle" | "ended" {
   return "ended";
 }
 
-export default async function SessionDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+async function SessionDetailContent({ id }: { id: string }) {
   const result = await fetchSessionDetail(id);
 
   if (!result) {
@@ -31,7 +28,7 @@ export default async function SessionDetailPage({
   const lastActivity = formatRelativeTime(session.lastHeartbeat);
 
   return (
-    <div>
+    <>
       {/* Top bar with back navigation */}
       <div
         style={{
@@ -164,6 +161,22 @@ export default async function SessionDetailPage({
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+export default async function SessionDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  return (
+    <div>
+      <Suspense fallback={<SessionDetailLoading />}>
+        <SessionDetailContent id={id} />
+      </Suspense>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import {
 import type { SessionRow } from "../db/sessions";
 
 /** Valid status values accepted as query parameter filters. */
-const VALID_STATUSES = new Set(["active", "idle", "ended"]);
+const VALID_STATUSES = new Set(["active", "idle", "ended", "stale", "errored"]);
 
 /** Optional filters for GET /sessions. */
 export interface SessionListQuery {
@@ -63,7 +63,7 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
   if (statusFilter && !VALID_STATUSES.has(statusFilter)) {
     return new Response(
       JSON.stringify({
-        error: `invalid status filter: "${statusFilter}". Must be one of: active, idle, ended`,
+        error: `invalid status filter: "${statusFilter}". Must be one of: active, idle, ended, stale, errored`,
       }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );

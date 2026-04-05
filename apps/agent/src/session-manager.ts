@@ -4,6 +4,16 @@ import type { Session, WatcherEvent } from "@nexus/core";
 
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 const SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
+const DEFAULT_ENDED_SESSION_TTL_MS = 3_600_000; // 1 hour
+
+/** Options for configuring a session manager instance. */
+export interface SessionManagerOptions {
+  /**
+   * How long (in ms) to retain ended sessions in memory before evicting them
+   * during a sweep. Defaults to 1 hour (3_600_000 ms).
+   */
+  endedSessionTtlMs?: number;
+}
 
 export interface SessionManager {
   handleWatcherEvent(event: WatcherEvent): void;
@@ -15,7 +25,10 @@ export interface SessionManager {
   stop(): void;
 }
 
-export function createSessionManager(): SessionManager {
+export function createSessionManager(
+  options: SessionManagerOptions = {},
+): SessionManager {
+  const { endedSessionTtlMs = DEFAULT_ENDED_SESSION_TTL_MS } = options;
   const sessions = new Map<string, Session>();
   const machine = hostname();
 
@@ -104,12 +117,25 @@ export function createSessionManager(): SessionManager {
 
   function sweepIdle(): void {
     const now = Date.now();
+
+    // Mark active sessions as idle if they have exceeded the idle threshold.
     for (const session of sessions.values()) {
       if (session.status !== "active") continue;
       const lastActivity = new Date(session.lastHeartbeat).getTime();
       if (now - lastActivity > IDLE_THRESHOLD_MS) {
         session.status = "idle";
         logger.info({ id: session.id }, "session-manager: session marked idle");
+      }
+    }
+
+    // Evict ended sessions that have exceeded the TTL.
+    for (const [id, session] of sessions) {
+      if (session.status !== "ended") continue;
+      if (session.endedAt == null) continue;
+      const endedAt = new Date(session.endedAt).getTime();
+      if (now - endedAt > endedSessionTtlMs) {
+        sessions.delete(id);
+        logger.info({ id }, "session-manager: ended session evicted after TTL");
       }
     }
   }

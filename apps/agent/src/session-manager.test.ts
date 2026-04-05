@@ -116,4 +116,57 @@ describe("session-manager", () => {
     manager = createSessionManager();
     expect(manager.getById("nonexistent")).toBeNull();
   });
+
+  test("sweepIdle evicts ended sessions after TTL", () => {
+    // Use a very short TTL (1 ms) so we can trigger eviction synchronously.
+    manager = createSessionManager({ endedSessionTtlMs: 1 });
+
+    manager.handleWatcherEvent({
+      type: "session_start",
+      session_id: "sess-evict",
+      project: "test",
+      path: "/tmp",
+    });
+
+    manager.handleWatcherEvent({
+      type: "session_end",
+      session_id: "sess-evict",
+    });
+
+    const session = manager.getById("sess-evict")!;
+    expect(session.status).toBe("ended");
+
+    // Backdate endedAt to ensure TTL has elapsed.
+    const twoMsAgo = new Date(Date.now() - 2).toISOString();
+    session.endedAt = twoMsAgo;
+
+    manager.sweepIdle();
+
+    // Session should have been evicted.
+    expect(manager.getById("sess-evict")).toBeNull();
+    expect(manager.getAll()).toHaveLength(0);
+  });
+
+  test("sweepIdle does not evict ended sessions before TTL", () => {
+    // Use a long TTL so eviction should not fire.
+    manager = createSessionManager({ endedSessionTtlMs: 3_600_000 });
+
+    manager.handleWatcherEvent({
+      type: "session_start",
+      session_id: "sess-keep",
+      project: "test",
+      path: "/tmp",
+    });
+
+    manager.handleWatcherEvent({
+      type: "session_end",
+      session_id: "sess-keep",
+    });
+
+    manager.sweepIdle();
+
+    // Session should still be present.
+    expect(manager.getById("sess-keep")).not.toBeNull();
+    expect(manager.getById("sess-keep")!.status).toBe("ended");
+  });
 });
