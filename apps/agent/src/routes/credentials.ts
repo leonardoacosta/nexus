@@ -56,7 +56,7 @@ export async function handleAddCredential(request: Request): Promise<Response> {
       id: id as string,
       name: name as string,
       type: type as string,
-      value_encrypted: value as string,
+      value_plaintext: value as string,
     });
   } catch (err) {
     return jsonResponse(
@@ -96,8 +96,8 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
     return jsonResponse({ error: "no available credentials of this type" }, 409);
   }
 
-  // Don't expose the encrypted value
-  const { valueEncrypted: _, ...safe } = credential;
+  // Don't expose the plaintext value
+  const { valuePlaintext: _, ...safe } = credential;
   return jsonResponse(safe);
 }
 
@@ -153,10 +153,10 @@ export async function handleReportRateLimit(
     return jsonResponse({ error: "credential not found" }, 404);
   }
 
-  const { valueEncrypted: _1, ...cooledDown } = result.cooledDown;
+  const { valuePlaintext: _1, ...cooledDown } = result.cooledDown;
   const next = result.next
     ? (() => {
-        const { valueEncrypted: _2, ...safe } = result.next!;
+        const { valuePlaintext: _2, ...safe } = result.next!;
         return safe;
       })()
     : null;

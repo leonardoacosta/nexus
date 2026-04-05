@@ -1,8 +1,8 @@
 ## DB Batch
 
-- [ ] DB-1: Generate Drizzle migration to rename `value_encrypted` → `value_plaintext` in the `credentials` table (`packages/db/src/schema/credentials.ts` + `drizzle-kit generate`)
-- [ ] DB-2: Update all TypeScript references to `valueEncrypted` → `valuePlaintext` throughout `apps/agent/src/` and `packages/db/src/`
-- [ ] DB-3: Verify migration applies cleanly against a local Postgres instance and existing rows are preserved
+- [x] DB-1: Generate Drizzle migration to rename `value_encrypted` → `value_plaintext` in the `credentials` table (`packages/db/src/schema/credentials.ts` + `drizzle-kit generate`)
+- [x] DB-2: Update all TypeScript references to `valueEncrypted` → `valuePlaintext` throughout `apps/agent/src/` and `packages/db/src/`
+- [x] DB-3: Verify migration applies cleanly against a local Postgres instance and existing rows are preserved
 
 ## API Batch
 

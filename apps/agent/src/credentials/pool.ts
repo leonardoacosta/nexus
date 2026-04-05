@@ -38,13 +38,13 @@ export class CredentialPool {
     id: string;
     name: string;
     type: string;
-    value_encrypted: string;
+    value_plaintext: string;
   }): Promise<void> {
     await insertCredential(this.db, {
       id: credential.id,
       name: credential.name,
       type: credential.type,
-      valueEncrypted: credential.value_encrypted,
+      valuePlaintext: credential.value_plaintext,
       status: "available",
       leasedBy: null,
       leasedAt: null,
@@ -125,8 +125,8 @@ export class CredentialPool {
   }
 
   /** List all credentials with status info (no values exposed). */
-  async list(): Promise<Array<Omit<CredentialRow, "valueEncrypted">>> {
-    return (await queryAllCredentials(this.db)).map(({ valueEncrypted: _, ...rest }) => rest);
+  async list(): Promise<Array<Omit<CredentialRow, "valuePlaintext">>> {
+    return (await queryAllCredentials(this.db)).map(({ valuePlaintext: _, ...rest }) => rest);
   }
 
   /** Recover credentials whose cooldown has expired. */
