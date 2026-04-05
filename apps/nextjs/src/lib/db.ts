@@ -4,7 +4,7 @@ import type { Db } from "@nexus/db";
 /**
  * Singleton database connection for Server Actions and server components.
  *
- * Uses POSTGRES_URL from Doppler. The connection is created lazily on first
+ * Uses POSTGRES_URL from .env. The connection is created lazily on first
  * access and reused for the lifetime of the process (Next.js serverless
  * function or long-running dev server).
  */
