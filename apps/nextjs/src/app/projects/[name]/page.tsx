@@ -2,7 +2,9 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { fetchSessions } from "@/app/actions/sessions";
+import { fetchProject } from "@/app/actions/projects";
 import { SessionCard } from "@/components/SessionCard";
+import { ProjectSettingsPanel } from "@/components/ProjectSettingsPanel";
 
 export default async function ProjectDetailPage({
   params,
@@ -11,7 +13,10 @@ export default async function ProjectDetailPage({
 }) {
   const { name } = await params;
   const projectName = decodeURIComponent(name);
-  const { sessions } = await fetchSessions();
+  const [{ sessions }, canonicalProject] = await Promise.all([
+    fetchSessions(),
+    fetchProject(projectName),
+  ]);
 
   const filtered = sessions.filter(
     (s) => s.project === projectName || (s.project === null && projectName === "Unassigned"),
@@ -59,6 +64,20 @@ export default async function ProjectDetailPage({
       >
         {projectName}
       </h1>
+
+      {canonicalProject === null ? (
+        <p
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-fg-muted)",
+            marginBottom: "var(--space-6)",
+          }}
+        >
+          Project not found in registry
+        </p>
+      ) : (
+        <ProjectSettingsPanel project={canonicalProject} />
+      )}
 
       {filtered.length === 0 ? (
         <div
