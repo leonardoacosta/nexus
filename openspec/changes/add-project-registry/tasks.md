@@ -26,6 +26,6 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Test agent upsert: scan produces correct rows in `projects` + `project_locations`; second agent adds location without overwriting primary [owner:e2e-engineer] [beads:nx-mb31]
-- [ ] [4.2] Test canonical API: `GET /api/projects` returns merged locations + session counts in correct order [owner:e2e-engineer] [beads:nx-ltwd]
-- [ ] [4.3] Test session routing: primary online → routes to homelab; primary missing → routes to mac with fallback toast [owner:e2e-engineer] [beads:nx-1c5y]
+- [x] [4.1] Test agent upsert: scan produces correct rows in `projects` + `project_locations`; second agent adds location without overwriting primary [owner:e2e-engineer] [beads:nx-mb31]
+- [x] [4.2] Test canonical API: `GET /api/projects` returns merged locations + session counts in correct order [owner:e2e-engineer] [beads:nx-ltwd]
+- [x] [4.3] Test session routing: primary online → routes to homelab; primary missing → routes to mac with fallback toast [owner:e2e-engineer] [beads:nx-1c5y]
