@@ -17,6 +17,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use super::notification_mode::NotificationMode;
@@ -501,6 +502,9 @@ pub fn set_last_successful_play(provider: &str) -> Result<()> {
     // Create parent directory if it doesn't exist
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create state directory")?;
+        // Harden state directory permissions to 0700 (owner only)
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .context("Failed to set state directory permissions")?;
     }
 
     let play = LastAudioPlay {

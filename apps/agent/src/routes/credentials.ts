@@ -1,5 +1,38 @@
 import type { Db } from "@nexus/db";
+import { createLogger } from "@nexus/core";
 import { CredentialPool } from "../credentials/pool";
+
+// ── Audit logger ────────────────────────────────────────────────────────────
+
+const auditLogger = createLogger("audit.credential");
+
+/** Structured audit log entry for credential operations. */
+type CredentialAuditEntry = {
+  event: string;
+  credential_id: string;
+  actor: string;
+  ip: string;
+  timestamp_iso: string;
+  detail?: Record<string, unknown>;
+};
+
+function emitAudit(entry: CredentialAuditEntry): void {
+  auditLogger.info(entry, entry.event);
+}
+
+/** Extract caller IP from request headers or socket. */
+function extractCallerIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    return forwarded.split(",")[0]?.trim() ?? "unknown";
+  }
+  try {
+    const { hostname } = new URL(request.url);
+    return hostname || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 // Singleton pool — initialized once via initCredentialRoutes()
 let pool: CredentialPool | null = null;
@@ -139,11 +172,21 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
     return jsonResponse({ error: "leased_by is required and must be a string" }, 400);
   }
 
+  const ip = extractCallerIp(request);
   const credential = await pool.lease(type as string, leased_by as string);
 
   if (!credential) {
     return jsonResponse({ error: "no available credentials of this type" }, 409);
   }
+
+  emitAudit({
+    event: "credential.leased",
+    credential_id: credential.id,
+    actor: leased_by as string,
+    ip,
+    timestamp_iso: new Date().toISOString(),
+    detail: { type: credential.type },
+  });
 
   // Strip encrypted storage columns — caller receives decrypted value via valueEncrypted
   const { valuePlaintext: _p, valueEncrypted: _e, ...safe } = credential;
@@ -196,10 +239,32 @@ export async function handleReportRateLimit(
     return jsonResponse({ error: "leased_by is required and must be a string" }, 400);
   }
 
+  const ip = extractCallerIp(request);
   const result = await pool.reportRateLimit(id, leased_by as string);
 
   if (!result) {
     return jsonResponse({ error: "credential not found" }, 404);
+  }
+
+  const now = new Date().toISOString();
+
+  emitAudit({
+    event: "credential.cooldown",
+    credential_id: result.cooledDown.id,
+    actor: leased_by as string,
+    ip,
+    timestamp_iso: now,
+  });
+
+  if (result.next) {
+    emitAudit({
+      event: "credential.auto_swap",
+      credential_id: result.next.id,
+      actor: leased_by as string,
+      ip,
+      timestamp_iso: now,
+      detail: { cooled_id: result.cooledDown.id },
+    });
   }
 
   const { valuePlaintext: _p1, valueEncrypted: _e1, ...cooledDown } = result.cooledDown;
@@ -219,7 +284,7 @@ export async function handleReportRateLimit(
  * Decrypts the credential, calls the Anthropic usage API, and returns
  * { healthy: boolean, checked_at: string }.
  */
-export async function handleCredentialHealth(id: string): Promise<Response> {
+export async function handleCredentialHealth(id: string, request: Request): Promise<Response> {
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
@@ -232,6 +297,7 @@ export async function handleCredentialHealth(id: string): Promise<Response> {
   }
 
   const checked_at = new Date().toISOString();
+  const ip = extractCallerIp(request);
   try {
     const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
       method: "GET",
@@ -243,6 +309,16 @@ export async function handleCredentialHealth(id: string): Promise<Response> {
     // 200 or 401/403 are both "valid credential" responses (credential reached the API)
     // true healthy = API accepts token; false = revoked/invalid
     const healthy = response.status !== 401 && response.status !== 403;
+
+    emitAudit({
+      event: "credential.health_check",
+      credential_id: id,
+      actor: "system",
+      ip,
+      timestamp_iso: checked_at,
+      detail: { healthy, checked_at },
+    });
+
     return jsonResponse({ healthy, checked_at });
   } catch {
     return jsonResponse({ error: "health check failed — could not reach Anthropic API" }, 500);

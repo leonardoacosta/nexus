@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use super::path::expand_home;
@@ -233,6 +234,9 @@ pub fn set_notification_mode(mode: NotificationMode, source: &str) -> Result<()>
     // Create parent directory if it doesn't exist
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create state directory")?;
+        // Harden state directory permissions to 0700 (owner only)
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .context("Failed to set state directory permissions")?;
     }
 
     let state = NotificationModeState {
@@ -519,5 +523,40 @@ mod tests {
             NotificationMode::Full.strictest(NotificationMode::Full),
             NotificationMode::Full
         );
+    }
+
+    #[test]
+    fn test_state_directory_created_with_0700_permissions() {
+        let temp_dir = TempDir::new().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let state_path = state_dir.join("notification-mode.json");
+
+        // Manually replicate the create_dir_all + set_permissions logic
+        // (the real set_notification_mode writes to a fixed path; here we
+        // test the permission-setting logic in isolation using a temp dir)
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        // Write a minimal state file so the directory is populated
+        let state = NotificationModeState {
+            mode: NotificationMode::System,
+            updated_at: Utc::now(),
+            updated_by: "test".to_string(),
+        };
+        let json = serde_json::to_string_pretty(&state).unwrap();
+        let temp_path = state_path.with_extension("json.tmp");
+        fs::write(&temp_path, json).unwrap();
+        fs::rename(&temp_path, &state_path).unwrap();
+
+        // Verify directory permissions are 0700
+        let metadata = fs::metadata(&state_dir).unwrap();
+        let mode = metadata.permissions().mode();
+        // Mask to lower 9 permission bits
+        assert_eq!(mode & 0o777, 0o700, "state directory must have 0o700 permissions");
+
+        // Verify the file was written correctly
+        let contents = fs::read_to_string(&state_path).unwrap();
+        let parsed: NotificationModeState = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed.mode, NotificationMode::System);
     }
 }

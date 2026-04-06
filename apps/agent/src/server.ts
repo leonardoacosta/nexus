@@ -520,7 +520,7 @@ function createRequestHandler(state: ServerState, db?: Db) {
         if (!CREDENTIAL_ID_RE.test(credHealthMatch[1]!)) {
           return withCors(request, new Response("Bad Request", { status: 400 }));
         }
-        return handleCredentialHealth(credHealthMatch[1]!).then((r) => withCors(request, r));
+        return handleCredentialHealth(credHealthMatch[1]!, request).then((r) => withCors(request, r));
       }
 
       // GET /credentials/status — pool overview
