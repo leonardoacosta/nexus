@@ -11,6 +11,11 @@ import { queryRecentSessions } from "../db/sessions";
 
 const log = createLogger("agent:routes:projects-discovered");
 
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 5_000; // 5 seconds
+const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1_000; // 5 minutes
+
 // ── Tilde expansion ────────────────────────────────────────────────────────
 
 /** Expand a leading `~` to the user's home directory, then resolve to absolute. */
@@ -27,13 +32,18 @@ export function expandProjectsDir(raw: string): string {
 export interface AgentDiscoveredProject {
   name: string;
   path: string;
-  hasActiveSessions: boolean;
+  /** Number of sessions currently active (status="active" or last_seen within 5 min). */
+  activeSessions: number;
+  /** Total sessions recorded in the 24-hour query window. */
+  totalSessions: number;
 }
 
 /** Wire format returned by GET /projects/discovered. */
 export interface AgentDiscoveredProjectsResponse {
   projects: AgentDiscoveredProject[];
   truncated: boolean;
+  /** True when projectsDir is not configured for this agent. */
+  configured: boolean;
 }
 
 // ── Simple cache with TTL ──────────────────────────────────────────────────
@@ -41,10 +51,10 @@ export interface AgentDiscoveredProjectsResponse {
 interface CacheEntry<T> {
   data: T;
   expiry: number;
+  computedAt: number;
 }
 
 let discoveredCache: CacheEntry<AgentDiscoveredProjectsResponse | { error: string }> | null = null;
-const CACHE_TTL_MS = 5_000; // 5 seconds
 
 /** Clear the discovered projects cache (useful for testing). */
 export function clearDiscoveredProjectsCache(): void {
@@ -63,10 +73,15 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     const durationMs = Date.now() - start;
     const cached = discoveredCache.data;
     const count = "projects" in cached ? (cached as AgentDiscoveredProjectsResponse).projects.length : 0;
+    const cacheAge = now - discoveredCache.computedAt;
     log.info({ route, durationMs, count, fromCache: true }, "projects-discovered request");
     return new Response(JSON.stringify(cached), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cache-Age": String(cacheAge),
+        "X-Cache-TTL": String(CACHE_TTL_MS),
+      },
     });
   }
 
@@ -85,21 +100,39 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     });
   }
 
-  const rawProjectsDir = agent.projectsDir ?? "";
+  const rawProjectsDir = (agent.projectsDir ?? "").trim();
 
   // 4. Empty projectsDir — return early without scanning
   if (!rawProjectsDir) {
+    log.info(
+      { route, agentId: agent.id },
+      `projectsDir not configured for agent ${agent.id} — returning empty project list`,
+    );
     const empty: AgentDiscoveredProjectsResponse = {
       projects: [],
       truncated: false,
+      configured: false,
     };
-    discoveredCache = { data: empty, expiry: now + CACHE_TTL_MS };
+    const computedAt = Date.now();
+    discoveredCache = { data: empty, expiry: computedAt + CACHE_TTL_MS, computedAt };
     const durationMs = Date.now() - start;
     log.info({ route, durationMs, count: 0, fromCache: false }, "projects-discovered request");
     return new Response(JSON.stringify(empty), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cache-Age": "0",
+        "X-Cache-TTL": String(CACHE_TTL_MS),
+      },
     });
+  }
+
+  // 11.1 Input validation — reject path traversal
+  if (rawProjectsDir.includes("..")) {
+    return new Response(
+      JSON.stringify({ error: "projectsDir must not contain path traversal sequences (..)" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   // 3. Tilde expansion and absolute-path check
@@ -123,31 +156,67 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ route, projectsDir, error: message }, "readdirSync failed");
     const errResp = { error: message };
-    discoveredCache = { data: errResp, expiry: now + CACHE_TTL_MS };
+    const computedAt = Date.now();
+    discoveredCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
     return new Response(JSON.stringify(errResp), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cache-Age": "0",
+        "X-Cache-TTL": String(CACHE_TTL_MS),
+      },
     });
   }
 
   const projects: AgentDiscoveredProject[] = [];
+  const seenCanonicalPaths = new Set<string>();
   let truncated = false;
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
     const fullPath = path.join(projectsDir, entry.name);
 
+    // 6.1 Resolve symlinks — skip broken ones
+    let canonicalPath: string;
+    try {
+      canonicalPath = fs.realpathSync(fullPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn({ route, fullPath, error: message }, "realpathSync failed — skipping entry");
+      continue;
+    }
+
+    // 6.2 Skip entries that resolve to an already-seen canonical path
+    if (seenCanonicalPaths.has(canonicalPath)) continue;
+
     // Only include directories that contain a .git subdirectory
-    if (!fs.existsSync(path.join(fullPath, ".git"))) continue;
+    if (!fs.existsSync(path.join(canonicalPath, ".git"))) continue;
 
-    // 8. Cross-reference with recent sessions
+    seenCanonicalPaths.add(canonicalPath);
+
+    // 8. Cross-reference with recent sessions — count active and total
     const name = entry.name;
-    const hasActiveSessions = recentSessions.some(
-      (s) => s.cwd?.startsWith(fullPath) || s.project === name,
-    );
+    const nowMs = Date.now();
 
-    projects.push({ name, path: fullPath, hasActiveSessions });
+    let activeSessions = 0;
+    let totalSessions = 0;
+
+    for (const s of recentSessions) {
+      const matchesCwd = s.cwd?.startsWith(canonicalPath) || s.cwd?.startsWith(fullPath);
+      const matchesProject = s.project === name;
+      if (!matchesCwd && !matchesProject) continue;
+
+      totalSessions++;
+
+      const isActive =
+        s.status === "active" ||
+        (s.lastActivity && nowMs - new Date(s.lastActivity).getTime() < ACTIVE_SESSION_WINDOW_MS);
+
+      if (isActive) activeSessions++;
+    }
+
+    projects.push({ name, path: canonicalPath, activeSessions, totalSessions });
 
     // 9. Cap at 100 results
     if (projects.length >= 100) {
@@ -162,15 +231,21 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
   const result: AgentDiscoveredProjectsResponse = {
     projects,
     truncated,
+    configured: true,
   };
 
-  discoveredCache = { data: result, expiry: now + CACHE_TTL_MS };
+  const computedAt = Date.now();
+  discoveredCache = { data: result, expiry: computedAt + CACHE_TTL_MS, computedAt };
 
   const durationMs = Date.now() - start;
   log.info({ route, durationMs, count: projects.length, fromCache: false }, "projects-discovered request");
 
   return new Response(JSON.stringify(result), {
     status: 200,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cache-Age": "0",
+      "X-Cache-TTL": String(CACHE_TTL_MS),
+    },
   });
 }

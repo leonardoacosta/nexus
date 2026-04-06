@@ -3,18 +3,22 @@ import type { Db } from "@nexus/db";
 
 // ── Module mocks (must be declared before importing the unit under test) ──────
 
-// Mock node:fs so readdirSync / existsSync are controllable per-test
+// Mock node:fs so readdirSync / existsSync / realpathSync are controllable per-test
 const mockReaddirSync = mock(() => [] as ReturnType<typeof import("node:fs").readdirSync>);
 const mockExistsSync = mock((_p: string) => false);
+// Default: return the path unchanged (no symlink resolution needed for most tests)
+const mockRealpathSync = mock((p: string) => p);
 
 mock.module("node:fs", () => ({
   // Named exports
   readdirSync: mockReaddirSync,
   existsSync: mockExistsSync,
+  realpathSync: mockRealpathSync,
   // Default export — required so `import fs from "node:fs"` binds to the mock
   default: {
     readdirSync: mockReaddirSync,
     existsSync: mockExistsSync,
+    realpathSync: mockRealpathSync,
   },
 }));
 
@@ -89,6 +93,7 @@ describe("handleGetDiscoveredProjects", () => {
     // Reset all mocks to their default (safe) implementations
     mockReaddirSync.mockImplementation(() => []);
     mockExistsSync.mockImplementation(() => false);
+    mockRealpathSync.mockImplementation((p: string) => p);
     mockQueryRecentSessions.mockImplementation(() => Promise.resolve([]));
   });
 
@@ -192,7 +197,7 @@ describe("handleGetDiscoveredProjects", () => {
 
   // ── Test 5: filters non-git dirs ─────────────────────────────────────────
 
-  it("returns only git repos (3 of 4 dirs) and hasActiveSessions false for all", async () => {
+  it("returns only git repos (3 of 4 dirs) and activeSessions/totalSessions 0 for all", async () => {
     const agentRow = {
       id: "test-host",
       name: "test-host",
@@ -233,18 +238,19 @@ describe("handleGetDiscoveredProjects", () => {
     expect(res.status).toBe(200);
 
     const body = await res.json() as {
-      projects: Array<{ name: string; hasActiveSessions: boolean }>;
+      projects: Array<{ name: string; activeSessions: number; totalSessions: number }>;
       truncated: boolean;
     };
 
     expect(body.projects.length).toBe(3);
     expect(body.truncated).toBe(false);
-    expect(body.projects.every((p) => p.hasActiveSessions === false)).toBe(true);
+    expect(body.projects.every((p) => p.activeSessions === 0)).toBe(true);
+    expect(body.projects.every((p) => p.totalSessions === 0)).toBe(true);
   });
 
   // ── Test 6: cross-references sessions correctly ──────────────────────────
 
-  it("marks alpha as having active sessions and beta as not", async () => {
+  it("counts activeSessions and totalSessions per project", async () => {
     const agentRow = {
       id: "test-host",
       name: "test-host",
@@ -269,7 +275,7 @@ describe("handleGetDiscoveredProjects", () => {
       p === "/tmp/projects/alpha/.git" || p === "/tmp/projects/beta/.git",
     );
 
-    // One session whose cwd starts under alpha's path
+    // One active session and one ended session under alpha; none under beta
     mockQueryRecentSessions.mockImplementation(() =>
       Promise.resolve([
         {
@@ -283,6 +289,17 @@ describe("handleGetDiscoveredProjects", () => {
           pid: 12345,
           cwd: "/tmp/projects/alpha/src",
         },
+        {
+          id: "sess-2",
+          project: "alpha",
+          machine: "test-host",
+          status: "ended",
+          startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+          lastActivity: new Date(Date.now() - 7_200_000).toISOString(),
+          endedAt: new Date(Date.now() - 7_100_000).toISOString(),
+          pid: null,
+          cwd: "/tmp/projects/alpha",
+        },
       ]),
     );
 
@@ -291,17 +308,64 @@ describe("handleGetDiscoveredProjects", () => {
     expect(res.status).toBe(200);
 
     const body = await res.json() as {
-      projects: Array<{ name: string; path: string; hasActiveSessions: boolean }>;
+      projects: Array<{ name: string; path: string; activeSessions: number; totalSessions: number }>;
     };
 
     const alpha = body.projects.find((p) => p.name === "alpha");
     const beta = body.projects.find((p) => p.name === "beta");
 
     expect(alpha).toBeDefined();
-    expect(alpha!.hasActiveSessions).toBe(true);
+    expect(alpha!.activeSessions).toBe(1);
+    expect(alpha!.totalSessions).toBe(2);
 
     expect(beta).toBeDefined();
-    expect(beta!.hasActiveSessions).toBe(false);
+    expect(beta!.activeSessions).toBe(0);
+    expect(beta!.totalSessions).toBe(0);
+  });
+
+  // ── Test 6b: path traversal rejected ─────────────────────────────────────
+
+  it("rejects projectsDir containing path traversal sequences", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/tmp/../etc",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("path traversal");
+  });
+
+  // ── Test 6c: unconfigured projectsDir returns configured: false ───────────
+
+  it("returns configured: false when projectsDir is empty", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as { projects: unknown[]; configured: boolean };
+    expect(body.configured).toBe(false);
+    expect(body.projects).toEqual([]);
   });
 
   // ── Test 7: response shape uses { projects, truncated } not old { total, projectsDir } ──

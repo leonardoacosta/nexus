@@ -15,13 +15,21 @@ import type {
 interface AgentProject {
   name: string;
   path: string;
-  hasActiveSessions: boolean;
+  /** New agents (post fix-project-discovery) send numeric counts. */
+  activeSessions?: number;
+  totalSessions?: number;
+  /**
+   * Legacy field from old agents. Kept for graceful degradation.
+   * TODO(fix-project-discovery): remove after all agents upgraded.
+   */
+  hasActiveSessions?: boolean;
 }
 
 /** Wire response from GET /projects/discovered. */
 interface AgentDiscoveredResponse {
   projects: AgentProject[];
   truncated: boolean;
+  configured?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,10 +132,19 @@ async function fetchWithRetry(url: string): Promise<Response> {
 // AgentClient
 // ---------------------------------------------------------------------------
 
+/** Internal tracking entry for aggregated discovered projects. */
+interface DiscoveredProjectEntry {
+  entry: WithAgent<DiscoveredProject> & { machineCount: number };
+  /** Unix ms timestamp of the last time any agent reported this project. */
+  lastSeenAt: number;
+}
+
 export class AgentClient {
   private agents: AgentConfig[];
   private lastSeen = new Map<string, Date>();
   private cache = new TtlCache();
+  /** Persistent cross-agent dedup map keyed by normalized project path. */
+  private discoveredProjectsMap = new Map<string, DiscoveredProjectEntry>();
 
   constructor(agents: AgentConfig[]) {
     this.agents = agents;
@@ -167,32 +184,58 @@ export class AgentClient {
         }),
       );
 
-      // Deduplicate by name+path across agents, incrementing machineCount for duplicates.
-      const dedupMap = new Map<
-        string,
-        WithAgent<DiscoveredProject> & { machineCount: number }
-      >();
+      // Stale eviction: drop entries not seen by any agent in the last hour.
+      const STALE_TTL_MS = 60 * 60 * 1_000;
+      const now = Date.now();
+      for (const [key, entry] of this.discoveredProjectsMap) {
+        if (now - entry.lastSeenAt > STALE_TTL_MS) {
+          this.discoveredProjectsMap.delete(key);
+        }
+      }
 
       for (let i = 0; i < settled.length; i++) {
         const result = settled[i]!;
         const agentName = this.agents[i]!.name;
         if (result.status === "fulfilled") {
           for (const project of result.value.data.projects) {
-            const key = `${project.name}|${project.path}`;
-            const existing = dedupMap.get(key);
+            // Dedup key: use normalized absolute path (tilde already expanded by agent).
+            // Normalize case on macOS (case-insensitive FS), preserve on Linux.
+            const normalizedPath =
+              process.platform === "darwin"
+                ? project.path.toLowerCase()
+                : project.path;
+            const key = normalizedPath;
+
+            // Graceful degradation: handle old agents (hasActiveSessions) and new agents
+            // (activeSessions/totalSessions).
+            // TODO(fix-project-discovery): remove hasActiveSessions shim after all agents upgraded.
+            const activeSessions =
+              typeof project.activeSessions === "number"
+                ? project.activeSessions
+                : project.hasActiveSessions
+                  ? 1
+                  : 0;
+            const totalSessions =
+              typeof project.totalSessions === "number" ? project.totalSessions : 0;
+
+            const existing = this.discoveredProjectsMap.get(key);
             if (existing) {
-              existing.machineCount++;
+              // Accumulate counts across agents; do NOT overwrite the agent field.
+              existing.entry.active_sessions += activeSessions;
+              existing.entry.total_sessions += totalSessions;
+              existing.entry.machineCount = (existing.entry.machineCount ?? 1) + 1;
+              existing.lastSeenAt = now;
             } else {
               // Map agent wire format → core DiscoveredProject
               const mapped: WithAgent<DiscoveredProject> & { machineCount: number } = {
                 name: project.name,
                 path: project.path,
-                active_sessions: project.hasActiveSessions ? 1 : 0,
-                total_sessions: 0,
+                active_sessions: activeSessions,
+                total_sessions: totalSessions,
                 agent: result.value.name,
                 machineCount: 1,
               };
-              dedupMap.set(key, mapped);
+              this.discoveredProjectsMap.set(key, { entry: mapped, lastSeenAt: now });
             }
           }
         } else {
@@ -200,7 +243,7 @@ export class AgentClient {
         }
       }
 
-      return Array.from(dedupMap.values());
+      return Array.from(this.discoveredProjectsMap.values()).map((v) => v.entry);
     });
   }
 
