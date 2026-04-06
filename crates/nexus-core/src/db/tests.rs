@@ -41,7 +41,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -51,7 +51,7 @@ mod tests {
         let version: u32 = db
             .read(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -74,8 +74,8 @@ mod tests {
         assert!(tables.contains(&"sessions".to_string()));
         assert!(tables.contains(&"failures".to_string()));
         assert!(tables.contains(&"events".to_string()));
-        // V2 tables.
-        assert!(tables.contains(&"health_samples".to_string()));
+        // V2 tables (health_samples dropped in v4).
+        assert!(!tables.contains(&"health_samples".to_string()));
         assert!(tables.contains(&"spec_snapshots".to_string()));
         assert!(tables.contains(&"credential_polls".to_string()));
         assert!(tables.contains(&"credential_swaps".to_string()));
