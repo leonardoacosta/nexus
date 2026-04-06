@@ -63,20 +63,15 @@ function uint8ToString(data: string | Uint8Array): string {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("WebSocket stream: /sessions/{id}/stream", () => {
-  const SESSION_ID = "test-stream-session";
-  let pty: MockPtySource;
-
-  beforeAll(() => {
-    pty = new MockPtySource({ intervalMs: 0 }); // No auto-generation
-    streamManager.attach(SESSION_ID, pty);
-  });
-
-  afterAll(() => {
-    streamManager.endSession(SESSION_ID);
-  });
+  // Each test uses its own session ID to avoid cross-test state contamination
+  // (the PTY orphan fix tears down the session when the last viewer disconnects).
 
   it("[4.1] connects, receives output, and verifies frame ordering", async () => {
-    const { ws, messages, opened } = await connectWs(`/sessions/${SESSION_ID}/stream`);
+    const sid = "stream-order-test";
+    const pty = new MockPtySource({ intervalMs: 0 });
+    streamManager.attach(sid, pty);
+
+    const { ws, messages, opened } = await connectWs(`/sessions/${sid}/stream`);
     await opened;
 
     // Emit some lines
@@ -99,8 +94,12 @@ describe("WebSocket stream: /sessions/{id}/stream", () => {
   });
 
   it("[4.2] multiple viewers receive the same output", async () => {
-    const { ws: ws1, messages: msgs1, opened: open1 } = await connectWs(`/sessions/${SESSION_ID}/stream`);
-    const { ws: ws2, messages: msgs2, opened: open2 } = await connectWs(`/sessions/${SESSION_ID}/stream`);
+    const sid = "stream-broadcast-test";
+    const pty = new MockPtySource({ intervalMs: 0 });
+    streamManager.attach(sid, pty);
+
+    const { ws: ws1, messages: msgs1, opened: open1 } = await connectWs(`/sessions/${sid}/stream`);
+    const { ws: ws2, messages: msgs2, opened: open2 } = await connectWs(`/sessions/${sid}/stream`);
 
     await Promise.all([open1, open2]);
 
@@ -115,11 +114,16 @@ describe("WebSocket stream: /sessions/{id}/stream", () => {
     expect(text2).toContain("broadcast-test");
 
     ws1.close();
+    await delay(20);
     ws2.close();
     await delay(20);
   });
 
   it("[4.3] late-joining client receives scrollback buffer", async () => {
+    const sid = "stream-scrollback-test";
+    const pty = new MockPtySource({ intervalMs: 0 });
+    streamManager.attach(sid, pty);
+
     // Emit lines before connecting
     for (let i = 0; i < 5; i++) {
       pty.emit(`scrollback-${i}\n`);
@@ -127,7 +131,7 @@ describe("WebSocket stream: /sessions/{id}/stream", () => {
 
     await delay(20);
 
-    const { ws, messages, opened } = await connectWs(`/sessions/${SESSION_ID}/stream`);
+    const { ws, messages, opened } = await connectWs(`/sessions/${sid}/stream`);
     await opened;
 
     // Wait for scrollback delivery
@@ -154,6 +158,35 @@ describe("WebSocket stream: invalid session", () => {
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string };
     expect(body.error).toBe("session not found");
+  });
+});
+
+// ── Task 7.2: Scrollback join fix ───────────────────────────────────────────
+
+describe("Scrollback join fix (task 7)", () => {
+  it("[7.2] scrollback line ending with \\n does not produce double newline on replay", async () => {
+    const sid = "scrollback-join-test";
+    const pty = new MockPtySource({ intervalMs: 0 });
+    streamManager.attach(sid, pty);
+
+    // Emit a line; MockPtySource.emit splits on \n and stores lines without trailing \n
+    pty.emit("exactly-one-newline\n");
+    await delay(20);
+
+    const { ws, messages, opened } = await connectWs(`/sessions/${sid}/stream`);
+    await opened;
+    await delay(50);
+
+    const text = messages.map(uint8ToString).join("");
+    // The scrollback replay should contain exactly one newline after the line
+    const occurrences = (text.match(/exactly-one-newline\n/g) ?? []).length;
+    expect(occurrences).toBe(1);
+    // No double newline
+    expect(text).not.toContain("exactly-one-newline\n\n");
+
+    ws.close();
+    await delay(20);
+    streamManager.endSession(sid);
   });
 });
 

@@ -101,19 +101,15 @@ describe("Agent API: /health shape", () => {
 // ---------------------------------------------------------------------------
 
 describe("Agent API: WebSocket endpoints", () => {
-  it("GET /sessions/{id}/stream without upgrade returns 404 (no PTY)", async () => {
-    // Without a PTY attached, the server returns 404
+  it("GET /sessions/{id}/stream without auth returns 401 (auth checked before PTY)", async () => {
+    // Auth is validated before PTY existence check — unauthenticated requests get 401
     const res = await fetch(`${baseUrl}/sessions/test-id/stream`);
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe("session not found");
+    expect(res.status).toBe(401);
   });
 
-  it("GET /sessions/{id}/interact without upgrade returns 404 (no PTY)", async () => {
+  it("GET /sessions/{id}/interact without auth returns 401 (auth checked before PTY)", async () => {
     const res = await fetch(`${baseUrl}/sessions/test-id/interact`);
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe("session not found");
+    expect(res.status).toBe(401);
   });
 });
 

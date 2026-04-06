@@ -1,3 +1,4 @@
+import type * as NodePtyTypes from "node-pty";
 import { logger } from "@nexus/core";
 
 const DEFAULT_SCROLLBACK_CAPACITY = 10_000;
@@ -47,6 +48,112 @@ class RingBuffer {
     }
     // Wrap-around: oldest is at `head`
     return [...this.buf.slice(this.head), ...this.buf.slice(0, this.head)];
+  }
+}
+
+// ── Concrete PTY source backed by node-pty ───────────────────────────────────
+
+export interface NodePtySourceOptions {
+  /** Columns (default 80). */
+  cols?: number;
+  /** Rows (default 24). */
+  rows?: number;
+  /** Working directory for the spawned process (default process.cwd()). */
+  cwd?: string;
+  /** Scrollback buffer capacity (default 10 000). */
+  scrollbackCapacity?: number;
+  /** Environment variables passed to the child process (default process.env). */
+  env?: Record<string, string>;
+}
+
+/**
+ * A concrete PtySource that spawns a real PTY process via node-pty.
+ * Use MockPtySource in tests.
+ */
+export class NodePtySource implements PtySource {
+  private term: NodePtyTypes.IPty;
+  private scrollback: RingBuffer;
+  private listeners = new Set<(data: Uint8Array) => void>();
+  private closed = false;
+
+  constructor(
+    shell: string,
+    args: string[],
+    opts: NodePtySourceOptions = {},
+  ) {
+    const capacity = opts.scrollbackCapacity ?? DEFAULT_SCROLLBACK_CAPACITY;
+    this.scrollback = new RingBuffer(capacity);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pty = require("node-pty") as typeof NodePtyTypes;
+    this.term = pty.spawn(shell, args, {
+      cols: opts.cols ?? 80,
+      rows: opts.rows ?? 24,
+      cwd: opts.cwd ?? process.cwd(),
+      env: (opts.env ?? process.env) as Record<string, string>,
+      // Request binary mode — node-pty may still deliver strings on some platforms
+      encoding: null as unknown as undefined,
+    });
+
+    this.term.onData((data: string | Uint8Array) => {
+      if (this.closed) return;
+      const bytes =
+        typeof data === "string" ? new TextEncoder().encode(data) : data;
+      const text = new TextDecoder().decode(bytes);
+      for (const line of text.split("\n")) {
+        if (line.length > 0) this.scrollback.push(line);
+      }
+      for (const cb of this.listeners) {
+        try {
+          cb(bytes);
+        } catch {
+          // subscriber threw — ignore
+        }
+      }
+    });
+
+    this.term.onExit(() => {
+      this.closed = true;
+      this.listeners.clear();
+      logger.debug({ shell }, "node-pty: process exited");
+    });
+  }
+
+  onData(callback: (data: Uint8Array) => void): () => void {
+    this.listeners.add(callback);
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  getScrollback(): string[] {
+    return this.scrollback.toArray();
+  }
+
+  write(data: Uint8Array): void {
+    if (this.closed) return;
+    this.term.write(data as unknown as string);
+  }
+
+  resize(cols: number, rows: number): void {
+    if (this.closed) return;
+    try {
+      this.term.resize(cols, rows);
+    } catch {
+      // ignore if process is gone
+    }
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.term.kill();
+    } catch {
+      // already dead
+    }
+    this.listeners.clear();
+    logger.debug("node-pty: closed");
   }
 }
 

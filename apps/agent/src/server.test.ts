@@ -424,4 +424,15 @@ describe("WebSocket security: session ID validation", () => {
     const res = await fetch(`${baseUrl}/sessions/valid-session-123/stream`);
     expect(res.status).toBe(401);
   });
+
+  // Task 8.2: dots are now allowed in session IDs
+  it("[8.2] session ID with dots is accepted (returns 401 not 400)", async () => {
+    const res = await fetch(`${baseUrl}/sessions/session.2026-04-06.1/stream`);
+    expect(res.status).toBe(401);
+  });
+
+  it("[8.2] session ID with slashes is rejected with 400", async () => {
+    const res = await fetch(`${baseUrl}/sessions/session%2Fbad/stream`);
+    expect(res.status).toBe(400);
+  });
 });

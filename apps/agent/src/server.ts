@@ -43,7 +43,7 @@ const ATTACH_SECRET: string = _attachSecretRaw;
 const MAX_CONCURRENT_CONNECTIONS = 50;
 
 // ── Session ID validation ───────────────────────────────────────────────────
-const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+const SESSION_ID_RE = /^[a-zA-Z0-9_.-]+$/;
 
 // ── Credential ID validation ────────────────────────────────────────────────
 const CREDENTIAL_ID_RE = /^[a-zA-Z0-9_-]+$/;
@@ -494,7 +494,17 @@ export function startServer(
         const { sessionId, mode } = ws.data;
 
         if (mode !== "interact") {
-          // Stream-only clients cannot send data
+          // Stream-only clients may send a reconnect frame to replay buffered output.
+          if (typeof msg === "string") {
+            try {
+              const parsed = JSON.parse(msg);
+              if (parsed.type === "reconnect" && typeof parsed.sessionId === "string") {
+                streamManager.replayBuffer(ws);
+              }
+            } catch {
+              // Not a valid JSON control frame — ignore
+            }
+          }
           return;
         }
 
@@ -502,6 +512,7 @@ export function startServer(
         // processing any input. Protects against race conditions where a socket
         // loses writer status between the open() claim and message receipt.
         if (!streamManager.isWriter(ws)) {
+          ws.sendText(JSON.stringify({ type: "error", message: "not the interactive writer" }));
           return;
         }
 
@@ -554,6 +565,11 @@ export function startServer(
         }
 
         streamManager.removeViewer(ws);
+        // Mirror the pong-timeout path: tear down the PTY session when the
+        // last viewer disconnects normally (task 1.1 — PTY orphan fix).
+        if (streamManager.viewerCount(ws.data.sessionId) === 0) {
+          streamManager.endSession(ws.data.sessionId);
+        }
 
         logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: close");
 
