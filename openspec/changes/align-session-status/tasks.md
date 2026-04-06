@@ -20,8 +20,8 @@
 
 - [x] 3.1 Replace the blacklist dedup guard at `grpc/sessions.rs:114` with whitelist form:
       `.find(|s| s.cwd == cwd && matches!(s.status, SessionStatus::Active | SessionStatus::Idle))`
-- [ ] 3.2 Add unit test: stale session at `/tmp/foo` → starting new session at `/tmp/foo` succeeds
-- [ ] 3.3 Add unit test: errored session at `/tmp/bar` → starting new session at `/tmp/bar` succeeds
+- [x] 3.2 Add unit test: stale session at `/tmp/foo` → starting new session at `/tmp/foo` succeeds
+- [x] 3.3 Add unit test: errored session at `/tmp/bar` → starting new session at `/tmp/bar` succeeds
 
 ## 4. Rust — SIGKILL death confirmation
 
@@ -53,42 +53,42 @@
 
 ## 8. TS agent — cache test isolation
 
-- [ ] 8.1 Refactor `sessionsCache` from module-level singleton to factory pattern via `createSessionHandlers(db)`
+- [x] 8.1 Refactor `sessionsCache` from module-level singleton to factory pattern via `createSessionHandlers(db)`
   OR ensure `clearSessionsCache()` is called in test `beforeEach`
-- [ ] 8.2 Update any existing code that uses the route handlers to work with the new structure
+- [x] 8.2 Update any existing code that uses the route handlers to work with the new structure
 
 ## 9. TS agent — integration tests
 
-- [ ] 9.1 Replace all stub `expect(true).toBe(true)` bodies in `routes/sessions.test.ts` with real assertions
-- [ ] 9.2 Test `handleGetSessions` returns array of sessions from seeded DB
-- [ ] 9.3 Test `handleGetSessions` returns empty array when no sessions exist
-- [ ] 9.4 Test `handleGetSessions?project=<name>` filters correctly
-- [ ] 9.5 Test `handleGetSessions?project=<nonexistent>` returns empty array
-- [ ] 9.6 Test `handleGetSessions?status=active` filters by status
-- [ ] 9.7 Test combined project + status filter
-- [ ] 9.8 Test `handleGetSessionById` returns session for known ID
-- [ ] 9.9 Test `handleGetSessionById` returns 404 for unknown ID
-- [ ] 9.10 Test `handleGetSessions?status=invalid` returns 400
-- [ ] 9.11 Add seed helper and teardown in `beforeAll`/`afterAll`
+- [x] 9.1 Replace all stub `expect(true).toBe(true)` bodies in `routes/sessions.test.ts` with real assertions
+- [x] 9.2 Test `handleGetSessions` returns array of sessions from seeded DB
+- [x] 9.3 Test `handleGetSessions` returns empty array when no sessions exist
+- [x] 9.4 Test `handleGetSessions?project=<name>` filters correctly
+- [x] 9.5 Test `handleGetSessions?project=<nonexistent>` returns empty array
+- [x] 9.6 Test `handleGetSessions?status=active` filters by status
+- [x] 9.7 Test combined project + status filter
+- [x] 9.8 Test `handleGetSessionById` returns session for known ID
+- [x] 9.9 Test `handleGetSessionById` returns 404 for unknown ID
+- [x] 9.10 Test `handleGetSessions?status=invalid` returns 400
+- [x] 9.11 Add seed helper and teardown in `beforeAll`/`afterAll`
 
 ## 10. TS agent — session-manager stale/errored
 
-- [ ] 10.1 Add stale transition to `sweepIdle` in `session-manager.ts`: sessions idle > `staleThresholdMs` (default 300_000) become `stale`
-- [ ] 10.2 On Linux: add errored transition for sessions whose `/proc/{pid}` no longer exists
-- [ ] 10.3 Add unit tests for stale and errored transitions in session-manager
+- [x] 10.1 Add stale transition to `sweepIdle` in `session-manager.ts`: sessions idle > `staleThresholdMs` (default 300_000) become `stale`
+- [x] 10.2 On Linux: add errored transition for sessions whose `/proc/{pid}` no longer exists
+- [x] 10.3 Add unit tests for stale and errored transitions in session-manager
 
 ## 11. Next.js UI — null guard and duration fix
 
-- [ ] 11.1 Fix `session.agent` null guard in `apps/nextjs/src/app/session/[id]/page.tsx:113`:
+- [x] 11.1 Fix `session.agent` null guard in `apps/nextjs/src/app/session/[id]/page.tsx:113`:
       change `<Badge>{session.agent}</Badge>` to `<Badge>{session.agent ?? "unknown"}</Badge>`
-- [ ] 11.2 Fix duration calculation for ended sessions at `page.tsx:25-27`:
+- [x] 11.2 Fix duration calculation for ended sessions at `page.tsx:25-27`:
       use `session.endedAt` timestamp when available, fallback to `Date.now()`
 
 ## 12. Next.js — parallel agent fetch
 
-- [ ] 12.1 Replace sequential `for` loop in `apps/nextjs/src/app/actions/session-detail.ts:24-31`
+- [x] 12.1 Replace sequential `for` loop in `apps/nextjs/src/app/actions/session-detail.ts:24-31`
       with `Promise.all` across all agents
-- [ ] 12.2 Return first non-null result; log agent name on match for observability
+- [x] 12.2 Return first non-null result; log agent name on match for observability
 
 ## 13. Verification
 

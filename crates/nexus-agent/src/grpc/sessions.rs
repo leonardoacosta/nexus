@@ -426,3 +426,90 @@ impl NexusAgentService {
         Ok(Response::new(proto::HeartbeatResponse { found }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use nexus_core::session::{Session, SessionStatus};
+
+    /// Helper: return whether a session with the given status at the given cwd
+    /// would block a new session start at that cwd.
+    ///
+    /// This mirrors the whitelist dedup guard in `handle_start_session`:
+    ///   `.find(|s| s.cwd == cwd && matches!(s.status, Active | Idle))`
+    fn dedup_would_block(sessions: &[Session], cwd: &str) -> bool {
+        sessions
+            .iter()
+            .any(|s| s.cwd == cwd && matches!(s.status, SessionStatus::Active | SessionStatus::Idle))
+    }
+
+    fn make_session(cwd: &str, status: SessionStatus) -> Session {
+        let mut s = Session::new(0, cwd.to_string());
+        s.status = status;
+        s
+    }
+
+    #[test]
+    fn dedup_blocks_active_session_at_same_cwd() {
+        let sessions = vec![make_session("/tmp/foo", SessionStatus::Active)];
+        assert!(
+            dedup_would_block(&sessions, "/tmp/foo"),
+            "active session at same cwd must block restart"
+        );
+    }
+
+    #[test]
+    fn dedup_blocks_idle_session_at_same_cwd() {
+        let sessions = vec![make_session("/tmp/foo", SessionStatus::Idle)];
+        assert!(
+            dedup_would_block(&sessions, "/tmp/foo"),
+            "idle session at same cwd must block restart"
+        );
+    }
+
+    #[test]
+    fn dedup_does_not_block_stale_session_at_same_cwd() {
+        let sessions = vec![make_session("/tmp/foo", SessionStatus::Stale)];
+        assert!(
+            !dedup_would_block(&sessions, "/tmp/foo"),
+            "stale session at same cwd must NOT block restart"
+        );
+    }
+
+    #[test]
+    fn dedup_does_not_block_errored_session_at_same_cwd() {
+        let sessions = vec![make_session("/tmp/bar", SessionStatus::Errored)];
+        assert!(
+            !dedup_would_block(&sessions, "/tmp/bar"),
+            "errored session at same cwd must NOT block restart"
+        );
+    }
+
+    #[test]
+    fn dedup_does_not_block_ended_session_at_same_cwd() {
+        let sessions = vec![make_session("/tmp/foo", SessionStatus::Ended)];
+        assert!(
+            !dedup_would_block(&sessions, "/tmp/foo"),
+            "ended session at same cwd must NOT block restart"
+        );
+    }
+
+    #[test]
+    fn dedup_does_not_block_active_session_at_different_cwd() {
+        let sessions = vec![make_session("/tmp/other", SessionStatus::Active)];
+        assert!(
+            !dedup_would_block(&sessions, "/tmp/foo"),
+            "active session at different cwd must not block"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn wait_for_death_returns_true_for_nonexistent_pid() {
+        // PID 99999999 is virtually guaranteed not to exist on any Linux system.
+        let died = super::wait_for_death(99_999_999, 2000).await;
+        assert!(
+            died,
+            "wait_for_death should return true immediately for a nonexistent PID"
+        );
+    }
+}

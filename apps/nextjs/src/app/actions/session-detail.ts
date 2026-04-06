@@ -21,14 +21,15 @@ export async function fetchSessionDetail(
   const client = await getClient();
   const statuses = client.getAgentStatuses();
 
-  // Try each agent until we find the session
-  for (const status of statuses) {
-    const session = await client.fetchSession(status.name, sessionId);
-    if (session) {
+  // Fetch from all agents in parallel and return the first non-null result.
+  const results = await Promise.all(
+    statuses.map(async (status) => {
+      const session = await client.fetchSession(status.name, sessionId);
+      if (!session) return null;
       const host = await getAgentHost(status.name);
       return { session, agentHost: host ?? "127.0.0.1:7400" };
-    }
-  }
+    }),
+  );
 
-  return null;
+  return results.find((r) => r !== null) ?? null;
 }

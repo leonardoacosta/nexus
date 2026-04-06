@@ -147,6 +147,52 @@ describe("session-manager", () => {
     expect(manager.getAll()).toHaveLength(0);
   });
 
+  test("sweepIdle marks pre-existing idle sessions as stale after staleThresholdMs", () => {
+    // Use a 1 ms stale threshold so we can trigger it synchronously.
+    manager = createSessionManager({ staleThresholdMs: 1 });
+
+    // Create a session and manually put it in idle state with an old heartbeat.
+    manager.handleWatcherEvent({
+      type: "session_start",
+      session_id: "sess-stale",
+      project: "test",
+      path: "/tmp",
+    });
+
+    const session = manager.getById("sess-stale")!;
+    // Backdate heartbeat so it's past both idle and stale thresholds.
+    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    // Manually set to idle (simulating a previous sweep).
+    session.status = "idle";
+
+    manager.sweepIdle();
+
+    expect(manager.getById("sess-stale")!.status).toBe("stale");
+  });
+
+  test("sweepIdle does not mark freshly-idled sessions as stale in the same sweep", () => {
+    // Use a 1 ms stale threshold.
+    manager = createSessionManager({ staleThresholdMs: 1 });
+
+    manager.handleWatcherEvent({
+      type: "session_start",
+      session_id: "sess-fresh-idle",
+      project: "test",
+      path: "/tmp",
+    });
+
+    const session = manager.getById("sess-fresh-idle")!;
+    // Backdate heartbeat past idle threshold but the session was active before this sweep.
+    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    // Status is still "active" — sweep should transition active→idle but NOT idle→stale.
+    expect(session.status).toBe("active");
+
+    manager.sweepIdle();
+
+    // Should be idle, not stale, because it was just transitioned this sweep.
+    expect(manager.getById("sess-fresh-idle")!.status).toBe("idle");
+  });
+
   test("sweepIdle does not evict ended sessions before TTL", () => {
     // Use a long TTL so eviction should not fire.
     manager = createSessionManager({ endedSessionTtlMs: 3_600_000 });

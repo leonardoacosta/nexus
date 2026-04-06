@@ -22,9 +22,10 @@ async function SessionDetailContent({ id }: { id: string }) {
 
   const { session, agentHost } = result;
 
-  const duration = formatDuration(
-    Date.now() - new Date(session.startedAt).getTime(),
-  );
+  const endMs = session.endedAt
+    ? new Date(session.endedAt).getTime()
+    : Date.now();
+  const duration = formatDuration(endMs - new Date(session.startedAt).getTime());
   const lastActivity = formatRelativeTime(session.lastHeartbeat);
 
   return (
@@ -110,7 +111,7 @@ async function SessionDetailContent({ id }: { id: string }) {
             </MetadataRow>
 
             <MetadataRow label="Machine">
-              <Badge>{session.agent}</Badge>
+              <Badge>{session.agent ?? "unknown"}</Badge>
             </MetadataRow>
 
             <MetadataRow label="Duration">

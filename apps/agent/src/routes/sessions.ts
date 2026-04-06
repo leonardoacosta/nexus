@@ -22,19 +22,64 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
-let sessionsCache: CacheEntry<SessionRow[]> | null = null;
 const SESSIONS_CACHE_TTL_MS = 1_000; // 1 second
 
-/** Clear the sessions cache (useful for testing). */
+/**
+ * Module-level singleton cache — retained for backward compatibility.
+ * Tests should call `clearSessionsCache()` in `beforeEach`, or use
+ * `createSessionHandlers(db)` for full per-test isolation.
+ */
+let _moduleCache: CacheEntry<SessionRow[]> | null = null;
+
+/** Clear the module-level sessions cache (useful for testing). */
 export function clearSessionsCache(): void {
-  sessionsCache = null;
+  _moduleCache = null;
 }
 
-/** Fetch all displayable sessions (active + recent), with caching. */
+/**
+ * Factory that returns route handlers sharing a private cache instance.
+ * Each call to `createSessionHandlers` creates a fresh, isolated cache —
+ * ideal for test suites that need per-suite isolation.
+ */
+export function createSessionHandlers(db: Db) {
+  let cache: CacheEntry<SessionRow[]> | null = null;
+
+  async function getCached(): Promise<SessionRow[]> {
+    const now = Date.now();
+    if (cache && now < cache.expiry) {
+      return cache.data;
+    }
+    const active = await queryActiveSessions(db);
+    const recent = await queryRecentSessions(db, 24);
+    const map = new Map<string, SessionRow>();
+    for (const row of active) map.set(row.id, row);
+    for (const row of recent) {
+      if (!map.has(row.id)) map.set(row.id, row);
+    }
+    const merged = Array.from(map.values());
+    cache = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
+    return merged;
+  }
+
+  return {
+    async getSessions(url: URL): Promise<Response> {
+      return _handleGetSessions(getCached, url);
+    },
+    async getSessionById(id: string): Promise<Response> {
+      return _handleGetSessionById(db, id);
+    },
+    /** Reset this instance's cache (useful mid-test). */
+    clearCache() {
+      cache = null;
+    },
+  };
+}
+
+/** Fetch all displayable sessions (active + recent), using the module-level cache. */
 async function getCachedSessions(db: Db): Promise<SessionRow[]> {
   const now = Date.now();
-  if (sessionsCache && now < sessionsCache.expiry) {
-    return sessionsCache.data;
+  if (_moduleCache && now < _moduleCache.expiry) {
+    return _moduleCache.data;
   }
 
   const active = await queryActiveSessions(db);
@@ -48,14 +93,16 @@ async function getCachedSessions(db: Db): Promise<SessionRow[]> {
   }
 
   const merged = Array.from(map.values());
-  sessionsCache = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
+  _moduleCache = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
   return merged;
 }
 
-// ── Route handlers ─────────────────────────────────────────────────────────
+// ── Shared handler logic ───────────────────────────────────────────────────
 
-/** GET /sessions — list sessions, optionally filtered by project and/or status. */
-export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
+async function _handleGetSessions(
+  fetchSessions: () => Promise<SessionRow[]>,
+  url: URL,
+): Promise<Response> {
   const projectFilter = url.searchParams.get("project") ?? undefined;
   const statusFilter = url.searchParams.get("status") ?? undefined;
 
@@ -69,9 +116,9 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
     );
   }
 
-  let sessions: SessionRow[];
+  let rows: SessionRow[];
   try {
-    sessions = await getCachedSessions(db);
+    rows = await fetchSessions();
   } catch (err) {
     const detail =
       process.env.NODE_ENV !== "production"
@@ -84,20 +131,19 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
   }
 
   if (projectFilter) {
-    sessions = sessions.filter((s) => s.project === projectFilter);
+    rows = rows.filter((s) => s.project === projectFilter);
   }
   if (statusFilter) {
-    sessions = sessions.filter((s) => s.status === statusFilter);
+    rows = rows.filter((s) => s.status === statusFilter);
   }
 
-  return new Response(JSON.stringify(sessions), {
+  return new Response(JSON.stringify(rows), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 }
 
-/** GET /sessions/{id} — single session by ID, 404 if not found. */
-export async function handleGetSessionById(db: Db, id: string): Promise<Response> {
+async function _handleGetSessionById(db: Db, id: string): Promise<Response> {
   let session: SessionRow | null;
   try {
     session = await getSessionById(db, id);
@@ -121,4 +167,16 @@ export async function handleGetSessionById(db: Db, id: string): Promise<Response
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// ── Route handlers ─────────────────────────────────────────────────────────
+
+/** GET /sessions — list sessions, optionally filtered by project and/or status. */
+export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
+  return _handleGetSessions(() => getCachedSessions(db), url);
+}
+
+/** GET /sessions/{id} — single session by ID, 404 if not found. */
+export async function handleGetSessionById(db: Db, id: string): Promise<Response> {
+  return _handleGetSessionById(db, id);
 }

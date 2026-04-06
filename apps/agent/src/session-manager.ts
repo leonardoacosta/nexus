@@ -1,8 +1,10 @@
 import { hostname } from "node:os";
+import { existsSync } from "node:fs";
 import { logger } from "@nexus/core";
 import type { Session, WatcherEvent } from "@nexus/core";
 
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes (same as idle → stale)
 const SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
 const DEFAULT_ENDED_SESSION_TTL_MS = 3_600_000; // 1 hour
 
@@ -13,6 +15,12 @@ export interface SessionManagerOptions {
    * during a sweep. Defaults to 1 hour (3_600_000 ms).
    */
   endedSessionTtlMs?: number;
+
+  /**
+   * How long (in ms) an idle session must remain idle before being promoted to
+   * `stale`. Defaults to 5 minutes (300_000 ms).
+   */
+  staleThresholdMs?: number;
 }
 
 export interface SessionManager {
@@ -28,7 +36,10 @@ export interface SessionManager {
 export function createSessionManager(
   options: SessionManagerOptions = {},
 ): SessionManager {
-  const { endedSessionTtlMs = DEFAULT_ENDED_SESSION_TTL_MS } = options;
+  const {
+    endedSessionTtlMs = DEFAULT_ENDED_SESSION_TTL_MS,
+    staleThresholdMs = DEFAULT_STALE_THRESHOLD_MS,
+  } = options;
   const sessions = new Map<string, Session>();
   const machine = hostname();
 
@@ -118,7 +129,16 @@ export function createSessionManager(
   function sweepIdle(): void {
     const now = Date.now();
 
-    // Mark active sessions as idle if they have exceeded the idle threshold.
+    // Snapshot the set of sessions that are already idle before this sweep so
+    // that sessions freshly transitioned to idle in pass 1 are not immediately
+    // promoted to stale in pass 2.
+    const alreadyIdle = new Set<string>(
+      Array.from(sessions.values())
+        .filter((s) => s.status === "idle")
+        .map((s) => s.id),
+    );
+
+    // Pass 1: Mark active sessions as idle if they have exceeded the idle threshold.
     for (const session of sessions.values()) {
       if (session.status !== "active") continue;
       const lastActivity = new Date(session.lastHeartbeat).getTime();
@@ -128,7 +148,34 @@ export function createSessionManager(
       }
     }
 
-    // Evict ended sessions that have exceeded the TTL.
+    // Pass 2: Promote pre-existing idle sessions to stale or errored.
+    // Sessions just transitioned from active to idle in pass 1 are excluded.
+    for (const session of sessions.values()) {
+      if (session.status !== "idle") continue;
+      if (!alreadyIdle.has(session.id)) continue;
+
+      const lastActivity = new Date(session.lastHeartbeat).getTime();
+
+      // On Linux, check /proc/{pid} — if the process is gone, mark errored.
+      if (process.platform === "linux" && session.pid && session.pid > 0) {
+        const procPath = `/proc/${session.pid}`;
+        if (!existsSync(procPath)) {
+          session.status = "errored";
+          logger.warn(
+            { id: session.id, pid: session.pid },
+            "session-manager: session marked errored (process not found in /proc)",
+          );
+          continue;
+        }
+      }
+
+      if (now - lastActivity > staleThresholdMs) {
+        session.status = "stale";
+        logger.info({ id: session.id }, "session-manager: session marked stale");
+      }
+    }
+
+    // Pass 3: Evict ended sessions that have exceeded the TTL.
     for (const [id, session] of sessions) {
       if (session.status !== "ended") continue;
       if (session.endedAt == null) continue;

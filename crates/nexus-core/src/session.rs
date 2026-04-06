@@ -130,6 +130,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn session_status_ended_serializes_to_string() {
+        let serialized = serde_json::to_string(&SessionStatus::Ended).unwrap();
+        assert_eq!(serialized, r#""ended""#);
+    }
+
+    #[test]
+    fn session_status_ended_deserializes_from_string() {
+        let status: SessionStatus = serde_json::from_str(r#""ended""#).unwrap();
+        assert_eq!(status, SessionStatus::Ended);
+    }
+
+    #[test]
+    fn session_status_ended_roundtrip() {
+        let original = SessionStatus::Ended;
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: SessionStatus = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, original);
+    }
+
+    #[test]
+    fn session_status_display_impl() {
+        assert_eq!(SessionStatus::Active.to_string(), "active");
+        assert_eq!(SessionStatus::Idle.to_string(), "idle");
+        assert_eq!(SessionStatus::Stale.to_string(), "stale");
+        assert_eq!(SessionStatus::Errored.to_string(), "errored");
+        assert_eq!(SessionStatus::Ended.to_string(), "ended");
+    }
+
+    #[test]
     fn session_type_default_is_ad_hoc() {
         assert_eq!(SessionType::default(), SessionType::AdHoc);
     }
