@@ -23,14 +23,43 @@ const TH_STYLE: React.CSSProperties = {
   userSelect: "none",
 };
 
+function groupAndSortProjects(
+  projects: CanonicalProject[],
+): { tag: string; items: CanonicalProject[] }[] {
+  const map = new Map<string, CanonicalProject[]>();
+
+  for (const project of projects) {
+    const tag = project.tags?.[0] ?? "uncategorized";
+    const existing = map.get(tag);
+    if (existing) {
+      existing.push(project);
+    } else {
+      map.set(tag, [project]);
+    }
+  }
+
+  const sortRows = (items: CanonicalProject[]) =>
+    [...items].sort((a, b) => {
+      if (b.activeSessions !== a.activeSessions)
+        return b.activeSessions - a.activeSessions;
+      return a.name.localeCompare(b.name);
+    });
+
+  const groups = Array.from(map.entries())
+    .sort(([a], [b]) => {
+      if (a === "uncategorized") return 1;
+      if (b === "uncategorized") return -1;
+      return a.localeCompare(b);
+    })
+    .map(([tag, items]) => ({ tag, items: sortRows(items) }));
+
+  return groups;
+}
+
 export function ProjectsTable({ projects }: ProjectsTableProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  const sorted = [...projects].sort((a, b) => {
-    if (b.activeSessions !== a.activeSessions)
-      return b.activeSessions - a.activeSessions;
-    return a.name.localeCompare(b.name);
-  });
+  const groups = groupAndSortProjects(projects);
 
   return (
     <div style={{ overflowX: "auto" }}>
@@ -58,14 +87,43 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((project) => (
-            <ProjectRow
-              key={project.id}
-              project={project}
-              isHovered={hoveredId === project.id}
-              onHover={() => setHoveredId(project.id)}
-              onLeave={() => setHoveredId(null)}
-            />
+          {groups.map(({ tag, items }) => (
+            <>
+              <tr
+                key={`group-${tag}`}
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 1,
+                  background: "var(--color-surface-raised)",
+                  borderBottom: "1px solid var(--color-border)",
+                }}
+              >
+                <td
+                  colSpan={5}
+                  style={{
+                    padding: "var(--space-1_5) var(--space-4)",
+                    fontSize: "var(--font-size-xs)",
+                    fontWeight: "var(--font-weight-medium)",
+                    letterSpacing: "var(--tracking-wide)",
+                    textTransform: "uppercase",
+                    color: "var(--color-fg-muted)",
+                    userSelect: "none",
+                  }}
+                >
+                  {tag} · {items.length}
+                </td>
+              </tr>
+              {items.map((project) => (
+                <ProjectRow
+                  key={project.id}
+                  project={project}
+                  isHovered={hoveredId === project.id}
+                  onHover={() => setHoveredId(project.id)}
+                  onLeave={() => setHoveredId(null)}
+                />
+              ))}
+            </>
           ))}
         </tbody>
       </table>

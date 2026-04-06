@@ -11,6 +11,6 @@
 
 ## UI Batch
 
-- [ ] [2.1] [P-1] Update `ProjectsTable.tsx`: group `CanonicalProject[]` by `project.tags?.[0] ?? "uncategorized"`; render sticky uppercase section header rows between groups; Uncategorized group last; preserve existing row design [owner:ui-engineer] [beads:nx-4qpw]
-- [ ] [2.2] [P-1] Create `ProjectSettingsPanel.tsx`: read-only name + location paths; editable description textarea; tag chip-input (add via Enter/comma, remove via ×); Save button calls `updateProject` with inline success/error feedback [owner:ui-engineer] [beads:nx-uwu5]
+- [x] [2.1] [P-1] Update `ProjectsTable.tsx`: group `CanonicalProject[]` by `project.tags?.[0] ?? "uncategorized"`; render sticky uppercase section header rows between groups; Uncategorized group last; preserve existing row design [owner:ui-engineer] [beads:nx-4qpw]
+- [x] [2.2] [P-1] Create `ProjectSettingsPanel.tsx`: read-only name + location paths; editable description textarea; tag chip-input (add via Enter/comma, remove via ×); Save button calls `updateProject` with inline success/error feedback [owner:ui-engineer] [beads:nx-uwu5]
 - [ ] [2.3] [P-2] Update `/projects/[name]/page.tsx`: call `fetchProject(name)` for canonical data; render `<ProjectSettingsPanel>` unconditionally above sessions; show "Project not found in registry" if `fetchProject` returns null [owner:ui-engineer] [beads:nx-go0b]
