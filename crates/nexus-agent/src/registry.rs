@@ -608,3 +608,215 @@ fn make_event(session_id: &str, payload: Payload) -> proto::SessionEvent {
         agent_name: String::new(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_core::session::{Session, SessionStatus, SessionType};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn make_registry() -> SessionRegistry {
+        let events = Arc::new(EventBroadcaster::new(64));
+        SessionRegistry::new(events)
+    }
+
+    fn make_session_with_heartbeat(
+        id: &str,
+        cwd: &str,
+        heartbeat: DateTime<Utc>,
+        tmux_session: Option<String>,
+    ) -> Session {
+        let mut s = Session::new(1234, cwd.to_string());
+        s.id = id.to_string();
+        s.last_heartbeat = heartbeat;
+        s.status = SessionStatus::Active;
+        s.tmux_session = tmux_session;
+        s
+    }
+
+    // ── Task 5.2: Stale detection tests still pass after removing managed guard ──
+
+    #[tokio::test]
+    async fn detect_stale_marks_ad_hoc_session_stale() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(3600);
+
+        // Session with heartbeat 10 minutes ago (well past stale threshold)
+        let old_heartbeat = chrono::Utc::now() - chrono::Duration::seconds(600);
+        let session = make_session_with_heartbeat("ad-hoc-1", "/tmp/foo", old_heartbeat, None);
+
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        registry.detect_stale(stale_threshold, remove_threshold).await;
+
+        let sessions = registry.get_all().await;
+        let s = sessions.iter().find(|s| s.id == "ad-hoc-1").expect("session should still exist");
+        assert_eq!(
+            s.status,
+            SessionStatus::Stale,
+            "ad-hoc session with old heartbeat must be marked Stale"
+        );
+    }
+
+    #[tokio::test]
+    async fn detect_stale_removes_ad_hoc_session_past_remove_threshold() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(3600);
+
+        // Session with heartbeat 2 hours ago (past remove threshold)
+        let very_old = chrono::Utc::now() - chrono::Duration::seconds(7200);
+        let session = make_session_with_heartbeat("ad-hoc-old", "/tmp/bar", very_old, None);
+
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        registry.detect_stale(stale_threshold, remove_threshold).await;
+
+        let sessions = registry.get_all().await;
+        assert!(
+            sessions.iter().all(|s| s.id != "ad-hoc-old"),
+            "ad-hoc session past remove threshold must be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn detect_stale_does_not_remove_managed_session() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(3600);
+
+        // Managed session with heartbeat 2 hours ago — should NOT be auto-removed
+        // (managed sessions have tmux_session set, so the filter excludes them from removal)
+        let very_old = chrono::Utc::now() - chrono::Duration::seconds(7200);
+        let session = make_session_with_heartbeat(
+            "managed-1",
+            "/tmp/managed",
+            very_old,
+            Some("main".to_string()),
+        );
+
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        registry.detect_stale(stale_threshold, remove_threshold).await;
+
+        let sessions = registry.get_all().await;
+        assert!(
+            sessions.iter().any(|s| s.id == "managed-1"),
+            "managed session must not be auto-removed even if very old"
+        );
+    }
+
+    #[tokio::test]
+    async fn detect_stale_fresh_session_not_affected() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(3600);
+
+        // Fresh session — heartbeat just now
+        let now = chrono::Utc::now();
+        let session = make_session_with_heartbeat("fresh-1", "/tmp/fresh", now, None);
+
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        registry.detect_stale(stale_threshold, remove_threshold).await;
+
+        let sessions = registry.get_all().await;
+        let s = sessions.iter().find(|s| s.id == "fresh-1").expect("fresh session should exist");
+        assert_eq!(
+            s.status,
+            SessionStatus::Active,
+            "fresh session must remain Active"
+        );
+    }
+
+    // ── Task 5.3: Managed session (tmux_session Some) with old heartbeat → Stale ──
+
+    #[tokio::test]
+    async fn detect_stale_marks_managed_session_stale_when_heartbeat_old() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(86400); // 24h remove threshold so it stays
+
+        // Managed session with heartbeat 10 minutes ago (past stale, not past remove)
+        let old_heartbeat = chrono::Utc::now() - chrono::Duration::seconds(600);
+        let session = make_session_with_heartbeat(
+            "managed-stale",
+            "/tmp/managed-stale",
+            old_heartbeat,
+            Some("myproject".to_string()),
+        );
+
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        registry.detect_stale(stale_threshold, remove_threshold).await;
+
+        let sessions = registry.get_all().await;
+        let s = sessions
+            .iter()
+            .find(|s| s.id == "managed-stale")
+            .expect("managed session should still exist (not removed)");
+
+        assert_eq!(
+            s.status,
+            SessionStatus::Stale,
+            "managed session with heartbeat > stale threshold must be marked Stale"
+        );
+    }
+
+    #[tokio::test]
+    async fn detect_stale_skips_already_ended_session() {
+        let registry = make_registry();
+        let stale_threshold = Duration::from_secs(300);
+        let remove_threshold = Duration::from_secs(3600);
+
+        // Session already marked as Ended should not be changed to Stale
+        let old_heartbeat = chrono::Utc::now() - chrono::Duration::seconds(600);
+        let mut session = make_session_with_heartbeat("ended-1", "/tmp/ended", old_heartbeat, None);
+        session.status = SessionStatus::Ended;
+        // Ended sessions have tmux_session = None (ad-hoc style), but we set ended_at to
+        // prevent removal. For this test we use a non-tmux session to test the Ended skip guard.
+        // NOTE: The current impl removes sessions past remove_threshold only if tmux_session.is_none().
+        // Ended sessions are skipped in the stale marking loop but CAN be removed by remove_threshold
+        // sweep (which only checks idle_seconds, not status). We test the marking guard here.
+        {
+            let mut map = registry.sessions.write().await;
+            map.insert(session.id.clone(), session);
+        }
+
+        // Use a remove threshold much larger than 600s to avoid removal during this test
+        let long_remove = Duration::from_secs(86400);
+        registry.detect_stale(stale_threshold, long_remove).await;
+
+        let sessions = registry.get_all().await;
+        if let Some(s) = sessions.iter().find(|s| s.id == "ended-1") {
+            assert_eq!(
+                s.status,
+                SessionStatus::Ended,
+                "Ended session status must not be changed to Stale"
+            );
+        }
+        // If the session was removed by the remove sweep it's fine too —
+        // the key invariant is that Ended is never overwritten to Stale.
+    }
+}

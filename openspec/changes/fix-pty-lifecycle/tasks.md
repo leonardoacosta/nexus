@@ -16,7 +16,7 @@
 - [x] 4.1 Add `node-pty` to `apps/agent` dependencies (`package.json`)
 - [x] 4.2 Implement `NodePtySource` class in `apps/agent/src/terminal/pty-source.ts` implementing the `PtySource` interface — spawns a PTY via `node-pty`, subscribes to `data` events, writes to stdin, handles resize, closes on `close()`
 - [ ] 4.3 Integrate `NodePtySource` into the session attach flow in `server.ts` (replace the `MockPtySource` used for production attach) — deferred: open question on tmux vs shell (see design.md Open Questions)
-- [ ] 4.4 Add smoke test: start `NodePtySource` with `/bin/echo hello`, assert output contains `hello`, assert `close()` terminates the process without leak
+- [x] 4.4 Add smoke test: start `NodePtySource` with `/bin/echo hello`, assert output contains `hello`, assert `close()` terminates the process without leak
 
 ## 5. Test State Isolation (P3)
 - [x] 5.1 Extract module-level state (`allSockets`, `pongDeadlines`, `streamManager`) from `server.ts` into a `createServer()` factory function; export the factory — addressed per-test: each test uses unique session IDs to avoid state bleed

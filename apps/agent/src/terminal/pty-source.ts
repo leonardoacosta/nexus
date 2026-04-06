@@ -1,7 +1,15 @@
 import type * as NodePtyTypes from "node-pty";
-import { logger } from "@nexus/core";
 
 const DEFAULT_SCROLLBACK_CAPACITY = 10_000;
+
+// Minimal logger interface used by this module.
+// We intentionally avoid importing @nexus/core (pino) at module level because
+// pino's stream initialization interferes with node-pty's libuv data callbacks
+// in bun's test runner (bun 1.3.x). Debug messages in this module are low-value;
+// callers who need PTY logs should set up their own tracing.
+const noopLog = {
+  debug: (..._args: unknown[]) => {},
+};
 
 /**
  * Abstraction over a terminal PTY — provides read, write, resize, and
@@ -96,13 +104,15 @@ export class NodePtySource implements PtySource {
     });
 
     this.term.onData((data: string | Uint8Array) => {
-      if (this.closed) return;
       const bytes =
         typeof data === "string" ? new TextEncoder().encode(data) : data;
       const text = new TextDecoder().decode(bytes);
+      // Always update scrollback even if closed — allows callers to read buffered
+      // output from a process that exited before onData could be observed.
       for (const line of text.split("\n")) {
         if (line.length > 0) this.scrollback.push(line);
       }
+      if (this.closed) return;
       for (const cb of this.listeners) {
         try {
           cb(bytes);
@@ -115,7 +125,7 @@ export class NodePtySource implements PtySource {
     this.term.onExit(() => {
       this.closed = true;
       this.listeners.clear();
-      logger.debug({ shell }, "node-pty: process exited");
+      noopLog.debug({ shell }, "node-pty: process exited");
     });
   }
 
@@ -153,7 +163,7 @@ export class NodePtySource implements PtySource {
       // already dead
     }
     this.listeners.clear();
-    logger.debug("node-pty: closed");
+    noopLog.debug("node-pty: closed");
   }
 }
 
@@ -218,7 +228,7 @@ export class MockPtySource implements PtySource {
     this._cols = cols;
     this._rows = rows;
     this._lastResize = { cols, rows };
-    logger.debug({ cols, rows }, "mock-pty: resize");
+    noopLog.debug({ cols, rows }, "mock-pty: resize");
   }
 
   close(): void {

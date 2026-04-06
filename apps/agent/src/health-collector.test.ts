@@ -168,6 +168,109 @@ describe("HealthCollector", () => {
     expect(collector.getLatest()).toBeNull();
   });
 
+  // ── [2.1-2.5] Docker detection backoff ──────────────────────────────────────
+
+  it("first Docker failure triggers backoff and subsequent call skips docker subprocess", async () => {
+    let callCount = 0;
+    siMock.dockerContainers.mockImplementation(() => {
+      callCount++;
+      return Promise.reject(new Error("docker not found"));
+    });
+
+    const collector = new HealthCollector();
+
+    // First collect: Docker fails → backoff set
+    const m1 = await collector.collect();
+    expect(m1.docker).toBeNull();
+    const callsAfterFirst = callCount;
+    expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
+
+    // Second collect immediately after: still within backoff window → Docker NOT called again
+    const m2 = await collector.collect();
+    expect(m2.docker).toBeNull();
+    // docker subprocess should NOT have been called again (backoff skips it)
+    expect(callCount).toBe(callsAfterFirst);
+  });
+
+  it("Docker backoff doubles on each failure up to 10-minute cap", async () => {
+    siMock.dockerContainers.mockImplementation(() =>
+      Promise.reject(new Error("no docker")),
+    );
+
+    const collector = new HealthCollector();
+
+    // Access private backoff state via type cast for inspection
+    const c = collector as unknown as {
+      dockerBackoffMs: number;
+      dockerBackoffUntil: number;
+    };
+
+    // Initial backoff: 30_000 ms
+    expect(c.dockerBackoffMs).toBe(30_000);
+
+    // Trigger first failure: backoff doubles to 60_000
+    await collector.collect();
+    expect(c.dockerBackoffMs).toBe(60_000);
+
+    // Reset to allow next collection attempt
+    c.dockerBackoffUntil = 0;
+
+    // Second failure: doubles to 120_000
+    await collector.collect();
+    expect(c.dockerBackoffMs).toBe(120_000);
+  });
+
+  it("Docker backoff resets on success", async () => {
+    siMock.dockerContainers.mockImplementation(() =>
+      Promise.reject(new Error("no docker")),
+    );
+
+    const collector = new HealthCollector();
+    const c = collector as unknown as {
+      dockerBackoffMs: number;
+      dockerBackoffUntil: number;
+    };
+
+    // Trigger failure to bump backoff
+    await collector.collect();
+    expect(c.dockerBackoffMs).toBeGreaterThan(30_000);
+
+    // Restore Docker availability
+    siMock.dockerContainers.mockImplementation(() =>
+      Promise.resolve([{ state: "running" }, { state: "exited" }]),
+    );
+
+    // Reset backoff window so Docker is queried again
+    c.dockerBackoffUntil = 0;
+
+    const m = await collector.collect();
+    expect(m.docker).not.toBeNull();
+    // Backoff should be reset to initial
+    expect(c.dockerBackoffMs).toBe(30_000);
+    expect(c.dockerBackoffUntil).toBe(0);
+  });
+
+  it("Docker backoff is capped at 10 minutes (600_000 ms)", async () => {
+    siMock.dockerContainers.mockImplementation(() =>
+      Promise.reject(new Error("no docker")),
+    );
+
+    const collector = new HealthCollector();
+    const c = collector as unknown as {
+      dockerBackoffMs: number;
+      dockerBackoffUntil: number;
+    };
+
+    // Force backoff well past the cap
+    c.dockerBackoffMs = 400_000;
+    c.dockerBackoffUntil = 0;
+
+    await collector.collect();
+
+    // Should double 400_000 → 800_000 but cap at 600_000
+    expect(c.dockerBackoffMs).toBe(600_000);
+  });
+
   // ── [6.1/6.2] collectedAt field ──────────────────────────────────────────
 
   it("collect() populates collectedAt as an ISO-8601 string", async () => {
@@ -198,6 +301,8 @@ async function waitForCollector(maxMs = 2000): Promise<void> {
   }
 }
 
+const ATTACH_SECRET = process.env["NEXUS_ATTACH_SECRET"] ?? "test";
+
 describe("/health endpoint", () => {
   const server = startServer(0);
   const baseUrl = `http://localhost:${server.port}`;
@@ -210,7 +315,9 @@ describe("/health endpoint", () => {
   it("returns HealthMetrics shape (default — no detail)", async () => {
     await waitForCollector();
 
-    const res = await fetch(`${baseUrl}/health`);
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
@@ -234,7 +341,9 @@ describe("/health endpoint", () => {
   it("returns detail fields with ?detail=true", async () => {
     await waitForCollector();
 
-    const res = await fetch(`${baseUrl}/health?detail=true`);
+    const res = await fetch(`${baseUrl}/health?detail=true`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
     expect(res.status).toBe(200);
 
     const body = await res.json() as HealthMetrics;

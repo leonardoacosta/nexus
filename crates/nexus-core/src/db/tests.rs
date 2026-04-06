@@ -380,6 +380,51 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // Task 2.4: Ended session SQLite roundtrip
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn ended_session_status_roundtrip() {
+        let db = test_db();
+
+        // Insert a session with status = "ended" directly (simulating an ended session record).
+        let mut session = make_session("sess-ended", "nx");
+        session.status = Some("ended".to_string());
+        session.ended_at = Some(chrono::Utc::now().to_rfc3339());
+        db.insert_session(&session).unwrap();
+
+        // Read back the status via a direct SQL query (load_active_sessions excludes ended rows).
+        let status: String = db
+            .read(|conn| {
+                Ok(conn.query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params!["sess-ended"],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+
+        assert_eq!(status, "ended", "status written as 'ended' must round-trip correctly");
+
+        // Also verify via end_session(): insert active session → end it → confirm status.
+        db.insert_session(&make_session("sess-active-to-ended", "oo")).unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        db.end_session("sess-active-to-ended", &now).unwrap();
+
+        let status2: String = db
+            .read(|conn| {
+                Ok(conn.query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params!["sess-active-to-ended"],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+
+        assert_eq!(status2, "ended", "end_session() must set status to 'ended'");
+    }
+
+    // -------------------------------------------------------------------
     // Task 5.5: Failure aggregation tests
     // -------------------------------------------------------------------
 

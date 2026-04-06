@@ -43,7 +43,11 @@ export class HealthScheduler {
 
   /** Run a single collection + persist cycle. */
   private async tick(): Promise<void> {
-    const metrics = await this.collector.collect();
+    const metrics = this.collector.getLatest();
+    if (metrics === null) {
+      logger.debug("health scheduler tick skipped — collector not yet warmed up");
+      return;
+    }
 
     // Weighted-average disk percent across all mounts (by total_bytes).
     // Falls back to null if there are no disk entries.

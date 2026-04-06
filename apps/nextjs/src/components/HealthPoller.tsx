@@ -50,8 +50,9 @@ export function HealthPoller({
         }
         return next;
       });
-    } catch {
-      // Keep existing data on failure
+    } catch (err) {
+      // Keep existing data on failure — log so stale periods are visible in browser console
+      console.warn("HealthPoller: fetchHealth failed — retaining stale data", err);
     }
   }, []);
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock, beforeEach } from "bun:test";
 
 // ── 9.1 Disk weighted-average calculation ─────────────────────────────────────
 
@@ -98,5 +98,85 @@ describe("health-scheduler: exponential backoff delays (task 9.2)", () => {
       expect(d).toBeGreaterThanOrEqual(1_000);
       expect(d).toBeLessThanOrEqual(60_000);
     }
+  });
+});
+
+// ── 1.3 HealthScheduler uses getLatest() and handles null skip ────────────────
+
+import { HealthScheduler } from "./health-scheduler";
+import type { HealthCollector } from "./health-collector";
+import type { Db } from "@nexus/db";
+import type { HealthMetrics } from "@nexus/core";
+
+/** Create a minimal stub HealthCollector. */
+function makeCollectorStub(latestMetrics: HealthMetrics | null): HealthCollector {
+  return {
+    getLatest: mock(() => latestMetrics),
+    collect: mock(() => Promise.resolve(latestMetrics as HealthMetrics)),
+    start: mock(() => {}),
+    stop: mock(() => {}),
+  } as unknown as HealthCollector;
+}
+
+/** Minimal db stub with a working insertHealthSnapshot replacement. */
+function makeDbStub(): { db: Db; inserts: number } {
+  let inserts = 0;
+  const db = {} as unknown as Db;
+  // We'll patch insertHealthSnapshot via the module mock below
+  return { db, inserts: 0 };
+}
+
+const insertMock = mock(() => Promise.resolve());
+mock.module("./db/health", () => ({
+  insertHealthSnapshot: insertMock,
+}));
+
+const baseMetrics: HealthMetrics = {
+  hostname: "test-host",
+  uptime_seconds: 100,
+  collectedAt: new Date().toISOString(),
+  cpu: { overall_percent: 10, per_core_percent: [10], load_average: [0, 0, 0] },
+  ram: { total_bytes: 1000, used_bytes: 500, percent: 50 },
+  disk: [{ mount: "/", total_bytes: 1000, used_bytes: 500, percent: 50 }],
+  docker: null,
+};
+
+describe("HealthScheduler.tick() — uses getLatest() (task 1.3)", () => {
+  beforeEach(() => {
+    insertMock.mockReset();
+    insertMock.mockImplementation(() => Promise.resolve());
+  });
+
+  it("calls getLatest() (not collect()) on the collector", async () => {
+    const collector = makeCollectorStub(baseMetrics);
+    const { db } = makeDbStub();
+    const scheduler = new HealthScheduler(collector, db, 60_000);
+
+    // Access private tick via type cast
+    await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+    expect((collector.getLatest as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+    expect((collector.collect as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+  });
+
+  it("skips insert and returns early when getLatest() returns null", async () => {
+    const collector = makeCollectorStub(null);
+    const { db } = makeDbStub();
+    const scheduler = new HealthScheduler(collector, db, 60_000);
+
+    await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+    // insertHealthSnapshot should NOT have been called
+    expect(insertMock.mock.calls.length).toBe(0);
+  });
+
+  it("inserts a snapshot when getLatest() returns metrics", async () => {
+    const collector = makeCollectorStub(baseMetrics);
+    const { db } = makeDbStub();
+    const scheduler = new HealthScheduler(collector, db, 60_000);
+
+    await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+    expect(insertMock.mock.calls.length).toBe(1);
   });
 });

@@ -5,10 +5,18 @@ import os from "node:os";
 
 const DEFAULT_INTERVAL_MS = 5_000;
 
+// Docker backoff constants
+const DOCKER_BACKOFF_INITIAL_MS = 30_000;
+const DOCKER_BACKOFF_MAX_MS = 600_000;
+
 export class HealthCollector {
   private intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private latest: HealthMetrics | null = null;
+
+  // Docker detection exponential backoff state
+  private dockerBackoffUntil: number = 0;
+  private dockerBackoffMs: number = DOCKER_BACKOFF_INITIAL_MS;
 
   constructor(intervalMs: number = DEFAULT_INTERVAL_MS) {
     this.intervalMs = intervalMs;
@@ -97,14 +105,28 @@ export class HealthCollector {
     containers: number;
     running: number;
   } | null> {
+    // Skip if we are within a backoff window (Docker unavailable or erroring)
+    if (Date.now() < this.dockerBackoffUntil) {
+      return null;
+    }
+
     try {
       const containers = await si.dockerContainers();
+      // Success: reset backoff
+      this.dockerBackoffMs = DOCKER_BACKOFF_INITIAL_MS;
+      this.dockerBackoffUntil = 0;
       return {
         containers: containers.length,
         running: containers.filter((c) => c.state === "running").length,
       };
     } catch (err) {
-      logger.warn({ err }, "docker collection failed");
+      // Failure: double the backoff interval (cap at max) and set next check time
+      this.dockerBackoffMs = Math.min(this.dockerBackoffMs * 2, DOCKER_BACKOFF_MAX_MS);
+      this.dockerBackoffUntil = Date.now() + this.dockerBackoffMs;
+      logger.debug(
+        { err, nextCheckMs: this.dockerBackoffMs },
+        "docker collection failed — applying backoff",
+      );
       return null;
     }
   }
