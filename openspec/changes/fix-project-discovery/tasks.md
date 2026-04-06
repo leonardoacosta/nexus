@@ -35,7 +35,7 @@
 - [x] 4.1 Replace dedup key `${project.name}|${project.path}` with normalized absolute path:
       resolve symlinks via `fs.realpathSync` (or equivalent), lowercase on macOS/case-insensitive
       FS, uppercase-preserve on Linux
-- [ ] 4.2 Attempt to read git remote URL from `git remote get-url origin` for each project
+- [x] 4.2 Attempt to read git remote URL from `git remote get-url origin` for each project
       (timeout 500 ms); use as the canonical cross-machine identity key when available, fall back
       to normalized path
 - [x] 4.3 On dedup hit, accumulate counts (step 3.3) and do NOT overwrite the `agent` field

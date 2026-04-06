@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { createLogger } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 
@@ -37,6 +38,8 @@ export interface AgentDiscoveredProject {
   activeSessions: number;
   /** Total sessions recorded in the 24-hour query window. */
   totalSessions: number;
+  /** Git remote URL for origin, used as a stable cross-machine dedup key. Null when unavailable. */
+  gitRemoteUrl: string | null;
 }
 
 /** Wire format returned by GET /projects/discovered. */
@@ -45,6 +48,28 @@ export interface AgentDiscoveredProjectsResponse {
   truncated: boolean;
   /** True when projectsDir is not configured for this agent. */
   configured: boolean;
+}
+
+// ── Git remote URL helper ──────────────────────────────────────────────────
+
+/**
+ * Attempt to read the git remote URL for "origin" in the given directory.
+ * Returns null on any failure (git not available, no remote, timeout, etc.).
+ */
+function getGitRemoteUrl(projectPath: string): string | null {
+  try {
+    const result = spawnSync("git", ["remote", "get-url", "origin"], {
+      cwd: projectPath,
+      timeout: 500,
+      encoding: "utf8",
+    });
+    if (result.status === 0 && result.stdout) {
+      return result.stdout.trim() || null;
+    }
+  } catch {
+    // no-op — git not available or not a remote
+  }
+  return null;
 }
 
 // ── Simple cache with TTL ──────────────────────────────────────────────────
@@ -217,7 +242,8 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
       if (isActive) activeSessions++;
     }
 
-    projects.push({ name, path: canonicalPath, activeSessions, totalSessions });
+    const gitRemoteUrl = getGitRemoteUrl(canonicalPath);
+    projects.push({ name, path: canonicalPath, activeSessions, totalSessions, gitRemoteUrl });
 
     // 9. Cap at 100 results
     if (projects.length >= 100) {

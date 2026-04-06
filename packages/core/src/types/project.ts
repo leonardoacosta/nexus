@@ -14,6 +14,8 @@ export interface DiscoveredProject {
   agent: string;
   /** Number of agents that reported this same project (populated after dedup) */
   machineCount?: number;
+  /** Git remote URL for origin; stable cross-machine identity key. Optional — old agents omit it. */
+  gitRemoteUrl?: string | null;
 }
 
 /** Response wrapper from GET /projects/discovered */

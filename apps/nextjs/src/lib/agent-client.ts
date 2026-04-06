@@ -23,6 +23,8 @@ interface AgentProject {
    * TODO(fix-project-discovery): remove after all agents upgraded.
    */
   hasActiveSessions?: boolean;
+  /** Git remote URL for origin; stable cross-machine identity key. Optional — old agents omit it. */
+  gitRemoteUrl?: string | null;
 }
 
 /** Wire response from GET /projects/discovered. */
@@ -198,13 +200,14 @@ export class AgentClient {
         const agentName = this.agents[i]!.name;
         if (result.status === "fulfilled") {
           for (const project of result.value.data.projects) {
-            // Dedup key: use normalized absolute path (tilde already expanded by agent).
-            // Normalize case on macOS (case-insensitive FS), preserve on Linux.
+            // Dedup key: prefer git remote URL as canonical cross-machine key (stable across
+            // different home dirs). Fall back to normalized absolute path for projects without
+            // a remote. Normalize case on macOS (case-insensitive FS), preserve on Linux.
             const normalizedPath =
               process.platform === "darwin"
                 ? project.path.toLowerCase()
                 : project.path;
-            const key = normalizedPath;
+            const key = project.gitRemoteUrl ?? normalizedPath;
 
             // Graceful degradation: handle old agents (hasActiveSessions) and new agents
             // (activeSessions/totalSessions).
