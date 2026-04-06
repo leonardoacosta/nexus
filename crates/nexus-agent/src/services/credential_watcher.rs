@@ -121,7 +121,19 @@ fn read_servers_config() -> Vec<MenubarServer> {
 /// Push credential metadata to all configured menubar endpoints.
 ///
 /// Best-effort delivery: logs failures but does not retry.
+/// Requires `NEXUS_INTERNAL_SECRET` env var to authenticate pushes.
+/// If the env var is absent, logs a warning and skips all pushes.
 async fn push_to_menubars(meta: &CredentialMeta, client: &reqwest::Client) {
+    let secret = match std::env::var("NEXUS_INTERNAL_SECRET") {
+        Ok(s) if !s.is_empty() => s,
+        _ => {
+            warn!(
+                "[credential-watcher] NEXUS_INTERNAL_SECRET not set — skipping menubar push"
+            );
+            return;
+        }
+    };
+
     let servers = read_servers_config();
     if servers.is_empty() {
         debug!("[credential-watcher] No menubar servers configured, skipping push");
@@ -141,7 +153,13 @@ async fn push_to_menubars(meta: &CredentialMeta, client: &reqwest::Client) {
 
     for server in &servers {
         let url = format!("{}/credentials", server.url.trim_end_matches('/'));
-        match client.post(&url).json(&payload).send().await {
+        match client
+            .post(&url)
+            .header("x-nexus-secret", &secret)
+            .json(&payload)
+            .send()
+            .await
+        {
             Ok(resp) => {
                 if resp.status().is_success() {
                     info!(

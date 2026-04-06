@@ -851,7 +851,18 @@ async fn bootstrap_import_credential(
         pool_path.display()
     );
 
-    parse_credential_file(&pool_path).await
+    let acct = parse_credential_file(&pool_path).await?;
+    sentry::add_breadcrumb(sentry::Breadcrumb {
+        ty: "info".into(),
+        category: Some("credential".into()),
+        message: Some(format!(
+            "credential imported: account '{}' bootstrapped from CC .credentials.json",
+            acct.name
+        )),
+        level: sentry::Level::Info,
+        ..Default::default()
+    });
+    Ok(acct)
 }
 
 /// Import a credential file from CC into the pool directory (watcher bridge).
@@ -901,7 +912,18 @@ pub async fn import_credential_to_pool(
         pool_path.display()
     );
 
-    Ok(Some(parse_credential_file(&pool_path).await?))
+    let acct = parse_credential_file(&pool_path).await?;
+    sentry::add_breadcrumb(sentry::Breadcrumb {
+        ty: "info".into(),
+        category: Some("credential".into()),
+        message: Some(format!(
+            "credential imported: account '{}' (fingerprint={})",
+            acct.name, fingerprint
+        )),
+        level: sentry::Level::Info,
+        ..Default::default()
+    });
+    Ok(Some(acct))
 }
 
 /// Try to discover a human-readable name for a credential account by querying the API.

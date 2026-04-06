@@ -12,6 +12,7 @@ import {
 import type { CredentialRow } from "./store";
 import { encrypt, decrypt } from "./encryption";
 import type { Buffer } from "node:buffer";
+import * as Sentry from "@sentry/node";
 
 /** Default cooldown duration in milliseconds (5 minutes). */
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -99,84 +100,106 @@ export class CredentialPool {
    * Returns the credential row with the decrypted value, or null if exhausted.
    */
   async lease(type: string, leasedBy: string): Promise<CredentialRow | null> {
-    // First, recover any expired cooldowns (outside transaction — best-effort)
-    await this.recoverExpiredCooldowns();
+    return Sentry.startSpan(
+      { name: "credential.lease", attributes: { type, leasedBy } },
+      async () => {
+        // First, recover any expired cooldowns (outside transaction — best-effort)
+        await this.recoverExpiredCooldowns();
 
-    const result = await this.db.transaction(async (tx) => {
-      // Weighted round-robin: ORDER BY rate_limit_count ASC, leased_at ASC NULLS FIRST
-      const rows = await tx
-        .select()
-        .from(credentials)
-        .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
-        .orderBy(
-          sql`${credentials.rateLimitCount} ASC, ${credentials.leasedAt} ASC NULLS FIRST`,
-        )
-        .for("update")
-        .limit(1);
+        const result = await this.db.transaction(async (tx) => {
+          // Weighted round-robin: ORDER BY rate_limit_count ASC, leased_at ASC NULLS FIRST
+          const rows = await tx
+            .select()
+            .from(credentials)
+            .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
+            .orderBy(
+              sql`${credentials.rateLimitCount} ASC, ${credentials.leasedAt} ASC NULLS FIRST`,
+            )
+            .for("update")
+            .limit(1);
 
-      if (rows.length === 0) {
-        return null;
-      }
+          if (rows.length === 0) {
+            return null;
+          }
 
-      const credential = rows[0]!;
-      const now = new Date().toISOString();
+          const credential = rows[0]!;
+          const now = new Date().toISOString();
 
-      await tx
-        .update(credentials)
-        .set({ status: "leased", leasedBy, leasedAt: now, cooldownUntil: null })
-        .where(eq(credentials.id, credential.id));
+          await tx
+            .update(credentials)
+            .set({ status: "leased", leasedBy, leasedAt: now, cooldownUntil: null })
+            .where(eq(credentials.id, credential.id));
 
-      // Re-fetch within the transaction to get the final state
-      const updated = await tx
-        .select()
-        .from(credentials)
-        .where(eq(credentials.id, credential.id))
-        .limit(1);
+          // Re-fetch within the transaction to get the final state
+          const updated = await tx
+            .select()
+            .from(credentials)
+            .where(eq(credentials.id, credential.id))
+            .limit(1);
 
-      return updated[0] ?? null;
-    });
+          return updated[0] ?? null;
+        });
 
-    if (result === null) {
-      logger.warn({ type }, "credential pool exhausted");
-      return null;
-    }
+        if (result === null) {
+          logger.warn({ type }, "credential pool exhausted");
+          return null;
+        }
 
-    // Decrypt the stored value before returning to the caller
-    const key = this.requireKey();
-    const decryptedRow: CredentialRow = {
-      ...result,
-      valueEncrypted: result.valueEncrypted
-        ? decrypt(result.valueEncrypted, key)
-        : null,
-    };
+        // Decrypt the stored value before returning to the caller
+        const key = this.requireKey();
+        const decryptedRow: CredentialRow = {
+          ...result,
+          valueEncrypted: result.valueEncrypted
+            ? decrypt(result.valueEncrypted, key)
+            : null,
+        };
 
-    logger.info(
-      { id: result.id, leasedBy, event: "credential.leased" },
-      "credential leased",
+        logger.info(
+          { id: result.id, leasedBy, event: "credential.leased" },
+          "credential leased",
+        );
+        Sentry.addBreadcrumb({
+          category: "credential",
+          message: "credential leased",
+          level: "info",
+          data: { id: result.id, type, leasedBy },
+        });
+        return decryptedRow;
+      },
     );
-    return decryptedRow;
   }
 
   /** Release a leased credential back to available. */
   async release(id: string): Promise<boolean> {
-    const credential = await getCredentialById(this.db, id);
-    if (!credential) {
-      logger.warn({ id }, "release failed — credential not found");
-      return false;
-    }
+    return Sentry.startSpan(
+      { name: "credential.release", attributes: { id } },
+      async () => {
+        const credential = await getCredentialById(this.db, id);
+        if (!credential) {
+          logger.warn({ id }, "release failed — credential not found");
+          return false;
+        }
 
-    if (credential.status !== "leased") {
-      logger.warn({ id, status: credential.status }, "release failed — credential not in leased state");
-      return false;
-    }
+        if (credential.status !== "leased") {
+          logger.warn({ id, status: credential.status }, "release failed — credential not in leased state");
+          return false;
+        }
 
-    await this.db
-      .update(credentials)
-      .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
-      .where(eq(credentials.id, id));
+        await this.db
+          .update(credentials)
+          .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
+          .where(eq(credentials.id, id));
 
-    logger.info({ id, event: "credential.released" }, "credential released");
-    return true;
+        logger.info({ id, event: "credential.released" }, "credential released");
+        Sentry.addBreadcrumb({
+          category: "credential",
+          message: "credential released",
+          level: "info",
+          data: { id },
+        });
+        return true;
+      },
+    );
   }
 
   /**
@@ -189,34 +212,45 @@ export class CredentialPool {
     id: string,
     leasedBy: string,
   ): Promise<{ cooledDown: CredentialRow; next: CredentialRow | null } | null> {
-    const credential = await getCredentialById(this.db, id);
-    if (!credential) return null;
+    return Sentry.startSpan(
+      { name: "credential.cooldown", attributes: { id } },
+      async () => {
+        const credential = await getCredentialById(this.db, id);
+        if (!credential) return null;
 
-    const cooldownUntil = new Date(Date.now() + this.cooldownMs).toISOString();
+        const cooldownUntil = new Date(Date.now() + this.cooldownMs).toISOString();
 
-    // Atomically increment rate_limit_count and transition to cooldown
-    await this.db
-      .update(credentials)
-      .set({
-        status: "cooldown",
-        leasedBy: null,
-        leasedAt: null,
-        cooldownUntil,
-        rateLimitCount: sql`${credentials.rateLimitCount} + 1`,
-      })
-      .where(eq(credentials.id, id));
+        // Atomically increment rate_limit_count and transition to cooldown
+        await this.db
+          .update(credentials)
+          .set({
+            status: "cooldown",
+            leasedBy: null,
+            leasedAt: null,
+            cooldownUntil,
+            rateLimitCount: sql`${credentials.rateLimitCount} + 1`,
+          })
+          .where(eq(credentials.id, id));
 
-    logger.info(
-      { id, cooldown_until: cooldownUntil, event: "credential.cooldown_entered" },
-      "credential on cooldown (rate limited)",
+        logger.info(
+          { id, cooldown_until: cooldownUntil, event: "credential.cooldown_entered" },
+          "credential on cooldown (rate limited)",
+        );
+        Sentry.addBreadcrumb({
+          category: "credential",
+          message: "credential on cooldown",
+          level: "warning",
+          data: { id, cooldown_until: cooldownUntil },
+        });
+
+        const cooledDown = (await getCredentialById(this.db, id))!;
+
+        // Try to lease the next available credential of the same type
+        const next = await this.lease(credential.type, leasedBy);
+
+        return { cooledDown, next };
+      },
     );
-
-    const cooledDown = (await getCredentialById(this.db, id))!;
-
-    // Try to lease the next available credential of the same type
-    const next = await this.lease(credential.type, leasedBy);
-
-    return { cooledDown, next };
   }
 
   /**
