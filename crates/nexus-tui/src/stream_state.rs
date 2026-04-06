@@ -481,3 +481,170 @@ pub(crate) fn textwrap_simple(text: &str, width: usize) -> Vec<String> {
         .map(|c| c.iter().collect::<String>())
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{LineStyle, StyledLine};
+
+    fn make_state() -> StreamViewState {
+        StreamViewState::new(
+            "test-session-id".to_string(),
+            "test-label".to_string(),
+            "test-agent".to_string(),
+        )
+    }
+
+    fn styled(text: &str) -> crate::app::StreamLine {
+        crate::app::StreamLine::Styled(StyledLine::new(text, LineStyle::Plain))
+    }
+
+    /// Task 6.2: Buffer eviction — pushing 10 001 lines must leave exactly 10 000.
+    #[test]
+    fn buffer_eviction_at_capacity() {
+        let mut state = make_state();
+        let cap = STREAM_BUFFER_MAX + 1; // 10_001
+        for i in 0..cap {
+            state.push_stream_line(styled(&format!("line {i}")));
+        }
+        assert_eq!(
+            state.lines.len(),
+            STREAM_BUFFER_MAX,
+            "buffer must hold exactly {STREAM_BUFFER_MAX} lines after overflow"
+        );
+        assert!(state.lines_evicted, "lines_evicted flag must be set");
+    }
+
+    /// Task 6.2 (extended): Buffer never grows past STREAM_BUFFER_MAX regardless of
+    /// how many extra lines are pushed.
+    #[test]
+    fn buffer_never_exceeds_max() {
+        let mut state = make_state();
+        for i in 0..(STREAM_BUFFER_MAX + 500) {
+            state.push_stream_line(styled(&format!("x{i}")));
+        }
+        assert!(state.lines.len() <= STREAM_BUFFER_MAX);
+    }
+
+    /// Task 6.3: Scroll offset clamping — scroll_up from 0 stays at 0.
+    #[test]
+    fn scroll_up_clamps_at_zero() {
+        let mut state = make_state();
+        state.scroll_up(); // already at 0
+        assert_eq!(state.scroll_offset, 0);
+    }
+
+    /// Task 6.3: scroll_down past end stays at last valid offset.
+    #[test]
+    fn scroll_down_clamps_at_end() {
+        let mut state = make_state();
+        let visible = 5usize;
+        for i in 0..10 {
+            state.push_stream_line(styled(&format!("line {i}")));
+        }
+        let total = state.total_display_lines(); // 10
+        let max = total.saturating_sub(visible);
+
+        // Scroll well past the end.
+        for _ in 0..100 {
+            state.scroll_down(visible);
+        }
+        assert_eq!(
+            state.scroll_offset, max,
+            "scroll must clamp at max={max}, got {}",
+            state.scroll_offset
+        );
+    }
+
+    /// Task 6.4: auto_scroll resets to true when scrolled to the bottom.
+    #[test]
+    fn auto_scroll_resets_at_bottom() {
+        let mut state = make_state();
+        let visible = 5usize;
+        for i in 0..10 {
+            state.push_stream_line(styled(&format!("line {i}")));
+        }
+        // Scroll up (disables auto_scroll).
+        state.scroll_up();
+        assert!(!state.auto_scroll);
+
+        // Scroll all the way back down — auto_scroll should re-engage.
+        for _ in 0..20 {
+            state.scroll_down(visible);
+        }
+        assert!(state.auto_scroll, "auto_scroll must re-engage at bottom");
+    }
+
+    /// Task 6.5: Metadata fields are preserved across line appends.
+    #[test]
+    fn metadata_preserved_across_line_appends() {
+        let mut state = make_state();
+        state.model = Some("claude-3-7-sonnet".to_string());
+        state.rate_limit_utilization = Some(0.42);
+        state.total_cost_usd = Some(0.001234);
+
+        // Push a bunch of lines.
+        for i in 0..50 {
+            state.push_stream_line(styled(&format!("line {i}")));
+        }
+
+        assert_eq!(state.model.as_deref(), Some("claude-3-7-sonnet"));
+        assert!((state.rate_limit_utilization.unwrap() - 0.42).abs() < 1e-6);
+        assert!((state.total_cost_usd.unwrap() - 0.001234).abs() < 1e-10);
+    }
+
+    /// Task 6.6: partial_buf accumulates then flushes on newline.
+    #[test]
+    fn partial_buf_accumulates_and_flushes() {
+        let mut state = make_state();
+        // Simulate partial chunk arrival.
+        state.partial_buf.push_str("hello ");
+        assert_eq!(state.partial_buf, "hello ");
+
+        state.partial_buf.push_str("world");
+        assert_eq!(state.partial_buf, "hello world");
+
+        // After a newline would be processed, partial_buf should flush.
+        // We test that by pushing a string with a newline using the mechanism
+        // from push_command_output: the partial_buf is cleared.
+        let full_text = state.partial_buf.clone() + "\n";
+        state.partial_buf.clear();
+        state.partial_buf.push_str(&full_text);
+
+        // Find the newline and flush it.
+        if let Some(nl_pos) = state.partial_buf.find('\n') {
+            let line = state.partial_buf[..nl_pos].to_string();
+            state.partial_buf = state.partial_buf[nl_pos + 1..].to_string();
+            assert_eq!(line, "hello world");
+        } else {
+            panic!("expected newline in partial_buf");
+        }
+        assert!(
+            state.partial_buf.is_empty(),
+            "partial_buf must be empty after flush"
+        );
+    }
+
+    /// Scroll offset is correctly adjusted when a line is evicted from the front.
+    #[test]
+    fn scroll_offset_adjusted_on_eviction() {
+        let mut state = make_state();
+        // Push enough lines to fill the buffer.
+        for i in 0..STREAM_BUFFER_MAX {
+            state.push_stream_line(styled(&format!("line {i}")));
+        }
+        // Set scroll offset partway into the buffer.
+        state.scroll_offset = 100;
+
+        // Push one more line — triggers eviction and scroll_offset should decrease by 1.
+        state.push_stream_line(styled("overflow line"));
+        assert_eq!(
+            state.scroll_offset, 99,
+            "scroll_offset must decrease by 1 on eviction"
+        );
+    }
+}

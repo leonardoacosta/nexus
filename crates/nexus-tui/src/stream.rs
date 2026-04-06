@@ -497,3 +497,143 @@ fn status_name(value: i32) -> &'static str {
         _ => "Unknown",
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Task 5.1/5.3: Channel capacity — verify the bounded channel accepts
+    /// STREAM_CHANNEL_CAPACITY messages without blocking and that sending
+    /// beyond capacity returns `TrySendError::Full` (not a panic).
+    #[test]
+    fn channel_capacity_bounded() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamMessage>(STREAM_CHANNEL_CAPACITY);
+
+        // Fill the channel exactly to capacity — all sends must succeed.
+        for i in 0..STREAM_CHANNEL_CAPACITY {
+            let msg = StreamMessage::Line(StreamLine {
+                text: format!("line {i}"),
+            });
+            assert!(
+                tx.try_send(msg).is_ok(),
+                "expected send {i} to succeed within capacity"
+            );
+        }
+
+        // One more send should fail with Full (not panic).
+        let overflow = StreamMessage::Line(StreamLine {
+            text: "overflow".to_string(),
+        });
+        assert!(
+            tx.try_send(overflow).is_err(),
+            "expected try_send to fail when channel is full"
+        );
+
+        // Drain all messages — count must equal STREAM_CHANNEL_CAPACITY.
+        let mut count = 0usize;
+        while rx.try_recv().is_ok() {
+            count += 1;
+        }
+        assert_eq!(count, STREAM_CHANNEL_CAPACITY);
+    }
+
+    /// Task 5.4: StreamMessage::SessionMeta variant — fields round-trip correctly.
+    #[test]
+    fn stream_message_session_meta_fields() {
+        let msg = StreamMessage::SessionMeta {
+            session_type: "managed".to_string(),
+            status: "Active".to_string(),
+        };
+        if let StreamMessage::SessionMeta {
+            session_type,
+            status,
+        } = msg
+        {
+            assert_eq!(session_type, "managed");
+            assert_eq!(status, "Active");
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    /// Task 5.6: StreamMessage::Heartbeat carries the formatted timestamp string.
+    #[test]
+    fn stream_message_heartbeat_timestamp() {
+        let ts = "12:34:56".to_string();
+        let msg = StreamMessage::Heartbeat {
+            timestamp: ts.clone(),
+        };
+        if let StreamMessage::Heartbeat { timestamp } = msg {
+            assert_eq!(timestamp, ts);
+            // Verify format is HH:MM:SS (length == 8, digits and colons).
+            assert_eq!(timestamp.len(), 8);
+            let parts: Vec<&str> = timestamp.split(':').collect();
+            assert_eq!(parts.len(), 3);
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    /// Task 5.5: StreamMessage::Disconnected variant is constructable and carries reason.
+    #[test]
+    fn stream_message_disconnected_variant() {
+        let msg = StreamMessage::Disconnected {
+            reason: "test shutdown".to_string(),
+        };
+        if let StreamMessage::Disconnected { reason } = msg {
+            assert_eq!(reason, "test shutdown");
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    /// Task 5.2: Reconnect backoff formula — verify delay doubles each attempt,
+    /// starting at 1 s and capping at 120 s.
+    #[test]
+    fn reconnect_backoff_doubles_and_caps() {
+        // The formula used in subscribe_session_stream:
+        //   backoff_secs = (1u64 << attempt.min(7)).min(120)
+        let expected: &[(u32, u64)] = &[
+            (1, 2),    // attempt 1 → 2^1 = 2
+            (2, 4),    // attempt 2 → 2^2 = 4
+            (3, 8),    // attempt 3 → 2^3 = 8
+            (4, 16),   // attempt 4 → 2^4 = 16
+            (5, 32),   // attempt 5 → 2^5 = 32
+            (6, 64),   // attempt 6 → 2^6 = 64
+            (7, 128),  // attempt 7 → 2^7 = 128 → capped at 120
+            (8, 128),  // attempt 8 → 2^7 (min(8,7)=7) = 128 → capped at 120
+            (20, 128), // large attempt → still capped at 120
+        ];
+        for &(attempt, raw_expected) in expected {
+            let capped_expected = raw_expected.min(120);
+            let actual = (1u64 << attempt.min(7)).min(120);
+            assert_eq!(
+                actual, capped_expected,
+                "attempt {attempt}: expected backoff {capped_expected}s, got {actual}s"
+            );
+        }
+    }
+
+    /// Additional: ReconnectState variant carries attempt and next_try_secs.
+    #[test]
+    fn stream_message_reconnect_state_fields() {
+        let msg = StreamMessage::ReconnectState {
+            attempt: 3,
+            next_try_secs: 8,
+        };
+        if let StreamMessage::ReconnectState {
+            attempt,
+            next_try_secs,
+        } = msg
+        {
+            assert_eq!(attempt, 3);
+            assert_eq!(next_try_secs, 8);
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+}

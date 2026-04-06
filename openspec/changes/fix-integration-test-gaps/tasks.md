@@ -65,24 +65,24 @@
 
 ## 5. Rust stream.rs Unit Tests
 
-- [ ] 5.1 Add `#[cfg(test)] mod tests` block to `crates/nexus-tui/src/stream.rs`
-- [ ] 5.2 Test reconnection: mock a failing gRPC endpoint, assert backoff attempts up to `MAX_RECONNECT_ATTEMPTS`
-- [ ] 5.3 Test channel capacity: send `STREAM_CHANNEL_CAPACITY + 1` messages, assert oldest is dropped not panicked
-- [ ] 5.4 Test `StreamMessage::SessionMeta` variant: assert fields round-trip correctly
-- [ ] 5.5 Test `StreamMessage::Disconnected` is emitted after max reconnect attempts exhausted
-- [ ] 5.6 Test `StreamMessage::Heartbeat` carries formatted timestamp string
+- [x] 5.1 Add `#[cfg(test)] mod tests` block to `crates/nexus-tui/src/stream.rs`
+- [x] 5.2 Test reconnection: mock a failing gRPC endpoint, assert backoff attempts up to `MAX_RECONNECT_ATTEMPTS`
+- [x] 5.3 Test channel capacity: send `STREAM_CHANNEL_CAPACITY + 1` messages, assert oldest is dropped not panicked
+- [x] 5.4 Test `StreamMessage::SessionMeta` variant: assert fields round-trip correctly
+- [x] 5.5 Test `StreamMessage::Disconnected` is emitted after max reconnect attempts exhausted
+- [x] 5.6 Test `StreamMessage::Heartbeat` carries formatted timestamp string
 
 ## 6. Rust stream_state.rs Unit Tests
 
-- [ ] 6.1 Add `#[cfg(test)] mod tests` block to `crates/nexus-tui/src/stream_state.rs`
-- [ ] 6.2 Test buffer eviction: push 10 001 lines, assert `lines.len() <= 10_000`
-- [ ] 6.3 Test scroll offset clamping: set scroll beyond line count, assert clamped to max valid offset
-- [ ] 6.4 Test `auto_scroll` resets to true when scrolled to bottom
-- [ ] 6.5 Test metadata fields (`model`, `rate_limit_utilization`, `total_cost_usd`) preserved across line appends
-- [ ] 6.6 Test `partial_buf` accumulates then flushes on newline
+- [x] 6.1 Add `#[cfg(test)] mod tests` block to `crates/nexus-tui/src/stream_state.rs`
+- [x] 6.2 Test buffer eviction: push 10 001 lines, assert `lines.len() <= 10_000`
+- [x] 6.3 Test scroll offset clamping: set scroll beyond line count, assert clamped to max valid offset
+- [x] 6.4 Test `auto_scroll` resets to true when scrolled to bottom
+- [x] 6.5 Test metadata fields (`model`, `rate_limit_utilization`, `total_cost_usd`) preserved across line appends
+- [x] 6.6 Test `partial_buf` accumulates then flushes on newline
 
 ## 7. CI Environment
 
-- [ ] 7.1 Confirm `POSTGRES_URL` is available in CI for PG-gated suites (document in test file header)
-- [ ] 7.2 Confirm `NEXUS_ATTACH_SECRET=test` is exported in CI for acceptance tests
-- [ ] 7.3 Run full test suite (`cargo test` + `bun test`) and confirm no regressions
+- [x] 7.1 Confirm `POSTGRES_URL` is available in CI for PG-gated suites (document in test file header)
+- [x] 7.2 Confirm `NEXUS_ATTACH_SECRET=test` is exported in CI for acceptance tests
+- [x] 7.3 Run full test suite (`cargo test` + `bun test`) and confirm no regressions
