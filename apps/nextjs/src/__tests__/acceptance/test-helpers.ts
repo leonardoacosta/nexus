@@ -6,7 +6,7 @@
 import type { Session } from "@nexus/core";
 import type { WithAgent, AgentStatus } from "@/lib/agent-client";
 import type { HealthMetrics } from "@nexus/core";
-import type { DiscoveredProject } from "@nexus/core";
+import type { CanonicalProject } from "@nexus/core";
 
 export function makeSession(overrides: Partial<WithAgent<Session>> = {}): WithAgent<Session> {
   return {
@@ -74,16 +74,40 @@ export function makeHealthMetrics(
   };
 }
 
-export function makeProject(
-  overrides: Partial<DiscoveredProject> = {},
-): DiscoveredProject {
+interface MakeProjectOptions {
+  name?: string;
+  path?: string;
+  active_sessions?: number;
+  total_sessions?: number;
+  agent?: string;
+}
+
+export function makeProject(overrides: MakeProjectOptions = {}): CanonicalProject {
+  const agentId = overrides.agent ?? "dev-server";
+  const name = overrides.name ?? "nexus";
+  const path = overrides.path ?? "/home/user/dev/nexus";
+  const activeSessions = overrides.active_sessions ?? 2;
+  const totalSessions = overrides.total_sessions ?? 5;
+
   return {
-    name: "nexus",
-    path: "/home/user/dev/nexus",
-    active_sessions: 2,
-    total_sessions: 5,
-    agent: "dev-server",
-    ...overrides,
+    id: `project-${name}`,
+    name,
+    primaryAgentId: agentId,
+    locations: [
+      {
+        agentId,
+        agentName: agentId,
+        path,
+        activeSessions,
+        totalSessions,
+        isPrimary: true,
+        status: "active",
+        priority: 1,
+      },
+    ],
+    activeSessions,
+    totalSessions,
+    discoveredAt: new Date().toISOString(),
   };
 }
 

@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { DiscoveredProject } from "@nexus/core";
-import type { WithAgent } from "@/lib/agent-client";
+import type { CanonicalProject } from "@nexus/core";
 import { fetchProjects } from "@/app/actions/projects";
 import { ProjectCard } from "./ProjectCard";
 
 interface ProjectsPollerProps {
-  initialProjects: WithAgent<DiscoveredProject>[];
+  initialProjects: CanonicalProject[];
 }
 
 export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
@@ -57,7 +56,7 @@ export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
       }}
     >
       {projects.map((project) => (
-        <ProjectCard key={`${project.agent}-${project.name}`} project={project} />
+        <ProjectCard key={project.id} project={project} />
       ))}
     </div>
   );

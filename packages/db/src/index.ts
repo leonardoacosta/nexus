@@ -2,7 +2,7 @@ export { createDb } from "./client";
 export type { Db } from "./client";
 
 // Re-export drizzle query operators for consumers that don't depend on drizzle-orm directly
-export { eq, and, or, isNull, isNotNull, desc, asc } from "drizzle-orm";
+export { eq, and, or, isNull, isNotNull, desc, asc, inArray, notInArray } from "drizzle-orm";
 
 // Re-export all schema tables
 export {
@@ -12,4 +12,6 @@ export {
   notifications,
   credentials,
   agents,
+  projects,
+  projectLocations,
 } from "./schema";

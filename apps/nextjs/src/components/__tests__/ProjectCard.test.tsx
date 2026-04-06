@@ -1,7 +1,7 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ProjectCard } from "../ProjectCard";
-import type { DiscoveredProject } from "@nexus/core";
+import type { CanonicalProject } from "@nexus/core";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -23,14 +23,32 @@ vi.mock("@/app/actions/settings", () => ({
   startSession: vi.fn().mockResolvedValue({ session_name: "test", started: true }),
 }));
 
-function makeProject(overrides: Partial<DiscoveredProject> = {}): DiscoveredProject {
+function makeProject(overrides: Partial<Pick<CanonicalProject, "name" | "activeSessions" | "totalSessions">> & { path?: string; agent?: string } = {}): CanonicalProject {
+  const agentId = overrides.agent ?? "dev-server";
+  const name = overrides.name ?? "nexus";
+  const path = overrides.path ?? "/home/user/dev/nexus";
+  const activeSessions = overrides.activeSessions ?? 3;
+  const totalSessions = overrides.totalSessions ?? 7;
+
   return {
-    name: "nexus",
-    path: "/home/user/dev/nexus",
-    active_sessions: 3,
-    total_sessions: 7,
-    agent: "dev-server",
-    ...overrides,
+    id: `project-${name}`,
+    name,
+    primaryAgentId: agentId,
+    locations: [
+      {
+        agentId,
+        agentName: agentId,
+        path,
+        activeSessions,
+        totalSessions,
+        isPrimary: true,
+        status: "active",
+        priority: 1,
+      },
+    ],
+    activeSessions,
+    totalSessions,
+    discoveredAt: new Date().toISOString(),
   };
 }
 

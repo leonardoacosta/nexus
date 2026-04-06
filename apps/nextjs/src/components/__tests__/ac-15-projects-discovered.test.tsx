@@ -1,8 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { ProjectsPoller } from "../ProjectsPoller";
-import type { DiscoveredProject } from "@nexus/core";
-import type { WithAgent } from "@/lib/agent-client";
+import type { CanonicalProject } from "@nexus/core";
 
 // Mock the fetchProjects action — not called on initial render
 vi.mock("@/app/actions/projects", () => ({
@@ -29,19 +28,34 @@ vi.mock("@/app/actions/settings", () => ({
   startSession: vi.fn().mockResolvedValue({ session_name: "test", started: true }),
 }));
 
-const makeDiscoveredProject = (name: string, path: string): WithAgent<DiscoveredProject> => ({
-  name,
-  path,
-  active_sessions: 0,
-  total_sessions: 0,
-  agent: "homelab",
-});
+function makeCanonicalProject(name: string, path: string): CanonicalProject {
+  return {
+    id: `project-${name}`,
+    name,
+    primaryAgentId: "homelab",
+    locations: [
+      {
+        agentId: "homelab",
+        agentName: "homelab",
+        path,
+        activeSessions: 0,
+        totalSessions: 0,
+        isPrimary: true,
+        status: "active",
+        priority: 1,
+      },
+    ],
+    activeSessions: 0,
+    totalSessions: 0,
+    discoveredAt: new Date().toISOString(),
+  };
+}
 
 describe("AC-15: Projects Discovered Page", () => {
   it("renders discovered projects even when no sessions are active", () => {
     const projects = [
-      makeDiscoveredProject("nx", "/home/user/dev/nx"),
-      makeDiscoveredProject("oo", "/home/user/dev/oo"),
+      makeCanonicalProject("nx", "/home/user/dev/nx"),
+      makeCanonicalProject("oo", "/home/user/dev/oo"),
     ];
 
     render(<ProjectsPoller initialProjects={projects} />);
@@ -57,7 +71,7 @@ describe("AC-15: Projects Discovered Page", () => {
   });
 
   it("shows zero active sessions on project cards", () => {
-    const projects = [makeDiscoveredProject("nx", "/home/user/dev/nx")];
+    const projects = [makeCanonicalProject("nx", "/home/user/dev/nx")];
     render(<ProjectsPoller initialProjects={projects} />);
 
     const activeLabels = screen.getAllByText("0 active");

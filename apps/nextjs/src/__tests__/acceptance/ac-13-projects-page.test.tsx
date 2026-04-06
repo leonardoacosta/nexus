@@ -19,7 +19,7 @@ vi.mock("@/app/actions/projects", () => ({
       projects: [
         makeProject({ name: "co", active_sessions: 2, total_sessions: 4, agent: "alpha" }),
         makeProject({ name: "nexus", active_sessions: 1, total_sessions: 3, agent: "gamma" }),
-      ],
+      ] as import("@nexus/core").CanonicalProject[],
     }),
   ),
 }));

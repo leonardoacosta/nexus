@@ -2,23 +2,28 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import type { DiscoveredProject } from "@nexus/core";
+import type { CanonicalProject } from "@nexus/core";
 import { Badge } from "@nexus/ui";
 import { startSession } from "@/app/actions/settings";
 
 interface ProjectCardProps {
-  project: DiscoveredProject;
+  project: CanonicalProject;
 }
 
 export function ProjectCard({ project }: ProjectCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // Use the primary location for session start; fall back to first location.
+  const primaryLocation =
+    project.locations.find((l) => l.isPrimary) ?? project.locations[0];
+
   const handleStartSession = () => {
+    if (!primaryLocation) return;
     setError(null);
     startTransition(async () => {
       try {
-        await startSession(project.agent, project.name, project.path);
+        await startSession(primaryLocation.agentName, project.name, primaryLocation.path);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to start session",
@@ -68,16 +73,16 @@ export function ProjectCard({ project }: ProjectCardProps) {
           </h3>
         </Link>
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
-          <Badge variant={project.active_sessions > 0 ? "success" : "default"}>
-            {project.active_sessions} active
+          <Badge variant={project.activeSessions > 0 ? "success" : "default"}>
+            {project.activeSessions} active
           </Badge>
-          <Badge>{project.total_sessions} total</Badge>
+          <Badge>{project.totalSessions} total</Badge>
         </div>
       </div>
       <button
         type="button"
         onClick={handleStartSession}
-        disabled={isPending}
+        disabled={isPending || !primaryLocation}
         style={{
           marginTop: "var(--space-3)",
           padding: "var(--space-2) var(--space-3)",

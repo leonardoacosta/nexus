@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ProjectCard } from "../ProjectCard";
-import type { DiscoveredProject } from "@nexus/core";
+import type { CanonicalProject } from "@nexus/core";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -29,12 +29,25 @@ vi.mock("@/app/actions/settings", () => ({
   startSession: mockStartSession,
 }));
 
-const makeProject = (): DiscoveredProject => ({
+const makeProject = (): CanonicalProject => ({
+  id: "project-nx",
   name: "nx",
-  path: "/home/user/dev/nx",
-  active_sessions: 0,
-  total_sessions: 0,
-  agent: "homelab",
+  primaryAgentId: "homelab",
+  locations: [
+    {
+      agentId: "homelab",
+      agentName: "homelab",
+      path: "/home/user/dev/nx",
+      activeSessions: 0,
+      totalSessions: 0,
+      isPrimary: true,
+      status: "active",
+      priority: 1,
+    },
+  ],
+  activeSessions: 0,
+  totalSessions: 0,
+  discoveredAt: new Date().toISOString(),
 });
 
 describe("AC-16: Start Session Button", () => {

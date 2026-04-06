@@ -12,11 +12,11 @@
 
 ## API Batch
 
-- [ ] [2.1] [P-1] Add `upsertProjectLocation(db, agentId, projects)` helper in `apps/agent/src/db/project-registry.ts` (batch upsert: ON CONFLICT DO NOTHING for projects, ON CONFLICT DO UPDATE for locations, sweep missing) [owner:api-engineer] [beads:nx-cqh2]
-- [ ] [2.2] [P-2] Call `upsertProjectLocation` in `apps/agent/src/routes/projects-discovered.ts` after each successful scan, passing expanded absolute paths [owner:api-engineer] [beads:nx-8cqk]
-- [ ] [2.3] [P-1] Add `GET /api/projects` route at `apps/nextjs/src/app/api/projects/route.ts` (JOIN projects + project_locations + session counts, ordered by active_sessions DESC then name ASC) [owner:api-engineer] [beads:nx-o8bo]
-- [ ] [2.4] [P-2] Update `fetchProjects()` in `apps/nextjs/src/app/actions/projects.ts` to call `GET /api/projects` and return `CanonicalProject[]` [owner:api-engineer] [beads:nx-r507]
-- [ ] [2.5] [P-2] Add `resolveAttachAgent(project, agentStatuses)` helper in `apps/nextjs/src/lib/agent-routing.ts` (prefer primaryAgentId if online + active, fallback to first available location) [owner:api-engineer] [beads:nx-bwgb]
+- [x] [2.1] [P-1] Add `upsertProjectLocation(db, agentId, projects)` helper in `apps/agent/src/db/project-registry.ts` (batch upsert: ON CONFLICT DO NOTHING for projects, ON CONFLICT DO UPDATE for locations, sweep missing) [owner:api-engineer] [beads:nx-cqh2]
+- [x] [2.2] [P-2] Call `upsertProjectLocation` in `apps/agent/src/routes/projects-discovered.ts` after each successful scan, passing expanded absolute paths [owner:api-engineer] [beads:nx-8cqk]
+- [x] [2.3] [P-1] Add `GET /api/projects` route at `apps/nextjs/src/app/api/projects/route.ts` (JOIN projects + project_locations + session counts, ordered by active_sessions DESC then name ASC) [owner:api-engineer] [beads:nx-o8bo]
+- [x] [2.4] [P-2] Update `fetchProjects()` in `apps/nextjs/src/app/actions/projects.ts` to call `GET /api/projects` and return `CanonicalProject[]` [owner:api-engineer] [beads:nx-r507]
+- [x] [2.5] [P-2] Add `resolveAttachAgent(project, agentStatuses)` helper in `apps/nextjs/src/lib/agent-routing.ts` (prefer primaryAgentId if online + active, fallback to first available location) [owner:api-engineer] [beads:nx-bwgb]
 
 ## UI Batch
 

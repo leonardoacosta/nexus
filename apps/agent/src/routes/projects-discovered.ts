@@ -7,6 +7,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createLogger } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
+import { upsertProjectLocations } from "../db/project-registry";
+import type { ProjectToUpsert } from "../db/project-registry";
 
 // ── Logger ─────────────────────────────────────────────────────────────────
 
@@ -254,6 +256,18 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
 
   // Sort alphabetically by name
   projects.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Upsert discovered projects into the canonical registry (fire-and-forget, don't block response)
+  const toUpsert: ProjectToUpsert[] = projects.map((p) => ({
+    name: p.name,
+    path: p.path,
+    activeSessions: p.activeSessions,
+    totalSessions: p.totalSessions,
+  }));
+
+  upsertProjectLocations(db, agent.id, toUpsert).catch((err) => {
+    log.warn({ error: err instanceof Error ? err.message : String(err) }, "project registry upsert failed — non-fatal");
+  });
 
   const result: AgentDiscoveredProjectsResponse = {
     projects,
