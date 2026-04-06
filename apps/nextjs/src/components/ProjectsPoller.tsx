@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CanonicalProject } from "@nexus/core";
 import { fetchProjects } from "@/app/actions/projects";
-import { ProjectCard } from "./ProjectCard";
+import { ProjectsTable } from "./ProjectsTable";
 
 interface ProjectsPollerProps {
   initialProjects: CanonicalProject[];
@@ -47,17 +47,5 @@ export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
     );
   }
 
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
-        gap: "var(--space-4)",
-      }}
-    >
-      {projects.map((project) => (
-        <ProjectCard key={project.id} project={project} />
-      ))}
-    </div>
-  );
+  return <ProjectsTable projects={projects} />;
 }
