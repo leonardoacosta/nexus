@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { CanonicalProject } from "@nexus/core";
 import { Badge } from "@nexus/ui";
 import { startSession } from "@/app/actions/settings";
+import { resolveAttachAgent } from "@/lib/agent-routing";
 
 interface ProjectCardProps {
   project: CanonicalProject;
@@ -14,16 +15,23 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Use the primary location for session start; fall back to first location.
-  const primaryLocation =
-    project.locations.find((l) => l.isPrimary) ?? project.locations[0];
-
   const handleStartSession = () => {
-    if (!primaryLocation) return;
     setError(null);
     startTransition(async () => {
       try {
-        await startSession(primaryLocation.agentName, project.name, primaryLocation.path);
+        // TODO: pass real agentStatuses once ProjectsPoller exposes them
+        const { agentId, isFallback } = resolveAttachAgent(project, []);
+        const location = project.locations.find((l) => l.agentId === agentId);
+        const path = location?.path ?? "";
+
+        if (isFallback) {
+          const primaryName =
+            project.locations.find((l) => l.isPrimary)?.agentName ??
+            project.primaryAgentId;
+          window.alert(`Connected to ${agentId} (${primaryName} offline)`);
+        }
+
+        await startSession(agentId, project.name, path);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to start session",
@@ -79,10 +87,45 @@ export function ProjectCard({ project }: ProjectCardProps) {
           <Badge>{project.totalSessions} total</Badge>
         </div>
       </div>
+      {project.locations.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            flexWrap: "wrap",
+            marginTop: "var(--space-2)",
+          }}
+        >
+          {project.locations
+            .sort((a, b) => a.priority - b.priority)
+            .map((loc) => (
+              <span
+                key={loc.agentId}
+                style={{
+                  fontSize: "var(--font-size-xs)",
+                  color:
+                    loc.status === "missing"
+                      ? "var(--color-fg-muted)"
+                      : "var(--color-fg-dim)",
+                  opacity: loc.status === "missing" ? 0.5 : 1,
+                  textDecoration:
+                    loc.status === "missing" ? "line-through" : "none",
+                }}
+              >
+                {loc.agentName}{" "}
+                {loc.isPrimary && loc.status === "active"
+                  ? "\u25CF"
+                  : loc.status === "active"
+                    ? "\u25CB"
+                    : ""}
+              </span>
+            ))}
+        </div>
+      )}
       <button
         type="button"
         onClick={handleStartSession}
-        disabled={isPending || !primaryLocation}
+        disabled={isPending}
         style={{
           marginTop: "var(--space-3)",
           padding: "var(--space-2) var(--space-3)",

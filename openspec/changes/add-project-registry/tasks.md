@@ -20,9 +20,9 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] Update `ProjectsPoller` to consume `CanonicalProject[]` (group by canonical id, not per-agent; remove `WithAgent<DiscoveredProject>` dep) [owner:ui-engineer] [beads:nx-ahju]
-- [ ] [3.2] [P-1] Add location badges to `ProjectCard` (homelab ● for primary-active, mac ○ for non-primary-active, dim/strikethrough for missing) [owner:ui-engineer] [beads:nx-ohe9]
-- [ ] [3.3] [P-2] Wire "Start Session" button through `resolveAttachAgent`; show toast "Connected to <agent> (homelab offline)" when falling back [owner:ui-engineer] [beads:nx-scrk]
+- [x] [3.1] [P-1] Update `ProjectsPoller` to consume `CanonicalProject[]` (group by canonical id, not per-agent; remove `WithAgent<DiscoveredProject>` dep) [owner:ui-engineer] [beads:nx-ahju]
+- [x] [3.2] [P-1] Add location badges to `ProjectCard` (homelab ● for primary-active, mac ○ for non-primary-active, dim/strikethrough for missing) [owner:ui-engineer] [beads:nx-ohe9]
+- [x] [3.3] [P-2] Wire "Start Session" button through `resolveAttachAgent`; show toast "Connected to <agent> (homelab offline)" when falling back [owner:ui-engineer] [beads:nx-scrk]
 
 ## E2E Batch
 
