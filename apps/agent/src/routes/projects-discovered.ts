@@ -15,6 +15,7 @@ const log = createLogger("agent:routes:projects-discovered");
 
 const CACHE_TTL_MS = 5_000; // 5 seconds
 const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1_000; // 5 minutes
+export const QUERY_WINDOW_HOURS = 24; // hours of history to include in session cross-reference
 
 // ── Tilde expansion ────────────────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
   }
 
   // 7. Fetch recent sessions to cross-reference
-  const recentSessions = await queryRecentSessions(db, 24);
+  const recentSessions = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
 
   // 5-6. Scan projectsDir one level deep for git repos
   let entries: fs.Dirent[] = [];

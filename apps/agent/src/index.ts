@@ -37,6 +37,8 @@ upsertSelfInRegistry(db).catch((err) => {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "agent self-registration failed — will retry on next restart");
 });
 
+logger.info({ queryWindowHours: 24 }, "Project discovery query window configured");
+
 const sessionManager = createSessionManager();
 
 // Health snapshot scheduler — persists metrics to PostgreSQL every 30s

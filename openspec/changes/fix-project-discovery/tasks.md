@@ -100,9 +100,9 @@
 
 ## 12. Query Window Consistency (P3)
 
-- [ ] 12.1 Expose `queryWindowHours` as a configurable constant (default 24) used by all agents
+- [x] 12.1 Expose `queryWindowHours` as a configurable constant (default 24) used by all agents
       in `queryRecentSessions`; document in agent config schema
-- [ ] 12.2 Confirm all agents use the same default window and log the value at startup
+- [x] 12.2 Confirm all agents use the same default window and log the value at startup
 
 ## 13. Verification
 

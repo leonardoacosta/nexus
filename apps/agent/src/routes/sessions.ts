@@ -6,6 +6,8 @@ import {
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 
+const QUERY_WINDOW_HOURS = 24; // hours of history to include in session queries
+
 /** Valid status values accepted as query parameter filters. */
 const VALID_STATUSES = new Set(["active", "idle", "ended", "stale", "errored"]);
 
@@ -50,7 +52,7 @@ export function createSessionHandlers(db: Db) {
       return cache.data;
     }
     const active = await queryActiveSessions(db);
-    const recent = await queryRecentSessions(db, 24);
+    const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
     const map = new Map<string, SessionRow>();
     for (const row of active) map.set(row.id, row);
     for (const row of recent) {
@@ -83,7 +85,7 @@ async function getCachedSessions(db: Db): Promise<SessionRow[]> {
   }
 
   const active = await queryActiveSessions(db);
-  const recent = await queryRecentSessions(db, 24);
+  const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
 
   // Merge, dedup by id (active takes precedence)
   const map = new Map<string, SessionRow>();
