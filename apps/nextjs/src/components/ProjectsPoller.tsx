@@ -39,9 +39,9 @@ export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
           textAlign: "center",
         }}
       >
-        <p style={{ fontSize: "var(--font-size-lg)" }}>No projects found</p>
+        <p style={{ fontSize: "var(--font-size-lg)" }}>No projects in registry</p>
         <p style={{ fontSize: "var(--font-size-sm)", marginTop: "var(--space-2)" }}>
-          No projects found. Make sure agents are running and NEXUS_PROJECTS_DIR is configured.
+          Projects appear here once agents scan and register them. Make sure agents are running.
         </p>
       </div>
     );
