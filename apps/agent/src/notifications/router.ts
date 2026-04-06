@@ -56,7 +56,7 @@ const CHANNEL_HANDLERS: Record<
 
 /**
  * Route a notification to the appropriate channels based on rules.
- * Returns an array of channel results.
+ * Returns an array of channel results (serial — preserved for backward compat).
  */
 export async function routeNotification(
   notification: NotificationRow,
@@ -75,4 +75,46 @@ export async function routeNotification(
   }
 
   return results;
+}
+
+/**
+ * Route a notification to all matching channels in parallel (D4).
+ *
+ * Uses Promise.allSettled so a single failing channel does not block others.
+ * Returns separate lists of delivered and failed channel names.
+ */
+export async function routeNotificationParallel(
+  notification: NotificationRow,
+): Promise<{ delivered: string[]; failed: string[] }> {
+  const rule = findMatchingRule(notification);
+
+  const knownChannels = rule.channels.filter((ch) => {
+    if (CHANNEL_HANDLERS[ch] === undefined) {
+      log.warn({ channel: ch, notificationId: notification.id }, "unknown notification channel");
+      return false;
+    }
+    return true;
+  }) as NotificationChannel[];
+
+  const settled = await Promise.allSettled(
+    knownChannels.map((ch) => CHANNEL_HANDLERS[ch]!(notification)),
+  );
+
+  const delivered: string[] = [];
+  const failed: string[] = [];
+
+  for (const [i, result] of settled.entries()) {
+    const channelName = knownChannels[i]!;
+    if (result.status === "fulfilled") {
+      delivered.push(channelName);
+    } else {
+      failed.push(channelName);
+      log.error(
+        { channel: channelName, notificationId: notification.id, err: result.reason },
+        "channel delivery failed",
+      );
+    }
+  }
+
+  return { delivered, failed };
 }

@@ -8,7 +8,7 @@ import {
 } from "./buffer";
 import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
-import { routeNotification, findMatchingRule } from "./router";
+import { routeNotification, findMatchingRule, routeNotificationParallel } from "./router";
 
 /**
  * Notification manager — orchestrates the lifecycle:
@@ -68,32 +68,58 @@ export class NotificationManager {
     return row;
   }
 
-  /** Flush all buffered (queued) notifications — called when meeting ends. */
+  /** Flush all buffered (queued) notifications — called when meeting ends.
+   *
+   * Uses parallel delivery via Promise.allSettled so all notifications are
+   * attempted concurrently. A single failure does not block others.
+   */
   async flush(): Promise<number> {
     const queued = await queryNotificationsByStatus(this.db, "queued");
-    let delivered = 0;
 
-    for (const notification of queued) {
-      const success = await this.deliverNotification(notification);
-      if (success) delivered++;
+    // Parallel delivery — partial failures are isolated (D4).
+    const results = await Promise.allSettled(
+      queued.map((n) => this.deliverNotification(n)),
+    );
+
+    const delivered = results.filter(
+      (r) => r.status === "fulfilled" && r.value,
+    ).length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+
+    if (failed > 0) {
+      logger.warn(
+        { total: queued.length, delivered, failed },
+        "notification flush complete (partial failure)",
+      );
+    } else {
+      logger.info({ total: queued.length, delivered }, "notification flush complete");
     }
-
-    logger.info({ total: queued.length, delivered }, "notification flush complete");
 
     return delivered;
   }
 
-  /** Deliver a single notification via the router. */
+  /** Deliver a single notification via the router using parallel channel delivery. */
   private async deliverNotification(notification: NotificationRow): Promise<boolean> {
-    const results = await routeNotification(notification);
-    const allSucceeded = results.length > 0 && results.every((r) => r.success);
+    // Use parallel delivery with partial-success reporting (D4).
+    const { delivered, failed } = await routeNotificationParallel(notification);
 
-    if (allSucceeded) {
+    const anyDelivered = delivered.length > 0;
+
+    if (anyDelivered) {
       await markNotificationDelivered(this.db, notification.id);
       notification.status = "delivered";
     }
 
-    return allSucceeded;
+    if (failed.length > 0) {
+      logger.warn(
+        { id: notification.id, delivered, failed },
+        failed.length === delivered.length + failed.length
+          ? "notification delivery failed on all channels"
+          : "notification delivery partial failure",
+      );
+    }
+
+    return anyDelivered;
   }
 
   /** Start meeting mode. */

@@ -208,6 +208,24 @@ impl ReceiverService {
 
             ("POST", "/speak") => match serde_json::from_slice::<SpeakRequest>(body) {
                 Ok(req) => {
+                    // Input validation (D8): reject empty or oversized messages.
+                    if req.message.is_empty() {
+                        let response = serde_json::json!({
+                            "error": "validation",
+                            "detail": "message is empty"
+                        });
+                        let body = serde_json::to_vec(&response).unwrap_or_default();
+                        return (400, "application/json".to_string(), body);
+                    }
+                    if req.message.len() > 500 {
+                        let response = serde_json::json!({
+                            "error": "validation",
+                            "detail": "message exceeds 500 characters"
+                        });
+                        let body = serde_json::to_vec(&response).unwrap_or_default();
+                        return (400, "application/json".to_string(), body);
+                    }
+
                     let notification_type = req
                         .notification_type
                         .as_deref()

@@ -450,9 +450,12 @@ export function startServer(
   db?: Db,
   options?: { encryptionKey?: import("node:buffer").Buffer; prerotateThreshold?: number },
 ) {
-  // Initialize subsystems that need the DB
+  // Initialize subsystems that need the DB.
+  // initNotificationRoutes is async (mutex-guarded) — fire-and-forget here
+  // since server startup itself is synchronous and the manager will be ready
+  // well before the first real request arrives.
   if (db) {
-    initNotificationRoutes(db);
+    void initNotificationRoutes(db);
     initCredentialRoutes(db, {
       encryptionKey: options?.encryptionKey,
       prerotateThreshold: options?.prerotateThreshold,

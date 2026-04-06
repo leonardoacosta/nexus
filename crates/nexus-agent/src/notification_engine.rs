@@ -33,6 +33,75 @@ use crate::services::receiver::ReceiverService;
 
 use sentry;
 
+// ---------------------------------------------------------------------------
+// PII Redaction
+// ---------------------------------------------------------------------------
+
+/// Strip PII (email addresses, URLs, filesystem paths) from log strings.
+fn redact(s: &str) -> String {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    static EMAIL: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").unwrap()
+    });
+    static URL: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"https?://\S+").unwrap());
+    static PATH: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"/(?:[a-zA-Z0-9._\-]+/)+[a-zA-Z0-9._\-]*").unwrap()
+    });
+    let s = EMAIL.replace_all(s, "[REDACTED_EMAIL]");
+    let s = URL.replace_all(&s, "[REDACTED_URL]");
+    PATH.replace_all(&s, "[REDACTED_PATH]").into_owned()
+}
+
+// ---------------------------------------------------------------------------
+// TTS Retry with Exponential Backoff
+// ---------------------------------------------------------------------------
+
+const TTS_MAX_ATTEMPTS: u32 = 3;
+const TTS_BASE_MS: u64 = 500;
+const TTS_MAX_MS: u64 = 4_000;
+
+/// Deliver a TTS notification with exponential-backoff retry.
+///
+/// Attempts up to `TTS_MAX_ATTEMPTS` times. On each failure (except the last),
+/// sleeps for `base * 2^attempt ± 10% jitter`, capped at `TTS_MAX_MS`.
+async fn deliver_with_retry(
+    receiver: &ReceiverService,
+    message: &str,
+    message_type: Option<&str>,
+    channels: Option<&[String]>,
+) -> anyhow::Result<bool> {
+    let mut attempt = 0u32;
+    loop {
+        match receiver.speak_from_socket(message, message_type, channels).await {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt + 1 < TTS_MAX_ATTEMPTS => {
+                let delay_ms = (TTS_BASE_MS * 2u64.pow(attempt)).min(TTS_MAX_MS);
+                // ±10% jitter
+                let jitter_range = (delay_ms as f64 * 0.1) as i64;
+                let jitter: i64 = if jitter_range > 0 {
+                    // Simple deterministic jitter based on attempt — avoids rand dep.
+                    // Alternates sign: attempt 0 → +jitter, attempt 1 → -jitter, etc.
+                    if attempt % 2 == 0 { jitter_range } else { -jitter_range }
+                } else {
+                    0
+                };
+                let sleep_ms = ((delay_ms as i64) + jitter).max(1) as u64;
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    sleep_ms,
+                    error = %redact(&e.to_string()),
+                    "notification_engine: TTS delivery failed, retrying"
+                );
+                tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Spawn a background task that watches `notifications.toml` for modifications
 /// and atomically swaps the shared config on reload.
 ///
@@ -116,16 +185,21 @@ pub fn spawn_config_watcher(
             // Reload outside the lock to avoid holding it during I/O.
             // We evaluate the result before any `.await` so the non-Send
             // Box<dyn Error> is not held across the await point.
+            // Parse into a temporary value first — do NOT touch the live config
+            // until we know the new config is valid (config reload guard, D3).
             let reload_result: Result<NotificationConfig, String> =
                 NotificationConfig::load().map_err(|e| e.to_string());
             match reload_result {
                 Ok(new_config) => {
-                    let mut cfg = config.write().await;
-                    *cfg = new_config;
-                    tracing::info!("notification_engine: notifications.toml reloaded");
+                    *config.write().await = new_config;
+                    tracing::info!("notification_engine: notifications.toml reloaded successfully");
                 }
                 Err(e) => {
-                    tracing::warn!("notification_engine: reload failed: {e}");
+                    // Retain previous valid config — only log the error.
+                    tracing::error!(
+                        error = %redact(&e),
+                        "notification_engine: config reload failed; retaining previous config"
+                    );
                 }
             }
         }
@@ -187,7 +261,8 @@ impl NotificationEngine {
                 category: Some("notification.delivery".into()),
                 message: Some(format!(
                     "error notification received for project '{}': {}",
-                    event.project, message
+                    event.project,
+                    redact(message)
                 )),
                 level: sentry::Level::Error,
                 ..Default::default()
@@ -293,15 +368,18 @@ impl NotificationEngine {
             channels = ?ch_refs,
             "notification_engine: delivering"
         );
-        if let Err(e) = self.receiver
-            .speak_from_socket(
-                &notification.message,
-                Some(&notification.message_type),
-                ch_refs,
-            )
-            .await
+        if let Err(e) = deliver_with_retry(
+            &self.receiver,
+            &notification.message,
+            Some(&notification.message_type),
+            ch_refs,
+        )
+        .await
         {
-            tracing::warn!(error = %e, "notification_engine: speak_from_socket failed");
+            tracing::warn!(
+                error = %redact(&e.to_string()),
+                "notification_engine: speak_from_socket failed after all retries"
+            );
         }
         sentry::add_breadcrumb(sentry::Breadcrumb {
             ty: "info".into(),
