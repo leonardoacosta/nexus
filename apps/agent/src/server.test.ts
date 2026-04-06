@@ -24,7 +24,9 @@ function delay(ms: number): Promise<void> {
 
 describe("/health", () => {
   it("returns 200 with HealthMetrics shape", async () => {
-    const res = await fetch(`${baseUrl}/health`);
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
@@ -47,7 +49,7 @@ describe("/health", () => {
 describe("CORS", () => {
   it("sets CORS headers for Tailscale origins", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://100.64.0.1:3000" },
+      headers: { Origin: "http://100.64.0.1:3000", "x-nexus-secret": ATTACH_SECRET },
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe(
@@ -57,13 +59,13 @@ describe("CORS", () => {
       "GET, POST, OPTIONS",
     );
     expect(res.headers.get("access-control-allow-headers")).toBe(
-      "Content-Type",
+      "Content-Type, x-nexus-secret",
     );
   });
 
   it("does not set CORS headers for non-Tailscale origins", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://example.com" },
+      headers: { Origin: "http://example.com", "x-nexus-secret": ATTACH_SECRET },
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
