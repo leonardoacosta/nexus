@@ -145,6 +145,17 @@ pub(crate) fn migrate_v2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// V4 Migration — drop health_samples (superseded by PostgreSQL health_snapshots).
+pub(crate) fn migrate_v4(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        DROP TABLE IF EXISTS health_samples;
+        DROP INDEX IF EXISTS idx_health_timestamp;
+        ",
+    )?;
+    Ok(())
+}
+
 /// V3 Migration — consolidation tables (cron_runs, git_events, agent_lifecycle).
 pub(crate) fn migrate_v3(conn: &Connection) -> Result<()> {
     conn.execute_batch(

@@ -37,11 +37,8 @@ impl NexusDb {
                 params![format!("-{spec_archive_days} days")],
             )?;
 
-            // V2 analytics tables — 30-day retention.
-            let health_samples_deleted = conn.execute(
-                "DELETE FROM health_samples WHERE timestamp < datetime('now', ?1)",
-                params![format!("-{session_days} days")],
-            )?;
+            // health_samples table was dropped in migration v4 — no longer cleaned up.
+            let health_samples_deleted: usize = 0;
 
             let spec_snapshots_deleted = conn.execute(
                 "DELETE FROM spec_snapshots WHERE timestamp < datetime('now', ?1)",

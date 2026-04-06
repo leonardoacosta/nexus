@@ -2,6 +2,8 @@
 export interface HealthMetrics {
   hostname: string;
   uptime_seconds: number;
+  /** ISO-8601 timestamp set when collect() successfully completes. */
+  collectedAt?: string;
   cpu: {
     overall_percent: number;
     per_core_percent: number[];

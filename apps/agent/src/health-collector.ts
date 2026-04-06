@@ -46,9 +46,12 @@ export class HealthCollector {
         si.processes(),
       ]);
 
+    const collectedAt = new Date().toISOString();
+
     const metrics: HealthMetrics = {
       hostname: os.hostname(),
       uptime_seconds: Math.floor(os.uptime()),
+      collectedAt,
       cpu: {
         overall_percent: round(cpuLoad.currentLoad),
         per_core_percent: cpuLoad.cpus.map((c) => round(c.load)),
@@ -81,10 +84,12 @@ export class HealthCollector {
   }
 
   private async tick(): Promise<void> {
+    const childLogger = logger.child({ component: "health-collector", hostname: os.hostname(), intervalMs: this.intervalMs });
     try {
       this.latest = await this.collect();
+      childLogger.debug({ collectedAt: this.latest.collectedAt }, "health collection tick succeeded");
     } catch (err) {
-      logger.warn({ err }, "health collection tick failed");
+      childLogger.warn({ err }, "health collection tick failed");
     }
   }
 

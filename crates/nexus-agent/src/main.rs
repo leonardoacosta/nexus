@@ -219,19 +219,24 @@ async fn main() -> Result<()> {
     // Create the shutdown coordinator shared between signal handler and gRPC service.
     let coordinator = Arc::new(ShutdownCoordinator::new());
 
-    // Start the health collector with a 5-second refresh interval and DB sampling.
-    let health_collector = HealthCollector::spawn_with_db(
-        Duration::from_secs(5),
-        Some(Arc::clone(&db)),
-        coordinator.token(),
-    );
-
-    // Build a shared HTTP client for outbound requests (reused by services and
-    // the HTTP handler layer to avoid per-request connection pool overhead).
+    // Build a shared HTTP client for outbound requests (reused by services,
+    // the health collector POST, and the HTTP handler layer).
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("failed to create shared reqwest::Client");
+
+    // Read the NEXUS_ATTACH_SECRET used to authenticate ingest POSTs to the TS agent.
+    let nexus_secret = std::env::var("NEXUS_ATTACH_SECRET").unwrap_or_default();
+
+    // Start the health collector with a 5-second refresh interval.
+    // Every 6th tick (30 s) the snapshot is POSTed to the TS agent at /health/ingest.
+    let health_collector = HealthCollector::spawn(
+        Duration::from_secs(5),
+        http_client.clone(),
+        nexus_secret,
+        coordinator.token(),
+    );
 
     // Role-gated: start ReceiverService only on Primary.
     // Agent role skips TTS/APNs/banner — no audio deps needed at runtime.

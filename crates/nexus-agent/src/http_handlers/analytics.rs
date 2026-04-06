@@ -15,17 +15,15 @@ pub struct AnalyticsHealthQuery {
     pub hours: Option<u32>,
 }
 
-/// GET /analytics/health?hours=N — return health timeseries samples.
+/// GET /analytics/health — REMOVED (superseded by TS agent PostgreSQL-backed endpoint).
+///
+/// The `health_samples` SQLite table was dropped in migration v4. Health time-series
+/// is now served exclusively from the TypeScript agent's `GET /health/history` route.
 pub async fn analytics_health_handler(
-    State(state): State<AppState>,
-    Query(query): Query<AnalyticsHealthQuery>,
+    State(_state): State<AppState>,
+    Query(_query): Query<AnalyticsHealthQuery>,
 ) -> Json<Vec<nexus_core::db::HealthSampleRecord>> {
-    let hours = query.hours.unwrap_or(24);
-    let since = chrono::Utc::now() - chrono::Duration::hours(hours as i64);
-    let result = state
-        .db
-        .query_health_samples(Some(&since.to_rfc3339()), 10_000);
-    Json(result.unwrap_or_default())
+    Json(vec![])
 }
 
 // ---------------------------------------------------------------------------

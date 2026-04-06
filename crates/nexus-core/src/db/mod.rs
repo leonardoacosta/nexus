@@ -111,6 +111,7 @@ impl NexusDb {
             migrations::migrate_v1,
             migrations::migrate_v2,
             migrations::migrate_v3,
+            migrations::migrate_v4,
         ];
 
         for (i, migration) in migrations.iter().enumerate() {

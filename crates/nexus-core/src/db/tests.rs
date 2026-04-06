@@ -539,70 +539,8 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
-    // V2: Health samples tests
-    // -------------------------------------------------------------------
-
-    #[test]
-    fn insert_and_query_health_samples() {
-        let db = test_db();
-        let sample = HealthSampleRecord {
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            cpu_percent: Some(42.5),
-            memory_used_gb: Some(8.0),
-            memory_total_gb: Some(32.0),
-            disk_used_gb: Some(100.0),
-            disk_total_gb: Some(500.0),
-            load1: Some(1.5),
-            load5: Some(1.2),
-            load15: Some(0.9),
-            uptime_seconds: Some(86400),
-        };
-        db.insert_health_sample(&sample).unwrap();
-
-        let results = db.query_health_samples(None, 10).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].cpu_percent, Some(42.5));
-        assert_eq!(results[0].uptime_seconds, Some(86400));
-    }
-
-    #[test]
-    fn query_health_samples_with_since() {
-        let db = test_db();
-        let old = HealthSampleRecord {
-            timestamp: "2020-01-01T00:00:00Z".to_string(),
-            cpu_percent: Some(10.0),
-            memory_used_gb: None,
-            memory_total_gb: None,
-            disk_used_gb: None,
-            disk_total_gb: None,
-            load1: None,
-            load5: None,
-            load15: None,
-            uptime_seconds: None,
-        };
-        db.insert_health_sample(&old).unwrap();
-
-        let recent = HealthSampleRecord {
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            cpu_percent: Some(50.0),
-            memory_used_gb: None,
-            memory_total_gb: None,
-            disk_used_gb: None,
-            disk_total_gb: None,
-            load1: None,
-            load5: None,
-            load15: None,
-            uptime_seconds: None,
-        };
-        db.insert_health_sample(&recent).unwrap();
-
-        let results = db
-            .query_health_samples(Some("2024-01-01T00:00:00Z"), 10)
-            .unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].cpu_percent, Some(50.0));
-    }
-
+    // Note: health_samples tests removed — table dropped in migration v4.
+    // Health persistence now flows through PostgreSQL health_snapshots via TS agent.
     // -------------------------------------------------------------------
     // V2: Spec snapshots tests
     // -------------------------------------------------------------------
@@ -794,19 +732,7 @@ mod tests {
         let db = test_db();
         let old_ts = "2020-01-01T00:00:00Z".to_string();
 
-        db.insert_health_sample(&HealthSampleRecord {
-            timestamp: old_ts.clone(),
-            cpu_percent: Some(10.0),
-            memory_used_gb: None,
-            memory_total_gb: None,
-            disk_used_gb: None,
-            disk_total_gb: None,
-            load1: None,
-            load5: None,
-            load15: None,
-            uptime_seconds: None,
-        })
-        .unwrap();
+        // Note: health_samples was dropped in migration v4 — no insert here.
 
         db.insert_spec_snapshot(&SpecSnapshotRecord {
             timestamp: old_ts.clone(),
@@ -847,7 +773,7 @@ mod tests {
         .unwrap();
 
         let stats = db.prune_old_records(30, 90).unwrap();
-        assert_eq!(stats.health_samples_deleted, 1);
+        assert_eq!(stats.health_samples_deleted, 0); // table dropped in v4
         assert_eq!(stats.spec_snapshots_deleted, 1);
         assert_eq!(stats.credential_polls_deleted, 1);
         assert_eq!(stats.credential_swaps_deleted, 1);

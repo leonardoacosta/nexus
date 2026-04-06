@@ -167,6 +167,22 @@ describe("HealthCollector", () => {
     const collector = new HealthCollector();
     expect(collector.getLatest()).toBeNull();
   });
+
+  // ── [6.1/6.2] collectedAt field ──────────────────────────────────────────
+
+  it("collect() populates collectedAt as an ISO-8601 string", async () => {
+    const before = new Date().toISOString();
+    const collector = new HealthCollector();
+    const metrics = await collector.collect();
+
+    expect(typeof metrics.collectedAt).toBe("string");
+    // Should be a valid date
+    const parsed = new Date(metrics.collectedAt!);
+    expect(Number.isNaN(parsed.getTime())).toBe(false);
+    // Should be after test start and within 5s
+    expect(parsed.toISOString() >= before).toBe(true);
+    expect(Date.now() - parsed.getTime()).toBeLessThan(5_000);
+  });
 });
 
 // ── [4.3] /health endpoint shape ──────────────────────────────────────────

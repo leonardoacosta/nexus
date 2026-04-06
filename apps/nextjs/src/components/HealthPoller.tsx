@@ -93,14 +93,38 @@ export function HealthPoller({
         gap: "var(--space-4)",
       }}
     >
-      {metrics.map((m) => (
-        <MachineCard
-          key={m.agent}
-          metrics={m}
-          cpuHistory={cpuHistories.get(m.agent)}
-          ramHistory={ramHistories.get(m.agent)}
-        />
-      ))}
+      {metrics.map((m) => {
+        const isStale =
+          m.collectedAt != null &&
+          Date.now() - new Date(m.collectedAt).getTime() > 30_000;
+        return (
+          <div key={m.agent} style={{ position: "relative" }}>
+            {isStale && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: "var(--space-2)",
+                  right: "var(--space-2)",
+                  zIndex: 1,
+                  backgroundColor: "var(--color-warning, #d97706)",
+                  color: "#fff",
+                  fontSize: "var(--font-size-xs, 0.75rem)",
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "9999px",
+                }}
+              >
+                Stale
+              </span>
+            )}
+            <MachineCard
+              metrics={m}
+              cpuHistory={cpuHistories.get(m.agent)}
+              ramHistory={ramHistories.get(m.agent)}
+            />
+          </div>
+        );
+      })}
       {offlineAgents.map((agent) => (
         <OfflineMachineCard key={agent.name} agent={agent} />
       ))}

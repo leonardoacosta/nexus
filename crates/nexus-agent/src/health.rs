@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nexus_core::db::{HealthSampleRecord, NexusDb};
 use nexus_core::health::{CpuHealth, DiskHealth, DockerHealth, MachineHealth, RamHealth};
 use sysinfo::System;
 use tokio::sync::RwLock;
@@ -10,9 +9,17 @@ use tokio::sync::RwLock;
 /// At a 5-second interval this means Docker is queried every 30 seconds.
 const DOCKER_REFRESH_TICKS: u32 = 6;
 
-/// How many health ticks to wait between writing a health sample to the DB.
-/// At a 5-second interval this means a DB sample every 30 seconds.
-const DB_SAMPLE_TICKS: u32 = 6;
+/// How many health ticks to wait between POSTing a health snapshot to the TS agent.
+/// At a 5-second interval this means a POST every 30 seconds.
+const POST_TICKS: u32 = 6;
+
+/// The TS agent ingest endpoint for health snapshots.
+const INGEST_URL: &str = "http://127.0.0.1:7400/health/ingest";
+
+/// Exponential backoff parameters for the HTTP POST retry loop.
+const BACKOFF_BASE_MS: u64 = 1_000;
+const BACKOFF_MAX_MS: u64 = 60_000;
+const BACKOFF_MAX_ATTEMPTS: u32 = 3;
 
 /// Shared health state that is periodically refreshed in the background.
 #[derive(Clone)]
@@ -27,16 +34,12 @@ impl HealthCollector {
     /// CPU percentage requires two samples, so the first reading may be low.
     /// The `System` instance is created once and reused across refreshes to
     /// avoid the ~100-200 MB allocation cost of `System::new_all()` on every tick.
-    pub fn spawn(interval: Duration, token: tokio_util::sync::CancellationToken) -> Self {
-        Self::spawn_with_db(interval, None, token)
-    }
-
-    /// Create a new collector with optional SQLite backing store for health
-    /// sampling. When `db` is `Some`, every 6th refresh tick (30s at 5s
-    /// interval) writes a `health_samples` row.
-    pub fn spawn_with_db(
+    /// Every 6th tick (30 s at 5 s interval) the snapshot is POSTed to the TS
+    /// agent at `POST /health/ingest` with exponential backoff retry.
+    pub fn spawn(
         interval: Duration,
-        db: Option<Arc<NexusDb>>,
+        http_client: reqwest::Client,
+        nexus_secret: String,
         token: tokio_util::sync::CancellationToken,
     ) -> Self {
         let state = Arc::new(RwLock::new(MachineHealth::default()));
@@ -68,7 +71,7 @@ impl HealthCollector {
             tick.tick().await;
 
             let mut docker_tick_counter: u32 = 0;
-            let mut db_sample_counter: u32 = 0;
+            let mut post_tick_counter: u32 = 0;
             let mut cached_docker = docker;
 
             loop {
@@ -117,40 +120,11 @@ impl HealthCollector {
 
                 sys = returned_sys;
 
-                // Write health sample to DB every DB_SAMPLE_TICKS cycles (30s).
-                db_sample_counter += 1;
-                if db_sample_counter >= DB_SAMPLE_TICKS {
-                    db_sample_counter = 0;
-                    if let Some(ref db) = db {
-                        let (disk_used_gb, disk_total_gb) =
-                            snapshot.disk.iter().fold((0f64, 0f64), |(u, t), d| {
-                                (
-                                    u + d.used_bytes as f64 / 1_073_741_824.0,
-                                    t + d.total_bytes as f64 / 1_073_741_824.0,
-                                )
-                            });
-                        let record = HealthSampleRecord {
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                            cpu_percent: Some(snapshot.cpu.overall_percent as f64),
-                            memory_used_gb: Some(snapshot.ram.used_bytes as f64 / 1_073_741_824.0),
-                            memory_total_gb: Some(
-                                snapshot.ram.total_bytes as f64 / 1_073_741_824.0,
-                            ),
-                            disk_used_gb: Some(disk_used_gb),
-                            disk_total_gb: Some(disk_total_gb),
-                            load1: Some(snapshot.cpu.load_average[0] as f64),
-                            load5: Some(snapshot.cpu.load_average[1] as f64),
-                            load15: Some(snapshot.cpu.load_average[2] as f64),
-                            uptime_seconds: Some(snapshot.uptime_seconds as i64),
-                        };
-                        if let Err(e) = db.insert_health_sample(&record) {
-                            tracing::warn!("health sample insert failed, retrying: {}", e);
-                            std::thread::sleep(Duration::from_secs(1));
-                            if let Err(e2) = db.insert_health_sample(&record) {
-                                tracing::warn!("health sample insert failed after retry: {}", e2);
-                            }
-                        }
-                    }
+                // POST health snapshot to TS agent every POST_TICKS cycles (30s).
+                post_tick_counter += 1;
+                if post_tick_counter >= POST_TICKS {
+                    post_tick_counter = 0;
+                    post_health_snapshot(&http_client, &nexus_secret, &snapshot).await;
                 }
 
                 *state.write().await = snapshot;
@@ -164,6 +138,60 @@ impl HealthCollector {
     pub async fn get(&self) -> MachineHealth {
         self.state.read().await.clone()
     }
+}
+
+/// POST a health snapshot to the TS agent's `/health/ingest` endpoint with
+/// exponential backoff retry (base 1 s, max 60 s, 3 attempts, uniform jitter).
+async fn post_health_snapshot(
+    client: &reqwest::Client,
+    nexus_secret: &str,
+    snapshot: &MachineHealth,
+) {
+    for attempt in 0..BACKOFF_MAX_ATTEMPTS {
+        match client
+            .post(INGEST_URL)
+            .header("x-nexus-secret", nexus_secret)
+            .json(snapshot)
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::debug!("health ingest: snapshot posted successfully");
+                return;
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                tracing::warn!("health ingest: server returned {}", status);
+            }
+            Err(e) => {
+                tracing::warn!("health ingest: HTTP POST failed: {}", e);
+            }
+        }
+
+        if attempt + 1 < BACKOFF_MAX_ATTEMPTS {
+            // jitter: uniform random in [0, BACKOFF_BASE_MS)
+            let jitter_ms = (BACKOFF_BASE_MS as f64 * rand_unit()) as u64;
+            let delay_ms = std::cmp::min(
+                BACKOFF_BASE_MS * 2u64.pow(attempt) + jitter_ms,
+                BACKOFF_MAX_MS,
+            );
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
+    }
+    tracing::error!("health ingest: all {} attempts failed, sample dropped", BACKOFF_MAX_ATTEMPTS);
+}
+
+/// Return a pseudo-random f64 in [0, 1) using the current time as entropy.
+/// Avoids pulling in a full RNG crate for simple jitter.
+fn rand_unit() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    // Mix bits to spread the distribution somewhat
+    let mixed = (nanos ^ (nanos << 13) ^ (nanos >> 7)).wrapping_mul(2_654_435_761);
+    (mixed as f64) / (u32::MAX as f64)
 }
 
 /// Build a `MachineHealth` snapshot from an already-refreshed `System`.

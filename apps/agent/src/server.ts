@@ -9,6 +9,7 @@ import { handleGetProjects } from "./routes/projects";
 import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
+import { insertHealthSnapshot } from "./db/health";
 import {
   initNotificationRoutes,
   handleSendNotification,
@@ -294,6 +295,77 @@ function createRequestHandler(db?: Db) {
       // GET /health/history
       if (url.pathname === "/health/history" && request.method === "GET") {
         return handleGetHealthHistory(db, url).then((r) => withCors(request, r));
+      }
+
+      // POST /health/ingest — accept a HealthMetrics JSON body from the Rust collector
+      if (url.pathname === "/health/ingest" && request.method === "POST") {
+        return (async () => {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return withCors(request, new Response(JSON.stringify({ error: "invalid JSON" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            }));
+          }
+
+          // Basic shape validation
+          if (
+            typeof body !== "object" ||
+            body === null ||
+            typeof (body as Record<string, unknown>).hostname !== "string" ||
+            typeof (body as Record<string, unknown>).uptime_seconds !== "number" ||
+            typeof (body as Record<string, unknown>).cpu !== "object" ||
+            typeof (body as Record<string, unknown>).ram !== "object" ||
+            !Array.isArray((body as Record<string, unknown>).disk)
+          ) {
+            return withCors(request, new Response(JSON.stringify({ error: "invalid body: missing required fields" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            }));
+          }
+
+          const metrics = body as import("@nexus/core").HealthMetrics;
+
+          // Weighted-average disk percent (same logic as health-scheduler)
+          let diskPercent: number | null = null;
+          if (metrics.disk.length > 0) {
+            const totalBytes = metrics.disk.reduce((s, d) => s + d.total_bytes, 0);
+            if (totalBytes > 0) {
+              diskPercent = metrics.disk.reduce(
+                (s, d) => s + (d.percent * d.total_bytes) / totalBytes,
+                0,
+              );
+              diskPercent = Math.round(diskPercent * 10) / 10;
+            } else {
+              diskPercent = metrics.disk[0]?.percent ?? null;
+            }
+          }
+
+          const snapshot = {
+            timestamp: new Date().toISOString(),
+            cpuPercent: (metrics.cpu as { overall_percent: number }).overall_percent,
+            ramPercent: (metrics.ram as { percent: number }).percent,
+            diskPercent,
+            dockerContainers: metrics.docker?.containers ?? null,
+            rawJson: JSON.stringify(metrics),
+          };
+
+          try {
+            await insertHealthSnapshot(db, snapshot);
+            return withCors(request, new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }));
+          } catch (err) {
+            logger.error({ err }, "health ingest: failed to insert snapshot");
+            return withCors(request, new Response(JSON.stringify({ error: "internal error" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            }));
+          }
+        })();
       }
 
       // ── Notification routes ──────────────────────────────────────────

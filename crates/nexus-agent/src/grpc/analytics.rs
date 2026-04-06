@@ -119,39 +119,15 @@ impl NexusAgentService {
         }))
     }
 
-    /// GetHealthTimeSeries — health samples over the requested window.
+    /// GetHealthTimeSeries — REMOVED (superseded by TS agent PostgreSQL-backed endpoint).
+    ///
+    /// The `health_samples` SQLite table was dropped in migration v4. Health time-series
+    /// is now served exclusively from the TypeScript agent's `GET /health/history` route.
     pub(super) async fn handle_get_health_time_series(
         &self,
-        request: Request<proto::HealthTimeSeriesRequest>,
+        _request: Request<proto::HealthTimeSeriesRequest>,
     ) -> Result<Response<proto::HealthTimeSeriesResponse>, Status> {
-        let req = request.into_inner();
-        let hours = req.hours.max(1) as i64;
-
-        let since = chrono::Utc::now() - chrono::Duration::hours(hours);
-        let samples = self
-            .db
-            .query_health_samples(Some(&since.to_rfc3339()), 10_000)
-            .map_err(|e| {
-                sentry::add_breadcrumb(sentry::Breadcrumb {
-                    ty: "error".into(),
-                    category: Some("grpc.call".into()),
-                    message: Some(format!("gRPC GetHealthTimeSeries failed: {e}")),
-                    level: sentry::Level::Error,
-                    ..Default::default()
-                });
-                Status::internal(format!("db error: {e}"))
-            })?
-            .into_iter()
-            .map(|s| proto::HealthTimeSeriesEntry {
-                timestamp: s.timestamp,
-                cpu_percent: s.cpu_percent.unwrap_or(0.0) as f32,
-                memory_used_gb: s.memory_used_gb.unwrap_or(0.0) as f32,
-                disk_used_gb: s.disk_used_gb.unwrap_or(0.0) as f32,
-                load1: s.load1.unwrap_or(0.0) as f32,
-            })
-            .collect();
-
-        Ok(Response::new(proto::HealthTimeSeriesResponse { samples }))
+        Ok(Response::new(proto::HealthTimeSeriesResponse { samples: vec![] }))
     }
 
     /// GetSpecVelocity — spec completion progress snapshots over time.
