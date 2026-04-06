@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Systemd restart-storm guard
 `deploy/nexus-dashboard.service` MUST include `StartLimitBurst=5` and `StartLimitIntervalSec=30` under the `[Unit]` stanza.

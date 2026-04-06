@@ -2,6 +2,9 @@
 Description=Nexus Dashboard — Next.js web UI for session management
 After=network-online.target
 Wants=network-online.target
+# Stop auto-restart after 5 failures in 30 seconds; prevents runaway crash loops.
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
