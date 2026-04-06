@@ -13,7 +13,7 @@ ExecStartPre=/bin/sh -c 'test -d "%h/dev/nx/apps/nextjs/.next" || { echo "ERROR:
 # Port 3100 is opened persistently in /etc/ufw/before.rules — no runtime iptables needed.
 ExecStart=%h/.local/share/pnpm/pnpm start
 
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 Environment=NODE_ENV=production
