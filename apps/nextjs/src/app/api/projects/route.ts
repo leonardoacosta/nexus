@@ -43,6 +43,8 @@ export async function GET(): Promise<NextResponse> {
           activeSessions: 0,
           totalSessions: 0,
           discoveredAt: row.discoveredAt ?? new Date().toISOString(),
+          tags: null,
+          description: null,
         });
       }
 

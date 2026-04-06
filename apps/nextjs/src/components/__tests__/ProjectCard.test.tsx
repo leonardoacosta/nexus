@@ -49,6 +49,8 @@ function makeProject(overrides: Partial<Pick<CanonicalProject, "name" | "activeS
     activeSessions,
     totalSessions,
     discoveredAt: new Date().toISOString(),
+    tags: null,
+    description: null,
   };
 }
 

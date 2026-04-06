@@ -108,6 +108,8 @@ export function makeProject(overrides: MakeProjectOptions = {}): CanonicalProjec
     activeSessions,
     totalSessions,
     discoveredAt: new Date().toISOString(),
+    tags: null,
+    description: null,
   };
 }
 

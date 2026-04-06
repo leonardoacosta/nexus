@@ -48,6 +48,8 @@ const makeProject = (): CanonicalProject => ({
   activeSessions: 0,
   totalSessions: 0,
   discoveredAt: new Date().toISOString(),
+  tags: null,
+  description: null,
 });
 
 describe("AC-16: Start Session Button", () => {

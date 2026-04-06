@@ -48,6 +48,8 @@ function makeCanonicalProject(name: string, path: string): CanonicalProject {
     activeSessions: 0,
     totalSessions: 0,
     discoveredAt: new Date().toISOString(),
+    tags: null,
+    description: null,
   };
 }
 

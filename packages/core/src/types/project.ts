@@ -48,4 +48,6 @@ export interface CanonicalProject {
   totalSessions: number;
   /** ISO timestamp of first discovery */
   discoveredAt: string;
+  tags: string[] | null;
+  description: string | null;
 }
