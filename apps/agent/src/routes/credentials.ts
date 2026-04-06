@@ -23,10 +23,32 @@ export function resetCredentialRoutes(): void {
   pool = null;
 }
 
+/**
+ * TLS enforcement for credential submission.
+ *
+ * When NEXUS_REQUIRE_TLS=true, credential values must only be submitted over
+ * a TLS-terminated connection. The TLS signal is the `x-forwarded-proto: https`
+ * header set by a reverse proxy (e.g., Traefik, Caddy, nginx).
+ *
+ * Default is permissive: localhost-only and homelab deployments commonly run
+ * without TLS. Set NEXUS_REQUIRE_TLS=true in production environments.
+ */
+const REQUIRE_TLS = process.env.NEXUS_REQUIRE_TLS === "true";
+
+function isTlsRequest(request: Request): boolean {
+  return request.headers.get("x-forwarded-proto") === "https";
+}
+
 /** POST /credentials — add a new credential. */
 export async function handleAddCredential(request: Request): Promise<Response> {
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
+  }
+
+  // TLS enforcement: when NEXUS_REQUIRE_TLS=true, reject plain-HTTP submissions.
+  // Credential values must not travel over unencrypted connections in production.
+  if (REQUIRE_TLS && !isTlsRequest(request)) {
+    return jsonResponse({ error: "credentials must be submitted over TLS" }, 403);
   }
 
   let body: unknown;

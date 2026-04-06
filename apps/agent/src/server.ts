@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import type { ServerWebSocket } from "bun";
 import { logger } from "@nexus/core";
 import type { HealthMetrics } from "@nexus/core";
+import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
 import { handleGetSessions, handleGetSessionById } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
@@ -41,6 +42,9 @@ const MAX_CONCURRENT_CONNECTIONS = 50;
 
 // ── Session ID validation ───────────────────────────────────────────────────
 const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+// ── Credential ID validation ────────────────────────────────────────────────
+const CREDENTIAL_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 const healthCollector = new HealthCollector();
 healthCollector.start();
@@ -118,9 +122,31 @@ function withCors(request: Request, response: Response): Response {
   if (isTailscaleOrigin(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin!);
     response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, x-nexus-secret");
   }
   return response;
+}
+
+/**
+ * Validate the `x-nexus-secret` header using constant-time comparison.
+ *
+ * Returns `null` on success (header matches ATTACH_SECRET).
+ * Returns a `Response(401)` when the header is missing or does not match.
+ * A missing header is normalised to an empty string before comparison so that
+ * `Buffer.from(null)` is never called.
+ */
+function requireSecret(request: Request): Response | null {
+  const provided = request.headers.get("x-nexus-secret") ?? "";
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(ATTACH_SECRET);
+  // timingSafeEqual requires same-length buffers; treat length mismatch as failure.
+  if (
+    providedBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(providedBuf, expectedBuf)
+  ) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  return null;
 }
 
 // ── WebSocket route patterns ────────────────────────────────────────────────
@@ -141,10 +167,9 @@ function createRequestHandler(db?: Db) {
       if (!SESSION_ID_RE.test(sessionId)) {
         return new Response("Bad Request", { status: 400 });
       }
-      // Task 1.2: Validate secret header
-      if (request.headers.get("x-nexus-secret") !== ATTACH_SECRET) {
-        return new Response("Unauthorized", { status: 401 });
-      }
+      // Validate secret header using constant-time comparison (Task 2.2/2.3)
+      const streamAuthErr = requireSecret(request);
+      if (streamAuthErr) return streamAuthErr;
       // Task 1.3: Enforce connection limit
       if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
         return new Response("Too Many Requests", { status: 429 });
@@ -172,10 +197,9 @@ function createRequestHandler(db?: Db) {
       if (!SESSION_ID_RE.test(sessionId)) {
         return new Response("Bad Request", { status: 400 });
       }
-      // Task 1.2: Validate secret header
-      if (request.headers.get("x-nexus-secret") !== ATTACH_SECRET) {
-        return new Response("Unauthorized", { status: 401 });
-      }
+      // Validate secret header using constant-time comparison (Task 2.2/2.3)
+      const interactAuthErr = requireSecret(request);
+      if (interactAuthErr) return interactAuthErr;
       // Task 1.3: Enforce connection limit
       if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
         return new Response("Too Many Requests", { status: 429 });
@@ -195,10 +219,17 @@ function createRequestHandler(db?: Db) {
       return undefined;
     }
 
-    // CORS preflight
+    // CORS preflight — must be exempted from auth so browsers can negotiate headers
     if (request.method === "OPTIONS") {
       return withCors(request, new Response(null, { status: 204 }));
     }
+
+    // ── Global REST auth middleware ───────────────────────────────────────
+    // All REST routes require x-nexus-secret. Applied after WebSocket upgrade
+    // checks (which validate inline) and after OPTIONS preflight (browsers must
+    // be able to send a preflight without credentials to discover allowed headers).
+    const authErr = requireSecret(request);
+    if (authErr) return authErr;
 
     if (url.pathname === "/health") {
       const detail = url.searchParams.get("detail") === "true";
@@ -296,6 +327,9 @@ function createRequestHandler(db?: Db) {
 
       const credReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
       if (credReleaseMatch && request.method === "POST") {
+        if (!CREDENTIAL_ID_RE.test(credReleaseMatch[1]!)) {
+          return withCors(request, new Response("Bad Request", { status: 400 }));
+        }
         return handleReleaseCredential(credReleaseMatch[1]!).then((r) => withCors(request, r));
       }
 
@@ -303,6 +337,9 @@ function createRequestHandler(db?: Db) {
         /^\/credentials\/([^/]+)\/report-rate-limit$/,
       );
       if (credRateLimitMatch && request.method === "POST") {
+        if (!CREDENTIAL_ID_RE.test(credRateLimitMatch[1]!)) {
+          return withCors(request, new Response("Bad Request", { status: 400 }));
+        }
         return handleReportRateLimit(credRateLimitMatch[1]!, request).then((r) =>
           withCors(request, r),
         );
@@ -366,6 +403,13 @@ export function startServer(port: number = PORT, db?: Db) {
 
         if (mode !== "interact") {
           // Stream-only clients cannot send data
+          return;
+        }
+
+        // Defense-in-depth: ensure this socket holds the writer mutex before
+        // processing any input. Protects against race conditions where a socket
+        // loses writer status between the open() claim and message receipt.
+        if (!streamManager.isWriter(ws)) {
           return;
         }
 

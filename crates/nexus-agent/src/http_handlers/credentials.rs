@@ -2,9 +2,11 @@
 
 use axum::Json;
 use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
+use super::commands::validate_secret;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WindowStatus {
@@ -35,7 +37,17 @@ pub struct CredentialsResponse {
 }
 
 /// GET /credentials — return sanitized credential pool status (no tokens/paths).
-pub async fn credentials_handler(State(state): State<AppState>) -> Json<CredentialsResponse> {
+///
+/// Requires `X-Nexus-Secret` when a secret is configured in agents.toml or via
+/// the `NEXUS_SECRET` env var. Unauthenticated requests receive HTTP 401.
+/// The secret value is sourced from `AppState::secret`, which is the same field
+/// used by the `/project/{code}/run` guard (`effective_secret()` in main.rs).
+pub async fn credentials_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<CredentialsResponse>, (StatusCode, String)> {
+    validate_secret(&state.secret, &headers)?;
+
     let pool = &state.credential_pool;
     let now = chrono::Utc::now();
 
@@ -87,12 +99,12 @@ pub async fn credentials_handler(State(state): State<AppState>) -> Json<Credenti
     let debounce_active = pool.is_debounce_active().await;
     let last_swap_account = pool.last_swap_account.read().await.clone();
 
-    Json(CredentialsResponse {
+    Ok(Json(CredentialsResponse {
         active_account: active,
         accounts: account_statuses,
         swap: SwapInfo {
             debounce_active,
             last_swap_account,
         },
-    })
+    }))
 }
