@@ -436,3 +436,210 @@ describe("WebSocket security: session ID validation", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ── Task 1.3: Global REST auth — missing x-nexus-secret returns 401 ──────────
+
+describe("REST auth: missing x-nexus-secret returns 401 (task 1.3)", () => {
+  const routes = [
+    { method: "GET", path: "/credentials" },
+    { method: "GET", path: "/sessions" },
+    { method: "GET", path: "/projects" },
+    { method: "GET", path: "/health" },
+    { method: "POST", path: "/notifications/send" },
+  ];
+
+  for (const { method, path } of routes) {
+    it(`${method} ${path} without x-nexus-secret returns 401`, async () => {
+      const res = await fetch(`${baseUrl}${path}`, { method });
+      expect(res.status).toBe(401);
+    });
+  }
+});
+
+// ── Task 1.4: Global REST auth — correct secret passes through ───────────────
+
+describe("REST auth: correct x-nexus-secret passes through (task 1.4)", () => {
+  // /health is always available regardless of db — ideal route for this test.
+  it("GET /health with correct secret returns 200", async () => {
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
+    // 200 means auth passed and route handler ran
+    expect(res.status).toBe(200);
+  });
+
+  it("GET /sessions with correct secret does not return 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
+    // Without a DB it returns 404 (not 401), confirming auth passed
+    expect(res.status).not.toBe(401);
+  });
+});
+
+// ── Task 2.4: Timing-safe comparison — different byte length returns 401 ─────
+
+describe("Timing-safe comparison: different byte length (task 2.4)", () => {
+  it("secret header shorter than ATTACH_SECRET returns 401 without throwing", async () => {
+    // Provide a header value that is definitely shorter than any real secret
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": "x" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("secret header longer than ATTACH_SECRET returns 401 without throwing", async () => {
+    // Provide a header value that is longer than any typical secret
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET.repeat(3) + "extra" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("empty secret header returns 401 without throwing", async () => {
+    // Empty string is a different byte length from any non-empty secret
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": "" },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Task 3.2: CORS preflight — updated Allow-Headers includes x-nexus-secret ──
+
+describe("CORS preflight: x-nexus-secret in Allow-Headers (task 3.2)", () => {
+  it("OPTIONS preflight from Tailscale origin receives x-nexus-secret in Allow-Headers", async () => {
+    const res = await fetch(`${baseUrl}/health`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://100.64.0.1:7401" },
+    });
+    expect(res.status).toBe(204);
+    const allowHeaders = res.headers.get("access-control-allow-headers");
+    expect(allowHeaders).toBeDefined();
+    expect(allowHeaders).toContain("x-nexus-secret");
+    // Should also still allow Content-Type
+    expect(allowHeaders).toContain("Content-Type");
+  });
+
+  it("OPTIONS preflight from Tailscale origin receives correct CORS allow-origin", async () => {
+    const tailscaleOrigin = "http://100.100.50.25:3000";
+    const res = await fetch(`${baseUrl}/health`, {
+      method: "OPTIONS",
+      headers: { Origin: tailscaleOrigin },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(tailscaleOrigin);
+  });
+});
+
+// ── Task 4.2: isWriter guard — non-writer interact socket drops messages ──────
+
+describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
+  it("second interact socket is rejected (writer mutex already held)", async () => {
+    const sid = "iswriter-guard-session";
+    const pty = new MockPtySource({ intervalMs: 0 });
+    streamManager.attach(sid, pty);
+
+    // First interact socket claims the writer
+    const ws1 = new WebSocket(
+      `${wsUrl}/sessions/${sid}/interact`,
+      { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
+    );
+    const ws1Opened = new Promise<void>((resolve) => {
+      ws1.addEventListener("open", () => resolve());
+      ws1.addEventListener("close", () => resolve());
+      ws1.addEventListener("error", () => resolve());
+    });
+    await ws1Opened;
+    await delay(30);
+
+    // Second interact socket — server should reject it with code 4009
+    let secondCloseCode: number | null = null;
+    const ws2 = new WebSocket(
+      `${wsUrl}/sessions/${sid}/interact`,
+      { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
+    );
+    const ws2Settled = new Promise<void>((resolve) => {
+      ws2.addEventListener("open", () => resolve());
+      ws2.addEventListener("close", (ev) => {
+        secondCloseCode = (ev as CloseEvent).code;
+        resolve();
+      });
+      ws2.addEventListener("error", () => resolve());
+    });
+    await ws2Settled;
+    await delay(30);
+
+    // Second socket must be closed with code 4009 (writer mutex taken)
+    expect(secondCloseCode).toBe(4009);
+
+    try { ws1.close(); } catch { /* ignore */ }
+    await delay(30);
+    streamManager.endSession(sid);
+  });
+});
+
+// ── Task 5.4: Credential ID sanitization — invalid IDs return 400 ─────────────
+
+describe("Credential ID sanitization (task 5.4)", () => {
+  const invalidIds = [
+    { label: "path traversal ../", id: "..%2Fsome-path" },
+    { label: "space in id", id: "has%20space" },
+    { label: "script tag", id: "%3Cscript%3E" },
+  ];
+
+  for (const { label, id } of invalidIds) {
+    it(`POST /credentials/${id}/release with ${label} returns 400`, async () => {
+      const res = await fetch(`${baseUrl}/credentials/${id}/release`, {
+        method: "POST",
+        headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it(`POST /credentials/${id}/report-rate-limit with ${label} returns 400`, async () => {
+      const res = await fetch(`${baseUrl}/credentials/${id}/report-rate-limit`, {
+        method: "POST",
+        headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+    });
+  }
+});
+
+// ── Task 7.3: TLS enforcement — loopback allowed; non-loopback HTTP rejected ──
+
+describe("TLS enforcement for POST /credentials (task 7.3)", () => {
+  // The test server runs on localhost (127.0.0.1) which is a loopback address.
+  // Loopback requests are exempt from TLS enforcement per the implementation.
+  it("POST /credentials on loopback (http://localhost) is allowed past TLS check", async () => {
+    // Without a DB the route returns 404/500, but NOT 426 (TLS error) or 403.
+    // The absence of 426 proves the TLS check passed on loopback.
+    const res = await fetch(`${baseUrl}/credentials`, {
+      method: "POST",
+      headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "test", name: "test", type: "api_key", value: "val" }),
+    });
+    // Without DB we get 404 (db-gated routes return 404 in no-db server)
+    // What we must NOT see is 426 (TLS enforcement triggered on loopback)
+    expect(res.status).not.toBe(426);
+    expect(res.status).not.toBe(403);
+  });
+
+  it("x-forwarded-proto: https header present — TLS enforcement accepts", async () => {
+    // Even with the header, loopback is still exempt, so we just verify no 426/403
+    const res = await fetch(`${baseUrl}/credentials`, {
+      method: "POST",
+      headers: {
+        "x-nexus-secret": ATTACH_SECRET,
+        "Content-Type": "application/json",
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({ id: "test2", name: "test2", type: "api_key", value: "val" }),
+    });
+    expect(res.status).not.toBe(426);
+    expect(res.status).not.toBe(403);
+  });
+});

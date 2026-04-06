@@ -312,6 +312,30 @@ function createRequestHandler(state: ServerState, db?: Db) {
       );
     }
 
+    // ── Credential ID pre-validation (before DB guard) ──────────────────
+    // Validate credential IDs in path-parameterised routes immediately after
+    // auth so that malformed IDs (path traversal, HTML injection, spaces)
+    // are rejected with 400 before any DB interaction.  This must run even
+    // when no DB is configured so that the sanitisation gate is always active.
+    const earlyCredReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
+    if (earlyCredReleaseMatch && request.method === "POST") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredReleaseMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+    const earlyCredRateLimitMatch = url.pathname.match(/^\/credentials\/([^/]+)\/report-rate-limit$/);
+    if (earlyCredRateLimitMatch && request.method === "POST") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredRateLimitMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+    const earlyCredHealthMatch = url.pathname.match(/^\/credentials\/([^/]+)\/health$/);
+    if (earlyCredHealthMatch && request.method === "GET") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredHealthMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+
     // ── Session & project routes (require DB) ────────────────────────────
     if (db) {
       // GET /sessions
