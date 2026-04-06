@@ -1,6 +1,10 @@
 /**
  * One-time idempotent migration script: encrypt all plaintext credentials.
  *
+ * NOTE: This script is designed to run BEFORE the value_plaintext column is
+ * dropped. It uses raw SQL to reference value_plaintext because the Drizzle
+ * schema no longer includes that column (task 1.5 removed it).
+ *
  * Selects every row where value_encrypted IS NULL and value_plaintext IS NOT NULL,
  * encrypts the plaintext value with AES-256-GCM, and writes value_encrypted +
  * encryption_key_id back to the row.
@@ -12,10 +16,11 @@
  */
 
 import { drizzle } from "drizzle-orm/node-postgres";
-import { isNull, isNotNull } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { credentials } from "../packages/db/src/schema/credentials";
 import { loadEncryptionKey, encrypt } from "../apps/agent/src/credentials/encryption";
+
+type MigrationRow = { id: string; name: string; value_plaintext: string };
 
 async function main() {
   const pgUrl = process.env.POSTGRES_URL;
@@ -36,13 +41,10 @@ async function main() {
   const pool = new Pool({ connectionString: pgUrl });
   const db = drizzle(pool);
 
-  // Select rows that need migration
-  const rows = await db
-    .select()
-    .from(credentials)
-    .where(
-      sql`${credentials.valueEncrypted} IS NULL AND ${credentials.valuePlaintext} IS NOT NULL`,
-    );
+  // Select rows that need migration via raw SQL (value_plaintext is no longer in Drizzle schema)
+  const rows = await db.execute<MigrationRow>(
+    sql`SELECT id, name, value_plaintext FROM credentials WHERE value_encrypted IS NULL AND value_plaintext IS NOT NULL`,
+  );
 
   console.log(`Found ${rows.length} row(s) to encrypt.`);
 
@@ -50,12 +52,12 @@ async function main() {
   let skipped = 0;
 
   for (const row of rows) {
-    if (!row.valuePlaintext) {
+    if (!row.value_plaintext) {
       skipped++;
       continue;
     }
 
-    const valueEncrypted = encrypt(row.valuePlaintext, encryptionKey);
+    const valueEncrypted = encrypt(row.value_plaintext, encryptionKey);
 
     await db
       .update(credentials)

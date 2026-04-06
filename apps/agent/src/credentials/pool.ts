@@ -76,7 +76,6 @@ export class CredentialPool {
       id: credential.id,
       name: credential.name,
       type: credential.type,
-      valuePlaintext: null,
       valueEncrypted,
       encryptionKeyId: "v1",
       status: "available",
@@ -266,9 +265,9 @@ export class CredentialPool {
   }
 
   /** List all credentials with status info (no values exposed). */
-  async list(): Promise<Array<Omit<CredentialRow, "valuePlaintext" | "valueEncrypted">>> {
+  async list(): Promise<Array<Omit<CredentialRow, "valueEncrypted">>> {
     return (await queryAllCredentials(this.db)).map(
-      ({ valuePlaintext: _p, valueEncrypted: _e, ...rest }) => rest,
+      ({ valueEncrypted: _e, ...rest }) => rest,
     );
   }
 

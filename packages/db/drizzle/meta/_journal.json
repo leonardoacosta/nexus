@@ -50,6 +50,13 @@
       "when": 1775505373430,
       "tag": "0006_many_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775519723786,
+      "tag": "0007_aberrant_silver_fox",
+      "breakpoints": true
     }
   ]
 }

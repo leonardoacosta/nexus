@@ -4,7 +4,7 @@
 - [x] 1.2 Generate Drizzle migration: `npx drizzle-kit generate`
 - [x] 1.3 Write `scripts/encrypt-credentials.ts` — selects rows where `value_encrypted IS NULL`, encrypts with AES-256-GCM, writes `value_encrypted` + `encryption_key_id`
 - [x] 1.4 Write second migration SQL to set `value_encrypted NOT NULL` and drop `value_plaintext` (applied after encryption script confirms zero null rows)
-- [ ] 1.5 Update Drizzle schema to remove `value_plaintext` column (applied after step 1.4)
+- [x] 1.5 Update Drizzle schema to remove `value_plaintext` column (applied after step 1.4)
 
 ## 2. Encryption Library (shared)
 
@@ -33,7 +33,7 @@
 ## 6. TLS Enforcement on Credential Ingest
 
 - [x] 6.1 In `handleAddCredential`, extract scheme from `request.url`; if `http:` and remote host is not loopback, return `426 Upgrade Required` with `Upgrade: TLS/1.2, HTTPS` header
-- [ ] 6.2 Write unit test: non-loopback HTTP request is rejected with 426; loopback HTTP and HTTPS pass through
+- [x] 6.2 Write unit test: non-loopback HTTP request is rejected with 426; loopback HTTP and HTTPS pass through
 
 ## 7. Health-Check Endpoint
 
@@ -64,18 +64,18 @@
 
 ## 12. Tests
 
-- [ ] 12.1 Enable all `.skip` stubs in `apps/agent/src/credentials/credentials.test.ts`; implement each skipped test
-- [ ] 12.2 Add test: `add()` stores encrypted value (decryptable with correct key, unreadable as plaintext)
-- [ ] 12.3 Add test: `lease()` returns decrypted value
-- [ ] 12.4 Add test: weighted round-robin prefers credential with lower `rate_limit_count`
-- [ ] 12.5 Add test: predictive pre-rotation fires when utilization ≥ 85%
-- [ ] 12.6 Add test: `GET /credentials/{id}/health` returns `{ healthy: true }` on valid token; `{ healthy: false }` on revoked token
-- [ ] 12.7 Add test: TLS enforcement rejects non-loopback HTTP
-- [ ] 12.8 Add test: cleanup timer logs errors instead of swallowing them
-- [ ] 12.9 Add test: `derive_account_name` returns error for `acct-.json`
+- [x] 12.1 Enable all `.skip` stubs in `apps/agent/src/credentials/credentials.test.ts`; implement each skipped test
+- [x] 12.2 Add test: `add()` stores encrypted value (decryptable with correct key, unreadable as plaintext)
+- [x] 12.3 Add test: `lease()` returns decrypted value
+- [x] 12.4 Add test: weighted round-robin prefers credential with lower `rate_limit_count`
+- [x] 12.5 Add test: predictive pre-rotation fires when utilization ≥ 85%
+- [x] 12.6 Add test: `GET /credentials/{id}/health` returns `{ healthy: true }` on valid token; `{ healthy: false }` on revoked token
+- [x] 12.7 Add test: TLS enforcement rejects non-loopback HTTP
+- [x] 12.8 Add test: cleanup timer logs errors instead of swallowing them
+- [x] 12.9 Add test: `derive_account_name` returns error for `acct-.json` (already covered by Rust unit test in `credential_pool.rs:1039`)
 
 ## 13. Documentation & Runbook
 
 - [x] 13.1 Add `NEXUS_ENCRYPTION_KEY` and `NEXUS_PREROTATE_THRESHOLD` to `.env.example`
-- [ ] 13.2 Document migration procedure in operator runbook (key generation, script execution, verification, column drop)
-- [ ] 13.3 Update `credential-pool` and `database-foundation` spec Purpose sections after archiving this change
+- [x] 13.2 Document migration procedure in operator runbook (key generation, script execution, verification, column drop)
+- [x] 13.3 Update `credential-pool` and `database-foundation` spec Purpose sections after archiving this change

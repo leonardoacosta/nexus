@@ -4,8 +4,6 @@ export const credentials = pgTable("credentials", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   type: text("type").notNull(),
-  /** Kept temporarily for migration; will be dropped after encrypt-credentials.ts runs. */
-  valuePlaintext: text("value_plaintext"),
   /** AES-256-GCM ciphertext: base64(nonce || ciphertext || authTag) */
   valueEncrypted: text("value_encrypted"),
   /** Identifies which key version encrypted this value; supports future rotation. */

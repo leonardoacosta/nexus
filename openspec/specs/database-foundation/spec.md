@@ -1,7 +1,13 @@
 # database-foundation Specification
 
 ## Purpose
-TBD - created by archiving change add-sqlite-store. Update Purpose after archive.
+Provides the PostgreSQL database foundation for the Nexus agent: schema migrations via
+Drizzle ORM, a shared `Db` handle available to all services, and the canonical schema
+definitions for all tables including credentials, sessions, health snapshots, and projects.
+
+> **Note (cross-reference):** The `encrypt-credential-storage` change (2026-04) extended the
+> `credentials` table with `value_encrypted` and `encryption_key_id` columns and dropped
+> `value_plaintext`. See `docs/runbook-credential-encryption.md` for the migration procedure.
 ## Requirements
 ### Requirement: The system MUST provide a SQLite database with schema migrations
 The agent MUST create and manage `~/.config/nexus/nexus.db` with WAL mode enabled, schema versioning via `PRAGMA user_version`, and a shared `NexusDb` wrapper accessible to all services.

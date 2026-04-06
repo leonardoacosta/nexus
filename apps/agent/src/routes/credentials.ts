@@ -188,8 +188,8 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
     detail: { type: credential.type },
   });
 
-  // Strip encrypted storage columns — caller receives decrypted value via valueEncrypted
-  const { valuePlaintext: _p, valueEncrypted: _e, ...safe } = credential;
+  // Strip encrypted storage column — caller receives decrypted value via valueEncrypted
+  const { valueEncrypted: _e, ...safe } = credential;
   return jsonResponse({ ...safe, value: credential.valueEncrypted });
 }
 
@@ -267,10 +267,10 @@ export async function handleReportRateLimit(
     });
   }
 
-  const { valuePlaintext: _p1, valueEncrypted: _e1, ...cooledDown } = result.cooledDown;
+  const { valueEncrypted: _e1, ...cooledDown } = result.cooledDown;
   const next = result.next
     ? (() => {
-        const { valuePlaintext: _p2, valueEncrypted: _e2, ...safe } = result.next!;
+        const { valueEncrypted: _e2, ...safe } = result.next!;
         return { ...safe, value: result.next!.valueEncrypted };
       })()
     : null;
