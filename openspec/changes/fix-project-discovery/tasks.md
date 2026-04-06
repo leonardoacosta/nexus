@@ -40,7 +40,7 @@
       to normalized path
 - [x] 4.3 On dedup hit, accumulate counts (step 3.3) and do NOT overwrite the `agent` field
       (keep the first-reporter's agent name)
-- [ ] 4.4 Write unit tests covering: same project on two agents with different home dirs
+- [x] 4.4 Write unit tests covering: same project on two agents with different home dirs
       (same git remote → single entry), path with symlink (resolves to same canonical), macOS
       lowercase collision
 
@@ -50,7 +50,7 @@
       entry (client-side, not wire format)
 - [x] 5.2 On each `fetchDiscoveredProjects` call, remove entries whose `lastSeenAt` is older
       than 1 hour before merging new results
-- [ ] 5.3 Add unit test: project not returned by any agent for 61 minutes is excluded from
+- [x] 5.3 Add unit test: project not returned by any agent for 61 minutes is excluded from
       aggregated result
 
 ## 6. Path Normalization — Symlink Dedup (P2)
@@ -59,7 +59,7 @@
       `projects` array; if resolution fails (broken symlink) skip the entry and log a warning
 - [x] 6.2 Skip entries that already exist at the resolved path (guards against `link → real`
       creating two entries)
-- [ ] 6.3 Add scenario test: directory containing a symlink that points to another project in
+- [x] 6.3 Add scenario test: directory containing a symlink that points to another project in
       the same `projectsDir` — only the canonical path appears once
 
 ## 7. Path-to-Registry Mapping (P2)

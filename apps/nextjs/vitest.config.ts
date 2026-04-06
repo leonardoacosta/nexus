@@ -13,6 +13,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.{ts,tsx}"],
-    exclude: ["**/node_modules/**", "**/agent-client.test.ts"],
+    exclude: ["**/node_modules/**"],
   },
 });

@@ -368,6 +368,54 @@ describe("handleGetDiscoveredProjects", () => {
     expect(body.projects).toEqual([]);
   });
 
+  // ── Test 6d: symlink dedup — symlink pointing to another project in same dir ──
+
+  it("deduplicates a symlink that resolves to an existing project in the same projectsDir", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/home/user/dev",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    // "nx" is a real directory; "link-to-nx" is a symlink
+    mockReaddirSync.mockImplementation(() =>
+      [
+        { name: "nx", isDirectory: () => true, isSymbolicLink: () => false },
+        { name: "link-to-nx", isDirectory: () => false, isSymbolicLink: () => true },
+      ] as unknown as ReturnType<typeof import("node:fs").readdirSync>,
+    );
+
+    // realpathSync: both paths resolve to the same canonical path
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === "/home/user/dev/nx") return "/home/user/dev/nx";
+      if (p === "/home/user/dev/link-to-nx") return "/home/user/dev/nx";
+      return p;
+    });
+
+    // Only the canonical path has a .git directory
+    mockExistsSync.mockImplementation((p: string) => p === "/home/user/dev/nx/.git");
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as {
+      projects: Array<{ name: string; path: string }>;
+      truncated: boolean;
+    };
+
+    // Exactly one project — the real directory "nx"; "link-to-nx" was deduplicated
+    expect(body.projects.length).toBe(1);
+    expect(body.projects[0]!.name).toBe("nx");
+    expect(body.projects[0]!.path).toBe("/home/user/dev/nx");
+    expect(body.truncated).toBe(false);
+  });
+
   // ── Test 7: response shape uses { projects, truncated } not old { total, projectsDir } ──
 
   it("response has truncated field and no projectsDir or total fields", async () => {
