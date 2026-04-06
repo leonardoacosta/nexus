@@ -63,6 +63,7 @@ pub fn status_dot(status: SessionStatus) -> &'static str {
         SessionStatus::Idle => "\u{25CB}",    // ○
         SessionStatus::Stale => "\u{25CC}",   // ◌
         SessionStatus::Errored => "\u{2716}", // ✖
+        SessionStatus::Ended => "\u{25A0}",   // ■
     }
 }
 
@@ -73,6 +74,7 @@ pub fn status_color(status: SessionStatus) -> Color {
         SessionStatus::Idle => colors::WARNING,
         SessionStatus::Stale => colors::TEXT_DIM,
         SessionStatus::Errored => colors::ERROR,
+        SessionStatus::Ended => colors::TEXT_DIM,
     }
 }
 

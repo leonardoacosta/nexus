@@ -2,54 +2,54 @@
 
 ## 1. Rust — nexus-core enum and serialization
 
-- [ ] 1.1 Add `Ended` variant to `SessionStatus` in `crates/nexus-core/src/session.rs` (keep `#[serde(rename_all = "snake_case")]`)
-- [ ] 1.2 Implement `std::fmt::Display` for `SessionType` producing `"ad_hoc"`, `"managed"`, `"pooled"`
-- [ ] 1.3 Fix all non-exhaustive match arms on `SessionStatus` throughout the workspace (compiler-guided)
-- [ ] 1.4 Add `ENDED` variant to proto `SessionStatus` enum in `proto/nexus.proto`
-- [ ] 1.5 Update `From<SessionStatus>` / `From<proto::SessionStatus>` conversions in `nexus-core` to cover `Ended ↔ ENDED`
-- [ ] 1.6 Run `cargo build` — must compile with zero warnings on `SessionStatus` matches
+- [x] 1.1 Add `Ended` variant to `SessionStatus` in `crates/nexus-core/src/session.rs` (keep `#[serde(rename_all = "snake_case")]`)
+- [x] 1.2 Implement `std::fmt::Display` for `SessionType` producing `"ad_hoc"`, `"managed"`, `"pooled"`
+- [x] 1.3 Fix all non-exhaustive match arms on `SessionStatus` throughout the workspace (compiler-guided)
+- [x] 1.4 Add `ENDED` variant to proto `SessionStatus` enum in `proto/nexus.proto`
+- [x] 1.5 Update `From<SessionStatus>` / `From<proto::SessionStatus>` conversions in `nexus-core` to cover `Ended ↔ ENDED`
+- [x] 1.6 Run `cargo build` — must compile with zero warnings on `SessionStatus` matches
 
 ## 2. Rust — registry serialization fix
 
-- [ ] 2.1 Replace `format!("{:?}", session.session_type).to_lowercase()` at `registry.rs:504` with `session.session_type.to_string()`
-- [ ] 2.2 Replace `format!("{:?}", session.status).to_lowercase()` at `registry.rs:255` and `registry.rs:502` with `session.status.to_string()` (add `Display` impl to `SessionStatus` similarly or rely on serde snake_case)
-- [ ] 2.3 Add `"ended"` arm to `session_from_record` status match in `registry.rs:526-532`
+- [x] 2.1 Replace `format!("{:?}", session.session_type).to_lowercase()` at `registry.rs:504` with `session.session_type.to_string()`
+- [x] 2.2 Replace `format!("{:?}", session.status).to_lowercase()` at `registry.rs:255` and `registry.rs:502` with `session.status.to_string()` (add `Display` impl to `SessionStatus` similarly or rely on serde snake_case)
+- [x] 2.3 Add `"ended"` arm to `session_from_record` status match in `registry.rs:526-532`
 - [ ] 2.4 Verify roundtrip: write an `Ended` session to SQLite and read it back; status must equal `SessionStatus::Ended`
 
 ## 3. Rust — dedup guard fix
 
-- [ ] 3.1 Replace the blacklist dedup guard at `grpc/sessions.rs:114` with whitelist form:
+- [x] 3.1 Replace the blacklist dedup guard at `grpc/sessions.rs:114` with whitelist form:
       `.find(|s| s.cwd == cwd && matches!(s.status, SessionStatus::Active | SessionStatus::Idle))`
 - [ ] 3.2 Add unit test: stale session at `/tmp/foo` → starting new session at `/tmp/foo` succeeds
 - [ ] 3.3 Add unit test: errored session at `/tmp/bar` → starting new session at `/tmp/bar` succeeds
 
 ## 4. Rust — SIGKILL death confirmation
 
-- [ ] 4.1 Extract `wait_for_death(pid: u32, timeout_ms: u64) -> bool` helper in `grpc/sessions.rs`
-- [ ] 4.2 On Linux: poll `/proc/{pid}` existence at 50ms intervals up to `timeout_ms` (default 2000ms)
-- [ ] 4.3 On non-Linux: fall back to a fixed `tokio::time::sleep(Duration::from_millis(500))`
-- [ ] 4.4 Call `wait_for_death` after SIGKILL before `self.registry.remove()`
-- [ ] 4.5 Log a warning if death confirmation times out
+- [x] 4.1 Extract `wait_for_death(pid: u32, timeout_ms: u64) -> bool` helper in `grpc/sessions.rs`
+- [x] 4.2 On Linux: poll `/proc/{pid}` existence at 50ms intervals up to `timeout_ms` (default 2000ms)
+- [x] 4.3 On non-Linux: fall back to a fixed `tokio::time::sleep(Duration::from_millis(500))`
+- [x] 4.4 Call `wait_for_death` after SIGKILL before `self.registry.remove()`
+- [x] 4.5 Log a warning if death confirmation times out
 
 ## 5. Rust — detect_stale includes managed sessions
 
-- [ ] 5.1 Remove the `if session.tmux_session.is_some() { continue; }` early-exit guard in `registry.rs:426-428`
+- [x] 5.1 Remove the `if session.tmux_session.is_some() { continue; }` early-exit guard in `registry.rs:426-428`
 - [ ] 5.2 Verify existing stale detection tests still pass after removing guard
 - [ ] 5.3 Add test: managed session (tmux_session Some) with heartbeat > stale threshold is marked stale
 
 ## 6. DB schema — Drizzle migration
 
-- [ ] 6.1 Check existing migrations in `packages/db/drizzle/` for numbering
-- [ ] 6.2 Create new Drizzle migration adding 13 columns to `sessions` table (see design.md §2)
-- [ ] 6.3 Update `packages/db/src/schema/sessions.ts` to include all new columns with correct types and nullable
+- [x] 6.1 Check existing migrations in `packages/db/drizzle/` for numbering
+- [x] 6.2 Create new Drizzle migration adding 13 columns to `sessions` table (see design.md §2)
+- [x] 6.3 Update `packages/db/src/schema/sessions.ts` to include all new columns with correct types and nullable
 - [ ] 6.4 Run `pnpm db:push` (or `pnpm drizzle-kit migrate`) against test DB to confirm migration applies cleanly
 - [ ] 6.5 Verify existing rows receive NULLs for new columns (no data loss)
 
 ## 7. TS agent — error handling
 
-- [ ] 7.1 Wrap `getCachedSessions(db)` call in `handleGetSessions` with try/catch; return 500 JSON on error
-- [ ] 7.2 Wrap `getSessionById(db, id)` call in `handleGetSessionById` with try/catch; return 500 JSON on error
-- [ ] 7.3 Error response shape: `{ "error": "internal error", "detail": "<message if not production>" }`
+- [x] 7.1 Wrap `getCachedSessions(db)` call in `handleGetSessions` with try/catch; return 500 JSON on error
+- [x] 7.2 Wrap `getSessionById(db, id)` call in `handleGetSessionById` with try/catch; return 500 JSON on error
+- [x] 7.3 Error response shape: `{ "error": "internal error", "detail": "<message if not production>" }`
 
 ## 8. TS agent — cache test isolation
 

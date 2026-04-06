@@ -69,7 +69,19 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
     );
   }
 
-  let sessions = await getCachedSessions(db);
+  let sessions: SessionRow[];
+  try {
+    sessions = await getCachedSessions(db);
+  } catch (err) {
+    const detail =
+      process.env.NODE_ENV !== "production"
+        ? String(err instanceof Error ? err.message : err)
+        : undefined;
+    return new Response(
+      JSON.stringify({ error: "internal error", ...(detail ? { detail } : {}) }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   if (projectFilter) {
     sessions = sessions.filter((s) => s.project === projectFilter);
@@ -86,7 +98,19 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
 
 /** GET /sessions/{id} — single session by ID, 404 if not found. */
 export async function handleGetSessionById(db: Db, id: string): Promise<Response> {
-  const session = await getSessionById(db, id);
+  let session: SessionRow | null;
+  try {
+    session = await getSessionById(db, id);
+  } catch (err) {
+    const detail =
+      process.env.NODE_ENV !== "production"
+        ? String(err instanceof Error ? err.message : err)
+        : undefined;
+    return new Response(
+      JSON.stringify({ error: "internal error", ...(detail ? { detail } : {}) }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
   if (!session) {
     return new Response(
       JSON.stringify({ error: "session not found" }),

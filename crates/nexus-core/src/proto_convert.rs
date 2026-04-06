@@ -41,6 +41,7 @@ pub fn session_status_to_proto(status: &SessionStatus) -> i32 {
         SessionStatus::Idle => proto::SessionStatus::Idle.into(),
         SessionStatus::Stale => proto::SessionStatus::Stale.into(),
         SessionStatus::Errored => proto::SessionStatus::Errored.into(),
+        SessionStatus::Ended => proto::SessionStatus::Ended.into(),
     }
 }
 
@@ -51,6 +52,7 @@ pub fn proto_to_session_status(value: i32) -> SessionStatus {
         2 => SessionStatus::Idle,
         3 => SessionStatus::Stale,
         4 => SessionStatus::Errored,
+        5 => SessionStatus::Ended,
         _ => SessionStatus::Active,
     }
 }
@@ -558,6 +560,7 @@ mod tests {
             SessionStatus::Idle,
             SessionStatus::Stale,
             SessionStatus::Errored,
+            SessionStatus::Ended,
         ] {
             let proto_val = session_status_to_proto(&status);
             let restored = proto_to_session_status(proto_val);

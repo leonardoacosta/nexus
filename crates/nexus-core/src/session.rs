@@ -54,6 +54,30 @@ pub enum SessionStatus {
     Stale,
     /// Process dead or disconnected
     Errored,
+    /// Session gracefully ended
+    Ended,
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionStatus::Active => write!(f, "active"),
+            SessionStatus::Idle => write!(f, "idle"),
+            SessionStatus::Stale => write!(f, "stale"),
+            SessionStatus::Errored => write!(f, "errored"),
+            SessionStatus::Ended => write!(f, "ended"),
+        }
+    }
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::AdHoc => write!(f, "ad_hoc"),
+            SessionType::Managed => write!(f, "managed"),
+            SessionType::Pooled => write!(f, "pooled"),
+        }
+    }
 }
 
 impl Session {

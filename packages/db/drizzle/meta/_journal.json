@@ -36,6 +36,13 @@
       "when": 1775453500836,
       "tag": "0004_encrypt_credentials_finalize",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775455556468,
+      "tag": "0005_stormy_taskmaster",
+      "breakpoints": true
     }
   ]
 }

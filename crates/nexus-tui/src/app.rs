@@ -847,6 +847,7 @@ impl App {
                     SessionStatus::Idle => entry.idle += 1,
                     SessionStatus::Stale => entry.stale += 1,
                     SessionStatus::Errored => entry.errored += 1,
+                    SessionStatus::Ended => {} // ended sessions don't increment active counts
                 }
                 if !entry.agents.contains(&agent.info.name) {
                     entry.agents.push(agent.info.name.clone());

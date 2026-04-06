@@ -9,6 +9,30 @@ use uuid::Uuid;
 
 use super::NexusAgentService;
 
+/// Poll for process death after SIGKILL. Returns `true` if the process exited
+/// within `timeout_ms`, `false` if it was still alive at timeout.
+///
+/// On Linux, polls `/proc/{pid}` at 50 ms intervals.
+/// On other platforms, falls back to a fixed 500 ms sleep.
+#[cfg(target_os = "linux")]
+async fn wait_for_death(pid: u32, timeout_ms: u64) -> bool {
+    let path = format!("/proc/{pid}");
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+    while tokio::time::Instant::now() < deadline {
+        if !std::path::Path::new(&path).exists() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn wait_for_death(_pid: u32, _timeout_ms: u64) -> bool {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    true
+}
+
 impl NexusAgentService {
     #[tracing::instrument(name = "session.get_all", skip(self, request))]
     pub(super) async fn handle_get_sessions(
@@ -109,12 +133,13 @@ impl NexusAgentService {
             req.cwd.clone()
         };
 
-        // Dedup guard: if a non-errored session already exists for this cwd, return it.
+        // Dedup guard: if an active or idle session already exists for this cwd, return it.
+        // Stale, Errored, and Ended sessions are excluded — they should not block a new session.
         {
             let all_sessions = self.registry.get_all().await;
             if let Some(existing) = all_sessions
                 .iter()
-                .find(|s| s.cwd == cwd && s.status != nexus_core::session::SessionStatus::Errored)
+                .find(|s| s.cwd == cwd && matches!(s.status, nexus_core::session::SessionStatus::Active | nexus_core::session::SessionStatus::Idle))
             {
                 tracing::info!(
                     existing_session_id = %existing.id,
@@ -318,8 +343,14 @@ impl NexusAgentService {
         if !exited {
             tracing::warn!("pid {} did not exit after SIGTERM, sending SIGKILL", pid);
             let _ = signal::kill(nix_pid, Signal::SIGKILL);
-            // Brief wait for SIGKILL to take effect.
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // Poll for process death (up to 2 seconds) before removing from registry.
+            let died = wait_for_death(pid, 2000).await;
+            if !died {
+                tracing::warn!(
+                    "pid {} did not confirm death within 2s after SIGKILL — removing from registry anyway",
+                    pid
+                );
+            }
         }
 
         self.registry.remove(&session_id).await;

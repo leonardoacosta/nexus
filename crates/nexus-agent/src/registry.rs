@@ -264,7 +264,7 @@ impl SessionRegistry {
             id,
             &SessionUpdate {
                 last_heartbeat: Some(now.to_rfc3339()),
-                status: Some(format!("{:?}", session.status).to_lowercase()),
+                status: Some(session.status.to_string()),
                 ..Default::default()
             },
         );
@@ -437,9 +437,11 @@ impl SessionRegistry {
             ));
         }
 
-        // Mark remaining ad-hoc sessions as stale if over threshold.
+        // Mark sessions as stale if over threshold.
+        // Managed sessions (tmux_session.is_some()) are also eligible — a dead tmux target
+        // is not proof of liveness. Only skip sessions already Ended.
         for (id, session) in map.iter_mut() {
-            if session.tmux_session.is_some() {
+            if session.status == nexus_core::session::SessionStatus::Ended {
                 continue;
             }
             if session.idle_seconds() > stale_secs
@@ -524,9 +526,9 @@ fn session_to_record(session: &Session) -> SessionRecord {
         started_at: session.started_at.to_rfc3339(),
         ended_at: None,
         last_heartbeat: Some(session.last_heartbeat.to_rfc3339()),
-        status: Some(format!("{:?}", session.status).to_lowercase()),
+        status: Some(session.status.to_string()),
         model: session.model.clone(),
-        session_type: Some(format!("{:?}", session.session_type).to_lowercase()),
+        session_type: Some(session.session_type.to_string()),
         total_cost_usd: session.total_cost_usd,
         rate_limit_utilization: session.rate_limit_utilization,
         rate_limit_type: session.rate_limit_type.clone(),
@@ -553,6 +555,7 @@ fn session_from_record(record: &SessionRecord) -> Option<Session> {
         Some("idle") => nexus_core::session::SessionStatus::Idle,
         Some("stale") => nexus_core::session::SessionStatus::Stale,
         Some("errored") => nexus_core::session::SessionStatus::Errored,
+        Some("ended") => nexus_core::session::SessionStatus::Ended,
         _ => nexus_core::session::SessionStatus::Stale, // recovered sessions start as stale
     };
 

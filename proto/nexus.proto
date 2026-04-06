@@ -14,6 +14,7 @@ enum SessionStatus {
   SESSION_STATUS_IDLE = 2;
   SESSION_STATUS_STALE = 3;
   SESSION_STATUS_ERRORED = 4;
+  SESSION_STATUS_ENDED = 5;
 }
 
 enum SessionType {
