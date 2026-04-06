@@ -2,6 +2,25 @@ import type * as NodePtyTypes from "node-pty";
 
 const DEFAULT_SCROLLBACK_CAPACITY = 10_000;
 
+/**
+ * Environment variable keys that must never be forwarded to a child PTY process.
+ *
+ * These variables contain secrets or connection strings that have no legitimate
+ * use inside a spawned shell session and could be exfiltrated by malicious
+ * terminal payloads.
+ *
+ * PATH and HOME are intentionally excluded — they are required for a usable shell.
+ */
+export const SENSITIVE_ENV_KEYS: ReadonlyArray<string> = [
+  "NEXUS_ATTACH_SECRET",
+  "NEXUS_ENCRYPTION_KEY",
+  "NEXUS_INTERNAL_SECRET",
+  "POSTGRES_URL",
+  "DATABASE_URL",
+  "SENTRY_DSN",
+  "SENTRY_AUTH_TOKEN",
+];
+
 // Minimal logger interface used by this module.
 // We intentionally avoid importing @nexus/core (pino) at module level because
 // pino's stream initialization interferes with node-pty's libuv data callbacks
@@ -94,11 +113,26 @@ export class NodePtySource implements PtySource {
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pty = require("node-pty") as typeof NodePtyTypes;
+
+    // When the caller does not supply an explicit env, build a sanitised copy of
+    // process.env with all sensitive keys removed so secrets are never forwarded
+    // to child shell sessions. When env is supplied explicitly (e.g. in tests),
+    // pass it as-is — the caller controls what is included.
+    let spawnEnv: Record<string, string>;
+    if (opts.env !== undefined) {
+      spawnEnv = opts.env;
+    } else {
+      spawnEnv = { ...(process.env as Record<string, string>) };
+      for (const key of SENSITIVE_ENV_KEYS) {
+        delete spawnEnv[key];
+      }
+    }
+
     this.term = pty.spawn(shell, args, {
       cols: opts.cols ?? 80,
       rows: opts.rows ?? 24,
       cwd: opts.cwd ?? process.cwd(),
-      env: (opts.env ?? process.env) as Record<string, string>,
+      env: spawnEnv,
       // Request binary mode — node-pty may still deliver strings on some platforms
       encoding: null as unknown as undefined,
     });

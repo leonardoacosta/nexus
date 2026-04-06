@@ -113,6 +113,51 @@ describe("WebSocket security: authentication", () => {
   });
 });
 
+// ── Security: WebSocket query-string token auth ──────────────────────────────
+
+describe("WebSocket query-string token auth", () => {
+  // Browsers cannot set custom HTTP headers on WebSocket upgrades.
+  // The server must accept the secret via the `?token=` query-string parameter.
+
+  it("[1.4] stream: missing token (no header, no QS) → 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/stream`);
+    expect(res.status).toBe(401);
+  });
+
+  it("[1.4] stream: wrong token in query-string → 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/stream?token=wrong-token`);
+    expect(res.status).toBe(401);
+  });
+
+  it("[1.4] stream: correct token in query-string → passes auth (404 because no PTY, not 401)", async () => {
+    const res = await fetch(
+      `${baseUrl}/sessions/some-session/stream?token=${encodeURIComponent(ATTACH_SECRET)}`,
+    );
+    // Auth passes → session not found (no PTY) → 404, not 401
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
+  });
+
+  it("[1.4] interact: missing token (no header, no QS) → 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/interact`);
+    expect(res.status).toBe(401);
+  });
+
+  it("[1.4] interact: wrong token in query-string → 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/interact?token=wrong-token`);
+    expect(res.status).toBe(401);
+  });
+
+  it("[1.4] interact: correct token in query-string → passes auth (404 because no PTY, not 401)", async () => {
+    const res = await fetch(
+      `${baseUrl}/sessions/some-session/interact?token=${encodeURIComponent(ATTACH_SECRET)}`,
+    );
+    // Auth passes → session not found → 404, not 401
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
+  });
+});
+
 // ── Security: connection limit ────────────────────────────────────────────────
 
 describe("WebSocket security: connection limit", () => {

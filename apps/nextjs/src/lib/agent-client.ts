@@ -403,7 +403,10 @@ export class AgentClient {
         `${agentBaseUrl(agent)}/commands/${encodeURIComponent(name)}`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+          },
           body: JSON.stringify({ content }),
           signal: controller.signal,
         },

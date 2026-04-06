@@ -74,6 +74,35 @@ describe("AgentClient", () => {
     vi.unstubAllGlobals();
   });
 
+  // ---- updateCommand: includes x-nexus-secret header -----------------------
+
+  describe("updateCommand", () => {
+    test("[3.2] request includes x-nexus-secret header", async () => {
+      let capturedHeaders: Record<string, string> | null = null;
+
+      vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = Object.fromEntries(
+          new Headers(init?.headers ?? {}).entries(),
+        );
+        return jsonResponse({ updated: true, path: "/home/user/.claude/commands/test.md" });
+      });
+
+      // Set the env var so updateCommand picks it up
+      const originalSecret = process.env.NEXUS_ATTACH_SECRET;
+      process.env.NEXUS_ATTACH_SECRET = "test-secret";
+
+      try {
+        const client = new AgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
+        await client.updateCommand("dev-1", "test-cmd", "content here");
+      } finally {
+        process.env.NEXUS_ATTACH_SECRET = originalSecret;
+      }
+
+      expect(capturedHeaders).not.toBeNull();
+      expect(capturedHeaders!["x-nexus-secret"]).toBe("test-secret");
+    });
+  });
+
   // ---- Online agent: returns sessions/health data -------------------------
 
   describe("online agent", () => {

@@ -114,6 +114,32 @@ function requireSecret(request: Request): Response | null {
   return null;
 }
 
+/**
+ * Validate WebSocket upgrade authentication.
+ *
+ * Browsers cannot set custom HTTP headers on WebSocket upgrades, so this
+ * function accepts the secret from either:
+ *   1. The `x-nexus-secret` request header (used by server-side / non-browser clients), or
+ *   2. The `token` query-string parameter (used by browser-based XTerminal).
+ *
+ * Both paths use constant-time comparison to prevent timing attacks.
+ * Returns `null` on success, `Response(401)` on failure.
+ */
+function requireSecretWs(request: Request, url: URL): Response | null {
+  // Prefer the header (same path as requireSecret)
+  const fromHeader = request.headers.get("x-nexus-secret");
+  const provided = fromHeader !== null ? fromHeader : (url.searchParams.get("token") ?? "");
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(ATTACH_SECRET);
+  if (
+    providedBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(providedBuf, expectedBuf)
+  ) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  return null;
+}
+
 // ── ServerState: encapsulates all per-server mutable state ─────────────────
 
 /**
@@ -215,8 +241,8 @@ function createRequestHandler(state: ServerState, db?: Db) {
       if (!SESSION_ID_RE.test(sessionId)) {
         return new Response("Bad Request", { status: 400 });
       }
-      // Validate secret header using constant-time comparison (Task 2.2/2.3)
-      const streamAuthErr = requireSecret(request);
+      // Validate secret via header or ?token= query param (browser WS can't set headers)
+      const streamAuthErr = requireSecretWs(request, url);
       if (streamAuthErr) return streamAuthErr;
       // Task 1.3: Enforce connection limit
       if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
@@ -245,8 +271,8 @@ function createRequestHandler(state: ServerState, db?: Db) {
       if (!SESSION_ID_RE.test(sessionId)) {
         return new Response("Bad Request", { status: 400 });
       }
-      // Validate secret header using constant-time comparison (Task 2.2/2.3)
-      const interactAuthErr = requireSecret(request);
+      // Validate secret via header or ?token= query param (browser WS can't set headers)
+      const interactAuthErr = requireSecretWs(request, url);
       if (interactAuthErr) return interactAuthErr;
       // Task 1.3: Enforce connection limit
       if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {

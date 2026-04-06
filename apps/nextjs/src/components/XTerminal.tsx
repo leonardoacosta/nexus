@@ -23,6 +23,13 @@ export interface XTerminalProps {
   mode: TerminalMode;
   /** Called when the agent or session sends a control frame */
   onControlFrame?: (data: ControlFrame) => void;
+  /**
+   * Optional pre-fetched WebSocket auth token. When omitted, XTerminal will
+   * fetch it from `/api/ws-token` before opening the connection.
+   * Pass an explicit value to avoid the extra round-trip (e.g. from a server
+   * component that already has the secret in scope).
+   */
+  wsToken?: string;
 }
 
 export interface XTerminalHandle {
@@ -47,7 +54,7 @@ const BACKOFF_BASE_MS = 1000; // 1s, 2s, 4s
 // ---------------------------------------------------------------------------
 
 export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
-  function XTerminal({ agentHost, sessionId, mode, onControlFrame }, ref) {
+  function XTerminal({ agentHost, sessionId, mode, onControlFrame, wsToken }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<import("@xterm/xterm").Terminal | null>(null);
     const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -55,6 +62,8 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
     const retryCountRef = useRef(0);
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mountedRef = useRef(true);
+    // Resolved token — set once during init and reused by reconnect attempts.
+    const tokenRef = useRef<string | null>(wsToken ?? null);
 
     const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 
@@ -80,7 +89,14 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
         const protocol = agentHost.startsWith("localhost") || agentHost.startsWith("127.0.0.1")
           ? "ws"
           : "ws"; // Agent doesn't serve TLS — Tailscale handles encryption
-        const url = `${protocol}://${agentHost}/sessions/${encodeURIComponent(sessionId)}/${mode}`;
+        let url = `${protocol}://${agentHost}/sessions/${encodeURIComponent(sessionId)}/${mode}`;
+
+        // Append the auth token as a query-string parameter so browsers can
+        // authenticate WebSocket upgrades (custom headers not allowed in browser WS).
+        const token = tokenRef.current;
+        if (token) {
+          url += `?token=${encodeURIComponent(token)}`;
+        }
 
         const ws = new WebSocket(url);
         ws.binaryType = "arraybuffer";
@@ -150,6 +166,7 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
         };
       },
       [agentHost, sessionId, mode, onControlFrame],
+      // tokenRef is a ref — mutations don't need to be in deps
     );
 
     // -----------------------------------------------------------------------
@@ -165,6 +182,23 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
 
       async function init() {
         if (!containerRef.current || !mountedRef.current) return;
+
+        // Fetch the WebSocket auth token if not pre-provided via prop.
+        // The /api/ws-token route returns the secret server-side so it is never
+        // embedded in static client bundles.
+        if (!tokenRef.current) {
+          try {
+            const res = await fetch("/api/ws-token");
+            if (res.ok) {
+              const data = (await res.json()) as { token?: string };
+              if (data.token) tokenRef.current = data.token;
+            }
+          } catch {
+            // Non-fatal: connect will proceed without a token and receive 401
+          }
+        }
+
+        if (!mountedRef.current) return;
 
         // Dynamic imports — xterm needs real DOM
         const { Terminal } = await import("@xterm/xterm");
