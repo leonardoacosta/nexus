@@ -64,12 +64,12 @@
 
 ## 7. Path-to-Registry Mapping (P2)
 
-- [ ] 7.1 In the route handler response, include `registryId: string | null` — query the
+- [deferred] 7.1 In the route handler response, include `registryId: string | null` — query the
       `projects` DB table for a row whose `path` matches the resolved project path; `null` if
       not found
-- [ ] 7.2 Extend `AgentDiscoveredProject` interface with `registryId: string | null`
-- [ ] 7.3 Extend `DiscoveredProject` core type with `registryId: string | null`
-- [ ] 7.4 Update Next.js client mapping to pass `registryId` through
+- [deferred] 7.2 Extend `AgentDiscoveredProject` interface with `registryId: string | null`
+- [deferred] 7.3 Extend `DiscoveredProject` core type with `registryId: string | null`
+- [deferred] 7.4 Update Next.js client mapping to pass `registryId` through
 
 ## 8. Cross-Agent Metadata Alignment (P2)
 
@@ -109,5 +109,5 @@
 - [x] 13.1 `bun run typecheck` passes with zero errors across all packages
 - [x] 13.2 `bun run lint` passes with zero warnings on changed files
 - [x] 13.3 All new unit tests pass: `bun test --filter projects-discovered`
-- [ ] 13.4 Manual smoke test: `curl http://localhost:7400/projects/discovered | jq` returns
+- [x] 13.4 Manual smoke test: `curl http://localhost:7400/projects/discovered | jq` returns
       entries with numeric `activeSessions` and `totalSessions`
