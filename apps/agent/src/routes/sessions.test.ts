@@ -26,6 +26,8 @@ const hasPg = !!process.env.POSTGRES_URL;
 const TEST_IDS = ["test-sess-001", "test-sess-002", "test-sess-003"];
 
 async function seedSessions(db: Db) {
+  // Ensure clean state before seeding (idempotent across describe blocks)
+  await teardown(db);
   const now = new Date().toISOString();
   await db.insert(sessions).values([
     {
@@ -108,7 +110,12 @@ describe.skipIf(!hasPg)("GET /sessions?project= (requires live PG)", () => {
 
   beforeAll(async () => {
     db = openDatabase();
+    await seedSessions(db);
     handlers = createSessionHandlers(db);
+  });
+
+  afterAll(async () => {
+    await teardown(db);
   });
 
   it("filters by project name", async () => {
@@ -137,7 +144,12 @@ describe.skipIf(!hasPg)("GET /sessions?status= (requires live PG)", () => {
 
   beforeAll(async () => {
     db = openDatabase();
+    await seedSessions(db);
     handlers = createSessionHandlers(db);
+  });
+
+  afterAll(async () => {
+    await teardown(db);
   });
 
   it("filters by status", async () => {
@@ -165,7 +177,12 @@ describe.skipIf(!hasPg)("GET /sessions/{id} (requires live PG)", () => {
 
   beforeAll(async () => {
     db = openDatabase();
+    await seedSessions(db);
     handlers = createSessionHandlers(db);
+  });
+
+  afterAll(async () => {
+    await teardown(db);
   });
 
   it("returns a single session by ID", async () => {

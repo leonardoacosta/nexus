@@ -4,10 +4,17 @@
  * Verifies that the agent API endpoints return data in the correct shape
  * as expected by the dashboard. Tests run against the real server
  * (no mocks for the HTTP layer — only the DB/pty are absent).
+ *
+ * All REST routes require the x-nexus-secret header (added in wave-1 auth).
+ * WebSocket upgrade routes check auth before PTY existence.
+ * Tests use NEXUS_ATTACH_SECRET=test (set in CI and local runs).
  */
 
 import { describe, expect, it, afterAll } from "bun:test";
 import { startServer, healthCollector } from "../../src/server";
+
+const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET ?? "test";
+const AUTH_HEADER = { "x-nexus-secret": ATTACH_SECRET };
 
 const server = startServer(0);
 const baseUrl = `http://localhost:${server.port}`;
@@ -22,10 +29,11 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe("Agent API: /sessions shape", () => {
-  it("GET /sessions returns 200 with JSON array", async () => {
-    const res = await fetch(`${baseUrl}/sessions`);
+  it("GET /sessions returns 200 with JSON array (or 404 without DB)", async () => {
+    const res = await fetch(`${baseUrl}/sessions`, {
+      headers: AUTH_HEADER,
+    });
     // Without a DB, sessions route returns 404 (no DB mounted)
-    // This is expected — the route only works with SQLite
     if (res.status === 200) {
       const body = await res.json();
       expect(Array.isArray(body)).toBe(true);
@@ -36,10 +44,17 @@ describe("Agent API: /sessions shape", () => {
   });
 
   it("GET /sessions/{id} returns 404 for nonexistent session", async () => {
-    const res = await fetch(`${baseUrl}/sessions/nonexistent-id`);
+    const res = await fetch(`${baseUrl}/sessions/nonexistent-id`, {
+      headers: AUTH_HEADER,
+    });
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body).toHaveProperty("error");
+  });
+
+  it("GET /sessions without auth returns 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions`);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -49,7 +64,9 @@ describe("Agent API: /sessions shape", () => {
 
 describe("Agent API: /health shape", () => {
   it("GET /health returns 200 with correct HealthMetrics shape", async () => {
-    const res = await fetch(`${baseUrl}/health`);
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: AUTH_HEADER,
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
@@ -84,7 +101,9 @@ describe("Agent API: /health shape", () => {
   });
 
   it("GET /health?detail=true returns processes and network", async () => {
-    const res = await fetch(`${baseUrl}/health?detail=true`);
+    const res = await fetch(`${baseUrl}/health?detail=true`, {
+      headers: AUTH_HEADER,
+    });
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -94,10 +113,15 @@ describe("Agent API: /health shape", () => {
     expect(body).toHaveProperty("cpu");
     expect(body).toHaveProperty("ram");
   });
+
+  it("GET /health without auth returns 401", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(401);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket endpoints existence
+// WebSocket endpoints — auth-first semantics
 // ---------------------------------------------------------------------------
 
 describe("Agent API: WebSocket endpoints", () => {
@@ -111,6 +135,21 @@ describe("Agent API: WebSocket endpoints", () => {
     const res = await fetch(`${baseUrl}/sessions/test-id/interact`);
     expect(res.status).toBe(401);
   });
+
+  it("GET /sessions/{id}/stream with valid auth returns 404 (auth ok, no PTY)", async () => {
+    // With valid auth, auth passes and then PTY check runs — no PTY means 404
+    const res = await fetch(`${baseUrl}/sessions/no-such-session/stream`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /sessions/{id}/interact with valid auth returns 404 (auth ok, no PTY)", async () => {
+    const res = await fetch(`${baseUrl}/sessions/no-such-session/interact`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -118,8 +157,10 @@ describe("Agent API: WebSocket endpoints", () => {
 // ---------------------------------------------------------------------------
 
 describe("Agent API: /projects shape", () => {
-  it("GET /projects returns 200 with JSON array when DB is available", async () => {
-    const res = await fetch(`${baseUrl}/projects`);
+  it("GET /projects returns 200 with JSON array when DB is available (or 404 without DB)", async () => {
+    const res = await fetch(`${baseUrl}/projects`, {
+      headers: AUTH_HEADER,
+    });
     // Without a DB, returns 404
     if (res.status === 200) {
       const body = await res.json();
@@ -136,6 +177,11 @@ describe("Agent API: /projects shape", () => {
       expect(res.status).toBe(404);
     }
   });
+
+  it("GET /projects without auth returns 401", async () => {
+    const res = await fetch(`${baseUrl}/projects`);
+    expect(res.status).toBe(401);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -145,7 +191,7 @@ describe("Agent API: /projects shape", () => {
 describe("Agent API: CORS", () => {
   it("sets CORS headers for Tailscale origins", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://100.64.0.1:3100" },
+      headers: { Origin: "http://100.64.0.1:3100", ...AUTH_HEADER },
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe(
@@ -153,7 +199,7 @@ describe("Agent API: CORS", () => {
     );
   });
 
-  it("OPTIONS preflight returns 204 with CORS headers", async () => {
+  it("OPTIONS preflight returns 204 with CORS headers (no auth required)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
       method: "OPTIONS",
       headers: { Origin: "http://100.100.1.1:3100" },
@@ -169,7 +215,7 @@ describe("Agent API: CORS", () => {
 
   it("does not set CORS for non-Tailscale origins", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://evil.com" },
+      headers: { Origin: "http://evil.com", ...AUTH_HEADER },
     });
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
@@ -181,9 +227,16 @@ describe("Agent API: CORS", () => {
 
 describe("Agent API: unknown routes", () => {
   it("returns 404 JSON for unknown paths", async () => {
-    const res = await fetch(`${baseUrl}/unknown/path`);
+    const res = await fetch(`${baseUrl}/unknown/path`, {
+      headers: AUTH_HEADER,
+    });
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("not found");
+  });
+
+  it("returns 401 for unknown paths without auth", async () => {
+    const res = await fetch(`${baseUrl}/unknown/path`);
+    expect(res.status).toBe(401);
   });
 });

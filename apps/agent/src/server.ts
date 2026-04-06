@@ -48,52 +48,15 @@ const SESSION_ID_RE = /^[a-zA-Z0-9_.-]+$/;
 // ── Credential ID validation ────────────────────────────────────────────────
 const CREDENTIAL_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
-const healthCollector = new HealthCollector();
-healthCollector.start();
-
-const streamManager = new StreamManager();
-
-// ── WebSocket keepalive ──────────────────────────────────────────────────────
-
+// ── WebSocket keepalive constants ───────────────────────────────────────────
 const PING_INTERVAL_MS = 30_000;
 const PONG_TIMEOUT_MS = 10_000;
-const pongDeadlines = new Map<ServerWebSocket<WsData>, ReturnType<typeof setTimeout>>();
 
-let pingTimer: ReturnType<typeof setInterval> | null = null;
-const allSockets = new Set<ServerWebSocket<WsData>>();
+// ── WebSocket route patterns ────────────────────────────────────────────────
+const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
+const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
 
-function startPingTimer(): void {
-  if (pingTimer) return;
-  pingTimer = setInterval(() => {
-    for (const ws of allSockets) {
-      ws.ping();
-      // Set a deadline for pong response
-      const timeout = setTimeout(() => {
-        pongDeadlines.delete(ws);
-        // Clean up viewer state before closing (task 1.6)
-        streamManager.removeViewer(ws);
-        if (streamManager.viewerCount(ws.data.sessionId) === 0) {
-          streamManager.endSession(ws.data.sessionId);
-        }
-        try {
-          ws.close(1001, "pong timeout");
-        } catch {
-          // already closed
-        }
-      }, PONG_TIMEOUT_MS);
-      pongDeadlines.set(ws, timeout);
-    }
-  }, PING_INTERVAL_MS);
-}
-
-function stopPingTimer(): void {
-  if (pingTimer) {
-    clearInterval(pingTimer);
-    pingTimer = null;
-  }
-  for (const t of pongDeadlines.values()) clearTimeout(t);
-  pongDeadlines.clear();
-}
+// ── Pure utility functions (no state) ──────────────────────────────────────
 
 /** Stubbed health payload used while the collector is warming up. */
 function stubbedHealthPayload(): HealthMetrics {
@@ -151,13 +114,96 @@ function requireSecret(request: Request): Response | null {
   return null;
 }
 
-// ── WebSocket route patterns ────────────────────────────────────────────────
+// ── ServerState: encapsulates all per-server mutable state ─────────────────
 
-const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
-const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
+/**
+ * Encapsulates all mutable state owned by a single server instance.
+ *
+ * Each call to `ServerState.create()` produces an independent instance so that
+ * test files that spin up their own server receive isolated state with no
+ * cross-test bleed through shared module-level variables.
+ */
+export class ServerState {
+  readonly healthCollector: HealthCollector;
+  readonly streamManager: StreamManager;
+
+  readonly allSockets = new Set<ServerWebSocket<WsData>>();
+  readonly pongDeadlines = new Map<ServerWebSocket<WsData>, ReturnType<typeof setTimeout>>();
+  pingTimer: ReturnType<typeof setInterval> | null = null;
+
+  private constructor(hc: HealthCollector, sm: StreamManager) {
+    this.healthCollector = hc;
+    this.streamManager = sm;
+  }
+
+  /** Create a fresh, isolated ServerState with its own HealthCollector and StreamManager. */
+  static create(): ServerState {
+    const hc = new HealthCollector();
+    hc.start();
+    const sm = new StreamManager();
+    return new ServerState(hc, sm);
+  }
+
+  startPingTimer(): void {
+    if (this.pingTimer) return;
+    this.pingTimer = setInterval(() => {
+      for (const ws of this.allSockets) {
+        ws.ping();
+        const timeout = setTimeout(() => {
+          this.pongDeadlines.delete(ws);
+          // Clean up viewer state before closing (task 1.6)
+          this.streamManager.removeViewer(ws);
+          if (this.streamManager.viewerCount(ws.data.sessionId) === 0) {
+            this.streamManager.endSession(ws.data.sessionId);
+          }
+          try {
+            ws.close(1001, "pong timeout");
+          } catch {
+            // already closed
+          }
+        }, PONG_TIMEOUT_MS);
+        this.pongDeadlines.set(ws, timeout);
+      }
+    }, PING_INTERVAL_MS);
+  }
+
+  stopPingTimer(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    for (const t of this.pongDeadlines.values()) clearTimeout(t);
+    this.pongDeadlines.clear();
+  }
+}
+
+// ── Module-level singleton — used by server.test.ts direct imports ──────────
+//
+// These are re-exported for backward compat. Code that imports
+// `healthCollector` or `streamManager` directly from server.ts gets the
+// singleton's instances (the server started by `startServer()`).
+//
+// Test files that need full isolation should call `ServerState.create()` and
+// pass the resulting state to a custom `createRequestHandler` / Bun.serve call.
+
+const _singletonState = ServerState.create();
+
+/**
+ * Module-level healthCollector export (singleton).
+ * Maintained for backward compat with server.test.ts.
+ */
+export const healthCollector: HealthCollector = _singletonState.healthCollector;
+
+/**
+ * Module-level streamManager export (singleton).
+ * Maintained for backward compat with server.test.ts.
+ */
+export const streamManager: StreamManager = _singletonState.streamManager;
+
+// ── Request handler factory ─────────────────────────────────────────────────
 
 /** Create the route dispatch handler, optionally backed by a database. */
-function createRequestHandler(db?: Db) {
+function createRequestHandler(state: ServerState, db?: Db) {
   return function handleRequest(request: Request, server: import("bun").Server<WsData>): Response | Promise<Response> | undefined {
     const url = new URL(request.url);
 
@@ -173,10 +219,10 @@ function createRequestHandler(db?: Db) {
       const streamAuthErr = requireSecret(request);
       if (streamAuthErr) return streamAuthErr;
       // Task 1.3: Enforce connection limit
-      if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
+      if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
         return new Response("Too Many Requests", { status: 429 });
       }
-      if (!streamManager.getPty(sessionId)) {
+      if (!state.streamManager.getPty(sessionId)) {
         // No PTY attached — session doesn't exist or isn't streamable
         return new Response(JSON.stringify({ error: "session not found" }), {
           status: 404,
@@ -203,10 +249,10 @@ function createRequestHandler(db?: Db) {
       const interactAuthErr = requireSecret(request);
       if (interactAuthErr) return interactAuthErr;
       // Task 1.3: Enforce connection limit
-      if (allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
+      if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
         return new Response("Too Many Requests", { status: 429 });
       }
-      if (!streamManager.getPty(sessionId)) {
+      if (!state.streamManager.getPty(sessionId)) {
         return new Response(JSON.stringify({ error: "session not found" }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
@@ -235,7 +281,7 @@ function createRequestHandler(db?: Db) {
 
     if (url.pathname === "/health") {
       const detail = url.searchParams.get("detail") === "true";
-      const latest = healthCollector.getLatest();
+      const latest = state.healthCollector.getLatest();
 
       let payload: HealthMetrics;
       let warmingUp = false;
@@ -443,13 +489,15 @@ function createRequestHandler(db?: Db) {
   };
 }
 
-export { healthCollector, streamManager };
-
 export function startServer(
   port: number = PORT,
   db?: Db,
   options?: { encryptionKey?: import("node:buffer").Buffer; prerotateThreshold?: number },
 ) {
+  // Use the module singleton state so that module-level `healthCollector` and
+  // `streamManager` exports remain valid references to the running server's state.
+  const state = _singletonState;
+
   // Initialize subsystems that need the DB.
   // initNotificationRoutes is async (mutex-guarded) — fire-and-forget here
   // since server startup itself is synchronous and the manager will be ready
@@ -462,7 +510,7 @@ export function startServer(
     });
   }
 
-  const handler = createRequestHandler(db);
+  const handler = createRequestHandler(state, db);
 
   const server = Bun.serve<WsData>({
     port,
@@ -471,21 +519,21 @@ export function startServer(
     },
     websocket: {
       open(ws: ServerWebSocket<WsData>) {
-        allSockets.add(ws);
-        startPingTimer();
+        state.allSockets.add(ws);
+        state.startPingTimer();
 
         if (ws.data.mode === "interact") {
           // Try to claim the writer mutex
-          const claimed = streamManager.claimWriter(ws);
+          const claimed = state.streamManager.claimWriter(ws);
           if (!claimed) {
             ws.close(4009, "interactive session already held by another client");
-            allSockets.delete(ws);
+            state.allSockets.delete(ws);
             return;
           }
         }
 
         // Register as viewer (both stream and interact get output)
-        streamManager.addViewer(ws);
+        state.streamManager.addViewer(ws);
 
         logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: open");
       },
@@ -499,7 +547,7 @@ export function startServer(
             try {
               const parsed = JSON.parse(msg);
               if (parsed.type === "reconnect" && typeof parsed.sessionId === "string") {
-                streamManager.replayBuffer(ws);
+                state.streamManager.replayBuffer(ws);
               }
             } catch {
               // Not a valid JSON control frame — ignore
@@ -511,7 +559,7 @@ export function startServer(
         // Defense-in-depth: ensure this socket holds the writer mutex before
         // processing any input. Protects against race conditions where a socket
         // loses writer status between the open() claim and message receipt.
-        if (!streamManager.isWriter(ws)) {
+        if (!state.streamManager.isWriter(ws)) {
           ws.sendText(JSON.stringify({ type: "error", message: "not the interactive writer" }));
           return;
         }
@@ -531,7 +579,7 @@ export function startServer(
                 ws.sendText(JSON.stringify({ type: "error", message: "Invalid resize dimensions" }));
                 return;
               }
-              const pty = streamManager.getPty(sessionId);
+              const pty = state.streamManager.getPty(sessionId);
               if (pty) {
                 pty.resize(cols, rows);
               }
@@ -541,7 +589,7 @@ export function startServer(
             // Not JSON — treat as text input
           }
           // Write text as bytes
-          const pty = streamManager.getPty(sessionId);
+          const pty = state.streamManager.getPty(sessionId);
           if (pty) {
             pty.write(new TextEncoder().encode(msg));
           }
@@ -549,7 +597,7 @@ export function startServer(
         }
 
         // Binary frame — raw stdin bytes
-        const pty = streamManager.getPty(sessionId);
+        const pty = state.streamManager.getPty(sessionId);
         if (pty) {
           const data = msg instanceof Uint8Array ? msg : new Uint8Array(msg);
           pty.write(data);
@@ -557,34 +605,34 @@ export function startServer(
       },
 
       close(ws: ServerWebSocket<WsData>) {
-        allSockets.delete(ws);
-        const deadline = pongDeadlines.get(ws);
+        state.allSockets.delete(ws);
+        const deadline = state.pongDeadlines.get(ws);
         if (deadline) {
           clearTimeout(deadline);
-          pongDeadlines.delete(ws);
+          state.pongDeadlines.delete(ws);
         }
 
-        streamManager.removeViewer(ws);
+        state.streamManager.removeViewer(ws);
         // Mirror the pong-timeout path: tear down the PTY session when the
         // last viewer disconnects normally (task 1.1 — PTY orphan fix).
-        if (streamManager.viewerCount(ws.data.sessionId) === 0) {
-          streamManager.endSession(ws.data.sessionId);
+        if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
+          state.streamManager.endSession(ws.data.sessionId);
         }
 
         logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: close");
 
         // Stop ping timer if no sockets remain
-        if (allSockets.size === 0) {
-          stopPingTimer();
+        if (state.allSockets.size === 0) {
+          state.stopPingTimer();
         }
       },
 
       pong(ws: ServerWebSocket<WsData>) {
         // Clear the pong deadline — connection is still alive
-        const deadline = pongDeadlines.get(ws);
+        const deadline = state.pongDeadlines.get(ws);
         if (deadline) {
           clearTimeout(deadline);
-          pongDeadlines.delete(ws);
+          state.pongDeadlines.delete(ws);
         }
       },
 
