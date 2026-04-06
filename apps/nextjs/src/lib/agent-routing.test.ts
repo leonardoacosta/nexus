@@ -46,7 +46,7 @@ describe("resolveAttachAgent", () => {
   it("primary online → routes to homelab, isFallback=false", () => {
     const project = makeProject();
     const result = resolveAttachAgent(project, [homelabOnline, macOnline]);
-    expect(result).toEqual({ agentId: "homelab", isFallback: false });
+    expect(result).toEqual({ agentName: "homelab", isFallback: false });
   });
 
   it("primary missing → routes to mac, isFallback=true", () => {
@@ -75,19 +75,19 @@ describe("resolveAttachAgent", () => {
       ],
     });
     const result = resolveAttachAgent(project, [homelabOnline, macOnline]);
-    expect(result).toEqual({ agentId: "mac", isFallback: true });
+    expect(result).toEqual({ agentName: "mac", isFallback: true });
   });
 
   it("primary offline (agent down) → routes to mac, isFallback=true", () => {
     const project = makeProject();
     const result = resolveAttachAgent(project, [homelabOffline, macOnline]);
-    expect(result).toEqual({ agentId: "mac", isFallback: true });
+    expect(result).toEqual({ agentName: "mac", isFallback: true });
   });
 
   it("no agents online → last resort primary, isFallback=true", () => {
     const project = makeProject();
     const result = resolveAttachAgent(project, []);
-    expect(result).toEqual({ agentId: "homelab", isFallback: true });
+    expect(result).toEqual({ agentName: "homelab", isFallback: true });
   });
 });
 

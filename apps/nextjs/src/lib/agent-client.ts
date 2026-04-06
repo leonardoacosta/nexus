@@ -115,7 +115,10 @@ async function fetchWithRetry(url: string): Promise<Response> {
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
+      });
       clearTimeout(timer);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -301,14 +304,24 @@ export class AgentClient {
     try {
       const res = await fetch(`${agentBaseUrl(agent)}/session/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
       clearTimeout(timer);
       if (!res.ok) {
-        const err = (await res.json()) as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+        const text = await res.text();
+        let message: string;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          message = parsed.error ?? `HTTP ${res.status}`;
+        } catch {
+          message = text || `HTTP ${res.status}`;
+        }
+        throw new Error(message);
       }
       this.markOnline(agentName);
       return (await res.json()) as { session_name: string; started: boolean };

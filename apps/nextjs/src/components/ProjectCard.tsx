@@ -20,18 +20,18 @@ export function ProjectCard({ project }: ProjectCardProps) {
     startTransition(async () => {
       try {
         // TODO: pass real agentStatuses once ProjectsPoller exposes them
-        const { agentId, isFallback } = resolveAttachAgent(project, []);
-        const location = project.locations.find((l) => l.agentId === agentId);
+        const { agentName, isFallback } = resolveAttachAgent(project, []);
+        const location = project.locations.find((l) => l.agentName === agentName);
         const path = location?.path ?? "";
 
         if (isFallback) {
           const primaryName =
             project.locations.find((l) => l.isPrimary)?.agentName ??
             project.primaryAgentId;
-          window.alert(`Connected to ${agentId} (${primaryName} offline)`);
+          window.alert(`Connected to ${agentName} (${primaryName} offline)`);
         }
 
-        await startSession(agentId, project.name, path);
+        await startSession(agentName, project.name, path);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to start session",

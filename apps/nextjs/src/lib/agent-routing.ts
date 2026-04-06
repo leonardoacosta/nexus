@@ -9,13 +9,13 @@ import type { AgentStatus } from "./agent-client";
  * 2. First available location that is 'active' on an online agent
  * 3. Primary agent as last resort (even if offline — caller handles offline state)
  *
- * Returns the agentId to route to, and a boolean indicating if fallback was used.
+ * Returns the agentName to route to, and a boolean indicating if fallback was used.
  */
 export function resolveAttachAgent(
   project: CanonicalProject,
   agentStatuses: AgentStatus[],
-): { agentId: string; isFallback: boolean } {
-  const onlineAgentIds = new Set(
+): { agentName: string; isFallback: boolean } {
+  const onlineAgentNames = new Set(
     agentStatuses.filter((a) => a.online).map((a) => a.name),
   );
 
@@ -24,20 +24,21 @@ export function resolveAttachAgent(
 
   // Prefer primary location if active and online
   const primaryLocation = sorted.find((l) => l.isPrimary && l.status === "active");
-  if (primaryLocation && onlineAgentIds.has(primaryLocation.agentId)) {
-    return { agentId: primaryLocation.agentId, isFallback: false };
+  if (primaryLocation && onlineAgentNames.has(primaryLocation.agentName)) {
+    return { agentName: primaryLocation.agentName, isFallback: false };
   }
 
   // Fallback: first active location on an online agent
   const fallback = sorted.find(
-    (l) => l.status === "active" && onlineAgentIds.has(l.agentId),
+    (l) => l.status === "active" && onlineAgentNames.has(l.agentName),
   );
   if (fallback) {
-    return { agentId: fallback.agentId, isFallback: true };
+    return { agentName: fallback.agentName, isFallback: true };
   }
 
-  // Last resort: primary agent ID (caller must handle offline gracefully)
-  return { agentId: project.primaryAgentId, isFallback: true };
+  // Last resort: primary location's agentName (caller must handle offline gracefully)
+  const primaryFallback = sorted.find((l) => l.isPrimary);
+  return { agentName: primaryFallback?.agentName ?? project.primaryAgentId, isFallback: true };
 }
 
 /**
