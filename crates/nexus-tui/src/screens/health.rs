@@ -183,14 +183,14 @@ fn render_agent_card(
     frame.render_widget(cpu_gauge, rows[0]);
 
     // --- CPU sparkline (prefer SQLite 24h data, fall back to ring buffer) ---
-    let cpu_data: Vec<u64> =
-        if let Some(ts_entries) = app.health_time_series.get(&agent.info.name) {
-            ts_entries.iter().map(|e| e.cpu_percent as u64).collect()
-        } else if let Some(history) = app.health_history.get(&agent.info.name) {
-            history.cpu.iter().copied().collect()
-        } else {
-            vec![]
-        };
+    let cpu_data: Vec<u64> = if let Some(ts_entries) = app.health_time_series.get(&agent.info.name)
+    {
+        ts_entries.iter().map(|e| e.cpu_percent as u64).collect()
+    } else if let Some(history) = app.health_history.get(&agent.info.name) {
+        history.cpu.iter().copied().collect()
+    } else {
+        vec![]
+    };
     if !cpu_data.is_empty() {
         let sparkline = Sparkline::default()
             .data(&cpu_data)
@@ -212,18 +212,18 @@ fn render_agent_card(
     frame.render_widget(ram_gauge, rows[2]);
 
     // --- RAM sparkline (prefer SQLite 24h data, fall back to ring buffer) ---
-    let ram_data: Vec<u64> =
-        if let Some(ts_entries) = app.health_time_series.get(&agent.info.name) {
-            // Convert GB to a percentage-like scale (GB * 10) for sparkline resolution.
-            ts_entries
-                .iter()
-                .map(|e| (e.memory_used_gb * 10.0) as u64)
-                .collect()
-        } else if let Some(history) = app.health_history.get(&agent.info.name) {
-            history.ram.iter().copied().collect()
-        } else {
-            vec![]
-        };
+    let ram_data: Vec<u64> = if let Some(ts_entries) = app.health_time_series.get(&agent.info.name)
+    {
+        // Convert GB to a percentage-like scale (GB * 10) for sparkline resolution.
+        ts_entries
+            .iter()
+            .map(|e| (e.memory_used_gb * 10.0) as u64)
+            .collect()
+    } else if let Some(history) = app.health_history.get(&agent.info.name) {
+        history.ram.iter().copied().collect()
+    } else {
+        vec![]
+    };
     if !ram_data.is_empty() {
         // When using SQLite data the max is scaled (GB*10), otherwise ring buffer is 0-100%.
         let ram_max = if app.health_time_series.contains_key(&agent.info.name) {
@@ -239,10 +239,9 @@ fn render_agent_card(
     }
 
     // --- Disk gauge — aggregate across all mount points ---
-    let (agg_disk_used, agg_disk_total) = health
-        .disk
-        .iter()
-        .fold((0u64, 0u64), |(u, t), d| (u + d.used_bytes, t + d.total_bytes));
+    let (agg_disk_used, agg_disk_total) = health.disk.iter().fold((0u64, 0u64), |(u, t), d| {
+        (u + d.used_bytes, t + d.total_bytes)
+    });
     let disk_ratio = if agg_disk_total > 0 {
         ((agg_disk_used as f64) / (agg_disk_total as f64)).clamp(0.0, 1.0)
     } else {
@@ -264,9 +263,7 @@ fn render_agent_card(
         Span::styled(
             format!(
                 "{:.2} {:.2} {:.2}",
-                health.cpu.load_average[0],
-                health.cpu.load_average[1],
-                health.cpu.load_average[2]
+                health.cpu.load_average[0], health.cpu.load_average[1], health.cpu.load_average[2]
             ),
             Style::default().fg(colors::TEXT),
         ),

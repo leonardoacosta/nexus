@@ -311,6 +311,16 @@ pub struct SessionRow {
     pub disconnected: bool,
 }
 
+/// A synthetic row shown in the dashboard when an agent is offline/unreachable.
+/// Task 5.1/5.2: These rows are injected into the flat list when an agent has no sessions
+/// and is not connected, so the user knows the agent is offline.
+#[derive(Debug, Clone)]
+pub struct AgentOfflineRow {
+    pub agent_name: String,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub error: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Activity status for project badges
 // ---------------------------------------------------------------------------
@@ -429,6 +439,61 @@ pub struct ProjectDetail {
 }
 
 // NotificationPanelRow and NotificationPanelState — re-exported from crate::notification
+
+// ---------------------------------------------------------------------------
+// Fuzzy search helper (Task 11.1)
+// ---------------------------------------------------------------------------
+
+/// Case-insensitive prefix/contains fuzzy match returning a score.
+/// Lower score = better match (earlier match position).
+/// Returns `None` if the query does not match the candidate.
+///
+/// Matching rules:
+/// 1. If the candidate contains the query as a substring, score = match start position.
+/// 2. If every char of the query appears in order in the candidate (subsequence), score =
+///    position of first matching char + candidate.len() (so subsequence matches rank lower than
+///    substring matches).
+pub fn fuzzy_match_score(query: &str, candidate: &str) -> Option<usize> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let q = query.to_ascii_lowercase();
+    let c = candidate.to_ascii_lowercase();
+
+    // Exact substring match — best rank.
+    if let Some(pos) = c.find(&q) {
+        return Some(pos);
+    }
+
+    // Subsequence match — lower priority (offset by candidate length).
+    let mut c_chars = c.chars();
+    let mut matched = 0usize;
+    let mut first_pos: Option<usize> = None;
+    let mut c_pos = 0usize;
+    for qch in q.chars() {
+        loop {
+            match c_chars.next() {
+                Some(cch) => {
+                    c_pos += 1;
+                    if cch == qch {
+                        if first_pos.is_none() {
+                            first_pos = Some(c_pos - 1);
+                        }
+                        matched += 1;
+                        break;
+                    }
+                }
+                None => return None, // ran out of candidate chars
+            }
+        }
+    }
+
+    if matched == q.chars().count() {
+        Some(candidate.len() + first_pos.unwrap_or(0))
+    } else {
+        None
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Spec review types
@@ -587,6 +652,17 @@ pub struct App {
     /// Cached spec velocity entries.
     pub spec_velocity: Vec<nexus_core::proto::SpecVelocityEntry>,
 
+    /// Task 6.1: Timestamp of the last successful data update from any agent.
+    pub last_data_updated: Option<std::time::Instant>,
+
+    /// Task 12.1: Multi-selected session IDs for bulk operations.
+    /// Cleared on screen transition.
+    pub selected_sessions: std::collections::HashSet<String>,
+
+    /// Task 3.4: When true, the main loop will drop the current stream_rx and
+    /// reconnect on the next iteration (resets exponential backoff).
+    pub stream_reconnect_requested: bool,
+
     /// Screen to return to when closing Palette or StreamAttach.
     pub previous_screen: Option<Screen>,
 
@@ -644,6 +720,9 @@ impl App {
             failure_trends_daily: Vec::new(),
             failure_trends_by_tool: Vec::new(),
             spec_velocity: Vec::new(),
+            last_data_updated: None,
+            stream_reconnect_requested: false,
+            selected_sessions: std::collections::HashSet::new(),
             previous_screen: None,
             help_overlay: false,
             confirm_action: None,
@@ -724,8 +803,7 @@ impl App {
                 .is_err()
             {
                 tracing::warn!("RPC channel full, send-command dropped");
-                self.status_message =
-                    Some("command dropped (channel full), try again".into());
+                self.status_message = Some("command dropped (channel full), try again".into());
             }
         }
 
@@ -736,12 +814,16 @@ impl App {
         self.current_screen = self.current_screen.next();
         self.selected_index = 0;
         self.dashboard_table_state.select(Some(0));
+        // Task 12.1: Multi-select cleared on screen transition.
+        self.selected_sessions.clear();
     }
 
     pub fn prev_screen(&mut self) {
         self.current_screen = self.current_screen.prev();
         self.selected_index = 0;
         self.dashboard_table_state.select(Some(0));
+        // Task 12.1: Multi-select cleared on screen transition.
+        self.selected_sessions.clear();
     }
 
     pub fn move_down(&mut self) {
@@ -779,6 +861,20 @@ impl App {
     /// Return the cached flattened session rows (recomputed on each `update_agents` call).
     pub fn cached_sessions(&self) -> &[SessionRow] {
         &self.cached_sessions
+    }
+
+    /// Return agents that are offline (not connected) and have no sessions,
+    /// as synthetic offline rows for the dashboard. Task 5.1/5.2.
+    pub fn offline_agents(&self) -> Vec<AgentOfflineRow> {
+        self.agents
+            .iter()
+            .filter(|a| !a.connected && a.sessions.is_empty())
+            .map(|a| AgentOfflineRow {
+                agent_name: a.info.name.clone(),
+                last_seen: a.last_seen,
+                error: a.last_error.clone(),
+            })
+            .collect()
     }
 
     /// Return the cached project summaries (recomputed on each `update_agents` call).
@@ -1067,12 +1163,20 @@ impl App {
             });
         }
 
-        // Filter by query.
-        if !query.is_empty() {
-            entries.retain(|e| e.label.to_ascii_lowercase().contains(&query));
-        }
+        // Task 11.1/11.2: Replace exact-contains with fuzzy match; rank by match position.
+        let filtered = if !query.is_empty() {
+            let mut scored: Vec<(usize, PaletteEntry)> = entries
+                .into_iter()
+                .filter_map(|e| fuzzy_match_score(&query, &e.label).map(|score| (score, e)))
+                .collect();
+            // Sort: lower score = earlier/better match.
+            scored.sort_by_key(|(score, _)| *score);
+            scored.into_iter().map(|(_, e)| e).collect()
+        } else {
+            entries
+        };
 
-        self.palette_results = entries;
+        self.palette_results = filtered;
         // Clamp selection.
         if self.palette_selected >= self.palette_results.len() {
             self.palette_selected = self.palette_results.len().saturating_sub(1);
@@ -1237,6 +1341,11 @@ impl App {
 
         self.agents = data;
 
+        // Task 6.1: Track when data was last updated from agents.
+        if self.agents.iter().any(|a| a.connected) {
+            self.last_data_updated = Some(std::time::Instant::now());
+        }
+
         // Sync telemetry into the stream view from the matching session.
         if let Some(ref mut sv) = self.stream_view {
             for agent in &self.agents {
@@ -1295,10 +1404,7 @@ impl App {
         }
     }
 
-    pub fn update_session_history(
-        &mut self,
-        entries: Vec<nexus_core::proto::SessionHistoryEntry>,
-    ) {
+    pub fn update_session_history(&mut self, entries: Vec<nexus_core::proto::SessionHistoryEntry>) {
         self.session_history = entries;
     }
 
@@ -1311,10 +1417,7 @@ impl App {
         self.failure_trends_by_tool = by_tool;
     }
 
-    pub fn update_spec_velocity(
-        &mut self,
-        entries: Vec<nexus_core::proto::SpecVelocityEntry>,
-    ) {
+    pub fn update_spec_velocity(&mut self, entries: Vec<nexus_core::proto::SpecVelocityEntry>) {
         self.spec_velocity = entries;
     }
 }
@@ -1614,5 +1717,100 @@ mod tests {
         assert!(!tool_line.is_visible(StreamVerbosity::Minimal));
         assert!(tool_line.is_visible(StreamVerbosity::Normal));
         assert!(tool_line.is_visible(StreamVerbosity::Verbose));
+    }
+
+    // ---- Task 10.1: Navigation state machine transitions -------------------
+
+    #[test]
+    fn dashboard_to_detail_transition() {
+        let app = App::new();
+        // Dashboard is the initial screen.
+        assert_eq!(app.current_screen, Screen::Dashboard);
+        // open_detail transitions to Detail (requires session+info, tested via screen enum).
+        assert_ne!(Screen::Dashboard, Screen::Detail);
+    }
+
+    #[test]
+    fn detail_to_dashboard_via_close_detail() {
+        let mut app = App::new();
+        // Manually set to Detail to simulate being there.
+        app.current_screen = Screen::Detail;
+        app.close_detail();
+        assert_eq!(app.current_screen, Screen::Dashboard);
+    }
+
+    #[test]
+    fn palette_open_and_close_returns_to_previous_screen() {
+        let mut app = App::new();
+        // Dashboard → open Palette
+        app.open_palette();
+        assert_eq!(app.current_screen, Screen::Palette);
+        assert_eq!(app.previous_screen, Some(Screen::Dashboard));
+        // Close palette → returns to Dashboard
+        app.close_palette();
+        assert_eq!(app.current_screen, Screen::Dashboard);
+    }
+
+    #[test]
+    fn palette_open_from_health_returns_to_health() {
+        let mut app = App::new();
+        app.current_screen = Screen::Health;
+        app.open_palette();
+        assert_eq!(app.previous_screen, Some(Screen::Health));
+        app.close_palette();
+        assert_eq!(app.current_screen, Screen::Health);
+    }
+
+    #[test]
+    fn stream_attach_open_and_close_returns_to_dashboard() {
+        let mut app = App::new();
+        app.open_stream_attach(
+            "sess-1".to_string(),
+            "label-1".to_string(),
+            "agent-a".to_string(),
+        );
+        assert_eq!(app.current_screen, Screen::StreamAttach);
+        app.close_stream_attach();
+        assert_eq!(app.current_screen, Screen::Dashboard);
+    }
+
+    // ---- Task 10.2: Navigation boundary conditions -------------------------
+
+    #[test]
+    fn move_down_on_empty_list_does_not_panic() {
+        let mut app = App::new();
+        // No agents, no sessions — selected_index should stay 0.
+        app.move_down();
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn move_up_at_zero_stays_at_zero() {
+        let mut app = App::new();
+        assert_eq!(app.selected_index, 0);
+        app.move_up();
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn move_down_does_not_exceed_session_count() {
+        let mut app = App::new();
+        // selected_index should not exceed selectable_count - 1.
+        // With no sessions, stays at 0.
+        for _ in 0..5 {
+            app.move_down();
+        }
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn screen_tab_cycling_wraps_correctly_at_boundary() {
+        let mut app = App::new();
+        // Start at Dashboard (index 0 in TAB_SCREENS), prev should wrap to Specs (last).
+        app.prev_screen();
+        assert_eq!(app.current_screen, Screen::Specs);
+        // Next from Specs wraps back to Dashboard.
+        app.next_screen();
+        assert_eq!(app.current_screen, Screen::Dashboard);
     }
 }

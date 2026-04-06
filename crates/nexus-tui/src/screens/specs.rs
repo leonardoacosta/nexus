@@ -32,7 +32,9 @@ pub fn render_specs(frame: &mut Frame, area: Rect, app: &mut App) {
 fn render_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     let pending = app.pending_spec_count;
     let hint = if pending > 0 {
-        format!("  Tab: switch  j/k: navigate  Enter: detail  ?: help  q: quit  ({pending} pending)")
+        format!(
+            "  Tab: switch  j/k: navigate  Enter: detail  ?: help  q: quit  ({pending} pending)"
+        )
     } else {
         "  Tab: switch  j/k: navigate  Enter: detail  ?: help  q: quit".to_string()
     };

@@ -375,7 +375,11 @@ impl NexusClient {
             .find(|a| a.config.name == agent_name && a.client.is_some())
             .ok_or_else(|| anyhow::anyhow!("agent {agent_name} not connected"))?;
 
-        let client = agent.client.as_mut().unwrap();
+        // Task 1.4: Use if-let borrow instead of is_some() + unwrap() to avoid panic.
+        let client = agent
+            .client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("agent {agent_name} client disappeared"))?;
         let request = tonic::Request::new(nexus_core::proto::StartSessionRequest {
             project: project.to_string(),
             cwd: cwd.to_string(),
@@ -412,7 +416,11 @@ impl NexusClient {
             .find(|a| a.config.name == agent_name && a.client.is_some())
             .ok_or_else(|| anyhow::anyhow!("agent {agent_name} not connected"))?;
 
-        let client = agent.client.as_mut().unwrap();
+        // Task 1.5: Use if-let borrow instead of is_some() + unwrap() to avoid panic.
+        let client = agent
+            .client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("agent {agent_name} client disappeared"))?;
         let request = tonic::Request::new(nexus_core::proto::ListProjectsRequest {});
 
         match client.list_projects(request).await {
@@ -551,8 +559,7 @@ impl NexusClient {
                 Some(c) => c,
                 None => continue,
             };
-            let request =
-                tonic::Request::new(nexus_core::proto::HealthTimeSeriesRequest { hours });
+            let request = tonic::Request::new(nexus_core::proto::HealthTimeSeriesRequest { hours });
             match client.get_health_time_series(request).await {
                 Ok(resp) => {
                     agent.last_seen = Some(Utc::now());

@@ -3,9 +3,6 @@ use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, info, warn};
 
-/// Maximum number of reconnection attempts before giving up.
-const MAX_RECONNECT_ATTEMPTS: u32 = 5;
-
 /// Bounded channel capacity for session stream messages.
 /// Keeps memory bounded when the TUI render loop is slower than the stream.
 const STREAM_CHANNEL_CAPACITY: usize = 64;
@@ -38,8 +35,20 @@ pub enum StreamMessage {
     },
     /// The agent signalled it is shutting down (GoingAway event).
     AgentGoingAway { agent_name: String, reason: String },
-    /// The stream could not be re-established after `MAX_RECONNECT_ATTEMPTS`.
+    /// The stream task stopped (receiver dropped or manual disconnect).
+    /// Kept for future use; handled in the event loop but no longer emitted by
+    /// the infinite-backoff task (which never gives up).
+    #[allow(dead_code)]
     Disconnected { reason: String },
+    /// Task 3.3: Reconnect state update — emitted by the reconnect loop so the
+    /// stream view header can show "Reconnecting (attempt N, retry in Xs)".
+    ReconnectState {
+        attempt: u32,
+        /// Seconds until the next reconnect attempt.
+        next_try_secs: u64,
+    },
+    /// Stream successfully reconnected after one or more failed attempts.
+    ReconnectSucceeded,
 }
 
 /// A notification-worthy event detected from the background alert stream.
@@ -68,11 +77,23 @@ pub fn subscribe_session_stream(
     tokio::spawn(async move {
         info!(session_id = %sid, agent_count = agents.len(), "stream: subscribing to session events");
 
-        // Task 1.3: Retry loop with exponential backoff.
-        // Back-off: min(2^attempt, 30) seconds, up to MAX_RECONNECT_ATTEMPTS.
+        // Task 3.1/3.2: Infinite reconnect loop with exponential backoff.
+        // Back-off: 1 s base, 2× multiplier, capped at 120 s. No max attempt count.
         let mut attempt: u32 = 0;
 
         loop {
+            // Apply exponential backoff before retrying (skip on first attempt).
+            if attempt > 0 {
+                let backoff_secs = (1u64 << attempt.min(7)).min(120);
+                warn!(attempt, backoff_secs, "stream: will retry after backoff");
+                // Task 3.3: Emit reconnect state so the stream view can show status.
+                let _ = tx.try_send(StreamMessage::ReconnectState {
+                    attempt,
+                    next_try_secs: backoff_secs,
+                });
+                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+            }
+
             let mut connected = false;
 
             for (host, port) in &agents {
@@ -100,30 +121,32 @@ pub fn subscribe_session_stream(
                 };
 
                 connected = true;
+                if attempt > 0 {
+                    // Notify the UI that the stream reconnected.
+                    let _ = tx.try_send(StreamMessage::ReconnectSucceeded);
+                }
+                attempt = 0; // Reset backoff on successful connection.
                 if let Err(e) = run_session_stream(channel, &sid, &aname, &tx).await {
-                    warn!(%e, attempt, "stream: session stream ended with error");
+                    warn!(%e, "stream: session stream ended with error");
                 } else {
-                    debug!(attempt, "stream: session stream ended cleanly (no more events)");
+                    debug!("stream: session stream ended cleanly (no more events)");
                 }
                 break;
             }
 
             if !connected {
                 warn!(attempt, "stream: could not connect to any agent");
+                attempt += 1;
+            } else {
+                // Stream ended without error — increment to apply a short reconnect delay.
+                attempt += 1;
             }
 
-            attempt += 1;
-            if attempt > MAX_RECONNECT_ATTEMPTS {
-                let reason = format!("stream disconnected after {MAX_RECONNECT_ATTEMPTS} attempts");
-                warn!(%reason, "stream: giving up");
-                let _ = tx.send(StreamMessage::Disconnected { reason }).await;
+            // If the receiver has been dropped, stop the task.
+            if tx.is_closed() {
+                debug!("stream: receiver dropped, stopping reconnect loop");
                 return;
             }
-
-            // Exponential back-off: min(2^attempt, 30) seconds.
-            let backoff_secs = (1u64 << attempt).min(30);
-            warn!(attempt, backoff_secs, "stream: will retry after backoff");
-            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
         }
     });
 
@@ -214,7 +237,9 @@ async fn run_session_stream(
                                 .unwrap_or_else(|| "??:??:??".to_string())
                         })
                         .unwrap_or_else(|| "??:??:??".to_string());
-                    if tx.try_send(StreamMessage::Heartbeat { timestamp: ts }).is_err()
+                    if tx
+                        .try_send(StreamMessage::Heartbeat { timestamp: ts })
+                        .is_err()
                         && tx.is_closed()
                     {
                         debug!("stream: receiver dropped (view closed)");
@@ -236,7 +261,9 @@ async fn run_session_stream(
                     break;
                 } else {
                     let line = format_event(&event);
-                    if tx.try_send(StreamMessage::Line(StreamLine { text: line })).is_err()
+                    if tx
+                        .try_send(StreamMessage::Line(StreamLine { text: line }))
+                        .is_err()
                         && tx.is_closed()
                     {
                         debug!("stream: receiver dropped (view closed)");
@@ -255,48 +282,118 @@ async fn run_session_stream(
     Ok(())
 }
 
+/// Status of the alert stream connection for a single agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlertStreamStatus {
+    Connected,
+    Reconnecting {
+        attempt: u32,
+        next_try_secs: u64,
+    },
+    /// Receiver dropped — channel closed.
+    #[allow(dead_code)]
+    Stopped,
+}
+
+/// A message from the alert stream task — either an alert event or a status update.
+#[derive(Debug, Clone)]
+pub enum AlertMessage {
+    Alert(AlertEvent),
+    /// Status update for the named agent's alert stream.
+    Status {
+        agent: String,
+        status: AlertStreamStatus,
+    },
+}
+
 /// Subscribe to StreamEvents (unfiltered) across all agents for alert
 /// notifications. Only forwards StatusChanged events for Stale/Errored.
-pub fn subscribe_alert_stream(agents: &[(String, u16)]) -> mpsc::Receiver<AlertEvent> {
-    let (tx, rx) = mpsc::channel::<AlertEvent>(64);
+///
+/// Task 2.1: Each per-agent task now runs an infinite reconnect loop with
+/// exponential backoff (1 s base, 2×, capped at 60 s).
+pub fn subscribe_alert_stream(agents: &[(String, u16)]) -> mpsc::Receiver<AlertMessage> {
+    let (tx, rx) = mpsc::channel::<AlertMessage>(128);
     let agents = agents.to_vec();
 
-    tokio::spawn(async move {
-        for (host, port) in &agents {
-            let endpoint = format!("http://{host}:{port}");
-            let channel = match Endpoint::from_shared(endpoint.clone()) {
-                Ok(ep) => match ep
-                    .connect_timeout(std::time::Duration::from_secs(2))
-                    .connect()
-                    .await
-                {
-                    Ok(ch) => ch,
+    for (host, port) in agents {
+        let tx_clone = tx.clone();
+        let endpoint = format!("http://{host}:{port}");
+        tokio::spawn(async move {
+            let agent_label = format!("{host}:{port}");
+            let mut attempt: u32 = 0;
+            loop {
+                // Report reconnecting status (skip on first attempt).
+                if attempt > 0 {
+                    let next_try_secs = (1u64 << attempt.min(6)).min(60);
+                    let status_msg = AlertMessage::Status {
+                        agent: agent_label.clone(),
+                        status: AlertStreamStatus::Reconnecting {
+                            attempt,
+                            next_try_secs,
+                        },
+                    };
+                    if tx_clone.send(status_msg).await.is_err() {
+                        return; // receiver dropped
+                    }
+                    warn!(agent = %agent_label, attempt, next_try_secs, "alerts: reconnecting");
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        (1u64 << attempt.min(6)).min(60),
+                    ))
+                    .await;
+                }
+
+                let channel = match tonic::transport::Endpoint::from_shared(endpoint.clone()) {
+                    Ok(ep) => match ep
+                        .connect_timeout(std::time::Duration::from_secs(2))
+                        .connect()
+                        .await
+                    {
+                        Ok(ch) => ch,
+                        Err(e) => {
+                            warn!(%endpoint, %e, attempt, "alerts: failed to connect");
+                            attempt += 1;
+                            continue;
+                        }
+                    },
                     Err(e) => {
-                        warn!(%endpoint, %e, "alerts: failed to connect");
+                        warn!(%endpoint, %e, "alerts: invalid endpoint");
+                        attempt += 1;
                         continue;
                     }
-                },
-                Err(e) => {
-                    warn!(%endpoint, %e, "alerts: invalid endpoint");
-                    continue;
-                }
-            };
+                };
 
-            let tx_clone = tx.clone();
-            tokio::spawn(async move {
-                if let Err(e) = run_alert_stream(channel, &tx_clone).await {
-                    warn!(%e, "alerts: stream ended");
+                // Task 2.2: Report Connected status.
+                let connected_msg = AlertMessage::Status {
+                    agent: agent_label.clone(),
+                    status: AlertStreamStatus::Connected,
+                };
+                if tx_clone.send(connected_msg).await.is_err() {
+                    return;
                 }
-            });
-        }
-        // Keep running — the spawned per-agent tasks hold tx clones.
-        // This task just exits; the spawned tasks keep the channel alive.
-    });
+                attempt = 0;
+
+                match run_alert_stream_msg(channel, &agent_label, &tx_clone).await {
+                    Ok(()) => {
+                        debug!(agent = %agent_label, "alerts: stream ended cleanly");
+                    }
+                    Err(e) => {
+                        warn!(agent = %agent_label, %e, "alerts: stream ended with error");
+                    }
+                }
+                attempt += 1;
+            }
+        });
+    }
 
     rx
 }
 
-async fn run_alert_stream(channel: Channel, tx: &mpsc::Sender<AlertEvent>) -> anyhow::Result<()> {
+/// Run a single alert stream session, forwarding events as `AlertMessage::Alert`.
+async fn run_alert_stream_msg(
+    channel: Channel,
+    agent_label: &str,
+    tx: &mpsc::Sender<AlertMessage>,
+) -> anyhow::Result<()> {
     let mut client = NexusAgentClient::new(channel);
     let request = tonic::Request::new(EventFilter {
         session_id: None,
@@ -320,14 +417,14 @@ async fn run_alert_stream(channel: Channel, tx: &mpsc::Sender<AlertEvent>) -> an
                             session_id: event.session_id.clone(),
                             new_status,
                         };
-                        if tx.send(alert).await.is_err() {
-                            break;
+                        if tx.send(AlertMessage::Alert(alert)).await.is_err() {
+                            return Ok(());
                         }
                     }
                 }
             }
             Err(e) => {
-                warn!(%e, "alerts: error receiving event");
+                warn!(agent = %agent_label, %e, "alerts: error receiving event");
                 break;
             }
         }

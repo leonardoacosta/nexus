@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
@@ -48,6 +48,69 @@ fn render_input_line(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, area);
 }
 
+/// Task 11.3: Produce spans for `label` with matched characters highlighted.
+/// Matched substring characters are rendered with a yellow background.
+fn highlight_match<'a>(label: &str, query: &str, bg: ratatui::style::Color) -> Vec<Span<'a>> {
+    let label_lower = label.to_ascii_lowercase();
+    let normal_style = Style::default().fg(colors::TEXT).bg(bg);
+    let highlight_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+
+    if let Some(pos) = label_lower.find(query) {
+        // Substring match — highlight the matched region.
+        let end = pos + query.len();
+        let mut spans = Vec::new();
+        if pos > 0 {
+            spans.push(Span::styled(label[..pos].to_owned(), normal_style));
+        }
+        spans.push(Span::styled(label[pos..end].to_owned(), highlight_style));
+        if end < label.len() {
+            spans.push(Span::styled(label[end..].to_owned(), normal_style));
+        }
+        spans
+    } else {
+        // Subsequence match — highlight each matching character individually.
+        let mut spans: Vec<Span<'a>> = Vec::new();
+        let mut q_chars = query.chars().peekable();
+        let mut segment_start = 0;
+        for (byte_pos, ch) in label.char_indices() {
+            if let Some(&qch) = q_chars.peek() {
+                if ch.to_ascii_lowercase() == qch {
+                    // Flush normal segment before this char.
+                    if byte_pos > segment_start {
+                        spans.push(Span::styled(
+                            label[segment_start..byte_pos].to_owned(),
+                            normal_style,
+                        ));
+                    }
+                    let end = byte_pos + ch.len_utf8();
+                    spans.push(Span::styled(
+                        label[byte_pos..end].to_owned(),
+                        highlight_style,
+                    ));
+                    segment_start = end;
+                    q_chars.next();
+                }
+            } else {
+                break;
+            }
+        }
+        // Flush trailing normal segment.
+        if segment_start < label.len() {
+            spans.push(Span::styled(
+                label[segment_start..].to_owned(),
+                normal_style,
+            ));
+        }
+        if spans.is_empty() {
+            spans.push(Span::styled(label.to_owned(), normal_style));
+        }
+        spans
+    }
+}
+
 fn render_results(frame: &mut Frame, area: Rect, app: &App) {
     if app.palette_results.is_empty() {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
@@ -67,6 +130,8 @@ fn render_results(frame: &mut Frame, area: Rect, app: &App) {
         0
     };
 
+    let query = app.palette_query.to_ascii_lowercase();
+
     let lines: Vec<Line<'_>> = app
         .palette_results
         .iter()
@@ -82,16 +147,22 @@ fn render_results(frame: &mut Frame, area: Rect, app: &App) {
             };
             let indicator = if is_selected { "\u{25B6} " } else { "  " };
 
-            Line::from(vec![
-                Span::styled(
-                    format!(" {indicator}"),
-                    Style::default().fg(colors::PRIMARY).bg(bg),
-                ),
-                Span::styled(
+            // Task 11.3: Highlight matched substring characters in the label.
+            let label_spans = if !query.is_empty() {
+                highlight_match(&entry.label, &query, bg)
+            } else {
+                vec![Span::styled(
                     entry.label.clone(),
                     Style::default().fg(colors::TEXT).bg(bg),
-                ),
-            ])
+                )]
+            };
+
+            let mut spans = vec![Span::styled(
+                format!(" {indicator}"),
+                Style::default().fg(colors::PRIMARY).bg(bg),
+            )];
+            spans.extend(label_spans);
+            Line::from(spans)
         })
         .collect();
 

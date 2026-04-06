@@ -3,14 +3,14 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 use notify::{EventKind, RecursiveMode, Watcher};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod app;
 mod client;
@@ -28,7 +28,7 @@ use app::{AgentData, App, InputMode, LineStyle, Screen, Severity, StyledLine};
 use client::{ConnectionStatus, NexusClient};
 use keys::handle_key;
 use nexus_core::config::NexusConfig;
-use stream::{AlertEvent, StreamMessage};
+use stream::{AlertMessage, StreamMessage};
 use ui_helpers::{handle_mouse, launch_editor, render_help_overlay, render_tabs};
 
 // ---------------------------------------------------------------------------
@@ -121,7 +121,10 @@ pub(crate) enum RpcResult {
     SpecList(Vec<app::SpecListEntry>),
     HealthTimeSeries(Vec<(String, Vec<nexus_core::proto::HealthTimeSeriesEntry>)>),
     SessionHistory(Vec<nexus_core::proto::SessionHistoryEntry>),
-    FailureTrends(Vec<nexus_core::proto::FailureTrendEntry>, Vec<nexus_core::proto::FailureByTool>),
+    FailureTrends(
+        Vec<nexus_core::proto::FailureTrendEntry>,
+        Vec<nexus_core::proto::FailureByTool>,
+    ),
     SpecVelocity(Vec<nexus_core::proto::SpecVelocityEntry>),
 }
 
@@ -134,9 +137,7 @@ async fn main() -> Result<()> {
             dsn.as_str(),
             sentry::ClientOptions {
                 release: sentry::release_name!(),
-                environment: std::env::var("SENTRY_ENVIRONMENT")
-                    .ok()
-                    .map(|s| s.into()),
+                environment: std::env::var("SENTRY_ENVIRONMENT").ok().map(|s| s.into()),
                 ..Default::default()
             },
         ))
@@ -145,33 +146,65 @@ async fn main() -> Result<()> {
     // OTel tracer: only init if OTEL_EXPORTER_OTLP_ENDPOINT is set
     let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
 
-    if let Some(ref endpoint) = otel_endpoint {
+    // Task 1.1: Replace .expect() with match — fall back to fmt-only tracing
+    // when OTel exporter fails to build instead of crashing.
+    let use_otel = if let Some(ref endpoint) = otel_endpoint {
         use opentelemetry::trace::TracerProvider as _;
         use opentelemetry_otlp::WithExportConfig;
+        use tracing_subscriber::filter::Directive;
 
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
+        match opentelemetry_otlp::SpanExporter::builder()
             .with_tonic()
             .with_endpoint(endpoint)
             .build()
-            .expect("failed to build OTel span exporter");
+        {
+            Ok(exporter) => {
+                let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+                    .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+                    .build();
 
-        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
-            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-            .build();
+                let tracer = provider.tracer("nexus_tui");
+                opentelemetry::global::set_tracer_provider(provider);
 
-        let tracer = provider.tracer("nexus_tui");
-        opentelemetry::global::set_tracer_provider(provider);
+                // Task 1.2: Use unwrap_or_else so directive parse failure is non-fatal.
+                let default_directive: Directive = "nexus_tui=info"
+                    .parse()
+                    .unwrap_or_else(|_| Directive::default());
 
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("nexus_tui=info".parse().unwrap()))
-            .with(tracing_subscriber::fmt::layer())
-            .with(tracing_opentelemetry::layer().with_tracer(tracer))
-            .init();
+                tracing_subscriber::registry()
+                    .with(
+                        tracing_subscriber::EnvFilter::from_default_env()
+                            .add_directive(default_directive),
+                    )
+                    .with(tracing_subscriber::fmt::layer())
+                    .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                    .init();
+                true
+            }
+            Err(e) => {
+                // OTel build failed — will fall through to fmt-only subscriber below.
+                eprintln!(
+                    "nexus-tui: OTel exporter build failed ({e}); falling back to fmt-only tracing"
+                );
+                false
+            }
+        }
     } else {
+        false
+    };
+
+    if !use_otel {
+        use tracing_subscriber::filter::Directive;
+
+        // Task 1.3: Same unwrap_or_else pattern for the non-OTel branch.
+        let default_directive: Directive = "nexus_tui=info"
+            .parse()
+            .unwrap_or_else(|_| Directive::default());
+
         tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("nexus_tui=info".parse().unwrap()))
+            .with(
+                tracing_subscriber::EnvFilter::from_default_env().add_directive(default_directive),
+            )
             .with(tracing_subscriber::fmt::layer())
             .init();
     }
@@ -268,7 +301,7 @@ fn run_loop(
     poll_rx: &mut mpsc::Receiver<Vec<AgentData>>,
     rpc_tx: &mpsc::Sender<RpcCommand>,
     rpc_result_rx: &mut mpsc::Receiver<RpcResult>,
-    alert_rx: &mut mpsc::Receiver<AlertEvent>,
+    alert_rx: &mut mpsc::Receiver<AlertMessage>,
     stream_rx: &mut Option<mpsc::Receiver<StreamMessage>>,
     agent_endpoints: &[(String, u16)],
 ) -> Result<()> {
@@ -431,20 +464,48 @@ fn run_loop(
         }
 
         // Check for alert notifications (non-blocking).
-        while let Ok(alert) = alert_rx.try_recv() {
-            // Try to resolve project name from current session data.
-            let project = app
-                .cached_sessions()
-                .iter()
-                .find(|r| r.session.id == alert.session_id)
-                .and_then(|r| r.session.project.clone());
+        // Task 2.1/2.2: AlertMessage now wraps both Alert events and stream status updates.
+        while let Ok(msg) = alert_rx.try_recv() {
+            match msg {
+                AlertMessage::Alert(alert) => {
+                    // Try to resolve project name from current session data.
+                    let project = app
+                        .cached_sessions()
+                        .iter()
+                        .find(|r| r.session.id == alert.session_id)
+                        .and_then(|r| r.session.project.clone());
 
-            if let Some((message, severity)) = notifications::format_status_notification(
-                &alert.session_id,
-                project.as_deref(),
-                alert.new_status,
-            ) {
-                app.notifications.push(message, severity);
+                    if let Some((message, severity)) = notifications::format_status_notification(
+                        &alert.session_id,
+                        project.as_deref(),
+                        alert.new_status,
+                    ) {
+                        app.notifications.push(message, severity);
+                    }
+                }
+                AlertMessage::Status { agent, status } => {
+                    // Task 2.3: Log reconnect status; could surface in UI in future.
+                    use stream::AlertStreamStatus;
+                    match status {
+                        AlertStreamStatus::Connected => {
+                            tracing::debug!(agent = %agent, "alert stream connected");
+                        }
+                        AlertStreamStatus::Reconnecting {
+                            attempt,
+                            next_try_secs,
+                        } => {
+                            tracing::warn!(
+                                agent = %agent,
+                                attempt,
+                                next_try_secs,
+                                "alert stream reconnecting"
+                            );
+                        }
+                        AlertStreamStatus::Stopped => {
+                            tracing::debug!(agent = %agent, "alert stream stopped");
+                        }
+                    }
+                }
             }
         }
 
@@ -459,14 +520,15 @@ fn run_loop(
                     }
                     StreamMessage::SessionMeta {
                         session_type,
-                        status: _,
+                        status,
                     } => {
                         if let Some(sv) = app.stream_view.as_mut() {
                             // Debounce: skip if same status text within STATUS_DEBOUNCE_SECS.
                             let debounced =
                                 sv.last_status_event.as_ref().is_some_and(|(text, ts)| {
                                     text == &session_type
-                                        && ts.elapsed() < std::time::Duration::from_secs(STATUS_DEBOUNCE_SECS)
+                                        && ts.elapsed()
+                                            < std::time::Duration::from_secs(STATUS_DEBOUNCE_SECS)
                                 });
                             if !debounced {
                                 sv.last_status_event =
@@ -474,6 +536,8 @@ fn run_loop(
                                 sv.system_event_count += 1;
                             }
                             sv.session_type = Some(session_type);
+                            // Task 9.1/9.2: Preserve session status from snapshot metadata.
+                            sv.session_status = Some(status);
                         }
                     }
                     StreamMessage::Heartbeat { timestamp } => {
@@ -509,7 +573,7 @@ fn run_loop(
                             ));
                         }
                     }
-                    // Task 1.4: Stream exhausted all reconnect attempts — show error banner.
+                    // Task 1.4: Stream explicitly disconnected — show error banner.
                     StreamMessage::Disconnected { reason } => {
                         app.notifications.push(
                             format!("\u{26A0} stream disconnected: {reason}"),
@@ -519,6 +583,25 @@ fn run_loop(
                             sv.push_line(StyledLine::new(
                                 format!("\u{26A0} stream disconnected: {reason}"),
                                 LineStyle::Error,
+                            ));
+                        }
+                    }
+                    // Task 3.3: Reconnect state update — surface in stream view header.
+                    StreamMessage::ReconnectState {
+                        attempt,
+                        next_try_secs,
+                    } => {
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.reconnect_state = Some((attempt, next_try_secs));
+                        }
+                    }
+                    // Task 3.3: Reconnect succeeded — clear reconnect state indicator.
+                    StreamMessage::ReconnectSucceeded => {
+                        if let Some(sv) = app.stream_view.as_mut() {
+                            sv.reconnect_state = None;
+                            sv.push_line(StyledLine::new(
+                                "\u{2713} stream reconnected".to_string(),
+                                LineStyle::DoneSummary,
                             ));
                         }
                     }
@@ -551,6 +634,13 @@ fn run_loop(
                 sv.session_id.clone(),
                 sv.agent_name.clone(),
             ));
+        }
+
+        // Task 3.4: Manual reconnect requested — drop existing receiver so the
+        // stream-creation block below re-establishes a fresh connection.
+        if app.stream_reconnect_requested && stream_rx.is_some() {
+            *stream_rx = None;
+            app.stream_reconnect_requested = false;
         }
 
         // If we left stream attach, drop the receiver.

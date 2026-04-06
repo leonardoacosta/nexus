@@ -5,7 +5,10 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
-use crate::app::{self, App, InputMode, PaletteAction, Screen, SearchState, StreamVerbosity};
+use crate::app::{
+    self, App, InputMode, LineStyle, PaletteAction, Screen, SearchState, StreamVerbosity,
+    StyledLine,
+};
 use crate::{KeyAction, RpcCommand};
 
 /// Send on-demand RPC fetches when navigating to a screen that needs
@@ -59,6 +62,15 @@ pub(crate) fn handle_key(
         app.toggle_help();
         return KeyAction::Continue;
     }
+
+    // Task 8.1: Structured key logging gated behind nexus_tui::keys=debug.
+    tracing::debug!(
+        target: "nexus_tui::keys",
+        ?key,
+        mode = ?app.input_mode,
+        screen = ?app.current_screen,
+        "key dispatched"
+    );
 
     // Dispatch based on input mode.
     match app.input_mode {
@@ -255,7 +267,8 @@ pub(crate) fn handle_list_key(
                 && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
             {
                 if row.disconnected {
-                    app.status_message = Some("Agent disconnected — session may be unavailable".to_string());
+                    app.status_message =
+                        Some("Agent disconnected — session may be unavailable".to_string());
                 }
                 let session = row.session.clone();
                 // Find the agent info.
@@ -298,7 +311,8 @@ pub(crate) fn handle_list_key(
                 && let Some(row) = app.cached_sessions().get(app.selected_index).cloned()
             {
                 if row.disconnected {
-                    app.status_message = Some("Agent disconnected — session may be unavailable".to_string());
+                    app.status_message =
+                        Some("Agent disconnected — session may be unavailable".to_string());
                 }
                 let session_id = row.session.id.clone();
                 let agent_name = row.agent_name.clone();
@@ -325,6 +339,49 @@ pub(crate) fn handle_list_key(
             KeyAction::Continue
         }
         KeyCode::Char('A') => KeyAction::Continue, // Silently ignore
+
+        // Task 12.2: Space toggles multi-select on the focused dashboard row.
+        KeyCode::Char(' ') if app.current_screen == Screen::Dashboard => {
+            if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
+                let id = row.session.id.clone();
+                if app.selected_sessions.contains(&id) {
+                    app.selected_sessions.remove(&id);
+                } else {
+                    app.selected_sessions.insert(id);
+                }
+            }
+            KeyAction::Continue
+        }
+
+        // Task 12.3: 'x' triggers bulk-kill with confirmation.
+        // Operates on selected_sessions when non-empty; falls back to focused session.
+        KeyCode::Char('x') if app.current_screen == Screen::Dashboard => {
+            if !app.selected_sessions.is_empty() {
+                // Bulk kill: stop each selected session.
+                for session_id in app.selected_sessions.drain().collect::<Vec<_>>() {
+                    if rpc_tx
+                        .try_send(RpcCommand::StopSession { session_id })
+                        .is_err()
+                    {
+                        tracing::warn!("RPC channel full, bulk stop-session command dropped");
+                    }
+                }
+                app.status_message = Some("stopping selected sessions...".to_string());
+            } else if let Some(row) = app.cached_sessions().get(app.selected_index).cloned() {
+                let id = row.session.id.clone();
+                if rpc_tx
+                    .try_send(RpcCommand::StopSession { session_id: id })
+                    .is_err()
+                {
+                    tracing::warn!("RPC channel full, stop-session command dropped");
+                    app.status_message = Some("command dropped (channel full), try again".into());
+                } else {
+                    app.status_message = Some("stopping session...".to_string());
+                }
+            }
+            KeyAction::Continue
+        }
+
         _ => KeyAction::Continue,
     }
 }
@@ -371,7 +428,10 @@ pub(crate) fn handle_detail_key(
             // Stop the currently viewed session.
             if let Some((session, _)) = &app.selected_session {
                 let id = session.id.clone();
-                if rpc_tx.try_send(RpcCommand::StopSession { session_id: id }).is_err() {
+                if rpc_tx
+                    .try_send(RpcCommand::StopSession { session_id: id })
+                    .is_err()
+                {
                     tracing::warn!("RPC channel full, stop-session command dropped");
                     app.status_message = Some("command dropped (channel full), try again".into());
                 }
@@ -509,11 +569,12 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
                     let name_c = name.clone();
                     tokio::spawn(async move {
                         let client = reqwest::Client::new();
-                        let host =
-                            std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                        let host = std::env::var("NEXUS_AGENT_HOST")
+                            .unwrap_or_else(|_| "127.0.0.1".into());
                         let port = std::env::var("NEXUS_AGENT_PORT")
                             .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
-                        let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
+                        let url =
+                            format!("http://{host}:{port}/specs/{project_c}/{name_c}/approve");
                         let _ = client.post(&url).send().await;
                     });
                     app.status_message = Some(format!("approved {project}/{name}"));
@@ -560,8 +621,8 @@ fn handle_spec_detail_key(app: &mut App, key: KeyEvent) -> KeyAction {
                     let name_c = name.clone();
                     tokio::spawn(async move {
                         let client = reqwest::Client::new();
-                        let host =
-                            std::env::var("NEXUS_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+                        let host = std::env::var("NEXUS_AGENT_HOST")
+                            .unwrap_or_else(|_| "127.0.0.1".into());
                         let port = std::env::var("NEXUS_AGENT_PORT")
                             .unwrap_or_else(|_| format!("{}", nexus_core::DEFAULT_HTTP_PORT));
                         let url = format!("http://{host}:{port}/specs/{project_c}/{name_c}/reject");
@@ -675,6 +736,18 @@ pub(crate) fn handle_stream_key(app: &mut App, key: KeyEvent) -> KeyAction {
         }
         KeyCode::Char('N') => {
             search_prev(app);
+            KeyAction::Continue
+        }
+        // Task 3.4: Manual reconnect — drops current stream and triggers immediate reconnect.
+        KeyCode::Char('r') => {
+            if let Some(sv) = app.stream_view.as_mut() {
+                sv.reconnect_state = None;
+                sv.push_line(StyledLine::new(
+                    "\u{21BB} manual reconnect requested...".to_string(),
+                    LineStyle::DoneSummary,
+                ));
+            }
+            app.stream_reconnect_requested = true;
             KeyAction::Continue
         }
         // Feature 4: Quick session tabs (1-9).
@@ -967,7 +1040,10 @@ pub(crate) fn execute_palette_action(
             }
         }
         PaletteAction::StopSession { session_id } => {
-            if rpc_tx.try_send(RpcCommand::StopSession { session_id }).is_err() {
+            if rpc_tx
+                .try_send(RpcCommand::StopSession { session_id })
+                .is_err()
+            {
                 tracing::warn!("RPC channel full, stop-session command dropped");
                 app.status_message = Some("command dropped (channel full), try again".into());
             }

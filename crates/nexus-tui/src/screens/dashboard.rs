@@ -8,6 +8,7 @@ use ratatui::widgets::{
 };
 
 use crate::app::{App, colors, format_age, session_type_indicator, status_color, status_dot};
+use crate::theme::format_duration;
 
 /// Render the session dashboard screen.
 pub fn render_dashboard(frame: &mut Frame, area: Rect, app: &mut App) {
@@ -59,7 +60,9 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
         let welcome_lines = vec![
             Line::from(Span::styled(
                 "Nexus",
-                Style::default().fg(colors::PRIMARY).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from(Span::styled(
@@ -68,16 +71,40 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
             )),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  n", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
-                Span::styled("  Start a new session", Style::default().fg(colors::TEXT_DIM)),
+                Span::styled(
+                    "  n",
+                    Style::default()
+                        .fg(colors::SECONDARY)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  Start a new session",
+                    Style::default().fg(colors::TEXT_DIM),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("  ?", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
-                Span::styled("  Show all keybindings", Style::default().fg(colors::TEXT_DIM)),
+                Span::styled(
+                    "  ?",
+                    Style::default()
+                        .fg(colors::SECONDARY)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  Show all keybindings",
+                    Style::default().fg(colors::TEXT_DIM),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("  Tab", Style::default().fg(colors::SECONDARY).add_modifier(Modifier::BOLD)),
-                Span::styled("  Switch between screens", Style::default().fg(colors::TEXT_DIM)),
+                Span::styled(
+                    "  Tab",
+                    Style::default()
+                        .fg(colors::SECONDARY)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  Switch between screens",
+                    Style::default().fg(colors::TEXT_DIM),
+                ),
             ]),
             Line::from(""),
             Line::from(Span::styled(
@@ -175,8 +202,13 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
             row_data.agent_name.clone()
         };
 
+        // Task 12.2: Show checkbox indicator for multi-selected rows.
+        let is_multi_selected = app.selected_sessions.contains(&row_data.session.id);
+        let checkbox = if is_multi_selected { "\u{2611}" } else { " " }; // ☑ / space
+
         let status_cell = Line::from(vec![
-            Span::styled(format!(" {dot} "), Style::default().fg(dot_color)),
+            Span::styled(checkbox, Style::default().fg(colors::PRIMARY)),
+            Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
             Span::styled(type_ind.to_string(), Style::default().fg(dim_fg)),
         ]);
         let name_cell = Line::from(Span::styled(
@@ -186,10 +218,7 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
         let branch_cell = Line::from(Span::styled(branch, Style::default().fg(text_fg)));
         let uptime_cell = Line::from(Span::styled(age, Style::default().fg(dim_fg)));
         let cmd_cell = Line::from(Span::styled(cmd, Style::default().fg(text_fg)));
-        let agent_cell = Line::from(Span::styled(
-            agent_label,
-            Style::default().fg(agent_fg),
-        ));
+        let agent_cell = Line::from(Span::styled(agent_label, Style::default().fg(agent_fg)));
 
         session_to_flat.push(flat.len());
         flat.push(Row::new(vec![
@@ -200,6 +229,61 @@ fn render_session_table(frame: &mut Frame, area: Rect, app: &mut App) {
             cmd_cell,
             agent_cell,
         ]));
+    }
+
+    // Task 5.1/5.2: Inject synthetic "Agent offline" rows for disconnected agents
+    // with no sessions, so the user knows the agent is unreachable.
+    let offline = app.offline_agents();
+    for row_data in &offline {
+        let now = chrono::Utc::now();
+        let last_seen_str = row_data
+            .last_seen
+            .map(|ts| {
+                let elapsed = now.signed_duration_since(ts);
+                let secs = elapsed.num_seconds().unsigned_abs();
+                format!("last seen {}ago", format_duration(secs))
+            })
+            .unwrap_or_else(|| "never seen".to_string());
+
+        let offline_row = Row::new(vec![
+            Line::from(Span::styled(
+                " \u{2716} ",
+                Style::default()
+                    .fg(colors::ERROR)
+                    .add_modifier(Modifier::DIM),
+            )),
+            Line::from(Span::styled(
+                "offline",
+                Style::default()
+                    .fg(colors::TEXT_DIM)
+                    .add_modifier(Modifier::DIM),
+            )),
+            Line::from(Span::styled(
+                last_seen_str,
+                Style::default()
+                    .fg(colors::TEXT_DIM)
+                    .add_modifier(Modifier::DIM),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                row_data
+                    .error
+                    .as_deref()
+                    .map(|e| format!("Agent offline — {e}"))
+                    .unwrap_or_else(|| "Agent offline — unreachable".to_string()),
+                Style::default()
+                    .fg(colors::TEXT_DIM)
+                    .add_modifier(Modifier::DIM),
+            )),
+            Line::from(Span::styled(
+                row_data.agent_name.clone(),
+                Style::default()
+                    .fg(colors::TEXT_DIM)
+                    .add_modifier(Modifier::DIM),
+            )),
+        ])
+        .style(Style::default().add_modifier(Modifier::DIM));
+        flat.push(offline_row);
     }
 
     // Compute the flat index for the currently selected session and update
@@ -377,6 +461,20 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         format!(" \u{00B7} {sessions} sessions \u{00B7} \u{2191}{uptime}"),
         Style::default().fg(colors::TEXT_DIM),
     ));
+
+    // Task 6.2: Show "Updated Xs ago" freshness indicator; dim/yellow when stale > 30s.
+    if let Some(last_updated) = app.last_data_updated {
+        let secs = last_updated.elapsed().as_secs();
+        let freshness_str = format!(" \u{00B7} updated {}ago", format_duration(secs));
+        let freshness_style = if secs > 30 {
+            Style::default()
+                .fg(ratatui::style::Color::Yellow)
+                .add_modifier(Modifier::DIM)
+        } else {
+            Style::default().fg(colors::TEXT_DIM)
+        };
+        spans.push(Span::styled(freshness_str, freshness_style));
+    }
 
     // Show pending spec count if any.
     if app.pending_spec_count > 0 {

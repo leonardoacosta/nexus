@@ -244,7 +244,9 @@ pub(crate) fn render_help_overlay(frame: &mut ratatui::Frame, app: &App) {
             if i == 0 {
                 Line::from(Span::styled(
                     *line,
-                    Style::default().fg(colors::PRIMARY).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(colors::PRIMARY)
+                        .add_modifier(Modifier::BOLD),
                 ))
             } else {
                 Line::from(Span::styled(*line, Style::default().fg(colors::TEXT)))
@@ -258,7 +260,11 @@ pub(crate) fn render_help_overlay(frame: &mut ratatui::Frame, app: &App) {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(colors::PRIMARY))
             .title(" ? Help ")
-            .title_style(Style::default().fg(colors::PRIMARY).add_modifier(Modifier::BOLD)),
+            .title_style(
+                Style::default()
+                    .fg(colors::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
     );
 
     frame.render_widget(paragraph, popup_area);

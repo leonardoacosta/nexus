@@ -2,17 +2,25 @@
 //!
 //! Contains StreamViewState, ThinkingSegment, classify_diff_line, textwrap_simple.
 
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::app::{CodeBlockRange, LineStyle, SearchState, StreamLine, StreamVerbosity, StyledLine};
 use crate::markdown;
+
+/// Maximum number of lines retained in the stream view buffer.
+/// Lines exceeding this limit evict the oldest entry from the front.
+const STREAM_BUFFER_MAX: usize = 10_000;
 
 /// State for the stream attach view (rendered by screens/stream.rs).
 pub struct StreamViewState {
     pub session_id: String,
     pub session_label: String,
     pub agent_name: String,
-    pub lines: Vec<StreamLine>,
+    /// Task 4.1/4.2: VecDeque with bounded capacity — evicts front on overflow.
+    pub lines: VecDeque<StreamLine>,
+    /// Set to true when at least one line has been evicted due to buffer overflow.
+    pub lines_evicted: bool,
     pub scroll_offset: usize,
     pub auto_scroll: bool,
     /// Buffer for accumulating partial text chunks.
@@ -27,6 +35,8 @@ pub struct StreamViewState {
 
     // Session metadata.
     pub session_type: Option<String>,
+    /// Task 9.1/9.2: Session status preserved from snapshot (e.g. "Active", "Idle").
+    pub session_status: Option<String>,
 
     // Heartbeat tracking.
     pub last_heartbeat_ts: Option<String>,
@@ -63,6 +73,10 @@ pub struct StreamViewState {
 
     /// Cached total display lines — invalidated on push/toggle.
     cached_total_display_lines: usize,
+
+    /// Task 3.3: Current reconnect state shown in the stream view header.
+    /// `None` means connected normally. `Some((attempt, next_try_secs))` means reconnecting.
+    pub reconnect_state: Option<(u32, u64)>,
 }
 
 impl std::fmt::Debug for StreamViewState {
@@ -76,15 +90,14 @@ impl std::fmt::Debug for StreamViewState {
     }
 }
 
-const MAX_STREAM_LINES: usize = 1000;
-
 impl StreamViewState {
     pub fn new(session_id: String, session_label: String, agent_name: String) -> Self {
         Self {
             session_id,
             session_label,
             agent_name,
-            lines: Vec::new(),
+            lines: VecDeque::new(),
+            lines_evicted: false,
             scroll_offset: 0,
             auto_scroll: true,
             partial_buf: String::new(),
@@ -93,6 +106,7 @@ impl StreamViewState {
             rate_limit_utilization: None,
             total_cost_usd: None,
             session_type: None,
+            session_status: None,
             last_heartbeat_ts: None,
             heartbeat_alive: false,
             last_heartbeat_tick: 0,
@@ -107,6 +121,7 @@ impl StreamViewState {
             notification_message: None,
             terminal_width: 120,
             cached_total_display_lines: 0,
+            reconnect_state: None,
         }
     }
 
@@ -151,16 +166,16 @@ impl StreamViewState {
 
     pub fn push_stream_line(&mut self, entry: StreamLine) {
         self.cached_total_display_lines += entry.display_lines();
-        self.lines.push(entry);
-        if self.lines.len() > MAX_STREAM_LINES {
-            let excess = self.lines.len() - MAX_STREAM_LINES;
-            let drained_display: usize = self.lines[..excess]
-                .iter()
-                .map(|l| l.display_lines())
-                .sum();
-            self.cached_total_display_lines -= drained_display;
-            self.lines.drain(0..excess);
-            self.scroll_offset = self.scroll_offset.saturating_sub(excess);
+        self.lines.push_back(entry);
+        // Task 4.2: Evict the oldest entry when the buffer exceeds STREAM_BUFFER_MAX.
+        if self.lines.len() > STREAM_BUFFER_MAX
+            && let Some(evicted) = self.lines.pop_front()
+        {
+            self.cached_total_display_lines = self
+                .cached_total_display_lines
+                .saturating_sub(evicted.display_lines());
+            self.scroll_offset = self.scroll_offset.saturating_sub(1);
+            self.lines_evicted = true;
         }
     }
 

@@ -1,224 +1,268 @@
 {
-  "version": 2,
-  "plan_name": "audit-wave-1",
-  "created_at": "2026-04-04T00:00:00Z",
-  "project": "nexus",
-  "project_path": "/home/nyaptor/dev/nx",
+  "plan_name": "nexus-audit-remediation",
+  "status": "in_progress",
   "mode": "consolidated",
-  "decisions": [],
-  "waves": [
-    {
-      "wave": 1,
-      "label": "Security P1s",
-      "specs": [
-        {
-          "name": "fix-terminal-attach-security",
-          "path": "openspec/changes/fix-terminal-attach-security",
-          "priority": 1,
-          "task_count": 14,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:24:39.682146"
-        },
-        {
-          "name": "fix-credential-mgmt-security",
-          "path": "openspec/changes/fix-credential-mgmt-security",
-          "priority": 1,
-          "task_count": 14,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:24:39.682148"
-        },
-        {
-          "name": "fix-tui-client-stability",
-          "path": "openspec/changes/fix-tui-client-stability",
-          "priority": 1,
-          "task_count": 7,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:24:39.682149"
-        }
-      ],
-      "phases": [
-        "DB",
-        "API",
-        "E2E"
-      ],
-      "total_tasks": 35
-    },
-    {
-      "wave": 2,
-      "label": "Session Lifecycle P1",
-      "specs": [
-        {
-          "name": "fix-session-management-lifecycle",
-          "path": "openspec/changes/fix-session-management-lifecycle",
-          "priority": 1,
-          "task_count": 26,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:38:58.158840"
-        }
-      ],
-      "phases": [
-        "API",
-        "UI",
-        "E2E"
-      ],
-      "total_tasks": 26
-    },
-    {
-      "wave": 3,
-      "label": "API Reliability",
-      "specs": [
-        {
-          "name": "fix-project-registry-api",
-          "path": "openspec/changes/fix-project-registry-api",
-          "priority": 1,
-          "task_count": 17,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:51:27.187031"
-        },
-        {
-          "name": "fix-notification-engine-reliability",
-          "path": "openspec/changes/fix-notification-engine-reliability",
-          "priority": 1,
-          "task_count": 15,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T21:51:27.187037"
-        }
-      ],
-      "phases": [
-        "API",
-        "UI",
-        "E2E"
-      ],
-      "total_tasks": 32
-    },
-    {
-      "wave": 4,
-      "label": "Health Monitoring",
-      "specs": [
-        {
-          "name": "fix-health-monitoring-types",
-          "path": "openspec/changes/fix-health-monitoring-types",
-          "priority": 2,
-          "task_count": 15,
-          "status": "merged",
-          "phase": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "merged_at": "2026-04-04T22:02:32.996434"
-        }
-      ],
-      "phases": [
-        "DB",
-        "API",
-        "E2E"
-      ],
-      "total_tasks": 15
-    }
-  ],
-  "status": "completed",
-  "current_wave": null,
-  "started_at": "2026-04-04T20:47:41.526178",
-  "completed_at": "2026-04-04T22:02:32.996424",
+  "pre_audit_sha": "eb17415",
+  "created_at": "2026-04-06T00:22:40.764195",
+  "current_wave": 7,
+  "completed_at": null,
   "completed_waves": [
     1,
     2,
     3,
-    4
+    4,
+    5,
+    "6a",
+    "6b"
   ],
   "completed_specs": [
-    "fix-terminal-attach-security",
-    "fix-credential-mgmt-security",
-    "fix-tui-client-stability",
-    "fix-session-management-lifecycle",
-    "fix-project-registry-api",
-    "fix-notification-engine-reliability",
-    "fix-health-monitoring-types"
+    "secure-credential-routes",
+    "encrypt-credential-storage",
+    "unify-health-schema",
+    "fix-project-discovery",
+    "harden-notification-reliability",
+    "align-session-status"
   ],
   "failed_specs": [],
-  "pre_audit_sha": "c8017ee",
+  "decisions": [
+    {
+      "date": "2026-04-06",
+      "decision": "All 10 specs require single-spec waves \u2014 no valid non-conflicting pairs fit within 40-task limit",
+      "rationale": "server.ts shared by 3 specs; pool.ts shared by 2; remaining specs all exceed 20 tasks making pairing impossible without exceeding 40-task guardrail",
+      "source": "guardrail",
+      "affected_waves": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "affected_specs": [
+        "all"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "align-session-status (56 tasks) auto-split into waves 6a (28 tasks: Rust+DB) and 6b (28 tasks: TS+UI+tests)",
+      "rationale": "Exceeds 40-task limit; split at natural Rust/TS boundary to preserve coherence",
+      "source": "guardrail",
+      "affected_waves": [
+        6
+      ],
+      "affected_specs": [
+        "align-session-status"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "encrypt-credential-storage (43 tasks) proceeds as single wave \u2014 3-task overage, coherence risk low",
+      "rationale": "Only 3 tasks over limit; tasks are tightly cohesive encryption-focused work; agent coherence not at risk",
+      "source": "guardrail",
+      "affected_waves": [
+        2
+      ],
+      "affected_specs": [
+        "encrypt-credential-storage"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "fix-integration-test-gaps (67 tasks) auto-split into waves 10a (34 tasks: TS tests) and 10b (33 tasks: Rust tests + gates)",
+      "rationale": "Exceeds 40-task limit; split at TS/Rust boundary",
+      "source": "guardrail",
+      "affected_waves": [
+        10
+      ],
+      "affected_specs": [
+        "fix-integration-test-gaps"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "P1 Security: REST auth hardening",
+      "specs": [
+        {
+          "name": "secure-credential-routes",
+          "path": "openspec/changes/secure-credential-routes",
+          "task_count": 26,
+          "status": "merged",
+          "dispatched_at": "2026-04-06T00:23:02.042533",
+          "merged_at": "2026-04-06T00:28:43.783823"
+        }
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "P1 Security: Credential encryption at rest",
+      "specs": [
+        {
+          "name": "encrypt-credential-storage",
+          "path": "openspec/changes/encrypt-credential-storage",
+          "task_count": 43,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:39:17.703492"
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "P1 Data Integrity: Health schema unification",
+      "specs": [
+        {
+          "name": "unify-health-schema",
+          "path": "openspec/changes/unify-health-schema",
+          "task_count": 26,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:49:25.492224"
+        }
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "P1 Correctness: Project discovery protocol",
+      "specs": [
+        {
+          "name": "fix-project-discovery",
+          "path": "openspec/changes/fix-project-discovery",
+          "task_count": 40,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:54:10.199648"
+        }
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "P1 Reliability: Notification engine timeouts",
+      "specs": [
+        {
+          "name": "harden-notification-reliability",
+          "path": "openspec/changes/harden-notification-reliability",
+          "task_count": 37,
+          "status": "merged",
+          "merged_at": "2026-04-06T01:02:22.489960"
+        }
+      ]
+    },
+    {
+      "wave": "6a",
+      "label": "P2 Integrity: Session status model \u2014 Rust+DB (tasks 1-7)",
+      "specs": [
+        {
+          "name": "align-session-status",
+          "path": "openspec/changes/align-session-status",
+          "task_count": 28,
+          "task_range": "1-7",
+          "status": "merged",
+          "merged_at": "2026-04-06T08:58:32.173091"
+        }
+      ]
+    },
+    {
+      "wave": "6b",
+      "label": "P2 Integrity: Session status model \u2014 TS+UI+tests (tasks 8-13)",
+      "specs": [
+        {
+          "name": "align-session-status",
+          "path": "openspec/changes/align-session-status",
+          "task_count": 28,
+          "task_range": "8-13",
+          "status": "merged",
+          "merged_at": "2026-04-06T08:58:32.173097"
+        }
+      ]
+    },
+    {
+      "wave": 7,
+      "label": "P1 Stability: TUI reliability + panic elimination",
+      "specs": [
+        {
+          "name": "fix-tui-reliability",
+          "path": "openspec/changes/fix-tui-reliability",
+          "task_count": 34,
+          "status": "queued"
+        }
+      ]
+    },
+    {
+      "wave": 8,
+      "label": "P1 Reliability: PTY lifecycle fixes (after server.ts wave 1)",
+      "specs": [
+        {
+          "name": "fix-pty-lifecycle",
+          "path": "openspec/changes/fix-pty-lifecycle",
+          "task_count": 21,
+          "status": "queued"
+        }
+      ]
+    },
+    {
+      "wave": 9,
+      "label": "P2 Observability: Platform-wide (after pool.ts wave 2)",
+      "specs": [
+        {
+          "name": "improve-platform-observability",
+          "path": "openspec/changes/improve-platform-observability",
+          "task_count": 28,
+          "status": "queued"
+        }
+      ]
+    },
+    {
+      "wave": "10a",
+      "label": "P2 Test coverage: TS integration tests (after all code waves)",
+      "specs": [
+        {
+          "name": "fix-integration-test-gaps",
+          "path": "openspec/changes/fix-integration-test-gaps",
+          "task_count": 34,
+          "task_range": "1-4",
+          "status": "queued"
+        }
+      ]
+    },
+    {
+      "wave": "10b",
+      "label": "P2 Test coverage: Rust unit tests + gates (tasks 5-7)",
+      "specs": [
+        {
+          "name": "fix-integration-test-gaps",
+          "path": "openspec/changes/fix-integration-test-gaps",
+          "task_count": 33,
+          "task_range": "5-7",
+          "status": "queued"
+        }
+      ]
+    }
+  ],
   "mega_batch_state": {
     "current_phase": null,
     "phases_completed": [
-      "DB",
-      "API",
-      "E2E",
-      "UI"
+      "API"
     ],
     "task_results": {
-      "fix-terminal-attach-security": {
-        "API": {
-          "completed": [
-            "all"
-          ],
-          "failed": []
-        },
-        "E2E": {
-          "completed": [
-            "all"
-          ],
-          "failed": []
-        }
-      },
-      "fix-credential-mgmt-security": {
-        "DB": {
-          "completed": [
-            "DB-1",
-            "DB-2",
-            "DB-3"
-          ],
-          "failed": []
-        },
-        "API": {
-          "completed": [
-            "all"
-          ],
-          "failed": []
-        },
-        "E2E": {
-          "completed": [
-            "all"
-          ],
-          "failed": []
-        }
-      },
-      "fix-tui-client-stability": {
-        "API": {
-          "completed": [
-            "all"
-          ],
-          "failed": []
-        }
-      },
-      "fix-session-management-lifecycle": {},
-      "fix-project-registry-api": {},
-      "fix-notification-engine-reliability": {},
-      "fix-health-monitoring-types": {}
+      "secure-credential-routes": {},
+      "encrypt-credential-storage": {},
+      "unify-health-schema": {},
+      "fix-project-discovery": {},
+      "harden-notification-reliability": {},
+      "align-session-status": {},
+      "fix-tui-reliability": {},
+      "fix-pty-lifecycle": {},
+      "improve-platform-observability": {},
+      "fix-integration-test-gaps": {}
     },
     "phase_started_at": {
-      "DB": "2026-04-04T20:47:46.634443"
-    },
-    "phase_completed_at": {
-      "DB": "2026-04-04T20:59:58.109299",
-      "API": "2026-04-04T21:11:38.033487",
-      "E2E": "2026-04-04T21:24:39.682136"
+      "API": "2026-04-06T00:23:02.042535"
     }
-  }
+  },
+  "started_at": "2026-04-06T00:23:02.042527"
 }
