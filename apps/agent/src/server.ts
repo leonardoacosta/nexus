@@ -23,6 +23,7 @@ import {
   handleReleaseCredential,
   handleListCredentials,
   handleReportRateLimit,
+  handleCredentialHealth,
 } from "./routes/credentials";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
@@ -345,6 +346,15 @@ function createRequestHandler(db?: Db) {
         );
       }
 
+      // GET /credentials/{id}/health — per-credential health check
+      const credHealthMatch = url.pathname.match(/^\/credentials\/([^/]+)\/health$/);
+      if (credHealthMatch && request.method === "GET") {
+        if (!CREDENTIAL_ID_RE.test(credHealthMatch[1]!)) {
+          return withCors(request, new Response("Bad Request", { status: 400 }));
+        }
+        return handleCredentialHealth(credHealthMatch[1]!).then((r) => withCors(request, r));
+      }
+
       // GET /credentials/status — pool overview
       if (url.pathname === "/credentials/status" && request.method === "GET") {
         return handleListCredentials().then((r) => withCors(request, r));
@@ -363,11 +373,18 @@ function createRequestHandler(db?: Db) {
 
 export { healthCollector, streamManager };
 
-export function startServer(port: number = PORT, db?: Db) {
+export function startServer(
+  port: number = PORT,
+  db?: Db,
+  options?: { encryptionKey?: import("node:buffer").Buffer; prerotateThreshold?: number },
+) {
   // Initialize subsystems that need the DB
   if (db) {
     initNotificationRoutes(db);
-    initCredentialRoutes(db);
+    initCredentialRoutes(db, {
+      encryptionKey: options?.encryptionKey,
+      prerotateThreshold: options?.prerotateThreshold,
+    });
   }
 
   const handler = createRequestHandler(db);

@@ -614,7 +614,13 @@ async fn handle_fs_event(
     is_remove: bool,
     _creds_dir: &Path,
 ) {
-    let name = derive_account_name(path);
+    let name = match derive_account_name(path) {
+        Ok(n) => n,
+        Err(e) => {
+            warn!(path = %path.display(), error = %e, "skipping credential file with invalid name");
+            return;
+        }
+    };
 
     if is_remove {
         let mut accounts = pool.accounts.write().await;
@@ -701,9 +707,10 @@ fn is_credential_json(path: &Path) -> bool {
 
 /// Derive the account name from a filename.
 ///
-/// `acct-personal.json` -> `"personal"`
-/// `work.json` -> `"work"`
-fn derive_account_name(path: &Path) -> String {
+/// `acct-personal.json` -> `Ok("personal")`
+/// `work.json` -> `Ok("work")`
+/// `acct-.json` -> `Err(...)` (empty name is a parse error)
+fn derive_account_name(path: &Path) -> Result<String> {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -713,7 +720,13 @@ fn derive_account_name(path: &Path) -> String {
         .strip_prefix("acct-")
         .or_else(|| stem.strip_prefix("acct_"))
         .unwrap_or(stem);
-    name.to_string()
+    if name.is_empty() {
+        return Err(anyhow::anyhow!(
+            "empty account name derived from file: {}",
+            path.display()
+        ));
+    }
+    Ok(name.to_string())
 }
 
 /// Parse a single credential JSON file into a `CredentialAccount`.
@@ -736,7 +749,7 @@ async fn parse_credential_file(path: &Path) -> Result<CredentialAccount> {
     });
 
     Ok(CredentialAccount {
-        name: derive_account_name(path),
+        name: derive_account_name(path)?,
         path: path.to_path_buf(),
         access_token: cred.claude_ai_oauth.access_token,
         expires_at,
@@ -990,15 +1003,22 @@ mod tests {
     #[test]
     fn test_derive_account_name() {
         assert_eq!(
-            derive_account_name(Path::new("/tmp/acct-personal.json")),
+            derive_account_name(Path::new("/tmp/acct-personal.json")).unwrap(),
             "personal"
         );
         assert_eq!(
-            derive_account_name(Path::new("/tmp/acct_work.json")),
+            derive_account_name(Path::new("/tmp/acct_work.json")).unwrap(),
             "work"
         );
-        assert_eq!(derive_account_name(Path::new("/tmp/team.json")), "team");
-        assert_eq!(derive_account_name(Path::new("/tmp/acct-.json")), "");
+        assert_eq!(
+            derive_account_name(Path::new("/tmp/team.json")).unwrap(),
+            "team",
+        );
+        // acct-.json produces an empty name — must be an error, not an empty string
+        assert!(
+            derive_account_name(Path::new("/tmp/acct-.json")).is_err(),
+            "acct-.json should return Err for empty account name"
+        );
     }
 
     #[test]

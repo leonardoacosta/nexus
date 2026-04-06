@@ -7,7 +7,12 @@ let pool: CredentialPool | null = null;
 /** Initialize credential routes with a database connection. */
 export function initCredentialRoutes(
   db: Db,
-  options?: { cooldownMs?: number; leaseTtlMs?: number },
+  options?: {
+    cooldownMs?: number;
+    leaseTtlMs?: number;
+    encryptionKey?: import("node:buffer").Buffer;
+    prerotateThreshold?: number;
+  },
 ): void {
   pool = new CredentialPool(db, options);
 }
@@ -23,20 +28,44 @@ export function resetCredentialRoutes(): void {
   pool = null;
 }
 
-/**
- * TLS enforcement for credential submission.
- *
- * When NEXUS_REQUIRE_TLS=true, credential values must only be submitted over
- * a TLS-terminated connection. The TLS signal is the `x-forwarded-proto: https`
- * header set by a reverse proxy (e.g., Traefik, Caddy, nginx).
- *
- * Default is permissive: localhost-only and homelab deployments commonly run
- * without TLS. Set NEXUS_REQUIRE_TLS=true in production environments.
- */
-const REQUIRE_TLS = process.env.NEXUS_REQUIRE_TLS === "true";
+// ── Loopback address detection ──────────────────────────────────────────────
 
-function isTlsRequest(request: Request): boolean {
-  return request.headers.get("x-forwarded-proto") === "https";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+
+function isLoopbackRequest(request: Request): boolean {
+  try {
+    const { hostname } = new URL(request.url);
+    return LOOPBACK_HOSTS.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * TLS enforcement for credential submission (task 6.1).
+ *
+ * Requests arriving over http:// from non-loopback hosts are rejected with
+ * 426 Upgrade Required. Loopback addresses (127.0.0.1, ::1, localhost) are
+ * exempt for local integration tests and homelab deployments.
+ *
+ * The agent normally sits behind Traefik/Caddy with TLS termination, so
+ * external traffic arrives with an https:// scheme in the forwarded URL.
+ */
+function checkTlsEnforcement(request: Request): Response | null {
+  const { protocol } = new URL(request.url);
+  if (protocol === "http:" && !isLoopbackRequest(request)) {
+    return new Response(
+      JSON.stringify({ error: "credentials must be submitted over TLS" }),
+      {
+        status: 426,
+        headers: {
+          "Content-Type": "application/json",
+          Upgrade: "TLS/1.2, HTTPS",
+        },
+      },
+    );
+  }
+  return null;
 }
 
 /** POST /credentials — add a new credential. */
@@ -45,11 +74,9 @@ export async function handleAddCredential(request: Request): Promise<Response> {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
 
-  // TLS enforcement: when NEXUS_REQUIRE_TLS=true, reject plain-HTTP submissions.
-  // Credential values must not travel over unencrypted connections in production.
-  if (REQUIRE_TLS && !isTlsRequest(request)) {
-    return jsonResponse({ error: "credentials must be submitted over TLS" }, 403);
-  }
+  // TLS enforcement: reject non-loopback HTTP requests with 426
+  const tlsErr = checkTlsEnforcement(request);
+  if (tlsErr) return tlsErr;
 
   let body: unknown;
   try {
@@ -118,9 +145,9 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
     return jsonResponse({ error: "no available credentials of this type" }, 409);
   }
 
-  // Don't expose the plaintext value
-  const { valuePlaintext: _, ...safe } = credential;
-  return jsonResponse(safe);
+  // Strip encrypted storage columns — caller receives decrypted value via valueEncrypted
+  const { valuePlaintext: _p, valueEncrypted: _e, ...safe } = credential;
+  return jsonResponse({ ...safe, value: credential.valueEncrypted });
 }
 
 /** POST /credentials/{id}/release — release a leased credential. */
@@ -175,15 +202,51 @@ export async function handleReportRateLimit(
     return jsonResponse({ error: "credential not found" }, 404);
   }
 
-  const { valuePlaintext: _1, ...cooledDown } = result.cooledDown;
+  const { valuePlaintext: _p1, valueEncrypted: _e1, ...cooledDown } = result.cooledDown;
   const next = result.next
     ? (() => {
-        const { valuePlaintext: _2, ...safe } = result.next!;
-        return safe;
+        const { valuePlaintext: _p2, valueEncrypted: _e2, ...safe } = result.next!;
+        return { ...safe, value: result.next!.valueEncrypted };
       })()
     : null;
 
   return jsonResponse({ cooled_down: cooledDown, next });
+}
+
+/**
+ * GET /credentials/{id}/health — check if a credential is valid/revoked.
+ *
+ * Decrypts the credential, calls the Anthropic usage API, and returns
+ * { healthy: boolean, checked_at: string }.
+ */
+export async function handleCredentialHealth(id: string): Promise<Response> {
+  if (!pool) {
+    return jsonResponse({ error: "credential system not initialized" }, 500);
+  }
+
+  // Use lease to get the decrypted credential value
+  // We directly look up via internal pool mechanism
+  const credential = await pool.getDecrypted(id);
+  if (!credential) {
+    return jsonResponse({ error: "credential not found" }, 404);
+  }
+
+  const checked_at = new Date().toISOString();
+  try {
+    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${credential}`,
+        "anthropic-version": "2023-06-01",
+      },
+    });
+    // 200 or 401/403 are both "valid credential" responses (credential reached the API)
+    // true healthy = API accepts token; false = revoked/invalid
+    const healthy = response.status !== 401 && response.status !== 403;
+    return jsonResponse({ healthy, checked_at });
+  } catch {
+    return jsonResponse({ error: "health check failed — could not reach Anthropic API" }, 500);
+  }
 }
 
 function jsonResponse(data: unknown, status: number = 200): Response {

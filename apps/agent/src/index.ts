@@ -7,6 +7,21 @@ import { openDatabase } from "./db/database";
 import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
+import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
+
+// ── Encryption key validation (fail-fast) ───────────────────────────────────
+let encryptionKey: ReturnType<typeof loadEncryptionKey>;
+let prerotateThreshold: number;
+try {
+  encryptionKey = loadEncryptionKey();
+  prerotateThreshold = loadPrerotateThreshold();
+} catch (err) {
+  logger.error(
+    { error: err instanceof Error ? err.message : String(err) },
+    "Encryption key validation failed — agent cannot start",
+  );
+  process.exit(1);
+}
 
 let db: ReturnType<typeof openDatabase>;
 try {
@@ -15,7 +30,7 @@ try {
   logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to open database — agent cannot start");
   process.exit(1);
 }
-const server = startServer(undefined, db);
+const server = startServer(undefined, db, { encryptionKey, prerotateThreshold });
 
 // Register this agent in the DB (non-fatal — agent still serves if this fails)
 upsertSelfInRegistry(db).catch((err) => {

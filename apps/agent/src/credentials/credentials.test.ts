@@ -8,9 +8,15 @@
  *   3. Remove `.skip` from the describe blocks
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, beforeAll } from "bun:test";
 import { CredentialPool } from "./pool";
+import { encrypt } from "./encryption";
 import type { CredentialRow } from "./store";
+import type { Buffer as NodeBuffer } from "node:buffer";
+
+// Test encryption key: 32 bytes of zeros (hex)
+const TEST_KEY_HEX = "0000000000000000000000000000000000000000000000000000000000000000";
+const TEST_KEY: NodeBuffer = Buffer.from(TEST_KEY_HEX, "hex") as NodeBuffer;
 
 // ─── Concurrent lease race — unit level ──────────────────────────────────────
 //
@@ -26,15 +32,21 @@ describe("credential pool — concurrent lease race (unit)", () => {
   //         the other returns null (pool exhausted for that slot).
   it("[E2E-1] concurrent lease() calls: exactly one succeeds and one returns null", async () => {
     // The single credential in our in-memory "table".
+    // Pre-encrypt the token so the pool can decrypt it on lease
+    const encryptedToken = encrypt("tok-secret", TEST_KEY);
+
     const credential: CredentialRow = {
       id: "cred-race-1",
       name: "race-test",
       type: "anthropic",
-      valuePlaintext: "tok-secret",
+      valuePlaintext: null,
+      valueEncrypted: encryptedToken,
+      encryptionKeyId: "v1",
       status: "available",
       leasedBy: null,
       leasedAt: null,
       cooldownUntil: null,
+      rateLimitCount: 0,
     };
 
     // Shared mutable state simulating a single-row DB table.
@@ -122,7 +134,7 @@ describe("credential pool — concurrent lease race (unit)", () => {
     }
 
     const db = makeMockDb();
-    const pool = new CredentialPool(db);
+    const pool = new CredentialPool(db, { encryptionKey: TEST_KEY });
 
     // Fire both lease calls simultaneously.
     const [result1, result2] = await Promise.all([

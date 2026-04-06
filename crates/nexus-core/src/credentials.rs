@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
+use std::io::Write as IoWrite;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 // ── Core Types ──────────────────────────────────────────────────────────────
@@ -53,11 +55,23 @@ impl UsageCache {
         Ok(cache)
     }
 
-    /// Atomic write: serialize to a temp file in the same directory, then rename.
+    /// Atomic write: serialize to a temp file (0o600) in the same directory, then rename.
+    ///
+    /// The temp file is written with owner-read/write-only permissions (0o600) to
+    /// prevent other users from reading cached credential usage data. The rename
+    /// preserves the permissions from the temp file.
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
         let json = serde_json::to_string_pretty(self)?;
         let tmp_path = path.with_extension("tmp");
-        std::fs::write(&tmp_path, json)?;
+        // Write with restricted permissions (owner read/write only)
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp_path)?;
+        file.write_all(json.as_bytes())?;
+        drop(file);
         std::fs::rename(&tmp_path, path)?;
         Ok(())
     }

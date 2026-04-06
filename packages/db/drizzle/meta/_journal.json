@@ -22,6 +22,20 @@
       "when": 1775357616088,
       "tag": "0002_bitter_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775453486770,
+      "tag": "0003_broken_red_ghost",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775453500836,
+      "tag": "0004_encrypt_credentials_finalize",
+      "breakpoints": true
     }
   ]
 }
