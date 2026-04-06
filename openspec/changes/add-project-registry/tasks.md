@@ -4,11 +4,11 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add `projects` table schema in `packages/db/src/schema/projects.ts` (id UUID PK, name UNIQUE, primary_agent_id FK agents.id, description, tags[], status, discoveredAt, updatedAt) [owner:db-engineer] [beads:nx-0zdw]
-- [ ] [1.2] [P-1] Add `project_locations` table schema in `packages/db/src/schema/projectLocations.ts` (id UUID PK, projectId FK, agentId FK, path, status, activeSessions, totalSessions, lastDiscoveredAt, priority, UNIQUE(projectId, agentId)) [owner:db-engineer] [beads:nx-m0fn]
-- [ ] [1.3] [P-2] Export `projects` and `projectLocations` tables from `packages/db/src/schema/index.ts` [owner:db-engineer] [beads:nx-okg7]
-- [ ] [1.4] [P-2] Add `CanonicalProject` and `ProjectLocation` interfaces to `packages/core/src/types/project.ts` [owner:types-engineer] [beads:nx-sebs]
-- [ ] [1.5] [P-3] Generate and apply DB migration (`pnpm db:generate && pnpm db:migrate`) [owner:db-engineer] [beads:nx-fvm1]
+- [x] [1.1] [P-1] Add `projects` table schema in `packages/db/src/schema/projects.ts` (id UUID PK, name UNIQUE, primary_agent_id FK agents.id, description, tags[], status, discoveredAt, updatedAt) [owner:db-engineer] [beads:nx-0zdw]
+- [x] [1.2] [P-1] Add `project_locations` table schema in `packages/db/src/schema/projectLocations.ts` (id UUID PK, projectId FK, agentId FK, path, status, activeSessions, totalSessions, lastDiscoveredAt, priority, UNIQUE(projectId, agentId)) [owner:db-engineer] [beads:nx-m0fn]
+- [x] [1.3] [P-2] Export `projects` and `projectLocations` tables from `packages/db/src/schema/index.ts` [owner:db-engineer] [beads:nx-okg7]
+- [x] [1.4] [P-2] Add `CanonicalProject` and `ProjectLocation` interfaces to `packages/core/src/types/project.ts` [owner:types-engineer] [beads:nx-sebs]
+- [x] [1.5] [P-3] Generate and apply DB migration (`pnpm db:generate && pnpm db:migrate`) [owner:db-engineer] [beads:nx-fvm1]
 
 ## API Batch
 

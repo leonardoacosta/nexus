@@ -43,6 +43,13 @@
       "when": 1775455556468,
       "tag": "0005_stormy_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775505373430,
+      "tag": "0006_many_mathemanic",
+      "breakpoints": true
     }
   ]
 }
