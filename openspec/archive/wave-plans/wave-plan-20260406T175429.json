@@ -1,0 +1,282 @@
+{
+  "plan_name": "nexus-audit-remediation",
+  "status": "completed",
+  "mode": "consolidated",
+  "pre_audit_sha": "eb17415",
+  "created_at": "2026-04-06T00:22:40.764195",
+  "current_wave": null,
+  "completed_at": "2026-04-06T09:44:34.271108",
+  "completed_waves": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    "6a",
+    "6b",
+    7,
+    8,
+    9,
+    "10a",
+    "10b"
+  ],
+  "completed_specs": [
+    "secure-credential-routes",
+    "encrypt-credential-storage",
+    "unify-health-schema",
+    "fix-project-discovery",
+    "harden-notification-reliability",
+    "align-session-status",
+    "fix-tui-reliability",
+    "fix-pty-lifecycle",
+    "improve-platform-observability",
+    "fix-integration-test-gaps"
+  ],
+  "failed_specs": [],
+  "decisions": [
+    {
+      "date": "2026-04-06",
+      "decision": "All 10 specs require single-spec waves \u2014 no valid non-conflicting pairs fit within 40-task limit",
+      "rationale": "server.ts shared by 3 specs; pool.ts shared by 2; remaining specs all exceed 20 tasks making pairing impossible without exceeding 40-task guardrail",
+      "source": "guardrail",
+      "affected_waves": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "affected_specs": [
+        "all"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "align-session-status (56 tasks) auto-split into waves 6a (28 tasks: Rust+DB) and 6b (28 tasks: TS+UI+tests)",
+      "rationale": "Exceeds 40-task limit; split at natural Rust/TS boundary to preserve coherence",
+      "source": "guardrail",
+      "affected_waves": [
+        6
+      ],
+      "affected_specs": [
+        "align-session-status"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "encrypt-credential-storage (43 tasks) proceeds as single wave \u2014 3-task overage, coherence risk low",
+      "rationale": "Only 3 tasks over limit; tasks are tightly cohesive encryption-focused work; agent coherence not at risk",
+      "source": "guardrail",
+      "affected_waves": [
+        2
+      ],
+      "affected_specs": [
+        "encrypt-credential-storage"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "fix-integration-test-gaps (67 tasks) auto-split into waves 10a (34 tasks: TS tests) and 10b (33 tasks: Rust tests + gates)",
+      "rationale": "Exceeds 40-task limit; split at TS/Rust boundary",
+      "source": "guardrail",
+      "affected_waves": [
+        10
+      ],
+      "affected_specs": [
+        "fix-integration-test-gaps"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "P1 Security: REST auth hardening",
+      "specs": [
+        {
+          "name": "secure-credential-routes",
+          "path": "openspec/changes/secure-credential-routes",
+          "task_count": 26,
+          "status": "merged",
+          "dispatched_at": "2026-04-06T00:23:02.042533",
+          "merged_at": "2026-04-06T00:28:43.783823"
+        }
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "P1 Security: Credential encryption at rest",
+      "specs": [
+        {
+          "name": "encrypt-credential-storage",
+          "path": "openspec/changes/encrypt-credential-storage",
+          "task_count": 43,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:39:17.703492"
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "P1 Data Integrity: Health schema unification",
+      "specs": [
+        {
+          "name": "unify-health-schema",
+          "path": "openspec/changes/unify-health-schema",
+          "task_count": 26,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:49:25.492224"
+        }
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "P1 Correctness: Project discovery protocol",
+      "specs": [
+        {
+          "name": "fix-project-discovery",
+          "path": "openspec/changes/fix-project-discovery",
+          "task_count": 40,
+          "status": "merged",
+          "merged_at": "2026-04-06T00:54:10.199648"
+        }
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "P1 Reliability: Notification engine timeouts",
+      "specs": [
+        {
+          "name": "harden-notification-reliability",
+          "path": "openspec/changes/harden-notification-reliability",
+          "task_count": 37,
+          "status": "merged",
+          "merged_at": "2026-04-06T01:02:22.489960"
+        }
+      ]
+    },
+    {
+      "wave": "6a",
+      "label": "P2 Integrity: Session status model \u2014 Rust+DB (tasks 1-7)",
+      "specs": [
+        {
+          "name": "align-session-status",
+          "path": "openspec/changes/align-session-status",
+          "task_count": 28,
+          "task_range": "1-7",
+          "status": "merged",
+          "merged_at": "2026-04-06T08:58:32.173091"
+        }
+      ]
+    },
+    {
+      "wave": "6b",
+      "label": "P2 Integrity: Session status model \u2014 TS+UI+tests (tasks 8-13)",
+      "specs": [
+        {
+          "name": "align-session-status",
+          "path": "openspec/changes/align-session-status",
+          "task_count": 28,
+          "task_range": "8-13",
+          "status": "merged",
+          "merged_at": "2026-04-06T08:58:32.173097"
+        }
+      ]
+    },
+    {
+      "wave": 7,
+      "label": "P1 Stability: TUI reliability + panic elimination",
+      "specs": [
+        {
+          "name": "fix-tui-reliability",
+          "path": "openspec/changes/fix-tui-reliability",
+          "task_count": 34,
+          "status": "merged",
+          "merged_at": "2026-04-06T09:19:23.837274"
+        }
+      ]
+    },
+    {
+      "wave": 8,
+      "label": "P1 Reliability: PTY lifecycle fixes (after server.ts wave 1)",
+      "specs": [
+        {
+          "name": "fix-pty-lifecycle",
+          "path": "openspec/changes/fix-pty-lifecycle",
+          "task_count": 21,
+          "status": "merged",
+          "merged_at": "2026-04-06T09:26:40.647999"
+        }
+      ]
+    },
+    {
+      "wave": 9,
+      "label": "P2 Observability: Platform-wide (after pool.ts wave 2)",
+      "specs": [
+        {
+          "name": "improve-platform-observability",
+          "path": "openspec/changes/improve-platform-observability",
+          "task_count": 28,
+          "status": "merged",
+          "merged_at": "2026-04-06T09:32:10.778780"
+        }
+      ]
+    },
+    {
+      "wave": "10a",
+      "label": "P2 Test coverage: TS integration tests (after all code waves)",
+      "specs": [
+        {
+          "name": "fix-integration-test-gaps",
+          "path": "openspec/changes/fix-integration-test-gaps",
+          "task_count": 34,
+          "task_range": "1-4",
+          "status": "merged",
+          "merged_at": "2026-04-06T09:44:34.271099"
+        }
+      ]
+    },
+    {
+      "wave": "10b",
+      "label": "P2 Test coverage: Rust unit tests + gates (tasks 5-7)",
+      "specs": [
+        {
+          "name": "fix-integration-test-gaps",
+          "path": "openspec/changes/fix-integration-test-gaps",
+          "task_count": 33,
+          "task_range": "5-7",
+          "status": "merged",
+          "merged_at": "2026-04-06T09:44:34.271106"
+        }
+      ]
+    }
+  ],
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [
+      "API"
+    ],
+    "task_results": {
+      "secure-credential-routes": {},
+      "encrypt-credential-storage": {},
+      "unify-health-schema": {},
+      "fix-project-discovery": {},
+      "harden-notification-reliability": {},
+      "align-session-status": {},
+      "fix-tui-reliability": {},
+      "fix-pty-lifecycle": {},
+      "improve-platform-observability": {},
+      "fix-integration-test-gaps": {}
+    },
+    "phase_started_at": {
+      "API": "2026-04-06T00:23:02.042535"
+    }
+  },
+  "started_at": "2026-04-06T00:23:02.042527"
+}

@@ -10,19 +10,21 @@ it in `AppState`. `GET /projects/discovered` MUST accept an optional `depth` que
 directory MUST be included only if it contains a project marker at its root: `.git/` directory,
 `package.json`, or `Cargo.toml`. Symlinks SHALL be resolved via `fs.realpathSync` before
 inclusion; if resolution fails the entry is skipped. If two directory entries resolve to the
-same canonical path, only one entry SHALL appear in the response. The scan MUST complete within
-5 seconds; entries discovered before timeout ARE returned. Results MUST be merged with session
-counts from `SessionRegistry`: `activeSessions` is the count of sessions with `status =
-"active"` or `last_seen` within 5 minutes; `totalSessions` is the count of all sessions whose
-`cwd` starts with the project path or whose `project` field matches the directory name, within
-the configured query window (default 24 h). Results are capped at 200 entries (alphabetical,
-first 200), and returned as a JSON array. When the cap is applied the response object MUST
-include `"truncated": true`. The response MUST include `X-Cache-Age` and `X-Cache-TTL` headers
-indicating cache staleness in milliseconds. When `projectsDir` is not configured (empty after
-trim), the agent SHALL log an info-level message and return an empty project list with
-`"configured": false` in the response body. The `projectsDir` value MUST be expanded via
-`os.homedir()` before any filesystem operation; path values containing `..` segments after
-expansion SHALL be rejected with `400`.
+same canonical path within a single scan cycle, only one entry SHALL appear in the response;
+the dedup set MUST be initialized fresh at the start of each cache-miss scan, not per HTTP
+request. The scan MUST complete within 5 seconds; entries discovered before timeout ARE returned.
+Results MUST be merged with session counts from `SessionRegistry`: `activeSessions` is the count
+of sessions with `status = "active"` or `last_seen` within **1 hour** (not 5 minutes);
+`totalSessions` is the count of all sessions whose `cwd` starts with the project path or whose
+`project` field matches the directory name, within the configured query window (default 24 h).
+Results are capped at 200 entries (alphabetical, first 200), and returned as a JSON array. When
+the cap is applied the response object MUST include `"truncated": true`. The response MUST include
+`X-Cache-Age` and `X-Cache-TTL` headers indicating cache staleness in milliseconds. When
+`projectsDir` is not configured (empty after trim), the agent SHALL log an info-level message and
+return an empty project list with `"configured": false` in the response body. The `projectsDir`
+value MUST be expanded via `os.homedir()` before any filesystem operation; path values containing
+`..` segments after expansion SHALL be rejected with `400`. The expanded absolute path MUST begin
+with `/home/` or `/Users/`; paths outside these prefixes SHALL be rejected with `400`.
 
 #### Scenario: agent scans default directory
 - **WHEN** `NEXUS_PROJECTS_DIR` is not set and `~/dev` contains `nx/` (has `.git`), `oo/`
@@ -48,17 +50,21 @@ expansion SHALL be rejected with `400`.
 - **AND** `GET /projects/discovered` is called
 - **THEN** `tmp` does NOT appear in the response
 
-#### Scenario: symlinks are resolved and deduplicated
+#### Scenario: symlinks are resolved and deduplicated within scan
 - **WHEN** `~/dev/link` is a symlink pointing to `~/dev/nx`
-- **AND** `GET /projects/discovered` is called
-- **THEN** only one entry appears for the canonical path (either `link` or `nx`, not both);
-  broken symlinks are skipped silently
+- **AND** a cache-miss triggers a fresh scan
+- **THEN** only one entry appears for the canonical path; broken symlinks are skipped silently
+- **AND** the dedup set does not persist to the next scan cycle
 
-#### Scenario: active session counts are numeric
-- **WHEN** `~/dev/oo/` is discovered and 2 sessions in the registry have `project = "oo"` with
-  `status = "active"`
+#### Scenario: active session window is 1 hour
+- **WHEN** `~/dev/oo/` is discovered and 2 sessions have `project = "oo"` with `last_seen = NOW() - 45 minutes`
 - **AND** `GET /projects/discovered` is called
-- **THEN** the `oo` entry has `activeSessions: 2` and `totalSessions >= 2`
+- **THEN** the `oo` entry has `activeSessions: 2` (sessions within 1-hour window count as active)
+
+#### Scenario: sessions older than 1 hour not counted as active
+- **WHEN** `~/dev/oo/` is discovered and 1 session has `project = "oo"` with `last_seen = NOW() - 61 minutes` and `status != "active"`
+- **AND** `GET /projects/discovered` is called
+- **THEN** the `oo` entry has `activeSessions: 0`
 
 #### Scenario: directory does not exist
 - **WHEN** `NEXUS_PROJECTS_DIR=/nonexistent`
@@ -81,6 +87,11 @@ expansion SHALL be rejected with `400`.
 - **WHEN** `projectsDir` is set to `/home/user/dev/../../../etc`
 - **AND** `GET /projects/discovered` is called
 - **THEN** response is `400` with a descriptive error message
+
+#### Scenario: path outside allowed prefix rejected
+- **WHEN** `projectsDir` resolves to `/opt/projects` (not under `/home/` or `/Users/`)
+- **AND** `GET /projects/discovered` is called
+- **THEN** response is `400` with error "projectsDir must be under /home/ or /Users/"
 
 #### Scenario: unconfigured projectsDir returns empty with flag
 - **WHEN** `agent.projectsDir` is null or empty string

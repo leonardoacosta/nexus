@@ -4,88 +4,79 @@
 TBD - created by archiving change add-project-registry. Update Purpose after archive.
 ## Requirements
 ### Requirement: project-registry-schema
-`packages/db/src/schema/projects.ts` MUST define a `projects` table with columns: `id` (UUID PK, gen_random_uuid()), `name` (text, NOT NULL, UNIQUE), `primary_agent_id` (text, NOT NULL, FK → agents.id), `description` (text, nullable), `tags` (text[], nullable), `status` (text, default 'active'), `discoveredAt` (timestamp, defaultNow()), `updatedAt` (timestamp, defaultNow()).
+`packages/db/src/schema/projects.ts` MUST define a `projects` table with columns: `id` (UUID PK, gen_random_uuid()), `name` (text, NOT NULL), `primary_agent_id` (text, NOT NULL, FK → agents.id), `git_remote_url` (text, nullable), `description` (text, nullable), `tags` (text[], nullable), `status` (text, default 'active'), `discoveredAt` (timestamp, NOT NULL, defaultNow()), `updatedAt` (timestamp, defaultNow()). The table MUST have a composite UNIQUE constraint on `(name, git_remote_url)`. The previously plain `UNIQUE(name)` constraint MUST be removed.
 
-`packages/db/src/schema/projectLocations.ts` MUST define a `project_locations` table with columns: `id` (UUID PK), `projectId` (FK → projects.id, CASCADE DELETE), `agentId` (FK → agents.id, CASCADE DELETE), `path` (text, NOT NULL), `status` (text, default 'active'), `activeSessions` (integer, default 0), `totalSessions` (integer, default 0), `lastDiscoveredAt` (timestamp, nullable), `priority` (integer, default 999). UNIQUE constraint on (`project_id`, `agent_id`).
+`packages/db/src/schema/projectLocations.ts` MUST define a `project_locations` table with columns: `id` (UUID PK), `projectId` (FK → projects.id, CASCADE DELETE), `agentId` (FK → agents.id, CASCADE DELETE), `path` (text, NOT NULL), `gitRemoteUrl` (text, nullable), `status` (text, default 'active'), `activeSessions` (integer, default 0), `totalSessions` (integer, default 0), `lastDiscoveredAt` (timestamp, nullable), `priority` (integer, default 999). UNIQUE constraint on (`project_id`, `agent_id`).
 
 Both tables MUST be exported from `packages/db/src/schema/index.ts`.
 
-#### Scenario: projects table accepts first discovery insert
-Given a new project "nx" discovered by agent "homelab" at path "/home/user/dev/nx"
-When an INSERT is executed with `primary_agent_id = 'homelab'`, `name = 'nx'`, `status = 'active'`
-Then the row is created with a generated UUID and `discovered_at = NOW()`
+#### Scenario: projects table enforces composite unique on (name, git_remote_url)
+- **WHEN** a row with `name='nx'` and `git_remote_url='git@github.com:owner/nx.git'` exists
+- **AND** a second INSERT with the same `name` and `git_remote_url` is attempted
+- **THEN** a unique constraint violation is raised
 
-#### Scenario: project name uniqueness enforced
-Given a row already exists with `name = 'nx'`
-When a second INSERT with `name = 'nx'` is attempted
-Then a unique constraint violation is raised
+#### Scenario: two local-only projects with same name coexist
+- **WHEN** a row with `name='api'` and `git_remote_url=NULL` exists
+- **AND** a second INSERT with `name='api'` and `git_remote_url=NULL` is attempted
+- **THEN** the insert succeeds (PostgreSQL treats NULL as distinct in unique indexes)
 
-#### Scenario: project_locations uniqueness per agent
-Given location row (project_id=X, agent_id='homelab') exists
-When a second INSERT with the same (project_id, agent_id) is attempted
-Then ON CONFLICT DO UPDATE fires (upsert), not a duplicate row
+#### Scenario: discoveredAt is never null after insert
+- **WHEN** a new project row is inserted without specifying `discoveredAt`
+- **THEN** the column value is set by `defaultNow()` and is non-null
 
 #### Scenario: cascade delete propagates
-Given project row with id=X has two location rows (homelab + mac)
-When the project row is deleted
-Then both location rows are deleted automatically
+- **WHEN** project row with id=X has two location rows (homelab + mac)
+- **AND** the project row is deleted
+- **THEN** both location rows are deleted automatically
 
 ### Requirement: discovery-upsert
-`apps/agent/src/routes/projects-discovered.ts` MUST, after each successful filesystem scan, upsert each discovered project into `projects` (ON CONFLICT ON name DO NOTHING for primary_agent_id — first writer wins) and upsert into `project_locations` (ON CONFLICT ON (project_id, agent_id) DO UPDATE SET path, status='active', active_sessions, total_sessions, last_discovered_at=NOW()). Projects NOT returned by the current scan MUST have their location's status set to 'missing' for this agent. Path stored MUST be the expanded absolute path (via `expandProjectsDir`).
+`apps/agent/src/routes/projects-discovered.ts` MUST, on each cache-miss compute cycle, initialize a fresh `seenCanonicalPaths` Set at the start of the scan (not re-created per HTTP request, but reset at the top of each scan block). After each successful filesystem scan, the handler MUST `await upsertProjectLocations(db, agentId, toUpsert)` before sending the HTTP response; fire-and-forget is not permitted. Each discovered project MUST be upserted with its `gitRemoteUrl` value (null if unavailable). Projects NOT returned by the current scan MUST have their location's status set to 'missing' for this agent. Path stored MUST be the expanded absolute path (via `expandProjectsDir`), which MUST start with `/home/` or `/Users/` after expansion; paths outside these prefixes MUST be rejected with `400`.
 
-#### Scenario: first discovery creates canonical record
-Given agent "homelab" scans and finds "nx" at "/home/leo/dev/nx"
-When the upsert runs
-Then `projects` has one row with `name='nx'`, `primary_agent_id='homelab'`
-And `project_locations` has one row with `agent_id='homelab'`, `path='/home/leo/dev/nx'`, `status='active'`, `priority=1`
+`apps/agent/src/db/project-registry.ts:upsertProjectLocations` MUST retry the `select` on `projects` once if the first result is empty after `INSERT … ON CONFLICT DO NOTHING`; if both attempts return empty, the location upsert is skipped with a `warn` log. The `ProjectToUpsert` interface MUST include a `gitRemoteUrl: string | null` field, and the upsert MUST write this value to `project_locations.git_remote_url`.
 
-#### Scenario: second agent adds location without overwriting primary
-Given "nx" already exists with `primary_agent_id='homelab'`
-When agent "mac" upserts with its path "/Users/leo/dev/nx"
-Then `projects.primary_agent_id` remains 'homelab'
-And `project_locations` gains a second row with `agent_id='mac'`, `priority=999`
+#### Scenario: dedup set resets each compute cycle, not each HTTP request
+- **WHEN** two HTTP requests hit the handler within the 5 s TTL window
+- **THEN** the second request is served from cache; the dedup set is not re-initialized
 
-#### Scenario: missing project marks location stale
-Given "nx" was previously discovered by homelab
-When homelab scans and "nx" is NOT in the result (deleted or moved)
-Then `project_locations` row for (nx, homelab) has `status='missing'`
-And the `projects` row is NOT deleted
+#### Scenario: dedup set prevents symlink duplicate within one scan
+- **WHEN** `~/dev/link` is a symlink pointing to `~/dev/nx` and both are in the scan
+- **AND** a cache-miss triggers a fresh scan
+- **THEN** only one entry is added for the canonical path; only one location row is upserted
 
-#### Scenario: tilde paths expanded before storage
-Given `projectsDir = "~/dev"` and project is at `~/dev/nx`
-When the upsert runs
-Then `project_locations.path` is `/home/leo/dev/nx` (absolute, no tilde)
+#### Scenario: upsert is awaited before response
+- **WHEN** a cache-miss scan completes with 3 projects
+- **THEN** all 3 location rows are written to the DB before the HTTP 200 response is returned
+
+#### Scenario: select retry on race condition
+- **WHEN** `INSERT INTO projects … ON CONFLICT DO NOTHING` fires (another agent won)
+- **AND** the immediate `SELECT` returns empty (brief replication delay)
+- **THEN** a second `SELECT` is issued; if it returns the row, the location upsert proceeds
+
+#### Scenario: path outside allowed prefix rejected
+- **WHEN** `projectsDir` resolves to `/opt/projects` (not under `/home/` or `/Users/`)
+- **THEN** the handler returns `400` with a descriptive error message
+
+#### Scenario: git_remote_url stored per location
+- **WHEN** agent "homelab" discovers "nx" at `/home/leo/dev/nx` with remote `git@github.com:owner/nx.git`
+- **AND** the upsert runs
+- **THEN** `project_locations` row for (nx, homelab) has `git_remote_url = 'git@github.com:owner/nx.git'`
 
 ### Requirement: canonical-projects-api
-`apps/nextjs/src/app/api/projects/route.ts` MUST implement `GET /api/projects` returning `CanonicalProject[]`. Each entry JOINs `projects` + `project_locations` + aggregated session counts from the `sessions` table (active = last 5 min, total = 24h window). Response ordered by `active_sessions DESC`, then `name ASC`.
+`apps/nextjs/src/app/actions/projects.ts` `fetchProjects()` MUST return `CanonicalProject[]` where `discoveredAt` is non-nullable (`string`, not `string | null`). The `null` fallback `?? new Date().toISOString()` MUST be removed; if a DB row returns null for `discovered_at`, it MUST be treated as a data error (log warn, omit the project). `fetchProject(name)` MUST apply the same non-nullable rule.
 
-`packages/core/src/types/project.ts` MUST export `CanonicalProject` and `ProjectLocation` interfaces:
-```
-CanonicalProject { id, name, primaryAgentId, locations: ProjectLocation[], activeSessions, totalSessions }
-ProjectLocation { agentId, agentName, path, activeSessions, totalSessions, isPrimary, status, priority }
-```
+The `projects/[name]/page.tsx` session filter MUST be `s.project === projectName` only; the `s.project === null && projectName === "Unassigned"` branch MUST be removed.
 
-`apps/nextjs/src/app/actions/projects.ts` `fetchProjects()` MUST be updated to call `GET /api/projects` and return `CanonicalProject[]`.
+`packages/core/src/types/project.ts` `CanonicalProject.discoveredAt` MUST be typed as `string` (not `string | null` or `string | undefined`).
 
-#### Scenario: canonical list with two locations
-Given "nx" exists in projects table with homelab (primary) and mac locations, 3 active sessions on homelab
-When GET /api/projects is called
-Then response includes { name: "nx", primaryAgentId: "homelab", activeSessions: 3, locations: [{ agentId: "homelab", isPrimary: true }, { agentId: "mac", isPrimary: false }] }
+#### Scenario: discoveredAt is stable across fetches
+- **WHEN** `fetchProjects()` is called twice for the same project
+- **THEN** `discoveredAt` returns the same value both times (no new Date() re-generation)
 
-#### Scenario: missing location included with status
-Given "nx" has homelab location (active) and mac location (missing)
-When GET /api/projects is called
-Then "nx" has two locations; mac location has `status: "missing"`
-
-#### Scenario: result ordering
-Given "oo" has 2 active sessions, "nx" has 5, "tc" has 0
-When GET /api/projects is called
-Then order is nx (5), oo (2), tc (0)
-
-#### Scenario: empty registry returns empty array
-Given projects table is empty
-When GET /api/projects is called
-Then response is `[]` with HTTP 200
+#### Scenario: Unassigned detail page shows registry not found
+- **WHEN** no project named "Unassigned" exists in the DB
+- **AND** `/projects/Unassigned` is loaded
+- **THEN** the page renders "Project not found in registry" (null returned from fetchProject)
+- **AND** session filter is `s.project === "Unassigned"` (no null-project shortcut)
 
 ### Requirement: projects-ui-locations
 `apps/nextjs/src/components/ProjectsPoller.tsx` MUST group projects by canonical name (one card per `CanonicalProject.id`). `apps/nextjs/src/components/ProjectCard.tsx` MUST render location badges for each location: filled dot (●) for 'active' primary, open dot (○) for 'active' non-primary, strikethrough label for 'missing' locations. The "Start Session" action MUST route to `primaryAgentId` if that location is 'active'; if primary is 'missing' or offline, route to the first 'active' location and show a toast: "Connected to <agent> (homelab offline)".
@@ -110,4 +101,58 @@ Then homelab badge shows "homelab ●" and mac badge shows "mac ○"
 Given "nx" has homelab (active) + mac (missing)
 When ProjectCard renders
 Then mac badge shows with 'missing' visual treatment (strikethrough or dim)
+
+### Requirement: stale-location-cleanup
+`apps/agent/src/db/project-registry.ts` MUST export `cleanupStaleProjectLocations(db: Db): Promise<{ deletedLocations: number; archivedProjects: number }>`. This function MUST:
+1. DELETE rows from `project_locations` where `status = 'missing'` AND `last_discovered_at < NOW() - INTERVAL '30 days'`.
+2. UPDATE `projects` SET `status = 'archived'` WHERE `id` has no remaining `project_locations` rows with `status IN ('active', 'missing')`.
+
+The Bun agent startup MUST call `cleanupStaleProjectLocations` once at boot and then on a 24-hour interval.
+
+#### Scenario: locations missing for more than 30 days are deleted
+- **WHEN** a `project_locations` row has `status='missing'` and `last_discovered_at = NOW() - 31 days`
+- **AND** `cleanupStaleProjectLocations` runs
+- **THEN** that row is deleted from `project_locations`
+
+#### Scenario: locations missing for less than 30 days are retained
+- **WHEN** a `project_locations` row has `status='missing'` and `last_discovered_at = NOW() - 29 days`
+- **AND** `cleanupStaleProjectLocations` runs
+- **THEN** that row is NOT deleted
+
+#### Scenario: project with no remaining locations is archived
+- **WHEN** all `project_locations` rows for project X are deleted by the cleanup
+- **AND** `cleanupStaleProjectLocations` runs
+- **THEN** `projects.status` for X is set to `'archived'`
+
+#### Scenario: cleanup returns counts
+- **WHEN** `cleanupStaleProjectLocations` deletes 3 locations and archives 1 project
+- **THEN** the return value is `{ deletedLocations: 3, archivedProjects: 1 }`
+
+### Requirement: projects-tag-group-counts
+`apps/nextjs/src/app/actions/projects.ts` MUST export `fetchProjectTagGroups(): Promise<TagGroupCount[]>`. `TagGroupCount` MUST be defined in `packages/core/src/types/project.ts` as `{ tag: string; activeSessions: number; totalSessions: number; projectCount: number }`. The aggregation MUST sum `activeSessions` and `totalSessions` across all `CanonicalProject` entries that include the given tag, and count distinct projects per tag. The `/projects` page table header MUST consume this data to display per-tag session rollups.
+
+#### Scenario: tag group counts aggregate correctly
+- **WHEN** projects "nx" (tags: ["work"], activeSessions: 2) and "oo" (tags: ["work", "client"], activeSessions: 1) exist
+- **AND** `fetchProjectTagGroups()` is called
+- **THEN** tag "work" returns `{ activeSessions: 3, totalSessions: ..., projectCount: 2 }`
+- **AND** tag "client" returns `{ activeSessions: 1, totalSessions: ..., projectCount: 1 }`
+
+#### Scenario: project with no tags is excluded from all groups
+- **WHEN** a project has `tags = null` or `tags = []`
+- **THEN** it does not contribute to any `TagGroupCount` entry
+
+### Requirement: project-detail-agent-badges
+`apps/nextjs/src/components/ProjectSettingsPanel.tsx` (or a sibling component rendered on the detail page) MUST render one badge per `CanonicalProject.locations` entry. Each badge MUST show: agent name, status dot (● for active, ○ for missing), and a tooltip with the full path. The badge component logic MUST be shared with or delegate to the existing `ProjectCard` location badge rendering.
+
+#### Scenario: active primary location shows filled dot
+- **WHEN** `canonicalProject.locations` includes `{ agentId: "homelab", status: "active", isPrimary: true }`
+- **THEN** the detail page renders a badge labeled "homelab ●"
+
+#### Scenario: missing location shows open dot
+- **WHEN** `canonicalProject.locations` includes `{ agentId: "mac", status: "missing" }`
+- **THEN** the detail page renders a badge labeled "mac ○"
+
+#### Scenario: path shown on hover
+- **WHEN** user hovers over the agent badge
+- **THEN** the full path (e.g. `/home/leo/dev/nx`) is shown in a tooltip
 

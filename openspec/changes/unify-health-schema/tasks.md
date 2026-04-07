@@ -36,7 +36,7 @@
 - [x] 9.1 Unit test: TS health-scheduler disk weighted-average calculation
 - [x] 9.2 Unit test: exponential backoff helper returns delays within [base, max] bounds
 - [x] 9.3 Integration test: `POST /health/ingest` persists a row to `health_snapshots`
-- [ ] 9.4 Integration test: Rust health.rs POSTs to `/health/ingest` on the next 30-second cycle (mock HTTP server)
+- [x] 9.4 Integration test: Rust health.rs POSTs to `/health/ingest` on the next 30-second cycle (mock HTTP server)
 
 ## 10. Quality Gates
 - [x] 10.1 `cargo clippy -- -D warnings` passes with no new warnings

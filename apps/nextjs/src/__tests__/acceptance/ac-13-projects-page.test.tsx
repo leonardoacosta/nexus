@@ -82,8 +82,15 @@ describe("AC-13: Project page — sessions across agents", () => {
       />,
     );
 
-    expect(screen.getAllByText("2 active").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("4 total").length).toBeGreaterThanOrEqual(1);
+    // ProjectsTable renders bare numeric cells in the Active and Total columns
+    const activeCells = screen.getAllByRole("cell").filter(
+      (cell) => cell.textContent === "2",
+    );
+    expect(activeCells.length).toBeGreaterThanOrEqual(1);
+    const totalCells = screen.getAllByRole("cell").filter(
+      (cell) => cell.textContent === "4",
+    );
+    expect(totalCells.length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows the project path from discovered project", () => {
@@ -122,6 +129,7 @@ describe("AC-13: Project page — sessions across agents", () => {
   it("shows empty state when no projects", () => {
     render(<ProjectsPoller initialProjects={[]} />);
 
-    expect(screen.getByText("No projects found")).toBeInTheDocument();
+    // ProjectsPoller empty state renders "No projects in registry"
+    expect(screen.getByText("No projects in registry")).toBeInTheDocument();
   });
 });

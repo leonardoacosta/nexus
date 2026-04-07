@@ -30,7 +30,8 @@ pub async fn start_test_server() -> SocketAddr {
     let broadcaster = Arc::new(EventBroadcaster::new(256));
     let registry = Arc::new(SessionRegistry::new(Arc::clone(&broadcaster)));
     let coordinator = Arc::new(ShutdownCoordinator::new());
-    let health = HealthCollector::spawn(Duration::from_secs(60), coordinator.token()); // long interval — tests don't need refreshes
+    let http_client = reqwest::Client::new();
+    let health = HealthCollector::spawn(Duration::from_secs(60), http_client, String::new(), coordinator.token()); // long interval — tests don't need refreshes
     let project_registry = ProjectRegistry::load_empty();
     let status_cache = ProjectStatusCache::new(Duration::from_secs(30));
     let pool_config = nexus_core::config::PoolConfig::default();

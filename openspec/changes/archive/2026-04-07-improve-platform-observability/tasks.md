@@ -23,7 +23,7 @@
 
 - [x] 4.1 Read `NEXUS_INTERNAL_SECRET` env var in `push_to_menubars` in `crates/nexus-agent/src/services/credential_watcher.rs`
 - [x] 4.2 Add `x-nexus-secret: <secret>` header to all POST requests; if env var is absent, log a warning and skip the push (or reject with an error)
-- [ ] 4.3 Document `NEXUS_INTERNAL_SECRET` in project env var reference
+- [x] 4.3 Document `NEXUS_INTERNAL_SECRET` in project env var reference
 
 ## 5. Cleanup Timer Error Handling
 
