@@ -16,15 +16,10 @@ if [[ ! -f "$SECRETS_FILE" ]]; then
 # Fill in real values then run: pnpm tf init
 
 export TF_VAR_cloudflare_api_token=""
-export TF_VAR_cloudflare_zone_id=""
-export TF_VAR_tailscale_api_key=""
-export TF_VAR_tailscale_tailnet=""
-export TF_VAR_postgres_url=""
 
-# Generated once — do NOT regenerate after first apply or secrets will rotate.
-# Run: openssl rand -hex 32   (for each value below)
-export TF_VAR_nexus_encryption_key=""
-export TF_VAR_nexus_attach_secret=""
+# Postgres superuser password — falls back to CX_POSTGRES_PASSWORD if set in env.
+# Leave blank if CX_POSTGRES_PASSWORD is already exported in your shell.
+export TF_VAR_pg_superuser_password=""
 SECRETS
   chmod 600 "$SECRETS_FILE"
   echo "nexus-tf: edit $SECRETS_FILE then re-run the command"
@@ -34,6 +29,11 @@ fi
 # Source secrets
 # shellcheck source=/dev/null
 source "$SECRETS_FILE"
+
+# Fall back to CX_POSTGRES_PASSWORD if pg_superuser_password not explicitly set
+if [[ -z "${TF_VAR_pg_superuser_password:-}" && -n "${CX_POSTGRES_PASSWORD:-}" ]]; then
+  export TF_VAR_pg_superuser_password="$CX_POSTGRES_PASSWORD"
+fi
 
 # ── Command dispatch ──────────────────────────────────────────────
 
