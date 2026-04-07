@@ -18,9 +18,7 @@ export default async function ProjectDetailPage({
     fetchProject(projectName),
   ]);
 
-  const filtered = sessions.filter(
-    (s) => s.project === projectName || (s.project === null && projectName === "Unassigned"),
-  );
+  const filtered = sessions.filter((s) => s.project === projectName);
 
   return (
     <div>

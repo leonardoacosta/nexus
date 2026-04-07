@@ -17,7 +17,8 @@ const log = createLogger("agent:routes:projects-discovered");
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5_000; // 5 seconds
-const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1_000; // 5 minutes
+/** Sessions active within the last 1 hour are counted as active (aligned with QUERY_WINDOW_HOURS). */
+const ACTIVE_SESSION_WINDOW_MS = 60 * 60 * 1_000; // 1 hour
 export const QUERY_WINDOW_HOURS = 24; // hours of history to include in session cross-reference
 
 // ── Tilde expansion ────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ export function expandProjectsDir(raw: string): string {
 export interface AgentDiscoveredProject {
   name: string;
   path: string;
-  /** Number of sessions currently active (status="active" or last_seen within 5 min). */
+  /** Number of sessions currently active (status="active" or last_seen within 1 hour). */
   activeSessions: number;
   /** Total sessions recorded in the 24-hour query window. */
   totalSessions: number;
@@ -88,6 +89,11 @@ let discoveredCache: CacheEntry<AgentDiscoveredProjectsResponse | { error: strin
 export function clearDiscoveredProjectsCache(): void {
   discoveredCache = null;
 }
+
+// ── Module-level dedup set ─────────────────────────────────────────────────
+// Persists across requests within the same process; reset at the top of each
+// cache-miss compute cycle so it tracks the current scan, not prior scans.
+let seenCanonicalPaths = new Set<string>();
 
 // ── Route handler ──────────────────────────────────────────────────────────
 
@@ -173,6 +179,16 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     );
   }
 
+  // 7.1 Require expanded path to start with /home/ or /Users/
+  if (!projectsDir.startsWith("/home/") && !projectsDir.startsWith("/Users/")) {
+    return new Response(
+      JSON.stringify({
+        error: `projectsDir must resolve under /home/ or /Users/ (got: ${projectsDir})`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   // 7. Fetch recent sessions to cross-reference
   const recentSessions = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
 
@@ -197,7 +213,8 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
   }
 
   const projects: AgentDiscoveredProject[] = [];
-  const seenCanonicalPaths = new Set<string>();
+  // Reset the module-level dedup set at the start of each new scan cycle.
+  seenCanonicalPaths = new Set<string>();
   let truncated = false;
 
   for (const entry of entries) {
@@ -257,17 +274,21 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
   // Sort alphabetically by name
   projects.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Upsert discovered projects into the canonical registry (fire-and-forget, don't block response)
+  // Upsert discovered projects into the canonical registry.
+  // Awaited (not fire-and-forget) so data is consistent before responding.
   const toUpsert: ProjectToUpsert[] = projects.map((p) => ({
     name: p.name,
     path: p.path,
     activeSessions: p.activeSessions,
     totalSessions: p.totalSessions,
+    gitRemoteUrl: p.gitRemoteUrl,
   }));
 
-  upsertProjectLocations(db, agent.id, toUpsert).catch((err) => {
+  try {
+    await upsertProjectLocations(db, agent.id, toUpsert);
+  } catch (err) {
     log.warn({ error: err instanceof Error ? err.message : String(err) }, "project registry upsert failed — non-fatal");
-  });
+  }
 
   const result: AgentDiscoveredProjectsResponse = {
     projects,

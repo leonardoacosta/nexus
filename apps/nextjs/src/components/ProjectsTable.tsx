@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import type { CanonicalProject } from "@nexus/core";
+import type { TagGroupSummary } from "@/app/actions/projects";
 import { startSession } from "@/app/actions/settings";
 import { resolveAttachAgent } from "@/lib/agent-routing";
 
 interface ProjectsTableProps {
   projects: CanonicalProject[];
+  tagGroups?: TagGroupSummary[];
 }
 
 const TH_STYLE: React.CSSProperties = {
@@ -56,10 +58,13 @@ function groupAndSortProjects(
   return groups;
 }
 
-export function ProjectsTable({ projects }: ProjectsTableProps) {
+export function ProjectsTable({ projects, tagGroups }: ProjectsTableProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const groups = groupAndSortProjects(projects);
+
+  // Build a lookup map for quick access to tag-level session counts.
+  const tagGroupMap = new Map(tagGroups?.map((tg) => [tg.tag, tg]) ?? []);
 
   return (
     <div style={{ overflowX: "auto" }}>
@@ -87,7 +92,9 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
           </tr>
         </thead>
         <tbody>
-          {groups.map(({ tag, items }) => (
+          {groups.map(({ tag, items }) => {
+            const tg = tagGroupMap.get(tag);
+            return (
             <>
               <tr
                 key={`group-${tag}`}
@@ -112,6 +119,28 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
                   }}
                 >
                   {tag} · {items.length}
+                  {tg && tg.activeSessions > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "var(--space-3)",
+                        color: "var(--color-success)",
+                        fontWeight: "var(--font-weight-semibold)",
+                      }}
+                    >
+                      {tg.activeSessions} active
+                    </span>
+                  )}
+                  {tg && (
+                    <span
+                      style={{
+                        marginLeft: "var(--space-2)",
+                        color: "var(--color-fg-ghost)",
+                        fontWeight: "var(--font-weight-normal)",
+                      }}
+                    >
+                      / {tg.totalSessions} total
+                    </span>
+                  )}
                 </td>
               </tr>
               {items.map((project) => (
@@ -124,7 +153,8 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
                 />
               ))}
             </>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

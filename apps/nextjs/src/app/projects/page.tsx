@@ -5,7 +5,7 @@ import { fetchProjects } from "../actions/projects";
 import { ProjectsPoller } from "@/components/ProjectsPoller";
 
 export default async function ProjectsPage() {
-  const { projects } = await fetchProjects();
+  const { projects, tagGroups } = await fetchProjects();
 
   return (
     <div>
@@ -20,7 +20,7 @@ export default async function ProjectsPage() {
       >
         Projects
       </h1>
-      <ProjectsPoller initialProjects={projects} />
+      <ProjectsPoller initialProjects={projects} initialTagGroups={tagGroups} />
     </div>
   );
 }

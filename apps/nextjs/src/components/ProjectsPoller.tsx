@@ -2,20 +2,24 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { CanonicalProject } from "@nexus/core";
+import type { TagGroupSummary } from "@/app/actions/projects";
 import { fetchProjects } from "@/app/actions/projects";
 import { ProjectsTable } from "./ProjectsTable";
 
 interface ProjectsPollerProps {
   initialProjects: CanonicalProject[];
+  initialTagGroups?: TagGroupSummary[];
 }
 
-export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
+export function ProjectsPoller({ initialProjects, initialTagGroups }: ProjectsPollerProps) {
   const [projects, setProjects] = useState(initialProjects);
+  const [tagGroups, setTagGroups] = useState<TagGroupSummary[]>(initialTagGroups ?? []);
 
   const poll = useCallback(async () => {
     try {
       const result = await fetchProjects();
       setProjects(result.projects);
+      setTagGroups(result.tagGroups);
     } catch {
       // Keep existing data on failure
     }
@@ -47,5 +51,5 @@ export function ProjectsPoller({ initialProjects }: ProjectsPollerProps) {
     );
   }
 
-  return <ProjectsTable projects={projects} />;
+  return <ProjectsTable projects={projects} tagGroups={tagGroups} />;
 }

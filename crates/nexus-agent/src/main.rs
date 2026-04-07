@@ -25,7 +25,7 @@ use nexus_agent::http_handlers::{
     AppState, agent_self_handler, analytics_credentials_handler, analytics_cron_handler,
     analytics_git_handler, analytics_health_handler, analytics_lifecycle_handler,
     analytics_specs_handler, approve_spec_handler, credentials_handler, cron_handler,
-    discovered_projects_handler, environment_handler, events_handler, failures_handler,
+    environment_handler, events_handler, failures_handler,
     get_spec_handler, health_handler, hooks_handler, list_commands_by_namespace_handler,
     list_commands_handler, list_specs_handler, project_beads_handler, project_git_handler,
     project_specs_handler, project_status_handler, read_spec_handler, recommend_handler,
@@ -525,7 +525,6 @@ async fn main() -> Result<()> {
             axum::routing::put(update_command_handler),
         )
         .route("/agent/self", get(agent_self_handler))
-        .route("/projects/discovered", get(discovered_projects_handler))
         .route("/session/start", axum::routing::post(session_start_handler))
         .route("/project/{code}/status", get(project_status_handler))
         .route("/project/{code}/beads", get(project_beads_handler))

@@ -11,7 +11,6 @@ mod command_write;
 mod commands;
 mod credentials;
 mod cron;
-mod discovered_projects;
 mod environment;
 mod events;
 mod failures;
@@ -82,7 +81,6 @@ pub use commands::{
     list_commands_by_namespace_handler, list_commands_handler, run_command_handler, validate_secret,
 };
 pub use credentials::credentials_handler;
-pub use discovered_projects::discovered_projects_handler;
 pub use cron::cron_handler;
 pub use environment::environment_handler;
 pub use events::events_handler;

@@ -7,6 +7,8 @@ export const projectLocations = pgTable(
     projectId: uuid("project_id").notNull(),
     agentId: text("agent_id").notNull(),
     path: text("path").notNull(),
+    /** Git remote URL captured at discovery time for cross-agent dedup. */
+    gitRemoteUrl: text("git_remote_url"),
     status: text("status").default("active").notNull(),
     activeSessions: integer("active_sessions").default(0).notNull(),
     totalSessions: integer("total_sessions").default(0).notNull(),

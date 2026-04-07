@@ -4,8 +4,15 @@ import type { CanonicalProject, ProjectLocation } from "@nexus/core";
 import { getDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
 
+export interface TagGroupSummary {
+  tag: string;
+  activeSessions: number;
+  totalSessions: number;
+}
+
 export interface ProjectsResult {
   projects: CanonicalProject[];
+  tagGroups: TagGroupSummary[];
 }
 
 /**
@@ -48,7 +55,7 @@ export async function fetchProjects(): Promise<ProjectsResult> {
         locations: [],
         activeSessions: 0,
         totalSessions: 0,
-        discoveredAt: row.discoveredAt ?? new Date().toISOString(),
+        discoveredAt: row.discoveredAt ?? "",
         tags: row.tags ?? null,
         description: row.description ?? null,
       });
@@ -78,7 +85,30 @@ export async function fetchProjects(): Promise<ProjectsResult> {
     return a.name.localeCompare(b.name);
   });
 
-  return { projects: sorted };
+  // Aggregate active/total session counts per tag group.
+  const tagGroupMap = new Map<string, TagGroupSummary>();
+  for (const project of sorted) {
+    const tag = project.tags?.[0] ?? "uncategorized";
+    const existing = tagGroupMap.get(tag);
+    if (existing) {
+      existing.activeSessions += project.activeSessions;
+      existing.totalSessions += project.totalSessions;
+    } else {
+      tagGroupMap.set(tag, {
+        tag,
+        activeSessions: project.activeSessions,
+        totalSessions: project.totalSessions,
+      });
+    }
+  }
+
+  const tagGroups = Array.from(tagGroupMap.values()).sort((a, b) => {
+    if (a.tag === "uncategorized") return 1;
+    if (b.tag === "uncategorized") return -1;
+    return a.tag.localeCompare(b.tag);
+  });
+
+  return { projects: sorted, tagGroups };
 }
 
 /**
@@ -120,7 +150,7 @@ export async function fetchProject(name: string): Promise<CanonicalProject | nul
     locations: [],
     activeSessions: 0,
     totalSessions: 0,
-    discoveredAt: first.discoveredAt ?? new Date().toISOString(),
+    discoveredAt: first.discoveredAt ?? "",
     tags: first.tags ?? null,
     description: first.description ?? null,
   };

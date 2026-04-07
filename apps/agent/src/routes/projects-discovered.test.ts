@@ -29,6 +29,13 @@ mock.module("../db/sessions", () => ({
   queryRecentSessions: mockQueryRecentSessions,
 }));
 
+// Mock ../db/project-registry so upsertProjectLocations doesn't hit a real DB
+const mockUpsertProjectLocations = mock((): Promise<void> => Promise.resolve());
+
+mock.module("../db/project-registry", () => ({
+  upsertProjectLocations: mockUpsertProjectLocations,
+}));
+
 // Import the unit under test AFTER mocks are registered
 import {
   handleGetDiscoveredProjects,
@@ -95,6 +102,7 @@ describe("handleGetDiscoveredProjects", () => {
     mockExistsSync.mockImplementation(() => false);
     mockRealpathSync.mockImplementation((p: string) => p);
     mockQueryRecentSessions.mockImplementation(() => Promise.resolve([]));
+    mockUpsertProjectLocations.mockImplementation(() => Promise.resolve());
   });
 
   // ── Test 1: agent not found ──────────────────────────────────────────────
@@ -118,7 +126,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/tmp/empty-projects",
+      projectsDir: "/home/user/empty-projects",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -143,7 +151,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/nonexistent",
+      projectsDir: "/home/user/nonexistent",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -169,7 +177,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/tmp/many-projects",
+      projectsDir: "/home/user/many-projects",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -203,7 +211,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/tmp/test-projects",
+      projectsDir: "/home/user/test-projects",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -224,9 +232,9 @@ describe("handleGetDiscoveredProjects", () => {
     // existsSync returns true only for paths ending in "/.git"
     // alpha, beta, gamma have .git; not-a-git-dir does not
     mockExistsSync.mockImplementation((p: string) => {
-      if (p === "/tmp/test-projects/alpha/.git") return true;
-      if (p === "/tmp/test-projects/beta/.git") return true;
-      if (p === "/tmp/test-projects/gamma/.git") return true;
+      if (p === "/home/user/test-projects/alpha/.git") return true;
+      if (p === "/home/user/test-projects/beta/.git") return true;
+      if (p === "/home/user/test-projects/gamma/.git") return true;
       return false;
     });
 
@@ -256,7 +264,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/tmp/projects",
+      projectsDir: "/home/user/projects",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -272,7 +280,7 @@ describe("handleGetDiscoveredProjects", () => {
     );
 
     mockExistsSync.mockImplementation((p: string) =>
-      p === "/tmp/projects/alpha/.git" || p === "/tmp/projects/beta/.git",
+      p === "/home/user/projects/alpha/.git" || p === "/home/user/projects/beta/.git",
     );
 
     // One active session and one ended session under alpha; none under beta
@@ -287,7 +295,7 @@ describe("handleGetDiscoveredProjects", () => {
           lastActivity: new Date().toISOString(),
           endedAt: null,
           pid: 12345,
-          cwd: "/tmp/projects/alpha/src",
+          cwd: "/home/user/projects/alpha/src",
         },
         {
           id: "sess-2",
@@ -298,7 +306,7 @@ describe("handleGetDiscoveredProjects", () => {
           lastActivity: new Date(Date.now() - 7_200_000).toISOString(),
           endedAt: new Date(Date.now() - 7_100_000).toISOString(),
           pid: null,
-          cwd: "/tmp/projects/alpha",
+          cwd: "/home/user/projects/alpha",
         },
       ]),
     );
@@ -424,7 +432,7 @@ describe("handleGetDiscoveredProjects", () => {
       name: "test-host",
       host: "test-host",
       port: 7400,
-      projectsDir: "/tmp/shape-test",
+      projectsDir: "/home/user/shape-test",
       enabled: true,
       lastSeen: null,
       createdAt: null,
@@ -439,5 +447,77 @@ describe("handleGetDiscoveredProjects", () => {
     expect("truncated" in body).toBe(true);
     expect("projectsDir" in body).toBe(false);
     expect("total" in body).toBe(false);
+  });
+
+  // ── Test 7.2: absolute path outside /home/ or /Users/ rejected ──────────
+
+  it("rejects projectsDir that resolves outside /home/ or /Users/", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/var/data/projects",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("/home/");
+    expect(body.error).toContain("/Users/");
+  });
+
+  // ── Test 2.2: symlink dedup persists across two calls (module-scope dedup set) ──
+
+  it("deduplicates symlinks across two sequential calls (module-scope seenCanonicalPaths)", async () => {
+    const agentRow = {
+      id: "test-host",
+      name: "test-host",
+      host: "test-host",
+      port: 7400,
+      projectsDir: "/home/user/dev",
+      enabled: true,
+      lastSeen: null,
+      createdAt: null,
+    };
+    const db = makeDb([agentRow]);
+
+    // "nx" is a real directory; "link-to-nx" is a symlink — both resolve to same canonical path
+    mockReaddirSync.mockImplementation(() =>
+      [
+        { name: "nx", isDirectory: () => true, isSymbolicLink: () => false },
+        { name: "link-to-nx", isDirectory: () => false, isSymbolicLink: () => true },
+      ] as unknown as ReturnType<typeof import("node:fs").readdirSync>,
+    );
+
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === "/home/user/dev/nx") return "/home/user/dev/nx";
+      if (p === "/home/user/dev/link-to-nx") return "/home/user/dev/nx";
+      return p;
+    });
+
+    mockExistsSync.mockImplementation((p: string) => p === "/home/user/dev/nx/.git");
+
+    // First call
+    clearDiscoveredProjectsCache();
+    const res1 = await handleGetDiscoveredProjects(db);
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json() as { projects: Array<{ name: string }> };
+    expect(body1.projects.length).toBe(1);
+    expect(body1.projects[0]!.name).toBe("nx");
+
+    // Second call — cache expired, re-scan
+    clearDiscoveredProjectsCache();
+    const res2 = await handleGetDiscoveredProjects(db);
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as { projects: Array<{ name: string }> };
+    // Must still only be 1 — symlink dedup set is reset per scan cycle
+    expect(body2.projects.length).toBe(1);
+    expect(body2.projects[0]!.name).toBe("nx");
   });
 });

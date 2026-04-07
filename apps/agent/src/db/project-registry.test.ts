@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { Db } from "@nexus/db";
-import { upsertProjectLocations } from "./project-registry";
+import { upsertProjectLocations, cleanupStaleProjectLocations } from "./project-registry";
 import type { ProjectToUpsert } from "./project-registry";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -87,6 +87,7 @@ function makeProject(overrides: Partial<ProjectToUpsert> = {}): ProjectToUpsert 
     path: "/home/leo/dev/nx",
     activeSessions: 0,
     totalSessions: 0,
+    gitRemoteUrl: null,
     ...overrides,
   };
 }
@@ -267,7 +268,8 @@ describe("upsertProjectLocations", () => {
     it("skips the project-not-found case gracefully (no location insert)", async () => {
       // select by name returns empty — project not found after insert
       const { db, insertCalls } = makeMockDb([
-        [], // select by name → no rows (project not found)
+        [], // select by name → no rows (project not found, first attempt)
+        [], // retry select → still no rows
         [{ id: FAKE_PROJECT_ID }], // mark-missing sweep (inArray select)
       ]);
 
@@ -277,5 +279,156 @@ describe("upsertProjectLocations", () => {
       expect(insertCalls).toHaveLength(1);
       expect(insertCalls[0]!.values.name).toBe("nx");
     });
+  });
+});
+
+// ── Retry select after concurrent upsert (task 4.3) ──────────────────────────
+
+describe("upsertProjectLocations — retry select after concurrent insert", () => {
+  it("succeeds on retry when first select returns empty (concurrent upsert race)", async () => {
+    // Scenario: two agents insert concurrently.
+    // Our onConflictDoNothing succeeds (we're first), but somehow the first
+    // select returns empty (simulating a race). The retry must succeed.
+    //
+    // select responses:
+    // [0] = first select by name → empty (simulates race condition)
+    // [1] = retry select by name → [{id}] (data now visible)
+    // [2] = select primaryAgentId → [{primaryAgentId}]
+    // [3] = mark-missing sweep inArray select → [{id}]
+    const { db, insertCalls } = makeMockDb([
+      [],                              // first select by name → empty
+      [{ id: FAKE_PROJECT_ID }],       // retry select by name → found
+      [{ primaryAgentId: "homelab" }], // select primaryAgentId
+      [{ id: FAKE_PROJECT_ID }],       // mark-missing sweep
+    ]);
+
+    await upsertProjectLocations(db, "homelab", [makeProject()]);
+
+    // Both insert calls must have completed (project + location)
+    expect(insertCalls).toHaveLength(2);
+    // Location insert used the project id from the retry select
+    expect(insertCalls[1]!.values.projectId).toBe(FAKE_PROJECT_ID);
+  });
+});
+
+// ── gitRemoteUrl persisted to location (task 5.2) ────────────────────────────
+
+describe("upsertProjectLocations — gitRemoteUrl persistence", () => {
+  it("writes gitRemoteUrl to both insert values and onConflictDoUpdate set", async () => {
+    const { db, insertCalls, onConflictDoUpdateCalls } = makeMockDb([
+      [{ id: FAKE_PROJECT_ID }],
+      [{ primaryAgentId: "homelab" }],
+      [{ id: FAKE_PROJECT_ID }],
+    ]);
+
+    await upsertProjectLocations(db, "homelab", [
+      makeProject({ gitRemoteUrl: "git@github.com:user/nx.git" }),
+    ]);
+
+    // Location insert should carry gitRemoteUrl
+    const locationInsert = insertCalls[1]!;
+    expect(locationInsert.values.gitRemoteUrl).toBe("git@github.com:user/nx.git");
+
+    // onConflictDoUpdate set should also carry gitRemoteUrl
+    const conflictSet = onConflictDoUpdateCalls[0]!.set;
+    expect(conflictSet.gitRemoteUrl).toBe("git@github.com:user/nx.git");
+  });
+
+  it("writes null gitRemoteUrl for local-only projects", async () => {
+    const { db, insertCalls } = makeMockDb([
+      [{ id: FAKE_PROJECT_ID }],
+      [{ primaryAgentId: "homelab" }],
+      [{ id: FAKE_PROJECT_ID }],
+    ]);
+
+    await upsertProjectLocations(db, "homelab", [makeProject({ gitRemoteUrl: null })]);
+
+    const locationInsert = insertCalls[1]!;
+    expect(locationInsert.values.gitRemoteUrl).toBeNull();
+  });
+});
+
+// ── cleanupStaleProjectLocations (task 11.3) ─────────────────────────────────
+
+describe("cleanupStaleProjectLocations", () => {
+  /**
+   * Build a minimal mock Db for cleanup tests.
+   * select() returns rows in call order; update() is tracked.
+   */
+  function makeCleanupMockDb(selectResponses: unknown[][]): {
+    db: Db;
+    updateCalls: Array<{ set: Record<string, unknown> }>;
+  } {
+    const updateCalls: Array<{ set: Record<string, unknown> }> = [];
+    let selectCallIndex = 0;
+
+    const select = mock((_fields?: unknown) => {
+      const rows = selectResponses[selectCallIndex++] ?? [];
+      const whereResult = Object.assign(Promise.resolve(rows), {
+        limit: mock((_n?: number) => Promise.resolve(rows)),
+      });
+      return {
+        from: mock((_table?: unknown) => ({
+          where: mock((_condition?: unknown) => whereResult),
+        })),
+      };
+    });
+
+    const update = mock((_table?: unknown) => {
+      const set = mock((vals: Record<string, unknown>) => {
+        updateCalls.push({ set: vals });
+        return { where: mock((_cond?: unknown) => Promise.resolve()) };
+      });
+      return { set };
+    });
+
+    const db = { select, update } as unknown as Db;
+    return { db, updateCalls };
+  }
+
+  it("archives locations missing for more than 30 days", async () => {
+    const staleDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1_000).toISOString();
+    const projectId = "proj-aaa";
+    const locationId = "loc-bbb";
+
+    // select responses:
+    // [0] = stale missing locations query → 1 row (31 days old)
+    // [1] = alive locations query (active) → empty
+    // [2] = alive locations query (missing) → empty
+    const { db, updateCalls } = makeCleanupMockDb([
+      [{ id: locationId, projectId, lastDiscoveredAt: staleDate }],
+      [],  // no active locations remain
+      [],  // no missing locations remain
+    ]);
+
+    await cleanupStaleProjectLocations(db);
+
+    // Should have archived the location and then the project
+    expect(updateCalls.length).toBeGreaterThanOrEqual(2);
+    expect(updateCalls[0]!.set).toEqual({ status: "archived" });
+    expect(updateCalls[1]!.set).toEqual({ status: "archived" });
+  });
+
+  it("retains locations missing for fewer than 30 days", async () => {
+    const recentDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1_000).toISOString();
+
+    // select [0] = stale missing locations → 1 row but it's only 29 days old
+    const { db, updateCalls } = makeCleanupMockDb([
+      [{ id: "loc-ccc", projectId: "proj-ddd", lastDiscoveredAt: recentDate }],
+    ]);
+
+    await cleanupStaleProjectLocations(db);
+
+    // Nothing should be archived — the location is not stale enough
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("does nothing when there are no missing locations", async () => {
+    // select [0] = stale missing locations → empty
+    const { db, updateCalls } = makeCleanupMockDb([[]]);
+
+    await cleanupStaleProjectLocations(db);
+
+    expect(updateCalls).toHaveLength(0);
   });
 });

@@ -130,15 +130,15 @@ export function ProjectSettingsPanel({ project }: ProjectSettingsPanelProps) {
         </span>
       </div>
 
-      {/* Read-only: locations */}
+      {/* Read-only: per-agent presence badges */}
       {project.locations.length > 0 && (
         <div style={sectionStyle}>
-          <span style={labelStyle}>Locations</span>
+          <span style={labelStyle}>Agents</span>
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: "var(--space-1)",
+              gap: "var(--space-2)",
               padding: "var(--space-2)",
               background: "var(--color-surface-raised)",
               border: "1px solid var(--color-border)",
@@ -148,24 +148,86 @@ export function ProjectSettingsPanel({ project }: ProjectSettingsPanelProps) {
             {project.locations
               .slice()
               .sort((a, b) => a.priority - b.priority)
-              .map((loc) => (
-                <span
-                  key={loc.agentId}
-                  style={{
-                    fontSize: "var(--font-size-xs)",
-                    fontFamily: "var(--font-mono)",
-                    color:
-                      loc.status === "missing"
-                        ? "var(--color-fg-muted)"
-                        : "var(--color-fg-dim)",
-                    opacity: loc.status === "missing" ? 0.5 : 1,
-                    textDecoration:
-                      loc.status === "missing" ? "line-through" : "none",
-                  }}
-                >
-                  {loc.agentName}: {loc.path}
-                </span>
-              ))}
+              .map((loc) => {
+                const isActive = loc.status === "active";
+                const isMissing = loc.status === "missing";
+                return (
+                  <div
+                    key={loc.agentId}
+                    title={loc.path}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--space-2)",
+                      opacity: isMissing ? 0.5 : 1,
+                    }}
+                  >
+                    {/* Presence dot: ● active / ○ missing */}
+                    <span
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        background: isActive
+                          ? loc.isPrimary
+                            ? "var(--color-success)"
+                            : "var(--color-fg-muted)"
+                          : "transparent",
+                        border: isActive
+                          ? "none"
+                          : "1px solid var(--color-fg-muted)",
+                        boxShadow:
+                          isActive && loc.isPrimary
+                            ? "0 0 6px rgba(34, 197, 94, 0.6)"
+                            : "none",
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        fontFamily: "var(--font-mono)",
+                        color: isActive
+                          ? "var(--color-fg-dim)"
+                          : "var(--color-fg-muted)",
+                        textDecoration: isMissing ? "line-through" : "none",
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {loc.agentName}
+                      {loc.isPrimary && (
+                        <span
+                          style={{
+                            marginLeft: "var(--space-1)",
+                            fontSize: "var(--font-size-xs)",
+                            color: "var(--color-fg-ghost)",
+                            fontFamily: "var(--font-sans)",
+                          }}
+                        >
+                          (primary)
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--color-fg-ghost)",
+                        fontFamily: "var(--font-mono)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: "200px",
+                      }}
+                      title={loc.path}
+                    >
+                      {loc.path}
+                    </span>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

@@ -7,6 +7,7 @@ import { openDatabase } from "./db/database";
 import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
+import { scheduleProjectCleanup } from "./db/project-registry";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
@@ -48,6 +49,9 @@ healthScheduler.start();
 // Retention cleanup — prunes old snapshots/events every 24h
 const stopRetention = scheduleRetention(db);
 
+// Project registry cleanup — archives stale missing locations every 24h
+const stopProjectCleanup = scheduleProjectCleanup(db);
+
 let watcherBridge: ReturnType<typeof createWatcherBridge> | null = null;
 
 try {
@@ -64,6 +68,7 @@ function shutdown() {
   logger.info("shutting down nexus-agent");
   healthScheduler.stop();
   stopRetention();
+  stopProjectCleanup();
   sessionManager.stop();
   watcherBridge?.shutdown();
   // Task 1.4: Shut down all active PTY streams before stopping the HTTP server
