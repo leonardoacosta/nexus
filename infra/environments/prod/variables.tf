@@ -23,18 +23,6 @@ variable "homelab_ip" {
   default     = "100.64.0.1"
 }
 
-variable "tailscale_api_key" {
-  description = "Tailscale API key for ACL management"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "tailscale_tailnet" {
-  description = "Tailscale tailnet name (e.g. example.com or user@github)"
-  type        = string
-  default     = ""
-}
 
 variable "pg_superuser" {
   description = "PostgreSQL superuser name on homelab-postgres (matches CX_POSTGRES_USER)"

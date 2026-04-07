@@ -5,12 +5,6 @@ module "cloudflare" {
   homelab_ip = var.homelab_ip
 }
 
-module "tailscale" {
-  source = "../../modules/tailscale"
-
-  tailscale_api_key = var.tailscale_api_key
-  tailscale_tailnet = var.tailscale_tailnet
-}
 
 module "homelab_postgres" {
   source = "../../modules/homelab-postgres"

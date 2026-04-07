@@ -6,10 +6,7 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.0"
     }
-    tailscale = {
-      source  = "tailscale/tailscale"
-      version = "~> 0.17"
-    }
+
     postgresql = {
       source  = "cyrilgdn/postgresql"
       version = "~> 1.22"
@@ -32,10 +29,6 @@ provider "cloudflare" {
   api_token = var.cloudflare_api_token
 }
 
-provider "tailscale" {
-  api_key = var.tailscale_api_key
-  tailnet = var.tailscale_tailnet
-}
 
 provider "postgresql" {
   host     = var.homelab_ip
