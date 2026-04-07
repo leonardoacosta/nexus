@@ -52,6 +52,7 @@ BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nexus"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY_DIR="$REPO_DIR/deploy"
+PROJECT_ROOT="$REPO_DIR"
 
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
@@ -84,6 +85,20 @@ host = "localhost"
 port = 7400
 user = "$LOCAL_USER"
 EOF
+fi
+
+# ── Inject terraform outputs into service environment ─────────────
+
+if [ -f "$PROJECT_ROOT/infra/.tf-outputs.env" ]; then
+    # shellcheck source=/dev/null
+    source "$PROJECT_ROOT/infra/.tf-outputs.env"
+    systemctl --user set-environment \
+        POSTGRES_URL="$POSTGRES_URL" \
+        NEXUS_ENCRYPTION_KEY="$NEXUS_ENCRYPTION_KEY" \
+        NEXUS_ATTACH_SECRET="$NEXUS_ATTACH_SECRET" 2>/dev/null || true
+    info "terraform env vars injected into systemd user environment"
+else
+    skip "infra/.tf-outputs.env not found — run: pnpm tf apply"
 fi
 
 # ── Install and enable service ────────────────────────────────────

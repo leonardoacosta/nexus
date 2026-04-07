@@ -50,3 +50,8 @@ dist/
 apps/agent/nexus-agent
 apps/agent/nexus-register
 apps/nexus-register/nexus-register
+
+# Terraform
+infra/.secrets.env
+infra/.tf-outputs.env
+infra/**/.terraform/
