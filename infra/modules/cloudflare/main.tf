@@ -1,3 +1,12 @@
+terraform {
+  required_providers {
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.0"
+    }
+  }
+}
+
 resource "cloudflare_dns_record" "nexus_homelab" {
   zone_id = var.zone_id
   name    = "nexus"

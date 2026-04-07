@@ -1,3 +1,16 @@
+terraform {
+  required_providers {
+    postgresql = {
+      source  = "cyrilgdn/postgresql"
+      version = "~> 1.22"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+  }
+}
+
 # homelab-postgres — provisions a dedicated nexus role + database
 # on the shared homelab-postgres Docker container (pgvector:pg16, port 5436).
 #
