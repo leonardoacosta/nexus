@@ -69,7 +69,7 @@ case "$CMD" in
     _tf plan "${@:2}"
     ;;
   apply)
-    _tf apply "${@:2}"
+    _tf apply -auto-approve "${@:2}"
     _write_outputs
     ;;
   destroy)
