@@ -5,5 +5,5 @@ output "dns_record_id" {
 
 output "dns_record_hostname" {
   description = "Fully-qualified hostname for the nexus service"
-  value       = cloudflare_dns_record.nexus_homelab.hostname
+  value       = "nexus.leonardoacosta.dev"
 }
