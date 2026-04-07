@@ -36,22 +36,14 @@ variable "tailscale_tailnet" {
   default     = ""
 }
 
-variable "nexus_encryption_key" {
-  description = "AES-256 encryption key for nexus session data"
+variable "pg_superuser" {
+  description = "PostgreSQL superuser name on homelab-postgres (matches CX_POSTGRES_USER)"
   type        = string
-  sensitive   = true
-  default     = ""
+  default     = "cortex"
 }
 
-variable "nexus_attach_secret" {
-  description = "Shared secret for nexus attach authentication"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "postgres_url" {
-  description = "PostgreSQL connection URL for nexus-agent"
+variable "pg_superuser_password" {
+  description = "PostgreSQL superuser password — used once to provision the nexus role/database"
   type        = string
   sensitive   = true
   default     = ""

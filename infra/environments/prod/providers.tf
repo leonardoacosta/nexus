@@ -10,6 +10,14 @@ terraform {
       source  = "tailscale/tailscale"
       version = "~> 0.17"
     }
+    postgresql = {
+      source  = "cyrilgdn/postgresql"
+      version = "~> 1.22"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   cloud {
@@ -27,4 +35,13 @@ provider "cloudflare" {
 provider "tailscale" {
   api_key = var.tailscale_api_key
   tailnet = var.tailscale_tailnet
+}
+
+provider "postgresql" {
+  host     = var.homelab_ip
+  port     = 5436
+  username = var.pg_superuser
+  password = var.pg_superuser_password
+  sslmode  = "disable"
+  superuser = false
 }
