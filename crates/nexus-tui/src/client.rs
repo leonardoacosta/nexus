@@ -854,7 +854,8 @@ mod tests {
             name: name.to_string(),
             host: host.to_string(),
             port: nexus_core::DEFAULT_GRPC_PORT,
-            user: String::new(),
+            user: None,
+            projects_dir: None,
         }
     }
 

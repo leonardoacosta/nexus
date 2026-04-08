@@ -1,3 +1,16 @@
+/**
+ * Domain-level HealthMetrics types for the Nexus application layer.
+ *
+ * These types use JSON-friendly representations that match the REST/JSON
+ * transport between the Bun agent and Next.js dashboard.
+ *
+ * The canonical schema lives in `proto/nexus.proto`. Wire-format generated
+ * types are available from `@nexus/core/generated/nexus` for gRPC consumers.
+ */
+
+// Re-export proto-generated MachineHealth type for gRPC / wire-format consumers.
+export type { MachineHealth as ProtoMachineHealth } from "../generated/nexus";
+
 /** System health metrics collected from a machine. */
 export interface HealthMetrics {
   hostname: string;

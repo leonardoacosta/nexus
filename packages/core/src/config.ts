@@ -13,7 +13,7 @@ export const AgentConfigSchema = z.object({
 
 /** Schema for the full nexus config file */
 export const NexusConfigSchema = z.object({
-  self_name: z.string(),
+  self_name: z.string().optional(),
   role: z.string().optional(),
   bind_address: z.string().optional(),
   agents: z.array(AgentConfigSchema),

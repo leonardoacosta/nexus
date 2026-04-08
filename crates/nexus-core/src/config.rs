@@ -75,8 +75,12 @@ pub struct AgentConfig {
     /// Nexus agent API port (default: 7400)
     #[serde(default = "default_port")]
     pub port: u16,
-    /// SSH user for full attach
-    pub user: String,
+    /// SSH user for full attach (optional — not all agents need SSH)
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Root directory for project discovery on this agent
+    #[serde(default)]
+    pub projects_dir: Option<String>,
 }
 
 fn default_port() -> u16 {
@@ -264,6 +268,35 @@ fn default_idle_timeout_minutes() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_fixture_parses_correctly() {
+        // Parse the shared TOML fixture that both Rust and TS tests validate.
+        let fixture_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/agents.toml");
+        let contents = std::fs::read_to_string(fixture_path)
+            .unwrap_or_else(|e| panic!("failed to read shared fixture: {e}"));
+        let config: NexusConfig = toml::from_str(&contents)
+            .unwrap_or_else(|e| panic!("failed to parse shared fixture: {e}"));
+
+        assert_eq!(config.self_name, Some("omarchy".to_string()));
+        assert_eq!(config.role, AgentRole::Agent);
+        assert_eq!(config.bind_address, "0.0.0.0");
+        assert_eq!(config.agents.len(), 2);
+
+        // First agent has all fields populated.
+        let a0 = &config.agents[0];
+        assert_eq!(a0.name, "omarchy");
+        assert_eq!(a0.host, "omarchy");
+        assert_eq!(a0.port, 7400);
+        assert_eq!(a0.user.as_deref(), Some("nyaptor"));
+        assert_eq!(a0.projects_dir.as_deref(), Some("/home/nyaptor/dev"));
+
+        // Second agent has optional fields omitted.
+        let a1 = &config.agents[1];
+        assert_eq!(a1.name, "macbook");
+        assert!(a1.user.is_none());
+        assert!(a1.projects_dir.is_none());
+    }
 
     #[test]
     fn pool_config_default_values() {

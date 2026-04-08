@@ -1,5 +1,5 @@
-export type { Session, SessionStatus, SessionType } from "./types/session";
-export type { HealthMetrics, ProcessInfo } from "./types/health";
+export type { Session, SessionStatus, SessionType, ProtoSession } from "./types/session";
+export type { HealthMetrics, ProcessInfo, ProtoMachineHealth } from "./types/health";
 export type { Project, DiscoveredProject, DiscoveredProjectsResponse, ProjectLocation, CanonicalProject } from "./types/project";
 export type { WatcherEvent, WatcherCommand } from "./types/ipc";
 export type {

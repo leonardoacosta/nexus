@@ -99,6 +99,41 @@ host = "localhost"
     expect(result.error.details!.length).toBeGreaterThan(0);
   });
 
+  test("parses shared TOML fixture with field parity", () => {
+    const fixturePath = join(import.meta.dir, "../../../tests/fixtures/agents.toml");
+    const result = parseConfig(fixturePath);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(`shared fixture failed: ${result.error.message}`);
+
+    const { config } = result;
+
+    // self_name: optional in both Rust and TS
+    expect(config.self_name).toBe("omarchy");
+
+    // role: optional in both
+    expect(config.role).toBe("agent");
+
+    // bind_address: optional in both
+    expect(config.bind_address).toBe("0.0.0.0");
+
+    // agents array
+    expect(config.agents).toHaveLength(2);
+
+    // First agent: all fields populated
+    const a0 = config.agents[0]!;
+    expect(a0.name).toBe("omarchy");
+    expect(a0.host).toBe("omarchy");
+    expect(a0.port).toBe(7400);
+    expect(a0.user).toBe("nyaptor");
+    expect(a0.projects_dir).toBe("/home/nyaptor/dev");
+
+    // Second agent: optional fields omitted
+    const a1 = config.agents[1]!;
+    expect(a1.name).toBe("macbook");
+    expect(a1.user).toBeUndefined();
+    expect(a1.projects_dir).toBeUndefined();
+  });
+
   test("returns toml_error for malformed TOML", () => {
     const path = writeTmp("bad.toml", `self_name = "unclosed`);
 

@@ -70,6 +70,8 @@ message Session {
   optional string cc_session_id = 14;
   optional SessionTelemetry telemetry = 15;
   optional string tmux_target = 16;
+  optional string machine = 17;
+  optional google.protobuf.Timestamp ended_at = 18;
 }
 
 message SessionId {
@@ -291,15 +293,59 @@ message ContainerStatus {
   bool running = 2;
 }
 
+message CpuInfo {
+  float overall_percent = 1;
+  repeated float per_core_percent = 2;
+  repeated float load_average = 3;
+}
+
+message RamInfo {
+  uint64 total_bytes = 1;
+  uint64 used_bytes = 2;
+  float percent = 3;
+}
+
+message DiskInfo {
+  string mount = 1;
+  uint64 total_bytes = 2;
+  uint64 used_bytes = 3;
+  float percent = 4;
+}
+
+message DockerInfo {
+  uint32 containers = 1;
+  uint32 running = 2;
+}
+
+message NetworkInterface {
+  string iface = 1;
+  uint64 rx_bytes = 2;
+  uint64 tx_bytes = 3;
+}
+
+message ProcessEntry {
+  uint32 pid = 1;
+  string name = 2;
+  float cpu_percent = 3;
+  float ram_percent = 4;
+}
+
+message ProcessSnapshot {
+  repeated ProcessEntry top_cpu = 1;
+  repeated ProcessEntry top_ram = 2;
+}
+
 message MachineHealth {
-  float cpu_percent = 1;
-  float memory_used_gb = 2;
-  float memory_total_gb = 3;
-  float disk_used_gb = 4;
-  float disk_total_gb = 5;
-  repeated float load_avg = 6;
-  uint64 uptime_seconds = 7;
-  repeated ContainerStatus docker_containers = 8;
+  string hostname = 1;
+  uint64 uptime_seconds = 2;
+  CpuInfo cpu = 3;
+  RamInfo ram = 4;
+  repeated DiskInfo disk = 5;
+  optional DockerInfo docker = 6;
+  repeated ContainerStatus docker_containers = 7;
+  optional google.protobuf.Timestamp collected_at = 8;
+  repeated NetworkInterface network = 9;
+  optional ProcessSnapshot processes = 10;
 }
 
 message HealthRequest {}

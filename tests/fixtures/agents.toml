@@ -1,0 +1,18 @@
+# Shared fixture: both Rust and TS config parsers must accept this file.
+# Used by nexus-core config tests and packages/core config tests.
+
+self_name = "omarchy"
+role = "agent"
+bind_address = "0.0.0.0"
+
+[[agents]]
+name = "omarchy"
+host = "omarchy"
+port = 7400
+user = "nyaptor"
+projects_dir = "/home/nyaptor/dev"
+
+[[agents]]
+name = "macbook"
+host = "macbook-pro"
+port = 7400

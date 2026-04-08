@@ -580,6 +580,12 @@ fn session_from_record(record: &SessionRecord) -> Option<Session> {
         tmux_session: None,
         cc_session_id: record.cc_session_id.clone(),
         tmux_target: record.tmux_target.clone(),
+        machine: None,
+        ended_at: record.ended_at.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
         rate_limit_utilization: record.rate_limit_utilization,
         rate_limit_type: record.rate_limit_type.clone(),
         total_cost_usd: record.total_cost_usd,

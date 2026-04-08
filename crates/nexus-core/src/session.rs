@@ -22,6 +22,10 @@ pub struct Session {
     /// Populated from the `$TMUX_PANE` environment variable captured at
     /// session start via the telemetry hook.
     pub tmux_target: Option<String>,
+    /// The machine (agent name) where this session is running.
+    pub machine: Option<String>,
+    /// When the session ended (None while still running).
+    pub ended_at: Option<DateTime<Utc>>,
 
     // Telemetry fields (populated from CC stream-json events).
     pub rate_limit_utilization: Option<f32>,
@@ -98,6 +102,8 @@ impl Session {
             tmux_session: None,
             cc_session_id: None,
             tmux_target: None,
+            machine: None,
+            ended_at: None,
             rate_limit_utilization: None,
             rate_limit_type: None,
             total_cost_usd: None,
@@ -211,6 +217,8 @@ mod tests {
             "tmux_session": null,
             "cc_session_id": null,
             "tmux_target": null,
+            "machine": null,
+            "ended_at": null,
             "rate_limit_utilization": null,
             "rate_limit_type": null,
             "total_cost_usd": null,

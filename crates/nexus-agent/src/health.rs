@@ -251,6 +251,9 @@ fn build_health_from_system(sys: &System, docker: Option<DockerHealth>) -> Machi
         },
         disk: disks,
         docker,
+        network: None,
+        processes: None,
+        collected_at: Some(chrono::Utc::now()),
     }
 }
 

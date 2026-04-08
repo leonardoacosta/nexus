@@ -273,6 +273,8 @@ async fn dispatch_event(
                 tmux_session: None,
                 cc_session_id,
                 tmux_target: None, // set via register_adhoc
+                machine: None,
+                ended_at: None,
                 rate_limit_utilization: None,
                 rate_limit_type: None,
                 total_cost_usd: None,
