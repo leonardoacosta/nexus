@@ -1,12 +1,18 @@
 {
   "plan_name": "nexus-wave-3",
-  "status": "paused",
+  "status": "in_progress",
   "mode": "consolidated",
   "pre_audit_sha": "3115e65",
   "created_at": "2026-04-08T00:00:00.000000",
-  "current_wave": 1,
-  "completed_waves": [],
-  "completed_specs": [],
+  "current_wave": 2,
+  "completed_waves": [
+    1
+  ],
+  "completed_specs": [
+    "decompose-delivery-service",
+    "clean-build-artifacts-hygiene",
+    "enforce-layering-dry-cleanup"
+  ],
   "failed_specs": [],
   "decisions": [
     {
@@ -87,6 +93,20 @@
         "clean-build-artifacts-hygiene",
         "enforce-layering-dry-cleanup"
       ]
+    },
+    {
+      "date": "2026-04-08",
+      "decision": "Switched all subagents to Opus model due to Sonnet rate limits",
+      "rationale": "User instruction: Sonnet rate-limited, use Opus for all subagents",
+      "source": "user",
+      "affected_waves": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "affected_specs": []
     }
   ],
   "waves": [
@@ -99,7 +119,7 @@
           "path": "openspec/changes/decompose-delivery-service",
           "task_count": 15,
           "beads_epic": "nx-80xw",
-          "status": "queued",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -108,15 +128,15 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T13:56:46.246522",
+          "merged_at": "2026-04-08T14:30:01.053851"
         },
         {
           "name": "clean-build-artifacts-hygiene",
           "path": "openspec/changes/clean-build-artifacts-hygiene",
           "task_count": 7,
           "beads_epic": "nx-39v6",
-          "status": "queued",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -125,15 +145,15 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T13:56:46.246523",
+          "merged_at": "2026-04-08T14:30:01.053853"
         },
         {
           "name": "enforce-layering-dry-cleanup",
           "path": "openspec/changes/enforce-layering-dry-cleanup",
           "task_count": 12,
           "beads_epic": "nx-xa0v",
-          "status": "queued",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -142,8 +162,8 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T13:56:46.246525",
+          "merged_at": "2026-04-08T14:30:01.053854"
         }
       ]
     },
@@ -258,7 +278,7 @@
     }
   ],
   "mega_batch_state": {
-    "current_phase": "API",
+    "current_phase": null,
     "phases_completed": [],
     "task_results": {
       "decompose-delivery-service": {},
@@ -270,8 +290,11 @@
       "add-type-codegen-bridge": {},
       "migrate-timestamp-mode": {}
     },
-    "phase_started_at": {
-      "API": "2026-04-08T13:45:40.522484"
+    "phase_started_at": {},
+    "phase_completed_at": {
+      "API": "2026-04-08T14:09:02.270611",
+      "UI": "2026-04-08T14:11:57.025241",
+      "E2E": "2026-04-08T14:30:01.053845"
     }
   },
   "needs_archiving": [
