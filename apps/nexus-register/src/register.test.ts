@@ -26,6 +26,7 @@ async function runRegister(
   const fakeEventsDir = join(fakeHome, ".config", "nexus", "events");
   mkdirSync(fakeEventsDir, { recursive: true });
 
+  // SAFE: array-form args, no shell interpolation, test constants only
   const proc = Bun.spawn(
     ["bun", "run", join(import.meta.dir, "index.ts"), command],
     {

@@ -10,7 +10,10 @@
       "persistent": true
     },
     "lint": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build", "lint:sql-safety"]
+    },
+    "lint:sql-safety": {
+      "cache": false
     },
     "typecheck": {
       "dependsOn": ["^build"]

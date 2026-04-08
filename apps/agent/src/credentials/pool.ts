@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { credentials } from "@nexus/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, asc, gt, gte } from "drizzle-orm";
 import { logger } from "@nexus/core";
 import {
   insertCredential,
@@ -112,7 +112,8 @@ export class CredentialPool {
             .from(credentials)
             .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
             .orderBy(
-              sql`${credentials.rateLimitCount} ASC, ${credentials.leasedAt} ASC NULLS FIRST`,
+              asc(credentials.rateLimitCount),
+              sql`${asc(credentials.leasedAt)} ${sql.raw("NULLS FIRST")}`,
             )
             .for("update")
             .limit(1);
@@ -227,6 +228,7 @@ export class CredentialPool {
             leasedBy: null,
             leasedAt: null,
             cooldownUntil,
+            // SAFE: Drizzle sql tag parameterizes column ref + literal
             rateLimitCount: sql`${credentials.rateLimitCount} + 1`,
           })
           .where(eq(credentials.id, id));
@@ -329,8 +331,8 @@ export class CredentialPool {
       .where(
         and(
           eq(credentials.status, "leased"),
-          sql`${credentials.rateLimitCount} > 0`,
-          sql`${credentials.leasedAt} >= ${windowStart}`,
+          gt(credentials.rateLimitCount, 0),
+          gte(credentials.leasedAt, windowStart),
         ),
       );
 

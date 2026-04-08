@@ -8,6 +8,7 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "lint:sql-safety": "./scripts/lint-sql-safety.sh",
     "tf": "./infra/scripts/tf.sh"
   },
   "devDependencies": {
