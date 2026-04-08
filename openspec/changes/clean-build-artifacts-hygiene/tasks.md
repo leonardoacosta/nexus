@@ -4,7 +4,7 @@
 
 ## UI Batch
 
-- [ ] [1.1] [P-1] Remove console.warn from HealthPoller.tsx:55 — delete the catch body's console.warn line, keep the empty catch (stale data retention is the design) [owner:ui-engineer] [beads:nx-puye]
+- [x] [1.1] [P-1] Remove console.warn from HealthPoller.tsx:55 — delete the catch body's console.warn line, keep the empty catch (stale data retention is the design) [owner:ui-engineer] [beads:nx-puye]
 
 ## API Batch
 

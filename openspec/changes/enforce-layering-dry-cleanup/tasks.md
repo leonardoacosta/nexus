@@ -10,12 +10,12 @@
 
 ## UI Batch
 
-- [ ] [2.1] [P-1] Refactor `fetchProjects()` in `actions/projects.ts` to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-dhqb]
-- [ ] [2.2] [P-1] Refactor `fetchProject()` in `actions/projects.ts` to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-lq4d]
-- [ ] [2.3] [P-1] Refactor `GET /api/projects` route to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-ldty]
-- [ ] [2.4] [P-2] Fix imports in `get-client.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-fgnp]
-- [ ] [2.5] [P-2] Fix imports in `actions/settings.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-x7bt]
-- [ ] [2.6] [P-2] Fix imports in `api/projects/route.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-tvb3]
+- [x] [2.1] [P-1] Refactor `fetchProjects()` in `actions/projects.ts` to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-dhqb]
+- [x] [2.2] [P-1] Refactor `fetchProject()` in `actions/projects.ts` to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-lq4d]
+- [x] [2.3] [P-1] Refactor `GET /api/projects` route to use `PROJECT_SELECT_FIELDS` + `buildCanonicalProject()` [owner:ui-engineer] [beads:nx-ldty]
+- [x] [2.4] [P-2] Fix imports in `get-client.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-fgnp]
+- [x] [2.5] [P-2] Fix imports in `actions/settings.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-x7bt]
+- [x] [2.6] [P-2] Fix imports in `api/projects/route.ts` to use `@nexus/db` barrel only [owner:ui-engineer] [beads:nx-tvb3]
 
 ## E2E Batch
 

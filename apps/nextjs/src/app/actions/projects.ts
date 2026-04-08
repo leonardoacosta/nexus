@@ -1,8 +1,9 @@
 "use server";
 
-import type { CanonicalProject, ProjectLocation } from "@nexus/core";
+import type { CanonicalProject } from "@nexus/core";
 import { getDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
+import { PROJECT_SELECT_FIELDS, buildCanonicalProjects } from "@/lib/projects";
 
 export interface TagGroupSummary {
   tag: string;
@@ -23,64 +24,13 @@ export async function fetchProjects(): Promise<ProjectsResult> {
   const db = getDb();
 
   const rows = await db
-    .select({
-      projectId: projects.id,
-      projectName: projects.name,
-      primaryAgentId: projects.primaryAgentId,
-      discoveredAt: projects.discoveredAt,
-      tags: projects.tags,
-      description: projects.description,
-      locationId: projectLocations.id,
-      agentId: projectLocations.agentId,
-      agentName: agents.name,
-      path: projectLocations.path,
-      status: projectLocations.status,
-      activeSessions: projectLocations.activeSessions,
-      totalSessions: projectLocations.totalSessions,
-      priority: projectLocations.priority,
-    })
+    .select(PROJECT_SELECT_FIELDS)
     .from(projects)
     .leftJoin(projectLocations, eq(projectLocations.projectId, projects.id))
     .leftJoin(agents, eq(agents.id, projectLocations.agentId))
     .where(eq(projects.status, "active"));
 
-  const projectMap = new Map<string, CanonicalProject>();
-
-  for (const row of rows) {
-    if (!projectMap.has(row.projectId)) {
-      projectMap.set(row.projectId, {
-        id: row.projectId,
-        name: row.projectName,
-        primaryAgentId: row.primaryAgentId,
-        locations: [],
-        activeSessions: 0,
-        totalSessions: 0,
-        discoveredAt: row.discoveredAt ?? "",
-        tags: row.tags ?? null,
-        description: row.description ?? null,
-      });
-    }
-
-    const project = projectMap.get(row.projectId)!;
-
-    if (row.locationId && row.agentId) {
-      const location: ProjectLocation = {
-        agentId: row.agentId,
-        agentName: row.agentName ?? row.agentId,
-        path: row.path ?? "",
-        activeSessions: row.activeSessions ?? 0,
-        totalSessions: row.totalSessions ?? 0,
-        isPrimary: row.agentId === row.primaryAgentId,
-        status: (row.status ?? "active") as "active" | "missing" | "archived",
-        priority: row.priority ?? 999,
-      };
-      project.locations.push(location);
-      project.activeSessions += location.activeSessions;
-      project.totalSessions += location.totalSessions;
-    }
-  }
-
-  const sorted = Array.from(projectMap.values()).sort((a, b) => {
+  const sorted = buildCanonicalProjects(rows).sort((a, b) => {
     if (b.activeSessions !== a.activeSessions) return b.activeSessions - a.activeSessions;
     return a.name.localeCompare(b.name);
   });
@@ -119,22 +69,7 @@ export async function fetchProject(name: string): Promise<CanonicalProject | nul
   const db = getDb();
 
   const rows = await db
-    .select({
-      projectId: projects.id,
-      projectName: projects.name,
-      primaryAgentId: projects.primaryAgentId,
-      discoveredAt: projects.discoveredAt,
-      tags: projects.tags,
-      description: projects.description,
-      locationId: projectLocations.id,
-      agentId: projectLocations.agentId,
-      agentName: agents.name,
-      path: projectLocations.path,
-      status: projectLocations.status,
-      activeSessions: projectLocations.activeSessions,
-      totalSessions: projectLocations.totalSessions,
-      priority: projectLocations.priority,
-    })
+    .select(PROJECT_SELECT_FIELDS)
     .from(projects)
     .leftJoin(projectLocations, eq(projectLocations.projectId, projects.id))
     .leftJoin(agents, eq(agents.id, projectLocations.agentId))
@@ -142,38 +77,8 @@ export async function fetchProject(name: string): Promise<CanonicalProject | nul
 
   if (rows.length === 0) return null;
 
-  const first = rows[0]!;
-  const project: CanonicalProject = {
-    id: first.projectId,
-    name: first.projectName,
-    primaryAgentId: first.primaryAgentId,
-    locations: [],
-    activeSessions: 0,
-    totalSessions: 0,
-    discoveredAt: first.discoveredAt ?? "",
-    tags: first.tags ?? null,
-    description: first.description ?? null,
-  };
-
-  for (const row of rows) {
-    if (row.locationId && row.agentId) {
-      const location: ProjectLocation = {
-        agentId: row.agentId,
-        agentName: row.agentName ?? row.agentId,
-        path: row.path ?? "",
-        activeSessions: row.activeSessions ?? 0,
-        totalSessions: row.totalSessions ?? 0,
-        isPrimary: row.agentId === first.primaryAgentId,
-        status: (row.status ?? "active") as "active" | "missing" | "archived",
-        priority: row.priority ?? 999,
-      };
-      project.locations.push(location);
-      project.activeSessions += location.activeSessions;
-      project.totalSessions += location.totalSessions;
-    }
-  }
-
-  return project;
+  const results = buildCanonicalProjects(rows);
+  return results[0] ?? null;
 }
 
 /**
