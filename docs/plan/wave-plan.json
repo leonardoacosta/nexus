@@ -1,242 +1,284 @@
 {
-  "plan_name": "nexus-audit-wave-2",
-  "status": "completed",
+  "plan_name": "nexus-wave-3",
+  "status": "paused",
   "mode": "consolidated",
-  "pre_audit_sha": "271a760",
-  "created_at": "2026-04-06T17:57:21.999648",
-  "current_wave": null,
-  "completed_waves": [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7
-  ],
-  "completed_specs": [
-    "improve-platform-observability",
-    "unify-health-schema",
-    "fix-pty-lifecycle",
-    "fix-bun-test-runner",
-    "fix-health-scheduler",
-    "align-session-status",
-    "secure-credential-routes",
-    "fix-xterm-browser-auth",
-    "add-credential-audit-trail",
-    "encrypt-credential-storage",
-    "fix-project-registry-integrity",
-    "migrate-nx-terraform"
-  ],
+  "pre_audit_sha": "3115e65",
+  "created_at": "2026-04-08T00:00:00.000000",
+  "current_wave": 1,
+  "completed_waves": [],
+  "completed_specs": [],
   "failed_specs": [],
   "decisions": [
     {
-      "date": "2026-04-06",
-      "decision": "Wave 1 consolidates 6 non-conflicting specs (improve-platform-observability, unify-health-schema, fix-pty-lifecycle, fix-bun-test-runner, fix-health-scheduler, align-session-status) \u2014 33 tasks, no file overlaps",
-      "rationale": "Rust vs TS boundary prevents health schema/scheduler conflict; bun test fixes and session quality gates touch disjoint files",
+      "date": "2026-04-08",
+      "decision": "Wave 1 consolidates 3 non-conflicting specs (decompose-delivery-service, clean-build-artifacts-hygiene, enforce-layering-dry-cleanup) \u2014 34 tasks, zero file overlaps",
+      "rationale": "Rust crate decomposition (delivery.rs) is completely isolated from TS test splits and Next.js import cleanup",
       "source": "orchestrator",
       "affected_waves": [
         1
       ],
       "affected_specs": [
-        "improve-platform-observability",
-        "unify-health-schema",
-        "fix-pty-lifecycle",
-        "fix-bun-test-runner",
-        "fix-health-scheduler",
-        "align-session-status"
+        "decompose-delivery-service",
+        "clean-build-artifacts-hygiene",
+        "enforce-layering-dry-cleanup"
       ]
     },
     {
-      "date": "2026-04-06",
-      "decision": "secure-credential-routes (wave 2) before fix-xterm-browser-auth (wave 3) \u2014 both touch server.ts; tests must be written before xterm adds new auth paths",
-      "rationale": "xterm wave adds new WS token auth paths that need to be covered by secure-credential-routes tests",
+      "date": "2026-04-08",
+      "decision": "Wave 2 consolidates 2 non-conflicting specs (decompose-tui-large-files, fix-agent-promise-errors) \u2014 32 tasks, zero file overlaps",
+      "rationale": "TUI crate decomposition is isolated Rust; agent promise fixes are Bun TS. No shared files.",
       "source": "orchestrator",
       "affected_waves": [
-        2,
-        3
+        2
       ],
       "affected_specs": [
-        "secure-credential-routes",
-        "fix-xterm-browser-auth"
+        "decompose-tui-large-files",
+        "fix-agent-promise-errors"
       ]
     },
     {
-      "date": "2026-04-06",
-      "decision": "add-credential-audit-trail (wave 4) before encrypt-credential-storage (wave 5) \u2014 both touch credentials.ts",
-      "rationale": "audit trail adds new log calls; encrypt-credential-storage enables skipped tests that depend on the pool structure being stable",
+      "date": "2026-04-08",
+      "decision": "harden-sql-credential-pool (wave 3) before add-type-codegen-bridge (wave 4) \u2014 both add scripts to package.json; pool.ts must stabilize before migrate-timestamp-mode rewrites it",
+      "rationale": "package.json file conflict; pool.ts dependency ordering for wave 5",
       "source": "orchestrator",
       "affected_waves": [
-        4,
+        3,
+        4
+      ],
+      "affected_specs": [
+        "harden-sql-credential-pool",
+        "add-type-codegen-bridge"
+      ]
+    },
+    {
+      "date": "2026-04-08",
+      "decision": "migrate-timestamp-mode goes last (wave 5) \u2014 conflicts with 5 other specs (session.ts, health.ts, pool.ts, server.ts, health-collector.ts, health-scheduler.ts, agent-client.ts, api/projects/route.ts, test files)",
+      "rationale": "Touches 27+ files across DB schemas, core types, agent routes, Next.js actions, and all test files. Must run after all other specs stabilize affected files.",
+      "source": "orchestrator",
+      "affected_waves": [
         5
       ],
       "affected_specs": [
-        "add-credential-audit-trail",
-        "encrypt-credential-storage"
+        "migrate-timestamp-mode"
       ]
     },
     {
-      "date": "2026-04-06",
-      "decision": "fix-pty-lifecycle task 4.3 is marked deferred \u2014 skip it; implement only task 4.4 (smoke test)",
-      "rationale": "Task 4.3 has open question on tmux vs shell in design.md; deferred by previous implementor",
+      "date": "2026-04-08",
+      "decision": "Excluded 3 already-completed specs from plan: fix-integration-test-gaps, fix-tui-reliability, harden-notification-reliability \u2014 all tasks [x], need archiving",
+      "rationale": "All tasks marked complete in tasks.md. These specs were implemented but never archived.",
+      "source": "orchestrator",
+      "affected_waves": [],
+      "affected_specs": [
+        "fix-integration-test-gaps",
+        "fix-tui-reliability",
+        "harden-notification-reliability"
+      ]
+    },
+    {
+      "date": "2026-04-08",
+      "decision": "Paused: API usage limit hit. Resume with /apply:all --continue after Apr 11 8pm CT.",
+      "rationale": "Agent spawn failed with billing limit. No code was modified.",
       "source": "orchestrator",
       "affected_waves": [
         1
       ],
       "affected_specs": [
-        "fix-pty-lifecycle"
+        "decompose-delivery-service",
+        "clean-build-artifacts-hygiene",
+        "enforce-layering-dry-cleanup"
       ]
     }
   ],
   "waves": [
     {
       "wave": 1,
-      "label": "Quick wins + independent work (6 specs, no conflicts)",
+      "label": "Rust delivery decomposition + TS test splits + Next.js import cleanup (3 specs, no conflicts)",
       "specs": [
         {
-          "name": "improve-platform-observability",
-          "path": "openspec/changes/improve-platform-observability",
-          "task_count": 1,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:32:22.159326"
+          "name": "decompose-delivery-service",
+          "path": "openspec/changes/decompose-delivery-service",
+          "task_count": 15,
+          "beads_epic": "nx-80xw",
+          "status": "queued",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         },
         {
-          "name": "unify-health-schema",
-          "path": "openspec/changes/unify-health-schema",
-          "task_count": 1,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:32:22.159336"
+          "name": "clean-build-artifacts-hygiene",
+          "path": "openspec/changes/clean-build-artifacts-hygiene",
+          "task_count": 7,
+          "beads_epic": "nx-39v6",
+          "status": "queued",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         },
         {
-          "name": "fix-pty-lifecycle",
-          "path": "openspec/changes/fix-pty-lifecycle",
-          "task_count": 1,
-          "status": "merged",
-          "notes": "task 4.3 is deferred \u2014 implement only 4.4",
-          "merged_at": "2026-04-06T18:32:22.159338"
-        },
-        {
-          "name": "fix-bun-test-runner",
-          "path": "openspec/changes/fix-bun-test-runner",
-          "task_count": 6,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:32:22.159339"
-        },
-        {
-          "name": "fix-health-scheduler",
-          "path": "openspec/changes/fix-health-scheduler",
+          "name": "enforce-layering-dry-cleanup",
+          "path": "openspec/changes/enforce-layering-dry-cleanup",
           "task_count": 12,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:32:22.159340"
-        },
-        {
-          "name": "align-session-status",
-          "path": "openspec/changes/align-session-status",
-          "task_count": 12,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:32:22.159340"
+          "beads_epic": "nx-xa0v",
+          "status": "queued",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 2,
-      "label": "REST auth hardening \u2014 tests + Rust (before xterm adds WS token paths)",
+      "label": "TUI type extraction + agent promise error fixes (2 specs, no conflicts)",
       "specs": [
         {
-          "name": "secure-credential-routes",
-          "path": "openspec/changes/secure-credential-routes",
-          "task_count": 12,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:40:56.023960"
+          "name": "decompose-tui-large-files",
+          "path": "openspec/changes/decompose-tui-large-files",
+          "task_count": 19,
+          "beads_epic": "nx-nmqr",
+          "status": "pending",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "fix-agent-promise-errors",
+          "path": "openspec/changes/fix-agent-promise-errors",
+          "task_count": 13,
+          "beads_epic": "nx-mwip",
+          "status": "pending",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 3,
-      "label": "xterm browser auth \u2014 WS token query-string (after server.ts test coverage)",
+      "label": "SQL credential pool hardening \u2014 Drizzle query builder migration + lint guard",
       "specs": [
         {
-          "name": "fix-xterm-browser-auth",
-          "path": "openspec/changes/fix-xterm-browser-auth",
-          "task_count": 15,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:46:43.263630"
+          "name": "harden-sql-credential-pool",
+          "path": "openspec/changes/harden-sql-credential-pool",
+          "task_count": 7,
+          "beads_epic": "nx-c68j",
+          "status": "pending",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 4,
-      "label": "Credential audit trail (before encrypt-credential-storage re-tests)",
+      "label": "Cross-language type codegen bridge \u2014 proto as single source of truth",
       "specs": [
         {
-          "name": "add-credential-audit-trail",
-          "path": "openspec/changes/add-credential-audit-trail",
-          "task_count": 18,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:52:55.276020"
+          "name": "add-type-codegen-bridge",
+          "path": "openspec/changes/add-type-codegen-bridge",
+          "task_count": 23,
+          "beads_epic": "nx-f2c3",
+          "status": "pending",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 5,
-      "label": "Encrypt credential storage \u2014 enable skipped tests + schema cleanup",
+      "label": "Timestamp mode migration \u2014 string\u2192Date across all 17 timestamp columns + consumers",
       "specs": [
         {
-          "name": "encrypt-credential-storage",
-          "path": "openspec/changes/encrypt-credential-storage",
-          "task_count": 13,
-          "status": "merged",
-          "merged_at": "2026-04-06T18:59:53.050817"
-        }
-      ]
-    },
-    {
-      "wave": 6,
-      "label": "Project registry integrity \u2014 git_remote_url dedup + race fixes",
-      "specs": [
-        {
-          "name": "fix-project-registry-integrity",
-          "path": "openspec/changes/fix-project-registry-integrity",
-          "task_count": 36,
-          "status": "merged",
-          "merged_at": "2026-04-06T19:10:51.287611"
-        }
-      ]
-    },
-    {
-      "wave": 7,
-      "label": "Terraform infra scaffold \u2014 Cloudflare + Tailscale ACLs (user tasks flagged)",
-      "specs": [
-        {
-          "name": "migrate-nx-terraform",
-          "path": "openspec/changes/migrate-nx-terraform",
-          "task_count": 18,
-          "status": "merged",
-          "notes": "tasks 1.1, 4.1, 4.2 marked [owner:user] \u2014 agent skips, flags for user",
-          "merged_at": "2026-04-06T19:13:59.371262"
+          "name": "migrate-timestamp-mode",
+          "path": "openspec/changes/migrate-timestamp-mode",
+          "task_count": 27,
+          "beads_epic": "nx-a8d4",
+          "status": "pending",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     }
   ],
   "mega_batch_state": {
-    "current_phase": null,
+    "current_phase": "API",
     "phases_completed": [],
     "task_results": {
-      "improve-platform-observability": {},
-      "unify-health-schema": {},
-      "fix-pty-lifecycle": {},
-      "fix-bun-test-runner": {},
-      "fix-health-scheduler": {},
-      "align-session-status": {},
-      "secure-credential-routes": {},
-      "fix-xterm-browser-auth": {},
-      "add-credential-audit-trail": {},
-      "encrypt-credential-storage": {},
-      "fix-project-registry-integrity": {},
-      "migrate-nx-terraform": {}
+      "decompose-delivery-service": {},
+      "clean-build-artifacts-hygiene": {},
+      "enforce-layering-dry-cleanup": {},
+      "decompose-tui-large-files": {},
+      "fix-agent-promise-errors": {},
+      "harden-sql-credential-pool": {},
+      "add-type-codegen-bridge": {},
+      "migrate-timestamp-mode": {}
     },
-    "phase_started_at": {}
+    "phase_started_at": {
+      "API": "2026-04-08T13:45:40.522484"
+    }
   },
-  "started_at": "2026-04-06T17:57:33.405200",
-  "completed_at": "2026-04-06T19:13:59.371254"
+  "needs_archiving": [
+    "fix-integration-test-gaps",
+    "fix-tui-reliability",
+    "harden-notification-reliability"
+  ],
+  "started_at": "2026-04-08T13:44:53.234749",
+  "completed_at": null
 }
