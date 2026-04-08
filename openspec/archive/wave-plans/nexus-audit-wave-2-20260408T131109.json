@@ -1,0 +1,242 @@
+{
+  "plan_name": "nexus-audit-wave-2",
+  "status": "completed",
+  "mode": "consolidated",
+  "pre_audit_sha": "271a760",
+  "created_at": "2026-04-06T17:57:21.999648",
+  "current_wave": null,
+  "completed_waves": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "completed_specs": [
+    "improve-platform-observability",
+    "unify-health-schema",
+    "fix-pty-lifecycle",
+    "fix-bun-test-runner",
+    "fix-health-scheduler",
+    "align-session-status",
+    "secure-credential-routes",
+    "fix-xterm-browser-auth",
+    "add-credential-audit-trail",
+    "encrypt-credential-storage",
+    "fix-project-registry-integrity",
+    "migrate-nx-terraform"
+  ],
+  "failed_specs": [],
+  "decisions": [
+    {
+      "date": "2026-04-06",
+      "decision": "Wave 1 consolidates 6 non-conflicting specs (improve-platform-observability, unify-health-schema, fix-pty-lifecycle, fix-bun-test-runner, fix-health-scheduler, align-session-status) \u2014 33 tasks, no file overlaps",
+      "rationale": "Rust vs TS boundary prevents health schema/scheduler conflict; bun test fixes and session quality gates touch disjoint files",
+      "source": "orchestrator",
+      "affected_waves": [
+        1
+      ],
+      "affected_specs": [
+        "improve-platform-observability",
+        "unify-health-schema",
+        "fix-pty-lifecycle",
+        "fix-bun-test-runner",
+        "fix-health-scheduler",
+        "align-session-status"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "secure-credential-routes (wave 2) before fix-xterm-browser-auth (wave 3) \u2014 both touch server.ts; tests must be written before xterm adds new auth paths",
+      "rationale": "xterm wave adds new WS token auth paths that need to be covered by secure-credential-routes tests",
+      "source": "orchestrator",
+      "affected_waves": [
+        2,
+        3
+      ],
+      "affected_specs": [
+        "secure-credential-routes",
+        "fix-xterm-browser-auth"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "add-credential-audit-trail (wave 4) before encrypt-credential-storage (wave 5) \u2014 both touch credentials.ts",
+      "rationale": "audit trail adds new log calls; encrypt-credential-storage enables skipped tests that depend on the pool structure being stable",
+      "source": "orchestrator",
+      "affected_waves": [
+        4,
+        5
+      ],
+      "affected_specs": [
+        "add-credential-audit-trail",
+        "encrypt-credential-storage"
+      ]
+    },
+    {
+      "date": "2026-04-06",
+      "decision": "fix-pty-lifecycle task 4.3 is marked deferred \u2014 skip it; implement only task 4.4 (smoke test)",
+      "rationale": "Task 4.3 has open question on tmux vs shell in design.md; deferred by previous implementor",
+      "source": "orchestrator",
+      "affected_waves": [
+        1
+      ],
+      "affected_specs": [
+        "fix-pty-lifecycle"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Quick wins + independent work (6 specs, no conflicts)",
+      "specs": [
+        {
+          "name": "improve-platform-observability",
+          "path": "openspec/changes/improve-platform-observability",
+          "task_count": 1,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:32:22.159326"
+        },
+        {
+          "name": "unify-health-schema",
+          "path": "openspec/changes/unify-health-schema",
+          "task_count": 1,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:32:22.159336"
+        },
+        {
+          "name": "fix-pty-lifecycle",
+          "path": "openspec/changes/fix-pty-lifecycle",
+          "task_count": 1,
+          "status": "merged",
+          "notes": "task 4.3 is deferred \u2014 implement only 4.4",
+          "merged_at": "2026-04-06T18:32:22.159338"
+        },
+        {
+          "name": "fix-bun-test-runner",
+          "path": "openspec/changes/fix-bun-test-runner",
+          "task_count": 6,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:32:22.159339"
+        },
+        {
+          "name": "fix-health-scheduler",
+          "path": "openspec/changes/fix-health-scheduler",
+          "task_count": 12,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:32:22.159340"
+        },
+        {
+          "name": "align-session-status",
+          "path": "openspec/changes/align-session-status",
+          "task_count": 12,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:32:22.159340"
+        }
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "REST auth hardening \u2014 tests + Rust (before xterm adds WS token paths)",
+      "specs": [
+        {
+          "name": "secure-credential-routes",
+          "path": "openspec/changes/secure-credential-routes",
+          "task_count": 12,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:40:56.023960"
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "xterm browser auth \u2014 WS token query-string (after server.ts test coverage)",
+      "specs": [
+        {
+          "name": "fix-xterm-browser-auth",
+          "path": "openspec/changes/fix-xterm-browser-auth",
+          "task_count": 15,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:46:43.263630"
+        }
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "Credential audit trail (before encrypt-credential-storage re-tests)",
+      "specs": [
+        {
+          "name": "add-credential-audit-trail",
+          "path": "openspec/changes/add-credential-audit-trail",
+          "task_count": 18,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:52:55.276020"
+        }
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "Encrypt credential storage \u2014 enable skipped tests + schema cleanup",
+      "specs": [
+        {
+          "name": "encrypt-credential-storage",
+          "path": "openspec/changes/encrypt-credential-storage",
+          "task_count": 13,
+          "status": "merged",
+          "merged_at": "2026-04-06T18:59:53.050817"
+        }
+      ]
+    },
+    {
+      "wave": 6,
+      "label": "Project registry integrity \u2014 git_remote_url dedup + race fixes",
+      "specs": [
+        {
+          "name": "fix-project-registry-integrity",
+          "path": "openspec/changes/fix-project-registry-integrity",
+          "task_count": 36,
+          "status": "merged",
+          "merged_at": "2026-04-06T19:10:51.287611"
+        }
+      ]
+    },
+    {
+      "wave": 7,
+      "label": "Terraform infra scaffold \u2014 Cloudflare + Tailscale ACLs (user tasks flagged)",
+      "specs": [
+        {
+          "name": "migrate-nx-terraform",
+          "path": "openspec/changes/migrate-nx-terraform",
+          "task_count": 18,
+          "status": "merged",
+          "notes": "tasks 1.1, 4.1, 4.2 marked [owner:user] \u2014 agent skips, flags for user",
+          "merged_at": "2026-04-06T19:13:59.371262"
+        }
+      ]
+    }
+  ],
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [],
+    "task_results": {
+      "improve-platform-observability": {},
+      "unify-health-schema": {},
+      "fix-pty-lifecycle": {},
+      "fix-bun-test-runner": {},
+      "fix-health-scheduler": {},
+      "align-session-status": {},
+      "secure-credential-routes": {},
+      "fix-xterm-browser-auth": {},
+      "add-credential-audit-trail": {},
+      "encrypt-credential-storage": {},
+      "fix-project-registry-integrity": {},
+      "migrate-nx-terraform": {}
+    },
+    "phase_started_at": {}
+  },
+  "started_at": "2026-04-06T17:57:33.405200",
+  "completed_at": "2026-04-06T19:13:59.371254"
+}

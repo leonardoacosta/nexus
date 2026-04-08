@@ -26,6 +26,6 @@
 
 ## Verification Batch
 
-- [ ] [5.1] Run `bun test` for agent to verify no regressions [owner:agent-engineer] [beads:nx-n9ul]
-- [ ] [5.2] Run `pnpm build` for nextjs app to verify no type errors from changes [owner:ui-engineer] [beads:nx-a41r]
-- [ ] [5.3] Grep codebase for remaining bare `void <async>` patterns in `apps/agent/src/` — confirm zero unprotected instances remain [owner:agent-engineer] [beads:nx-z286]
+- [x] [5.1] Run `bun test` for agent to verify no regressions [owner:agent-engineer] [beads:nx-n9ul] ✅ 236 passed, 0 failed
+- [x] [5.2] Run `pnpm build` for nextjs app to verify no type errors from changes [owner:ui-engineer] [beads:nx-a41r] ✅ all packages built, no type errors
+- [x] [5.3] Grep codebase for remaining bare `void <async>` patterns in `apps/agent/src/` — confirm zero unprotected instances remain [owner:agent-engineer] [beads:nx-z286] ✅ zero matches
