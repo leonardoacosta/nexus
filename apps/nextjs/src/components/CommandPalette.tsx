@@ -132,6 +132,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       if (!cancelled) {
         setSessions(result.sessions);
       }
+    }).catch((err: unknown) => {
+      console.error("[CommandPalette] Failed to fetch sessions:", err);
     });
 
     return () => {

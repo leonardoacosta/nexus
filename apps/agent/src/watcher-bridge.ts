@@ -2,6 +2,7 @@ import { logger } from "@nexus/core";
 import type { WatcherEvent, WatcherCommand } from "@nexus/core";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 /** Resolve the watcher binary path — prefer release, fall back to debug.
  *
@@ -90,7 +91,7 @@ export function createWatcherBridge(
     const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
 
-    void (async () => {
+    safeFireAndForget((async () => {
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -111,10 +112,10 @@ export function createWatcherBridge(
       } catch (err) {
         logger.error({ error: err }, "watcher-bridge: stdout stream closed unexpectedly");
       }
-    })();
+    })(), "watcher-bridge-stdout-reader");
 
     // Watch for process exit
-    void proc.exited.then((code) => {
+    safeFireAndForget(proc.exited.then((code) => {
       if (uptimeTimer) clearTimeout(uptimeTimer);
       uptimeTimer = null;
       proc = null;
@@ -126,7 +127,7 @@ export function createWatcherBridge(
         backoffMs = Math.min(backoffMs * 2, 30_000);
         spawn();
       }, backoffMs);
-    });
+    }), "watcher-bridge-process-exit");
   }
 
   function send(command: WatcherCommand): void {
@@ -137,7 +138,13 @@ export function createWatcherBridge(
     const stdin = proc.stdin as import("bun").FileSink;
     stdin.write(new TextEncoder().encode(JSON.stringify(command) + "\n"));
     try {
-      void stdin.flush();
+      const result = stdin.flush();
+      // flush() returns number | Promise<number> — catch async rejections too
+      if (result && typeof (result as Promise<number>).catch === "function") {
+        (result as Promise<number>).catch((err: unknown) => {
+          logger.warn({ error: err }, "watcher-bridge: stdin flush failed (async)");
+        });
+      }
     } catch (err) {
       logger.warn({ error: err }, "watcher-bridge: stdin flush failed");
     }
@@ -157,7 +164,7 @@ export function createWatcherBridge(
       const killTimer = setTimeout(() => {
         proc?.kill();
       }, 2000);
-      void proc.exited.then(() => clearTimeout(killTimer));
+      safeFireAndForget(proc.exited.then(() => clearTimeout(killTimer)), "watcher-bridge-shutdown-exit");
     }
   }
 

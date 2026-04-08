@@ -2,6 +2,7 @@ import type { HealthMetrics, ProcessInfo } from "@nexus/core";
 import { logger } from "@nexus/core";
 import si from "systeminformation";
 import os from "node:os";
+import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 5_000;
 
@@ -25,8 +26,8 @@ export class HealthCollector {
   /** Start periodic collection. First collection happens immediately. */
   start(): void {
     // Collect immediately, then on interval
-    void this.tick();
-    this.timer = setInterval(() => void this.tick(), this.intervalMs);
+    safeFireAndForget(this.tick(), "health-collector-tick");
+    this.timer = setInterval(() => safeFireAndForget(this.tick(), "health-collector-tick"), this.intervalMs);
   }
 
   /** Stop periodic collection. */

@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import { healthSnapshots, sessionEvents } from "@nexus/db";
 import { lt } from "drizzle-orm";
 import { logger } from "@nexus/core";
+import { safeFireAndForget } from "../utils/safe-fire-and-forget";
 
 const HEALTH_RETENTION_DAYS = Number(process.env.HEALTH_RETENTION_DAYS ?? "30");
 const EVENTS_RETENTION_DAYS = 90;
@@ -37,10 +38,10 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
  * hours. Returns a cleanup function that cancels the interval.
  */
 export function scheduleRetention(db: Db): () => void {
-  void runRetentionCleanup(db);
+  safeFireAndForget(runRetentionCleanup(db), "retention-cleanup");
 
   const timer = setInterval(() => {
-    void runRetentionCleanup(db);
+    safeFireAndForget(runRetentionCleanup(db), "retention-cleanup");
   }, CLEANUP_INTERVAL_MS);
 
   return () => clearInterval(timer);

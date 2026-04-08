@@ -311,7 +311,7 @@ impl NexusClient {
     ///
     /// Returns the owning agent's info together with the session, or `None` if
     /// no connected agent knows about this session.
-    #[allow(dead_code)] // Used by spec 8 (detail screen)
+    #[allow(dead_code)] // No callers yet — reserved for detail screen
     pub async fn get_session(&mut self, id: &str) -> Option<(AgentSnapshot, Session)> {
         for agent in &mut self.agents {
             let client = match agent.client.as_mut() {
@@ -503,7 +503,6 @@ impl NexusClient {
     /// Returns `Ok(true)` if the agent confirmed the stop, `Ok(false)` if the
     /// agent responded but reported failure, and `Err` if no agent owns the
     /// session or the RPC failed.
-    #[allow(dead_code)] // Used by spec 8 (detail screen)
     pub async fn stop_session(&mut self, id: &str) -> Result<bool> {
         for agent in &mut self.agents {
             let client = match agent.client.as_mut() {
@@ -548,7 +547,6 @@ impl NexusClient {
 
     /// Fetch health timeseries from all agents.
     /// Returns `Vec<(agent_name, Vec<HealthTimeSeriesEntry>)>`.
-    #[allow(dead_code)] // Wired up by analytics screen tasks
     pub async fn get_health_time_series(
         &mut self,
         hours: u32,
@@ -582,7 +580,6 @@ impl NexusClient {
     /// Fetch session history from all agents.
     /// Returns merged `Vec<SessionHistoryEntry>` (deduplicated by date — counts
     /// and costs are summed for the same date across agents).
-    #[allow(dead_code)] // Wired up by analytics screen tasks
     pub async fn get_session_history(
         &mut self,
         days: u32,
@@ -634,7 +631,6 @@ impl NexusClient {
     /// Fetch failure trends from all agents.
     /// Returns merged `(daily, by_tool)` — daily entries are summed by date,
     /// by-tool entries are summed by tool name.
-    #[allow(dead_code)] // Wired up by analytics screen tasks
     pub async fn get_failure_trends(
         &mut self,
         days: u32,
@@ -696,7 +692,6 @@ impl NexusClient {
     /// Fetch spec velocity from all agents.
     /// Returns concatenated `Vec<SpecVelocityEntry>` (each agent contributes
     /// its own projects, so entries are concatenated rather than merged).
-    #[allow(dead_code)] // Wired up by analytics screen tasks
     pub async fn get_spec_velocity(
         &mut self,
         days: u32,

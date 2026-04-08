@@ -22,6 +22,7 @@ mod screens;
 mod stream;
 mod stream_state;
 mod theme;
+mod types;
 mod ui_helpers;
 
 use app::{AgentData, App, InputMode, LineStyle, Screen, Severity, StyledLine};

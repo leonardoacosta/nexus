@@ -207,7 +207,206 @@ fn parse_spec_list(json: &str) -> Vec<SpecSnapshot> {
 // DB-backed change detection
 // ---------------------------------------------------------------------------
 
+/// Handle hash-change detection for an existing spec.
+///
+/// If the proposal was edited after review (read/approved), reset it to unread.
+/// Returns `true` if a hash change was detected and the spec was reset (caller
+/// should `continue` to skip further processing for this spec).
+fn handle_hash_change(
+    db: &NexusDb,
+    project: &str,
+    spec_id: &str,
+    snap: &SpecSnapshot,
+    existing: &SpecRecord,
+    hash: &Option<String>,
+    first_tick: bool,
+    events: &mut Vec<SpecEvent>,
+) -> bool {
+    if let Some(new_hash) = hash
+        && let Some(ref old_hash) = existing.proposal_hash
+        && new_hash != old_hash
+        && (existing.status == "read" || existing.status == "approved")
+    {
+        // Reset to unread — proposal was edited after review.
+        let mut updated = existing.clone();
+        updated.status = "unread".to_string();
+        updated.proposal_hash = Some(new_hash.clone());
+        updated.read_at = None;
+        updated.approved_at = None;
+        updated.tasks_done = snap.completed_tasks;
+        updated.tasks_total = snap.total_tasks;
+        if let Err(e) = db.upsert_spec(&updated) {
+            warn!("Failed to reset spec {}: {}", spec_id, e);
+        }
+        // Audit event: proposal edited, spec reset (best-effort).
+        let _ = db.log_event(
+            "spec_hash_reset",
+            "spec_watcher",
+            spec_id,
+            Some("proposal edited after review — reset to unread"),
+        );
+        if !first_tick {
+            events.push(SpecEvent::HashChanged {
+                project: project.to_string(),
+                name: snap.name.clone(),
+            });
+        }
+        return true;
+    }
+    false
+}
+
+/// Handle task-progress detection for an existing spec.
+///
+/// Detects progress increments and all-tasks-complete transitions.
+fn handle_task_progress(
+    db: &NexusDb,
+    project: &str,
+    spec_id: &str,
+    snap: &SpecSnapshot,
+    existing: &SpecRecord,
+    hash: &Option<String>,
+    now: &str,
+    first_tick: bool,
+    events: &mut Vec<SpecEvent>,
+) {
+    if !first_tick {
+        let was_incomplete = existing.tasks_done < existing.tasks_total || existing.tasks_total == 0;
+        let is_all_complete = snap.completed_tasks == snap.total_tasks && snap.total_tasks > 0;
+
+        if is_all_complete && was_incomplete {
+            events.push(SpecEvent::AllComplete {
+                project: project.to_string(),
+                name: snap.name.clone(),
+            });
+        } else if snap.completed_tasks > existing.tasks_done {
+            events.push(SpecEvent::Progress {
+                project: project.to_string(),
+                name: snap.name.clone(),
+                completed: snap.completed_tasks,
+                total: snap.total_tasks,
+            });
+        }
+    }
+
+    // Update task counts and hash in DB.
+    if snap.completed_tasks != existing.tasks_done || snap.total_tasks != existing.tasks_total {
+        if let Err(e) =
+            db.update_spec_tasks(project, &snap.name, snap.completed_tasks, snap.total_tasks)
+        {
+            warn!("Failed to update spec tasks {}: {}", spec_id, e);
+        }
+
+        // Insert spec snapshot if completed_tasks changed (deduped).
+        if snap.completed_tasks != existing.tasks_done {
+            let should_insert = match db.latest_spec_snapshot(project, &snap.name) {
+                Ok(Some(latest)) => {
+                    latest.completed_tasks != Some(snap.completed_tasks)
+                        || latest.total_tasks != Some(snap.total_tasks)
+                }
+                _ => true,
+            };
+            if should_insert {
+                let snapshot_record = SpecSnapshotRecord {
+                    timestamp: now.to_string(),
+                    project: project.to_string(),
+                    spec_name: snap.name.clone(),
+                    completed_tasks: Some(snap.completed_tasks),
+                    total_tasks: Some(snap.total_tasks),
+                };
+                if let Err(e) = db.insert_spec_snapshot(&snapshot_record) {
+                    warn!("Failed to insert spec snapshot {}: {}", spec_id, e);
+                }
+            }
+        }
+    }
+    // Update hash if changed (but status wasn't read/approved, so no reset).
+    if *hash != existing.proposal_hash {
+        let mut updated = existing.clone();
+        updated.proposal_hash = hash.clone();
+        updated.tasks_done = snap.completed_tasks;
+        updated.tasks_total = snap.total_tasks;
+        if let Err(e) = db.upsert_spec(&updated) {
+            warn!("Failed to update spec hash {}: {}", spec_id, e);
+        }
+    }
+}
+
+/// Handle insertion of a newly discovered spec.
+fn handle_new_spec(
+    db: &NexusDb,
+    project: &str,
+    spec_id: &str,
+    snap: &SpecSnapshot,
+    hash: Option<String>,
+    now: &str,
+    first_tick: bool,
+    events: &mut Vec<SpecEvent>,
+) {
+    let record = SpecRecord {
+        id: spec_id.to_string(),
+        project: project.to_string(),
+        name: snap.name.clone(),
+        status: "unread".to_string(),
+        title: None,
+        summary: None,
+        tasks_total: snap.total_tasks,
+        tasks_done: snap.completed_tasks,
+        proposal_hash: hash,
+        discovered_at: now.to_string(),
+        read_at: None,
+        approved_at: None,
+        applied_at: None,
+        archived_at: None,
+        rejected_at: None,
+        rejection_reason: None,
+    };
+    if let Err(e) = db.upsert_spec(&record) {
+        warn!("Failed to insert spec {}: {}", spec_id, e);
+    }
+    // Audit event: new spec discovered (best-effort).
+    let _ = db.log_event("spec_discovered", "spec_watcher", spec_id, None);
+    if !first_tick {
+        events.push(SpecEvent::NewSpec {
+            project: project.to_string(),
+            name: snap.name.clone(),
+        });
+    }
+}
+
+/// Handle detection and archival of specs that were removed from disk.
+///
+/// If a spec was 'applied' in the DB but is no longer on disk, archive it.
+fn handle_spec_removal(
+    db: &NexusDb,
+    project: &str,
+    current_names: &HashSet<&str>,
+    first_tick: bool,
+    events: &mut Vec<SpecEvent>,
+) {
+    if let Ok(all_specs) = db.list_specs(Some(&["applied"])) {
+        for existing in all_specs {
+            if existing.project == project && !current_names.contains(existing.name.as_str()) {
+                if let Err(e) = db.update_spec_status(project, &existing.name, "archived") {
+                    warn!("Failed to archive spec {}: {}", existing.id, e);
+                }
+                // Audit event: spec archived (best-effort).
+                let _ = db.log_event("spec_archived", "spec_watcher", &existing.id, None);
+                if !first_tick {
+                    events.push(SpecEvent::Removed {
+                        project: project.to_string(),
+                        name: existing.name.clone(),
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// Process specs from a single project against the DB, returning detected events.
+///
+/// Dispatches to per-event-type handlers: hash change, task progress, new spec,
+/// and spec removal.
 fn process_project_specs(
     db: &NexusDb,
     project: &str,
@@ -230,142 +429,30 @@ fn process_project_specs(
 
         match db.get_spec(project, &snap.name) {
             Ok(Some(existing)) => {
-                // --- Hash change detection (task 2.4) ---
-                if let Some(ref new_hash) = hash
-                    && let Some(ref old_hash) = existing.proposal_hash
-                    && new_hash != old_hash
-                    && (existing.status == "read" || existing.status == "approved")
-                {
-                    // Reset to unread — proposal was edited after review.
-                    let mut updated = existing.clone();
-                    updated.status = "unread".to_string();
-                    updated.proposal_hash = Some(new_hash.clone());
-                    updated.read_at = None;
-                    updated.approved_at = None;
-                    updated.tasks_done = snap.completed_tasks;
-                    updated.tasks_total = snap.total_tasks;
-                    if let Err(e) = db.upsert_spec(&updated) {
-                        warn!("Failed to reset spec {}: {}", spec_id, e);
-                    }
-                    // Audit event: proposal edited, spec reset (best-effort).
-                    let _ = db.log_event(
-                        "spec_hash_reset",
-                        "spec_watcher",
-                        &spec_id,
-                        Some("proposal edited after review — reset to unread"),
-                    );
-                    if !first_tick {
-                        events.push(SpecEvent::HashChanged {
-                            project: project.to_string(),
-                            name: snap.name.clone(),
-                        });
-                    }
+                // Hash change resets reviewed specs to unread; skip further processing.
+                if handle_hash_change(
+                    db, project, &spec_id, snap, &existing, &hash, first_tick, &mut events,
+                ) {
                     continue;
                 }
 
-                // --- Task progress detection ---
-                if !first_tick {
-                    let was_incomplete =
-                        existing.tasks_done < existing.tasks_total || existing.tasks_total == 0;
-                    let is_all_complete =
-                        snap.completed_tasks == snap.total_tasks && snap.total_tasks > 0;
-
-                    if is_all_complete && was_incomplete {
-                        events.push(SpecEvent::AllComplete {
-                            project: project.to_string(),
-                            name: snap.name.clone(),
-                        });
-                    } else if snap.completed_tasks > existing.tasks_done {
-                        events.push(SpecEvent::Progress {
-                            project: project.to_string(),
-                            name: snap.name.clone(),
-                            completed: snap.completed_tasks,
-                            total: snap.total_tasks,
-                        });
-                    }
-                }
-
-                // Update task counts and hash in DB.
-                if snap.completed_tasks != existing.tasks_done
-                    || snap.total_tasks != existing.tasks_total
-                {
-                    if let Err(e) = db.update_spec_tasks(
-                        project,
-                        &snap.name,
-                        snap.completed_tasks,
-                        snap.total_tasks,
-                    ) {
-                        warn!("Failed to update spec tasks {}: {}", spec_id, e);
-                    }
-
-                    // [3.1-3.2] Insert spec snapshot if completed_tasks changed (deduped).
-                    if snap.completed_tasks != existing.tasks_done {
-                        let should_insert = match db.latest_spec_snapshot(project, &snap.name) {
-                            Ok(Some(latest)) => {
-                                latest.completed_tasks != Some(snap.completed_tasks)
-                                    || latest.total_tasks != Some(snap.total_tasks)
-                            }
-                            _ => true,
-                        };
-                        if should_insert {
-                            let snapshot_record = SpecSnapshotRecord {
-                                timestamp: now.clone(),
-                                project: project.to_string(),
-                                spec_name: snap.name.clone(),
-                                completed_tasks: Some(snap.completed_tasks),
-                                total_tasks: Some(snap.total_tasks),
-                            };
-                            if let Err(e) = db.insert_spec_snapshot(&snapshot_record) {
-                                warn!(
-                                    "Failed to insert spec snapshot {}: {}",
-                                    spec_id, e
-                                );
-                            }
-                        }
-                    }
-                }
-                // Update hash if changed (but status wasn't read/approved, so no reset).
-                if hash != existing.proposal_hash {
-                    let mut updated = existing.clone();
-                    updated.proposal_hash = hash;
-                    updated.tasks_done = snap.completed_tasks;
-                    updated.tasks_total = snap.total_tasks;
-                    if let Err(e) = db.upsert_spec(&updated) {
-                        warn!("Failed to update spec hash {}: {}", spec_id, e);
-                    }
-                }
+                // Task progress detection + DB updates.
+                handle_task_progress(
+                    db,
+                    project,
+                    &spec_id,
+                    snap,
+                    &existing,
+                    &hash,
+                    &now,
+                    first_tick,
+                    &mut events,
+                );
             }
             Ok(None) => {
-                // New spec — insert as unread.
-                let record = SpecRecord {
-                    id: spec_id.clone(),
-                    project: project.to_string(),
-                    name: snap.name.clone(),
-                    status: "unread".to_string(),
-                    title: None,
-                    summary: None,
-                    tasks_total: snap.total_tasks,
-                    tasks_done: snap.completed_tasks,
-                    proposal_hash: hash,
-                    discovered_at: now.clone(),
-                    read_at: None,
-                    approved_at: None,
-                    applied_at: None,
-                    archived_at: None,
-                    rejected_at: None,
-                    rejection_reason: None,
-                };
-                if let Err(e) = db.upsert_spec(&record) {
-                    warn!("Failed to insert spec {}: {}", spec_id, e);
-                }
-                // Audit event: new spec discovered (best-effort).
-                let _ = db.log_event("spec_discovered", "spec_watcher", &spec_id, None);
-                if !first_tick {
-                    events.push(SpecEvent::NewSpec {
-                        project: project.to_string(),
-                        name: snap.name.clone(),
-                    });
-                }
+                handle_new_spec(
+                    db, project, &spec_id, snap, hash, &now, first_tick, &mut events,
+                );
             }
             Err(e) => {
                 warn!("Failed to read spec {} from DB: {}", spec_id, e);
@@ -373,25 +460,8 @@ fn process_project_specs(
         }
     }
 
-    // --- Spec removal detection (task 2.5) ---
-    // If a spec was 'applied' in the DB but is no longer on disk, archive it.
-    if let Ok(all_specs) = db.list_specs(Some(&["applied"])) {
-        for existing in all_specs {
-            if existing.project == project && !current_names.contains(existing.name.as_str()) {
-                if let Err(e) = db.update_spec_status(project, &existing.name, "archived") {
-                    warn!("Failed to archive spec {}: {}", existing.id, e);
-                }
-                // Audit event: spec archived (best-effort).
-                let _ = db.log_event("spec_archived", "spec_watcher", &existing.id, None);
-                if !first_tick {
-                    events.push(SpecEvent::Removed {
-                        project: project.to_string(),
-                        name: existing.name.clone(),
-                    });
-                }
-            }
-        }
-    }
+    // Spec removal detection.
+    handle_spec_removal(db, project, &current_names, first_tick, &mut events);
 
     events
 }

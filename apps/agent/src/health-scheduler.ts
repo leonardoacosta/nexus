@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
 import { logger } from "@nexus/core";
+import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
 
@@ -27,8 +28,8 @@ export class HealthScheduler {
 
   /** Start periodic snapshot collection. First snapshot is taken immediately. */
   start(): void {
-    void this.tick();
-    this.timer = setInterval(() => void this.tick(), this.intervalMs);
+    safeFireAndForget(this.tick(), "health-scheduler-tick");
+    this.timer = setInterval(() => safeFireAndForget(this.tick(), "health-scheduler-tick"), this.intervalMs);
     logger.info({ intervalMs: this.intervalMs }, "health scheduler started");
   }
 

@@ -28,6 +28,7 @@ import {
 } from "./routes/credentials";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
+import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const PORT = 7400;
 
@@ -366,31 +367,49 @@ function createRequestHandler(state: ServerState, db?: Db) {
     if (db) {
       // GET /sessions
       if (url.pathname === "/sessions" && request.method === "GET") {
-        return handleGetSessions(db, url).then((r) => withCors(request, r));
+        return handleGetSessions(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/sessions", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // GET /sessions/{id}
       const sessionMatch = url.pathname.match(/^\/sessions\/(.+)$/);
       if (sessionMatch && request.method === "GET") {
-        return handleGetSessionById(db, sessionMatch[1]!).then((r) => withCors(request, r));
+        return handleGetSessionById(db, sessionMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/sessions/:id", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
-        return handleGetProjects(db).then((r) => withCors(request, r));
+        return handleGetProjects(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/projects", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/agent/self" && request.method === "GET") {
-        return handleGetAgentSelf(db).then((r) => withCors(request, r));
+        return handleGetAgentSelf(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/agent/self", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/projects/discovered" && request.method === "GET") {
-        return handleGetDiscoveredProjects(db).then((r) => withCors(request, r));
+        return handleGetDiscoveredProjects(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/projects/discovered", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // GET /health/history
       if (url.pathname === "/health/history" && request.method === "GET") {
-        return handleGetHealthHistory(db, url).then((r) => withCors(request, r));
+        return handleGetHealthHistory(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/health/history", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // POST /health/ingest — accept a HealthMetrics JSON body from the Rust collector
@@ -466,7 +485,10 @@ function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Notification routes ──────────────────────────────────────────
       if (url.pathname === "/notifications/send" && request.method === "POST") {
-        return handleSendNotification(db, request).then((r) => withCors(request, r));
+        return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/meeting/start" && request.method === "POST") {
@@ -474,7 +496,10 @@ function createRequestHandler(state: ServerState, db?: Db) {
       }
 
       if (url.pathname === "/meeting/end" && request.method === "POST") {
-        return handleMeetingEnd().then((r) => withCors(request, r));
+        return handleMeetingEnd().then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/meeting/end", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/meeting/status" && request.method === "GET") {
@@ -483,15 +508,24 @@ function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Credential routes ────────────────────────────────────────────
       if (url.pathname === "/credentials" && request.method === "POST") {
-        return handleAddCredential(request).then((r) => withCors(request, r));
+        return handleAddCredential(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/credentials" && request.method === "GET") {
-        return handleListCredentials().then((r) => withCors(request, r));
+        return handleListCredentials().then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       if (url.pathname === "/credentials/lease" && request.method === "POST") {
-        return handleLeaseCredential(request).then((r) => withCors(request, r));
+        return handleLeaseCredential(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials/lease", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       const credReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
@@ -499,7 +533,10 @@ function createRequestHandler(state: ServerState, db?: Db) {
         if (!CREDENTIAL_ID_RE.test(credReleaseMatch[1]!)) {
           return withCors(request, new Response("Bad Request", { status: 400 }));
         }
-        return handleReleaseCredential(credReleaseMatch[1]!).then((r) => withCors(request, r));
+        return handleReleaseCredential(credReleaseMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials/:id/release", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       const credRateLimitMatch = url.pathname.match(
@@ -511,7 +548,10 @@ function createRequestHandler(state: ServerState, db?: Db) {
         }
         return handleReportRateLimit(credRateLimitMatch[1]!, request).then((r) =>
           withCors(request, r),
-        );
+        ).catch((err) => {
+          logger.error({ route: "/credentials/:id/report-rate-limit", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // GET /credentials/{id}/health — per-credential health check
@@ -520,12 +560,18 @@ function createRequestHandler(state: ServerState, db?: Db) {
         if (!CREDENTIAL_ID_RE.test(credHealthMatch[1]!)) {
           return withCors(request, new Response("Bad Request", { status: 400 }));
         }
-        return handleCredentialHealth(credHealthMatch[1]!, request).then((r) => withCors(request, r));
+        return handleCredentialHealth(credHealthMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials/:id/health", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
 
       // GET /credentials/status — pool overview
       if (url.pathname === "/credentials/status" && request.method === "GET") {
-        return handleListCredentials().then((r) => withCors(request, r));
+        return handleListCredentials().then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/credentials/status", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
       }
     }
 
@@ -553,7 +599,7 @@ export function startServer(
   // since server startup itself is synchronous and the manager will be ready
   // well before the first real request arrives.
   if (db) {
-    void initNotificationRoutes(db);
+    safeFireAndForget(initNotificationRoutes(db), "init-notification-routes");
     initCredentialRoutes(db, {
       encryptionKey: options?.encryptionKey,
       prerotateThreshold: options?.prerotateThreshold,

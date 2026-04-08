@@ -19,7 +19,7 @@ use chrono::{DateTime, Utc};
 use crate::usage_api::query_usage;
 use nexus_core::credentials::{
     AccountUsage, CachedUsage, CredentialAccount, UsageCache, best_available, fingerprint_token,
-    is_managed_symlink, sanitize_account_name,
+    is_managed_symlink,
 };
 use nexus_core::db::{CredentialPollRecord, NexusDb};
 use nexus_core::paths;
@@ -949,48 +949,6 @@ pub async fn try_discover_account_name(
             debug!(account = %acct.name, error = %e, "Name discovery failed, keeping fingerprint name");
         }
     }
-}
-
-/// Rename a credential file in the pool from one name to another.
-///
-/// Updates both the filesystem and the in-memory pool state.
-#[allow(dead_code)]
-pub async fn rename_pool_credential(
-    pool: &CredentialPool,
-    old_name: &str,
-    new_name: &str,
-    pool_dir: &Path,
-) -> Result<()> {
-    let sanitized = sanitize_account_name(new_name);
-    if sanitized.is_empty() || sanitized == old_name {
-        return Ok(());
-    }
-
-    let old_path = pool_dir.join(format!("acct-{}.json", old_name));
-    let new_path = pool_dir.join(format!("acct-{}.json", sanitized));
-
-    if old_path.exists() {
-        tokio::fs::rename(&old_path, &new_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to rename {} -> {}",
-                    old_path.display(),
-                    new_path.display()
-                )
-            })?;
-
-        // Update in-memory state.
-        let mut accounts = pool.accounts.write().await;
-        if let Some(acct) = accounts.iter_mut().find(|a| a.name == old_name) {
-            acct.name = sanitized.clone();
-            acct.path = new_path;
-        }
-
-        info!(old = %old_name, new = %sanitized, "Renamed credential in pool");
-    }
-
-    Ok(())
 }
 
 /// Load the usage cache if it exists and its entries are fresh enough.
