@@ -1,8 +1,15 @@
-import { AgentClient } from "./agent-client";
+import { AgentClient, TtlCache } from "./agent-client";
 import type { AgentConfig } from "@nexus/core";
 import { getDb } from "./db";
-import { agents } from "@nexus/db";
-import { eq } from "@nexus/db";
+import { agents, eq } from "@nexus/db";
+
+/**
+ * Module-level cache that persists across `getClient()` calls within the same
+ * process. In serverless, cold starts reset module scope naturally. In the dev
+ * server this lets the cache actually work as intended instead of being thrown
+ * away on every request.
+ */
+const sharedCache = new TtlCache();
 
 /**
  * Read enabled agents from the database.
@@ -29,7 +36,7 @@ export async function getAgentConfigs(): Promise<AgentConfig[]> {
  */
 export async function getClient(): Promise<AgentClient> {
   const configs = await getAgentConfigs();
-  return new AgentClient(configs);
+  return new AgentClient(configs, sharedCache);
 }
 
 /**

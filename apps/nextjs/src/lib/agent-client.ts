@@ -68,7 +68,7 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-class TtlCache {
+export class TtlCache {
   private store = new Map<string, CacheEntry<unknown>>();
 
   async get<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
@@ -151,8 +151,11 @@ export class AgentClient {
   /** Persistent cross-agent dedup map keyed by normalized project path. */
   private discoveredProjectsMap = new Map<string, DiscoveredProjectEntry>();
 
-  constructor(agents: AgentConfig[]) {
+  constructor(agents: AgentConfig[], cache?: TtlCache) {
     this.agents = agents;
+    if (cache) {
+      this.cache = cache;
+    }
   }
 
   // ---- Parallel multi-agent fetches ----------------------------------------

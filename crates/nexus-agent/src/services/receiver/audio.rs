@@ -218,6 +218,109 @@ impl AudioController {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Standalone audio utility functions (extracted from delivery.rs)
+// ---------------------------------------------------------------------------
+
+use super::service::AudioHealth;
+
+/// Probe audio capabilities for health endpoint.
+pub(crate) async fn probe_audio_health() -> AudioHealth {
+    let elevenlabs_key_set = std::env::var("ELEVENLABS_API_KEY").is_ok();
+
+    let system_tts = {
+        let candidates = if cfg!(target_os = "macos") {
+            vec!["say"]
+        } else {
+            vec!["espeak-ng", "espeak", "festival"]
+        };
+
+        let mut found = None;
+        for cmd in candidates {
+            if Command::new("which")
+                .arg(cmd)
+                .output()
+                .await
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                found = Some(cmd.to_string());
+                break;
+            }
+        }
+        found
+    };
+
+    let output_available = if cfg!(target_os = "macos") {
+        true
+    } else {
+        Command::new("pactl")
+            .args(["info"])
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+
+    let last_successful_play =
+        crate::claude_utils::notification_config::get_last_successful_play()
+            .map(|p| p.timestamp.to_rfc3339());
+
+    let notification_mode =
+        crate::claude_utils::notification_mode::get_notification_mode().to_string();
+
+    AudioHealth {
+        output_available,
+        elevenlabs_key_set,
+        system_tts,
+        last_successful_play,
+        notification_mode,
+    }
+}
+
+/// Play audio file using platform-appropriate command.
+pub(crate) async fn play_audio_file(path: &str) -> Result<(), String> {
+    let players: Vec<(&str, Vec<&str>)> = if cfg!(target_os = "macos") {
+        vec![("afplay", vec![])]
+    } else {
+        vec![
+            ("mpv", vec!["--no-video"]),
+            ("ffplay", vec!["-nodisp", "-autoexit"]),
+            ("paplay", vec![]),
+            ("aplay", vec![]),
+        ]
+    };
+
+    for (player, extra_args) in &players {
+        let mut cmd = Command::new(player);
+        cmd.args(extra_args);
+        cmd.arg(path);
+
+        let result = cmd.output().await;
+
+        match result {
+            Ok(output) if output.status.success() => {
+                return Ok(());
+            }
+            Ok(output) => {
+                debug!(
+                    "{} failed: {}",
+                    player,
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!("{} not found", player);
+            }
+            Err(e) => {
+                debug!("{} error: {}", player, e);
+            }
+        }
+    }
+
+    Err("No audio player available".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

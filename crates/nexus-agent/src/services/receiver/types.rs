@@ -193,3 +193,25 @@ pub struct LastNotificationInfo {
     pub message_type: MessageType,
     pub channels_used: Vec<String>,
 }
+
+// ---------------------------------------------------------------------------
+// Delivery result
+// ---------------------------------------------------------------------------
+
+/// Outcome of a single TTS delivery attempt.
+#[derive(Debug, Clone)]
+pub enum DeliveryResult {
+    /// Audio was successfully played by the named provider.
+    Played {
+        message: String,
+        provider: String,
+    },
+    /// Delivery was intentionally skipped (e.g. silent mode, system mode override).
+    Skipped {
+        reason: String,
+    },
+    /// Delivery was attempted but failed.
+    Failed {
+        error: String,
+    },
+}

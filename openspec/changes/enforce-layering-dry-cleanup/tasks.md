@@ -4,9 +4,9 @@
 
 ## API Batch
 
-- [ ] [1.1] [P-1] Create `apps/nextjs/src/lib/projects.ts` with `PROJECT_SELECT_FIELDS`, `DEFAULT_PRIORITY`, and `buildCanonicalProject()` helper [owner:api-engineer] [beads:nx-q2mt]
-- [ ] [1.2] [P-1] Export `TtlCache` class from `agent-client.ts`; add optional `cache` constructor param to `AgentClient` [owner:api-engineer] [beads:nx-1t70]
-- [ ] [1.3] [P-2] Hoist module-level `TtlCache` in `get-client.ts` and inject into `AgentClient` constructor [owner:api-engineer] [beads:nx-aj7o]
+- [x] [1.1] [P-1] Create `apps/nextjs/src/lib/projects.ts` with `PROJECT_SELECT_FIELDS`, `DEFAULT_PRIORITY`, and `buildCanonicalProject()` helper [owner:api-engineer] [beads:nx-q2mt]
+- [x] [1.2] [P-1] Export `TtlCache` class from `agent-client.ts`; add optional `cache` constructor param to `AgentClient` [owner:api-engineer] [beads:nx-1t70]
+- [x] [1.3] [P-2] Hoist module-level `TtlCache` in `get-client.ts` and inject into `AgentClient` constructor [owner:api-engineer] [beads:nx-aj7o]
 
 ## UI Batch
 

@@ -242,7 +242,7 @@ impl ReceiverService {
             };
 
             // Send banner notification with project title/icon
-            Self::show_notification(
+            super::desktop::show_notification(
                 &banner_title,
                 &banner_body,
                 summary.project.as_deref(),

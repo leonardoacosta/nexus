@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { AgentClient } from "./agent-client";
+import { TestAgentClient } from "./__tests__/test-agent-client";
 import type { AgentConfig, Session, HealthMetrics, Project, DiscoveredProject, DiscoveredProjectsResponse } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
@@ -320,12 +321,13 @@ describe("AgentClient", () => {
       // Agent returns no new projects this poll cycle
       vi.stubGlobal("fetch", async () => jsonResponse(emptyDiscoveredResponse()));
 
-      const client = new AgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
+      const client = new TestAgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
 
       // Seed internal map with a stale entry (61 minutes old — exceeds 1-hour threshold)
       const staleTs = Date.now() - 61 * 60 * 1_000;
-      (client as any).discoveredProjectsMap.set("/home/user/dev/stale", {
-        entry: {
+      client.seedDiscoveredProject(
+        "/home/user/dev/stale",
+        {
           name: "stale-project",
           path: "/home/user/dev/stale",
           active_sessions: 0,
@@ -333,8 +335,8 @@ describe("AgentClient", () => {
           agent: "dev-1",
           machineCount: 1,
         },
-        lastSeenAt: staleTs,
-      });
+        staleTs,
+      );
 
       const result = await client.fetchDiscoveredProjects();
 
@@ -346,12 +348,13 @@ describe("AgentClient", () => {
       // Agent returns no new projects this poll cycle
       vi.stubGlobal("fetch", async () => jsonResponse(emptyDiscoveredResponse()));
 
-      const client = new AgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
+      const client = new TestAgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
 
       // Seed internal map with a fresh entry (59 minutes old — within the 1-hour window)
       const freshTs = Date.now() - 59 * 60 * 1_000;
-      (client as any).discoveredProjectsMap.set("/home/user/dev/fresh", {
-        entry: {
+      client.seedDiscoveredProject(
+        "/home/user/dev/fresh",
+        {
           name: "fresh-project",
           path: "/home/user/dev/fresh",
           active_sessions: 1,
@@ -359,8 +362,8 @@ describe("AgentClient", () => {
           agent: "dev-1",
           machineCount: 1,
         },
-        lastSeenAt: freshTs,
-      });
+        freshTs,
+      );
 
       const result = await client.fetchDiscoveredProjects();
 

@@ -8,8 +8,8 @@
 
 ## API Batch
 
-- [ ] [2.1] [P-1] Create TestAgentClient subclass in apps/nextjs/src/lib/__tests__/test-agent-client.ts that extends AgentClient and exposes seedDiscoveredProject() method [owner:api-engineer] [beads:nx-f6l9]
-- [ ] [2.2] [P-2] Replace `as any` casts in agent-client.test.ts:327,353 with TestAgentClient usage [owner:api-engineer] [beads:nx-3qlq]
+- [x] [2.1] [P-1] Create TestAgentClient subclass in apps/nextjs/src/lib/__tests__/test-agent-client.ts that extends AgentClient and exposes seedDiscoveredProject() method [owner:api-engineer] [beads:nx-f6l9]
+- [x] [2.2] [P-2] Replace `as any` casts in agent-client.test.ts:327,353 with TestAgentClient usage [owner:api-engineer] [beads:nx-3qlq]
 
 ## E2E Batch
 

@@ -215,6 +215,54 @@ impl ElevenLabsClient {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Error classification
+// ---------------------------------------------------------------------------
+
+/// Classified ElevenLabs error for user-facing alert messages.
+pub(crate) struct ElevenLabsErrorCategory {
+    /// Short label (e.g., "quota exhausted", "invalid API key")
+    pub label: &'static str,
+    /// Actionable guidance (e.g., "Top up credits to restore voice.")
+    pub action: &'static str,
+}
+
+impl ElevenLabsClient {
+    /// Classify an ElevenLabs error string into a user-facing category.
+    pub(crate) fn classify_error(error: &str) -> ElevenLabsErrorCategory {
+        let lower = error.to_lowercase();
+        if lower.contains("quota_exceeded") || lower.contains("quota") {
+            ElevenLabsErrorCategory {
+                label: "quota exhausted",
+                action: "Top up credits to restore voice.",
+            }
+        } else if lower.contains("invalid_api_key") || lower.contains("invalid api key") {
+            ElevenLabsErrorCategory {
+                label: "invalid API key",
+                action: "Check ELEVENLABS_API_KEY in ~/.env.",
+            }
+        } else if lower.contains("rate_limit") || lower.contains("rate limit") {
+            ElevenLabsErrorCategory {
+                label: "rate limited",
+                action: "Will retry automatically on next notification.",
+            }
+        } else if lower.contains("timeout")
+            || lower.contains("timed out")
+            || lower.contains("connection")
+        {
+            ElevenLabsErrorCategory {
+                label: "connection failed",
+                action: "Check network connectivity.",
+            }
+        } else {
+            ElevenLabsErrorCategory {
+                label: "unavailable",
+                action: "Check logs for details.",
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

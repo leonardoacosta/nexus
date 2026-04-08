@@ -14,6 +14,7 @@ use super::buffer::MessageBuffer;
 use super::service::{MessageType, ReceiverService, SpeakRequest};
 use super::state::ReceiverState;
 use super::tts::split_into_chunks;
+use super::types::DeliveryResult;
 use crate::config::NotificationsConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -148,7 +149,7 @@ impl PlaybackQueue {
         config: &NotificationsConfig,
         state: &Arc<RwLock<ReceiverState>>,
     ) {
-        let (success, message, provider) = if msg.request.message_type == MessageType::Extended {
+        let result = if msg.request.message_type == MessageType::Extended {
             // Extended message: sentence-chunked TTS synthesis
             Self::process_extended(msg, config).await
         } else {
@@ -156,41 +157,57 @@ impl PlaybackQueue {
             ReceiverService::process_speak_request(&msg.request, config, msg.mode).await
         };
 
-        if success {
-            debug!(
-                "Playback successful: {:?}, provider: {:?}",
-                message, provider
-            );
-
-            // Check iMessage escalation for long-running operations
-            if ReceiverService::should_send_imessage(state, msg.request.project.as_deref(), config)
-                .await
-            {
-                let recipient = &config.imessage.recipient;
-                let imsg = format!(
-                    "{}: {}",
-                    msg.request
-                        .project
-                        .as_deref()
-                        .unwrap_or("Claude")
-                        .to_uppercase(),
-                    msg.request.message
+        match result {
+            DeliveryResult::Played {
+                ref message,
+                ref provider,
+            } => {
+                debug!(
+                    "Playback successful: {:?}, provider: {:?}",
+                    message, provider
                 );
-                info!("Sending iMessage to {} for long operation", recipient);
-                let sent = ReceiverService::send_imessage(recipient, &imsg).await;
-                if sent {
-                    let key = msg
-                        .request
-                        .project
-                        .as_deref()
-                        .unwrap_or("global")
-                        .to_string();
-                    let mut state_guard = state.write().await;
-                    state_guard.last_imessage_times.insert(key, Instant::now());
+
+                // Check iMessage escalation for long-running operations
+                if ReceiverService::should_send_imessage(
+                    state,
+                    msg.request.project.as_deref(),
+                    config,
+                )
+                .await
+                {
+                    let recipient = &config.imessage.recipient;
+                    let imsg = format!(
+                        "{}: {}",
+                        msg.request
+                            .project
+                            .as_deref()
+                            .unwrap_or("Claude")
+                            .to_uppercase(),
+                        msg.request.message
+                    );
+                    info!("Sending iMessage to {} for long operation", recipient);
+                    let sent =
+                        super::imessage::send_imessage(recipient, &imsg).await;
+                    if sent {
+                        let key = msg
+                            .request
+                            .project
+                            .as_deref()
+                            .unwrap_or("global")
+                            .to_string();
+                        let mut state_guard = state.write().await;
+                        state_guard
+                            .last_imessage_times
+                            .insert(key, Instant::now());
+                    }
                 }
             }
-        } else {
-            warn!("Playback failed: {:?}", message);
+            DeliveryResult::Skipped { ref reason } => {
+                debug!("Playback skipped: {:?}", reason);
+            }
+            DeliveryResult::Failed { ref error } => {
+                warn!("Playback failed: {:?}", error);
+            }
         }
     }
 
@@ -199,11 +216,13 @@ impl PlaybackQueue {
     async fn process_extended(
         msg: &PlaybackMessage,
         config: &NotificationsConfig,
-    ) -> (bool, Option<String>, Option<String>) {
+    ) -> DeliveryResult {
         let chunks = split_into_chunks(&msg.request.message);
 
         if chunks.is_empty() {
-            return (true, Some("Empty extended message".to_string()), None);
+            return DeliveryResult::Skipped {
+                reason: "Empty extended message".to_string(),
+            };
         }
 
         info!(
@@ -236,25 +255,35 @@ impl PlaybackQueue {
                 channels: None,
             };
 
-            let (success, _message, provider) =
+            let result =
                 ReceiverService::process_speak_request(&chunk_req, config, msg.mode).await;
 
-            if success {
-                if let Some(ref p) = provider {
-                    last_provider = Some(p.clone());
+            match result {
+                DeliveryResult::Played { ref provider, .. } => {
+                    last_provider = Some(provider.clone());
                 }
-            } else {
-                warn!("Chunk {}/{} playback failed", i + 1, chunks.len());
-                total_success = false;
-                // Continue with remaining chunks even if one fails
+                DeliveryResult::Failed { .. } => {
+                    warn!("Chunk {}/{} playback failed", i + 1, chunks.len());
+                    total_success = false;
+                    // Continue with remaining chunks even if one fails
+                }
+                DeliveryResult::Skipped { .. } => {}
             }
         }
 
-        (
-            total_success,
-            Some(format!("Extended: {} chunks played", chunks.len())),
-            last_provider,
-        )
+        if total_success {
+            DeliveryResult::Played {
+                message: format!("Extended: {} chunks played", chunks.len()),
+                provider: last_provider.unwrap_or_else(|| "unknown".to_string()),
+            }
+        } else {
+            DeliveryResult::Failed {
+                error: format!(
+                    "Extended: some chunks failed ({} total)",
+                    chunks.len()
+                ),
+            }
+        }
     }
 
     /// Group messages by project and coalesce same-project messages

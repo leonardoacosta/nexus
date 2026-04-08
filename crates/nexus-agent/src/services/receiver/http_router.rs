@@ -135,7 +135,7 @@ impl ReceiverService {
                     .map(|start| (Utc::now() - start).num_seconds().max(0) as u64)
                     .unwrap_or(0);
 
-                let audio = Self::probe_audio_health().await;
+                let audio = super::audio::probe_audio_health().await;
 
                 let response = HealthResponse {
                     status: "healthy".to_string(),
@@ -479,7 +479,7 @@ impl ReceiverService {
                         let watch_mode = effective_mode;
                         let watch_message_id = _message_id.clone();
                         tokio::spawn(async move {
-                            Self::deliver_to_watch(
+                            super::watch::deliver_to_watch(
                                 &watch_message,
                                 watch_project.as_deref(),
                                 &watch_type,
@@ -680,7 +680,7 @@ impl ReceiverService {
                         return (404, "application/json".to_string(), body);
                     }
 
-                    match Self::play_audio_file(&req.path).await {
+                    match super::audio::play_audio_file(&req.path).await {
                         Ok(()) => {
                             let response = SuccessResponse {
                                 success: true,
@@ -723,7 +723,7 @@ impl ReceiverService {
                 match serde_json::from_slice::<IMessageRequest>(body) {
                     Ok(req) => {
                         info!("Received iMessage request to {}", req.recipient);
-                        let success = Self::send_imessage(&req.recipient, &req.message).await;
+                        let success = super::imessage::send_imessage(&req.recipient, &req.message).await;
                         if success {
                             let response = SuccessResponse {
                                 success: true,
