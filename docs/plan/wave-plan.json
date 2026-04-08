@@ -4,14 +4,17 @@
   "mode": "consolidated",
   "pre_audit_sha": "3115e65",
   "created_at": "2026-04-08T00:00:00.000000",
-  "current_wave": 2,
+  "current_wave": 3,
   "completed_waves": [
-    1
+    1,
+    2
   ],
   "completed_specs": [
     "decompose-delivery-service",
     "clean-build-artifacts-hygiene",
-    "enforce-layering-dry-cleanup"
+    "enforce-layering-dry-cleanup",
+    "decompose-tui-large-files",
+    "fix-agent-promise-errors"
   ],
   "failed_specs": [],
   "decisions": [
@@ -176,7 +179,7 @@
           "path": "openspec/changes/decompose-tui-large-files",
           "task_count": 19,
           "beads_epic": "nx-nmqr",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -185,15 +188,15 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T14:30:55.136788",
+          "merged_at": "2026-04-08T14:50:15.396372"
         },
         {
           "name": "fix-agent-promise-errors",
           "path": "openspec/changes/fix-agent-promise-errors",
           "task_count": 13,
           "beads_epic": "nx-mwip",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -202,8 +205,8 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T14:30:55.136789",
+          "merged_at": "2026-04-08T14:50:15.396374"
         }
       ]
     },
@@ -292,9 +295,9 @@
     },
     "phase_started_at": {},
     "phase_completed_at": {
-      "API": "2026-04-08T14:09:02.270611",
-      "UI": "2026-04-08T14:11:57.025241",
-      "E2E": "2026-04-08T14:30:01.053845"
+      "API": "2026-04-08T14:47:37.921499",
+      "UI": "2026-04-08T14:47:37.921507",
+      "E2E": "2026-04-08T14:50:15.396365"
     }
   },
   "needs_archiving": [
