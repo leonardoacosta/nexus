@@ -29,6 +29,6 @@
 
 ## Validation Batch
 
-- [ ] [5.1] `cargo build -p nexus-agent` compiles without errors [owner:rust-engineer] [beads:nx-svmt]
-- [ ] [5.2] `cargo test -p nexus-agent` passes (existing tests, especially service_tests.rs iMessage tests) [owner:rust-engineer] [beads:nx-uahp]
-- [ ] [5.3] `cargo clippy -p nexus-agent` passes with no new warnings [owner:rust-engineer] [beads:nx-rg64]
+- [x] [5.1] `cargo build -p nexus-agent` compiles without errors [owner:rust-engineer] [beads:nx-svmt]
+- [x] [5.2] `cargo test -p nexus-agent` passes (existing tests, especially service_tests.rs iMessage tests) [owner:rust-engineer] [beads:nx-uahp]
+- [x] [5.3] `cargo clippy -p nexus-agent` passes with no new warnings [owner:rust-engineer] [beads:nx-rg64]

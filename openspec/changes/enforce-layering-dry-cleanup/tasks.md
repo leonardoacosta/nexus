@@ -19,6 +19,6 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Run `pnpm build` to verify no import errors [owner:e2e-engineer] [beads:nx-hrtf]
-- [ ] [3.2] Grep `apps/nextjs/src/` for `"@nexus/db/` sub-path imports and `?? 999` -- zero matches expected [owner:e2e-engineer] [beads:nx-di00]
-- [ ] [3.3] Run existing test suite to confirm no regressions [owner:e2e-engineer] [beads:nx-npno]
+- [x] [3.1] Run `pnpm build` to verify no import errors [owner:e2e-engineer] [beads:nx-hrtf]
+- [x] [3.2] Grep `apps/nextjs/src/` for `"@nexus/db/` sub-path imports and `?? 999` -- zero matches expected [owner:e2e-engineer] [beads:nx-di00]
+- [x] [3.3] Run existing test suite to confirm no regressions [owner:e2e-engineer] [beads:nx-npno]
