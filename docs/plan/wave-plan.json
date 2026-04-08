@@ -4,11 +4,12 @@
   "mode": "consolidated",
   "pre_audit_sha": "3115e65",
   "created_at": "2026-04-08T00:00:00.000000",
-  "current_wave": 4,
+  "current_wave": 5,
   "completed_waves": [
     1,
     2,
-    3
+    3,
+    4
   ],
   "completed_specs": [
     "decompose-delivery-service",
@@ -16,7 +17,8 @@
     "enforce-layering-dry-cleanup",
     "decompose-tui-large-files",
     "fix-agent-promise-errors",
-    "harden-sql-credential-pool"
+    "harden-sql-credential-pool",
+    "add-type-codegen-bridge"
   ],
   "failed_specs": [],
   "decisions": [
@@ -244,7 +246,7 @@
           "path": "openspec/changes/add-type-codegen-bridge",
           "task_count": 23,
           "beads_epic": "nx-f2c3",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -253,8 +255,8 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
-          "merged_at": null
+          "dispatched_at": "2026-04-08T14:55:07.809355",
+          "merged_at": "2026-04-08T15:30:17.898688"
         }
       ]
     },
@@ -297,9 +299,9 @@
     },
     "phase_started_at": {},
     "phase_completed_at": {
-      "API": "2026-04-08T14:54:42.433744",
-      "UI": "2026-04-08T14:54:42.433751",
-      "E2E": "2026-04-08T14:54:42.433753"
+      "API": "2026-04-08T15:30:17.898679",
+      "UI": "2026-04-08T15:30:17.898685",
+      "E2E": "2026-04-08T15:30:17.898687"
     }
   },
   "needs_archiving": [
