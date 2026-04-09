@@ -517,12 +517,9 @@ async fn main() -> Result<()> {
         .route("/events", get(events_handler))
         .route("/commands", get(list_commands_handler))
         .route(
-            "/commands/{namespace}",
-            get(list_commands_by_namespace_handler),
-        )
-        .route(
-            "/commands/:name",
-            axum::routing::put(update_command_handler),
+            "/commands/{name}",
+            get(list_commands_by_namespace_handler)
+                .put(update_command_handler),
         )
         .route("/agent/self", get(agent_self_handler))
         .route("/session/start", axum::routing::post(session_start_handler))
