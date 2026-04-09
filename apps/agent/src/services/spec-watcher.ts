@@ -13,7 +13,7 @@
  * tick is used to populate initial state without emitting events.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -455,4 +455,4 @@ export function startSpecWatcher(): SpecWatcherService {
 }
 
 // Exported for testing.
-export { processProjectSpecs, loadProjectRegistry, pollProjectSpecs };
+export { processProjectSpecs, loadProjectRegistry, pollProjectSpecs, projectState as _projectState };

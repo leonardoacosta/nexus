@@ -15,7 +15,7 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Write integration tests: send NDJSON events to `/tmp/nexus-agent.sock` via `Bun.connect({ unix })`, verify SessionManager receives them and updates state correctly [owner:e2e-engineer]
-- [ ] [2.2] Write unit tests for cron next-run calculation logic (daily and weekly schedules, timezone edge cases) [owner:e2e-engineer]
-- [ ] [2.3] Write unit tests for spec watcher transition detection (NewSpec, Removed, Progress, AllComplete, HashChanged) with mock subprocess output [owner:e2e-engineer]
-- [ ] [2.4] Integration test: verify CC hook writers (nexus-register, nova) can write to socket and Bun agent processes events — run `echo '{"event":"session_start",...}' | socat - UNIX-CONNECT:/tmp/nexus-agent.sock` and check session appears [owner:e2e-engineer]
+- [x] [2.1] Write integration tests: send NDJSON events to `/tmp/nexus-agent.sock` via `Bun.connect({ unix })`, verify SessionManager receives them and updates state correctly [owner:e2e-engineer]
+- [x] [2.2] Write unit tests for cron next-run calculation logic (daily and weekly schedules, timezone edge cases) [owner:e2e-engineer]
+- [x] [2.3] Write unit tests for spec watcher transition detection (NewSpec, Removed, Progress, AllComplete, HashChanged) with mock subprocess output [owner:e2e-engineer]
+- [x] [2.4] Integration test: verify CC hook writers (nexus-register, nova) can write to socket and Bun agent processes events — run `echo '{"event":"session_start",...}' | socat - UNIX-CONNECT:/tmp/nexus-agent.sock` and check session appears [owner:e2e-engineer]
