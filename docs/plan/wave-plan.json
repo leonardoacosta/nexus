@@ -1,112 +1,19 @@
 {
-  "plan_name": "nexus-wave-3",
-  "status": "completed",
+  "plan_name": "nexus-bun-consolidation",
+  "status": "in_progress",
   "mode": "consolidated",
-  "pre_audit_sha": "3115e65",
-  "created_at": "2026-04-08T00:00:00.000000",
-  "current_wave": 5,
-  "completed_waves": [
-    1,
-    2,
-    3,
-    4,
-    5
-  ],
-  "completed_specs": [
-    "decompose-delivery-service",
-    "clean-build-artifacts-hygiene",
-    "enforce-layering-dry-cleanup",
-    "decompose-tui-large-files",
-    "fix-agent-promise-errors",
-    "harden-sql-credential-pool",
-    "add-type-codegen-bridge"
-  ],
+  "pre_audit_sha": "daef0b4",
+  "created_at": "2026-04-09T18:14:07-05:00",
+  "current_wave": 1,
+  "completed_waves": [],
+  "completed_specs": [],
   "failed_specs": [],
   "decisions": [
     {
-      "date": "2026-04-08",
-      "decision": "Wave 1 consolidates 3 non-conflicting specs (decompose-delivery-service, clean-build-artifacts-hygiene, enforce-layering-dry-cleanup) \u2014 34 tasks, zero file overlaps",
-      "rationale": "Rust crate decomposition (delivery.rs) is completely isolated from TS test splits and Next.js import cleanup",
+      "date": "2026-04-09",
+      "decision": "All 5 consolidation specs share apps/agent/src/server.ts \u2014 creating single-spec waves in beads dependency order",
+      "rationale": "P1\u2192P2\u2192P3\u2192P4\u2192P5 dependency chain enforced by beads; each phase modifies server.ts and routes/",
       "source": "orchestrator",
-      "affected_waves": [
-        1
-      ],
-      "affected_specs": [
-        "decompose-delivery-service",
-        "clean-build-artifacts-hygiene",
-        "enforce-layering-dry-cleanup"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "Wave 2 consolidates 2 non-conflicting specs (decompose-tui-large-files, fix-agent-promise-errors) \u2014 32 tasks, zero file overlaps",
-      "rationale": "TUI crate decomposition is isolated Rust; agent promise fixes are Bun TS. No shared files.",
-      "source": "orchestrator",
-      "affected_waves": [
-        2
-      ],
-      "affected_specs": [
-        "decompose-tui-large-files",
-        "fix-agent-promise-errors"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "harden-sql-credential-pool (wave 3) before add-type-codegen-bridge (wave 4) \u2014 both add scripts to package.json; pool.ts must stabilize before migrate-timestamp-mode rewrites it",
-      "rationale": "package.json file conflict; pool.ts dependency ordering for wave 5",
-      "source": "orchestrator",
-      "affected_waves": [
-        3,
-        4
-      ],
-      "affected_specs": [
-        "harden-sql-credential-pool",
-        "add-type-codegen-bridge"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "migrate-timestamp-mode goes last (wave 5) \u2014 conflicts with 5 other specs (session.ts, health.ts, pool.ts, server.ts, health-collector.ts, health-scheduler.ts, agent-client.ts, api/projects/route.ts, test files)",
-      "rationale": "Touches 27+ files across DB schemas, core types, agent routes, Next.js actions, and all test files. Must run after all other specs stabilize affected files.",
-      "source": "orchestrator",
-      "affected_waves": [
-        5
-      ],
-      "affected_specs": [
-        "migrate-timestamp-mode"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "Excluded 3 already-completed specs from plan: fix-integration-test-gaps, fix-tui-reliability, harden-notification-reliability \u2014 all tasks [x], need archiving",
-      "rationale": "All tasks marked complete in tasks.md. These specs were implemented but never archived.",
-      "source": "orchestrator",
-      "affected_waves": [],
-      "affected_specs": [
-        "fix-integration-test-gaps",
-        "fix-tui-reliability",
-        "harden-notification-reliability"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "Paused: API usage limit hit. Resume with /apply:all --continue after Apr 11 8pm CT.",
-      "rationale": "Agent spawn failed with billing limit. No code was modified.",
-      "source": "orchestrator",
-      "affected_waves": [
-        1
-      ],
-      "affected_specs": [
-        "decompose-delivery-service",
-        "clean-build-artifacts-hygiene",
-        "enforce-layering-dry-cleanup"
-      ]
-    },
-    {
-      "date": "2026-04-08",
-      "decision": "Switched all subagents to Opus model due to Sonnet rate limits",
-      "rationale": "User instruction: Sonnet rate-limited, use Opus for all subagents",
-      "source": "user",
       "affected_waves": [
         1,
         2,
@@ -114,54 +21,37 @@
         4,
         5
       ],
-      "affected_specs": []
+      "affected_specs": [
+        "absorb-socket-cron-specwatcher",
+        "port-rust-http-routes",
+        "retire-tui-dashboard-parity",
+        "add-websocket-peer-federation",
+        "retire-rust-crates"
+      ]
+    },
+    {
+      "date": "2026-04-09",
+      "decision": "Excluded add-credential-swap-endpoint and migrate-nx-terraform from plan \u2014 credential-swap conflicts with Phase 2 routes, terraform is unrelated infrastructure",
+      "rationale": "credential-swap touches same credential routes being ported in Phase 2; terraform is independent and can be applied separately",
+      "source": "orchestrator",
+      "affected_waves": [],
+      "affected_specs": [
+        "add-credential-swap-endpoint",
+        "migrate-nx-terraform"
+      ]
     }
   ],
   "waves": [
     {
       "wave": 1,
-      "label": "Rust delivery decomposition + TS test splits + Next.js import cleanup (3 specs, no conflicts)",
+      "label": "Phase 1: Absorb Unix socket, cron, and spec watcher into Bun agent",
       "specs": [
         {
-          "name": "decompose-delivery-service",
-          "path": "openspec/changes/decompose-delivery-service",
-          "task_count": 15,
-          "beads_epic": "nx-80xw",
-          "status": "merged",
-          "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "ci": null,
-          "dispatched_at": "2026-04-08T13:56:46.246522",
-          "merged_at": "2026-04-08T14:30:01.053851"
-        },
-        {
-          "name": "clean-build-artifacts-hygiene",
-          "path": "openspec/changes/clean-build-artifacts-hygiene",
-          "task_count": 7,
-          "beads_epic": "nx-39v6",
-          "status": "merged",
-          "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "ci": null,
-          "dispatched_at": "2026-04-08T13:56:46.246523",
-          "merged_at": "2026-04-08T14:30:01.053853"
-        },
-        {
-          "name": "enforce-layering-dry-cleanup",
-          "path": "openspec/changes/enforce-layering-dry-cleanup",
+          "name": "absorb-socket-cron-specwatcher",
+          "path": "openspec/changes/absorb-socket-cron-specwatcher",
           "task_count": 12,
-          "beads_epic": "nx-xa0v",
-          "status": "merged",
+          "beads_epic": "nx-9ftj",
+          "status": "pending",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -170,21 +60,21 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": "2026-04-08T13:56:46.246525",
-          "merged_at": "2026-04-08T14:30:01.053854"
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 2,
-      "label": "TUI type extraction + agent promise error fixes (2 specs, no conflicts)",
+      "label": "Phase 2: Port 22 Rust-only HTTP routes to Bun agent",
       "specs": [
         {
-          "name": "decompose-tui-large-files",
-          "path": "openspec/changes/decompose-tui-large-files",
-          "task_count": 19,
-          "beads_epic": "nx-nmqr",
-          "status": "merged",
+          "name": "port-rust-http-routes",
+          "path": "openspec/changes/port-rust-http-routes",
+          "task_count": 15,
+          "beads_epic": "nx-drmt",
+          "status": "pending",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -193,38 +83,21 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": "2026-04-08T14:30:55.136788",
-          "merged_at": "2026-04-08T14:50:15.396372"
-        },
-        {
-          "name": "fix-agent-promise-errors",
-          "path": "openspec/changes/fix-agent-promise-errors",
-          "task_count": 13,
-          "beads_epic": "nx-mwip",
-          "status": "merged",
-          "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "ci": null,
-          "dispatched_at": "2026-04-08T14:30:55.136789",
-          "merged_at": "2026-04-08T14:50:15.396374"
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 3,
-      "label": "SQL credential pool hardening \u2014 Drizzle query builder migration + lint guard",
+      "label": "Phase 3: Retire TUI \u2014 dashboard parity, gRPC removal, TUI archive",
       "specs": [
         {
-          "name": "harden-sql-credential-pool",
-          "path": "openspec/changes/harden-sql-credential-pool",
-          "task_count": 7,
-          "beads_epic": "nx-c68j",
-          "status": "merged",
+          "name": "retire-tui-dashboard-parity",
+          "path": "openspec/changes/retire-tui-dashboard-parity",
+          "task_count": 14,
+          "beads_epic": "nx-2uz3",
+          "status": "pending",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -233,21 +106,21 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": "2026-04-08T14:50:55.916915",
-          "merged_at": "2026-04-08T14:54:42.433755"
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 4,
-      "label": "Cross-language type codegen bridge \u2014 proto as single source of truth",
+      "label": "Phase 4: WebSocket peer federation \u2014 replace gRPC EventForwarder",
       "specs": [
         {
-          "name": "add-type-codegen-bridge",
-          "path": "openspec/changes/add-type-codegen-bridge",
-          "task_count": 23,
-          "beads_epic": "nx-f2c3",
-          "status": "merged",
+          "name": "add-websocket-peer-federation",
+          "path": "openspec/changes/add-websocket-peer-federation",
+          "task_count": 10,
+          "beads_epic": "nx-ny4k",
+          "status": "pending",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -256,21 +129,21 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": "2026-04-08T14:55:07.809355",
-          "merged_at": "2026-04-08T15:30:17.898688"
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     },
     {
       "wave": 5,
-      "label": "Timestamp mode migration \u2014 string\u2192Date across all 17 timestamp columns + consumers",
+      "label": "Phase 5: Retire Rust crates \u2014 single Bun binary deployment",
       "specs": [
         {
-          "name": "migrate-timestamp-mode",
-          "path": "openspec/changes/migrate-timestamp-mode",
-          "task_count": 27,
-          "beads_epic": "nx-a8d4",
-          "status": "merged",
+          "name": "retire-rust-crates",
+          "path": "openspec/changes/retire-rust-crates",
+          "task_count": 13,
+          "beads_epic": "nx-bycr",
+          "status": "pending",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -279,39 +152,25 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": "2026-04-08T15:30:40.939508",
+          "dispatched_at": null,
           "merged_at": null
         }
       ]
     }
   ],
   "mega_batch_state": {
-    "current_phase": "DB",
+    "current_phase": null,
     "phases_completed": [],
     "task_results": {
-      "decompose-delivery-service": {},
-      "clean-build-artifacts-hygiene": {},
-      "enforce-layering-dry-cleanup": {},
-      "decompose-tui-large-files": {},
-      "fix-agent-promise-errors": {},
-      "harden-sql-credential-pool": {},
-      "add-type-codegen-bridge": {},
-      "migrate-timestamp-mode": {}
+      "absorb-socket-cron-specwatcher": {},
+      "port-rust-http-routes": {},
+      "retire-tui-dashboard-parity": {},
+      "add-websocket-peer-federation": {},
+      "retire-rust-crates": {}
     },
-    "phase_started_at": {
-      "DB": "2026-04-08T15:30:40.939503"
-    },
-    "phase_completed_at": {
-      "API": "2026-04-08T15:30:17.898679",
-      "UI": "2026-04-08T15:30:17.898685",
-      "E2E": "2026-04-08T15:30:17.898687"
-    }
+    "phase_started_at": {},
+    "phase_completed_at": {}
   },
-  "needs_archiving": [
-    "fix-integration-test-gaps",
-    "fix-tui-reliability",
-    "harden-notification-reliability"
-  ],
-  "started_at": "2026-04-08T13:44:53.234749",
-  "completed_at": "2026-04-09T00:00:00.000000"
+  "started_at": "2026-04-09T18:14:07-05:00",
+  "completed_at": null
 }
