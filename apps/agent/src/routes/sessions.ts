@@ -182,3 +182,79 @@ export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
 export async function handleGetSessionById(db: Db, id: string): Promise<Response> {
   return _handleGetSessionById(db, id);
 }
+
+// ── POST /session/start ───────────────────────────────────────────────────
+
+/**
+ * POST /session/start — spawn a new Claude Code session in a tmux window.
+ *
+ * Request body: { project: string, path: string }
+ * Response: { session_name: string, started: boolean }
+ */
+export async function handleSessionStart(request: Request): Promise<Response> {
+  let body: { project: string; path: string };
+  try {
+    body = (await request.json()) as { project: string; path: string };
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "invalid JSON body" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  if (!body.project || !body.path) {
+    return new Response(
+      JSON.stringify({ error: "project and path are required" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 1. Check tmux is available.
+  const tmuxCheck = Bun.spawnSync(["which", "tmux"]);
+  if (tmuxCheck.exitCode !== 0) {
+    return new Response(
+      JSON.stringify({ error: "tmux not found -- install tmux on this agent" }),
+      { status: 503, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 2. Validate path exists and is a directory.
+  const { existsSync, statSync } = await import("node:fs");
+  if (!existsSync(body.path) || !statSync(body.path).isDirectory()) {
+    return new Response(
+      JSON.stringify({ error: `project path does not exist: ${body.path}` }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 3. Generate unique session name.
+  const ts = Date.now();
+  const sessionName = `${body.project}-${ts}`;
+
+  // 4. Create tmux window.
+  const newWindow = Bun.spawnSync([
+    "tmux",
+    "new-window",
+    "-d",
+    "-c",
+    body.path,
+    "-n",
+    sessionName,
+  ]);
+
+  if (newWindow.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(newWindow.stderr);
+    return new Response(
+      JSON.stringify({ error: `tmux new-window failed: ${stderr}` }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 5. Send claude command.
+  Bun.spawnSync(["tmux", "send-keys", "-t", sessionName, "claude", "Enter"]);
+
+  return new Response(
+    JSON.stringify({ session_name: sessionName, started: true }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}

@@ -4,7 +4,7 @@ import { logger } from "@nexus/core";
 import type { HealthMetrics } from "@nexus/core";
 import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
-import { handleGetSessions, handleGetSessionById } from "./routes/sessions";
+import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
 import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
@@ -26,6 +26,45 @@ import {
   handleReportRateLimit,
   handleCredentialHealth,
 } from "./routes/credentials";
+import {
+  handleGetSpecsAll,
+  handleListSpecs,
+  handleGetSpec,
+  handleApproveSpec,
+  handleRejectSpec,
+  handleReadSpec,
+  handleSpecStatus,
+} from "./routes/specs";
+import {
+  handleAnalyticsHealth,
+  handleAnalyticsSpecs,
+  handleAnalyticsCredentials,
+  handleAnalyticsGit,
+  handleAnalyticsLifecycle,
+  handleAnalyticsCron,
+} from "./routes/analytics";
+import {
+  handleProjectStatus,
+  handleProjectBeads,
+  handleProjectGit,
+  handleProjectSpecs,
+  handleRunCommand,
+} from "./routes/project-detail";
+import {
+  initCommandRoutes,
+  handleListCommands,
+  handleListCommandsByNamespace,
+  handleUpdateCommand,
+} from "./routes/commands";
+import {
+  handleStatusline,
+  handleHooks,
+  handleRecommend,
+  handleEnvironment,
+  handleFailures,
+  handleCron,
+} from "./routes/operational";
+import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
@@ -87,7 +126,7 @@ function withCors(request: Request, response: Response): Response {
   const origin = request.headers.get("origin");
   if (isTailscaleOrigin(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin!);
-    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
     response.headers.set("Access-Control-Allow-Headers", "Content-Type, x-nexus-secret");
   }
   return response;
@@ -573,6 +612,229 @@ function createRequestHandler(state: ServerState, db?: Db) {
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
+
+      // ── Analytics routes ──────────────────────────────────────────────
+      if (url.pathname === "/analytics/health" && request.method === "GET") {
+        return handleAnalyticsHealth(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/health", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/specs" && request.method === "GET") {
+        return handleAnalyticsSpecs(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/specs", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/credentials" && request.method === "GET") {
+        return handleAnalyticsCredentials(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/credentials", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/git" && request.method === "GET") {
+        return handleAnalyticsGit(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/git", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/lifecycle" && request.method === "GET") {
+        return handleAnalyticsLifecycle(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/lifecycle", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/cron" && request.method === "GET") {
+        return handleAnalyticsCron(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/cron", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Statusline & operational routes (require DB for session queries) ──
+      if (url.pathname === "/statusline" && request.method === "GET") {
+        return handleStatusline(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/statusline", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/hooks" && request.method === "POST") {
+        return handleHooks(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/hooks", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/recommend" && request.method === "GET") {
+        return handleRecommend(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/recommend", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Events routes (require DB) ────────────────────────────────────
+      if (url.pathname === "/events" && request.method === "GET") {
+        return handleGetEvents(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/events", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Session start (requires DB context) ───────────────────────────
+      if (url.pathname === "/session/start" && request.method === "POST") {
+        return handleSessionStart(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/session/start", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Project detail routes (require DB for project resolution) ─────
+      const projectStatusMatch = url.pathname.match(/^\/project\/([^/]+)\/status$/);
+      if (projectStatusMatch && request.method === "GET") {
+        return handleProjectStatus(projectStatusMatch[1]!, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/status", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectBeadsMatch = url.pathname.match(/^\/project\/([^/]+)\/beads$/);
+      if (projectBeadsMatch && request.method === "GET") {
+        return handleProjectBeads(projectBeadsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/beads", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectGitMatch = url.pathname.match(/^\/project\/([^/]+)\/git$/);
+      if (projectGitMatch && request.method === "GET") {
+        return handleProjectGit(projectGitMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/git", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectSpecsMatch = url.pathname.match(/^\/project\/([^/]+)\/specs$/);
+      if (projectSpecsMatch && request.method === "GET") {
+        return handleProjectSpecs(projectSpecsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/specs", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectRunMatch = url.pathname.match(/^\/project\/([^/]+)\/run$/);
+      if (projectRunMatch && request.method === "POST") {
+        return handleRunCommand(projectRunMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/run", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+    }
+
+    // ── Routes that do not require a DB connection ────────────────────────
+
+    // ── Spec routes ───────────────────────────────────────────────────────
+    if (url.pathname === "/specs/all" && request.method === "GET") {
+      return handleGetSpecsAll().then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/all", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/specs" && request.method === "GET") {
+      return handleListSpecs(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // GET/POST /specs/:project/:name/* — parameterised spec routes
+    const specApproveMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/approve$/);
+    if (specApproveMatch && request.method === "POST") {
+      return handleApproveSpec(specApproveMatch[1]!, specApproveMatch[2]!).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/:project/:name/approve", method: "POST", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    const specRejectMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/reject$/);
+    if (specRejectMatch && request.method === "POST") {
+      return handleRejectSpec(specRejectMatch[1]!, specRejectMatch[2]!, request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/:project/:name/reject", method: "POST", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    const specReadMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/read$/);
+    if (specReadMatch && request.method === "POST") {
+      return handleReadSpec(specReadMatch[1]!, specReadMatch[2]!).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/:project/:name/read", method: "POST", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    const specStatusMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/status$/);
+    if (specStatusMatch && request.method === "GET") {
+      return handleSpecStatus(specStatusMatch[1]!, specStatusMatch[2]!).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/:project/:name/status", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    const specDetailMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)$/);
+    if (specDetailMatch && request.method === "GET") {
+      return handleGetSpec(specDetailMatch[1]!, specDetailMatch[2]!).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/specs/:project/:name", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Command routes ────────────────────────────────────────────────────
+    if (url.pathname === "/commands" && request.method === "GET") {
+      return withCors(request, handleListCommands(url));
+    }
+
+    const commandNameMatch = url.pathname.match(/^\/commands\/([^/]+)$/);
+    if (commandNameMatch) {
+      const cmdName = decodeURIComponent(commandNameMatch[1]!);
+      if (request.method === "GET") {
+        return withCors(request, handleListCommandsByNamespace(cmdName));
+      }
+      if (request.method === "PUT") {
+        return handleUpdateCommand(cmdName, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/commands/:name", method: "PUT", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+    }
+
+    // ── Operational routes (no DB required) ──────────────────────────────
+    if (url.pathname === "/environment" && request.method === "GET") {
+      return handleEnvironment().then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/environment", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/failures" && request.method === "GET") {
+      return handleFailures(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/failures", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/cron" && request.method === "GET") {
+      return withCors(request, handleCron());
+    }
+
+    // ── SSE stream ──────────────────────────────────────────────────────
+    if (url.pathname === "/events/stream" && request.method === "GET") {
+      return withCors(request, handleEventsStream());
     }
 
     return withCors(
@@ -605,6 +867,9 @@ export function startServer(
       prerotateThreshold: options?.prerotateThreshold,
     });
   }
+
+  // Initialize subsystems that do not need the DB.
+  initCommandRoutes();
 
   const handler = createRequestHandler(state, db);
 
