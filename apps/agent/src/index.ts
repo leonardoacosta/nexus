@@ -9,6 +9,11 @@ import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
 import { scheduleProjectCleanup } from "./db/project-registry";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
+import { startSocketServer, type SocketServer } from "./services/socket-server";
+import { startCronService, type CronService } from "./services/cron";
+import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
+import { createSocketEventHandler } from "./services/socket-dispatch";
+import { handleCommand } from "./services/command-handler";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -64,14 +69,59 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "watcher bridge unavailable, session detection disabled");
 }
 
+// ── Unix socket server ─────────────────────────────────────────────────────
+// Accepts NDJSON events from CC hooks and routes them to SessionManager,
+// notification router, and command handler.
+let socketServer: SocketServer | null = null;
+
+const socketEventHandler = createSocketEventHandler({ sessionManager });
+
+startSocketServer({
+  onEvent: socketEventHandler,
+  onCommand: handleCommand,
+}).then((srv) => {
+  socketServer = srv;
+  logger.info({ path: srv.path }, "socket server started");
+}).catch((err) => {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "socket server unavailable -- socket event ingestion disabled",
+  );
+});
+
+// ── Cron service ───────────────────────────────────────────────────────────
+// Scheduled maintenance (daily) and drift detection (weekly).
+let cronService: CronService | null = null;
+try {
+  cronService = startCronService();
+  logger.info("cron service started");
+} catch (err) {
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "cron service failed to start");
+}
+
+// ── Spec watcher ───────────────────────────────────────────────────────────
+// Polls openspec status across registered projects and fires TTS notifications.
+let specWatcher: SpecWatcherService | null = null;
+try {
+  specWatcher = startSpecWatcher();
+  logger.info("spec watcher started");
+} catch (err) {
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
+}
+
 function shutdown() {
   logger.info("shutting down nexus-agent");
+  // Stop new services first.
+  specWatcher?.stop();
+  cronService?.stop();
+  socketServer?.stop();
+  // Stop existing services.
   healthScheduler.stop();
   stopRetention();
   stopProjectCleanup();
   sessionManager.stop();
   watcherBridge?.shutdown();
-  // Task 1.4: Shut down all active PTY streams before stopping the HTTP server
+  // Shut down all active PTY streams before stopping the HTTP server.
   streamManager.shutdown();
   server.stop();
   process.exit(0);
