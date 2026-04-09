@@ -20,8 +20,8 @@ function makeNotification(overrides: Record<string, unknown> = {}) {
     project: null as string | null,
     priority: "normal",
     status: "queued",
-    createdAt: new Date().toISOString(),
-    sentAt: null as string | null,
+    createdAt: new Date(),
+    sentAt: null as Date | null,
     ...overrides,
   };
 }

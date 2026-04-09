@@ -47,7 +47,7 @@ describe("session-manager", () => {
 
     // Manually backdate lastHeartbeat to 6 minutes ago
     const session = manager.getById("sess-idle")!;
-    const sixMinutesAgo = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    const sixMinutesAgo = new Date(Date.now() - 6 * 60 * 1000);
     session.lastHeartbeat = sixMinutesAgo;
 
     manager.sweepIdle();
@@ -96,7 +96,7 @@ describe("session-manager", () => {
 
     // Backdate and mark idle
     const session = manager.getById("sess-update")!;
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
     manager.sweepIdle();
     expect(session.status).toBe("idle");
 
@@ -109,7 +109,7 @@ describe("session-manager", () => {
     });
 
     expect(session.status).toBe("active");
-    expect(session.lastHeartbeat).toBe(newTimestamp);
+    expect(session.lastHeartbeat).toEqual(new Date(newTimestamp));
   });
 
   test("getById returns null for unknown session", () => {
@@ -137,7 +137,7 @@ describe("session-manager", () => {
     expect(session.status).toBe("ended");
 
     // Backdate endedAt to ensure TTL has elapsed.
-    const twoMsAgo = new Date(Date.now() - 2).toISOString();
+    const twoMsAgo = new Date(Date.now() - 2);
     session.endedAt = twoMsAgo;
 
     manager.sweepIdle();
@@ -161,7 +161,7 @@ describe("session-manager", () => {
 
     const session = manager.getById("sess-stale")!;
     // Backdate heartbeat so it's past both idle and stale thresholds.
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
     // Manually set to idle (simulating a previous sweep).
     session.status = "idle";
 
@@ -183,7 +183,7 @@ describe("session-manager", () => {
 
     const session = manager.getById("sess-fresh-idle")!;
     // Backdate heartbeat past idle threshold but the session was active before this sweep.
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
     // Status is still "active" — sweep should transition active→idle but NOT idle→stale.
     expect(session.status).toBe("active");
 

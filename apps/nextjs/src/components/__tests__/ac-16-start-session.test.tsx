@@ -47,7 +47,7 @@ const makeProject = (): CanonicalProject => ({
   ],
   activeSessions: 0,
   totalSessions: 0,
-  discoveredAt: new Date().toISOString(),
+  discoveredAt: new Date(),
   tags: null,
   description: null,
 });

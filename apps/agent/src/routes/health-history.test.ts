@@ -51,7 +51,7 @@ describe("downsample", () => {
     for (let i = 0; i < 500; i++) {
       rows.push({
         id: i + 1,
-        timestamp: new Date(now - (500 - i) * 30_000).toISOString(),
+        timestamp: new Date(now - (500 - i) * 30_000),
         cpuPercent: 50,
         ramPercent: 60,
         diskPercent: 70,
@@ -77,7 +77,7 @@ describe("downsample", () => {
     for (let i = 0; i < 50; i++) {
       rows.push({
         id: i + 1,
-        timestamp: new Date(Date.now() - (50 - i) * 30_000).toISOString(),
+        timestamp: new Date(Date.now() - (50 - i) * 30_000),
         cpuPercent: i,
         ramPercent: i * 2,
         diskPercent: i * 3,
@@ -93,10 +93,10 @@ describe("downsample", () => {
   it("averages values within each bucket", () => {
     // 4 rows, target 2 -> 2 buckets of 2
     const rows: HealthSnapshotRow[] = [
-      { id: 1, timestamp: "2026-01-01T00:00:00Z", cpuPercent: 10, ramPercent: 20, diskPercent: 30, dockerContainers: 0, rawJson: null },
-      { id: 2, timestamp: "2026-01-01T00:01:00Z", cpuPercent: 20, ramPercent: 40, diskPercent: 50, dockerContainers: 0, rawJson: null },
-      { id: 3, timestamp: "2026-01-01T00:02:00Z", cpuPercent: 30, ramPercent: 60, diskPercent: 70, dockerContainers: 0, rawJson: null },
-      { id: 4, timestamp: "2026-01-01T00:03:00Z", cpuPercent: 40, ramPercent: 80, diskPercent: 90, dockerContainers: 0, rawJson: null },
+      { id: 1, timestamp: new Date("2026-01-01T00:00:00Z"), cpuPercent: 10, ramPercent: 20, diskPercent: 30, dockerContainers: 0, rawJson: null },
+      { id: 2, timestamp: new Date("2026-01-01T00:01:00Z"), cpuPercent: 20, ramPercent: 40, diskPercent: 50, dockerContainers: 0, rawJson: null },
+      { id: 3, timestamp: new Date("2026-01-01T00:02:00Z"), cpuPercent: 30, ramPercent: 60, diskPercent: 70, dockerContainers: 0, rawJson: null },
+      { id: 4, timestamp: new Date("2026-01-01T00:03:00Z"), cpuPercent: 40, ramPercent: 80, diskPercent: 90, dockerContainers: 0, rawJson: null },
     ];
 
     const result = downsample(rows, 2);
@@ -106,7 +106,7 @@ describe("downsample", () => {
     expect(result[0]!.cpu_percent).toBe(15);
     expect(result[0]!.ram_percent).toBe(30);
     expect(result[0]!.disk_percent).toBe(40);
-    expect(result[0]!.timestamp).toBe("2026-01-01T00:00:00Z");
+    expect(result[0]!.timestamp).toEqual(new Date("2026-01-01T00:00:00Z"));
 
     // Second bucket: avg(30, 40) = 35, avg(60, 80) = 70, avg(70, 90) = 80
     expect(result[1]!.cpu_percent).toBe(35);
@@ -116,8 +116,8 @@ describe("downsample", () => {
 
   it("handles null values in averaging", () => {
     const rows: HealthSnapshotRow[] = [
-      { id: 1, timestamp: "2026-01-01T00:00:00Z", cpuPercent: 10, ramPercent: null, diskPercent: 30, dockerContainers: 0, rawJson: null },
-      { id: 2, timestamp: "2026-01-01T00:01:00Z", cpuPercent: null, ramPercent: null, diskPercent: 50, dockerContainers: 0, rawJson: null },
+      { id: 1, timestamp: new Date("2026-01-01T00:00:00Z"), cpuPercent: 10, ramPercent: null, diskPercent: 30, dockerContainers: 0, rawJson: null },
+      { id: 2, timestamp: new Date("2026-01-01T00:01:00Z"), cpuPercent: null, ramPercent: null, diskPercent: 50, dockerContainers: 0, rawJson: null },
     ];
 
     const result = downsample(rows, 1);

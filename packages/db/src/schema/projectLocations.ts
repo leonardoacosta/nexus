@@ -12,9 +12,9 @@ export const projectLocations = pgTable(
     status: text("status").default("active").notNull(),
     activeSessions: integer("active_sessions").default(0).notNull(),
     totalSessions: integer("total_sessions").default(0).notNull(),
-    lastDiscoveredAt: timestamp("last_discovered_at", { mode: "string" }),
+    lastDiscoveredAt: timestamp("last_discovered_at", { mode: "date" }),
     priority: integer("priority").default(999).notNull(),
-    createdAt: timestamp("created_at", { mode: "string" }).defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   },
   (table) => [unique("project_locations_project_agent_unique").on(table.projectId, table.agentId)],
 );

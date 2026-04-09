@@ -7,8 +7,8 @@ export const agents = pgTable("agents", {
   port: integer("port").default(7400),
   projectsDir: text("projects_dir").default(""),
   enabled: boolean("enabled").default(true),
-  lastSeen: timestamp("last_seen", { mode: "string" }),
-  createdAt: timestamp("created_at", { mode: "string" }).defaultNow(),
+  lastSeen: timestamp("last_seen", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 });
 
 export type Agent = typeof agents.$inferSelect;

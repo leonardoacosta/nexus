@@ -24,7 +24,7 @@ mock.module("node:fs", () => ({
   },
 }));
 
-export const mockQueryRecentSessions = mock((): Promise<{ id: string; project: string; machine: string; status: string; startedAt: string; lastActivity: string; endedAt: string | null; pid: number | null; cwd: string | null }[]> => Promise.resolve([]));
+export const mockQueryRecentSessions = mock((): Promise<{ id: string; project: string; machine: string; status: string; startedAt: Date; lastActivity: Date; endedAt: Date | null; pid: number | null; cwd: string | null }[]> => Promise.resolve([]));
 
 mock.module("../db/sessions", () => ({
   queryRecentSessions: mockQueryRecentSessions,

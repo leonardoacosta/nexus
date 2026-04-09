@@ -47,8 +47,8 @@ export async function updateCredentialStatus(
   id: string,
   status: CredentialStatus,
   leasedBy: string | null = null,
-  leasedAt: string | null = null,
-  cooldownUntil: string | null = null,
+  leasedAt: Date | null = null,
+  cooldownUntil: Date | null = null,
 ): Promise<void> {
   await db
     .update(credentials)
@@ -58,7 +58,7 @@ export async function updateCredentialStatus(
 
 /** Query credentials whose cooldown has expired. */
 export async function queryExpiredCooldowns(db: Db): Promise<CredentialRow[]> {
-  const now = new Date().toISOString();
+  const now = new Date();
   return db
     .select()
     .from(credentials)
@@ -68,7 +68,7 @@ export async function queryExpiredCooldowns(db: Db): Promise<CredentialRow[]> {
 /** Query credentials with stale leases (leased_at older than the given threshold). */
 export async function queryStaleLeases(
   db: Db,
-  olderThan: string,
+  olderThan: Date,
 ): Promise<CredentialRow[]> {
   return db
     .select()

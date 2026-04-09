@@ -73,7 +73,7 @@ describe.skipIf(!hasPg)("credential store (requires live PG)", () => {
     const leasedId = testId("status-leased");
     ids.push(availId, leasedId);
 
-    const now = new Date().toISOString();
+    const now = new Date();
     await insertCredential(db, makeRow(availId, { status: "available" }));
     await insertCredential(db, makeRow(leasedId, {
       status: "leased",
@@ -95,7 +95,7 @@ describe.skipIf(!hasPg)("credential store (requires live PG)", () => {
     ids.push(id);
     await insertCredential(db, makeRow(id, { status: "available" }));
 
-    const now = new Date().toISOString();
+    const now = new Date();
     await updateCredentialStatus(db, id, "leased", "tester", now);
 
     const updated = await getCredentialById(db, id);
@@ -108,7 +108,7 @@ describe.skipIf(!hasPg)("credential store (requires live PG)", () => {
     ids.push(id);
 
     // Set a cooldown that has already passed
-    const pastCooldown = new Date(Date.now() - 10_000).toISOString();
+    const pastCooldown = new Date(Date.now() - 10_000);
     await insertCredential(db, makeRow(id, {
       status: "cooldown",
       cooldownUntil: pastCooldown,
@@ -123,7 +123,7 @@ describe.skipIf(!hasPg)("credential store (requires live PG)", () => {
     ids.push(id);
 
     // Leased 2 hours ago
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     await insertCredential(db, makeRow(id, {
       status: "leased",
       leasedBy: "old-caller",
@@ -131,7 +131,7 @@ describe.skipIf(!hasPg)("credential store (requires live PG)", () => {
     }));
 
     // Threshold: anything older than 1 hour is stale
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const stale = await queryStaleLeases(db, oneHourAgo);
     expect(stale.some((r) => r.id === id)).toBe(true);
   });

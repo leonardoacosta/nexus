@@ -18,9 +18,9 @@ export async function updateSessionStatus(
   db: Db,
   id: string,
   status: string,
-  lastActivity?: string,
+  lastActivity?: Date,
 ): Promise<void> {
-  const now = lastActivity ?? new Date().toISOString();
+  const now = lastActivity ?? new Date();
   const endedAt = status === "ended" ? now : undefined;
 
   await db
@@ -50,7 +50,7 @@ export async function queryRecentSessions(
   db: Db,
   hours: number = 24,
 ): Promise<SessionRow[]> {
-  const cutoff = new Date(Date.now() - hours * 3600_000).toISOString();
+  const cutoff = new Date(Date.now() - hours * 3600_000);
   return db
     .select()
     .from(sessions)

@@ -123,7 +123,7 @@ export class CredentialPool {
           }
 
           const credential = rows[0]!;
-          const now = new Date().toISOString();
+          const now = new Date();
 
           await tx
             .update(credentials)
@@ -218,7 +218,7 @@ export class CredentialPool {
         const credential = await getCredentialById(this.db, id);
         if (!credential) return null;
 
-        const cooldownUntil = new Date(Date.now() + this.cooldownMs).toISOString();
+        const cooldownUntil = new Date(Date.now() + this.cooldownMs);
 
         // Atomically increment rate_limit_count and transition to cooldown
         await this.db
@@ -291,7 +291,7 @@ export class CredentialPool {
 
   /** Clean up stale leases (leased longer than TTL). */
   async cleanupStaleLeases(): Promise<number> {
-    const threshold = new Date(Date.now() - this.leaseTtlMs).toISOString();
+    const threshold = new Date(Date.now() - this.leaseTtlMs);
     const stale = await queryStaleLeases(this.db, threshold);
     for (const credential of stale) {
       await this.db
@@ -322,7 +322,7 @@ export class CredentialPool {
    * future change when the usage API is integrated.
    */
   async checkPrerotation(): Promise<number> {
-    const windowStart = new Date(Date.now() - FIVE_HOUR_MS).toISOString();
+    const windowStart = new Date(Date.now() - FIVE_HOUR_MS);
 
     // Find leased credentials that have accumulated rate limit hits in the window
     const leasedRows = await this.db

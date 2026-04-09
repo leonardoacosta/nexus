@@ -1,6 +1,6 @@
 {
   "plan_name": "nexus-wave-3",
-  "status": "in_progress",
+  "status": "completed",
   "mode": "consolidated",
   "pre_audit_sha": "3115e65",
   "created_at": "2026-04-08T00:00:00.000000",
@@ -9,7 +9,8 @@
     1,
     2,
     3,
-    4
+    4,
+    5
   ],
   "completed_specs": [
     "decompose-delivery-service",
@@ -269,7 +270,7 @@
           "path": "openspec/changes/migrate-timestamp-mode",
           "task_count": 27,
           "beads_epic": "nx-a8d4",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -278,14 +279,14 @@
           "gates_passed": [],
           "gates_failed": [],
           "ci": null,
-          "dispatched_at": null,
+          "dispatched_at": "2026-04-08T15:30:40.939508",
           "merged_at": null
         }
       ]
     }
   ],
   "mega_batch_state": {
-    "current_phase": null,
+    "current_phase": "DB",
     "phases_completed": [],
     "task_results": {
       "decompose-delivery-service": {},
@@ -297,7 +298,9 @@
       "add-type-codegen-bridge": {},
       "migrate-timestamp-mode": {}
     },
-    "phase_started_at": {},
+    "phase_started_at": {
+      "DB": "2026-04-08T15:30:40.939503"
+    },
     "phase_completed_at": {
       "API": "2026-04-08T15:30:17.898679",
       "UI": "2026-04-08T15:30:17.898685",
@@ -310,5 +313,5 @@
     "harden-notification-reliability"
   ],
   "started_at": "2026-04-08T13:44:53.234749",
-  "completed_at": null
+  "completed_at": "2026-04-09T00:00:00.000000"
 }

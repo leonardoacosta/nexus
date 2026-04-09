@@ -73,7 +73,7 @@ export async function upsertProjectLocations(
         status: "active",
         activeSessions: p.activeSessions,
         totalSessions: p.totalSessions,
-        lastDiscoveredAt: new Date().toISOString(),
+        lastDiscoveredAt: new Date(),
         priority,
       })
       .onConflictDoUpdate({
@@ -84,7 +84,7 @@ export async function upsertProjectLocations(
           status: "active",
           activeSessions: p.activeSessions,
           totalSessions: p.totalSessions,
-          lastDiscoveredAt: new Date().toISOString(),
+          lastDiscoveredAt: new Date(),
         },
       });
   }
@@ -131,7 +131,7 @@ export async function upsertProjectLocations(
  * active or missing locations.
  */
 export async function cleanupStaleProjectLocations(db: Db): Promise<void> {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000);
 
   // Step 1: Find missing locations older than 30 days.
   const staleLocations = await db

@@ -46,8 +46,8 @@ export interface CanonicalProject {
   locations: ProjectLocation[];
   activeSessions: number;
   totalSessions: number;
-  /** ISO timestamp of first discovery */
-  discoveredAt: string;
+  /** Timestamp of first discovery */
+  discoveredAt: Date | string;
   tags: string[] | null;
   description: string | null;
 }

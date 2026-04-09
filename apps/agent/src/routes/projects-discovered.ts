@@ -256,7 +256,7 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
 
       const isActive =
         s.status === "active" ||
-        (s.lastActivity && nowMs - new Date(s.lastActivity).getTime() < ACTIVE_SESSION_WINDOW_MS);
+        (s.lastActivity && nowMs - s.lastActivity.getTime() < ACTIVE_SESSION_WINDOW_MS);
 
       if (isActive) activeSessions++;
     }

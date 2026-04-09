@@ -459,7 +459,7 @@ function createRequestHandler(state: ServerState, db?: Db) {
           }
 
           const snapshot = {
-            timestamp: new Date().toISOString(),
+            timestamp: new Date(),
             cpuPercent: (metrics.cpu as { overall_percent: number }).overall_percent,
             ramPercent: (metrics.ram as { percent: number }).percent,
             diskPercent,

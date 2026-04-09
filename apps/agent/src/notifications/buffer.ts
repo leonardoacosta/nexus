@@ -98,7 +98,7 @@ export async function queryNotificationsByStatus(
 export async function markNotificationDelivered(db: Db, id: string): Promise<void> {
   await db
     .update(notifications)
-    .set({ status: "delivered", sentAt: new Date().toISOString() })
+    .set({ status: "delivered", sentAt: new Date() })
     .where(eq(notifications.id, id));
   // Remove from in-memory ring buffer and persist updated metadata.
   const idx = pendingIds.indexOf(id);

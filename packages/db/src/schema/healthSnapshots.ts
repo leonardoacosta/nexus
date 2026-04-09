@@ -4,7 +4,7 @@ export const healthSnapshots = pgTable(
   "health_snapshots",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    timestamp: timestamp("timestamp", { mode: "string" }).notNull(),
+    timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
     cpuPercent: real("cpu_percent"),
     ramPercent: real("ram_percent"),
     diskPercent: real("disk_percent"),

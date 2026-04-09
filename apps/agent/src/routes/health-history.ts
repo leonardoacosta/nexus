@@ -7,7 +7,7 @@ const MAX_POINTS = 200;
 
 /** Sparkline-ready data point returned by the API. */
 export interface HealthHistoryPoint {
-  timestamp: string;
+  timestamp: Date | string;
   cpu_percent: number | null;
   ram_percent: number | null;
   disk_percent: number | null;

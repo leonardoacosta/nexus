@@ -246,7 +246,7 @@ describe("credential pool — encryption storage (unit)", () => {
       encryptionKeyId: "v1",
       status: "leased",
       leasedBy: "some-caller",
-      leasedAt: new Date().toISOString(),
+      leasedAt: new Date(),
       cooldownUntil: null,
       rateLimitCount: 43,
     };

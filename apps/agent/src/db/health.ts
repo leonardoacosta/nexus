@@ -24,7 +24,7 @@ export async function queryHealthTimeSeries(
   db: Db,
   hours: number = 24,
 ): Promise<HealthSnapshotRow[]> {
-  const cutoff = new Date(Date.now() - hours * 3600_000).toISOString();
+  const cutoff = new Date(Date.now() - hours * 3600_000);
   return db
     .select()
     .from(healthSnapshots)

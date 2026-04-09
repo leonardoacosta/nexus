@@ -15,10 +15,10 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export async function runRetentionCleanup(db: Db): Promise<void> {
   const healthCutoff = new Date(
     Date.now() - HEALTH_RETENTION_DAYS * 86_400_000,
-  ).toISOString();
+  );
   const eventsCutoff = new Date(
     Date.now() - EVENTS_RETENTION_DAYS * 86_400_000,
-  ).toISOString();
+  );
 
   const healthDeleted = await db
     .delete(healthSnapshots)

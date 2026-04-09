@@ -74,7 +74,7 @@ export class HealthScheduler {
     });
 
     const snapshot = {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       cpuPercent: metrics.cpu.overall_percent,
       ramPercent: metrics.ram.percent,
       diskPercent,

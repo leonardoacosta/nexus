@@ -387,7 +387,7 @@ describe("cleanupStaleProjectLocations", () => {
   }
 
   it("archives locations missing for more than 30 days", async () => {
-    const staleDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1_000).toISOString();
+    const staleDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1_000);
     const projectId = "proj-aaa";
     const locationId = "loc-bbb";
 
@@ -410,7 +410,7 @@ describe("cleanupStaleProjectLocations", () => {
   });
 
   it("retains locations missing for fewer than 30 days", async () => {
-    const recentDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1_000).toISOString();
+    const recentDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1_000);
 
     // select [0] = stale missing locations → 1 row but it's only 29 days old
     const { db, updateCalls } = makeCleanupMockDb([

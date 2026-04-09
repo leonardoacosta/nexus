@@ -38,7 +38,7 @@ export interface ProjectJoinRow {
   projectId: string;
   projectName: string;
   primaryAgentId: string;
-  discoveredAt: string | null;
+  discoveredAt: Date | string | null;
   tags: string[] | null;
   description: string | null;
   locationId: string | null;
@@ -75,7 +75,7 @@ export function buildCanonicalProjects(rows: ProjectJoinRow[]): CanonicalProject
         locations: [],
         activeSessions: 0,
         totalSessions: 0,
-        discoveredAt: row.discoveredAt ?? "",
+        discoveredAt: row.discoveredAt ?? new Date(),
         tags: row.tags ?? null,
         description: row.description ?? null,
       });

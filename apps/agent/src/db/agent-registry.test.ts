@@ -27,7 +27,7 @@ describe("upsertSelfInRegistry", () => {
     expect(capturedValues!.id).toBe(os.hostname());
     expect(capturedValues!.name).toBe(os.hostname());
     expect(capturedValues!.enabled).toBe(true);
-    expect(typeof capturedValues!.lastSeen).toBe("string");
+    expect(capturedValues!.lastSeen).toBeInstanceOf(Date);
     // port should default to 7400 (no NEXUS_PORT env set in test)
     expect(capturedValues!.port).toBe(7400);
   });

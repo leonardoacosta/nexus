@@ -28,7 +28,7 @@ const TEST_IDS = ["test-sess-001", "test-sess-002", "test-sess-003"];
 async function seedSessions(db: Db) {
   // Ensure clean state before seeding (idempotent across describe blocks)
   await teardown(db);
-  const now = new Date().toISOString();
+  const now = new Date();
   await db.insert(sessions).values([
     {
       id: "test-sess-001",

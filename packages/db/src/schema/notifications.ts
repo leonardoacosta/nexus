@@ -8,6 +8,6 @@ export const notifications = pgTable("notifications", {
   project: text("project"),
   priority: text("priority").notNull().default("normal"),
   status: text("status").notNull().default("queued"),
-  createdAt: timestamp("created_at", { mode: "string" }).notNull(),
-  sentAt: timestamp("sent_at", { mode: "string" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  sentAt: timestamp("sent_at", { mode: "date" }),
 });

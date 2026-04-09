@@ -30,22 +30,22 @@ describe("formatDuration", () => {
 
 describe("formatRelativeTime", () => {
   it("returns 'just now' for recent timestamps", () => {
-    const recent = new Date(Date.now() - 10_000).toISOString();
+    const recent = new Date(Date.now() - 10_000);
     expect(formatRelativeTime(recent)).toBe("just now");
   });
 
   it("returns minutes ago", () => {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+    const fiveMinAgo = new Date(Date.now() - 5 * 60_000);
     expect(formatRelativeTime(fiveMinAgo)).toBe("5m ago");
   });
 
   it("returns hours ago", () => {
-    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
     expect(formatRelativeTime(twoHoursAgo)).toBe("2h ago");
   });
 
   it("returns days ago", () => {
-    const threeDaysAgo = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    const threeDaysAgo = new Date(Date.now() - 3 * 86_400_000);
     expect(formatRelativeTime(threeDaysAgo)).toBe("3d ago");
   });
 });

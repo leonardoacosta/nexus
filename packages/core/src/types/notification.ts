@@ -19,8 +19,8 @@ export interface Notification {
   project?: string;
   priority: NotificationPriority;
   status: NotificationStatus;
-  created_at: string;
-  sent_at?: string;
+  created_at: Date;
+  sent_at?: Date;
 }
 
 /** Per-project routing rule for notification delivery. */

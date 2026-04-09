@@ -26,7 +26,7 @@ export async function upsertSelfInRegistry(db: Db): Promise<void> {
   const port = parseInt(process.env.NEXUS_PORT ?? "7400", 10);
   const projectsDir =
     process.env.NEXUS_PROJECTS_DIR ?? path.join(os.homedir(), "dev");
-  const lastSeen = new Date().toISOString();
+  const lastSeen = new Date();
 
   await db
     .insert(agents)

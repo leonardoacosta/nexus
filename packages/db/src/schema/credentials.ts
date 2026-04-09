@@ -10,8 +10,8 @@ export const credentials = pgTable("credentials", {
   encryptionKeyId: text("encryption_key_id").default("v1"),
   status: text("status").notNull().default("available"),
   leasedBy: text("leased_by"),
-  leasedAt: timestamp("leased_at", { mode: "string" }),
-  cooldownUntil: timestamp("cooldown_until", { mode: "string" }),
+  leasedAt: timestamp("leased_at", { mode: "date" }),
+  cooldownUntil: timestamp("cooldown_until", { mode: "date" }),
   /** Cumulative rate-limit hit count; used for weighted round-robin lease selection. */
   rateLimitCount: integer("rate_limit_count").notNull().default(0),
 });

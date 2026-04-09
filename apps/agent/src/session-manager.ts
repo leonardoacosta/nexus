@@ -50,7 +50,7 @@ export function createSessionManager(
   function handleWatcherEvent(event: WatcherEvent): void {
     switch (event.type) {
       case "session_start": {
-        const now = new Date().toISOString();
+        const now = new Date();
         const session: Session = {
           id: event.session_id,
           pid: 0,
@@ -81,7 +81,7 @@ export function createSessionManager(
       case "session_update": {
         const existing = sessions.get(event.session_id);
         if (existing) {
-          existing.lastHeartbeat = event.timestamp;
+          existing.lastHeartbeat = new Date(event.timestamp);
           // If session was idle, reactivate it on heartbeat
           if (existing.status === "idle") {
             existing.status = "active";
@@ -99,7 +99,7 @@ export function createSessionManager(
         const existing = sessions.get(event.session_id);
         if (existing) {
           existing.status = "ended";
-          existing.endedAt = new Date().toISOString();
+          existing.endedAt = new Date();
           logger.info({ id: event.session_id }, "session-manager: session ended");
         } else {
           logger.warn(
@@ -141,7 +141,7 @@ export function createSessionManager(
     // Pass 1: Mark active sessions as idle if they have exceeded the idle threshold.
     for (const session of sessions.values()) {
       if (session.status !== "active") continue;
-      const lastActivity = new Date(session.lastHeartbeat).getTime();
+      const lastActivity = session.lastHeartbeat.getTime();
       if (now - lastActivity > IDLE_THRESHOLD_MS) {
         session.status = "idle";
         logger.info({ id: session.id }, "session-manager: session marked idle");
@@ -154,7 +154,7 @@ export function createSessionManager(
       if (session.status !== "idle") continue;
       if (!alreadyIdle.has(session.id)) continue;
 
-      const lastActivity = new Date(session.lastHeartbeat).getTime();
+      const lastActivity = session.lastHeartbeat.getTime();
 
       // On Linux, check /proc/{pid} — if the process is gone, mark errored.
       if (process.platform === "linux" && session.pid && session.pid > 0) {
@@ -179,7 +179,7 @@ export function createSessionManager(
     for (const [id, session] of sessions) {
       if (session.status !== "ended") continue;
       if (session.endedAt == null) continue;
-      const endedAt = new Date(session.endedAt).getTime();
+      const endedAt = session.endedAt.getTime();
       if (now - endedAt > endedSessionTtlMs) {
         sessions.delete(id);
         logger.info({ id }, "session-manager: ended session evicted after TTL");

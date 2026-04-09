@@ -20,9 +20,9 @@ export interface Session {
   machine: string | null;
   cwd: string;
   branch: string | null;
-  startedAt: string;
-  lastHeartbeat: string;
-  endedAt: string | null;
+  startedAt: Date;
+  lastHeartbeat: Date;
+  endedAt: Date | null;
   status: SessionStatus;
   spec: string | null;
   command: string | null;

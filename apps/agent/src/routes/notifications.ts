@@ -138,7 +138,7 @@ export async function handleSendNotification(
     body: notifBody as string,
     project: (project as string) ?? null,
     priority: (priority as NotificationPriority) ?? "normal",
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(),
   });
 
   return jsonResponse(notification, 201);

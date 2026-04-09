@@ -8,6 +8,6 @@ export interface Credential {
   type: string;
   status: CredentialStatus;
   leased_by?: string;
-  leased_at?: string;
-  cooldown_until?: string;
+  leased_at?: Date;
+  cooldown_until?: Date;
 }

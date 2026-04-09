@@ -22,7 +22,7 @@ function fuzzyMatch(
     session.agent,
     session.status,
   ];
-  return fields.some((f) => f.toLowerCase().includes(q));
+  return fields.some((f) => f?.toLowerCase().includes(q));
 }
 
 // ---------------------------------------------------------------------------

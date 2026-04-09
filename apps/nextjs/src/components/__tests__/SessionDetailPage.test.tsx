@@ -42,8 +42,8 @@ function MetadataSidebar({
     agent: string;
     pid: number;
     cwd: string;
-    startedAt: string;
-    lastHeartbeat: string;
+    startedAt: Date | string;
+    lastHeartbeat: Date | string;
   };
 }) {
   const duration = formatDuration(Date.now() - new Date(session.startedAt).getTime());
@@ -77,8 +77,8 @@ describe("SessionDetailPage metadata sidebar", () => {
           agent: "dev-server",
           pid: 1234,
           cwd: "/home/user/dev/nexus",
-          startedAt: new Date(Date.now() - 3_600_000).toISOString(),
-          lastHeartbeat: new Date(Date.now() - 60_000).toISOString(),
+          startedAt: new Date(Date.now() - 3_600_000),
+          lastHeartbeat: new Date(Date.now() - 60_000),
         }}
       />,
     );
@@ -100,8 +100,8 @@ describe("SessionDetailPage metadata sidebar", () => {
           agent: "build-box",
           pid: 5678,
           cwd: "/tmp",
-          startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-          lastHeartbeat: new Date(Date.now() - 300_000).toISOString(),
+          startedAt: new Date(Date.now() - 7_200_000),
+          lastHeartbeat: new Date(Date.now() - 300_000),
         }}
       />,
     );

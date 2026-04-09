@@ -33,7 +33,7 @@ export async function fetchSessions(): Promise<SessionsResult> {
     if (aOrder !== bOrder) return aOrder - bOrder;
 
     // Same status — sort by last heartbeat, most recent first
-    return new Date(b.lastHeartbeat).getTime() - new Date(a.lastHeartbeat).getTime();
+    return b.lastHeartbeat.getTime() - a.lastHeartbeat.getTime();
   });
 
   return { sessions: sorted, agentCount };

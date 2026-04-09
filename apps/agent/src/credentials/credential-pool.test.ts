@@ -56,7 +56,7 @@ describe("credential pool — concurrent lease race (unit)", () => {
               tableRow = {
                 ...tableRow,
                 status: "leased",
-                leasedAt: new Date().toISOString(),
+                leasedAt: new Date(),
               };
             }
 
@@ -286,7 +286,7 @@ describe.skipIf(!hasPg)("credential pool — rate limit rotation (requires live 
 
     await pool.add({ id, name: `rl-recover-${id}`, type: "anthropic-recover", value_plaintext: "sk-recover" });
 
-    const pastCooldown = new Date(Date.now() - 500).toISOString();
+    const pastCooldown = new Date(Date.now() - 500);
     await db
       .update(credentials)
       .set({ status: "cooldown", cooldownUntil: pastCooldown })
@@ -320,7 +320,7 @@ describe.skipIf(!hasPg)("credential pool — stale lease cleanup (requires live 
     const id = testId("sl-stale");
     ids.push(id);
 
-    const staleAt = new Date(Date.now() - 2000).toISOString();
+    const staleAt = new Date(Date.now() - 2000);
     await db.insert(credentials).values({
       id,
       name: `sl-stale-${id}`,
@@ -346,7 +346,7 @@ describe.skipIf(!hasPg)("credential pool — stale lease cleanup (requires live 
     const id = testId("sl-fresh");
     ids.push(id);
 
-    const freshAt = new Date().toISOString();
+    const freshAt = new Date();
     await db.insert(credentials).values({
       id,
       name: `sl-fresh-${id}`,
@@ -377,7 +377,7 @@ describe.skipIf(!hasPg)("credential pool — stale lease cleanup (requires live 
     const id3 = testId("sl-multi-c");
     ids.push(id1, id2, id3);
 
-    const staleAt = new Date(Date.now() - 2000).toISOString();
+    const staleAt = new Date(Date.now() - 2000);
     for (const id of [id1, id2, id3]) {
       await db.insert(credentials).values({
         id,

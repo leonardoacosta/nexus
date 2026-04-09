@@ -11,8 +11,8 @@ export const projects = pgTable(
     description: text("description"),
     tags: text("tags").array(),
     status: text("status").default("active").notNull(),
-    discoveredAt: timestamp("discovered_at", { mode: "string" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "string" }).defaultNow(),
+    discoveredAt: timestamp("discovered_at", { mode: "date" }).defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
   },
   (table) => [
     // Composite unique: (name, git_remote_url).
