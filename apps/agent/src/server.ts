@@ -73,6 +73,7 @@ import {
   type LifecycleHandler,
   type LifecycleEventName,
 } from "./services/lifecycle-bus";
+import type { AppContext } from "./context";
 
 const PORT = 7400;
 
@@ -876,6 +877,7 @@ export function startServer(
   port: number = PORT,
   db?: Db,
   options?: { encryptionKey?: import("node:buffer").Buffer; prerotateThreshold?: number },
+  ctx?: AppContext,
 ) {
   // Use the module singleton state so that module-level `healthCollector` and
   // `streamManager` exports remain valid references to the running server's state.

@@ -34,8 +34,28 @@ async function withSingletonLock<T>(fn: () => T | Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 const DEDUP_TTL_MS = 5_000;
+/** Max dedup entries before bulk eviction (memory leak guard). */
+const DEDUP_MAX_SIZE = 1_000;
+/** Number of oldest entries to evict when capacity is reached. */
+const DEDUP_EVICT_BATCH = 100;
 /** key → expiry epoch ms */
 const dedupMap = new Map<string, number>();
+
+/** Evict expired entries + enforce max-size cap. */
+function evictDedupEntries(): void {
+  const now = Date.now();
+  for (const [k, exp] of dedupMap) {
+    if (exp < now) dedupMap.delete(k);
+  }
+  if (dedupMap.size > DEDUP_MAX_SIZE) {
+    let removed = 0;
+    for (const key of dedupMap.keys()) {
+      if (removed >= DEDUP_EVICT_BATCH) break;
+      dedupMap.delete(key);
+      removed++;
+    }
+  }
+}
 
 /** Return true if this (message, target) pair was already seen within DEDUP_TTL_MS. */
 function isDuplicate(message: string, target: string): boolean {
@@ -43,13 +63,9 @@ function isDuplicate(message: string, target: string): boolean {
     .update(`${message}|${target}`)
     .digest("hex")
     .slice(0, 16);
-  const now = Date.now();
-  // Evict expired entries on each lookup.
-  for (const [k, exp] of dedupMap) {
-    if (exp < now) dedupMap.delete(k);
-  }
+  evictDedupEntries();
   if (dedupMap.has(key)) return true;
-  dedupMap.set(key, now + DEDUP_TTL_MS);
+  dedupMap.set(key, Date.now() + DEDUP_TTL_MS);
   return false;
 }
 
@@ -72,7 +88,16 @@ export async function resetNotificationRoutes(): Promise<void> {
     manager = null;
     meetingState = null;
   });
+  dedupMap.clear();
 }
+
+/** Expose dedup internals for testing. */
+export const _testDedupInternals = {
+  get map() { return dedupMap; },
+  isDuplicate,
+  DEDUP_TTL_MS,
+  DEDUP_MAX_SIZE,
+};
 
 /** POST /notifications/send — queue a notification. */
 export async function handleSendNotification(

@@ -15,6 +15,7 @@ import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watch
 import { handleCommand } from "./services/command-handler";
 import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
+import { createAppContext, type AppContext } from "./context";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -37,7 +38,19 @@ try {
   logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to open database — agent cannot start");
   process.exit(1);
 }
-const server = startServer(undefined, db, { encryptionKey, prerotateThreshold });
+
+const sessionManager = createSessionManager();
+
+// ── AppContext — centralized shared state ──────────────────────────────────
+const ctx: AppContext = createAppContext({
+  db,
+  sessionManager,
+  lifecycleBus,
+  encryptionKey,
+  prerotateThreshold,
+});
+
+const server = startServer(undefined, db, { encryptionKey, prerotateThreshold }, ctx);
 
 // Register this agent in the DB (non-fatal — agent still serves if this fails)
 upsertSelfInRegistry(db).catch((err) => {
@@ -45,8 +58,6 @@ upsertSelfInRegistry(db).catch((err) => {
 });
 
 logger.info({ queryWindowHours: 24 }, "Project discovery query window configured");
-
-const sessionManager = createSessionManager();
 
 // Health snapshot scheduler — persists metrics to PostgreSQL every 30s
 const healthScheduler = new HealthScheduler(healthCollector, db);

@@ -25,7 +25,8 @@ type Mode = (typeof MODES)[number];
 /** Current global notification mode. */
 let currentMode: Mode = "full";
 
-/** Per-type mode overrides. */
+/** Per-type mode overrides (bounded to prevent unbounded growth). */
+const MAX_TYPE_OVERRIDES = 500;
 const typeOverrides = new Map<string, Mode>();
 
 /** Recent notification history (ring buffer). */
@@ -53,6 +54,7 @@ const defaultRules: ProjectRules = {
   announce_sessions: true,
 };
 
+const MAX_PROJECT_RULES = 500;
 const projectRules = new Map<string, ProjectRules>();
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,11 @@ export function handleCommand(command: SocketCommand): SocketResponse {
       const mode = MODES.includes(command.mode as Mode)
         ? (command.mode as Mode)
         : "full";
+      // Max-size guard: evict oldest entry when at capacity
+      if (typeOverrides.size >= MAX_TYPE_OVERRIDES && !typeOverrides.has(command.name)) {
+        const firstKey = typeOverrides.keys().next().value;
+        if (firstKey !== undefined) typeOverrides.delete(firstKey);
+      }
       typeOverrides.set(command.name, mode);
       log.info({ typeName: command.name, mode }, "command: type_set");
       return { type: command.name, mode };
@@ -178,6 +185,11 @@ export function handleCommand(command: SocketCommand): SocketResponse {
         // Get or create project rules based on current defaults.
         let rules = projectRules.get(project);
         if (!rules) {
+          // Max-size guard: evict oldest entry when at capacity
+          if (projectRules.size >= MAX_PROJECT_RULES) {
+            const firstKey = projectRules.keys().next().value;
+            if (firstKey !== undefined) projectRules.delete(firstKey);
+          }
           rules = { ...defaultRules };
           projectRules.set(project, rules);
         }
