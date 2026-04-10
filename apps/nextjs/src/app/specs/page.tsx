@@ -1,6 +1,7 @@
 // Spec data comes from live agent — must render on each request
 export const dynamic = "force-dynamic";
 
+import { fetchWithTimeout } from "@nexus/core";
 import { getAgentConfigs } from "@/lib/get-client";
 
 interface SpecSnapshot {
@@ -34,7 +35,7 @@ async function fetchSpecs(): Promise<AllSpecsResponse> {
   if (!agent) return { projects: [] };
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `http://${agent.host}:7402/specs/all`,
       {
         headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },

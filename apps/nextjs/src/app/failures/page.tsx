@@ -1,6 +1,7 @@
 // Failure data comes from live agent — must render on each request
 export const dynamic = "force-dynamic";
 
+import { fetchWithTimeout } from "@nexus/core";
 import { getAgentConfigs } from "@/lib/get-client";
 
 interface TopError {
@@ -30,7 +31,7 @@ async function fetchFailures(): Promise<FailuresResponse | null> {
   if (!agent) return null;
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `http://${agent.host}:7402/failures?days=7`,
       {
         headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },

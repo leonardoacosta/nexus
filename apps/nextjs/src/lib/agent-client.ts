@@ -6,6 +6,7 @@ import type {
   Project,
   DiscoveredProject,
 } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Agent wire types (what the agent's GET /projects/discovered actually returns)
@@ -95,7 +96,7 @@ async function sleep(ms: number): Promise<void> {
 
 /**
  * Fetch with a timeout and up to MAX_RETRIES retries.
- * Uses AbortController for the 3-second timeout per attempt.
+ * Uses fetchWithTimeout for the 3-second timeout per attempt.
  */
 async function fetchWithRetry(url: string): Promise<Response> {
   let lastError: unknown;
@@ -105,21 +106,16 @@ async function fetchWithRetry(url: string): Promise<Response> {
       await sleep(RETRY_DELAY_MS);
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
     try {
-      const res = await fetch(url, {
-        signal: controller.signal,
+      const res = await fetchWithTimeout(url, {
+        timeout: REQUEST_TIMEOUT_MS,
         headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
       });
-      clearTimeout(timer);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
       return res;
     } catch (err) {
-      clearTimeout(timer);
       lastError = err;
     }
   }
@@ -287,19 +283,16 @@ export class AgentClient {
     const agent = this.findAgent(agentName);
     if (!agent) throw new Error(`Agent not found: ${agentName}`);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(`${agentBaseUrl(agent)}/session/start`, {
+      const res = await fetchWithTimeout(`${agentBaseUrl(agent)}/session/start`, {
         method: "POST",
+        timeout: REQUEST_TIMEOUT_MS,
         headers: {
           "Content-Type": "application/json",
           "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       if (!res.ok) {
         const text = await res.text();
         let message: string;
@@ -314,7 +307,6 @@ export class AgentClient {
       this.markOnline(agentName);
       return (await res.json()) as { session_name: string; started: boolean };
     } catch (err) {
-      clearTimeout(timer);
       this.markOffline(agentName);
       throw err;
     }
@@ -384,32 +376,24 @@ export class AgentClient {
     const agent = this.findAgent(agentName);
     if (!agent) throw new Error(`Agent not found: ${agentName}`);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      const res = await fetch(
-        `${agentBaseUrl(agent)}/commands/${encodeURIComponent(name)}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
-          },
-          body: JSON.stringify({ content }),
-          signal: controller.signal,
+    const res = await fetchWithTimeout(
+      `${agentBaseUrl(agent)}/commands/${encodeURIComponent(name)}`,
+      {
+        method: "PUT",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          "Content-Type": "application/json",
+          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
         },
-      );
-      clearTimeout(timer);
-      if (!res.ok) {
-        const err = (await res.json()) as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
-      }
-      this.markOnline(agentName);
-      return (await res.json()) as { updated: boolean; path: string };
-    } catch (err) {
-      clearTimeout(timer);
-      throw err;
+        body: JSON.stringify({ content }),
+      },
+    );
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
     }
+    this.markOnline(agentName);
+    return (await res.json()) as { updated: boolean; path: string };
   }
 
   // ---- Status --------------------------------------------------------------

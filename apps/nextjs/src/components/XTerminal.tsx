@@ -8,6 +8,7 @@ import {
   useImperativeHandle,
   forwardRef,
 } from "react";
+import { fetchWithTimeout } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -188,7 +189,7 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(
         // embedded in static client bundles.
         if (!tokenRef.current) {
           try {
-            const res = await fetch("/api/ws-token");
+            const res = await fetchWithTimeout("/api/ws-token");
             if (res.ok) {
               const data = (await res.json()) as { token?: string };
               if (data.token) tokenRef.current = data.token;
