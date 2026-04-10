@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import type { Db } from "@nexus/db";
 import { notifications } from "@nexus/db";
 import type { NotificationStatus } from "@nexus/core";
@@ -32,25 +32,26 @@ function metaPath(): string {
 }
 
 /** Write current buffer metadata to the sidecar file. */
-function persistMeta(): void {
+async function persistMeta(): Promise<void> {
   try {
+    const existing = await readMeta();
     const meta: BufferMeta = {
       count: pendingIds.length,
-      watermark: Math.max(pendingIds.length, readMeta()?.watermark ?? 0),
+      watermark: Math.max(pendingIds.length, existing?.watermark ?? 0),
       lastFlushMs: Date.now(),
     };
     const p = metaPath();
-    mkdirSync(join(p, ".."), { recursive: true });
-    writeFileSync(p, JSON.stringify(meta), "utf8");
+    await mkdir(join(p, ".."), { recursive: true });
+    await writeFile(p, JSON.stringify(meta), "utf8");
   } catch (err) {
     log.warn({ err }, "buffer: failed to persist metadata (non-fatal)");
   }
 }
 
 /** Read persisted metadata, or null if not present / parse error. */
-export function readMeta(): BufferMeta | null {
+export async function readMeta(): Promise<BufferMeta | null> {
   try {
-    const raw = readFileSync(metaPath(), "utf8");
+    const raw = await readFile(metaPath(), "utf8");
     return JSON.parse(raw) as BufferMeta;
   } catch {
     return null;
@@ -58,8 +59,8 @@ export function readMeta(): BufferMeta | null {
 }
 
 /** Hydrate in-memory state from persisted metadata on module load. */
-(function hydrateOnLoad() {
-  const meta = readMeta();
+void (async function hydrateOnLoad() {
+  const meta = await readMeta();
   if (meta) {
     log.info(
       { count: meta.count, watermark: meta.watermark, lastFlushMs: meta.lastFlushMs },
@@ -79,7 +80,7 @@ export async function insertNotification(db: Db, row: NotificationRow): Promise<
   }
   pendingIds.push(row.id);
   await db.insert(notifications).values(row);
-  persistMeta();
+  await persistMeta();
 }
 
 /** Query all notifications with a given status. */
@@ -103,7 +104,7 @@ export async function markNotificationDelivered(db: Db, id: string): Promise<voi
   // Remove from in-memory ring buffer and persist updated metadata.
   const idx = pendingIds.indexOf(id);
   if (idx !== -1) pendingIds.splice(idx, 1);
-  persistMeta();
+  await persistMeta();
 }
 
 /** Mark a notification as expired. */
@@ -115,7 +116,7 @@ export async function markNotificationExpired(db: Db, id: string): Promise<void>
   // Remove from in-memory ring buffer and persist updated metadata.
   const idx = pendingIds.indexOf(id);
   if (idx !== -1) pendingIds.splice(idx, 1);
-  persistMeta();
+  await persistMeta();
 }
 
 /** Get a single notification by id. */

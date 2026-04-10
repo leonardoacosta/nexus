@@ -11,7 +11,7 @@
  * - Filters peer-sourced events to prevent echo loops.
  */
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "@nexus/core";
@@ -116,14 +116,14 @@ export function parseAgentsToml(content: string): PeerConfig {
 }
 
 /** Load and parse agents.toml from the standard config path. */
-export function loadPeerConfig(): PeerConfig | null {
+export async function loadPeerConfig(): Promise<PeerConfig | null> {
   const configPath =
     process.env.NEXUS_CONFIG_DIR
       ? join(process.env.NEXUS_CONFIG_DIR, "agents.toml")
       : join(homedir(), ".config", "nexus", "agents.toml");
 
   try {
-    const content = readFileSync(configPath, "utf8");
+    const content = await readFile(configPath, "utf8");
     return parseAgentsToml(content);
   } catch (err) {
     log.warn({ path: configPath, error: err }, "peer-connector: failed to load agents.toml");
@@ -205,10 +205,10 @@ export function setPeerSecret(s: string): void {
  * Reads agents.toml, connects to each peer, and wires the lifecycle bus
  * for bidirectional event propagation.
  */
-export function startPeerConnector(
+export async function startPeerConnector(
   configOverride?: PeerConfig,
-): PeerConnectorService {
-  const config = configOverride ?? loadPeerConfig();
+): Promise<PeerConnectorService> {
+  const config = configOverride ?? await loadPeerConfig();
   if (!config) {
     log.info("peer-connector: no agents.toml found — running standalone");
     return { stop() {}, connectedCount: () => 0, peerNames: () => [] };

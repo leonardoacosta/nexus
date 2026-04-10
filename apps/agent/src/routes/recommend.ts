@@ -6,7 +6,7 @@
 
 import type { Db } from "@nexus/db";
 import os from "node:os";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { queryActiveSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
@@ -200,7 +200,7 @@ interface MasterContext {
 async function fetchMasterContext(): Promise<MasterContext | null> {
   const path = join(os.homedir(), ".claude/scripts/state/master-context.json");
   try {
-    const contents = readFileSync(path, "utf8");
+    const contents = await readFile(path, "utf8");
     return JSON.parse(contents) as MasterContext;
   } catch {
     return null;

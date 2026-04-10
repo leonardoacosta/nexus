@@ -6,7 +6,8 @@
  * discovered or when the cache expires).
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "@nexus/core";
 
@@ -27,7 +28,7 @@ export class EnvironmentCache {
    * Get environment variables for a project.
    * Returns cached values if still valid, otherwise refreshes from disk.
    */
-  get(projectCode: string, projectPath: string): Record<string, string> {
+  async get(projectCode: string, projectPath: string): Promise<Record<string, string>> {
     const now = Date.now();
     const entry = this.cache.get(projectCode);
 
@@ -42,8 +43,8 @@ export class EnvironmentCache {
    * Force-refresh environment variables for a project by reading
    * its .env file from disk.
    */
-  refresh(projectCode: string, projectPath: string): Record<string, string> {
-    const vars = readEnvFile(projectPath);
+  async refresh(projectCode: string, projectPath: string): Promise<Record<string, string>> {
+    const vars = await readEnvFile(projectPath);
     this.cache.set(projectCode, {
       vars,
       refreshedAt: Date.now(),
@@ -83,12 +84,12 @@ export class EnvironmentCache {
  *   - # comments
  *   - Empty lines
  */
-function readEnvFile(projectPath: string): Record<string, string> {
+async function readEnvFile(projectPath: string): Promise<Record<string, string>> {
   const envPath = join(projectPath, ".env");
   if (!existsSync(envPath)) return {};
 
   try {
-    const contents = readFileSync(envPath, "utf8");
+    const contents = await readFile(envPath, "utf8");
     return parseEnv(contents);
   } catch (err) {
     log.debug(

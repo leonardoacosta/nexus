@@ -13,7 +13,7 @@
  * fire at the correct local time regardless of system sleep or clock drift.
  */
 
-import { existsSync, readdirSync, statSync, unlinkSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "@nexus/core";
