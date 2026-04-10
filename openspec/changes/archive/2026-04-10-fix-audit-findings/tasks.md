@@ -29,20 +29,20 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] Fix 8 cross-boundary imports in apps/nextjs — route DB access through @nexus/db public barrel (db.ts:1-2, get-client.ts:4, + 5 more) [owner:ui-engineer] [beads:nx-cagm]
-- [ ] [3.2] [P-1] Replace bare fetch() calls in apps/nextjs/ with fetchWithTimeout (estimated 44+ call sites in agent-client.ts, XTerminal.tsx, etc.) [owner:ui-engineer] [beads:nx-4yqc]
-- [ ] [3.3] [P-2] Replace console.warn in HealthPoller.tsx:55 with structured logger [owner:ui-engineer] [beads:nx-0kkr]
-- [ ] [3.4] [P-2] Remove as any assertions in agent-client.test.ts:327,353 — add proper typing [owner:ui-engineer] [beads:nx-n271]
+- [x] [3.1] [P-1] Fix 8 cross-boundary imports in apps/nextjs — route DB access through @nexus/db public barrel (db.ts:1-2, get-client.ts:4, + 5 more) [owner:ui-engineer] [beads:nx-cagm]
+- [x] [3.2] [P-1] Replace bare fetch() calls in apps/nextjs/ with fetchWithTimeout (estimated 44+ call sites in agent-client.ts, XTerminal.tsx, etc.) [owner:ui-engineer] [beads:nx-4yqc]
+- [x] [3.3] [P-2] Replace console.warn in HealthPoller.tsx:55 with structured logger [owner:ui-engineer] [beads:nx-0kkr]
+- [x] [3.4] [P-2] Remove as any assertions in agent-client.test.ts:327,353 — add proper typing [owner:ui-engineer] [beads:nx-n271]
 
 ## Cleanup Batch
 
-- [ ] [4.1] [P-1] Delete crates/nexus-register/ (92 LOC — broken, uses gRPC) [owner:api-engineer] [beads:nx-kc5q]
-- [ ] [4.2] [P-1] Delete crates/nexus-mcp/ (649 LOC — no Cargo workspace) [owner:api-engineer] [beads:nx-n0s9]
-- [ ] [4.3] [P-1] Delete crates/archive/ (empty directory) [owner:api-engineer] [beads:nx-tuc5]
-- [ ] [4.4] [P-1] Delete packages/core/src/generated/ (7,733 LOC protobuf, zero consumers) [owner:api-engineer] [beads:nx-axno]
-- [ ] [4.5] [P-1] Remove ProtoSession and ProtoMachineHealth re-exports from packages/core/src/types/ [owner:api-engineer] [beads:nx-m8bw]
-- [ ] [4.6] [P-1] Delete proto/ directory and remove proto:codegen script from root package.json [owner:api-engineer] [beads:nx-gkbq]
-- [ ] [4.7] [P-2] Delete crates/nexus-status/ after Bun replacement is verified (task 2.15) [owner:api-engineer] [beads:nx-o2q9]
-- [ ] [4.8] [P-2] Add 14 missing env vars to .env.example with descriptions (CLAUDE_SESSION_ID, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, + 11 more) [owner:api-engineer] [beads:nx-nlww]
-- [ ] [4.9] [P-2] Remove TODO/FIXME comments in agent-client.ts:23,217 and ProjectCard.tsx:22 — implement or delete [owner:ui-engineer] [beads:nx-twli]
-- [ ] [4.10] [P-2] Remove commented-out code blocks in server.test.ts:166,385 [owner:api-engineer] [beads:nx-v145]
+- [x] [4.1] [P-1] Delete crates/nexus-register/ (92 LOC — broken, uses gRPC) [owner:api-engineer] [beads:nx-kc5q]
+- [x] [4.2] [P-1] Delete crates/nexus-mcp/ (649 LOC — no Cargo workspace) [owner:api-engineer] [beads:nx-n0s9]
+- [x] [4.3] [P-1] Delete crates/archive/ (empty directory) [owner:api-engineer] [beads:nx-tuc5]
+- [x] [4.4] [P-1] Delete packages/core/src/generated/ (7,733 LOC protobuf, zero consumers) [owner:api-engineer] [beads:nx-axno]
+- [x] [4.5] [P-1] Remove ProtoSession and ProtoMachineHealth re-exports from packages/core/src/types/ [owner:api-engineer] [beads:nx-m8bw]
+- [x] [4.6] [P-1] Delete proto/ directory and remove proto:codegen script from root package.json [owner:api-engineer] [beads:nx-gkbq]
+- [x] [4.7] [P-2] Delete crates/nexus-status/ after Bun replacement is verified (task 2.15) [owner:api-engineer] [beads:nx-o2q9]
+- [x] [4.8] [P-2] Add 14 missing env vars to .env.example with descriptions (CLAUDE_SESSION_ID, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, + 11 more) [owner:api-engineer] [beads:nx-nlww]
+- [x] [4.9] [P-2] Remove TODO/FIXME comments in agent-client.ts:23,217 and ProjectCard.tsx:22 — implement or delete [owner:ui-engineer] [beads:nx-twli]
+- [x] [4.10] [P-2] Remove commented-out code blocks in server.test.ts:166,385 [owner:api-engineer] [beads:nx-v145]
