@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus v4 Architecture -- Bun Consolidation</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --blue: #58a6ff;
+      --green: #3fb950;
+      --orange: #d29922;
+      --purple: #bc8cff;
+      --cyan: #39d2c0;
+      --red: #f85149;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.25rem;
+    }
+
+    header .subtitle {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    header .date {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    /* Table of Contents */
+    nav.toc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    nav.toc h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.75rem;
+    }
+
+    nav.toc ol {
+      list-style: none;
+      counter-reset: toc;
+    }
+
+    nav.toc li {
+      counter-increment: toc;
+      margin-bottom: 0.35rem;
+    }
+
+    nav.toc li::before {
+      content: counter(toc) ".";
+      color: var(--text-muted);
+      margin-right: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    nav.toc a {
+      color: var(--blue);
+      text-decoration: none;
+      font-size: 0.95rem;
+    }
+
+    nav.toc a:hover {
+      text-decoration: underline;
+    }
+
+    /* Sections */
+    section {
+      margin-bottom: 3rem;
+    }
+
+    section h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section h2 .section-num {
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-right: 0.25rem;
+    }
+
+    section p.desc {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .diagram-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    /* Legend */
+    .legend {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .legend h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.75rem;
+    }
+
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 0.5rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .legend-label {
+      color: var(--text-muted);
+    }
+
+    .legend-path {
+      color: var(--text);
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.8rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container { padding: 1rem; }
+      header h1 { font-size: 1.5rem; }
+      .legend-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header>
+      <h1>Nexus v4 Architecture</h1>
+      <div class="subtitle">Post-Bun-consolidation: single-process agent daemon with Postgres persistence and Next.js dashboard</div>
+      <div class="date">Bun consolidation date: 2026-04-09 -- All Rust crates, gRPC, and TUI removed</div>
+    </header>
+
+    <!-- Table of Contents -->
+    <nav class="toc">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#topology">Topology Map</a></li>
+        <li><a href="#session-lifecycle">Session Lifecycle</a></li>
+        <li><a href="#credential-management">Credential Management</a></li>
+        <li><a href="#peer-federation">Peer Federation</a></li>
+        <li><a href="#notification-pipeline">Notification Pipeline</a></li>
+      </ol>
+    </nav>
+
+    <!-- Legend -->
+    <div class="legend">
+      <h3>Color Legend</h3>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #58a6ff;"></div>
+          <span class="legend-label">Bun Agent Services</span>
+          <span class="legend-path">apps/agent/src/services/</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #3fb950;"></div>
+          <span class="legend-label">Storage / Database</span>
+          <span class="legend-path">apps/agent/src/db/</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #d29922;"></div>
+          <span class="legend-label">External Services</span>
+          <span class="legend-path">Anthropic API, ElevenLabs</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #bc8cff;"></div>
+          <span class="legend-label">Clients</span>
+          <span class="legend-path">Next.js, nexus-register, nova</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #39d2c0;"></div>
+          <span class="legend-label">Transport / IPC</span>
+          <span class="legend-path">HTTP, WebSocket, Unix socket</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background: #f85149;"></div>
+          <span class="legend-label">Notifications</span>
+          <span class="legend-path">apps/agent/src/notifications/</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 1: Topology Map -->
+    <section id="topology">
+      <h2><span class="section-num">1.</span> Topology Map</h2>
+      <p class="desc">Single-process Bun agent on omarchy with all internal services, external connections, and client access paths.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+graph TB
+  subgraph clients ["Clients"]
+    style clients fill:#2d1f4e,stroke:#bc8cff,color:#e6edf3
+    dashboard["Next.js Dashboard<br/>(browser)"]
+    cchooks["nexus-register<br/>(CC hooks CLI)"]
+    nova["nova<br/>(~/dev/nv)"]
+  end
+
+  subgraph omarchy ["omarchy -- Bun nexus-agent"]
+    style omarchy fill:#111827,stroke:#58a6ff,color:#e6edf3
+
+    subgraph transport ["Transport Layer"]
+      style transport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
+      http["HTTP Server<br/>:7400"]
+      wsfed["WebSocket<br/>/ws/federation"]
+      wsstream["WebSocket<br/>/sessions/:id/stream"]
+      wsinteract["WebSocket<br/>/sessions/:id/interact"]
+      unixsock["Unix Socket<br/>/tmp/nexus-agent.sock"]
+    end
+
+    subgraph services ["Internal Services"]
+      style services fill:#0d1f30,stroke:#58a6ff,color:#e6edf3
+      sessmgr["Session Manager<br/>session-manager.ts"]
+      credpool["Credential Pool<br/>credentials/pool.ts"]
+      healthcol["Health Collector<br/>health-collector.ts"]
+      healthsched["Health Scheduler<br/>health-scheduler.ts"]
+      specwatch["Spec Watcher<br/>services/spec-watcher.ts"]
+      cron["Cron Service<br/>services/cron.ts"]
+      lifecyclebus["Lifecycle Bus<br/>services/lifecycle-bus.ts"]
+      peerconn["Peer Connector<br/>services/peer-connector.ts"]
+      notifengine["Notification Engine<br/>notifications/router.ts"]
+      streammgr["Stream Manager<br/>terminal/stream-manager.ts"]
+      sockdispatch["Socket Dispatch<br/>services/socket-dispatch.ts"]
+      fednotify["Federation Notify<br/>services/federation-notify.ts"]
+    end
+  end
+
+  subgraph external ["External Services"]
+    style external fill:#2d2200,stroke:#d29922,color:#e6edf3
+    postgres[("PostgreSQL<br/>(Drizzle ORM)")]
+    anthropic["Anthropic API<br/>(usage polling)"]
+    elevenlabs["ElevenLabs API<br/>(TTS voice)"]
+  end
+
+  subgraph peers ["Peer Agents"]
+    style peers fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
+    macbook["macbook-pro<br/>:7400"]
+  end
+
+  %% Client connections
+  dashboard -->|"HTTP REST +<br/>x-nexus-secret"| http
+  dashboard -->|"WebSocket<br/>?token=secret"| wsstream
+  dashboard -->|"WebSocket<br/>?token=secret"| wsinteract
+  cchooks -->|"NDJSON events"| unixsock
+  nova -->|"NDJSON events"| unixsock
+
+  %% Transport to services
+  unixsock -->|"events"| sockdispatch
+  sockdispatch -->|"WatcherEvent"| sessmgr
+  sockdispatch -->|"emit"| lifecyclebus
+  sockdispatch -->|"TTS"| notifengine
+  http -->|"REST routes"| sessmgr
+  http -->|"REST routes"| credpool
+  http -->|"REST routes"| healthcol
+  wsstream -->|"PTY output"| streammgr
+  wsinteract -->|"PTY I/O"| streammgr
+
+  %% Internal service connections
+  healthcol -->|"metrics"| healthsched
+  healthsched -->|"snapshots"| postgres
+  sessmgr -->|"upsert"| postgres
+  credpool -->|"lease/release"| postgres
+  specwatch -->|"emit"| lifecyclebus
+  specwatch -->|"TTS"| notifengine
+  lifecyclebus -->|"local events"| peerconn
+  peerconn -->|"peer events"| lifecyclebus
+  lifecyclebus -->|"peer events"| fednotify
+  fednotify -->|"route"| notifengine
+  cron -->|"prune /tmp, drift"| omarchy
+
+  %% External connections
+  credpool -->|"usage poll<br/>every 300s"| anthropic
+  notifengine -->|"TTS audio"| elevenlabs
+  peerconn -->|"ws://host:7400<br/>/ws/federation"| macbook
+  wsfed -->|"accept peer"| peerconn
+
+  %% Retention
+  cron -.->|"24h cycle"| postgres
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 2: Session Lifecycle -->
+    <section id="session-lifecycle">
+      <h2><span class="section-num">2.</span> Session Lifecycle</h2>
+      <p class="desc">From CC hook trigger through registration, interaction, dead session detection, and kill escalation.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+sequenceDiagram
+  participant CC as CC Hook<br/>(nexus-register)
+  participant Sock as Unix Socket<br/>(/tmp/nexus-agent.sock)
+  participant Dispatch as Socket Dispatch
+  participant SM as Session Manager
+  participant Bus as Lifecycle Bus
+  participant DB as PostgreSQL
+  participant Dash as Next.js Dashboard
+  participant HTTP as HTTP :7400
+  participant WS as WebSocket<br/>(stream/interact)
+  participant Stream as Stream Manager
+
+  rect rgb(45, 31, 78)
+    Note over CC,Sock: Session Start Trigger
+    CC->>Sock: NDJSON {"event":"session_start","session_id":"abc"}
+    Sock->>Dispatch: SocketEvent
+    Dispatch->>SM: handleWatcherEvent({type:"session_start"})
+    SM->>SM: Create Session (status: active, in-memory Map)
+    Dispatch->>Bus: emit("SessionStarted", {sessionId, project, model})
+    Bus-->>DB: upsert session row (via session routes)
+  end
+
+  rect rgb(13, 31, 48)
+    Note over CC,Bus: Session Heartbeat
+    CC->>Sock: {"event":"session_heartbeat","session_id":"abc"}
+    Sock->>Dispatch: SocketEvent
+    Dispatch->>SM: handleWatcherEvent({type:"session_update"})
+    SM->>SM: Update lastHeartbeat timestamp
+    Dispatch->>Bus: emit("SessionHeartbeat")
+  end
+
+  rect rgb(45, 34, 0)
+    Note over Dash,Stream: Session Interaction
+    Dash->>HTTP: GET /sessions (x-nexus-secret)
+    HTTP->>SM: getAll()
+    SM-->>HTTP: Session[]
+    HTTP-->>Dash: JSON response
+
+    Dash->>WS: Upgrade /sessions/abc/stream?token=secret
+    WS->>Stream: attach PTY, addViewer(ws)
+    Stream-->>WS: PTY output (fan-out to viewers)
+
+    Dash->>WS: Upgrade /sessions/abc/interact?token=secret
+    WS->>Stream: setInteractiveWriter(ws)
+    Note over WS,Stream: Bidirectional PTY I/O (keyboard in, terminal out)
+  end
+
+  rect rgb(48, 13, 13)
+    Note over SM,SM: Dead Session Detection
+    SM->>SM: sweepIdle() every 60s
+    SM->>SM: Check lastHeartbeat > 5min idle threshold
+    SM->>SM: status: active -> idle -> stale
+    SM->>SM: Check /proc/{pid} exists
+    Note over SM: If /proc missing: status -> ended
+    SM->>SM: Ended TTL 1h: evict from Map
+  end
+
+  rect rgb(48, 13, 30)
+    Note over SM,Bus: Session Kill (SIGTERM -> SIGKILL)
+    SM->>SM: kill(pid, SIGTERM)
+    SM->>SM: Wait grace period
+    SM->>SM: kill(pid, SIGKILL) if still alive
+    SM->>Bus: emit("SessionStopped", {sessionId})
+    Bus->>DB: update session status
+  end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 3: Credential Management -->
+    <section id="credential-management">
+      <h2><span class="section-num">3.</span> Credential Management</h2>
+      <p class="desc">Encrypted credential pool with lease/release/cooldown lifecycle, usage polling, and pre-rotation at 85% utilization.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+sequenceDiagram
+  participant Admin as Admin / CLI
+  participant HTTP as HTTP :7400
+  participant Pool as Credential Pool
+  participant Enc as Encryption<br/>(AES-256-GCM)
+  participant DB as PostgreSQL<br/>(credentials table)
+  participant API as Anthropic API
+  participant Bus as Lifecycle Bus
+
+  rect rgb(13, 31, 48)
+    Note over Admin,DB: Credential Storage
+    Admin->>HTTP: POST /credentials {name, type, value}
+    HTTP->>Pool: add({id, name, type, value_plaintext})
+    Pool->>Enc: encrypt(value, NEXUS_ENCRYPTION_KEY)
+    Enc-->>Pool: ciphertext (AES-256-GCM)
+    Pool->>DB: INSERT credential (valueEncrypted, status: available)
+    Note over DB: Stored at ~/.config/nexus/credentials/<br/>Encrypted at rest in PostgreSQL
+  end
+
+  rect rgb(45, 31, 78)
+    Note over HTTP,DB: Lease / Release Lifecycle
+    HTTP->>Pool: lease(type: "anthropic", leasedBy: "session-abc")
+    Pool->>DB: BEGIN TRANSACTION
+    Pool->>DB: SELECT ... WHERE status=available<br/>ORDER BY rate_limit_count ASC<br/>FOR UPDATE LIMIT 1
+    DB-->>Pool: credential row
+    Pool->>DB: UPDATE status=leased, leasedBy, leasedAt
+    Pool->>DB: COMMIT
+    Pool->>Enc: decrypt(valueEncrypted, key)
+    Pool-->>HTTP: CredentialRow (decrypted value)
+
+    Note over HTTP,Pool: ... session uses API key ...
+
+    HTTP->>Pool: release(credentialId)
+    Pool->>DB: UPDATE status=available, leasedBy=null
+  end
+
+  rect rgb(48, 13, 13)
+    Note over Pool,API: Rate Limit / Cooldown
+    HTTP->>Pool: reportRateLimit(credentialId)
+    Pool->>DB: UPDATE rate_limit_count++, status=cooldown<br/>cooldownUntil = now + 5min
+    Pool->>Bus: emit("CredentialSwap", {credentialId, reason})
+
+    Note over Pool,DB: Cooldown Recovery (periodic)
+    Pool->>DB: SELECT WHERE cooldownUntil < now
+    Pool->>DB: UPDATE status=available (batch)
+  end
+
+  rect rgb(45, 34, 0)
+    Note over Pool,API: Usage Polling and Pre-Rotation
+    loop Every 300s
+      Pool->>API: GET /v1/usage (per credential)
+      API-->>Pool: {used, limit, percent}
+      alt utilization >= 85% (prerotateThreshold)
+        Pool->>Pool: Mark credential for cooldown
+        Pool->>DB: UPDATE status=cooldown
+        Pool->>Bus: emit("CredentialSwap", {reason: "pre-rotation"})
+        Note over Pool: Next lease() picks a fresh credential
+      end
+    end
+  end
+
+  rect rgb(13, 31, 48)
+    Note over Pool,DB: Stale Lease Recovery
+    Pool->>DB: SELECT WHERE status=leased<br/>AND leasedAt < now - 30min
+    Pool->>DB: UPDATE status=available (batch)
+    Note over Pool: Prevents credential exhaustion<br/>from crashed sessions
+  end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 4: Peer Federation -->
+    <section id="peer-federation">
+      <h2><span class="section-num">4.</span> Peer Federation</h2>
+      <p class="desc">Peer-to-peer agent mesh via Tailscale. WebSocket connections with reconnect backoff, event buffering, and echo suppression.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+sequenceDiagram
+  participant TOML as agents.toml
+  participant PC as Peer Connector<br/>(omarchy)
+  participant Bus as Lifecycle Bus<br/>(omarchy)
+  participant WS as WebSocket<br/>ws://macbook:7400
+  participant PBus as Lifecycle Bus<br/>(macbook)
+  participant FN as Federation Notify
+  participant NR as Notification Router
+
+  rect rgb(13, 31, 48)
+    Note over TOML,PC: Discovery
+    PC->>TOML: Read ~/.config/nexus/agents.toml
+    Note over TOML: self_name = "omarchy"<br/>[[agents]] name="macbook"<br/>host="macbook-pro" port=7400
+    PC->>PC: Filter out self (omarchy)<br/>Build peer list: [macbook]
+    PC->>Bus: setOrigin("omarchy")
+  end
+
+  rect rgb(45, 31, 78)
+    Note over PC,WS: WebSocket Connection
+    PC->>WS: Connect ws://macbook-pro:7400/ws/federation
+    Note over WS: x-nexus-secret header for auth
+    WS-->>PC: Connection established
+    PC->>PC: Reset attempt counter, drain buffer
+  end
+
+  rect rgb(45, 34, 0)
+    Note over Bus,PBus: Local Event Forwarding
+    Bus->>Bus: Session started locally
+    Bus->>PC: onAny(envelope) [source: local]
+    PC->>WS: JSON.stringify(envelope)
+    WS->>PBus: injectPeerEvent(envelope) [source: peer]
+    Note over PBus: Peer bus emits with source=peer<br/>so peer connector won't re-forward (echo suppression)
+  end
+
+  rect rgb(48, 13, 13)
+    Note over WS,PC: Disconnect and Reconnect
+    WS--xPC: Connection lost (code: 1006)
+    Note over PC: Buffer events (max 1000 per peer)
+    Bus->>PC: onAny(envelope)
+    PC->>PC: buffer.push(envelope) [peer offline]
+
+    loop Exponential Backoff
+      Note over PC: attempt 0: wait 1s<br/>attempt 1: wait 2s<br/>attempt 2: wait 4s<br/>attempt 3: wait 8s<br/>... max 30s
+      PC->>WS: Reconnect attempt
+    end
+
+    WS-->>PC: Connection restored
+    PC->>PC: drain buffer
+    PC->>WS: Replay buffered events (in order)
+    Note over PC: Reset attempt counter to 0
+  end
+
+  rect rgb(13, 48, 30)
+    Note over PBus,NR: Peer Event -> Notification
+    PBus->>FN: onAny(envelope) [source: peer]
+    FN->>FN: Filter: only process source=peer
+    FN->>FN: Map event to notification<br/>(SessionStarted, SpecTransition, etc.)
+    FN->>NR: routeNotificationParallel(notification)
+    NR->>NR: findMatchingRule(notification)
+    NR->>NR: Dispatch to channels (TTS, desktop, slack)
+  end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 5: Notification Pipeline -->
+    <section id="notification-pipeline">
+      <h2><span class="section-num">5.</span> Notification Pipeline</h2>
+      <p class="desc">Event-driven notification system with per-project routing rules, meeting-aware buffering, and multi-channel delivery.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+sequenceDiagram
+  participant Sock as Socket Events<br/>(CC hooks)
+  participant SW as Spec Watcher
+  participant Fed as Federation Notify<br/>(peer events)
+  participant Bus as Lifecycle Bus
+  participant Dispatch as Socket Dispatch
+  participant Router as Notification Router
+  participant Rules as Routing Rules
+  participant Meeting as Meeting State
+  participant Buffer as Notification Buffer
+  participant DB as PostgreSQL<br/>(notifications table)
+  participant TTS as TTS Channel<br/>(ElevenLabs)
+  participant Desktop as Desktop Channel
+  participant Slack as Slack Channel
+
+  rect rgb(45, 31, 78)
+    Note over Sock,Dispatch: Event Sources
+    Sock->>Dispatch: {event:"notification", message, channels:["tts"]}
+    Dispatch->>Bus: emit("NotificationFired")
+    SW->>Bus: emit("SpecTransition")
+    SW->>TTS: sendSpecTtsNotification (direct, coalesced)
+    Fed->>Router: routeNotificationParallel (peer events)
+  end
+
+  rect rgb(13, 31, 48)
+    Note over Router,Rules: Routing Decision
+    Router->>Rules: findMatchingRule(notification)
+    Note over Rules: 1. Match project-specific rule<br/>2. Match wildcard rule (no project)<br/>3. Fall back to DEFAULT_RULES<br/>   [channels: ["desktop"], meeting: "buffer"]
+    Rules-->>Router: NotificationRule {channels, meeting_behavior}
+  end
+
+  rect rgb(45, 34, 0)
+    Note over Meeting,Buffer: Meeting-Aware Buffering
+    alt Meeting active (meeting_behavior: "buffer")
+      Router->>Buffer: insertNotification(db, row)
+      Buffer->>DB: INSERT (status: queued)
+      Buffer->>Buffer: Track in pendingIds ring buffer (max 1000)
+      Note over Buffer: Persist metadata to<br/>~/.config/nexus/buffer-meta.json
+    end
+    alt Meeting ends
+      Meeting->>Buffer: Flush buffered notifications
+      Buffer->>DB: SELECT WHERE status=queued
+      loop Each buffered notification
+        Buffer->>Router: route(notification)
+      end
+    end
+  end
+
+  rect rgb(13, 48, 30)
+    Note over Router,Slack: Multi-Channel Delivery (parallel)
+    Router->>Router: Promise.allSettled(channels)
+    par TTS delivery
+      Router->>TTS: sendTtsNotification(row)
+      TTS->>TTS: POST /v1/text-to-speech/{voiceId}<br/>(ElevenLabs API)
+      Note over TTS: Falls back to console log<br/>if ELEVENLABS_API_KEY unset
+      TTS-->>Router: success
+    and Desktop delivery
+      Router->>Desktop: sendDesktopNotification(row)
+      Desktop-->>Router: success
+    and Slack delivery
+      Router->>Slack: sendSlackNotification(row)
+      Slack-->>Router: success
+    end
+    Router->>Router: Collect {delivered[], failed[]}
+    Router->>DB: UPDATE status=delivered, sentAt=now
+  end
+
+  rect rgb(48, 13, 13)
+    Note over Router,DB: Mode Control
+    Note over Router: Mode selection per config:<br/> full -- all channels active<br/> system -- desktop only<br/> noduck -- TTS muted, others active<br/> silent -- all channels suppressed
+  end
+        </pre>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Mermaid CDN -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#161b22',
+        primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#30363d',
+        lineColor: '#58a6ff',
+        secondaryColor: '#1f2937',
+        tertiaryColor: '#0d1117',
+        noteBkgColor: '#161b22',
+        noteTextColor: '#e6edf3',
+        noteBorderColor: '#30363d',
+        actorBkg: '#161b22',
+        actorBorder: '#58a6ff',
+        actorTextColor: '#e6edf3',
+        signalColor: '#e6edf3',
+        signalTextColor: '#e6edf3',
+        labelBoxBkgColor: '#161b22',
+        labelBoxBorderColor: '#30363d',
+        labelTextColor: '#e6edf3',
+        loopTextColor: '#e6edf3',
+        activationBorderColor: '#58a6ff',
+        activationBkgColor: '#1f2937',
+        sequenceNumberColor: '#0d1117',
+      },
+      sequence: {
+        mirrorActors: false,
+        messageMargin: 30,
+        actorMargin: 50,
+        boxMargin: 10,
+        boxTextMargin: 5,
+        noteMargin: 10,
+        useMaxWidth: true,
+        wrap: true,
+      },
+      flowchart: {
+        htmlLabels: true,
+        curve: 'basis',
+        useMaxWidth: true,
+        padding: 15,
+      },
+    });
+  </script>
+</body>
+</html>
