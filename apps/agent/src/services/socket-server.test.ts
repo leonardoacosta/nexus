@@ -1,6 +1,44 @@
-import { describe, test, expect, afterEach } from "bun:test";
-import { startSocketServer } from "./socket-server";
+import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import { startSocketServer, createSocketEventDispatcher } from "./socket-server";
 import type { SocketEvent, SocketCommand, SocketResponse } from "../types/socket-events";
+import type { SessionManager } from "../session-manager";
+import type { WatcherEvent } from "@nexus/core";
+
+// ---------------------------------------------------------------------------
+// Module-level mocks for dispatch tests
+// ---------------------------------------------------------------------------
+
+mock.module("../notifications/channels/tts", () => ({
+  sendTtsNotification: mock(() => Promise.resolve(true)),
+}));
+
+const mockRecordNotification = mock(() => {});
+mock.module("./command-handler", () => ({
+  recordNotification: mockRecordNotification,
+  handleCommand: () => ({ error: "not implemented" }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock SessionManager
+// ---------------------------------------------------------------------------
+
+function createMockSessionManager(): SessionManager & {
+  receivedEvents: WatcherEvent[];
+} {
+  const receivedEvents: WatcherEvent[] = [];
+
+  return {
+    receivedEvents,
+    handleWatcherEvent(event: WatcherEvent) {
+      receivedEvents.push(event);
+    },
+    getAll: () => [],
+    getActive: () => [],
+    getById: () => null,
+    sweepIdle: () => {},
+    stop: () => {},
+  };
+}
 
 const SOCKET_PATH = `/tmp/nexus-test-${process.pid}.sock`;
 
@@ -248,5 +286,239 @@ describe("socket-server", () => {
     cleanup = null; // Already stopped.
 
     expect(existsSync(SOCKET_PATH)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: built-in event dispatcher (ported from socket-dispatch.test.ts)
+// ---------------------------------------------------------------------------
+
+describe("socket-server event dispatcher", () => {
+  let sessionManager: ReturnType<typeof createMockSessionManager>;
+  let bus: import("./lifecycle-bus").LifecycleBus;
+  let dispatch: (event: SocketEvent) => void;
+
+  beforeEach(async () => {
+    const { LifecycleBus } = await import("./lifecycle-bus");
+    bus = new LifecycleBus();
+    sessionManager = createMockSessionManager();
+    dispatch = createSocketEventDispatcher({ sessionManager, lifecycleBus: bus });
+    mockRecordNotification.mockClear();
+  });
+
+  test("session_start routes to sessionManager.handleWatcherEvent", () => {
+    const event: SocketEvent = {
+      event: "session_start",
+      session_id: "sess-abc",
+      project: "my-project",
+      cwd: "/home/user/dev/my-project",
+      model: "opus",
+    };
+
+    dispatch(event);
+
+    expect(sessionManager.receivedEvents).toHaveLength(1);
+    const wEvent = sessionManager.receivedEvents[0]!;
+    expect(wEvent.type).toBe("session_start");
+    expect(wEvent.session_id).toBe("sess-abc");
+    if (wEvent.type === "session_start") {
+      expect(wEvent.project).toBe("my-project");
+      expect(wEvent.path).toBe("/home/user/dev/my-project");
+    }
+  });
+
+  test("session_start emits SessionStarted on lifecycle bus", () => {
+    const received: import("./lifecycle-bus").LifecycleEnvelope[] = [];
+    bus.onAny((env) => received.push(env));
+
+    dispatch({
+      event: "session_start",
+      session_id: "sess-bus-1",
+      project: "nx",
+      cwd: "/home/user/dev/nx",
+      model: "opus",
+    });
+
+    const sessionEvents = received.filter((e) => e.event === "SessionStarted");
+    expect(sessionEvents).toHaveLength(1);
+    expect(sessionEvents[0]!.payload).toEqual({
+      sessionId: "sess-bus-1",
+      project: "nx",
+      cwd: "/home/user/dev/nx",
+      model: "opus",
+    });
+    expect(sessionEvents[0]!.source).toBe("local");
+  });
+
+  test("session_stop routes to sessionManager.handleWatcherEvent", () => {
+    const event: SocketEvent = {
+      event: "session_stop",
+      session_id: "sess-stop-1",
+    };
+
+    dispatch(event);
+
+    expect(sessionManager.receivedEvents).toHaveLength(1);
+    const wEvent = sessionManager.receivedEvents[0]!;
+    expect(wEvent.type).toBe("session_end");
+    expect(wEvent.session_id).toBe("sess-stop-1");
+  });
+
+  test("session_stop emits SessionStopped on lifecycle bus", () => {
+    const received: import("./lifecycle-bus").LifecycleEnvelope[] = [];
+    bus.onAny((env) => received.push(env));
+
+    dispatch({
+      event: "session_stop",
+      session_id: "sess-bus-2",
+    });
+
+    const stopEvents = received.filter((e) => e.event === "SessionStopped");
+    expect(stopEvents).toHaveLength(1);
+    expect(stopEvents[0]!.payload).toEqual({ sessionId: "sess-bus-2" });
+  });
+
+  test("session_heartbeat routes to sessionManager.handleWatcherEvent", () => {
+    const event: SocketEvent = {
+      event: "session_heartbeat",
+      session_id: "sess-hb",
+    };
+
+    dispatch(event);
+
+    expect(sessionManager.receivedEvents).toHaveLength(1);
+    const wEvent = sessionManager.receivedEvents[0]!;
+    expect(wEvent.type).toBe("session_update");
+    expect(wEvent.session_id).toBe("sess-hb");
+  });
+
+  test("session_heartbeat emits SessionHeartbeat on lifecycle bus", () => {
+    const received: import("./lifecycle-bus").LifecycleEnvelope[] = [];
+    bus.onAny((env) => received.push(env));
+
+    dispatch({
+      event: "session_heartbeat",
+      session_id: "sess-bus-3",
+    });
+
+    const hbEvents = received.filter((e) => e.event === "SessionHeartbeat");
+    expect(hbEvents).toHaveLength(1);
+    const payload = hbEvents[0]!.payload as { sessionId: string; timestamp: string };
+    expect(payload.sessionId).toBe("sess-bus-3");
+    expect(payload.timestamp).toBeTruthy();
+  });
+
+  test("notification event calls recordNotification", () => {
+    const event: SocketEvent = {
+      event: "notification",
+      message: "Build succeeded",
+      message_type: "brief",
+      channels: ["tts", "desktop"],
+    };
+
+    dispatch(event);
+
+    expect(mockRecordNotification).toHaveBeenCalledTimes(1);
+    expect(mockRecordNotification).toHaveBeenCalledWith(
+      "Build succeeded",
+      "brief",
+      ["tts", "desktop"],
+    );
+  });
+
+  test("notification event defaults channels to [tts]", () => {
+    const event: SocketEvent = {
+      event: "notification",
+      message: "Hello world",
+    };
+
+    dispatch(event);
+
+    expect(mockRecordNotification).toHaveBeenCalledWith(
+      "Hello world",
+      "brief",
+      ["tts"],
+    );
+  });
+
+  test("notification event emits NotificationFired on lifecycle bus", () => {
+    const received: import("./lifecycle-bus").LifecycleEnvelope[] = [];
+    bus.onAny((env) => received.push(env));
+
+    dispatch({
+      event: "notification",
+      message: "Build complete",
+      channels: ["tts", "desktop"],
+    } as unknown as SocketEvent);
+
+    const notifEvents = received.filter((e) => e.event === "NotificationFired");
+    expect(notifEvents).toHaveLength(1);
+    const payload = notifEvents[0]!.payload as { message: string; channel: string };
+    expect(payload.message).toBe("Build complete");
+    expect(payload.channel).toBe("tts,desktop");
+  });
+
+  test("session events do not affect notification channel", () => {
+    dispatch({
+      event: "session_start",
+      session_id: "sess-no-notif",
+      project: "test",
+    });
+
+    expect(mockRecordNotification).not.toHaveBeenCalled();
+  });
+
+  test("agent_spawn does not crash (log-only event)", () => {
+    dispatch({
+      event: "agent_spawn",
+      session_id: "sess-spawn",
+      agent_type: "engineer",
+      model: "sonnet",
+    });
+
+    expect(sessionManager.receivedEvents).toHaveLength(0);
+  });
+
+  test("agent_complete does not crash (log-only event)", () => {
+    dispatch({
+      event: "agent_complete",
+      session_id: "sess-done",
+      agent_type: "engineer",
+      duration_ms: 5000,
+    });
+
+    expect(sessionManager.receivedEvents).toHaveLength(0);
+  });
+
+  test("telemetry event does not crash", () => {
+    dispatch({
+      event: "telemetry",
+      payload: { tokens: 1234, model: "opus" },
+    });
+
+    expect(sessionManager.receivedEvents).toHaveLength(0);
+  });
+
+  test("multiple events dispatch independently", () => {
+    dispatch({
+      event: "session_start",
+      session_id: "multi-1",
+      project: "proj",
+    });
+
+    dispatch({
+      event: "session_heartbeat",
+      session_id: "multi-1",
+    });
+
+    dispatch({
+      event: "session_stop",
+      session_id: "multi-1",
+    });
+
+    expect(sessionManager.receivedEvents).toHaveLength(3);
+    expect(sessionManager.receivedEvents[0]!.type).toBe("session_start");
+    expect(sessionManager.receivedEvents[1]!.type).toBe("session_update");
+    expect(sessionManager.receivedEvents[2]!.type).toBe("session_end");
   });
 });

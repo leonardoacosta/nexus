@@ -28,7 +28,7 @@ mock.module("../notifications/channels/slack", () => ({
 // ---------------------------------------------------------------------------
 
 import { LifecycleBus } from "./lifecycle-bus";
-import { createSocketEventHandler } from "./socket-dispatch";
+import { createSocketEventDispatcher } from "./socket-server";
 import type { SessionManager } from "../session-manager";
 import type { WatcherEvent } from "@nexus/core";
 import type { SocketEvent } from "../types/socket-events";
@@ -56,11 +56,9 @@ function createMockSessionManager(): SessionManager & { receivedEvents: WatcherE
 // Tests: socket dispatch → lifecycle bus
 // ---------------------------------------------------------------------------
 
-describe("socket-dispatch → lifecycle bus integration", () => {
-  // We need to use a fresh bus per test, but socket-dispatch imports the
-  // singleton. We test the singleton here — acceptable for integration tests.
+describe("socket-server → lifecycle bus integration", () => {
+  // We use the singleton bus — the dispatcher now receives it as a dependency.
 
-  // Import the singleton bus that socket-dispatch uses
   let singletonBus: typeof import("./lifecycle-bus");
 
   beforeEach(async () => {
@@ -76,7 +74,7 @@ describe("socket-dispatch → lifecycle bus integration", () => {
     singletonBus.lifecycleBus.onAny((env) => received.push(env));
 
     const sessionMgr = createMockSessionManager();
-    const dispatch = createSocketEventHandler({ sessionManager: sessionMgr });
+    const dispatch = createSocketEventDispatcher({ sessionManager: sessionMgr, lifecycleBus: singletonBus.lifecycleBus });
 
     const event: SocketEvent = {
       event: "session_start",
@@ -104,7 +102,7 @@ describe("socket-dispatch → lifecycle bus integration", () => {
     singletonBus.lifecycleBus.onAny((env) => received.push(env));
 
     const sessionMgr = createMockSessionManager();
-    const dispatch = createSocketEventHandler({ sessionManager: sessionMgr });
+    const dispatch = createSocketEventDispatcher({ sessionManager: sessionMgr, lifecycleBus: singletonBus.lifecycleBus });
 
     dispatch({
       event: "session_stop",
@@ -121,7 +119,7 @@ describe("socket-dispatch → lifecycle bus integration", () => {
     singletonBus.lifecycleBus.onAny((env) => received.push(env));
 
     const sessionMgr = createMockSessionManager();
-    const dispatch = createSocketEventHandler({ sessionManager: sessionMgr });
+    const dispatch = createSocketEventDispatcher({ sessionManager: sessionMgr, lifecycleBus: singletonBus.lifecycleBus });
 
     dispatch({
       event: "session_heartbeat",
@@ -140,7 +138,7 @@ describe("socket-dispatch → lifecycle bus integration", () => {
     singletonBus.lifecycleBus.onAny((env) => received.push(env));
 
     const sessionMgr = createMockSessionManager();
-    const dispatch = createSocketEventHandler({ sessionManager: sessionMgr });
+    const dispatch = createSocketEventDispatcher({ sessionManager: sessionMgr, lifecycleBus: singletonBus.lifecycleBus });
 
     dispatch({
       event: "notification",

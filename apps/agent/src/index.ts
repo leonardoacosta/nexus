@@ -9,12 +9,12 @@ import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
 import { scheduleProjectCleanup } from "./db/project-registry";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
-import { startSocketServer, type SocketServer } from "./services/socket-server";
+import { startSocketServer, createSocketEventDispatcher, type SocketServer } from "./services/socket-server";
 import { startCronService, type CronService } from "./services/cron";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
-import { createSocketEventHandler } from "./services/socket-dispatch";
 import { handleCommand } from "./services/command-handler";
 import { stopConfigLoader } from "./services/config-loader";
+import { lifecycleBus } from "./services/lifecycle-bus";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -75,7 +75,7 @@ try {
 // notification router, and command handler.
 let socketServer: SocketServer | null = null;
 
-const socketEventHandler = createSocketEventHandler({ sessionManager });
+const socketEventHandler = createSocketEventDispatcher({ sessionManager, lifecycleBus });
 
 startSocketServer({
   onEvent: socketEventHandler,
