@@ -39,7 +39,7 @@ export async function upsertSession(db: Db, session: Session): Promise<void> {
     .onConflictDoUpdate({
       target: sessions.id,
       set: {
-        project: row.project,
+        projectId: row.projectId,
         machine: row.machine,
         status: row.status,
         lastActivity: row.lastActivity,
@@ -66,7 +66,10 @@ function rowToSession(row: SessionRow): Session {
   return {
     id: row.id,
     pid: row.pid ?? 0,
-    project: row.project ?? null,
+    // `project` (name) requires a join on projects.id — left undefined here.
+    // Consumers needing the project name should load it via a separate query.
+    project: undefined,
+    projectId: row.projectId ?? null,
     machine: row.machine ?? null,
     cwd: row.cwd ?? "",
     branch: row.branch ?? null,
@@ -92,7 +95,6 @@ function rowToSession(row: SessionRow): Session {
 function sessionToRow(session: Session): SessionRow {
   return {
     id: session.id,
-    project: session.project ?? "",
     machine: session.machine ?? "",
     status: session.status,
     startedAt: session.startedAt,
@@ -107,7 +109,7 @@ function sessionToRow(session: Session): SessionRow {
     totalCostUsd: session.totalCostUsd ?? null,
     rateLimitResetAt: null,
     idleSince: null,
-    projectId: null,
+    projectId: session.projectId ?? null,
     ccSessionId: session.ccSessionId ?? null,
     tmuxSession: session.tmuxSession ?? null,
     tmuxTarget: session.tmuxTarget ?? null,

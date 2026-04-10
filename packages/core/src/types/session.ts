@@ -10,7 +10,14 @@
 export interface Session {
   id: string;
   pid: number;
-  project: string | null;
+  /**
+   * Human-readable project name, typically derived from a join on `projects.id`.
+   * Undefined when no join has been performed (raw row-to-session mapping).
+   * Consumers needing the canonical identifier should prefer `projectId`.
+   */
+  project?: string | null;
+  /** Canonical FK to `projects.id` (uuid). Nullable — sessions without a registered project. */
+  projectId: string | null;
   machine: string | null;
   cwd: string;
   branch: string | null;

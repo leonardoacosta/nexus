@@ -134,7 +134,11 @@ async function _handleGetSessions(
   }
 
   if (projectFilter) {
-    rows = rows.filter((s) => s.project === projectFilter);
+    // NOTE: schema evolution dropped `sessions.project` (text name) in favor of
+    // `sessions.projectId` (uuid FK). This filter now matches on projectId only —
+    // callers that used to pass a project name will no longer match. A proper
+    // join-based filter is part of the dashboard collapse work (capability 3).
+    rows = rows.filter((s) => s.projectId === projectFilter);
   }
   if (statusFilter) {
     rows = rows.filter((s) => s.status === statusFilter);

@@ -75,6 +75,8 @@ async function handlePeerEvent(envelope: LifecycleEnvelope): Promise<void> {
     priority: "normal",
     status: "queued",
     project,
+    // Federation notifications are cross-agent broadcasts — no owning local agent.
+    agentId: null,
     createdAt: new Date(),
     sentAt: null,
   };

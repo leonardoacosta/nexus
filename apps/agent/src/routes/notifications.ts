@@ -162,6 +162,8 @@ export async function handleSendNotification(
     title: title as string,
     body: notifBody as string,
     project: (project as string) ?? null,
+    // Route has no agent context; pass null (global notification).
+    agentId: null,
     priority: (priority as NotificationPriority) ?? "normal",
     createdAt: new Date(),
   });

@@ -71,6 +71,13 @@
       "when": 1775792740776,
       "tag": "0009_nice_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775830614685,
+      "tag": "0010_finalize_audit_cleanup_schema",
+      "breakpoints": true
     }
   ]
 }

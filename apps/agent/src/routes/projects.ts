@@ -29,7 +29,11 @@ function aggregateProjects(sessions: SessionRow[]): Project[] {
   >();
 
   for (const session of sessions) {
-    const name = session.project;
+    // NOTE: schema evolution dropped `sessions.project` (text name) in favor of
+    // `sessions.projectId` (uuid FK). For now we key by projectId — the proper
+    // join to resolve project names lives in the dashboard collapse work.
+    // Sessions without a registered project are grouped under "(unregistered)".
+    const name = session.projectId ?? "(unregistered)";
     let entry = projectMap.get(name);
     if (!entry) {
       entry = { active: 0, total: 0, machines: new Set() };

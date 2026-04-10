@@ -1,8 +1,8 @@
-export { sessions } from "./sessions";
-export { healthSnapshots } from "./healthSnapshots";
+export { sessions, sessionsRelations } from "./sessions";
+export { healthSnapshots, healthSnapshotsRelations } from "./healthSnapshots";
 export { sessionEvents } from "./sessionEvents";
-export { notifications } from "./notifications";
-export { credentials } from "./credentials";
-export { agents } from "./agents";
+export { notifications, notificationsRelations } from "./notifications";
+export { credentials, credentialsRelations } from "./credentials";
+export { agents, agentsRelations, type Agent, type NewAgent } from "./agents";
 export * from "./projects";
 export * from "./projectLocations";

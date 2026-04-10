@@ -296,6 +296,8 @@ async function sendSpecTtsNotification(message: string): Promise<void> {
       priority: "normal" as const,
       status: "queued" as const,
       project: null,
+      // Spec-watcher service has no local agent context; pass null (global).
+      agentId: null,
       createdAt: new Date(),
       sentAt: null,
     };

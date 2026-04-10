@@ -104,6 +104,7 @@ export function createSessionManager(
           id: event.session_id,
           pid: 0,
           project: event.project || null,
+          projectId: null,
           machine,
           cwd: event.path,
           branch: null,
@@ -307,7 +308,8 @@ export function createSessionManager(
           const session: Session = {
             id: row.id,
             pid: row.pid ?? 0,
-            project: row.project ?? null,
+            project: undefined,
+            projectId: row.projectId ?? null,
             machine: row.machine ?? null,
             cwd: row.cwd ?? "",
             branch: row.branch ?? null,

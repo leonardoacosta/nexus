@@ -249,8 +249,10 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
 
     for (const s of recentSessions) {
       const matchesCwd = s.cwd?.startsWith(canonicalPath) || s.cwd?.startsWith(fullPath);
-      const matchesProject = s.project === name;
-      if (!matchesCwd && !matchesProject) continue;
+      // NOTE: schema evolution dropped `sessions.project` (text name). The previous
+      // `s.project === name` match cannot be performed without a join on projects.id.
+      // For now we rely on cwd match only; the proper join lives in capability 3.
+      if (!matchesCwd) continue;
 
       totalSessions++;
 

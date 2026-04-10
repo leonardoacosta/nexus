@@ -79,6 +79,8 @@ export class CredentialPool {
       type: credential.type,
       valueEncrypted,
       encryptionKeyId: "v1",
+      // NULL = shared across all agents (current implicit behavior).
+      agentId: null,
       status: "available",
       leasedBy: null,
       leasedAt: null,

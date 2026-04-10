@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
@@ -75,6 +76,8 @@ export class HealthScheduler {
 
     const snapshot = {
       timestamp: new Date(),
+      // Agent identity matches `upsertSelfInRegistry` (hostname-based).
+      agentId: os.hostname(),
       cpuPercent: metrics.cpu.overall_percent,
       ramPercent: metrics.ram.percent,
       diskPercent,

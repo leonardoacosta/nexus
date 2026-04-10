@@ -118,7 +118,9 @@ export async function handleStatusline(db: Db): Promise<Response> {
 
   const statuslineSessions: StatuslineSession[] = sessions.map((s) => ({
     id: s.id,
-    project: s.project,
+    // NOTE: `sessions.project` (text name) was dropped in favor of `projectId` (uuid).
+    // Until a join is added (capability 3), callers receive the raw uuid here.
+    project: s.projectId,
     status: s.status,
     model: null,
     cwd: s.cwd,

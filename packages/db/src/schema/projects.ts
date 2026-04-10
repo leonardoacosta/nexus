@@ -1,4 +1,8 @@
+import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, unique } from "drizzle-orm/pg-core";
+
+import { projectLocations } from "./projectLocations";
+import { sessions } from "./sessions";
 
 export const projects = pgTable(
   "projects",
@@ -25,6 +29,11 @@ export const projects = pgTable(
     ),
   ],
 );
+
+export const projectsRelations = relations(projects, ({ many }) => ({
+  sessions: many(sessions),
+  locations: many(projectLocations),
+}));
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;

@@ -349,6 +349,8 @@ function createRequestHandler(state: ServerState, db?: Db) {
 
           const snapshot = {
             timestamp: new Date(),
+            // Agent identity matches `upsertSelfInRegistry` (hostname-based).
+            agentId: os.hostname(),
             cpuPercent: (metrics.cpu as { overall_percent: number }).overall_percent,
             ramPercent: (metrics.ram as { percent: number }).percent,
             diskPercent,

@@ -234,6 +234,7 @@ describe("session-manager write-through (with mock DB)", () => {
       id: "recovered-sess",
       pid: process.pid, // use current PID so it passes validation
       project: "recovered-project",
+      projectId: null,
       machine: "test-machine",
       cwd: "/tmp/recovered",
       branch: null,
@@ -277,6 +278,7 @@ describe("session-manager PID validation", () => {
       id: "dead-pid-sess",
       pid: 999999, // very unlikely to be a real PID
       project: "test",
+      projectId: null,
       machine: "test-machine",
       cwd: "/tmp",
       branch: null,
@@ -327,6 +329,7 @@ describe("session-manager PID validation", () => {
       id: "live-pid-sess",
       pid: process.pid,
       project: "test",
+      projectId: null,
       machine: "test-machine",
       cwd: "/tmp",
       branch: null,

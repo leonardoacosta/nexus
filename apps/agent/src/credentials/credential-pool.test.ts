@@ -32,6 +32,7 @@ describe("credential pool — concurrent lease race (unit)", () => {
       type: "anthropic",
       valueEncrypted: encryptedToken,
       encryptionKeyId: "v1",
+      agentId: null,
       status: "available",
       leasedBy: null,
       leasedAt: null,

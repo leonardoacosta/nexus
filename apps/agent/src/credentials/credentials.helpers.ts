@@ -43,6 +43,7 @@ export function makeRow(id: string, overrides: Partial<CredentialRow> = {}): Cre
     type: "anthropic",
     valueEncrypted: encrypt("secret-value", TEST_KEY),
     encryptionKeyId: "v1",
+    agentId: null,
     status: "available",
     leasedBy: null,
     leasedAt: null,

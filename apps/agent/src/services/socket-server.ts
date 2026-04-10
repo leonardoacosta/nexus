@@ -170,6 +170,8 @@ export function createSocketEventDispatcher(
             priority: "normal" as const,
             status: "queued" as const,
             project: null,
+            // Socket event router has no agent context; pass null (global).
+            agentId: null,
             createdAt: new Date(),
             sentAt: null,
           };

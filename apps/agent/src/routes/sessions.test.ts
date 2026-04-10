@@ -32,7 +32,7 @@ async function seedSessions(db: Db) {
   await db.insert(sessions).values([
     {
       id: "test-sess-001",
-      project: "alpha",
+      projectId: null,
       machine: "test-machine",
       status: "active",
       startedAt: now,
@@ -42,7 +42,7 @@ async function seedSessions(db: Db) {
     },
     {
       id: "test-sess-002",
-      project: "alpha",
+      projectId: null,
       machine: "test-machine",
       status: "idle",
       startedAt: now,
@@ -52,7 +52,7 @@ async function seedSessions(db: Db) {
     },
     {
       id: "test-sess-003",
-      project: "beta",
+      projectId: null,
       machine: "test-machine",
       status: "ended",
       startedAt: now,

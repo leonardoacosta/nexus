@@ -13,6 +13,7 @@ export function makeSession(overrides: Partial<WithAgent<Session>> = {}): WithAg
     id: "sess-1",
     pid: 1234,
     project: "nexus",
+    projectId: null,
     machine: "dev-server",
     cwd: "/home/user/dev/nexus",
     branch: "main",

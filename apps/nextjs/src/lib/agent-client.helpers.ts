@@ -19,6 +19,7 @@ export function makeSession(id: string, overrides: Partial<Session> = {}): Sessi
     id,
     pid: 1234,
     project: "nx",
+    projectId: null,
     machine: "dev-1",
     cwd: "/home/user/dev/nx",
     branch: "main",
