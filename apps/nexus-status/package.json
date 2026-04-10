@@ -10,6 +10,7 @@
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile nexus-status",
     "lint": "eslint .",
+    "test": "echo 'no tests yet'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
