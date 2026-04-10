@@ -17,6 +17,10 @@ import type { Db } from "@nexus/db";
 import { sessionEvents } from "@nexus/db";
 import { desc, eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core";
+import {
+  lifecycleBus,
+  type LifecycleEnvelope,
+} from "../services/lifecycle-bus";
 
 const log = createLogger("agent:routes:events");
 
@@ -87,35 +91,47 @@ export async function handleGetEvents(
  * Clients connect with: `new EventSource('/events/stream')`.
  */
 export function handleEventsStream(): Response {
+  let keepalive: ReturnType<typeof setInterval> | null = null;
+  let busHandler: ((envelope: LifecycleEnvelope) => void) | null = null;
+
   const stream = new ReadableStream({
     start(controller) {
+      const encoder = new TextEncoder();
+
       // Send an initial keepalive comment.
-      controller.enqueue(new TextEncoder().encode(": keepalive\n\n"));
+      controller.enqueue(encoder.encode(": keepalive\n\n"));
 
       // Send a connected event.
       const connectEvent = JSON.stringify({
         type: "connected",
         timestamp: new Date().toISOString(),
       });
-      controller.enqueue(
-        new TextEncoder().encode(`data: ${connectEvent}\n\n`),
-      );
+      controller.enqueue(encoder.encode(`data: ${connectEvent}\n\n`));
 
       // Keepalive every 30 seconds.
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         try {
-          controller.enqueue(new TextEncoder().encode(": keepalive\n\n"));
+          controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          clearInterval(keepalive);
+          if (keepalive) clearInterval(keepalive);
         }
       }, 30_000);
 
-      // The stream stays open until the client disconnects.
-      // Event subscriptions would be wired here when the internal
-      // event bus is implemented.
+      // Subscribe to lifecycle bus — push all events as SSE frames.
+      busHandler = (envelope: LifecycleEnvelope) => {
+        try {
+          const data = JSON.stringify(envelope);
+          controller.enqueue(encoder.encode(`event: ${envelope.event}\ndata: ${data}\n\n`));
+        } catch {
+          // Stream closed — will be cleaned up in cancel()
+        }
+      };
+      lifecycleBus.onAny(busHandler);
     },
     cancel() {
       // Client disconnected — cleanup subscriptions.
+      if (keepalive) clearInterval(keepalive);
+      if (busHandler) lifecycleBus.offAny(busHandler);
       log.debug("SSE client disconnected");
     },
   });

@@ -68,6 +68,12 @@ import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
+import {
+  lifecycleBus,
+  type LifecycleEnvelope,
+  type LifecycleHandler,
+  type LifecycleEventName,
+} from "./services/lifecycle-bus";
 
 const PORT = 7400;
 
@@ -95,6 +101,7 @@ const PONG_TIMEOUT_MS = 10_000;
 // ── WebSocket route patterns ────────────────────────────────────────────────
 const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
 const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
+const WS_FEDERATION_PATH = "/ws/federation";
 
 // ── Pure utility functions (no state) ──────────────────────────────────────
 
@@ -194,8 +201,11 @@ export class ServerState {
   readonly streamManager: StreamManager;
 
   readonly allSockets = new Set<ServerWebSocket<WsData>>();
+  readonly federationSockets = new Set<ServerWebSocket<WsData>>();
   readonly pongDeadlines = new Map<ServerWebSocket<WsData>, ReturnType<typeof setTimeout>>();
   pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** Per-federation-socket bus unsubscribe functions. */
+  readonly federationCleanup = new Map<ServerWebSocket<WsData>, () => void>();
 
   private constructor(hc: HealthCollector, sm: StreamManager) {
     this.healthCollector = hc;
@@ -326,6 +336,22 @@ function createRequestHandler(state: ServerState, db?: Db) {
       }
       const upgraded = server.upgrade(request, {
         data: { sessionId, mode: "interact" },
+      });
+      if (!upgraded) {
+        return new Response("WebSocket upgrade failed", { status: 500 });
+      }
+      return undefined;
+    }
+
+    // ── Federation WebSocket upgrade ─────────────────────────────────────
+    if (url.pathname === WS_FEDERATION_PATH) {
+      const fedAuthErr = requireSecretWs(request, url);
+      if (fedAuthErr) return fedAuthErr;
+      if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+      const upgraded = server.upgrade(request, {
+        data: { sessionId: "__federation__", mode: "federation" as const },
       });
       if (!upgraded) {
         return new Response("WebSocket upgrade failed", { status: 500 });
@@ -883,6 +909,27 @@ export function startServer(
         state.allSockets.add(ws);
         state.startPingTimer();
 
+        // ── Federation mode: subscribe to lifecycle bus ──────────────
+        if (ws.data.mode === "federation") {
+          state.federationSockets.add(ws);
+
+          const handler = (envelope: LifecycleEnvelope) => {
+            // Only forward local events to the peer (prevent echo)
+            if (envelope.source === "peer") return;
+            try {
+              ws.sendText(JSON.stringify(envelope));
+            } catch {
+              // Socket may have closed — ignore
+            }
+          };
+
+          lifecycleBus.onAny(handler);
+          state.federationCleanup.set(ws, () => lifecycleBus.offAny(handler));
+
+          logger.debug("ws: federation peer connected");
+          return;
+        }
+
         if (ws.data.mode === "interact") {
           // Try to claim the writer mutex
           const claimed = state.streamManager.claimWriter(ws);
@@ -901,6 +948,21 @@ export function startServer(
 
       message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
         const { sessionId, mode } = ws.data;
+
+        // ── Federation: parse peer events and inject into bus ──────────
+        if (mode === "federation") {
+          if (typeof msg === "string") {
+            try {
+              const envelope = JSON.parse(msg) as LifecycleEnvelope;
+              if (envelope.event && envelope.payload) {
+                lifecycleBus.injectPeerEvent(envelope);
+              }
+            } catch {
+              logger.debug("ws: federation received invalid JSON");
+            }
+          }
+          return;
+        }
 
         if (mode !== "interact") {
           // Stream-only clients may send a reconnect frame to replay buffered output.
@@ -973,11 +1035,22 @@ export function startServer(
           state.pongDeadlines.delete(ws);
         }
 
-        state.streamManager.removeViewer(ws);
-        // Mirror the pong-timeout path: tear down the PTY session when the
-        // last viewer disconnects normally (task 1.1 — PTY orphan fix).
-        if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
-          state.streamManager.endSession(ws.data.sessionId);
+        // ── Federation cleanup ────────────────────────────────────────
+        if (ws.data.mode === "federation") {
+          state.federationSockets.delete(ws);
+          const cleanup = state.federationCleanup.get(ws);
+          if (cleanup) {
+            cleanup();
+            state.federationCleanup.delete(ws);
+          }
+          logger.debug("ws: federation peer disconnected");
+        } else {
+          state.streamManager.removeViewer(ws);
+          // Mirror the pong-timeout path: tear down the PTY session when the
+          // last viewer disconnects normally (task 1.1 — PTY orphan fix).
+          if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
+            state.streamManager.endSession(ws.data.sessionId);
+          }
         }
 
         logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: close");

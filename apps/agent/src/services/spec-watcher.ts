@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { createLogger } from "@nexus/core";
 import { sendTtsNotification } from "../notifications/channels/tts";
+import { lifecycleBus } from "./lifecycle-bus";
 
 const log = createLogger("agent:spec-watcher");
 
@@ -409,6 +410,17 @@ export function startSpecWatcher(): SpecWatcherService {
         { eventCount: allEvents.length },
         "Spec-watcher detected events across projects",
       );
+
+      // Emit each event to the lifecycle bus for federation
+      for (const ev of allEvents) {
+        lifecycleBus.emit("SpecTransition", {
+          project: ev.project,
+          specName: ev.name,
+          transition: ev.type,
+          completed: "completed" in ev ? ev.completed : undefined,
+          total: "total" in ev ? ev.total : undefined,
+        });
+      }
 
       // Coalesce: wait briefly, then send as a single batched message.
       await delay(COALESCE_DELAY_MS);

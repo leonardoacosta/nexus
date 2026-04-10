@@ -4,7 +4,7 @@ import type { PtySource } from "./pty-source";
 
 export interface WsData {
   sessionId: string;
-  mode: "stream" | "interact";
+  mode: "stream" | "interact" | "federation";
 }
 
 /** Capacity of the per-session reconnect ring buffer (number of output chunks). */

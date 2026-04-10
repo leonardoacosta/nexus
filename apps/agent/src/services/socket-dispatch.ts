@@ -18,6 +18,7 @@ import type { SessionManager } from "../session-manager";
 import type { SocketEvent } from "../types/socket-events";
 import { recordNotification } from "./command-handler";
 import { sendTtsNotification } from "../notifications/channels/tts";
+import { lifecycleBus } from "./lifecycle-bus";
 
 const log = createLogger("agent:socket-dispatch");
 
@@ -45,6 +46,12 @@ export function createSocketEventHandler(
           path: event.cwd ?? "",
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+        lifecycleBus.emit("SessionStarted", {
+          sessionId: event.session_id,
+          project: event.project,
+          cwd: event.cwd,
+          model: event.model,
+        });
         log.info(
           {
             sessionId: event.session_id,
@@ -62,6 +69,9 @@ export function createSocketEventHandler(
           session_id: event.session_id,
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+        lifecycleBus.emit("SessionStopped", {
+          sessionId: event.session_id,
+        });
         log.info({ sessionId: event.session_id }, "socket: session_stop");
         break;
       }
@@ -73,6 +83,10 @@ export function createSocketEventHandler(
           timestamp: new Date().toISOString(),
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+        lifecycleBus.emit("SessionHeartbeat", {
+          sessionId: event.session_id,
+          timestamp: new Date().toISOString(),
+        });
         log.debug({ sessionId: event.session_id }, "socket: session_heartbeat");
         break;
       }
@@ -93,6 +107,12 @@ export function createSocketEventHandler(
 
         // Record in history for the `history` command.
         recordNotification(event.message, messageType, effectiveChannels);
+
+        // Emit to lifecycle bus for federation
+        lifecycleBus.emit("NotificationFired", {
+          message: event.message,
+          channel: effectiveChannels.join(","),
+        });
 
         // Route to TTS if TTS is in the channels list.
         if (effectiveChannels.includes("tts")) {
