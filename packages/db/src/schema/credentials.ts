@@ -14,4 +14,9 @@ export const credentials = pgTable("credentials", {
   cooldownUntil: timestamp("cooldown_until", { mode: "date" }),
   /** Cumulative rate-limit hit count; used for weighted round-robin lease selection. */
   rateLimitCount: integer("rate_limit_count").notNull().default(0),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
