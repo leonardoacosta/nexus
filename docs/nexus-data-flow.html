@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Platform Data Flow</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      padding: 0 16px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 0 80px;
+    }
+
+    /* Header */
+    .page-header {
+      text-align: center;
+      padding: 48px 0 32px;
+      border-bottom: 1px solid #30363d;
+      margin-bottom: 40px;
+    }
+
+    .page-header h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #e6edf3;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .page-header .subtitle {
+      font-size: 1.1rem;
+      color: #8b949e;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    /* Legend */
+    .legend {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 40px;
+    }
+
+    .legend h2 {
+      font-size: 1.1rem;
+      color: #e6edf3;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px 24px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .legend-label {
+      color: #8b949e;
+    }
+
+    .legend-label strong {
+      color: #e6edf3;
+    }
+
+    .dot-blue { background: #58a6ff; }
+    .dot-green { background: #3fb950; }
+    .dot-orange { background: #d29922; }
+    .dot-red { background: #f85149; }
+    .dot-purple { background: #bc8cff; }
+    .dot-cyan { background: #39d2c0; }
+    .dot-gray { background: #8b949e; }
+
+    /* Table of Contents */
+    .toc {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 24px 28px;
+      margin-bottom: 48px;
+    }
+
+    .toc h2 {
+      font-size: 1.1rem;
+      color: #e6edf3;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
+    .toc ol {
+      list-style: none;
+      counter-reset: toc-counter;
+      padding: 0;
+    }
+
+    .toc ol li {
+      counter-increment: toc-counter;
+      margin-bottom: 6px;
+    }
+
+    .toc ol li a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      transition: color 0.15s;
+    }
+
+    .toc ol li a:hover {
+      color: #79c0ff;
+      text-decoration: underline;
+    }
+
+    .toc ol li a::before {
+      content: counter(toc-counter) ".";
+      color: #8b949e;
+      font-weight: 600;
+      min-width: 22px;
+    }
+
+    /* Sections */
+    .section {
+      margin-bottom: 56px;
+    }
+
+    .section-header {
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 12px;
+      margin-bottom: 20px;
+    }
+
+    .section-header h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #e6edf3;
+    }
+
+    .section-header h2 .section-num {
+      color: #58a6ff;
+      margin-right: 6px;
+    }
+
+    .section-prose {
+      color: #8b949e;
+      font-size: 0.95rem;
+      line-height: 1.7;
+      margin-bottom: 24px;
+      max-width: 900px;
+    }
+
+    .diagram-container {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 32px 24px;
+      overflow-x: auto;
+    }
+
+    .diagram-container .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    .diagram-container .mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Footer */
+    .page-footer {
+      border-top: 1px solid #30363d;
+      padding-top: 24px;
+      text-align: center;
+      color: #484f58;
+      font-size: 0.85rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .page-header h1 {
+        font-size: 1.8rem;
+      }
+
+      .legend-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .diagram-container {
+        padding: 16px 12px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .legend-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header class="page-header">
+      <h1>Nexus Platform Data Flow</h1>
+      <p class="subtitle">Sequence diagrams documenting how sessions, credentials, and health data flow through the Nexus peer-to-peer platform.</p>
+    </header>
+
+    <!-- Legend -->
+    <div class="legend">
+      <h2>Service Color Legend</h2>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <span class="legend-dot dot-blue"></span>
+          <span class="legend-label"><strong>crates/nexus-agent</strong> -- Rust daemon (registry, gRPC, HTTP, credential pool)</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-green"></span>
+          <span class="legend-label"><strong>crates/nexus-core</strong> -- Shared types, DB operations</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-purple"></span>
+          <span class="legend-label"><strong>crates/nexus-tui</strong> -- Terminal UI client</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-cyan"></span>
+          <span class="legend-label"><strong>apps/nexus-register</strong> -- CC lifecycle hook binary</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-orange"></span>
+          <span class="legend-label"><strong>apps/agent</strong> -- Bun HTTP agent (sessions, PTY, streaming)</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-red"></span>
+          <span class="legend-label"><strong>apps/nextjs</strong> -- Dashboard UI</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot dot-gray"></span>
+          <span class="legend-label"><strong>External</strong> -- Anthropic API, OS, tmux, filesystem</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table of Contents -->
+    <nav class="toc">
+      <h2>Table of Contents</h2>
+      <ol>
+        <li><a href="#session-start">Session Start -- Three Trigger Paths</a></li>
+        <li><a href="#session-registration">Session Registration and Storage</a></li>
+        <li><a href="#session-interaction">Session Interaction</a></li>
+        <li><a href="#dead-session">Dead Session Detection</a></li>
+        <li><a href="#session-kill">Session Kill</a></li>
+        <li><a href="#credential-storage">Credential Storage and Monitoring</a></li>
+        <li><a href="#credential-swap">Credential Switching / Swap</a></li>
+        <li><a href="#credential-surfacing">Credential Surfacing and Health</a></li>
+      </ol>
+    </nav>
+
+    <!-- Section 1: Session Start -->
+    <section class="section" id="session-start">
+      <div class="section-header">
+        <h2><span class="section-num">1.</span> Session Start -- Three Trigger Paths</h2>
+      </div>
+      <p class="section-prose">
+        Sessions enter the system through three distinct paths. Ad-hoc sessions originate from Claude Code lifecycle hooks writing event files and socket messages. Managed sessions are spawned by the TUI or Dashboard via gRPC, which creates a tmux window running Claude. HTTP-triggered sessions follow a similar pattern through the REST API. All three paths converge on the SessionRegistry for deduplication and persistence.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant Hook as CC_Hook
+    participant Reg as nexus-register
+    participant EDir as EventDir
+    participant Watch as nexus-watcher
+    participant Sock as UnixSocket
+    participant SReg as SessionRegistry
+    participant DB as SQLite
+    participant Bcast as EventBroadcaster
+    participant TUI as TUI / Dashboard
+    participant gRPC as gRPC Server
+    participant HTTP as HTTP API
+    participant Tmux as tmux
+
+    Note over Hook, Bcast: Path A -- Ad-hoc (CC lifecycle hook)
+
+    rect rgba(57, 210, 192, 0.12)
+        Note right of Hook: apps/nexus-register
+        Hook->>Reg: start(session_id, cwd, pid)
+        Reg->>EDir: write {epoch_ms}-{session_id}.json
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Watch: crates/nexus-agent
+        Watch->>EDir: inotify detects new file
+        Watch->>SReg: register_adhoc(session, tmux_target)
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of SReg: crates/nexus-core
+        SReg->>DB: INSERT OR REPLACE INTO sessions
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of SReg: crates/nexus-agent
+        SReg->>Bcast: SessionStarted (protobuf)
+    end
+
+    Note over Hook, Sock: Parallel socket path
+
+    rect rgba(57, 210, 192, 0.12)
+        Note right of Hook: apps/nexus-register
+        Hook->>Sock: SocketEvent::SessionStart (JSON)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Sock: crates/nexus-agent
+        Sock->>SReg: register_adhoc(session, $TMUX_PANE)
+    end
+
+    Note over TUI, Tmux: Path B -- Managed (gRPC StartSession)
+
+    rect rgba(188, 140, 255, 0.12)
+        Note right of TUI: crates/nexus-tui
+        TUI->>gRPC: StartSession(project, cwd, target_agent)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of gRPC: crates/nexus-agent
+        gRPC->>SReg: dedup check (same cwd = return existing)
+    end
+
+    rect rgba(139, 148, 158, 0.08)
+        Note right of Tmux: External
+        gRPC->>Tmux: spawn claude -p --output-format stream-json
+        Note right of Tmux: CC starts, hook fires, Path A kicks in
+    end
+
+    Note over TUI, Tmux: Path C -- HTTP Session Start
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of TUI: apps/nextjs
+        TUI->>HTTP: POST /session/start (project, path)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of HTTP: crates/nexus-agent
+        HTTP->>Tmux: new-window + send-keys claude
+    end
+
+    rect rgba(139, 148, 158, 0.08)
+        Note right of Tmux: External
+        Note right of Tmux: CC starts, hook fires, Path A kicks in
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 2: Session Registration & Storage -->
+    <section class="section" id="session-registration">
+      <div class="section-header">
+        <h2><span class="section-num">2.</span> Session Registration and Storage</h2>
+      </div>
+      <p class="section-prose">
+        The SessionRegistry maintains an in-memory HashMap guarded by a RwLock, backed by SQLite for durability. Every session state change is persisted to the sessions table with full metadata. On daemon restart, load_active_sessions() recovers any sessions that were still running (ended_at IS NULL), ensuring no session is lost across agent restarts.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant Src as Event Source
+    participant SReg as SessionRegistry
+    participant DB as SQLite
+    participant Bcast as EventBroadcaster
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        Note over DB: sessions table schema
+        Note over DB: id, pid, project, cwd, branch,<br/>started_at, ended_at, last_heartbeat,<br/>status, model, session_type,<br/>total_cost_usd, rate_limit_utilization,<br/>tmux_target, cc_session_id, agent
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of SReg: crates/nexus-agent
+        Src->>SReg: register(session_data)
+        SReg->>SReg: RwLock write guard
+        SReg->>SReg: HashMap insert(id, session)
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: INSERT OR REPLACE INTO sessions (all columns)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Bcast: crates/nexus-agent
+        SReg->>Bcast: SessionStarted
+    end
+
+    Note over SReg, DB: On status change
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of SReg: crates/nexus-agent
+        Src->>SReg: update_status(id, new_status)
+        SReg->>SReg: RwLock write guard
+        SReg->>SReg: HashMap update entry
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: UPDATE sessions SET status, last_heartbeat
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Bcast: crates/nexus-agent
+        SReg->>Bcast: StatusChanged
+    end
+
+    Note over SReg, DB: On daemon restart
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: SELECT * FROM sessions WHERE ended_at IS NULL
+        DB-->>SReg: rows with active sessions
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of SReg: crates/nexus-agent
+        SReg->>SReg: load_active_sessions() into HashMap
+        SReg->>SReg: validate each PID still exists
+        Note right of SReg: Sessions with dead PIDs<br/>are marked ended
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 3: Session Interaction -->
+    <section class="section" id="session-interaction">
+      <div class="section-header">
+        <h2><span class="section-num">3.</span> Session Interaction</h2>
+      </div>
+      <p class="section-prose">
+        Users interact with sessions through two primary interfaces: the TUI for terminal-based read-only streaming via WebSocket, and the Next.js Dashboard for visual monitoring with live terminal panels. The StreamManager fans out PTY output to all connected clients and maintains a 10K-line ring buffer for reconnection replay. The HTTP API supports filtering by project and status with a 1-second TTL cache.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant User as User
+    participant TUI as TUI (ratatui)
+    participant Dash as Dashboard (Next.js)
+    participant HTTP as HTTP API
+    participant WS as WebSocket
+    participant SM as StreamManager
+    participant PTY as PtySource (node-pty)
+    participant Tmux as tmux
+
+    Note over User, Tmux: Read-only stream (TUI)
+
+    rect rgba(188, 140, 255, 0.12)
+        Note right of TUI: crates/nexus-tui
+        User->>TUI: press 'a' (attach)
+        TUI->>WS: connect to session stream
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of SM: apps/agent
+        SM->>PTY: fan-out output
+        PTY->>WS: terminal frames
+    end
+
+    rect rgba(188, 140, 255, 0.12)
+        Note right of TUI: crates/nexus-tui
+        WS->>TUI: render terminal output
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of SM: apps/agent
+        Note right of SM: Ring buffer: 10K lines<br/>Replay up to 1000 chunks<br/>on reconnect
+    end
+
+    opt Reconnection
+        rect rgba(188, 140, 255, 0.12)
+            Note right of TUI: crates/nexus-tui
+            TUI->>WS: reconnect
+        end
+
+        rect rgba(210, 153, 34, 0.12)
+            Note right of SM: apps/agent
+            SM-->>WS: replay buffered chunks
+        end
+
+        rect rgba(188, 140, 255, 0.12)
+            Note right of TUI: crates/nexus-tui
+            WS-->>TUI: catch-up frames
+        end
+    end
+
+    Note over User, HTTP: Dashboard view
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>HTTP: GET /sessions (filterable by project/status)
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of HTTP: apps/agent
+        Note right of HTTP: 1s TTL cache
+        HTTP-->>Dash: session list
+    end
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>HTTP: GET /sessions/:id
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of HTTP: apps/agent
+        HTTP-->>Dash: session detail
+    end
+
+    Note over Dash, WS: Live terminal panel
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>WS: LazyTerminalPanel connect
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of SM: apps/agent
+        SM->>PTY: fan-out
+        PTY->>WS: live terminal data
+    end
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        WS->>Dash: render in xterm.js
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 4: Dead Session Detection -->
+    <section class="section" id="dead-session">
+      <div class="section-header">
+        <h2><span class="section-num">4.</span> Dead Session Detection</h2>
+      </div>
+      <p class="section-prose">
+        Dead session detection operates through a multi-layered approach. The Rust registry checks for stale sessions based on heartbeat age and idle thresholds, while the Node session-manager runs a 60-second sweep cycle with three passes: marking active sessions as idle, promoting idle to errored or stale, and evicting ended sessions past their TTL. The /proc filesystem serves as the ground truth for process liveness.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant Hook as CC_Hook
+    participant gRPC as gRPC Server
+    participant SReg as SessionRegistry
+    participant Timer as SweepTimer (60s)
+    participant Proc as /proc/{pid}
+    participant DB as SQLite
+    participant Bcast as EventBroadcaster
+
+    Note over Hook, SReg: Heartbeat flow
+
+    rect rgba(57, 210, 192, 0.12)
+        Note right of Hook: apps/nexus-register
+        Hook->>gRPC: Heartbeat(session_id)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of gRPC: crates/nexus-agent
+        gRPC->>SReg: refresh last_heartbeat
+        SReg->>SReg: if was Stale then revive to Active
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: UPDATE last_heartbeat
+    end
+
+    Note over Timer, Bcast: Rust registry -- detect_stale()
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Timer: crates/nexus-agent
+        Timer->>SReg: check all sessions
+        alt idle_seconds > stale_threshold
+            SReg->>SReg: mark Stale
+            SReg->>Bcast: StatusChanged
+        end
+        alt idle_seconds > remove_threshold (ad-hoc only)
+            SReg->>SReg: remove session
+            SReg->>Bcast: SessionStopped
+        end
+    end
+
+    Note over Timer, Proc: Node session-manager -- sweepIdle() every 60s
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of Timer: apps/agent
+        Timer->>SReg: Pass 1: scan active sessions
+        Note right of SReg: heartbeat > 5 min = mark idle
+    end
+
+    rect rgba(139, 148, 158, 0.08)
+        Note right of Proc: External
+        Timer->>Proc: Pass 2: check /proc/{pid}
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of SReg: apps/agent
+        alt PID missing
+            SReg->>SReg: idle -> errored
+            SReg->>DB: UPDATE status
+        else PID exists but idle > 5 min further
+            SReg->>SReg: idle -> stale
+            SReg->>DB: UPDATE status
+        end
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of Timer: apps/agent
+        Timer->>SReg: Pass 3: evict ended sessions
+        Note right of SReg: TTL = 1 hour after ended_at
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: DELETE ended sessions past TTL
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 5: Session Kill -->
+    <section class="section" id="session-kill">
+      <div class="section-header">
+        <h2><span class="section-num">5.</span> Session Kill</h2>
+      </div>
+      <p class="section-prose">
+        Session termination follows a graceful-then-forceful pattern. The system sends SIGTERM first, then polls every 250ms for up to 10 seconds. If the process survives, SIGKILL is sent with a tighter 50ms polling loop. The unregister path handles the clean case where Claude Code exits normally and its postExitHook notifies the registry without needing a kill signal.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant User as User
+    participant TUI as TUI
+    participant gRPC as gRPC Server
+    participant SReg as SessionRegistry
+    participant Proc as Process
+    participant DB as SQLite
+    participant Bcast as EventBroadcaster
+    participant Hook as CC_Hook
+
+    Note over User, Bcast: Kill flow
+
+    rect rgba(188, 140, 255, 0.12)
+        Note right of TUI: crates/nexus-tui
+        User->>TUI: press 's' (stop)
+        TUI->>gRPC: StopSession(session_id)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of gRPC: crates/nexus-agent
+        gRPC->>SReg: lookup PID
+    end
+
+    rect rgba(139, 148, 158, 0.08)
+        Note right of Proc: External
+        gRPC->>Proc: SIGTERM
+        Note right of gRPC: Poll every 250ms for up to 10s
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of gRPC: crates/nexus-agent
+        alt Process exits gracefully
+            gRPC->>SReg: remove(session_id)
+        else Still alive after 10s
+            gRPC->>Proc: SIGKILL
+            Note right of gRPC: Poll /proc/{pid} every 50ms for 2s
+            gRPC->>SReg: remove(session_id)
+        end
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: SET ended_at, status = 'ended'
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Bcast: crates/nexus-agent
+        SReg->>Bcast: SessionStopped
+    end
+
+    Note over Hook, SReg: Unregister (CC postExitHook)
+
+    rect rgba(57, 210, 192, 0.12)
+        Note right of Hook: apps/nexus-register
+        Hook->>gRPC: UnregisterSession(session_id)
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of gRPC: crates/nexus-agent
+        gRPC->>SReg: unregister() -- remove without kill
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        SReg->>DB: SET ended_at, status = 'ended'
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Bcast: crates/nexus-agent
+        SReg->>Bcast: SessionStopped
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 6: Credential Storage & Monitoring -->
+    <section class="section" id="credential-storage">
+      <div class="section-header">
+        <h2><span class="section-num">6.</span> Credential Storage and Monitoring</h2>
+      </div>
+      <p class="section-prose">
+        The credential system manages multiple Anthropic OAuth accounts through a CredentialPool backed by filesystem storage and SQLite polling history. On startup, it scans the credential directory and bootstraps utilization data from the database or a disk-based JSON cache. A 300-second polling loop queries the Anthropic usage API for each account, recording five-hour and seven-day utilization windows. File watchers on both the credential directory and the Claude config directory detect account changes in real time.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant Pool as CredentialPool
+    participant CDir as CredentialDir
+    participant API as AnthropicAPI
+    participant DB as SQLite
+    participant Cache as UsageCache (disk)
+    participant CWatch as CredentialWatcher
+    participant CC as ~/.claude/
+    participant Menu as Menubar
+
+    Note over Pool, Cache: Startup sequence
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        Pool->>CDir: scan_credential_files()
+        CDir-->>Pool: list of credential accounts
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        Pool->>DB: latest_credential_polls()
+        Note right of Pool: Bootstrap utilization from DB
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        alt DB empty
+            Pool->>Cache: load fallback JSON
+            Cache-->>Pool: cached utilization data
+        end
+    end
+
+    Note over Pool, DB: Polling loop (every 300s)
+
+    loop Each account
+        rect rgba(139, 148, 158, 0.08)
+            Note right of API: External
+            Pool->>API: GET /api/oauth/usage (Bearer token)
+            API-->>Pool: five_hour: {utilization, resets_at}<br/>seven_day: {utilization, resets_at}
+        end
+
+        rect rgba(63, 185, 80, 0.12)
+            Note right of DB: crates/nexus-core
+            Pool->>DB: insert_credential_poll()
+        end
+
+        rect rgba(31, 111, 235, 0.12)
+            Note right of Pool: crates/nexus-agent
+            Pool->>Cache: save (atomic rename, 0o600 perms)
+        end
+    end
+
+    Note over CDir, CC: File watching
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of CDir: crates/nexus-agent
+        CDir->>CDir: inotify (notify crate)
+        Note right of CDir: 1s debounce
+        CDir-->>Pool: add / update / remove account
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of CWatch: crates/nexus-agent
+        CWatch->>CC: watch .credentials.json
+        CC-->>CWatch: file changed
+        CWatch->>Pool: import_credential_to_pool()
+        CWatch->>Menu: POST /credentials (metadata only)
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 7: Credential Switching / Swap -->
+    <section class="section" id="credential-swap">
+      <div class="section-header">
+        <h2><span class="section-num">7.</span> Credential Switching / Swap</h2>
+      </div>
+      <p class="section-prose">
+        Credential swapping selects the least-utilized account through a filtering and scoring pipeline: expired and maxed-out accounts are excluded, and the remaining accounts are ranked by their effective utilization (the maximum of five-hour and seven-day rates). The swap itself is atomic -- a temporary symlink is created in /tmp and then renamed over the target path in a single rename(2) syscall. A 180-second debounce prevents thrashing. The TypeScript pool uses a Postgres-backed lease system with weighted round-robin for the Bun agent layer.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant Pool as CredentialPool (Rust)
+    participant Tmp as /tmp
+    participant Sym as ~/.claude/.credentials.json
+    participant CDir as credentials/{acct}.json
+    participant DB as SQLite
+    participant CC as CC_Session
+
+    Note over Pool, CDir: best_available() selection
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        Pool->>Pool: filter expired (expires_at < now)
+        Pool->>Pool: filter maxed (5h >= 1.0 OR 7d >= 1.0)
+        Pool->>Pool: pick min(effective_utilization)
+        Note right of Pool: effective = max(five_hour, seven_day)
+    end
+
+    Note over Pool, Sym: Atomic swap
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        Pool->>Tmp: create symlink .credentials.json.tmp -> credentials/{acct}.json
+        Pool->>Sym: rename(2) .tmp -> .credentials.json
+        Note right of Sym: Single rename syscall = atomic
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        Pool->>Pool: update active_account
+        Pool->>Pool: record_swap(last_swap_time)
+    end
+
+    rect rgba(63, 185, 80, 0.12)
+        Note right of DB: crates/nexus-core
+        Pool->>DB: insert_credential_swap(from, to, trigger_session_id)
+    end
+
+    Note right of CC: CC reads .credentials.json<br/>from disk on each API call.<br/>Symlink swap = immediate effect,<br/>zero downtime.
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of Pool: crates/nexus-agent
+        Note over Pool, Pool: SWAP_DEBOUNCE_SECS = 180<br/>(3 min between swaps)
+    end
+
+    Note over Pool, DB: TypeScript pool (Postgres-backed)
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of Pool: apps/agent
+        Pool->>DB: lease() -> SELECT FOR UPDATE
+        Note right of DB: Weighted round-robin<br/>(rate_limit_count ASC)
+
+        Pool->>DB: reportRateLimit() -> set cooldown (5 min)
+        Note right of DB: Increment rateLimitCount,<br/>auto-lease next account
+
+        Pool->>DB: recoverExpiredCooldowns()
+        Note right of DB: Reset cooldownUntil < now<br/>to available
+
+        Note over Pool: Pre-rotation trigger:<br/>if rateLimitCount/50 >= 0.85<br/>-> proactive swap
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Section 8: Credential Surfacing & Health -->
+    <section class="section" id="credential-surfacing">
+      <div class="section-header">
+        <h2><span class="section-num">8.</span> Credential Surfacing and Health</h2>
+      </div>
+      <p class="section-prose">
+        Credential data is surfaced through secured HTTP endpoints that expose utilization metrics without ever returning tokens or file paths. The Rust agent on port 7402 and the Bun agent both require the X-Nexus-Secret header for authentication. A dedicated health-check endpoint probes the Anthropic API with the decrypted token to verify account validity, emitting an audit log entry for every check regardless of outcome.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+
+    participant User as User
+    participant Dash as Dashboard (Next.js)
+    participant TUI as TUI (ratatui)
+    participant RAPI as HTTP API (Rust :7402)
+    participant BAPI as HTTP API (Bun)
+    participant API as AnthropicAPI
+    participant Audit as AuditLog
+
+    Note over Dash, RAPI: Credential listing
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>RAPI: GET /credentials
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of RAPI: crates/nexus-agent
+        Note right of RAPI: Requires X-Nexus-Secret
+        RAPI-->>Dash: name, expired, utilization windows,<br/>seconds_since_polled
+        Note right of Dash: NO tokens or paths exposed
+    end
+
+    Note over Dash, BAPI: Analytics query
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>BAPI: GET /analytics/credentials?hours=N
+    end
+
+    rect rgba(210, 153, 34, 0.12)
+        Note right of BAPI: apps/agent
+        BAPI-->>Dash: time-series polls + swaps
+    end
+
+    Note over Dash, API: Health check
+
+    rect rgba(248, 81, 73, 0.12)
+        Note right of Dash: apps/nextjs
+        Dash->>RAPI: GET /credentials/{id}/health
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of RAPI: crates/nexus-agent
+        RAPI->>API: GET /api/oauth/usage (decrypted token)
+    end
+
+    rect rgba(139, 148, 158, 0.08)
+        Note right of API: External
+        alt 200 OK
+            API-->>RAPI: usage data
+        else 401 / 403
+            API-->>RAPI: unauthorized / forbidden
+        end
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of RAPI: crates/nexus-agent
+        alt 200 OK
+            RAPI-->>Dash: status: healthy
+        else 401 / 403
+            RAPI-->>Dash: status: revoked
+        end
+    end
+
+    rect rgba(31, 111, 235, 0.12)
+        Note right of RAPI: crates/nexus-agent
+        RAPI->>Audit: emitAudit(credential_id, result)
+        Note right of Audit: Every check is logged<br/>regardless of outcome
+    end
+        </pre>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="page-footer">
+      <p>Nexus Platform Data Flow -- Generated from system architecture documentation</p>
+    </footer>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#161b22',
+        primaryColor: '#1f6feb',
+        primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#30363d',
+        lineColor: '#58a6ff',
+        secondaryColor: '#161b22',
+        tertiaryColor: '#0d1117',
+        noteBkgColor: '#1c2128',
+        noteTextColor: '#e6edf3',
+        noteBorderColor: '#30363d',
+        actorBkg: '#161b22',
+        actorBorder: '#58a6ff',
+        actorTextColor: '#e6edf3',
+        actorLineColor: '#30363d',
+        signalColor: '#58a6ff',
+        signalTextColor: '#e6edf3',
+        labelBoxBkgColor: '#161b22',
+        labelBoxBorderColor: '#30363d',
+        labelTextColor: '#e6edf3',
+        loopTextColor: '#d29922',
+        activationBkgColor: '#1c2128',
+        activationBorderColor: '#58a6ff',
+        sequenceNumberColor: '#0d1117'
+      },
+      sequence: {
+        actorMargin: 60,
+        messageMargin: 40,
+        mirrorActors: false,
+        useMaxWidth: true,
+        wrap: true
+      }
+    });
+  </script>
+</body>
+</html>

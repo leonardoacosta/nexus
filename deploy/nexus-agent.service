@@ -11,8 +11,8 @@ ExecStart=%h/.local/bin/nexus-agent
 # tight restart loops during persistent failures.
 Restart=on-failure
 RestartSec=5
-Environment=RUST_LOG=info
-Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LOG_LEVEL=info
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 
 # Notification env vars (absorbed from retired claude-daemon)
 # Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Nexus Agent — post-merge deploy hook
-# Rebuilds and fully deploys nexus-agent when Rust source changes.
+# Rebuilds and fully deploys nexus-agent when Bun source changes.
 # Handles first-time setup (config, service install, enable) and updates.
 
 GREEN='\033[1;32m'
@@ -17,7 +17,7 @@ fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 # ── Check for code changes (skip with --force) ───────────────────
 
 if [[ "${1:-}" != "--force" ]]; then
-    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(crates/|Cargo\.toml|deploy/)'; then
+    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(apps/agent/|deploy/)'; then
         skip "no code changes, skipping rebuild (use --force to override)"
         exit 0
     fi
@@ -63,11 +63,11 @@ mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 info "rebuilding..."
 START=$(date +%s)
 
-if ! cargo build --release -p nexus-agent; then
+if ! (cd "$REPO_DIR/apps/agent" && bun run build); then
     fail "agent build failed"
 fi
 
-if ! cargo build --release -p nexus-register; then
+if ! (cd "$REPO_DIR/apps/nexus-register" && bun run build); then
     fail "nexus-register build failed"
 fi
 
@@ -76,8 +76,8 @@ info "rebuilt in ${ELAPSED}s"
 
 # ── Install binaries ──────────────────────────────────────────────
 
-install -m 755 target/release/nexus-agent "$BIN_DIR/nexus-agent"
-install -m 755 target/release/nexus-register "$BIN_DIR/nexus-register"
+install -m 755 "$REPO_DIR/apps/agent/nexus-agent" "$BIN_DIR/nexus-agent"
+install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register" "$BIN_DIR/nexus-register"
 info "binaries installed to $BIN_DIR/"
 
 # ── Configure agents.toml ─────────────────────────────────────────

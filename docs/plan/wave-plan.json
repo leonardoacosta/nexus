@@ -1,15 +1,23 @@
 {
   "plan_name": "nexus-bun-consolidation",
-  "status": "in_progress",
+  "status": "completed",
   "mode": "consolidated",
   "pre_audit_sha": "daef0b4",
   "created_at": "2026-04-09T18:14:07-05:00",
-  "current_wave": 2,
+  "current_wave": 5,
   "completed_waves": [
-    1
+    1,
+    2,
+    3,
+    4,
+    5
   ],
   "completed_specs": [
-    "absorb-socket-cron-specwatcher"
+    "absorb-socket-cron-specwatcher",
+    "port-rust-http-routes",
+    "retire-tui-dashboard-parity",
+    "add-websocket-peer-federation",
+    "retire-rust-crates"
   ],
   "failed_specs": [],
   "decisions": [
@@ -78,7 +86,7 @@
           "path": "openspec/changes/port-rust-http-routes",
           "task_count": 15,
           "beads_epic": "nx-drmt",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -88,7 +96,7 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": "2026-04-09T23:49:04.176640+00:00"
         }
       ]
     },
@@ -101,7 +109,7 @@
           "path": "openspec/changes/retire-tui-dashboard-parity",
           "task_count": 14,
           "beads_epic": "nx-2uz3",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -111,7 +119,7 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": "2026-04-10T00:02:50.812096+00:00"
         }
       ]
     },
@@ -124,7 +132,7 @@
           "path": "openspec/changes/add-websocket-peer-federation",
           "task_count": 10,
           "beads_epic": "nx-ny4k",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -134,7 +142,7 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": "2026-04-10T00:12:50.416923+00:00"
         }
       ]
     },
@@ -147,7 +155,7 @@
           "path": "openspec/changes/retire-rust-crates",
           "task_count": 13,
           "beads_epic": "nx-bycr",
-          "status": "pending",
+          "status": "merged",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -157,7 +165,7 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": "2026-04-10T00:41:42.632809+00:00"
         }
       ]
     }
@@ -176,5 +184,5 @@
     "phase_completed_at": {}
   },
   "started_at": "2026-04-09T18:14:07-05:00",
-  "completed_at": null
+  "completed_at": "2026-04-10T00:41:42.632819+00:00"
 }

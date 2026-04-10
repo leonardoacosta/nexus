@@ -1,9 +1,0 @@
-{
-  "name": "@nexus/watcher",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "build": "cargo build --release --manifest-path Cargo.toml",
-    "dev": "cargo build --manifest-path Cargo.toml"
-  }
-}
