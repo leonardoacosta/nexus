@@ -14,6 +14,7 @@ export type {
   Credential,
   CredentialStatus,
 } from "./types/credential";
+export { fetchWithTimeout } from "./fetch";
 export { logger, createLogger } from "./logger";
 export type { Logger } from "./logger";
 export {
