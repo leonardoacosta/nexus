@@ -6,7 +6,7 @@ import type {
   Project,
   DiscoveredProject,
 } from "@nexus/core";
-import { fetchWithTimeout } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 
 // ---------------------------------------------------------------------------
 // Agent wire types (what the agent's GET /projects/discovered actually returns)

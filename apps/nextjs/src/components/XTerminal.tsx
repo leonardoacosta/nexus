@@ -8,7 +8,7 @@ import {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { fetchWithTimeout } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 
 // ---------------------------------------------------------------------------
 // Types

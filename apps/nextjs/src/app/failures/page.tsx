@@ -1,7 +1,7 @@
 // Failure data comes from live agent — must render on each request
 export const dynamic = "force-dynamic";
 
-import { fetchWithTimeout } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import { getAgentConfigs } from "@/lib/get-client";
 
 interface TopError {

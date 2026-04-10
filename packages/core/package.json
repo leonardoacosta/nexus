@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./fetch": {
+      "types": "./src/fetch.ts",
+      "default": "./src/fetch.ts"
     }
   },
   "scripts": {
