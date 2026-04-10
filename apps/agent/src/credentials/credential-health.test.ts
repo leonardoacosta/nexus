@@ -49,7 +49,7 @@ describe("credential routes — health check endpoint (unit)", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock(async (_url: string | URL | Request, _opts?: RequestInit) =>
       new Response("{}", { status: 200 }),
-    );
+    ) as unknown as typeof fetch;
 
     const request = new Request("https://localhost:7400/credentials/cred-health-1/health");
     const response = await handleCredentialHealth("cred-health-1", request);
@@ -93,7 +93,7 @@ describe("credential routes — health check endpoint (unit)", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock(async (_url: string | URL | Request, _opts?: RequestInit) =>
       new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }),
-    );
+    ) as unknown as typeof fetch;
 
     const request = new Request("https://localhost:7400/credentials/cred-health-2/health");
     const response = await handleCredentialHealth("cred-health-2", request);

@@ -76,7 +76,12 @@ describe("split route files — response shape", () => {
     const response = await handleFailures(url);
 
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = (await response.json()) as {
+      period_days: number;
+      total: number;
+      by_tool: unknown;
+      trend: unknown;
+    };
     expect(body).toHaveProperty("period_days");
     expect(body).toHaveProperty("total");
     expect(body).toHaveProperty("by_tool");
@@ -88,7 +93,7 @@ describe("split route files — response shape", () => {
     const url = new URL("http://localhost:7400/failures?days=30");
     const response = await handleFailures(url);
 
-    const body = await response.json();
+    const body = (await response.json()) as { period_days: number };
     expect(body.period_days).toBe(30);
   });
 
@@ -97,7 +102,12 @@ describe("split route files — response shape", () => {
     const response = handleCron();
 
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = (await response.json()) as {
+      jobs: {
+        maintain: { schedule: string };
+        drift: { schedule: string };
+      };
+    };
     expect(body).toHaveProperty("jobs");
     expect(body.jobs).toHaveProperty("maintain");
     expect(body.jobs).toHaveProperty("drift");
@@ -115,7 +125,7 @@ describe("split route files — response shape", () => {
 
     const response = await handleHooks({} as any, request);
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = (await response.json()) as { status: string };
     expect(body.status).toBe("error");
   });
 
@@ -129,7 +139,7 @@ describe("split route files — response shape", () => {
 
     const response = await handleHooks({} as any, request);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = (await response.json()) as { status: string; message: string };
     expect(body.status).toBe("ok");
     expect(body.message).toContain("session_start");
   });

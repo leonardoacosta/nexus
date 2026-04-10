@@ -201,7 +201,7 @@ describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
     await ws2Settled;
     await delay(30);
 
-    expect(secondCloseCode).toBe(4009);
+    expect(secondCloseCode as number | null).toBe(4009);
 
     try { ws1.close(); } catch { /* ignore */ }
     await delay(30);

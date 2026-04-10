@@ -36,6 +36,7 @@ export async function deleteById(db: Db, ids: string[]): Promise<void> {
 
 /** Build a standard test credential row with optional overrides. */
 export function makeRow(id: string, overrides: Partial<CredentialRow> = {}): CredentialRow {
+  const now = new Date();
   return {
     id,
     name: `store-test-${id}`,
@@ -47,6 +48,8 @@ export function makeRow(id: string, overrides: Partial<CredentialRow> = {}): Cre
     leasedAt: null,
     cooldownUntil: null,
     rateLimitCount: 0,
+    createdAt: now,
+    updatedAt: now,
     ...overrides,
   };
 }

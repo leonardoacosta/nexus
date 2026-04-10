@@ -49,6 +49,7 @@ function createMockSessionManager(): SessionManager & { receivedEvents: WatcherE
     getById: () => null,
     sweepIdle: () => {},
     stop: () => {},
+    init: async () => {},
   };
 }
 

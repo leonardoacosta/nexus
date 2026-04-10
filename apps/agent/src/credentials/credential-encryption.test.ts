@@ -68,6 +68,8 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     let tableRow = { ...storedRow };
@@ -162,6 +164,8 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 10,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
     const lowCount: CredentialRow = {
       id: "wrr-low",
@@ -174,6 +178,8 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     let leasedId: string | null = null;
@@ -249,6 +255,8 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: new Date(),
       cooldownUntil: null,
       rateLimitCount: 43,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     let cooldownCalled = false;

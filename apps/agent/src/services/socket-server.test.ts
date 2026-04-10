@@ -37,6 +37,7 @@ function createMockSessionManager(): SessionManager & {
     getById: () => null,
     sweepIdle: () => {},
     stop: () => {},
+    init: async () => {},
   };
 }
 

@@ -43,7 +43,7 @@ describe("handleGetSpec", () => {
     const response = await handleGetSpec("zzz-nonexistent-project-code", "some-spec");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body).toHaveProperty("error");
     expect(body.error).toContain("unknown project");
   });
@@ -63,7 +63,7 @@ describe("handleApproveSpec", () => {
     const response = await handleApproveSpec("zzz-nonexistent", "some-spec");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 });
@@ -82,7 +82,7 @@ describe("handleRejectSpec", () => {
     const response = await handleRejectSpec("zzz-nonexistent", "some-spec", request);
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 
@@ -105,7 +105,7 @@ describe("handleReadSpec", () => {
     const response = await handleReadSpec("zzz-nonexistent", "some-spec");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 });
@@ -119,7 +119,7 @@ describe("handleSpecStatus", () => {
     const response = await handleSpecStatus("zzz-nonexistent", "some-spec");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 });
@@ -180,7 +180,7 @@ describe("handleGetSpecsAll", () => {
       const response = await handleGetSpecsAll();
       expect(response.status).toBe(200);
 
-      const body = await response.json();
+      const body = (await response.json()) as { projects: unknown[] };
       expect(body).toHaveProperty("projects");
       expect(Array.isArray(body.projects)).toBe(true);
     },
@@ -191,7 +191,14 @@ describe("handleGetSpecsAll", () => {
     "each project entry has expected shape",
     async () => {
       const response = await handleGetSpecsAll();
-      const body = await response.json();
+      const body = (await response.json()) as {
+        projects: {
+          code: string;
+          name: string;
+          specs: unknown[];
+          beads: unknown;
+        }[];
+      };
 
       for (const project of body.projects) {
         expect(project).toHaveProperty("code");

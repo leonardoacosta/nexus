@@ -39,7 +39,7 @@ describe("safeFireAndForget", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(loggerMock.warn).toHaveBeenCalledTimes(1);
-    const [logObj, logMsg] = loggerMock.warn.mock.calls[0] as [
+    const [logObj, logMsg] = loggerMock.warn.mock.calls[0] as unknown as [
       { err: unknown; context: string },
       string,
     ];

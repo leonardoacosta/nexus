@@ -29,7 +29,7 @@ describe("handleAnalyticsSpecs (stub)", () => {
     const response = await handleAnalyticsSpecs(null as never, url);
     expect(response.status).toBe(200);
 
-    const body = await response.json();
+    const body = (await response.json()) as { snapshots: unknown[] };
     expect(body).toHaveProperty("snapshots");
     expect(body.snapshots).toEqual([]);
   });
@@ -47,7 +47,7 @@ describe("handleAnalyticsCredentials (stub)", () => {
     const response = await handleAnalyticsCredentials(null as never, url);
     expect(response.status).toBe(200);
 
-    const body = await response.json();
+    const body = (await response.json()) as { polls: unknown[]; swaps: unknown[] };
     expect(body).toHaveProperty("polls");
     expect(body).toHaveProperty("swaps");
     expect(body.polls).toEqual([]);
@@ -163,7 +163,7 @@ describe.skipIf(!hasPg)("handleAnalyticsHealth (requires live PG)", () => {
     const response = await handleAnalyticsHealth(db, url);
     expect(response.status).toBe(400);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("positive");
   });
 
@@ -185,7 +185,7 @@ describe("handleAnalyticsHealth input validation (no DB)", () => {
     const response = await handleAnalyticsHealth(null as never, url);
     expect(response.status).toBe(400);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("positive number");
   });
 

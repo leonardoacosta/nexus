@@ -37,6 +37,8 @@ describe("credential pool — concurrent lease race (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     let tableRow: CredentialRow = { ...credential };

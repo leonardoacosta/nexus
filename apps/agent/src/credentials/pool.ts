@@ -72,6 +72,7 @@ export class CredentialPool {
     const key = this.requireKey();
     const valueEncrypted = encrypt(credential.value_plaintext, key);
 
+    const now = new Date();
     await insertCredential(this.db, {
       id: credential.id,
       name: credential.name,
@@ -83,6 +84,8 @@ export class CredentialPool {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 0,
+      createdAt: now,
+      updatedAt: now,
     });
     logger.info({ id: credential.id, name: credential.name }, "credential added to pool");
   }

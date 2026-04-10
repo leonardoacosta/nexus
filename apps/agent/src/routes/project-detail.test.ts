@@ -27,7 +27,7 @@ describe("project-detail: unknown project", () => {
     const response = await handleProjectStatus("zzz-nonexistent", url);
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body).toHaveProperty("error");
     expect(body.error).toContain("unknown project");
   });
@@ -36,7 +36,7 @@ describe("project-detail: unknown project", () => {
     const response = await handleProjectGit("zzz-nonexistent");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 
@@ -44,7 +44,7 @@ describe("project-detail: unknown project", () => {
     const response = await handleProjectBeads("zzz-nonexistent");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 
@@ -52,7 +52,7 @@ describe("project-detail: unknown project", () => {
     const response = await handleProjectSpecs("zzz-nonexistent");
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 
@@ -65,7 +65,7 @@ describe("project-detail: unknown project", () => {
     const response = await handleRunCommand("zzz-nonexistent", request);
     expect(response.status).toBe(404);
 
-    const body = await response.json();
+    const body = (await response.json()) as { error: string };
     expect(body.error).toContain("unknown project");
   });
 });
@@ -154,7 +154,11 @@ describe.skipIf(!process.env.NX_HAS_PROJECTS)(
       const response = await handleRunCommand("nx", request);
 
       if (response.status === 200) {
-        const body = await response.json();
+        const body = (await response.json()) as {
+          status: string;
+          command: string;
+          prompt: string;
+        };
         expect(body).toHaveProperty("status", "accepted");
         expect(body).toHaveProperty("command", "test");
         expect(body).toHaveProperty("prompt");
@@ -171,7 +175,7 @@ describe.skipIf(!process.env.NX_HAS_PROJECTS)(
       const response = await handleRunCommand("nx", request);
 
       if (response.status === 200) {
-        const body = await response.json();
+        const body = (await response.json()) as { prompt: string };
         expect(body.prompt).toBe("/build");
       }
     });

@@ -30,7 +30,7 @@ let capturedErrors: Array<{ id: string; error: string }> = [];
  * Create a minimal mock Db proxy that stubs upsertSession and
  * loadActiveSessions via module-level mocks.
  */
-function createTestDb(): sessionsDb.default extends never ? never : any {
+function createTestDb(): any {
   // The mock DB is a simple proxy — the real work is done by mocking
   // the sessionsDb module functions below.
   return new Proxy(
