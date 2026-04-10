@@ -61,4 +61,4 @@ switch (command) {
     process.exit(1);
 }
 
-writeEvent(event);
+await writeEvent(event);
