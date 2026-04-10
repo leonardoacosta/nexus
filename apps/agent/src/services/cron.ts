@@ -17,6 +17,8 @@ import { existsSync, readdirSync, statSync, unlinkSync, readFileSync } from "nod
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "@nexus/core";
+import { execText } from "../utils/exec";
+import { getSettings } from "./config-loader";
 
 const log = createLogger("agent:cron");
 
@@ -138,18 +140,11 @@ async function findOrphanedWorktreeDirs(projectsDir: string): Promise<string[]> 
   // Get active worktree names from git.
   let activeWorktrees: string[] = [];
   try {
-    const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const output = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    if (exitCode === 0) {
-      activeWorktrees = output
-        .split("\n")
-        .filter((l) => l.startsWith("worktree "))
-        .map((l) => l.replace("worktree ", ""));
-    }
+    const output = await execText("git", ["worktree", "list", "--porcelain"]);
+    activeWorktrees = output
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => l.replace("worktree ", ""));
   } catch {
     // git not available or failed -- treat all as orphaned.
   }
@@ -273,18 +268,20 @@ async function runDrift(): Promise<void> {
   const findings: string[] = [];
   const home = homedir();
 
-  // 1. Validate ~/.claude/settings.json is valid JSON.
+  // 1. Validate ~/.claude/settings.json is valid JSON via config-loader cache.
   const settingsPath = join(home, ".claude/settings.json");
   try {
-    const contents = readFileSync(settingsPath, "utf8");
-    JSON.parse(contents);
-    log.debug("cron drift: settings.json is valid JSON");
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      findings.push(`settings.json: invalid JSON: ${e.message}`);
+    const settings = getSettings();
+    // getSettings() returns {} on error — validate file is actually readable.
+    if (!existsSync(settingsPath)) {
+      findings.push("settings.json: file does not exist");
+    } else if (typeof settings !== "object" || settings === null) {
+      findings.push("settings.json: invalid JSON");
     } else {
-      findings.push(`settings.json: cannot read: ${e}`);
+      log.debug("cron drift: settings.json is valid JSON");
     }
+  } catch (e) {
+    findings.push(`settings.json: cannot read: ${e}`);
   }
 
   // 2. Check for orphaned worktree memory dirs.

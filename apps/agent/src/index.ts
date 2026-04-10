@@ -14,6 +14,7 @@ import { startCronService, type CronService } from "./services/cron";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { createSocketEventHandler } from "./services/socket-dispatch";
 import { handleCommand } from "./services/command-handler";
+import { stopConfigLoader } from "./services/config-loader";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -115,6 +116,7 @@ function shutdown() {
   specWatcher?.stop();
   cronService?.stop();
   socketServer?.stop();
+  stopConfigLoader();
   // Stop existing services.
   healthScheduler.stop();
   stopRetention();

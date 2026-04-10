@@ -5,6 +5,7 @@ import {
   getSessionById,
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
+import { execText, ExecError } from "../utils/exec";
 
 const QUERY_WINDOW_HOURS = 24; // hours of history to include in session queries
 
@@ -210,8 +211,9 @@ export async function handleSessionStart(request: Request): Promise<Response> {
   }
 
   // 1. Check tmux is available.
-  const tmuxCheck = Bun.spawnSync(["which", "tmux"]);
-  if (tmuxCheck.exitCode !== 0) {
+  try {
+    await execText("which", ["tmux"]);
+  } catch {
     return new Response(
       JSON.stringify({ error: "tmux not found -- install tmux on this agent" }),
       { status: 503, headers: { "Content-Type": "application/json" } },
@@ -232,18 +234,17 @@ export async function handleSessionStart(request: Request): Promise<Response> {
   const sessionName = `${body.project}-${ts}`;
 
   // 4. Create tmux window.
-  const newWindow = Bun.spawnSync([
-    "tmux",
-    "new-window",
-    "-d",
-    "-c",
-    body.path,
-    "-n",
-    sessionName,
-  ]);
-
-  if (newWindow.exitCode !== 0) {
-    const stderr = new TextDecoder().decode(newWindow.stderr);
+  try {
+    await execText("tmux", [
+      "new-window",
+      "-d",
+      "-c",
+      body.path,
+      "-n",
+      sessionName,
+    ]);
+  } catch (err) {
+    const stderr = err instanceof ExecError ? err.stderr : String(err);
     return new Response(
       JSON.stringify({ error: `tmux new-window failed: ${stderr}` }),
       { status: 500, headers: { "Content-Type": "application/json" } },
@@ -251,7 +252,11 @@ export async function handleSessionStart(request: Request): Promise<Response> {
   }
 
   // 5. Send claude command.
-  Bun.spawnSync(["tmux", "send-keys", "-t", sessionName, "claude", "Enter"]);
+  try {
+    await execText("tmux", ["send-keys", "-t", sessionName, "claude", "Enter"]);
+  } catch {
+    // Best effort — the window was already created.
+  }
 
   return new Response(
     JSON.stringify({ session_name: sessionName, started: true }),

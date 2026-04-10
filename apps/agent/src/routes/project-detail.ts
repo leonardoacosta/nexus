@@ -7,10 +7,11 @@
  */
 
 import { createLogger } from "@nexus/core";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { pollProjectSpecs } from "../services/spec-watcher";
+import { getProjects, type ProjectConfig } from "../services/config-loader";
+import { execText } from "../utils/exec";
 
 const log = createLogger("agent:routes:project-detail");
 
@@ -18,72 +19,21 @@ const log = createLogger("agent:routes:project-detail");
 // Project registry
 // ---------------------------------------------------------------------------
 
-interface ProjectEntry {
-  code: string;
-  name: string;
-  path: string;
-}
-
-function loadProjects(): ProjectEntry[] {
-  const registryPath = join(
-    homedir(),
-    ".claude/scripts/config/projects.json",
-  );
-  try {
-    const contents = readFileSync(registryPath, "utf8");
-    const parsed = JSON.parse(contents) as {
-      projects: Array<{ code: string; name: string; path: string }>;
-    };
-    return parsed.projects.map((p) => ({
-      code: p.code,
-      name: p.name,
-      path: p.path.replace(/^~/, homedir()),
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function resolveProject(code: string): ProjectEntry | null {
-  return loadProjects().find((p) => p.code === code) ?? null;
+function resolveProject(code: string): ProjectConfig | null {
+  return getProjects().find((p) => p.code === code) ?? null;
 }
 
 // ---------------------------------------------------------------------------
 // Subprocess helpers
 // ---------------------------------------------------------------------------
 
-const SUBPROCESS_TIMEOUT_MS = 10_000;
-
 async function spawnWithTimeout(
   cmd: string[],
   cwd: string,
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
-    const proc = Bun.spawn(cmd, {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    const timeoutPromise = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), SUBPROCESS_TIMEOUT_MS);
-    });
-
-    const resultPromise = (async () => {
-      const [stdout, stderr] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      const exitCode = await proc.exited;
-      return { ok: exitCode === 0, stdout, stderr };
-    })();
-
-    const result = await Promise.race([resultPromise, timeoutPromise]);
-    if (result === null) {
-      proc.kill();
-      return { ok: false, stdout: "", stderr: "subprocess timed out" };
-    }
-    return result;
+    const stdout = await execText(cmd[0]!, cmd.slice(1), { cwd });
+    return { ok: true, stdout, stderr: "" };
   } catch (err) {
     return {
       ok: false,

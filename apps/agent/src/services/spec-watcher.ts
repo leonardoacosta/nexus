@@ -20,6 +20,8 @@ import { createHash } from "node:crypto";
 import { createLogger } from "@nexus/core";
 import { sendTtsNotification } from "../notifications/channels/tts";
 import { lifecycleBus } from "./lifecycle-bus";
+import { execText } from "../utils/exec";
+import { getProjects } from "./config-loader";
 
 const log = createLogger("agent:spec-watcher");
 
@@ -97,24 +99,14 @@ const projectState = new Map<string, Map<string, TrackedSpec>>();
 // Project discovery
 // ---------------------------------------------------------------------------
 
-/** Load project registry from ~/.claude/scripts/config/projects.json. */
+/** Load project registry from config-loader cache. */
 function loadProjectRegistry(): ProjectPath[] {
-  const registryPath = join(
-    homedir(),
-    ".claude/scripts/config/projects.json",
-  );
-
   try {
-    const contents = readFileSync(registryPath, "utf8");
-    const parsed = JSON.parse(contents) as {
-      projects: Array<{ code: string; name: string; path: string }>;
-    };
-
-    return parsed.projects
+    return getProjects()
       .map((p) => ({
         code: p.code,
         name: p.name,
-        cwd: p.path.replace(/^~/, homedir()),
+        cwd: p.path,
       }))
       .filter((p) => existsSync(join(p.cwd, "openspec")));
   } catch (err) {
@@ -136,36 +128,13 @@ async function pollProjectSpecs(cwd: string): Promise<SpecSnapshot[]> {
   if (!existsSync(openspecDir)) return [];
 
   try {
-    const proc = Bun.spawn(["openspec", "list", "--json"], {
+    const stdout = await execText("openspec", ["list", "--json"], {
       cwd,
-      stdout: "pipe",
-      stderr: "ignore",
+      timeout: SUBPROCESS_TIMEOUT_MS,
     });
-
-    // Race subprocess against a timeout.
-    const timeoutPromise = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), SUBPROCESS_TIMEOUT_MS);
-    });
-
-    const resultPromise = (async () => {
-      const stdout = await new Response(proc.stdout).text();
-      const exitCode = await proc.exited;
-      if (exitCode !== 0) {
-        log.debug({ cwd, exitCode }, "openspec list --json exited with non-zero status");
-        return [];
-      }
-      return parseSpecList(stdout);
-    })();
-
-    const result = await Promise.race([resultPromise, timeoutPromise]);
-    if (result === null) {
-      log.warn({ cwd }, "openspec list --json timed out after 5s");
-      proc.kill();
-      return [];
-    }
-    return result;
+    return parseSpecList(stdout);
   } catch (err) {
-    log.debug({ cwd, error: err }, "openspec list --json IO error");
+    log.debug({ cwd, error: err }, "openspec list --json failed");
     return [];
   }
 }

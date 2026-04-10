@@ -56,14 +56,13 @@ import {
   handleListCommandsByNamespace,
   handleUpdateCommand,
 } from "./routes/commands";
-import {
-  handleStatusline,
-  handleHooks,
-  handleRecommend,
-  handleEnvironment,
-  handleFailures,
-  handleCron,
-} from "./routes/operational";
+import { handleStatusline } from "./routes/statusline";
+import { handleHooks } from "./routes/hooks";
+import { handleRecommend } from "./routes/recommend";
+import { handleEnvironment } from "./routes/environment-route";
+import { handleFailures } from "./routes/failures-route";
+import { handleCron } from "./routes/cron-routes";
+import { initConfigLoader, stopConfigLoader } from "./services/config-loader";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
@@ -895,6 +894,7 @@ export function startServer(
   }
 
   // Initialize subsystems that do not need the DB.
+  initConfigLoader();
   initCommandRoutes();
 
   const handler = createRequestHandler(state, db);
