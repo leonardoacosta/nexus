@@ -52,3 +52,4 @@ apps/nexus-register/nexus-register
 infra/.secrets.env
 infra/.tf-outputs.env
 infra/**/.terraform/
+apps/nexus-status/nexus-status
