@@ -28,3 +28,18 @@ export type {
   ConfigError,
   ConfigResult,
 } from "./config";
+export { expandTilde } from "./path";
+export {
+  safeSpawn,
+  isSafeArg,
+  assertAllowedBinary,
+  ALLOWED_BINARIES,
+  DisallowedBinaryError,
+  UnsafeArgError,
+} from "./safe-spawn";
+export type {
+  AllowedBinary,
+  SafeSpawnHandle,
+  SafeSpawnOptions,
+  StdioMode,
+} from "./safe-spawn";

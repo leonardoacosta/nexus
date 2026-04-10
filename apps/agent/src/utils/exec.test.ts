@@ -1,9 +1,14 @@
 import { describe, test, expect } from "bun:test";
 import { execJson, execText, ExecError, ExecTimeoutError } from "./exec";
 
+// NOTE: These tests use `sh` as the subprocess binary because `exec.ts`
+// now routes through `safeSpawn`, which enforces an allowlist. `echo` /
+// `pwd` / `sleep` are not on the allowlist — `sh -c '...'` is the
+// canonical POSIX-portable way to exercise the wrapper's behavior.
+
 describe("execText", () => {
   test("captures stdout from a successful command", async () => {
-    const result = await execText("echo", ["hello world"]);
+    const result = await execText("sh", ["-c", "echo hello world"]);
     expect(result.trim()).toBe("hello world");
   });
 
@@ -21,7 +26,7 @@ describe("execText", () => {
 
   test("throws ExecTimeoutError when command exceeds timeout", async () => {
     try {
-      await execText("sleep", ["10"], { timeout: 100 });
+      await execText("sh", ["-c", "sleep 10"], { timeout: 100 });
       expect(true).toBe(false); // should not reach
     } catch (err) {
       expect(err).toBeInstanceOf(ExecTimeoutError);
@@ -31,7 +36,7 @@ describe("execText", () => {
   });
 
   test("respects cwd option", async () => {
-    const result = await execText("pwd", [], { cwd: "/tmp" });
+    const result = await execText("sh", ["-c", "pwd"], { cwd: "/tmp" });
     // /tmp may be a symlink (e.g., /private/tmp on macOS)
     expect(result.trim()).toContain("tmp");
   });
@@ -39,13 +44,21 @@ describe("execText", () => {
 
 describe("execJson", () => {
   test("parses valid JSON output", async () => {
-    const result = await execJson<{ ok: boolean }>("echo", ['{"ok":true}']);
+    const result = await execJson<{ ok: boolean }>("sh", [
+      "-c",
+      'echo \'{"ok":true}\'',
+    ]);
     expect(result).toEqual({ ok: true });
   });
 
   test("throws on non-zero exit code before parsing", async () => {
     try {
-      await execJson("sh", ["-c", "echo '{\"ok\":true}'; exit 1"]);
+      // `;` is a shell metacharacter — requires trustArgs opt-out.
+      await execJson(
+        "sh",
+        ["-c", "echo '{\"ok\":true}'; exit 1"],
+        { trustArgs: true },
+      );
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(ExecError);
@@ -54,7 +67,7 @@ describe("execJson", () => {
 
   test("throws on invalid JSON output", async () => {
     try {
-      await execJson("echo", ["not json"]);
+      await execJson("sh", ["-c", "echo not json"]);
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(Error);
@@ -64,7 +77,7 @@ describe("execJson", () => {
 
   test("throws ExecTimeoutError when command exceeds timeout", async () => {
     try {
-      await execJson("sleep", ["10"], { timeout: 100 });
+      await execJson("sh", ["-c", "sleep 10"], { timeout: 100 });
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(ExecTimeoutError);
@@ -72,7 +85,7 @@ describe("execJson", () => {
   });
 
   test("parses array JSON", async () => {
-    const result = await execJson<number[]>("echo", ["[1,2,3]"]);
+    const result = await execJson<number[]>("sh", ["-c", "echo [1,2,3]"]);
     expect(result).toEqual([1, 2, 3]);
   });
 });

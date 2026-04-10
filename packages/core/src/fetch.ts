@@ -53,6 +53,7 @@ export async function fetchWithTimeout(
   }, timeout);
 
   try {
+    // audit-scan: E7 false positive — this IS fetchWithTimeout's implementation
     const response = await fetch(input, { ...rest, signal: controller.signal });
     return response;
   } catch (err: unknown) {

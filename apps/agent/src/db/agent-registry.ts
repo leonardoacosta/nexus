@@ -1,5 +1,6 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
+import { expandTilde } from "@nexus/core";
 import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -24,8 +25,9 @@ export async function upsertSelfInRegistry(db: Db): Promise<void> {
   const hostname = os.hostname();
   const host = getTailscaleIp();
   const port = parseInt(process.env.NEXUS_PORT ?? "7400", 10);
-  const projectsDir =
-    process.env.NEXUS_PROJECTS_DIR ?? path.join(os.homedir(), "dev");
+  const projectsDir = expandTilde(
+    process.env.NEXUS_PROJECTS_DIR ?? path.join(os.homedir(), "dev"),
+  );
   const lastSeen = new Date();
 
   await db

@@ -300,8 +300,20 @@ export function createSessionManager(
    */
   function readThroughAsync(id: string): void {
     if (!db) return;
+    const activeDb = db;
+    // Each `.then()` has its own `.catch()` per spec finalize-audit-cleanup
+    // requirement "No unhandled Promise rejections". The catches log and
+    // return `undefined` so the chain short-circuits gracefully without
+    // throwing an unhandled rejection.
     import("./db/sessions")
-      .then(({ getSessionById }) => getSessionById(db, id))
+      .then(({ getSessionById }) => getSessionById(activeDb, id))
+      .catch((err) => {
+        logger.error(
+          { id, err, context: "session-manager: read-through DB query failed" },
+          "session-manager: read-through DB query failed",
+        );
+        return undefined;
+      })
       .then((row) => {
         if (row && !sessions.has(id)) {
           // Convert row to Session — import the mapper
@@ -335,8 +347,8 @@ export function createSessionManager(
       })
       .catch((err) => {
         logger.error(
-          { id, error: err instanceof Error ? err.message : String(err) },
-          "session-manager: read-through DB query failed",
+          { id, err, context: "session-manager: read-through cache population failed" },
+          "session-manager: read-through cache population failed",
         );
       });
   }

@@ -4,8 +4,7 @@ import { eq } from "drizzle-orm";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { createLogger } from "@nexus/core";
+import { createLogger, expandTilde, safeSpawn } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 import { upsertProjectLocations } from "../db/project-registry";
 import type { ProjectToUpsert } from "../db/project-registry";
@@ -25,10 +24,7 @@ export const QUERY_WINDOW_HOURS = 24; // hours of history to include in session 
 
 /** Expand a leading `~` to the user's home directory, then resolve to absolute. */
 export function expandProjectsDir(raw: string): string {
-  const expanded = raw.startsWith("~")
-    ? path.join(os.homedir(), raw.slice(1))
-    : raw;
-  return path.resolve(expanded);
+  return path.resolve(expandTilde(raw));
 }
 
 // ── Route-level types (agent produces these; client maps to core DiscoveredProject) ──
@@ -58,19 +54,28 @@ export interface AgentDiscoveredProjectsResponse {
 /**
  * Attempt to read the git remote URL for "origin" in the given directory.
  * Returns null on any failure (git not available, no remote, timeout, etc.).
+ *
+ * Uses `safeSpawn` (Bun) with an `AbortSignal.timeout(500)` to preserve the
+ * 500ms cap that the old `spawnSync` call enforced via its `timeout` option.
  */
-function getGitRemoteUrl(projectPath: string): string | null {
+async function getGitRemoteUrl(projectPath: string): Promise<string | null> {
   try {
-    const result = spawnSync("git", ["remote", "get-url", "origin"], {
+    const handle = safeSpawn("git", ["remote", "get-url", "origin"], {
       cwd: projectPath,
-      timeout: 500,
-      encoding: "utf8",
+      signal: AbortSignal.timeout(500),
     });
-    if (result.status === 0 && result.stdout) {
-      return result.stdout.trim() || null;
+    // stdio default is "pipe" → stdout is a ReadableStream. Narrow defensively
+    // in case the default ever changes.
+    const stdoutText =
+      handle.stdout && typeof handle.stdout !== "number"
+        ? await new Response(handle.stdout).text()
+        : "";
+    const exitCode = await handle.exitCode;
+    if (exitCode === 0) {
+      return stdoutText.trim() || null;
     }
   } catch {
-    // no-op — git not available or not a remote
+    // no-op — git not available, not a remote, timeout, or disallowed binary
   }
   return null;
 }
@@ -263,7 +268,7 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
       if (isActive) activeSessions++;
     }
 
-    const gitRemoteUrl = getGitRemoteUrl(canonicalPath);
+    const gitRemoteUrl = await getGitRemoteUrl(canonicalPath);
     projects.push({ name, path: canonicalPath, activeSessions, totalSessions, gitRemoteUrl });
 
     // 9. Cap at 100 results

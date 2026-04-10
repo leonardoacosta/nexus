@@ -1,4 +1,5 @@
 import { logger } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
@@ -17,7 +18,7 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
 
   try {
     const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         method: "POST",
@@ -29,6 +30,7 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
           text: notification.body,
           model_id: "eleven_monolingual_v1",
         }),
+        timeout: 5_000,
       },
     );
 

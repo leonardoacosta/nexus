@@ -1,4 +1,5 @@
 import { logger } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
@@ -16,7 +17,7 @@ export async function sendSlackNotification(notification: NotificationRow): Prom
   }
 
   try {
-    const res = await fetch(webhookUrl, {
+    const res = await fetchWithTimeout(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -33,6 +34,7 @@ export async function sendSlackNotification(notification: NotificationRow): Prom
           ],
         }),
       }),
+      timeout: 5_000,
     });
 
     if (!res.ok) {

@@ -111,14 +111,17 @@ export class CredentialPool {
         await this.recoverExpiredCooldowns();
 
         const result = await this.db.transaction(async (tx) => {
-          // Weighted round-robin: ORDER BY rate_limit_count ASC, leased_at ASC NULLS FIRST
+          // Weighted round-robin: ORDER BY rate_limit_count ASC, leased_at ASC NULLS FIRST.
+          // SAFE: static SQL fragment, no user input interpolated. Drizzle's asc()
+          // helper does not support NULLS FIRST; the literal column name matches
+          // the schema mapping credentials.leasedAt → "leased_at" column.
           const rows = await tx
             .select()
             .from(credentials)
             .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
             .orderBy(
               asc(credentials.rateLimitCount),
-              sql`${credentials.leasedAt} asc nulls first`,
+              sql`leased_at asc nulls first`,
             )
             .for("update")
             .limit(1);

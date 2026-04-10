@@ -1,5 +1,6 @@
 import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import { CredentialPool } from "../credentials/pool";
 
 // ── Audit logger ────────────────────────────────────────────────────────────
@@ -299,12 +300,13 @@ export async function handleCredentialHealth(id: string, request: Request): Prom
   const checked_at = new Date().toISOString();
   const ip = extractCallerIp(request);
   try {
-    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+    const response = await fetchWithTimeout("https://api.anthropic.com/api/oauth/usage", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${credential}`,
         "anthropic-version": "2023-06-01",
       },
+      timeout: 10_000,
     });
     // 200 or 401/403 are both "valid credential" responses (credential reached the API)
     // true healthy = API accepts token; false = revoked/invalid

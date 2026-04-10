@@ -11,7 +11,7 @@
 import { readFileSync, watch, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createLogger } from "@nexus/core";
+import { createLogger, expandTilde } from "@nexus/core";
 
 const log = createLogger("agent:config-loader");
 
@@ -55,11 +55,10 @@ function loadProjects(): ProjectConfig[] {
     const parsed = JSON.parse(contents) as {
       projects: Array<{ code: string; name: string; path: string }>;
     };
-    const home = homedir();
     return parsed.projects.map((p) => ({
       code: p.code,
       name: p.name,
-      path: p.path.replace(/^~/, home),
+      path: expandTilde(p.path),
     }));
   } catch {
     log.debug("config-loader: projects.json not found or invalid, returning empty array");

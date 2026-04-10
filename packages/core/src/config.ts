@@ -1,6 +1,7 @@
 import { parse as parseTOML } from "smol-toml";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
+import { expandTilde } from "./path";
 
 /** Schema for a single agent entry in agents.toml */
 export const AgentConfigSchema = z.object({
@@ -78,5 +79,13 @@ export function parseConfig(filePath: string): ConfigResult {
     };
   }
 
-  return { ok: true, config: result.data };
+  // Expand tilde in projects_dir for every agent entry before returning.
+  const config = result.data;
+  for (const agent of config.agents) {
+    if (agent.projects_dir) {
+      agent.projects_dir = expandTilde(agent.projects_dir);
+    }
+  }
+
+  return { ok: true, config };
 }

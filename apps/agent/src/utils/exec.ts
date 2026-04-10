@@ -1,14 +1,17 @@
 /**
- * Typed subprocess helpers wrapping Bun.spawn.
+ * Typed subprocess helpers wrapping {@link safeSpawn} from `@nexus/core`.
  *
  * Provides `execJson<T>()` and `execText()` — single-call replacements
  * for the spawn + stdout capture + parse boilerplate scattered across
  * route and service files.
+ *
+ * Internally delegates to `safeSpawn` so every subprocess in the agent
+ * codebase goes through the same allowlist + arg validation. Call sites
+ * keep their existing `execText`/`execJson` API — only the underlying
+ * spawn primitive changed.
  */
 
-import { createLogger } from "@nexus/core";
-
-const log = createLogger("agent:utils:exec");
+import { safeSpawn, type SafeSpawnHandle } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,6 +21,12 @@ export interface ExecOptions {
   cwd?: string;
   timeout?: number; // default 10_000ms
   env?: Record<string, string>;
+  /**
+   * Opt out of safeSpawn arg validation. Forwarded to safeSpawn.
+   * Use this ONLY when the args legitimately need shell metacharacters
+   * (e.g. `sh -c "foo; bar"`) and the inputs are fully validated upstream.
+   */
+  trustArgs?: boolean;
 }
 
 export class ExecError extends Error {
@@ -53,12 +62,45 @@ export class ExecTimeoutError extends Error {
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
+// Internal helper: read a SafeSpawnHandle to completion
+// ---------------------------------------------------------------------------
+
+interface SpawnOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+/**
+ * Read a handle's stdout/stderr to completion and await the exit code.
+ * Factored out so `execText` / `execJson` can share the "collect output"
+ * step while safeSpawn exposes a streaming handle.
+ */
+async function awaitOutput(handle: SafeSpawnHandle): Promise<SpawnOutput> {
+  const stdoutStream = handle.stdout;
+  const stderrStream = handle.stderr;
+
+  const stdoutPromise =
+    stdoutStream instanceof ReadableStream
+      ? new Response(stdoutStream).text()
+      : Promise.resolve("");
+  const stderrPromise =
+    stderrStream instanceof ReadableStream
+      ? new Response(stderrStream).text()
+      : Promise.resolve("");
+
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  const exitCode = await handle.exitCode;
+  return { stdout, stderr, exitCode };
+}
+
+// ---------------------------------------------------------------------------
 // Core exec
 // ---------------------------------------------------------------------------
 
 /**
- * Spawn a subprocess, capture stdout as text, and throw on non-zero exit
- * or timeout.
+ * Spawn a subprocess via {@link safeSpawn}, capture stdout as text, and
+ * throw on non-zero exit or timeout.
  */
 export async function execText(
   cmd: string,
@@ -67,30 +109,20 @@ export async function execText(
 ): Promise<string> {
   const timeoutMs = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  const proc = Bun.spawn([cmd, ...args], {
+  const handle = safeSpawn(cmd, args, {
     cwd: opts?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+    env: opts?.env,
+    trustArgs: opts?.trustArgs,
   });
 
   const timeoutPromise = new Promise<"timeout">((resolve) => {
     setTimeout(() => resolve("timeout"), timeoutMs);
   });
 
-  const resultPromise = (async () => {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const exitCode = await proc.exited;
-    return { stdout, stderr, exitCode };
-  })();
-
-  const result = await Promise.race([resultPromise, timeoutPromise]);
+  const result = await Promise.race([awaitOutput(handle), timeoutPromise]);
 
   if (result === "timeout") {
-    proc.kill();
+    await handle.abort();
     throw new ExecTimeoutError(cmd, args, timeoutMs);
   }
 
@@ -102,8 +134,8 @@ export async function execText(
 }
 
 /**
- * Spawn a subprocess, capture stdout, and parse as JSON.
- * Throws on non-zero exit, timeout, or invalid JSON.
+ * Spawn a subprocess via {@link safeSpawn}, capture stdout, and parse as
+ * JSON. Throws on non-zero exit, timeout, or invalid JSON.
  */
 export async function execJson<T>(
   cmd: string,

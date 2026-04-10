@@ -126,8 +126,39 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
 }
 
-function shutdown() {
+/** Max time to wait for PTY streams to report closure during graceful shutdown. */
+const STREAM_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+async function shutdown() {
   logger.info("shutting down nexus-agent");
+
+  // Shut down PTY streams first so child processes receive SIGTERM before the
+  // rest of the cleanup tears down the server/DB they might depend on. Bounded
+  // by a 5 second grace window — if streams do not report closure in time, we
+  // proceed with the remaining cleanup anyway so the process can still exit.
+  try {
+    const shutdownResult = streamManager.shutdown() as unknown;
+    if (shutdownResult instanceof Promise) {
+      await Promise.race([
+        shutdownResult,
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            logger.warn(
+              { timeoutMs: STREAM_SHUTDOWN_TIMEOUT_MS },
+              "streamManager.shutdown() did not complete within grace window — continuing shutdown",
+            );
+            resolve();
+          }, STREAM_SHUTDOWN_TIMEOUT_MS),
+        ),
+      ]);
+    }
+  } catch (err) {
+    logger.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "streamManager.shutdown() threw — continuing with remaining cleanup",
+    );
+  }
+
   // Stop new services first.
   specWatcher?.stop();
   cronService?.stop();
@@ -139,8 +170,6 @@ function shutdown() {
   stopProjectCleanup();
   sessionManager.stop();
   watcherBridge?.shutdown();
-  // Shut down all active PTY streams before stopping the HTTP server.
-  streamManager.shutdown();
   server.stop();
   process.exit(0);
 }

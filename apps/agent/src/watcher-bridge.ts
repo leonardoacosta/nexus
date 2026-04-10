@@ -1,4 +1,4 @@
-import { logger } from "@nexus/core";
+import { logger, safeSpawn } from "@nexus/core";
 import type { WatcherEvent, WatcherCommand } from "@nexus/core";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -51,7 +51,7 @@ export function createWatcherBridge(
   options: WatcherBridgeOptions,
 ): WatcherBridge {
   const binaryPath = options.binaryPath ?? resolveWatcherBinary();
-  let proc: ReturnType<typeof Bun.spawn> | null = null;
+  let proc: ReturnType<typeof safeSpawn> | null = null;
   let stopped = false;
   let backoffMs = 1000;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,10 +76,10 @@ export function createWatcherBridge(
     logger.info({ binaryPath }, "watcher-bridge: spawning watcher");
     lineBuffer = "";
 
-    proc = Bun.spawn([binaryPath], {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "ignore",
+    // safeSpawn: allowlist-checks via basename("nexus-watcher"); no shell
+    // metacharacters are passed so default arg validation is satisfied.
+    proc = safeSpawn(binaryPath, [], {
+      stdio: ["pipe", "pipe", "ignore"],
     });
 
     // Reset backoff after 60s of stable uptime
@@ -115,19 +115,23 @@ export function createWatcherBridge(
     })(), "watcher-bridge-stdout-reader");
 
     // Watch for process exit
-    safeFireAndForget(proc.exited.then((code) => {
-      if (uptimeTimer) clearTimeout(uptimeTimer);
-      uptimeTimer = null;
-      proc = null;
+    safeFireAndForget(proc.exitCode
+      .then((code) => {
+        if (uptimeTimer) clearTimeout(uptimeTimer);
+        uptimeTimer = null;
+        proc = null;
 
-      if (stopped) return;
+        if (stopped) return;
 
-      logger.warn({ code, backoffMs }, "watcher-bridge: watcher exited");
-      restartTimer = setTimeout(() => {
-        backoffMs = Math.min(backoffMs * 2, 30_000);
-        spawn();
-      }, backoffMs);
-    }), "watcher-bridge-process-exit");
+        logger.warn({ code, backoffMs }, "watcher-bridge: watcher exited");
+        restartTimer = setTimeout(() => {
+          backoffMs = Math.min(backoffMs * 2, 30_000);
+          spawn();
+        }, backoffMs);
+      })
+      .catch((err: unknown) => {
+        logger.error({ err, context: "watcher-bridge:process-exit" }, "watcher-bridge: exit handler failed");
+      }), "watcher-bridge-process-exit");
   }
 
   function send(command: WatcherCommand): void {
@@ -164,7 +168,12 @@ export function createWatcherBridge(
       const killTimer = setTimeout(() => {
         proc?.kill();
       }, 2000);
-      safeFireAndForget(proc.exited.then(() => clearTimeout(killTimer)), "watcher-bridge-shutdown-exit");
+      safeFireAndForget(proc.exitCode
+        .then(() => clearTimeout(killTimer))
+        .catch((err: unknown) => {
+          clearTimeout(killTimer);
+          logger.error({ err, context: "watcher-bridge:shutdown-exit" }, "watcher-bridge: shutdown exit handler failed");
+        }), "watcher-bridge-shutdown-exit");
     }
   }
 
