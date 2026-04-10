@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { credentials } from "@nexus/db";
-import { eq, and, sql, asc, gt, gte } from "drizzle-orm";
+import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
 import { logger } from "@nexus/core";
 import {
   insertCredential,
@@ -113,7 +113,7 @@ export class CredentialPool {
             .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
             .orderBy(
               asc(credentials.rateLimitCount),
-              sql`${asc(credentials.leasedAt)} ${sql.raw("NULLS FIRST")}`,
+              sql`${credentials.leasedAt} asc nulls first`,
             )
             .for("update")
             .limit(1);
@@ -276,11 +276,16 @@ export class CredentialPool {
   /** Recover credentials whose cooldown has expired. */
   async recoverExpiredCooldowns(): Promise<number> {
     const expired = await queryExpiredCooldowns(this.db);
+    if (expired.length === 0) return 0;
+
+    const ids = expired.map((c) => c.id);
+
+    await this.db
+      .update(credentials)
+      .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
+      .where(inArray(credentials.id, ids));
+
     for (const credential of expired) {
-      await this.db
-        .update(credentials)
-        .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
-        .where(eq(credentials.id, credential.id));
       logger.info(
         { id: credential.id, event: "credential.cooldown_exited" },
         "credential recovered from cooldown",
@@ -293,11 +298,16 @@ export class CredentialPool {
   async cleanupStaleLeases(): Promise<number> {
     const threshold = new Date(Date.now() - this.leaseTtlMs);
     const stale = await queryStaleLeases(this.db, threshold);
+    if (stale.length === 0) return 0;
+
+    const ids = stale.map((c) => c.id);
+
+    await this.db
+      .update(credentials)
+      .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
+      .where(inArray(credentials.id, ids));
+
     for (const credential of stale) {
-      await this.db
-        .update(credentials)
-        .set({ status: "available", leasedBy: null, leasedAt: null, cooldownUntil: null })
-        .where(eq(credentials.id, credential.id));
       logger.info(
         { id: credential.id, event: "credential.stale_lease_released" },
         "stale lease released",
