@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Nexus Architecture Review -- v4 Post-Consolidation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root{--bg:#0a1628;--bg2:#0d1f3c;--card:#0f2440;--cardH:#122a4a;--c:#00d4ff;--cd:#00a8cc;--cg:rgba(0,212,255,.15);--cb:rgba(0,212,255,.3);--cs:rgba(0,212,255,.5);--t1:#e8f0fe;--t2:#8da4c2;--t3:#5a7499;--g:#00e676;--gbg:rgba(0,230,118,.1);--gb:rgba(0,230,118,.35);--y:#ffd740;--ybg:rgba(255,215,64,.1);--yb:rgba(255,215,64,.35);--o:#ff9100;--obg:rgba(255,145,0,.1);--ob:rgba(255,145,0,.35);--r:#ff5252;--rbg:rgba(255,82,82,.1);--rb:rgba(255,82,82,.35);--gr1:rgba(0,212,255,.04);--gr2:rgba(0,212,255,.07);--f:'JetBrains Mono',monospace;--sw:260px}
+[data-theme="light"]{--bg:#e8eef6;--bg2:#dde5f0;--card:#f0f4fa;--cardH:#fff;--c:#0077aa;--cd:#005580;--cg:rgba(0,119,170,.08);--cb:rgba(0,119,170,.25);--cs:rgba(0,119,170,.4);--t1:#0a1628;--t2:#3a5070;--t3:#6b85a8;--g:#00895a;--gbg:rgba(0,137,90,.08);--gb:rgba(0,137,90,.3);--y:#b8860b;--ybg:rgba(184,134,11,.08);--yb:rgba(184,134,11,.3);--o:#cc6600;--obg:rgba(204,102,0,.08);--ob:rgba(204,102,0,.3);--r:#cc0000;--rbg:rgba(204,0,0,.06);--rb:rgba(204,0,0,.25);--gr1:rgba(0,119,170,.04);--gr2:rgba(0,119,170,.08)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;scroll-behavior:smooth;scroll-padding-top:2rem}
+body{font-family:var(--f);background:var(--bg);color:var(--t1);line-height:1.6;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background:repeating-linear-gradient(0deg,var(--gr1) 0 1px,transparent 1px 40px),repeating-linear-gradient(90deg,var(--gr1) 0 1px,transparent 1px 40px),repeating-linear-gradient(0deg,var(--gr2) 0 1px,transparent 1px 200px),repeating-linear-gradient(90deg,var(--gr2) 0 1px,transparent 1px 200px)}
+.sb{position:fixed;top:0;left:0;width:var(--sw);height:100vh;background:var(--bg2);border-right:1px solid var(--cb);z-index:100;overflow-y:auto;transition:transform .3s;scrollbar-width:thin;scrollbar-color:var(--cb) transparent}
+.sb-h{padding:1.5rem 1.2rem 1rem;border-bottom:1px solid var(--cb)}
+.sb-logo{font-size:.65rem;font-weight:700;letter-spacing:.25em;text-transform:uppercase;color:var(--c);margin-bottom:.25rem}
+.sb-ver{font-size:.6rem;color:var(--t3);letter-spacing:.1em}
+.sb-nav{padding:1rem 0}
+.sb-nav a{display:block;padding:.5rem 1.2rem;font-size:.7rem;color:var(--t2);text-decoration:none;letter-spacing:.05em;border-left:2px solid transparent;transition:all .3s}
+.sb-nav a:hover,.sb-nav a.active{color:var(--c);background:var(--cg);border-left-color:var(--c)}
+.sb-nav .nl{padding:1rem 1.2rem .3rem;font-size:.55rem;font-weight:700;color:var(--t3);letter-spacing:.2em;text-transform:uppercase}
+.sb-ctrl{padding:1rem 1.2rem;border-top:1px solid var(--cb)}
+.tt{display:flex;align-items:center;gap:.6rem;cursor:pointer;background:none;border:1px solid var(--cb);color:var(--t2);font-family:var(--f);font-size:.65rem;padding:.4rem .8rem;width:100%;letter-spacing:.05em;transition:all .3s}
+.tt:hover{border-color:var(--c);color:var(--c)}
+.tti{width:8px;height:8px;border:1px solid var(--c);background:var(--cg)}
+[data-theme="light"] .tti{background:var(--c)}
+.sb-toggle{display:none;position:fixed;top:1rem;left:1rem;z-index:200;background:var(--bg2);border:1px solid var(--cb);color:var(--c);width:40px;height:40px;cursor:pointer;font-family:var(--f);font-size:1.2rem;align-items:center;justify-content:center}
+@media(max-width:900px){.sb{transform:translateX(-100%)}.sb.open{transform:translateX(0)}.sb-toggle{display:flex}.mc{margin-left:0!important}.sb-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}.sb-ov.vis{display:block}}
+.mc{margin-left:var(--sw);padding:3rem 2rem;position:relative;z-index:1}
+.cw{max-width:1200px;margin:0 auto}
+.hero{text-align:center;padding:4rem 2rem 3rem;margin-bottom:3rem;border:1px solid var(--cb);background:var(--card);position:relative;overflow:hidden;animation:fiu .8s ease}
+.hero::before,.hero::after{content:'';position:absolute;left:50%;transform:translateX(-50%);width:200px;height:2px;background:linear-gradient(90deg,transparent,var(--c),transparent)}
+.hero::before{top:0}.hero::after{bottom:0}
+.hero-l{font-size:.6rem;font-weight:700;letter-spacing:.4em;text-transform:uppercase;color:var(--c);margin-bottom:1rem}
+.hero h1{font-size:1.6rem;font-weight:300;color:var(--t1);letter-spacing:.05em;margin-bottom:.5rem}
+.hero h1 span{color:var(--c);font-weight:600}
+.hero-sub{font-size:.75rem;color:var(--t2);max-width:600px;margin:.5rem auto 0;letter-spacing:.02em}
+.hero-d{font-size:.6rem;color:var(--t3);margin-top:1.2rem;letter-spacing:.15em}
+@keyframes fiu{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+.sec{margin-bottom:3rem;opacity:0;transform:translateY(20px);transition:opacity .6s,transform .6s}
+.sec.vis{opacity:1;transform:translateY(0)}
+.sl{font-size:.55rem;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:var(--c);margin-bottom:.4rem}
+.st{font-size:1.1rem;font-weight:600;color:var(--t1);margin-bottom:.4rem;letter-spacing:.03em}
+.sd{font-size:.72rem;color:var(--t2);margin-bottom:1.5rem;max-width:800px}
+.sdv{height:1px;background:linear-gradient(90deg,var(--cb),transparent);margin-bottom:1.5rem}
+.kg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.2rem}
+.kc{border:1px solid var(--cb);background:var(--card);padding:1.5rem;position:relative;transition:all .3s}
+.kc:hover{border-color:var(--cs);background:var(--cardH)}
+.kc::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--c)}
+.kv{font-size:1.8rem;font-weight:700;color:var(--c);margin-bottom:.25rem}
+.kl{font-size:.65rem;color:var(--t2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.6rem}
+.kd{font-size:.68rem;color:var(--t3);line-height:1.5}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+@media(max-width:768px){.cmp{grid-template-columns:1fr}}
+.cp{border:1px solid var(--cb);background:var(--card)}
+.cph{padding:.8rem 1.2rem;border-bottom:1px solid var(--cb);font-size:.6rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase}
+.cp.bef .cph{color:var(--r);border-bottom-color:var(--rb)}
+.cp.aft .cph{color:var(--g);border-bottom-color:var(--gb)}
+.cpb{padding:1.2rem}
+.ci{margin-top:1.5rem;padding:1rem 1.2rem;border:1px solid var(--gb);background:var(--gbg);font-size:.7rem;color:var(--g)}
+.cil{font-size:.55rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;margin-bottom:.3rem}
+.dc{position:relative;overflow:hidden}
+.dc .mermaid{display:flex;justify-content:center;transform-origin:center;transition:transform .2s}
+.dc .mermaid svg{max-width:100%;height:auto}
+.dctl{position:absolute;top:.5rem;right:.5rem;display:flex;gap:.3rem;z-index:10}
+.dctl button{width:28px;height:28px;background:var(--bg2);border:1px solid var(--cb);color:var(--c);font-family:var(--f);font-size:.8rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .3s}
+.dctl button:hover{background:var(--cg);border-color:var(--c)}
+.dtw{overflow-x:auto;border:1px solid var(--cb)}
+.dt{width:100%;border-collapse:collapse;font-size:.7rem}
+.dt thead{background:var(--bg2)}
+.dt th{padding:.7rem 1rem;text-align:left;font-weight:600;font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;color:var(--c);border-bottom:1px solid var(--cs);white-space:nowrap}
+.dt td{padding:.55rem 1rem;border-bottom:1px solid var(--cb);color:var(--t1);vertical-align:middle}
+.dt tbody tr{background:var(--card);transition:background .3s}
+.dt tbody tr:hover{background:var(--cardH)}
+.dt code{font-family:var(--f);font-size:.68rem;color:var(--c);background:var(--cg);padding:.1rem .35rem}
+.b{display:inline-block;padding:.15rem .55rem;font-size:.58rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;border:1px solid;font-family:var(--f)}
+.b-ok{color:var(--g);border-color:var(--gb);background:var(--gbg)}
+.b-w{color:var(--y);border-color:var(--yb);background:var(--ybg)}
+.b-lk{color:var(--r);border-color:var(--rb);background:var(--rbg)}
+.b-1d{color:var(--g);border-color:var(--gb);background:var(--gbg)}
+.b-2d{color:var(--y);border-color:var(--yb);background:var(--ybg)}
+.b-3d{color:var(--o);border-color:var(--ob);background:var(--obg)}
+.b-ih{color:var(--g);border-color:var(--gb);background:var(--gbg)}
+.b-im{color:var(--y);border-color:var(--yb);background:var(--ybg)}
+.b-lo{color:var(--g);border-color:var(--gb);background:var(--gbg)}
+.b-md{color:var(--y);border-color:var(--yb);background:var(--ybg)}
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}
+.sc{border:1px solid var(--cb);background:var(--card);padding:1.2rem;transition:all .3s}
+.sc:hover{border-color:var(--cs)}
+.sbn{font-size:.9rem;font-weight:700;color:var(--c);margin-bottom:.6rem;display:flex;align-items:center;gap:.6rem}
+.scnt{font-size:.58rem;font-weight:600;padding:.1rem .4rem;border:1px solid var(--cb);color:var(--t2)}
+.ss{list-style:none}
+.ss li{padding:.3rem 0;font-size:.68rem;color:var(--t2);border-bottom:1px solid var(--cb)}
+.ss li:last-child{border-bottom:none}
+.ss li code{color:var(--t1);font-family:var(--f)}
+.rb{margin-top:1.5rem;padding:1rem 1.2rem;border:1px solid var(--cb);background:var(--cg)}
+.rbl{font-size:.55rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--c);margin-bottom:.3rem}
+.rbt{font-size:.7rem;color:var(--t2)}
+.tm{display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(3,auto);gap:3px;border:1px solid var(--cb);background:var(--cb);padding:3px}
+.tc{background:var(--card);padding:1rem;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;transition:all .3s}
+.tc:hover{background:var(--cardH)}
+.tc.cl{grid-column:span 2;grid-row:span 2}
+.tc.cm{grid-column:span 2}
+.tc.cs{grid-column:span 6;border-top:2px solid var(--cs)}
+.tcn{font-size:.72rem;font-weight:600;color:var(--t1);margin-bottom:.3rem}
+.tcl{font-size:1.1rem;font-weight:700;color:var(--c)}
+.tcu{font-size:.55rem;color:var(--t3);letter-spacing:.1em}
+.tmt{margin-top:.8rem;text-align:right;font-size:.68rem;color:var(--t3)}
+.prn{font-weight:700;color:var(--c);text-align:center}
+.fb{border:1px solid var(--cb);background:var(--card);padding:1.2rem}
+.fr{display:flex;align-items:center;gap:.5rem;padding:.4rem 0;font-size:.72rem}
+.fa{color:var(--c);font-weight:700;flex-shrink:0}
+.fn{padding:.25rem .6rem;border:1px solid var(--cb);color:var(--t1);font-size:.68rem;white-space:nowrap}
+.fn.fs{border-color:var(--cs);color:var(--c)}
+.fn.fc{border-color:var(--rb);color:var(--r)}
+.fnt{font-size:.62rem;color:var(--t3);margin-top:.5rem;padding-left:.5rem;border-left:2px solid var(--cb)}
+.xh::before,.xh::after{content:'';position:absolute;width:12px;height:12px;border-color:var(--c);border-style:solid}
+.xh::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+.xh::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--cb)}
+::-webkit-scrollbar-thumb:hover{background:var(--cs)}
+@media(max-width:768px){html{font-size:14px}.mc{padding:1.5rem 1rem}.hero{padding:2.5rem 1.5rem 2rem}.hero h1{font-size:1.2rem}.kg{grid-template-columns:1fr}.tm{grid-template-columns:repeat(3,1fr)}.tc.cl{grid-column:span 3;grid-row:span 1}.tc.cm,.tc.cs{grid-column:span 3}.sg{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<button class="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">///</button>
+<div class="sb-ov" onclick="toggleSidebar()"></div>
+
+<nav class="sb">
+  <div class="sb-h">
+    <div class="sb-logo">NEXUS // ARCHITECTURE REVIEW</div>
+    <div class="sb-ver">v4 Post-Consolidation</div>
+  </div>
+  <div class="sb-nav">
+    <div class="nl">Overview</div>
+    <a href="#hero">Introduction</a>
+    <a href="#current-state">Current State Dashboard</a>
+    <div class="nl">Findings</div>
+    <a href="#finding-1">01 // Event Routing</a>
+    <a href="#finding-2">02 // Singleton Sprawl</a>
+    <a href="#finding-3">03 // Subprocess Sprawl</a>
+    <a href="#finding-4">04 // Config Read Pattern</a>
+    <a href="#finding-5">05 // God Route</a>
+    <a href="#finding-6">06 // Dual Session Tracking</a>
+    <div class="nl">Plan</div>
+    <a href="#priority-matrix">Priority Matrix</a>
+  </div>
+  <div class="sb-ctrl">
+    <button class="tt" onclick="toggleTheme()">
+      <span class="tti"></span>
+      <span id="ttl">Toggle Light Mode</span>
+    </button>
+  </div>
+</nav>
+
+<main class="mc">
+<div class="cw">
+
+<!-- HERO -->
+<section id="hero" class="hero xh">
+  <div class="hero-l">Architecture Efficiency Review</div>
+  <h1>Nexus <span>Architecture Review</span></h1>
+  <h1 style="font-size:.9rem;font-weight:300;margin-top:.2rem">v4 Post-Consolidation</h1>
+  <p class="hero-sub">6 findings for maintainability, sustainability, and simplicity</p>
+  <div class="hero-d">2026-04-09 // REV 1.0</div>
+</section>
+
+<!-- SECTION 1: CURRENT STATE -->
+<section id="current-state" class="sec">
+  <div class="sl">Section 01</div>
+  <div class="st">Current State Dashboard</div>
+  <div class="sdv"></div>
+  <div class="sd">Key metrics from the post-consolidation codebase scan.</div>
+  <div class="kg">
+    <div class="kc xh">
+      <div class="kv">10 / 13 / ~4.5K</div>
+      <div class="kl">Services / Route Files / Agent LOC</div>
+      <div class="kd">10 registered services, 13 route files in the agent, approximately 4,500 lines of code across the agent codebase.</div>
+    </div>
+    <div class="kc xh">
+      <div class="kv">20</div>
+      <div class="kl">In-Memory Singletons (Map/Set)</div>
+      <div class="kd">Scattered across modules with no shared lifecycle management. Mix of connection tracking, caches, and accumulators.</div>
+    </div>
+    <div class="kc xh">
+      <div class="kv">9</div>
+      <div class="kl">Subprocess Spawn Sites</div>
+      <div class="kd">Direct child_process invocations with no shared helper. 5 distinct binaries: openspec, bd, git, tmux, gh.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FINDING 1: EVENT ROUTING -->
+<section id="finding-1" class="sec">
+  <div class="sl">Finding 01</div>
+  <div class="st">Three-Layer Event Routing</div>
+  <div class="sdv"></div>
+  <div class="sd">Events traverse three routing layers with redundant dispatch and deduplication at each boundary. Flattening to a single bus with direct consumer subscriptions eliminates an entire layer.</div>
+  <div class="cmp">
+    <div class="cp bef">
+      <div class="cph">Before -- 3 Layers</div>
+      <div class="cpb">
+        <div class="dc" id="d-b1">
+          <div class="dctl">
+            <button onclick="zd('d-b1',1.2)" title="Zoom in">+</button>
+            <button onclick="zd('d-b1',.8)" title="Zoom out">-</button>
+            <button onclick="zd('d-b1',0)" title="Reset">R</button>
+          </div>
+          <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'primaryColor':'#0f2440','primaryTextColor':'#e8f0fe','primaryBorderColor':'#00d4ff','lineColor':'#00a8cc','fontFamily':'JetBrains Mono','fontSize':'12px'}}}%%
+graph LR
+  A[Socket] --> B[socket-dispatch]
+  B --> C[lifecycle-bus]
+  C --> D["server.ts WS"]
+  D --> E[peer-connector]
+  E --> F[remote bus]
+  F --> G[federation-notify]
+  G --> H[notification-router]
+  H --> I[channels]
+  style A fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style B fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style C fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style D fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style E fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style F fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style G fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style H fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style I fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cp aft">
+      <div class="cph">After -- Flat Bus</div>
+      <div class="cpb">
+        <div class="dc" id="d-a1">
+          <div class="dctl">
+            <button onclick="zd('d-a1',1.2)" title="Zoom in">+</button>
+            <button onclick="zd('d-a1',.8)" title="Zoom out">-</button>
+            <button onclick="zd('d-a1',0)" title="Reset">R</button>
+          </div>
+          <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'primaryColor':'#0f2440','primaryTextColor':'#e8f0fe','primaryBorderColor':'#00d4ff','lineColor':'#00a8cc','fontFamily':'JetBrains Mono','fontSize':'12px'}}}%%
+graph LR
+  A[Socket] --> B[lifecycle-bus]
+  B --> C[WS consumers]
+  B --> D[SSE consumers]
+  B --> E[federation]
+  B --> F[notifications]
+  style A fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style B fill:#0f2440,stroke:#00e676,color:#00e676
+  style C fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style D fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style E fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style F fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ci">
+    <div class="cil">Impact</div>
+    -200 LOC removed, 1 fewer deduplication boundary, simplified debugging path
+  </div>
+</section>
+
+<!-- FINDING 2: SINGLETON SPRAWL -->
+<section id="finding-2" class="sec">
+  <div class="sl">Finding 02</div>
+  <div class="st">Module-Level Singleton Sprawl</div>
+  <div class="sdv"></div>
+  <div class="sd">20 Map/Set instances scattered across modules. Most are acceptable, but several accumulate data indefinitely with no reset or eviction mechanism.</div>
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr><th>File</th><th>Type</th><th>Variable</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td><code>server.ts</code></td><td>Set</td><td><code>allSockets</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>server.ts</code></td><td>Set</td><td><code>federationSockets</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>server.ts</code></td><td>Map</td><td><code>pongDeadlines</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>server.ts</code></td><td>Map</td><td><code>federationCleanup</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>session-manager.ts</code></td><td>Map</td><td><code>sessions</code></td><td><span class="b b-lk">DUAL SOURCE</span></td></tr>
+        <tr><td><code>stream-manager.ts</code></td><td>Map</td><td><code>sessions</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>environment-cache.ts</code></td><td>Map</td><td><code>cache</code></td><td><span class="b b-ok">OK</span></td></tr>
+        <tr><td><code>command-handler.ts</code></td><td>Map</td><td><code>typeOverrides</code></td><td><span class="b b-w">NEVER CLEARED</span></td></tr>
+        <tr><td><code>command-handler.ts</code></td><td>Map</td><td><code>projectRules</code></td><td><span class="b b-w">NEVER CLEARED</span></td></tr>
+        <tr><td><code>notifications.ts</code></td><td>Map</td><td><code>dedupMap</code></td><td><span class="b b-w">NEVER RESET</span></td></tr>
+        <tr><td><code>projects-discovered.ts</code></td><td>Set</td><td><code>seenCanonicalPaths</code></td><td><span class="b b-lk">ACCUMULATES</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- FINDING 3: SUBPROCESS SPRAWL -->
+<section id="finding-3" class="sec">
+  <div class="sl">Finding 03</div>
+  <div class="st">Subprocess Sprawl</div>
+  <div class="sdv"></div>
+  <div class="sd">9 direct subprocess spawn sites across the codebase, invoking 5 distinct external binaries with no shared execution helper.</div>
+  <div class="sg">
+    <div class="sc">
+      <div class="sbn">openspec <span class="scnt">2 sites</span></div>
+      <ul class="ss">
+        <li><code>specs.ts</code></li>
+        <li><code>spec-watcher.ts</code></li>
+      </ul>
+    </div>
+    <div class="sc">
+      <div class="sbn">bd <span class="scnt">3 sites</span></div>
+      <ul class="ss">
+        <li><code>specs.ts</code></li>
+        <li><code>project-detail.ts</code></li>
+        <li><code>operational.ts</code></li>
+      </ul>
+    </div>
+    <div class="sc">
+      <div class="sbn">git <span class="scnt">3 sites</span></div>
+      <ul class="ss">
+        <li><code>operational.ts</code></li>
+        <li><code>cron.ts</code></li>
+        <li><code>sessions.ts</code></li>
+      </ul>
+    </div>
+    <div class="sc">
+      <div class="sbn">tmux <span class="scnt">3 calls</span></div>
+      <ul class="ss">
+        <li><code>sessions.ts</code> -- list-sessions</li>
+        <li><code>sessions.ts</code> -- capture-pane</li>
+        <li><code>sessions.ts</code> -- send-keys</li>
+      </ul>
+    </div>
+    <div class="sc">
+      <div class="sbn">gh <span class="scnt">1 site</span></div>
+      <ul class="ss">
+        <li><code>operational.ts</code></li>
+      </ul>
+    </div>
+  </div>
+  <div class="rb">
+    <div class="rbl">Recommendation</div>
+    <div class="rbt">Extract a shared <code>execJson()</code> helper with unified timeout, error handling, and structured output parsing. Consider <code>simple-git</code> library for git operations.</div>
+  </div>
+</section>
+
+<!-- FINDING 4: CONFIG READ PATTERN -->
+<section id="finding-4" class="sec">
+  <div class="sl">Finding 04</div>
+  <div class="st">Config Read Pattern</div>
+  <div class="sdv"></div>
+  <div class="sd">Configuration files are re-read from disk on every HTTP request using synchronous <code>readFileSync</code>. This blocks the event loop and wastes I/O.</div>
+  <div class="cmp">
+    <div class="cp bef">
+      <div class="cph">Before -- Read on Every Request</div>
+      <div class="cpb">
+        <div class="dc" id="d-b4">
+          <div class="dctl">
+            <button onclick="zd('d-b4',1.2)">+</button>
+            <button onclick="zd('d-b4',.8)">-</button>
+            <button onclick="zd('d-b4',0)">R</button>
+          </div>
+          <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'primaryColor':'#0f2440','primaryTextColor':'#e8f0fe','primaryBorderColor':'#00d4ff','lineColor':'#00a8cc','fontFamily':'JetBrains Mono','fontSize':'12px'}}}%%
+graph TD
+  A["HTTP Request #1"] --> B[readFileSync]
+  B --> C[parse JSON]
+  C --> D[respond]
+  E["HTTP Request #2"] --> F[readFileSync]
+  F --> G[parse JSON]
+  G --> H[respond]
+  style A fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style B fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style E fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style F fill:#0f2440,stroke:#ff5252,color:#ff5252
+  style C fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style D fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style G fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style H fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cp aft">
+      <div class="cph">After -- Watch + Cache</div>
+      <div class="cpb">
+        <div class="dc" id="d-a4">
+          <div class="dctl">
+            <button onclick="zd('d-a4',1.2)">+</button>
+            <button onclick="zd('d-a4',.8)">-</button>
+            <button onclick="zd('d-a4',0)">R</button>
+          </div>
+          <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'primaryColor':'#0f2440','primaryTextColor':'#e8f0fe','primaryBorderColor':'#00d4ff','lineColor':'#00a8cc','fontFamily':'JetBrains Mono','fontSize':'12px'}}}%%
+graph TD
+  W["fs.watch"] -->|on change| M[memory cache]
+  A["HTTP Request #1"] --> M
+  M --> D[respond]
+  E["HTTP Request #2"] --> M
+  style W fill:#0f2440,stroke:#00e676,color:#00e676
+  style M fill:#0f2440,stroke:#00e676,color:#00e676
+  style A fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style D fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+  style E fill:#0f2440,stroke:#00d4ff,color:#e8f0fe
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ci">
+    <div class="cil">Files Affected</div>
+    <code>project-detail.ts</code>, <code>operational.ts</code>
+  </div>
+</section>
+
+<!-- FINDING 5: GOD ROUTE -->
+<section id="finding-5" class="sec">
+  <div class="sl">Finding 05</div>
+  <div class="st">683-Line God Route</div>
+  <div class="sdv"></div>
+  <div class="sd"><code>operational.ts</code> bundles 6 unrelated endpoint groups plus shared helpers into a single 683-line file.</div>
+  <div class="tm">
+    <div class="tc cl"><div class="tcn">recommend</div><div class="tcl">150</div><div class="tcu">LINES</div></div>
+    <div class="tc cm"><div class="tcn">statusline</div><div class="tcl">120</div><div class="tcu">LINES</div></div>
+    <div class="tc"><div class="tcn">environment</div><div class="tcl">90</div><div class="tcu">LINES</div></div>
+    <div class="tc"><div class="tcn">hooks</div><div class="tcl">80</div><div class="tcu">LINES</div></div>
+    <div class="tc cm"><div class="tcn">cron</div><div class="tcl">80</div><div class="tcu">LINES</div></div>
+    <div class="tc"><div class="tcn">failures</div><div class="tcl">60</div><div class="tcu">LINES</div></div>
+    <div class="tc cs"><div class="tcn">shared helpers</div><div class="tcl">~100</div><div class="tcu">LINES</div></div>
+  </div>
+  <div class="tmt">Total: 683 lines // Target: 6 files of 80-150 lines each</div>
+  <div class="rb">
+    <div class="rbl">Recommendation</div>
+    <div class="rbt">Split into <code>routes/statusline.ts</code>, <code>routes/hooks.ts</code>, <code>routes/recommend.ts</code>, <code>routes/environment.ts</code>, <code>routes/failures.ts</code>, <code>routes/cron.ts</code>. Move shared helpers to <code>routes/_helpers.ts</code>.</div>
+  </div>
+</section>
+
+<!-- FINDING 6: DUAL SESSION TRACKING -->
+<section id="finding-6" class="sec">
+  <div class="sl">Finding 06</div>
+  <div class="st">Dual Session Tracking</div>
+  <div class="sdv"></div>
+  <div class="sd">Sessions are tracked in both an in-memory Map and a Postgres table with no synchronization mechanism. Two sources of truth that can diverge silently.</div>
+  <div class="cmp">
+    <div class="cp bef">
+      <div class="cph">Before -- Dual Source of Truth</div>
+      <div class="cpb">
+        <div class="fb">
+          <div class="fr"><span class="fn fs">session event</span><span class="fa">--&gt;</span><span class="fn fc">in-memory Map</span></div>
+          <div class="fr"><span class="fn fs">session event</span><span class="fa">--&gt;</span><span class="fn fc">Postgres table</span></div>
+          <div class="fnt">No sync between stores. Reads may return stale or conflicting data depending on which source is queried.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cp aft">
+      <div class="cph">After -- Single Source + Cache</div>
+      <div class="cpb">
+        <div class="fb">
+          <div class="fr"><span class="fn fs">session event</span><span class="fa">--&gt;</span><span class="fn" style="border-color:var(--gb);color:var(--g)">Postgres</span></div>
+          <div class="fr" style="padding-left:2rem"><span class="fa">--&gt;</span><span class="fn">read-through cache</span><span class="fa">--&gt;</span><span class="fn">consumers</span></div>
+          <div class="fnt">Postgres is the single source of truth. In-memory Map becomes a read-through cache with TTL invalidation.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRIORITY MATRIX -->
+<section id="priority-matrix" class="sec">
+  <div class="sl">Execution Plan</div>
+  <div class="st">Priority Matrix</div>
+  <div class="sdv"></div>
+  <div class="sd">Ordered by effort-to-impact ratio. Low-risk, high-impact changes first.</div>
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr><th style="width:40px">#</th><th>Change</th><th>Effort</th><th>Impact</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td class="prn">1</td><td>Shared <code>execJson</code> helper</td><td><span class="b b-1d">1 day</span></td><td><span class="b b-ih">High</span></td><td><span class="b b-lo">Low</span></td></tr>
+        <tr><td class="prn">2</td><td>Cache config reads</td><td><span class="b b-1d">1 day</span></td><td><span class="b b-im">Medium</span></td><td><span class="b b-lo">Low</span></td></tr>
+        <tr><td class="prn">3</td><td>Split <code>operational.ts</code></td><td><span class="b b-1d">1 day</span></td><td><span class="b b-ih">High</span></td><td><span class="b b-lo">Low</span></td></tr>
+        <tr><td class="prn">4</td><td>Flatten event routing</td><td><span class="b b-2d">2 days</span></td><td><span class="b b-im">Medium</span></td><td><span class="b b-md">Medium</span></td></tr>
+        <tr><td class="prn">5</td><td>AppContext pattern</td><td><span class="b b-3d">3 days</span></td><td><span class="b b-ih">High</span></td><td><span class="b b-md">Medium</span></td></tr>
+        <tr><td class="prn">6</td><td>Session single source of truth</td><td><span class="b b-3d">3 days</span></td><td><span class="b b-ih">High</span></td><td><span class="b b-md">Medium</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div>
+</main>
+
+<script>
+mermaid.initialize({startOnLoad:true,theme:'base',themeVariables:{primaryColor:'#0f2440',primaryTextColor:'#e8f0fe',primaryBorderColor:'#00d4ff',lineColor:'#00a8cc',secondaryColor:'#0d1f3c',tertiaryColor:'#0a1628',fontFamily:'JetBrains Mono',fontSize:'12px'},flowchart:{curve:'basis',padding:16,htmlLabels:true}});
+var ds={};
+function zd(id,f){var c=document.getElementById(id);if(!c)return;var m=c.querySelector('.mermaid');if(!m)return;if(f===0){ds[id]=1}else{ds[id]=Math.max(.3,Math.min(3,(ds[id]||1)*f))}m.style.transform='scale('+ds[id]+')'}
+function toggleTheme(){var h=document.documentElement,c=h.getAttribute('data-theme'),n=c==='dark'?'light':'dark';h.setAttribute('data-theme',n);document.getElementById('ttl').textContent=n==='dark'?'Toggle Light Mode':'Toggle Dark Mode';localStorage.setItem('nx-arch-theme',n)}
+(function(){var s=localStorage.getItem('nx-arch-theme');if(s){document.documentElement.setAttribute('data-theme',s);var t=document.getElementById('ttl');if(t)t.textContent=s==='dark'?'Toggle Light Mode':'Toggle Dark Mode'}})();
+function toggleSidebar(){document.querySelector('.sb').classList.toggle('open');document.querySelector('.sb-ov').classList.toggle('vis')}
+document.querySelectorAll('.sb-nav a').forEach(function(l){l.addEventListener('click',function(){if(window.innerWidth<=900){document.querySelector('.sb').classList.remove('open');document.querySelector('.sb-ov').classList.remove('vis')}})});
+function updateNav(){var secs=document.querySelectorAll('section[id]'),links=document.querySelectorAll('.sb-nav a'),cur='';secs.forEach(function(s){if(s.getBoundingClientRect().top<=120)cur=s.id});links.forEach(function(l){l.classList.toggle('active',l.getAttribute('href')==='#'+cur)})}
+window.addEventListener('scroll',updateNav,{passive:true});updateNav();
+(function(){var obs=new IntersectionObserver(function(entries){entries.forEach(function(e,i){if(e.isIntersecting){setTimeout(function(){e.target.classList.add('vis')},i*100);obs.unobserve(e.target)}})},{threshold:.1,rootMargin:'0px 0px -50px 0px'});document.querySelectorAll('.sec').forEach(function(s){obs.observe(s)})})();
+</script>
+</body>
+</html>
