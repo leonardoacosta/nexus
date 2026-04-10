@@ -39,7 +39,12 @@ try {
   process.exit(1);
 }
 
-const sessionManager = createSessionManager();
+const sessionManager = createSessionManager({ db });
+
+// Startup recovery: load active sessions from DB, validate PIDs
+sessionManager.init().catch((err) => {
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "session-manager init failed — starting with empty cache");
+});
 
 // ── AppContext — centralized shared state ──────────────────────────────────
 const ctx: AppContext = createAppContext({

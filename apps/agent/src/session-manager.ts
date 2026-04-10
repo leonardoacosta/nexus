@@ -2,6 +2,8 @@ import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { logger } from "@nexus/core";
 import type { Session, WatcherEvent } from "@nexus/core";
+import type { Db } from "@nexus/db";
+import { loadActiveSessions, upsertSession } from "./db/sessions";
 
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes (same as idle → stale)
@@ -21,6 +23,13 @@ export interface SessionManagerOptions {
    * `stale`. Defaults to 5 minutes (300_000 ms).
    */
   staleThresholdMs?: number;
+
+  /**
+   * Optional database connection for write-through / read-through caching.
+   * When provided, sessions are persisted to Postgres and recovered on startup.
+   * When omitted, the manager operates in memory-only mode (backward compatible).
+   */
+  db?: Db;
 }
 
 export interface SessionManager {
@@ -31,6 +40,12 @@ export interface SessionManager {
   sweepIdle(): void;
   /** Stop the periodic sweep timer. */
   stop(): void;
+  /**
+   * Initialize from DB — loads active sessions and validates PIDs.
+   * Only meaningful when constructed with a `db` option.
+   * Returns a promise so callers can await startup recovery.
+   */
+  init(): Promise<void>;
 }
 
 export function createSessionManager(
@@ -39,6 +54,7 @@ export function createSessionManager(
   const {
     endedSessionTtlMs = DEFAULT_ENDED_SESSION_TTL_MS,
     staleThresholdMs = DEFAULT_STALE_THRESHOLD_MS,
+    db = null,
   } = options;
   const sessions = new Map<string, Session>();
   const machine = hostname();
@@ -46,6 +62,39 @@ export function createSessionManager(
   const sweepTimer = setInterval(() => {
     sweepIdle();
   }, SWEEP_INTERVAL_MS);
+
+  /**
+   * Initialize the session manager from the database.
+   * Loads active sessions, validates PIDs, and marks dead ones as ended.
+   */
+  async function init(): Promise<void> {
+    if (!db) return;
+
+    try {
+      const loaded = await loadActiveSessions(db);
+      logger.info({ count: loaded.length }, "session-manager: loaded active sessions from DB");
+
+      for (const session of loaded) {
+        // Validate PID — if the process is gone, mark as ended
+        if (session.pid && session.pid > 0 && !isPidAlive(session.pid)) {
+          session.status = "ended";
+          session.endedAt = new Date();
+          logger.warn(
+            { id: session.id, pid: session.pid },
+            "session-manager: marking session ended (PID not found on startup)",
+          );
+          // Write the ended status back to DB
+          await writeThroughSafe(session);
+        }
+        sessions.set(session.id, session);
+      }
+    } catch (err) {
+      logger.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        "session-manager: failed to load sessions from DB — starting with empty cache",
+      );
+    }
+  }
 
   function handleWatcherEvent(event: WatcherEvent): void {
     switch (event.type) {
@@ -74,6 +123,8 @@ export function createSessionManager(
           model: null,
           sessionType: "ad_hoc",
         };
+        // Write-through: DB first, then Map
+        writeThroughSafe(session);
         sessions.set(event.session_id, session);
         logger.info({ id: event.session_id }, "session-manager: session started");
         break;
@@ -86,6 +137,8 @@ export function createSessionManager(
           if (existing.status === "idle") {
             existing.status = "active";
           }
+          // Write-through: DB first, then Map (Map already updated above)
+          writeThroughSafe(existing);
           logger.debug({ id: event.session_id }, "session-manager: session updated");
         } else {
           logger.warn(
@@ -100,6 +153,8 @@ export function createSessionManager(
         if (existing) {
           existing.status = "ended";
           existing.endedAt = new Date();
+          // Write-through: DB first, then Map (Map already updated above)
+          writeThroughSafe(existing);
           logger.info({ id: event.session_id }, "session-manager: session ended");
         } else {
           logger.warn(
@@ -122,8 +177,19 @@ export function createSessionManager(
     );
   }
 
+  /**
+   * Get a session by ID — checks Map first, falls back to DB on miss.
+   * Cache-miss results from DB are added to the Map.
+   */
   function getById(id: string): Session | null {
-    return sessions.get(id) ?? null;
+    const cached = sessions.get(id);
+    if (cached) return cached;
+
+    // Read-through: try DB on cache miss (fire-and-forget async for sync interface)
+    if (db) {
+      readThroughAsync(id);
+    }
+    return null;
   }
 
   function sweepIdle(): void {
@@ -144,6 +210,7 @@ export function createSessionManager(
       const lastActivity = session.lastHeartbeat.getTime();
       if (now - lastActivity > IDLE_THRESHOLD_MS) {
         session.status = "idle";
+        writeThroughSafe(session);
         logger.info({ id: session.id }, "session-manager: session marked idle");
       }
     }
@@ -161,6 +228,7 @@ export function createSessionManager(
         const procPath = `/proc/${session.pid}`;
         if (!existsSync(procPath)) {
           session.status = "errored";
+          writeThroughSafe(session);
           logger.warn(
             { id: session.id, pid: session.pid },
             "session-manager: session marked errored (process not found in /proc)",
@@ -171,6 +239,7 @@ export function createSessionManager(
 
       if (now - lastActivity > staleThresholdMs) {
         session.status = "stale";
+        writeThroughSafe(session);
         logger.info({ id: session.id }, "session-manager: session marked stale");
       }
     }
@@ -191,6 +260,85 @@ export function createSessionManager(
     clearInterval(sweepTimer);
   }
 
+  // ── Internal helpers ─────────────────────────────────────────────────────
+
+  /** Check if a PID is alive. */
+  function isPidAlive(pid: number): boolean {
+    // On Linux, check /proc/{pid}
+    if (process.platform === "linux") {
+      return existsSync(`/proc/${pid}`);
+    }
+    // Fallback: try kill(pid, 0) — throws if process doesn't exist
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Write a session to DB without throwing — logs errors but does not
+   * propagate them. This is graceful degradation: the in-memory Map
+   * is always updated even if DB writes fail.
+   */
+  function writeThroughSafe(session: Session): void {
+    if (!db) return;
+    upsertSession(db, session).catch((err) => {
+      logger.error(
+        { id: session.id, error: err instanceof Error ? err.message : String(err) },
+        "session-manager: DB write-through failed — Map updated, DB out of sync",
+      );
+    });
+  }
+
+  /**
+   * Async read-through: query DB for a session and add to Map if found.
+   * This runs in the background — the current getById call returns null,
+   * but subsequent calls will hit the Map.
+   */
+  function readThroughAsync(id: string): void {
+    if (!db) return;
+    import("./db/sessions")
+      .then(({ getSessionById }) => getSessionById(db, id))
+      .then((row) => {
+        if (row && !sessions.has(id)) {
+          // Convert row to Session — import the mapper
+          const session: Session = {
+            id: row.id,
+            pid: row.pid ?? 0,
+            project: row.project ?? null,
+            machine: row.machine ?? null,
+            cwd: row.cwd ?? "",
+            branch: row.branch ?? null,
+            startedAt: row.startedAt,
+            lastHeartbeat: row.lastActivity,
+            endedAt: row.endedAt ?? null,
+            status: (row.status as Session["status"]) ?? "active",
+            spec: row.spec ?? null,
+            command: null,
+            agent: null,
+            tmuxSession: row.tmuxSession ?? null,
+            ccSessionId: row.ccSessionId ?? null,
+            tmuxTarget: row.tmuxTarget ?? null,
+            rateLimitUtilization: row.rateLimitUtilization ?? null,
+            rateLimitType: null,
+            totalCostUsd: row.totalCostUsd ?? null,
+            model: row.model ?? null,
+            sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+          };
+          sessions.set(id, session);
+          logger.debug({ id }, "session-manager: read-through populated cache from DB");
+        }
+      })
+      .catch((err) => {
+        logger.error(
+          { id, error: err instanceof Error ? err.message : String(err) },
+          "session-manager: read-through DB query failed",
+        );
+      });
+  }
+
   return {
     handleWatcherEvent,
     getAll,
@@ -198,5 +346,6 @@ export function createSessionManager(
     getById,
     sweepIdle,
     stop,
+    init,
   };
 }
