@@ -255,120 +255,148 @@
     <!-- Section 1: Topology Map -->
     <section id="topology">
       <h2><span class="section-num">1.</span> Topology Map</h2>
-      <p class="desc">Two-machine topology: omarchy (role=agent) collects sessions and forwards lifecycle events to macbook (role=primary) via WebSocket federation. macbook runs the NotificationEngine and delivers TTS, desktop, and iMessage notifications.</p>
+      <p class="desc">The system spans two machines connected via Tailscale. The Next.js dashboard is a single application split across both: its server-side rendering and all agent API calls execute on omarchy, while the browser on macbook renders client-side React and handles user interaction. WebSocket terminal streams connect the Mac browser through Traefik to omarchy's PTY stream manager. The notification pipeline flows from omarchy lifecycle events through WebSocket federation to macbook, which delivers via TTS (ElevenLabs or system say), desktop notifications, and iMessage.</p>
       <div class="diagram-card">
         <pre class="mermaid">
 graph TB
-  subgraph clients ["Clients"]
-    style clients fill:#2d1f4e,stroke:#bc8cff,color:#e6edf3
-    dashboard["Next.js Dashboard<br/>(browser)"]
-    cchooks["nexus-register<br/>(CC hooks CLI)"]
-    nova["nova<br/>(~/dev/nv)"]
-  end
-
-  subgraph omarchy ["omarchy (role=agent) -- Bun nexus-agent :7400"]
+  subgraph omarchy ["omarchy (Arch Linux, homelab)"]
     style omarchy fill:#111827,stroke:#58a6ff,color:#e6edf3
 
-    subgraph transport ["Transport Layer"]
-      style transport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
-      http["HTTP Server<br/>:7400"]
-      wsfed["WebSocket<br/>/ws/federation"]
-      wsstream["WebSocket<br/>/sessions/:id/stream"]
-      wsinteract["WebSocket<br/>/sessions/:id/interact"]
-      unixsock["Unix Socket<br/>/tmp/nexus-agent.sock"]
+    subgraph omAgent ["Bun nexus-agent :7400"]
+      style omAgent fill:#0d1f30,stroke:#58a6ff,color:#e6edf3
+
+      subgraph omTransport ["Transport Layer"]
+        style omTransport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
+        omHttp["HTTP Server :7400"]
+        omWsFed["WebSocket /ws/federation"]
+        omWsStream["WebSocket /sessions/:id/stream"]
+        omWsInteract["WebSocket /sessions/:id/interact"]
+        omUnixSock(["/tmp/nexus-agent.sock"])
+      end
+
+      subgraph omServices ["Internal Services"]
+        style omServices fill:#0d1f30,stroke:#58a6ff,color:#e6edf3
+        sessMgr["Session Manager"]
+        credPool["Credential Pool"]
+        healthCol["Health Collector"]
+        healthSched["Health Scheduler"]
+        specWatch["Spec Watcher"]
+        cronSvc["Cron Service"]
+        lifecycleBus["Lifecycle Bus"]
+        peerConn["Peer Connector"]
+        streamMgr["Stream Manager (PTY)"]
+        sockDispatch["Socket Dispatch"]
+        cmdRegistry["Command Registry"]
+        envCache["Environment Cache"]
+        failBuffer["Failure Buffer"]
+      end
     end
 
-    subgraph services ["Internal Services"]
-      style services fill:#0d1f30,stroke:#58a6ff,color:#e6edf3
-      sessmgr["Session Manager<br/>session-manager.ts"]
-      credpool["Credential Pool<br/>credentials/pool.ts"]
-      healthcol["Health Collector<br/>health-collector.ts"]
-      healthsched["Health Scheduler<br/>health-scheduler.ts"]
-      specwatch["Spec Watcher<br/>services/spec-watcher.ts"]
-      cron["Cron Service<br/>services/cron.ts"]
-      lifecyclebus["Lifecycle Bus<br/>services/lifecycle-bus.ts"]
-      peerconn["Peer Connector<br/>services/peer-connector.ts"]
-      streammgr["Stream Manager<br/>terminal/stream-manager.ts"]
-      sockdispatch["Socket Dispatch<br/>services/socket-dispatch.ts"]
+    subgraph omNextServer ["Next.js Server (SSR) :3100"]
+      style omNextServer fill:#1a1a3d,stroke:#bc8cff,color:#e6edf3
+      serverComponents["Server Components (RSC)"]
+      serverActions["Server Actions"]
     end
+
+    traefik["Traefik (HTTPS reverse proxy)<br/>nexus.leonardoacosta.dev"]
+    cchooks["nexus-register (CC hooks)"]
+    watcher["nexus-watcher (file watcher)"]
+    postgres[("PostgreSQL (Drizzle ORM)")]
+    credsDir[("~/.config/nexus/credentials/")]
   end
 
-  subgraph macbook ["macbook (role=primary) -- Bun nexus-agent :7400"]
+  subgraph macbook ["macbook (Mac, role=primary)"]
     style macbook fill:#1a1f0d,stroke:#f85149,color:#e6edf3
 
-    subgraph mbtransport ["Transport Layer"]
-      style mbtransport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
-      mbwsfed["WebSocket<br/>/ws/federation"]
-      mbhttp["HTTP Server<br/>:7400"]
+    subgraph mbAgent ["Bun nexus-agent :7400"]
+      style mbAgent fill:#0d1f30,stroke:#58a6ff,color:#e6edf3
+
+      subgraph mbTransport ["Transport Layer"]
+        style mbTransport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
+        mbWsFed["WebSocket /ws/federation"]
+        mbHttp["HTTP Server :7400"]
+      end
+
+      subgraph mbNotify ["Notification Engine (primary only)"]
+        style mbNotify fill:#2d1a1a,stroke:#f85149,color:#e6edf3
+        mbPeerConn["Peer Connector"]
+        mbBus["Lifecycle Bus"]
+        fedNotify["Federation Notify"]
+        notifEngine["Notification Router"]
+      end
     end
 
-    subgraph mbservices ["Notification Services"]
-      style mbservices fill:#2d1a1a,stroke:#f85149,color:#e6edf3
-      mbpeerconn["Peer Connector<br/>services/peer-connector.ts"]
-      mbbus["Lifecycle Bus<br/>(macbook)"]
-      fednotify["Federation Notify<br/>services/federation-notify.ts"]
-      notifengine["Notification Engine<br/>notifications/router.ts"]
+    subgraph mbBrowser ["Next.js Client (Browser)"]
+      style mbBrowser fill:#1a1a3d,stroke:#bc8cff,color:#e6edf3
+      reactUI["React Client Components"]
+      termPanels["Terminal Panels (WebSocket)"]
     end
 
-    subgraph mbchannels ["Delivery Channels"]
-      style mbchannels fill:#2d2200,stroke:#d29922,color:#e6edf3
-      tts["TTS Channel<br/>(ElevenLabs + system say)"]
+    subgraph mbChannels ["Delivery Channels"]
+      style mbChannels fill:#2d2200,stroke:#d29922,color:#e6edf3
+      tts["TTS (ElevenLabs + system say)"]
       desktop["Desktop Notifications"]
-      imessage["iMessage Channel"]
+      imessage["iMessage"]
     end
   end
 
-  subgraph external ["External Services"]
-    style external fill:#2d2200,stroke:#d29922,color:#e6edf3
-    postgres[("PostgreSQL<br/>(Drizzle ORM)")]
-    anthropic["Anthropic API<br/>(usage polling)"]
-    elevenlabs["ElevenLabs API<br/>(TTS voice)"]
+  subgraph externalAPIs ["External APIs"]
+    style externalAPIs fill:#2d2200,stroke:#d29922,color:#e6edf3
+    anthropic{{"Anthropic API"}}
+    elevenlabs{{"ElevenLabs API"}}
   end
 
-  %% Client connections to omarchy
-  dashboard -->|"HTTP REST +<br/>x-nexus-secret"| http
-  dashboard -->|"WebSocket<br/>?token=secret"| wsstream
-  dashboard -->|"WebSocket<br/>?token=secret"| wsinteract
-  cchooks -->|"NDJSON events"| unixsock
-  nova -->|"NDJSON events"| unixsock
+  %% 1. CC Hook -> Unix Socket -> Agent -> Session Manager
+  cchooks -->|"NDJSON events"| omUnixSock
+  watcher -->|"file events"| omUnixSock
+  omUnixSock -->|"dispatch"| sockDispatch
+  sockDispatch -->|"WatcherEvent"| sessMgr
+  sockDispatch -->|"emit"| lifecycleBus
 
-  %% Transport to omarchy services
-  unixsock -->|"events"| sockdispatch
-  sockdispatch -->|"WatcherEvent"| sessmgr
-  sockdispatch -->|"emit"| lifecyclebus
-  http -->|"REST routes"| sessmgr
-  http -->|"REST routes"| credpool
-  http -->|"REST routes"| healthcol
-  wsstream -->|"PTY output"| streammgr
-  wsinteract -->|"PTY I/O"| streammgr
+  %% 2. Agent -> Postgres (session/credential/health writes)
+  sessMgr -->|"upsert sessions"| postgres
+  credPool -->|"lease/release"| postgres
+  healthSched -->|"health snapshots"| postgres
+  credPool -->|"encrypted store"| credsDir
 
-  %% Omarchy internal service connections
-  healthcol -->|"metrics"| healthsched
-  healthsched -->|"snapshots"| postgres
-  sessmgr -->|"upsert"| postgres
-  credpool -->|"lease/release"| postgres
-  specwatch -->|"emit"| lifecyclebus
-  lifecyclebus -->|"local events"| peerconn
-  cron -->|"prune /tmp, drift"| omarchy
+  %% 3. Agent -> Anthropic API (usage polling)
+  credPool -->|"usage poll every 300s"| anthropic
 
-  %% External connections from omarchy
-  credpool -->|"usage poll<br/>every 300s"| anthropic
+  %% 4. Next.js Server -> Agent (server actions, local HTTP)
+  serverActions -->|"http://localhost:7400"| omHttp
+  omHttp -->|"REST routes"| sessMgr
+  omHttp -->|"REST routes"| credPool
+  omHttp -->|"REST routes"| healthCol
 
-  %% Federation: omarchy -> macbook (lifecycle events)
-  peerconn -->|"lifecycle events<br/>ws://macbook-pro:7400/ws/federation"| mbwsfed
-  mbwsfed -->|"accept peer"| mbpeerconn
-  mbpeerconn -->|"inject peer event"| mbbus
-  mbbus -->|"source=peer"| fednotify
-  fednotify -->|"route"| notifengine
+  %% Internal agent wiring
+  healthCol -->|"metrics"| healthSched
+  specWatch -->|"emit"| lifecycleBus
+  lifecycleBus -->|"local events"| peerConn
+  cronSvc -.->|"retention cycle"| postgres
+  omWsStream -->|"PTY output"| streamMgr
+  omWsInteract -->|"PTY I/O"| streamMgr
 
-  %% Macbook notification delivery
-  notifengine -->|"TTS audio"| tts
-  notifengine -->|"alert"| desktop
-  notifengine -->|"message"| imessage
-  tts -->|"synthesize"| elevenlabs
+  %% 5. Browser -> Traefik -> Next.js Server (page requests, HTTPS)
+  reactUI -->|"HTTPS page requests"| traefik
+  traefik -->|"reverse proxy :3100"| serverComponents
 
-  %% Retention
-  cron -.->|"24h cycle"| postgres
+  %% 6. Browser -> Agent (WebSocket terminal streaming, through Traefik)
+  termPanels -->|"wss:// via Traefik/Tailscale"| traefik
+  traefik -->|"proxy WebSocket"| omWsStream
+  traefik -->|"proxy WebSocket"| omWsInteract
+
+  %% 7. omarchy Agent -> macbook Agent (WebSocket federation)
+  peerConn -->|"lifecycle events<br/>ws://macbook:7400/ws/federation"| mbWsFed
+  mbWsFed -->|"accept peer"| mbPeerConn
+  mbPeerConn -->|"inject peer event"| mbBus
+  mbBus -->|"source=peer"| fedNotify
+  fedNotify -->|"route"| notifEngine
+
+  %% 8. macbook Agent -> notification delivery
+  notifEngine -->|"TTS audio"| tts
+  notifEngine -->|"alert"| desktop
+  notifEngine -->|"send"| imessage
+  tts -->|"synthesize voice"| elevenlabs
         </pre>
       </div>
     </section>
