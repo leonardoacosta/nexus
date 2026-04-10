@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Audit — Nexus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============ THEME — BLUEPRINT ============ */
+  :root {
+    --font-body: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SF Mono', Consolas, monospace;
+
+    --bg: #0c1222;
+    --surface: #121a2e;
+    --surface2: #182140;
+    --surface-elevated: #1a2545;
+    --border: rgba(255, 255, 255, 0.06);
+    --border-bright: rgba(255, 255, 255, 0.12);
+    --text: #e2e8f0;
+    --text-dim: #7a8ba7;
+
+    --accent: #60a5fa;
+    --accent-dim: rgba(96, 165, 250, 0.10);
+    --green: #4ade80;
+    --green-dim: rgba(74, 222, 128, 0.10);
+    --red: #f87171;
+    --red-dim: rgba(248, 113, 113, 0.10);
+    --orange: #fbbf24;
+    --orange-dim: rgba(251, 191, 36, 0.10);
+    --purple: #c084fc;
+    --purple-dim: rgba(192, 132, 252, 0.10);
+    --cyan: #22d3ee;
+    --cyan-dim: rgba(34, 211, 238, 0.10);
+
+    --grade-b: #60a5fa;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface2: #e8edf4;
+      --surface-elevated: #f8fafc;
+      --border: rgba(0, 0, 0, 0.07);
+      --border-bright: rgba(0, 0, 0, 0.14);
+      --text: #0f172a;
+      --text-dim: #64748b;
+
+      --accent: #2563eb;
+      --accent-dim: rgba(37, 99, 235, 0.06);
+      --green: #16a34a;
+      --green-dim: rgba(22, 163, 74, 0.08);
+      --red: #dc2626;
+      --red-dim: rgba(220, 38, 38, 0.08);
+      --orange: #d97706;
+      --orange-dim: rgba(217, 119, 6, 0.08);
+      --purple: #9333ea;
+      --purple-dim: rgba(147, 51, 234, 0.06);
+      --cyan: #0891b2;
+      --cyan-dim: rgba(8, 145, 178, 0.06);
+
+      --grade-b: #2563eb;
+    }
+  }
+
+  /* ============ RESET ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(circle, var(--border) 1px, transparent 1px);
+    background-size: 20px 20px;
+    color: var(--text);
+    font-family: var(--font-body);
+    padding: 40px;
+    min-height: 100vh;
+    overflow-wrap: break-word;
+  }
+
+  /* ============ ANIMATION ============ */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeScale {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes countUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .animate {
+    animation: fadeUp 0.4s ease-out both;
+    animation-delay: calc(var(--i, 0) * 0.05s);
+  }
+  .animate-scale {
+    animation: fadeScale 0.4s ease-out both;
+    animation-delay: calc(var(--i, 0) * 0.05s);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* ============ LAYOUT — RESPONSIVE NAV ============ */
+  .wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 170px 1fr;
+    gap: 0 40px;
+  }
+  .main { min-width: 0; }
+
+  /* TOC — Desktop */
+  .toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    padding: 14px 0;
+    grid-row: 1 / -1;
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+  }
+  .toc::-webkit-scrollbar { width: 3px; }
+  .toc::-webkit-scrollbar-thumb { background: var(--surface-elevated); border-radius: 2px; }
+
+  .toc-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    padding: 0 0 10px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toc a {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    line-height: 1.4;
+    margin-bottom: 1px;
+  }
+  .toc a:hover { color: var(--text); background: var(--surface2); }
+  .toc a.active { color: var(--text); border-left-color: var(--accent); }
+
+  /* TOC — Mobile */
+  @media (max-width: 1000px) {
+    .wrap { grid-template-columns: 1fr; padding-top: 0; }
+    body { padding-top: 0; }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      max-height: none;
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 0;
+      margin: 0 -40px;
+      padding-left: 40px;
+      padding-right: 40px;
+      grid-row: auto;
+    }
+    .toc::-webkit-scrollbar { display: none; }
+    .toc-title { display: none; }
+
+    .toc a {
+      white-space: nowrap;
+      flex-shrink: 0;
+      border-left: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 4px 4px 0 0;
+      padding: 6px 10px;
+      font-size: 10px;
+    }
+    .toc a.active {
+      border-left: none;
+      border-bottom-color: var(--accent);
+      background: var(--surface);
+    }
+
+    .main { padding-top: 20px; }
+    .sec-head { scroll-margin-top: 52px; }
+  }
+
+  /* ============ HEADER ============ */
+  h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    margin-bottom: 4px;
+    text-wrap: balance;
+  }
+  h1 span { color: var(--accent); }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-bottom: 28px;
+  }
+
+  /* ============ SECTION HEADINGS ============ */
+  .sec-head {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--accent);
+    padding: 12px 0;
+    margin-top: 40px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sec-head::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ============ HERO KPI ============ */
+  .hero-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 20px;
+    margin-bottom: 28px;
+  }
+
+  .grade-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 24px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+  }
+  .grade-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--cyan));
+  }
+
+  .grade-letter {
+    font-size: 72px;
+    font-weight: 700;
+    color: var(--grade-b);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .grade-score {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .grade-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+  }
+
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .kpi-card__value {
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .kpi-card__label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .kpi-card__value--red { color: var(--red); }
+  .kpi-card__value--green { color: var(--green); }
+  .kpi-card__value--orange { color: var(--orange); }
+  .kpi-card__value--accent { color: var(--accent); }
+  .kpi-card__value--purple { color: var(--purple); }
+
+  /* ============ TABLE ============ */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .data-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  .data-table th {
+    background: var(--surface2);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 2px solid var(--border-bright);
+    white-space: nowrap;
+  }
+  .data-table th.right { text-align: right; }
+
+  .data-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .data-table td.right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table td.mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .data-table tbody tr:nth-child(even) { background: var(--accent-dim); }
+  .data-table tbody tr {
+    transition: background 0.15s ease;
+    animation: fadeUp 0.3s ease-out both;
+    animation-delay: calc(var(--i, 0) * 0.03s);
+  }
+  .data-table tbody tr:hover { background: var(--border); }
+
+  .data-table code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .data-table small {
+    display: block;
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .data-table tfoot td {
+    background: var(--surface2);
+    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border-top: 2px solid var(--border-bright);
+    border-bottom: none;
+    padding: 12px 14px;
+  }
+
+  .wide { min-width: 200px; max-width: 440px; }
+
+  /* Sub-table headings */
+  .table-heading {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-top: 24px;
+    margin-bottom: 10px;
+    padding-left: 2px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ============ STATUS BADGES ============ */
+  .sev {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
+  .sev::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .sev--critical { background: var(--red-dim); color: var(--red); }
+  .sev--high { background: var(--orange-dim); color: var(--orange); }
+  .sev--medium { background: var(--accent-dim); color: var(--accent); }
+  .sev--low { background: var(--green-dim); color: var(--green); }
+  .sev--info { background: var(--purple-dim); color: var(--purple); }
+
+  /* ============ SCORE BAR ============ */
+  .score-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .score-bar__track {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .score-bar__fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease-out;
+  }
+  .score-bar__value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============ MERMAID ============ */
+  .mermaid-wrap {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    overflow: auto;
+    margin-bottom: 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .mermaid-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .mermaid-wrap::-webkit-scrollbar-track { background: transparent; }
+  .mermaid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .mermaid-wrap .mermaid {
+    display: flex;
+    justify-content: center;
+    transition: transform 0.2s ease;
+    transform-origin: top center;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 2px;
+    z-index: 10;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .zoom-controls button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .zoom-controls button:hover { background: var(--border); color: var(--text); }
+  .mermaid-wrap.is-zoomed { cursor: grab; }
+  .mermaid-wrap.is-panning { cursor: grabbing; user-select: none; }
+
+  .mermaid .nodeLabel {
+    font-family: var(--font-body) !important;
+    font-size: 14px !important;
+  }
+  .mermaid .edgeLabel {
+    font-family: var(--font-mono) !important;
+    font-size: 12px !important;
+  }
+
+  /* ============ CALLOUT ============ */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .callout strong { color: var(--text); }
+  .callout code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .callout--red { border-left-color: var(--red); }
+  .callout--green { border-left-color: var(--green); }
+  .callout--orange { border-left-color: var(--orange); }
+
+  /* ============ DELETE TARGET CARD ============ */
+  .delete-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .delete-card {
+    background: var(--red-dim);
+    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+  }
+  .delete-card__name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .delete-card__lines {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--red);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .delete-card__reason {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .delete-card__tag {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: var(--red);
+    color: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  /* ============ TRADEOFF CARD ============ */
+  .tradeoff-grid {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .tradeoff-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 40px 1fr 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .tradeoff-card__rank {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    line-height: 1;
+    padding-top: 2px;
+  }
+  .tradeoff-card__title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .tradeoff-card__desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .tradeoff-card__label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .tradeoff-card__lose { color: var(--red); }
+  .tradeoff-card__gain { color: var(--green); }
+
+  /* ============ STRENGTH ITEM ============ */
+  .strength-list {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .strength-item {
+    background: var(--green-dim);
+    border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .strength-item__icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .strength-item__icon::after {
+    content: '\2713';
+    color: var(--bg);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .strength-item__text {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .strength-item__text strong { font-weight: 600; }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width: 768px) {
+    body { padding: 16px; }
+    h1 { font-size: 24px; }
+    .hero-row { grid-template-columns: 1fr; }
+    .tradeoff-card { grid-template-columns: 40px 1fr; }
+    .tradeoff-card > div:nth-child(3),
+    .tradeoff-card > div:nth-child(4) { grid-column: 2; }
+    .delete-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 500px) {
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <nav class="toc" id="toc">
+    <div class="toc-title">Audit</div>
+    <a href="#s1">1. Score</a>
+    <a href="#s2">2. Categories</a>
+    <a href="#s3">3. Architecture</a>
+    <a href="#s4">4. Top Findings</a>
+    <a href="#s5">5. Dead Code</a>
+    <a href="#s6">6. Trade-offs</a>
+    <a href="#s7">7. Strengths</a>
+    <a href="#s8">8. Action Plan</a>
+  </nav>
+
+  <div class="main">
+
+    <h1 class="animate" style="--i:0">Code Audit <span>&mdash; Nexus</span></h1>
+    <p class="subtitle animate" style="--i:1">2026-04-09 &middot; 3-phase pipeline &middot; system-architect lens</p>
+
+    <!-- ═══ S1: SCORE ═══ -->
+    <div id="s1" class="sec-head animate" style="--i:2">1 &mdash; Composite Score</div>
+
+    <div class="hero-row animate-scale" style="--i:3">
+      <div class="grade-card">
+        <div class="grade-letter">B</div>
+        <div class="grade-score">78 / 100</div>
+        <div class="grade-label">Composite</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-card__value kpi-card__value--accent">30K</div>
+          <div class="kpi-card__label">Total Lines</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card__value kpi-card__value--red">9.2K</div>
+          <div class="kpi-card__label">Deletable</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card__value kpi-card__value--orange">35%</div>
+          <div class="kpi-card__label">Dead Weight</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card__value kpi-card__value--green">8.8K</div>
+          <div class="kpi-card__label">Test Lines</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card__value kpi-card__value--purple">268</div>
+          <div class="kpi-card__label">Findings</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card__value" style="color:var(--cyan)">3</div>
+          <div class="kpi-card__label">Critical</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ S2: CATEGORIES ═══ -->
+    <div id="s2" class="sec-head animate" style="--i:5">2 &mdash; Category Breakdown</div>
+
+    <div class="table-wrap animate" style="--i:6">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>ID</th>
+              <th style="width:40%">Score</th>
+              <th class="right">Errors</th>
+              <th class="right">Warnings</th>
+              <th class="right">Infos</th>
+              <th>Key Issue</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td>Standards</td>
+              <td class="mono">G</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:99%;background:var(--green)"></div></div>
+                  <div class="score-bar__value" style="color:var(--green)">99</div>
+                </div>
+              </td>
+              <td class="right mono">0</td>
+              <td class="right mono">0</td>
+              <td class="right mono">1</td>
+              <td><span class="sev sev--low">Clean</span></td>
+            </tr>
+            <tr style="--i:2">
+              <td>Observability</td>
+              <td class="mono">F</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:96%;background:var(--green)"></div></div>
+                  <div class="score-bar__value" style="color:var(--green)">96</div>
+                </div>
+              </td>
+              <td class="right mono">0</td>
+              <td class="right mono">1</td>
+              <td class="right mono">2</td>
+              <td><span class="sev sev--low">Clean</span></td>
+            </tr>
+            <tr style="--i:3">
+              <td>Database</td>
+              <td class="mono">C</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:88%;background:var(--green)"></div></div>
+                  <div class="score-bar__value" style="color:var(--green)">88</div>
+                </div>
+              </td>
+              <td class="right mono">2</td>
+              <td class="right mono">0</td>
+              <td class="right mono">2</td>
+              <td>N+1 credential cleanup</td>
+            </tr>
+            <tr style="--i:4">
+              <td>Quality</td>
+              <td class="mono">A</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:84%;background:var(--accent)"></div></div>
+                  <div class="score-bar__value" style="color:var(--accent)">84</div>
+                </div>
+              </td>
+              <td class="right mono">6</td>
+              <td class="right mono">90</td>
+              <td class="right mono">5</td>
+              <td>590-line function, 30x boilerplate</td>
+            </tr>
+            <tr style="--i:5">
+              <td>Security</td>
+              <td class="mono">D</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:82%;background:var(--accent)"></div></div>
+                  <div class="score-bar__value" style="color:var(--accent)">82</div>
+                </div>
+              </td>
+              <td class="right mono">15</td>
+              <td class="right mono">0</td>
+              <td class="right mono">0</td>
+              <td>MCP crate bypasses auth</td>
+            </tr>
+            <tr style="--i:6">
+              <td>Documentation</td>
+              <td class="mono">H</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:80%;background:var(--accent)"></div></div>
+                  <div class="score-bar__value" style="color:var(--accent)">80</div>
+                </div>
+              </td>
+              <td class="right mono">0</td>
+              <td class="right mono">16</td>
+              <td class="right mono">0</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr style="--i:7">
+              <td>Performance</td>
+              <td class="mono">E</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:70%;background:var(--orange)"></div></div>
+                  <div class="score-bar__value" style="color:var(--orange)">70</div>
+                </div>
+              </td>
+              <td class="right mono">115</td>
+              <td class="right mono">0</td>
+              <td class="right mono">0</td>
+              <td>Sweep allocations, GC pressure</td>
+            </tr>
+            <tr style="--i:8">
+              <td>Architecture</td>
+              <td class="mono">B</td>
+              <td>
+                <div class="score-bar">
+                  <div class="score-bar__track"><div class="score-bar__fill" style="width:68%;background:var(--orange)"></div></div>
+                  <div class="score-bar__value" style="color:var(--orange)">68</div>
+                </div>
+              </td>
+              <td class="right mono">8</td>
+              <td class="right mono">5</td>
+              <td class="right mono">0</td>
+              <td>God-module, dual state, dead crates</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ═══ S3: ARCHITECTURE ═══ -->
+    <div id="s3" class="sec-head animate" style="--i:9">3 &mdash; Architecture Map</div>
+
+    <div class="callout animate" style="--i:10">
+      <strong>Dual-runtime hybrid.</strong> Three Rust crates coexist with a full Bun agent.
+      Red nodes = dead/broken code. The Rust crates cannot compile (no <code>Cargo.toml</code> workspace root).
+      The generated protobuf has zero import consumers.
+    </div>
+
+    <div class="mermaid-wrap animate" style="--i:11">
+      <div class="zoom-controls">
+        <button onclick="zoomDiagram(this, 1.2)" title="Zoom in">+</button>
+        <button onclick="zoomDiagram(this, 0.8)" title="Zoom out">&minus;</button>
+        <button onclick="resetZoom(this)" title="Reset zoom">&#8634;</button>
+      </div>
+      <pre class="mermaid">
+        graph TD
+          subgraph LIVE["Live Code"]
+            direction TB
+            AGENT["apps/agent<br/>8K LOC Bun<br/>THE MAIN APP"]
+            NEXTJS["apps/nextjs<br/>Dashboard UI"]
+            REGISTER_BUN["apps/nexus-register<br/>138 LOC Bun"]
+            CORE["packages/core<br/>Types + Config"]
+            DB["packages/db<br/>Drizzle ORM"]
+            UI["packages/ui<br/>5 Components"]
+          end
+
+          subgraph DEAD["Dead Code — 9,200 lines"]
+            direction TB
+            PROTO["packages/core/generated<br/>7,733 LOC protobuf<br/>ZERO CONSUMERS"]
+            RUST_MCP["crates/nexus-mcp<br/>649 LOC Rust<br/>NO WORKSPACE"]
+            RUST_STATUS["crates/nexus-status<br/>619 LOC Rust<br/>NO WORKSPACE"]
+            RUST_REG["crates/nexus-register<br/>92 LOC Rust<br/>USES gRPC"]
+            ARCHIVE["crates/archive<br/>EMPTY DIR"]
+          end
+
+          AGENT -->|"@nexus/core"| CORE
+          AGENT -->|"@nexus/db"| DB
+          NEXTJS -->|"@nexus/core"| CORE
+          NEXTJS -->|"@nexus/ui"| UI
+          REGISTER_BUN -->|"@nexus/core"| CORE
+
+          RUST_MCP -.->|"HTTP proxy<br/>MISSING AUTH"| AGENT
+          RUST_STATUS -.->|"statusline<br/>MISSING AUTH"| AGENT
+          RUST_REG -.->|"gRPC<br/>NO SERVER"| AGENT
+
+          classDef live fill:#1a2545,stroke:#60a5fa,stroke-width:2px,color:#e2e8f0
+          classDef dead fill:#2d1515,stroke:#f87171,stroke-width:2px,color:#fca5a5,stroke-dasharray:5 5
+          classDef agent fill:#1a3025,stroke:#4ade80,stroke-width:2px,color:#e2e8f0
+
+          class AGENT agent
+          class NEXTJS,REGISTER_BUN,CORE,DB,UI live
+          class PROTO,RUST_MCP,RUST_STATUS,RUST_REG,ARCHIVE dead
+      </pre>
+    </div>
+
+    <!-- ═══ S4: FINDINGS — LLM JUDGMENT ═══ -->
+    <div id="s4" class="sec-head animate" style="--i:13">4 &mdash; All Findings</div>
+
+    <div class="callout animate" style="--i:14">
+      <strong>268 total findings</strong> across Phase 1 (deterministic scan) and Phase 2 (LLM judgment).
+      Grouped by source: architectural judgment findings first, then deterministic scan results by category.
+      Counts in parentheses show occurrences when a check fires multiple times.
+    </div>
+
+    <!-- Phase 2: LLM Judgment Findings -->
+    <h3 class="table-heading animate" style="--i:15">Phase 2 &mdash; Architectural Judgment (12 findings)</h3>
+    <div class="table-wrap animate" style="--i:16">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">B6</td>
+              <td><span class="sev sev--critical">Critical</span></td>
+              <td class="wide">
+                Rust crates broken &mdash; no workspace root <code>Cargo.toml</code> exists
+                <small>All 3 crates reference workspace = true but no workspace is defined. Cannot compile.</small>
+              </td>
+              <td class="mono">crates/*/Cargo.toml</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">B6</td>
+              <td><span class="sev sev--critical">Critical</span></td>
+              <td class="wide">
+                AppContext created but never wired &mdash; dual state management
+                <small>ctx accepted in server.ts:880 but never referenced. 15+ module-level let singletons remain. DedupMap duplicated in context.ts and notifications.ts.</small>
+              </td>
+              <td class="mono">context.ts:1<br>server.ts:880</td>
+            </tr>
+            <tr style="--i:3">
+              <td class="mono">A10</td>
+              <td><span class="sev sev--critical">Critical</span></td>
+              <td class="wide">
+                <code>createRequestHandler</code> is 590 lines with 54 route registrations
+                <small>Single monolithic if/else chain mixing WebSocket, CORS, auth, and REST dispatch.</small>
+              </td>
+              <td class="mono">server.ts:282-874</td>
+            </tr>
+            <tr style="--i:4">
+              <td class="mono">B5</td>
+              <td><span class="sev sev--high">High</span></td>
+              <td class="wide">
+                7,733 LOC generated protobuf with zero import consumers
+                <small>ProtoSession and ProtoMachineHealth re-exported but never imported anywhere.</small>
+              </td>
+              <td class="mono">core/generated/nexus.ts</td>
+            </tr>
+            <tr style="--i:5">
+              <td class="mono">A15</td>
+              <td><span class="sev sev--high">High</span></td>
+              <td class="wide">
+                ~30x duplicated <code>.catch()</code> error handler boilerplate
+                <small>Every route wraps the same 3-line error pattern. ~90 lines of pure duplication.</small>
+              </td>
+              <td class="mono">server.ts:434-873</td>
+            </tr>
+            <tr style="--i:6">
+              <td class="mono">D1</td>
+              <td><span class="sev sev--high">High</span></td>
+              <td class="wide">
+                MCP crate proxies HTTP without <code>NEXUS_ATTACH_SECRET</code> header
+                <small>Tool calls will 401 unless localhost is unauthenticated. Same for nexus-status.</small>
+              </td>
+              <td class="mono">nexus-mcp/main.rs:267</td>
+            </tr>
+            <tr style="--i:7">
+              <td class="mono">B6</td>
+              <td><span class="sev sev--medium">Medium</span></td>
+              <td class="wide">
+                Duplicate DedupMap + duplicate ProjectRules definitions
+                <small>context.ts:31-87 vs notifications.ts:36-68 (DedupMap). command-handler.ts:43-48 vs context.ts:97-102 (ProjectRules).</small>
+              </td>
+              <td class="mono">context.ts<br>command-handler.ts</td>
+            </tr>
+            <tr style="--i:8">
+              <td class="mono">C1</td>
+              <td><span class="sev sev--medium">Medium</span></td>
+              <td class="wide">
+                N+1 query in credential pool cleanup
+                <small>recoverExpiredCooldowns() and cleanupStaleLeases() do SELECT + N individual UPDATEs.</small>
+              </td>
+              <td class="mono">pool.ts:277-307</td>
+            </tr>
+            <tr style="--i:9">
+              <td class="mono">B6</td>
+              <td><span class="sev sev--medium">Medium</span></td>
+              <td class="wide">
+                Module-level singleton side-effect at import time
+                <small>Importing server.ts triggers HealthCollector.start() with setInterval. Test code shares the same singleton.</small>
+              </td>
+              <td class="mono">server.ts:265-277</td>
+            </tr>
+            <tr style="--i:10">
+              <td class="mono">A15</td>
+              <td><span class="sev sev--medium">Medium</span></td>
+              <td class="wide">
+                Credential ID pre-validation structurally redundant
+                <small>Same CREDENTIAL_ID_RE regex matched twice per request for credential routes.</small>
+              </td>
+              <td class="mono">server.ts:407-429</td>
+            </tr>
+            <tr style="--i:11">
+              <td class="mono">A16</td>
+              <td><span class="sev sev--medium">Medium</span></td>
+              <td class="wide">
+                Fire-and-forget DB write ordering misleading
+                <small>writeThroughSafe(session) is async but Map.set() runs synchronously before DB completes. Comment says "DB first".</small>
+              </td>
+              <td class="mono">session-manager.ts:127</td>
+            </tr>
+            <tr style="--i:12">
+              <td class="mono">F7</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">
+                nexus-status has zero logging &mdash; silent failures
+                <small>No --verbose flag or stderr logging. Empty output when fetch_statusline() fails.</small>
+              </td>
+              <td class="mono">nexus-status/main.rs</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">12 findings</td>
+              <td colspan="2">3 critical &middot; 3 high &middot; 5 medium &middot; 1 info</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Architecture (B) -->
+    <h3 class="table-heading animate" style="--i:18">Phase 1 &mdash; Architecture [B] (14 findings)</h3>
+    <div class="table-wrap animate" style="--i:19">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">B2</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                UI imports from internal db/api path &mdash; use public API (8&times;)
+                <small>Next.js app directly imports from packages/db internals instead of through the public barrel.</small>
+              </td>
+              <td class="mono">nextjs/src/lib/db.ts:1-2<br>nextjs/src/lib/get-client.ts:4<br>+ 5 more across 5 files</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">B4</td>
+              <td><span class="sev sev--medium">Warning</span></td>
+              <td class="wide">
+                File exceeds 500 lines &mdash; consider splitting (6&times;)
+              </td>
+              <td class="mono">agent-client.test.ts (527)<br>agent-client.ts (518)<br>server.ts (696)<br>+ 3 more files</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Code Quality (A) -->
+    <h3 class="table-heading animate" style="--i:21">Phase 1 &mdash; Code Quality [A] (34 findings)</h3>
+    <div class="table-wrap animate" style="--i:22">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">A9</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                Promise <code>.then()</code> without <code>.catch()</code> &mdash; unhandled rejection (27&times;)
+              </td>
+              <td class="mono">CommandPalette.tsx:131<br>LazyTerminalPanel.tsx:6<br>server.ts:369<br>+ 24 more across 7 files</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">A6</td>
+              <td><span class="sev sev--medium">Warning</span></td>
+              <td class="wide">
+                <code>as any</code> type assertion &mdash; use proper typing (2&times;)
+                <small>In hand-written code only. 90+ in generated protobuf excluded.</small>
+              </td>
+              <td class="mono">agent-client.test.ts:327<br>agent-client.test.ts:353</td>
+            </tr>
+            <tr style="--i:3">
+              <td class="mono">A3</td>
+              <td><span class="sev sev--medium">Warning</span></td>
+              <td class="wide">
+                <code>console.warn</code> &mdash; consider structured logging
+              </td>
+              <td class="mono">HealthPoller.tsx:55</td>
+            </tr>
+            <tr style="--i:4">
+              <td class="mono">A5</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">
+                TODO/FIXME/HACK/XXX comment found (4&times;)
+              </td>
+              <td class="mono">agent-client.ts:23,217<br>ProjectCard.tsx:22<br>db.test.ts:29</td>
+            </tr>
+            <tr style="--i:5">
+              <td class="mono">A12</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">
+                Commented-out code block (2&times;)
+              </td>
+              <td class="mono">server.test.ts:166,385</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Database (C) -->
+    <h3 class="table-heading animate" style="--i:24">Phase 1 &mdash; Database [C] (22 findings)</h3>
+    <div class="table-wrap animate" style="--i:25">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">C5</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                SQL template literal with interpolation &mdash; use <code>sql.placeholder()</code> (4&times;)
+                <small>Direct string interpolation in SQL queries risks injection.</small>
+              </td>
+              <td class="mono">pool.ts:115,230,332,333</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">C3</td>
+              <td><span class="sev sev--medium">Warning</span></td>
+              <td class="wide">
+                Timestamp columns use <code>mode: "string"</code> instead of <code>mode: "date"</code> (17&times;)
+                <small>String mode returns raw ISO strings; date mode returns Date objects.</small>
+              </td>
+              <td class="mono">projectLocations.ts:15,17<br>projects.ts:14<br>+ 14 more across 8 files</td>
+            </tr>
+            <tr style="--i:3">
+              <td class="mono">C10</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">
+                Schema has 8 tables but no <code>relations()</code> definitions
+              </td>
+              <td class="mono">packages/db/src</td>
+            </tr>
+            <tr style="--i:4">
+              <td class="mono">C11</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">
+                No tables have <code>deletedAt</code> soft-delete column
+              </td>
+              <td class="mono">packages/db/src</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Security (D) -->
+    <h3 class="table-heading animate" style="--i:27">Phase 1 &mdash; Security [D] (11 findings)</h3>
+    <div class="table-wrap animate" style="--i:28">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">D4</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                <code>exec/spawn/execSync</code> &mdash; verify no user input reaches command (11&times;)
+                <small>Subprocess creation detected. Most in test files (register.test.ts) and watcher-bridge.ts.</small>
+              </td>
+              <td class="mono">register.test.ts:29,214<br>watcher-bridge.ts:72<br>+ 8 more across 6 files</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Performance (E) -->
+    <h3 class="table-heading animate" style="--i:30">Phase 1 &mdash; Performance [E] (84 findings)</h3>
+    <div class="table-wrap animate" style="--i:31">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">E7</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                <code>fetch()</code> without <code>AbortController/signal</code> &mdash; add timeout (64&times;)
+                <small>HTTP requests can hang indefinitely without a timeout signal.</small>
+              </td>
+              <td class="mono">agent-client.ts:305,402<br>XTerminal.tsx:191<br>+ 61 more across 11 files</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">E5</td>
+              <td><span class="sev sev--critical">Error</span></td>
+              <td class="wide">
+                Synchronous I/O &mdash; use async variant (20&times;)
+                <small>readFileSync, writeFileSync, etc. in hot paths.</small>
+              </td>
+              <td class="mono">register.test.ts:2,55<br>event-writer.ts:9<br>+ 17 more across 7 files</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Observability (F) -->
+    <h3 class="table-heading animate" style="--i:33">Phase 1 &mdash; Observability [F] (2 findings)</h3>
+    <div class="table-wrap animate" style="--i:34">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">F5</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">PostHog provider not found in app</td>
+              <td class="mono">apps/nextjs</td>
+            </tr>
+            <tr style="--i:2">
+              <td class="mono">F8</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">No <code>/api/health</code> or <code>/api/healthcheck</code> endpoint found</td>
+              <td class="mono">apps/nextjs</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Standards (G) -->
+    <h3 class="table-heading animate" style="--i:36">Phase 1 &mdash; Standards [G] (1 finding)</h3>
+    <div class="table-wrap animate" style="--i:37">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">G10</td>
+              <td><span class="sev sev--info">Info</span></td>
+              <td class="wide">Non-standard env var: <code>npm_package_version</code> &mdash; use SCREAMING_SNAKE_CASE</td>
+              <td class="mono">instrument.ts:15</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 1: Deterministic — Documentation (H) -->
+    <h3 class="table-heading animate" style="--i:39">Phase 1 &mdash; Documentation [H] (14 findings)</h3>
+    <div class="table-wrap animate" style="--i:40">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Severity</th>
+              <th class="wide">Finding</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td class="mono">H1</td>
+              <td><span class="sev sev--medium">Warning</span></td>
+              <td class="wide">
+                Env vars used in source but missing from <code>.env.example</code> (14&times;)
+              </td>
+              <td class="mono">CLAUDE_SESSION_ID<br>ELEVENLABS_API_KEY<br>ELEVENLABS_VOICE_ID<br>+ 11 more vars</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- All findings summary -->
+    <div class="callout callout--orange animate" style="--i:42">
+      <strong>Total: 268 findings.</strong>
+      Phase 2 judgment: 3 critical, 3 high, 5 medium, 1 info.
+      Phase 1 scan: 27 A9, 64 E7, 20 E5, 17 C3, 14 H1, 11 D4, 8 B2, 6 B4, 4 C5, 4 A5, 2 A6, 2 A12, 1 A3, 1 C10, 1 C11, 1 F5, 1 F8, 1 G10.
+      Top noise source: E7 (fetch without timeout) at 64 hits &mdash; a single wrapper utility would fix all.
+    </div>
+
+    <!-- ═══ S5: DEAD CODE ═══ -->
+    <div id="s5" class="sec-head animate" style="--i:44">5 &mdash; Dead Code &mdash; 9,200 Lines to Delete</div>
+
+    <div class="callout callout--red animate" style="--i:17">
+      <strong>35% of the codebase is dead weight.</strong> These files cannot compile, have zero consumers,
+      or are empty directories. Deleting them has zero functional impact and reduces the system's
+      cognitive surface by more than a third.
+    </div>
+
+    <div class="delete-grid">
+      <div class="delete-card animate-scale" style="--i:18">
+        <div class="delete-card__tag">Delete</div>
+        <div class="delete-card__name">packages/core/generated/</div>
+        <div class="delete-card__lines">7,733</div>
+        <div class="delete-card__reason">Generated protobuf. Zero import consumers. gRPC was removed.</div>
+      </div>
+      <div class="delete-card animate-scale" style="--i:19">
+        <div class="delete-card__tag">Delete</div>
+        <div class="delete-card__name">crates/nexus-mcp/</div>
+        <div class="delete-card__lines">649</div>
+        <div class="delete-card__reason">No Cargo workspace. Cannot compile. HTTP proxy with no auth.</div>
+      </div>
+      <div class="delete-card animate-scale" style="--i:20">
+        <div class="delete-card__tag">Verify</div>
+        <div class="delete-card__name">crates/nexus-status/</div>
+        <div class="delete-card__lines">619</div>
+        <div class="delete-card__reason">Cannot compile. May have deployed binary. Rewrite as ~100 LOC Bun.</div>
+      </div>
+      <div class="delete-card animate-scale" style="--i:21">
+        <div class="delete-card__tag">Delete</div>
+        <div class="delete-card__name">crates/nexus-register/</div>
+        <div class="delete-card__lines">92</div>
+        <div class="delete-card__reason">Uses gRPC but agent has no gRPC server. Bun version exists.</div>
+      </div>
+      <div class="delete-card animate-scale" style="--i:22">
+        <div class="delete-card__tag">Delete</div>
+        <div class="delete-card__name">proto/ + codegen</div>
+        <div class="delete-card__lines">~200</div>
+        <div class="delete-card__reason">Proto definitions and codegen script for dead generated code.</div>
+      </div>
+      <div class="delete-card animate-scale" style="--i:23">
+        <div class="delete-card__tag">Delete</div>
+        <div class="delete-card__name">crates/archive/</div>
+        <div class="delete-card__lines">0</div>
+        <div class="delete-card__reason">Empty directory. Vestige of Rust migration.</div>
+      </div>
+    </div>
+
+    <!-- ═══ S6: TRADEOFFS ═══ -->
+    <div id="s6" class="sec-head animate" style="--i:25">6 &mdash; Simplification Trade-offs</div>
+
+    <div class="tradeoff-grid">
+      <div class="tradeoff-card animate" style="--i:26">
+        <div class="tradeoff-card__rank">1</div>
+        <div>
+          <div class="tradeoff-card__title">Delete 9,200 lines of dead code</div>
+          <div class="tradeoff-card__desc">Remove broken Rust crates, generated protobuf, empty dirs, codegen scripts. Effort: 2 hours. Risk: zero.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You lose</div>
+          <div class="tradeoff-card__desc tradeoff-card__lose">Possibility of future Rust MCP/status. gRPC-ready types if you ever adopt gRPC.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You gain</div>
+          <div class="tradeoff-card__desc tradeoff-card__gain">-9,200 LOC. Remove entire Cargo toolchain from mental model. Eliminate 90+ false warnings.</div>
+        </div>
+      </div>
+
+      <div class="tradeoff-card animate" style="--i:27">
+        <div class="tradeoff-card__rank">2</div>
+        <div>
+          <div class="tradeoff-card__title">Route table for server.ts</div>
+          <div class="tradeoff-card__desc">Replace 440-line if/else chain with declarative route registration. Effort: 4 hours.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You lose</div>
+          <div class="tradeoff-card__desc tradeoff-card__lose">Inline control over per-route middleware. Slight learning curve for route table pattern.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You gain</div>
+          <div class="tradeoff-card__desc tradeoff-card__gain">-700 LOC boilerplate. One-line route additions. Single error handler. File drops to ~300 lines.</div>
+        </div>
+      </div>
+
+      <div class="tradeoff-card animate" style="--i:28">
+        <div class="tradeoff-card__rank">3</div>
+        <div>
+          <div class="tradeoff-card__title">Delete AppContext (Option B)</div>
+          <div class="tradeoff-card__desc">Remove the half-finished abstraction. Keep module singletons as the one pattern. Effort: 2 hours.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You lose</div>
+          <div class="tradeoff-card__desc tradeoff-card__lose">Centralized state container for future test isolation.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You gain</div>
+          <div class="tradeoff-card__desc tradeoff-card__gain">-300 LOC. One consistent pattern instead of two. Remove duplicate DedupMap.</div>
+        </div>
+      </div>
+
+      <div class="tradeoff-card animate" style="--i:29">
+        <div class="tradeoff-card__rank">4</div>
+        <div>
+          <div class="tradeoff-card__title">Clean db/index.ts barrel</div>
+          <div class="tradeoff-card__desc">Remove re-exports of notification/credential logic from db barrel. Effort: 1 hour.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You lose</div>
+          <div class="tradeoff-card__desc tradeoff-card__lose">Single import path for notification/credential DB ops.</div>
+        </div>
+        <div>
+          <div class="tradeoff-card__label">You gain</div>
+          <div class="tradeoff-card__desc tradeoff-card__gain">Clear ownership. Imports point to the module that owns the logic. 5 files touched.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ S7: STRENGTHS ═══ -->
+    <div id="s7" class="sec-head animate" style="--i:31">7 &mdash; What's Working Well</div>
+
+    <div class="strength-list">
+      <div class="strength-item animate" style="--i:32">
+        <div class="strength-item__icon"></div>
+        <div class="strength-item__text">
+          <strong>Clean package boundaries.</strong> Strict flow: core &larr; db &larr; agent. No circular deps. No cross-app imports. Verified via import analysis.
+        </div>
+      </div>
+      <div class="strength-item animate" style="--i:33">
+        <div class="strength-item__icon"></div>
+        <div class="strength-item__text">
+          <strong>Session manager write-through.</strong> In-memory Map for hot reads, Postgres for durability. Factory function pattern makes it testable. Three-pass sweep is well-reasoned.
+        </div>
+      </div>
+      <div class="strength-item animate" style="--i:34">
+        <div class="strength-item__icon"></div>
+        <div class="strength-item__text">
+          <strong>Defense-in-depth security.</strong> Constant-time auth (<code>timingSafeEqual</code>), AES-256-GCM credential encryption, path traversal prevention, connection limits, loopback enforcement.
+        </div>
+      </div>
+      <div class="strength-item animate" style="--i:35">
+        <div class="strength-item__icon"></div>
+        <div class="strength-item__text">
+          <strong>Lifecycle bus with echo prevention.</strong> Typed envelopes with <code>source: "local" | "peer"</code> prevents federation echo loops. Correct pattern for P2P event propagation.
+        </div>
+      </div>
+      <div class="strength-item animate" style="--i:36">
+        <div class="strength-item__icon"></div>
+        <div class="strength-item__text">
+          <strong>Significant test investment.</strong> 8,826 lines of tests across the agent with <code>mock-context.ts</code> helper for isolated AppContext instances.
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ S8: ACTION PLAN ═══ -->
+    <div id="s8" class="sec-head animate" style="--i:38">8 &mdash; Action Plan</div>
+
+    <div class="table-wrap animate" style="--i:39">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Priority</th>
+              <th>Action</th>
+              <th class="wide">Detail</th>
+              <th class="right">Effort</th>
+              <th class="right">Lines &Delta;</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="--i:1">
+              <td><span class="sev sev--critical">P1</span></td>
+              <td>Delete dead code</td>
+              <td class="wide">Remove Rust crates, generated protobuf, proto/, empty archive. Verify nexus-status deployment first.</td>
+              <td class="right mono">2h</td>
+              <td class="right mono" style="color:var(--green)">-9,200</td>
+            </tr>
+            <tr style="--i:2">
+              <td><span class="sev sev--critical">P1</span></td>
+              <td>Route table refactor</td>
+              <td class="wide">Replace if/else chain with declarative route table. Single error handler wrapper. Split WebSocket lifecycle.</td>
+              <td class="right mono">4h</td>
+              <td class="right mono" style="color:var(--green)">-700</td>
+            </tr>
+            <tr style="--i:3">
+              <td><span class="sev sev--high">P2</span></td>
+              <td>Delete AppContext</td>
+              <td class="wide">Remove context.ts, mock-context.ts, BoundedMap, DedupMap. Accept module singletons as the pattern.</td>
+              <td class="right mono">2h</td>
+              <td class="right mono" style="color:var(--green)">-300</td>
+            </tr>
+            <tr style="--i:4">
+              <td><span class="sev sev--high">P2</span></td>
+              <td>Batch credential cleanup</td>
+              <td class="wide">Replace N+1 UPDATE loop with single <code>inArray(credentials.id, ids)</code> batch.</td>
+              <td class="right mono">30m</td>
+              <td class="right mono" style="color:var(--green)">-10</td>
+            </tr>
+            <tr style="--i:5">
+              <td><span class="sev sev--medium">P3</span></td>
+              <td>Clean db barrel</td>
+              <td class="wide">Remove notification/credential re-exports from <code>db/index.ts</code>. Update 4 import sites.</td>
+              <td class="right mono">1h</td>
+              <td class="right mono">&mdash;</td>
+            </tr>
+            <tr style="--i:6">
+              <td><span class="sev sev--medium">P3</span></td>
+              <td>Add credential audit fields</td>
+              <td class="wide">Add <code>createdAt</code>/<code>updatedAt</code> to credentials table via migration.</td>
+              <td class="right mono">30m</td>
+              <td class="right mono">+10</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">6 actions &middot; estimated total: ~10 hours</td>
+              <td colspan="2" style="text-align:right;color:var(--green)">net: -10,200 LOC</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="callout callout--green animate" style="--i:41">
+      <strong>After cleanup:</strong> Codebase drops from ~30K to ~20K lines.
+      Architecture score rises from 68 to estimated 85+.
+      One runtime (Bun), one state pattern (module singletons), one router pattern (declarative table).
+      Solo developer can hold the entire system in their head.
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /wrap -->
+
+<!-- ═══ MERMAID ═══ -->
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    look: 'classic',
+    layout: 'elk',
+    themeVariables: {
+      primaryColor: isDark ? '#1a2545' : '#e8edf4',
+      primaryBorderColor: isDark ? '#60a5fa' : '#2563eb',
+      primaryTextColor: isDark ? '#e2e8f0' : '#0f172a',
+      secondaryColor: isDark ? '#2d1515' : '#fee2e2',
+      secondaryBorderColor: isDark ? '#f87171' : '#dc2626',
+      secondaryTextColor: isDark ? '#fca5a5' : '#991b1b',
+      tertiaryColor: isDark ? '#1a3025' : '#dcfce7',
+      tertiaryBorderColor: isDark ? '#4ade80' : '#16a34a',
+      tertiaryTextColor: isDark ? '#e2e8f0' : '#0f172a',
+      lineColor: isDark ? '#7a8ba7' : '#64748b',
+      fontSize: '14px',
+      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    }
+  });
+</script>
+
+<!-- ═══ ZOOM CONTROLS ═══ -->
+<script>
+  function updateZoomState(wrap) {
+    var target = wrap.querySelector('.mermaid');
+    var zoom = parseFloat(target.dataset.zoom || '1');
+    wrap.classList.toggle('is-zoomed', zoom > 1);
+  }
+
+  function zoomDiagram(btn, factor) {
+    var wrap = btn.closest('.mermaid-wrap');
+    var target = wrap.querySelector('.mermaid');
+    var current = parseFloat(target.dataset.zoom || '1');
+    var next = Math.min(Math.max(current * factor, 0.3), 5);
+    target.dataset.zoom = next;
+    target.style.transform = 'scale(' + next + ')';
+    updateZoomState(wrap);
+  }
+
+  function resetZoom(btn) {
+    var wrap = btn.closest('.mermaid-wrap');
+    var target = wrap.querySelector('.mermaid');
+    target.dataset.zoom = '1';
+    target.style.transform = 'scale(1)';
+    updateZoomState(wrap);
+  }
+
+  document.querySelectorAll('.mermaid-wrap').forEach(function(wrap) {
+    wrap.addEventListener('wheel', function(e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      var target = wrap.querySelector('.mermaid');
+      var current = parseFloat(target.dataset.zoom || '1');
+      var factor = e.deltaY < 0 ? 1.1 : 0.9;
+      var next = Math.min(Math.max(current * factor, 0.3), 5);
+      target.dataset.zoom = next;
+      target.style.transform = 'scale(' + next + ')';
+      updateZoomState(wrap);
+    }, { passive: false });
+
+    var startX, startY, scrollL, scrollT;
+    wrap.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.zoom-controls')) return;
+      var target = wrap.querySelector('.mermaid');
+      if (parseFloat(target.dataset.zoom || '1') <= 1) return;
+      wrap.classList.add('is-panning');
+      startX = e.clientX;
+      startY = e.clientY;
+      scrollL = wrap.scrollLeft;
+      scrollT = wrap.scrollTop;
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!wrap.classList.contains('is-panning')) return;
+      wrap.scrollLeft = scrollL - (e.clientX - startX);
+      wrap.scrollTop = scrollT - (e.clientY - startY);
+    });
+    window.addEventListener('mouseup', function() {
+      wrap.classList.remove('is-panning');
+    });
+  });
+</script>
+
+<!-- ═══ SCROLL SPY ═══ -->
+<script>
+(function() {
+  var toc = document.getElementById('toc');
+  var links = toc.querySelectorAll('a');
+  var sections = [];
+
+  links.forEach(function(link) {
+    var id = link.getAttribute('href').slice(1);
+    var el = document.getElementById(id);
+    if (el) sections.push({ id: id, el: el, link: link });
+  });
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        links.forEach(function(l) { l.classList.remove('active'); });
+        var match = sections.find(function(s) { return s.el === entry.target; });
+        if (match) {
+          match.link.classList.add('active');
+          if (window.innerWidth <= 1000) {
+            match.link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        }
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+
+  sections.forEach(function(s) { observer.observe(s.el); });
+
+  links.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var id = link.getAttribute('href').slice(1);
+      var el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        history.replaceState(null, '', '#' + id);
+      }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

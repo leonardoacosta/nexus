@@ -4,13 +4,7 @@
  * These types use JSON-friendly representations (string timestamps, string
  * literal unions for enums) that match the REST/JSON transport between the
  * Bun agent and Next.js dashboard.
- *
- * The canonical schema lives in `proto/nexus.proto`. Wire-format generated
- * types are available from `@nexus/core/generated/nexus` for gRPC consumers.
  */
-
-// Re-export proto-generated Session type for gRPC / wire-format consumers.
-export type { Session as ProtoSession } from "../generated/nexus";
 
 /** A Claude Code session running on a specific machine. */
 export interface Session {

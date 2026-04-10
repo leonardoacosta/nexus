@@ -9,12 +9,10 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "lint:sql-safety": "./scripts/lint-sql-safety.sh",
-    "tf": "./infra/scripts/tf.sh",
-    "proto:codegen": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=packages/core/src/generated --ts_proto_opt=snakeToCamel=true --ts_proto_opt=oneof=unions --ts_proto_opt=esModuleInterop=true --ts_proto_opt=outputServices=false --ts_proto_opt=env=node --ts_proto_opt=useOptionals=messages --ts_proto_opt=exportCommonSymbols=false --ts_proto_opt=removeEnumPrefix=true -I proto proto/nexus.proto"
+    "tf": "./infra/scripts/tf.sh"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
-    "ts-proto": "^2.11.6",
     "turbo": "^2.3.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0"

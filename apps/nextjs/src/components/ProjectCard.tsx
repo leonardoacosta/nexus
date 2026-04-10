@@ -19,7 +19,6 @@ export function ProjectCard({ project }: ProjectCardProps) {
     setError(null);
     startTransition(async () => {
       try {
-        // TODO: pass real agentStatuses once ProjectsPoller exposes them
         const { agentName, isFallback } = resolveAttachAgent(project, []);
         const location = project.locations.find((l) => l.agentName === agentName);
         const path = location?.path ?? "";

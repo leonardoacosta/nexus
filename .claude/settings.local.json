@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pkill -f \"git add\")",
+      "Bash(rm -f /home/nyaptor/dev/nx/.git/index.lock)"
+    ]
+  }
+}

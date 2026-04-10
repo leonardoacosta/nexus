@@ -15,14 +15,8 @@ import type {
 interface AgentProject {
   name: string;
   path: string;
-  /** New agents (post fix-project-discovery) send numeric counts. */
   activeSessions?: number;
   totalSessions?: number;
-  /**
-   * Legacy field from old agents. Kept for graceful degradation.
-   * TODO(fix-project-discovery): remove after all agents upgraded.
-   */
-  hasActiveSessions?: boolean;
   /** Git remote URL for origin; stable cross-machine identity key. Optional — old agents omit it. */
   gitRemoteUrl?: string | null;
 }
@@ -215,17 +209,8 @@ export class AgentClient {
                 : project.path;
             const key = project.gitRemoteUrl ?? normalizedPath;
 
-            // Graceful degradation: handle old agents (hasActiveSessions) and new agents
-            // (activeSessions/totalSessions).
-            // TODO(fix-project-discovery): remove hasActiveSessions shim after all agents upgraded.
-            const activeSessions =
-              typeof project.activeSessions === "number"
-                ? project.activeSessions
-                : project.hasActiveSessions
-                  ? 1
-                  : 0;
-            const totalSessions =
-              typeof project.totalSessions === "number" ? project.totalSessions : 0;
+            const activeSessions = project.activeSessions ?? 0;
+            const totalSessions = project.totalSessions ?? 0;
 
             const existing = this.discoveredProjectsMap.get(key);
             if (existing) {

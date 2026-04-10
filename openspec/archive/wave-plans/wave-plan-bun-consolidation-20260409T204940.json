@@ -1,0 +1,188 @@
+{
+  "plan_name": "nexus-bun-consolidation",
+  "status": "completed",
+  "mode": "consolidated",
+  "pre_audit_sha": "daef0b4",
+  "created_at": "2026-04-09T18:14:07-05:00",
+  "current_wave": 5,
+  "completed_waves": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "completed_specs": [
+    "absorb-socket-cron-specwatcher",
+    "port-rust-http-routes",
+    "retire-tui-dashboard-parity",
+    "add-websocket-peer-federation",
+    "retire-rust-crates"
+  ],
+  "failed_specs": [],
+  "decisions": [
+    {
+      "date": "2026-04-09",
+      "decision": "All 5 consolidation specs share apps/agent/src/server.ts \u2014 creating single-spec waves in beads dependency order",
+      "rationale": "P1\u2192P2\u2192P3\u2192P4\u2192P5 dependency chain enforced by beads; each phase modifies server.ts and routes/",
+      "source": "orchestrator",
+      "affected_waves": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "affected_specs": [
+        "absorb-socket-cron-specwatcher",
+        "port-rust-http-routes",
+        "retire-tui-dashboard-parity",
+        "add-websocket-peer-federation",
+        "retire-rust-crates"
+      ]
+    },
+    {
+      "date": "2026-04-09",
+      "decision": "Excluded add-credential-swap-endpoint and migrate-nx-terraform from plan \u2014 credential-swap conflicts with Phase 2 routes, terraform is unrelated infrastructure",
+      "rationale": "credential-swap touches same credential routes being ported in Phase 2; terraform is independent and can be applied separately",
+      "source": "orchestrator",
+      "affected_waves": [],
+      "affected_specs": [
+        "add-credential-swap-endpoint",
+        "migrate-nx-terraform"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Phase 1: Absorb Unix socket, cron, and spec watcher into Bun agent",
+      "specs": [
+        {
+          "name": "absorb-socket-cron-specwatcher",
+          "path": "openspec/changes/absorb-socket-cron-specwatcher",
+          "task_count": 12,
+          "beads_epic": "nx-9ftj",
+          "status": "merged",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": "2026-04-09T23:29:15.069711"
+        }
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "Phase 2: Port 22 Rust-only HTTP routes to Bun agent",
+      "specs": [
+        {
+          "name": "port-rust-http-routes",
+          "path": "openspec/changes/port-rust-http-routes",
+          "task_count": 15,
+          "beads_epic": "nx-drmt",
+          "status": "merged",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": "2026-04-09T23:49:04.176640+00:00"
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "Phase 3: Retire TUI \u2014 dashboard parity, gRPC removal, TUI archive",
+      "specs": [
+        {
+          "name": "retire-tui-dashboard-parity",
+          "path": "openspec/changes/retire-tui-dashboard-parity",
+          "task_count": 14,
+          "beads_epic": "nx-2uz3",
+          "status": "merged",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": "2026-04-10T00:02:50.812096+00:00"
+        }
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "Phase 4: WebSocket peer federation \u2014 replace gRPC EventForwarder",
+      "specs": [
+        {
+          "name": "add-websocket-peer-federation",
+          "path": "openspec/changes/add-websocket-peer-federation",
+          "task_count": 10,
+          "beads_epic": "nx-ny4k",
+          "status": "merged",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": "2026-04-10T00:12:50.416923+00:00"
+        }
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "Phase 5: Retire Rust crates \u2014 single Bun binary deployment",
+      "specs": [
+        {
+          "name": "retire-rust-crates",
+          "path": "openspec/changes/retire-rust-crates",
+          "task_count": 13,
+          "beads_epic": "nx-bycr",
+          "status": "merged",
+          "phase": null,
+          "branch": null,
+          "pr": null,
+          "pr_url": null,
+          "pr_state": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "ci": null,
+          "dispatched_at": null,
+          "merged_at": "2026-04-10T00:41:42.632809+00:00"
+        }
+      ]
+    }
+  ],
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [],
+    "task_results": {
+      "absorb-socket-cron-specwatcher": {},
+      "port-rust-http-routes": {},
+      "retire-tui-dashboard-parity": {},
+      "add-websocket-peer-federation": {},
+      "retire-rust-crates": {}
+    },
+    "phase_started_at": {},
+    "phase_completed_at": {}
+  },
+  "started_at": "2026-04-09T18:14:07-05:00",
+  "completed_at": "2026-04-10T00:41:42.632819+00:00"
+}
