@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Nexus Agent — post-merge deploy hook
-# Rebuilds and fully deploys nexus-agent + TUI when Rust source changes.
+# Rebuilds and fully deploys nexus-agent when Rust source changes.
 # Handles first-time setup (config, service install, enable) and updates.
 
 GREEN='\033[1;32m'
@@ -17,20 +17,10 @@ fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 # ── Check for code changes (skip with --force) ───────────────────
 
 if [[ "${1:-}" != "--force" ]]; then
-    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(crates/|proto/|Cargo\.toml|deploy/)'; then
+    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(crates/|Cargo\.toml|deploy/)'; then
         skip "no code changes, skipping rebuild (use --force to override)"
         exit 0
     fi
-fi
-
-# ── Ensure protoc is available (required by prost-build) ─────────
-
-if ! command -v protoc &>/dev/null; then
-    info "protoc not found, installing..."
-    case "$(uname -s)" in
-        Darwin) brew install protobuf ;;
-        Linux)  sudo apt-get install -y protobuf-compiler ;;
-    esac
 fi
 
 # ── Rebuild ───────────────────────────────────────────────────────
@@ -77,10 +67,6 @@ if ! cargo build --release -p nexus-agent; then
     fail "agent build failed"
 fi
 
-if ! cargo build --release -p nexus-tui; then
-    fail "TUI build failed"
-fi
-
 if ! cargo build --release -p nexus-register; then
     fail "nexus-register build failed"
 fi
@@ -91,7 +77,6 @@ info "rebuilt in ${ELAPSED}s"
 # ── Install binaries ──────────────────────────────────────────────
 
 install -m 755 target/release/nexus-agent "$BIN_DIR/nexus-agent"
-install -m 755 target/release/nexus "$BIN_DIR/nexus"
 install -m 755 target/release/nexus-register "$BIN_DIR/nexus-register"
 info "binaries installed to $BIN_DIR/"
 

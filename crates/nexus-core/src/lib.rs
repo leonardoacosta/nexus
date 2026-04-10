@@ -16,7 +16,11 @@ pub mod socket_event;
 pub use ports::{DEFAULT_GRPC_PORT, DEFAULT_HTTP_PORT, local_http_base_url};
 
 /// Generated protobuf types and gRPC service stubs for the Nexus agent API.
+///
+/// Previously generated at build time from `proto/nexus.proto` via tonic-build.
+/// Now checked in as a static file (`proto_generated.rs`) to remove the proto
+/// compilation step.
 #[allow(clippy::large_enum_variant)]
 pub mod proto {
-    tonic::include_proto!("nexus.v1");
+    include!("proto_generated.rs");
 }

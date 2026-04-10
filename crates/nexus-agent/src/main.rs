@@ -6,9 +6,7 @@ use axum::{Router, routing::get};
 use nexus_core::config::{AgentRole, NexusConfig, NotificationConfig};
 use nexus_core::db::NexusDb;
 use nexus_core::project_registry::ProjectRegistry;
-use nexus_core::proto::nexus_agent_server::NexusAgentServer;
 use tokio::sync::{RwLock, mpsc};
-use tonic::transport::Server;
 use tower_http::timeout::TimeoutLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -16,10 +14,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use nexus_agent::cron::CronService;
 use nexus_agent::cron_state::CronState;
 use nexus_agent::environment::EnvironmentCache;
-use nexus_agent::event_forwarder::EventForwarder;
 use nexus_agent::events;
 use nexus_agent::failures::FailureBuffer;
-use nexus_agent::grpc::{AgentServiceConfig, NexusAgentService};
 use nexus_agent::health::HealthCollector;
 use nexus_agent::http_handlers::{
     AppState, agent_self_handler, analytics_credentials_handler, analytics_cron_handler,
@@ -44,7 +40,7 @@ use nexus_agent::services::spec_watcher::SpecWatcherService;
 use nexus_agent::shutdown::ShutdownCoordinator;
 use nexus_agent::socket;
 
-use nexus_core::{DEFAULT_GRPC_PORT, DEFAULT_HTTP_PORT};
+use nexus_core::DEFAULT_HTTP_PORT;
 
 /// Spawn a service and wire it to the cancellation token for shutdown.
 ///
@@ -216,7 +212,7 @@ async fn main() -> Result<()> {
 
     let started_at = std::time::Instant::now();
 
-    // Create the shutdown coordinator shared between signal handler and gRPC service.
+    // Create the shutdown coordinator shared between signal handler and services.
     let coordinator = Arc::new(ShutdownCoordinator::new());
 
     // Build a shared HTTP client for outbound requests (reused by services,
@@ -299,9 +295,9 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Role-gated: wire NotificationEngine and EventForwarder only on Primary.
-    // The lifecycle channel feeds both local socket events and remote gRPC events
-    // into the NotificationEngine for per-project TTS delivery.
+    // Role-gated: wire NotificationEngine only on Primary.
+    // The lifecycle channel feeds local socket events into the NotificationEngine
+    // for per-project TTS delivery.
     //
     // `notification_config_arc` is kept alive here so it can be shared with the
     // socket service for `notification_rules` / `notification_set` commands.
@@ -335,24 +331,11 @@ async fn main() -> Result<()> {
             let engine = NotificationEngine::new(Arc::clone(&config_arc), Arc::clone(&receiver));
             engine.spawn(rx);
 
-            // Start EventForwarder — subscribes to all peer agents' gRPC streams.
-            let peers: Vec<nexus_core::config::AgentConfig> = nexus_config
-                .peers(&agent_name)
-                .into_iter()
-                .cloned()
-                .collect();
-            if peers.is_empty() {
-                tracing::info!("EventForwarder: no peers configured, skipping");
-            } else {
-                tracing::info!(peer_count = peers.len(), "EventForwarder starting");
-                EventForwarder::new(peers).spawn(tx.clone(), coordinator.token());
-            }
-
-            tracing::info!("NotificationEngine and EventForwarder started (role=primary)");
+            tracing::info!("NotificationEngine started (role=primary)");
             Some(tx)
         } else {
             notification_config_arc = None;
-            tracing::info!("NotificationEngine and EventForwarder skipped (role=agent)");
+            tracing::info!("NotificationEngine skipped (role=agent)");
             None
         };
 
@@ -386,40 +369,11 @@ async fn main() -> Result<()> {
     let command_registry = CommandRegistry::with_default_dir();
     tracing::info!("CommandRegistry initialized");
 
-    // Build the gRPC service.
-    let service = NexusAgentService::new(AgentServiceConfig {
-        registry: Arc::clone(&registry),
-        events: Arc::clone(&event_broadcaster),
-        health: health_collector.clone(),
-        agent_name: agent_name.clone(),
-        agent_host: agent_host.clone(),
-        shutdown: Arc::clone(&coordinator),
-        project_registry: project_registry.clone(),
-        status_cache: status_cache.clone(),
-        session_pool,
-        command_registry: command_registry.clone(),
-        db: Arc::clone(&db),
-    });
-
     let bind_address = &nexus_config.bind_address;
     let effective_secret = nexus_config.effective_secret();
 
-    let grpc_addr = format!("{bind_address}:{DEFAULT_GRPC_PORT}").parse()?;
-    tracing::info!("gRPC server listening on {}", grpc_addr);
-
     // Cancellation token for socket service — cancelled when the agent shuts down.
     let socket_cancel = coordinator.token();
-
-    let shutdown_coordinator = Arc::clone(&coordinator);
-    let grpc_server = Server::builder()
-        .add_service(NexusAgentServer::new(service))
-        .serve_with_shutdown(grpc_addr, async move {
-            shutdown_signal().await;
-            shutdown_coordinator.initiate_shutdown();
-            shutdown_coordinator
-                .wait_for_drain(Duration::from_secs(5))
-                .await;
-        });
 
     // Start stale session detection background task (30s interval).
     let stale_registry = Arc::clone(&registry);
@@ -578,7 +532,7 @@ async fn main() -> Result<()> {
     });
 
     tracing::info!(
-        "listening on gRPC={bind_address}:{DEFAULT_GRPC_PORT} HTTP={bind_address}:{DEFAULT_HTTP_PORT} socket={}",
+        "listening on HTTP={bind_address}:{DEFAULT_HTTP_PORT} socket={}",
         socket_path.display()
     );
 
@@ -596,16 +550,21 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Clone coordinator for the shutdown signal handler.
+    let shutdown_coordinator = Arc::clone(&coordinator);
+
     // Run all core services concurrently. If any exits, the others are dropped.
     tokio::select! {
-        result = grpc_server => {
-            if let Err(e) = result {
-                tracing::error!("gRPC server error: {}", e);
-            }
+        _ = async {
+            shutdown_signal().await;
+            shutdown_coordinator.initiate_shutdown();
+            shutdown_coordinator.wait_for_drain(Duration::from_secs(5)).await;
+        } => {
+            tracing::info!("shutdown signal received, draining complete");
         }
         result = axum::serve(http_listener, http_app).into_future() => {
             if let Err(e) = result {
-                tracing::error!("HTTP health server error: {}", e);
+                tracing::error!("HTTP server error: {}", e);
             }
         }
         result = socket_service => {

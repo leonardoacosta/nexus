@@ -25,7 +25,6 @@ notification = []
 nexus-core = { workspace = true }
 sentry = { workspace = true }
 tokio = { workspace = true }
-tonic = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -39,7 +38,6 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 sysinfo = { workspace = true }
-prost-types = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 hostname = { workspace = true }

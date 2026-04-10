@@ -38,3 +38,22 @@ export async function fetchSessions(): Promise<SessionsResult> {
 
   return { sessions: sorted, agentCount };
 }
+
+/**
+ * Start a new Claude Code session on a specific agent for a given project.
+ * Calls POST /session/start on the target agent.
+ */
+export async function startSession(
+  agentName: string,
+  project: string,
+  path: string,
+): Promise<{ sessionName: string; started: boolean; error?: string }> {
+  try {
+    const client = await getClient();
+    const result = await client.startSession(agentName, { project, path });
+    return { sessionName: result.session_name, started: result.started };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { sessionName: "", started: false, error: message };
+  }
+}

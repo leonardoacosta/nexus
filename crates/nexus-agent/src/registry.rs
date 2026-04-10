@@ -10,8 +10,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::events::EventBroadcaster;
-use crate::grpc::{datetime_to_timestamp, session_status_to_proto, session_to_proto};
 use crate::parser::TelemetryUpdate;
+
+// Re-exported from nexus_core (previously via the gRPC module).
+use nexus_core::proto_convert::{datetime_to_timestamp, session_status_to_proto};
+
+/// Convert a domain `Session` to a proto `Session` using the core `From` impl.
+fn session_to_proto(session: &nexus_core::session::Session) -> proto::Session {
+    session.into()
+}
 
 /// A question that is waiting for a user answer, associated with a session.
 #[derive(Debug, Clone)]
@@ -600,16 +607,13 @@ fn session_from_record(record: &SessionRecord) -> Option<Session> {
 
 /// Build a `SessionEvent` with the current timestamp and given payload.
 ///
-/// `agent_name` is left empty here — it is stamped at the gRPC transport
-/// level by `stream_events` before forwarding to the client.
+/// `agent_name` is left empty here — it was previously stamped at the gRPC
+/// transport level by `stream_events` before forwarding to the client.
 fn make_event(session_id: &str, payload: Payload) -> proto::SessionEvent {
     let now = chrono::Utc::now();
     proto::SessionEvent {
         session_id: session_id.to_string(),
-        ts: Some(prost_types::Timestamp {
-            seconds: now.timestamp(),
-            nanos: now.timestamp_subsec_nanos() as i32,
-        }),
+        ts: datetime_to_timestamp(&now),
         payload: Some(payload),
         agent_name: String::new(),
     }

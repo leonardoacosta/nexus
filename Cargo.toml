@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*"]
+exclude = ["crates/archive"]
 resolver = "2"
 
 [workspace.package]
@@ -25,10 +26,6 @@ serde_json = "1"
 # Config
 toml = "0.8"
 
-# TUI
-ratatui = "0.30"
-crossterm = "0.29"
-
 # WebSocket
 tokio-tungstenite = "0.26"
 
@@ -49,14 +46,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # System info
 sysinfo = "0.33"
 
-# gRPC / Protobuf
+# gRPC / Protobuf (still needed by nexus-core for proto types and nexus-register for gRPC client)
 tonic = "0.14"
 tonic-prost = "0.14"
 prost = "0.14"
 prost-types = "0.14"
-tonic-build = "0.14"
-tonic-prost-build = "0.14"
-prost-build = "0.14"
 
 # Streaming
 tokio-stream = { version = "0.1", features = ["net"] }
@@ -65,18 +59,8 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # Hostname
 hostname = "0.4"
 
-# Markdown parsing
-pulldown-cmark = "0.13"
-
 # File watching
 notify = "6"
-
-# Syntax highlighting
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
-
-# TUI text area widget (ratatui 0.30-compatible fork)
-# Package is "tui-textarea-2", lib name is "tui_textarea"
-tui-textarea-2 = { version = "0.10", features = ["crossterm"] }
 
 # Concurrency
 parking_lot = "0.12"

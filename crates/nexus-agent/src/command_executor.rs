@@ -2,8 +2,7 @@
 //! `--output-format stream-json` and forwarding parsed output over an mpsc
 //! channel.
 //!
-//! Both `handle_send_command` and `send_command_via_pool` in
-//! `grpc/commands.rs` follow the same pattern:
+//! Callers follow the same pattern:
 //!
 //! 1. Build a `tokio::process::Command` for `claude -p`
 //! 2. Spawn it with piped stdout/stderr
@@ -20,7 +19,6 @@
 use std::sync::Arc;
 
 use nexus_core::proto;
-use tonic::Status;
 
 use crate::registry::SessionRegistry;
 
@@ -45,7 +43,7 @@ pub async fn run_claude_subprocess<F, Fut>(
     mut cmd: tokio::process::Command,
     session_id: String,
     registry: Arc<SessionRegistry>,
-    tx: tokio::sync::mpsc::Sender<Result<proto::CommandOutput, Status>>,
+    tx: tokio::sync::mpsc::Sender<Result<proto::CommandOutput, String>>,
     on_exit: Option<F>,
 ) where
     F: FnOnce() -> Fut + Send + 'static,

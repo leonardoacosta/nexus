@@ -7,12 +7,16 @@ import {
   Heartbeat,
   FolderSimple,
   Gear,
+  FileText,
+  Warning,
 } from "@phosphor-icons/react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: House },
   { href: "/health", label: "Health", icon: Heartbeat },
   { href: "/projects", label: "Projects", icon: FolderSimple },
+  { href: "/specs", label: "Specs", icon: FileText },
+  { href: "/failures", label: "Failures", icon: Warning },
   { href: "/settings", label: "Settings", icon: Gear },
 ] as const;
 
