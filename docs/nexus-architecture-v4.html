@@ -255,7 +255,7 @@
     <!-- Section 1: Topology Map -->
     <section id="topology">
       <h2><span class="section-num">1.</span> Topology Map</h2>
-      <p class="desc">Single-process Bun agent on omarchy with all internal services, external connections, and client access paths.</p>
+      <p class="desc">Two-machine topology: omarchy (role=agent) collects sessions and forwards lifecycle events to macbook (role=primary) via WebSocket federation. macbook runs the NotificationEngine and delivers TTS, desktop, and iMessage notifications.</p>
       <div class="diagram-card">
         <pre class="mermaid">
 graph TB
@@ -266,7 +266,7 @@ graph TB
     nova["nova<br/>(~/dev/nv)"]
   end
 
-  subgraph omarchy ["omarchy -- Bun nexus-agent"]
+  subgraph omarchy ["omarchy (role=agent) -- Bun nexus-agent :7400"]
     style omarchy fill:#111827,stroke:#58a6ff,color:#e6edf3
 
     subgraph transport ["Transport Layer"]
@@ -288,10 +288,33 @@ graph TB
       cron["Cron Service<br/>services/cron.ts"]
       lifecyclebus["Lifecycle Bus<br/>services/lifecycle-bus.ts"]
       peerconn["Peer Connector<br/>services/peer-connector.ts"]
-      notifengine["Notification Engine<br/>notifications/router.ts"]
       streammgr["Stream Manager<br/>terminal/stream-manager.ts"]
       sockdispatch["Socket Dispatch<br/>services/socket-dispatch.ts"]
+    end
+  end
+
+  subgraph macbook ["macbook (role=primary) -- Bun nexus-agent :7400"]
+    style macbook fill:#1a1f0d,stroke:#f85149,color:#e6edf3
+
+    subgraph mbtransport ["Transport Layer"]
+      style mbtransport fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
+      mbwsfed["WebSocket<br/>/ws/federation"]
+      mbhttp["HTTP Server<br/>:7400"]
+    end
+
+    subgraph mbservices ["Notification Services"]
+      style mbservices fill:#2d1a1a,stroke:#f85149,color:#e6edf3
+      mbpeerconn["Peer Connector<br/>services/peer-connector.ts"]
+      mbbus["Lifecycle Bus<br/>(macbook)"]
       fednotify["Federation Notify<br/>services/federation-notify.ts"]
+      notifengine["Notification Engine<br/>notifications/router.ts"]
+    end
+
+    subgraph mbchannels ["Delivery Channels"]
+      style mbchannels fill:#2d2200,stroke:#d29922,color:#e6edf3
+      tts["TTS Channel<br/>(ElevenLabs + system say)"]
+      desktop["Desktop Notifications"]
+      imessage["iMessage Channel"]
     end
   end
 
@@ -302,47 +325,47 @@ graph TB
     elevenlabs["ElevenLabs API<br/>(TTS voice)"]
   end
 
-  subgraph peers ["Peer Agents"]
-    style peers fill:#1a2e3d,stroke:#39d2c0,color:#e6edf3
-    macbook["macbook-pro<br/>:7400"]
-  end
-
-  %% Client connections
+  %% Client connections to omarchy
   dashboard -->|"HTTP REST +<br/>x-nexus-secret"| http
   dashboard -->|"WebSocket<br/>?token=secret"| wsstream
   dashboard -->|"WebSocket<br/>?token=secret"| wsinteract
   cchooks -->|"NDJSON events"| unixsock
   nova -->|"NDJSON events"| unixsock
 
-  %% Transport to services
+  %% Transport to omarchy services
   unixsock -->|"events"| sockdispatch
   sockdispatch -->|"WatcherEvent"| sessmgr
   sockdispatch -->|"emit"| lifecyclebus
-  sockdispatch -->|"TTS"| notifengine
   http -->|"REST routes"| sessmgr
   http -->|"REST routes"| credpool
   http -->|"REST routes"| healthcol
   wsstream -->|"PTY output"| streammgr
   wsinteract -->|"PTY I/O"| streammgr
 
-  %% Internal service connections
+  %% Omarchy internal service connections
   healthcol -->|"metrics"| healthsched
   healthsched -->|"snapshots"| postgres
   sessmgr -->|"upsert"| postgres
   credpool -->|"lease/release"| postgres
   specwatch -->|"emit"| lifecyclebus
-  specwatch -->|"TTS"| notifengine
   lifecyclebus -->|"local events"| peerconn
-  peerconn -->|"peer events"| lifecyclebus
-  lifecyclebus -->|"peer events"| fednotify
-  fednotify -->|"route"| notifengine
   cron -->|"prune /tmp, drift"| omarchy
 
-  %% External connections
+  %% External connections from omarchy
   credpool -->|"usage poll<br/>every 300s"| anthropic
-  notifengine -->|"TTS audio"| elevenlabs
-  peerconn -->|"ws://host:7400<br/>/ws/federation"| macbook
-  wsfed -->|"accept peer"| peerconn
+
+  %% Federation: omarchy -> macbook (lifecycle events)
+  peerconn -->|"lifecycle events<br/>ws://macbook-pro:7400/ws/federation"| mbwsfed
+  mbwsfed -->|"accept peer"| mbpeerconn
+  mbpeerconn -->|"inject peer event"| mbbus
+  mbbus -->|"source=peer"| fednotify
+  fednotify -->|"route"| notifengine
+
+  %% Macbook notification delivery
+  notifengine -->|"TTS audio"| tts
+  notifengine -->|"alert"| desktop
+  notifengine -->|"message"| imessage
+  tts -->|"synthesize"| elevenlabs
 
   %% Retention
   cron -.->|"24h cycle"| postgres
@@ -505,49 +528,53 @@ sequenceDiagram
     <!-- Section 4: Peer Federation -->
     <section id="peer-federation">
       <h2><span class="section-num">4.</span> Peer Federation</h2>
-      <p class="desc">Peer-to-peer agent mesh via Tailscale. WebSocket connections with reconnect backoff, event buffering, and echo suppression.</p>
+      <p class="desc">Peer-to-peer agent mesh via Tailscale. Agent machines (omarchy, other dev servers) emit lifecycle events and forward them to the primary (macbook) via WebSocket federation. The primary's NotificationEngine handles all notification delivery — agent machines do not deliver notifications locally.</p>
       <div class="diagram-card">
         <pre class="mermaid">
 sequenceDiagram
-  participant TOML as agents.toml
-  participant PC as Peer Connector<br/>(omarchy)
+  participant TOML as agents.toml<br/>(omarchy)
+  participant PC as Peer Connector<br/>(omarchy, role=agent)
   participant Bus as Lifecycle Bus<br/>(omarchy)
-  participant WS as WebSocket<br/>ws://macbook:7400
+  participant WS as WebSocket<br/>ws://macbook-pro:7400
+  participant MBConn as Peer Connector<br/>(macbook, role=primary)
   participant PBus as Lifecycle Bus<br/>(macbook)
-  participant FN as Federation Notify
-  participant NR as Notification Router
+  participant FN as Federation Notify<br/>(macbook)
+  participant NR as Notification Router<br/>(macbook)
 
   rect rgb(13, 31, 48)
-    Note over TOML,PC: Discovery
+    Note over TOML,PC: Discovery (agent role)
     PC->>TOML: Read ~/.config/nexus/agents.toml
-    Note over TOML: self_name = "omarchy"<br/>[[agents]] name="macbook"<br/>host="macbook-pro" port=7400
+    Note over TOML: self_name = "omarchy"<br/>role = "agent"<br/>[[agents]] name="macbook"<br/>host="macbook-pro" port=7400
     PC->>PC: Filter out self (omarchy)<br/>Build peer list: [macbook]
     PC->>Bus: setOrigin("omarchy")
+    Note over PC: Agent role: emit events,<br/>forward to primary. No local delivery.
   end
 
   rect rgb(45, 31, 78)
-    Note over PC,WS: WebSocket Connection
+    Note over PC,WS: Outbound WebSocket Connection (agent -> primary)
     PC->>WS: Connect ws://macbook-pro:7400/ws/federation
     Note over WS: x-nexus-secret header for auth
     WS-->>PC: Connection established
     PC->>PC: Reset attempt counter, drain buffer
+    Note over MBConn: macbook (role=primary) accepts<br/>inbound connections from agents
   end
 
   rect rgb(45, 34, 0)
-    Note over Bus,PBus: Local Event Forwarding
-    Bus->>Bus: Session started locally
+    Note over Bus,PBus: Lifecycle Event Forwarding (omarchy -> macbook)
+    Bus->>Bus: Session started locally on omarchy
     Bus->>PC: onAny(envelope) [source: local]
     PC->>WS: JSON.stringify(envelope)
-    WS->>PBus: injectPeerEvent(envelope) [source: peer]
-    Note over PBus: Peer bus emits with source=peer<br/>so peer connector won't re-forward (echo suppression)
+    WS->>MBConn: receive envelope
+    MBConn->>PBus: injectPeerEvent(envelope) [source: peer]
+    Note over PBus: Peer bus emits with source=peer<br/>Echo suppression: connector won't re-forward
   end
 
   rect rgb(48, 13, 13)
-    Note over WS,PC: Disconnect and Reconnect
+    Note over WS,PC: Disconnect and Reconnect (agent side)
     WS--xPC: Connection lost (code: 1006)
-    Note over PC: Buffer events (max 1000 per peer)
+    Note over PC: Buffer events on agent (max 1000 per peer)
     Bus->>PC: onAny(envelope)
-    PC->>PC: buffer.push(envelope) [peer offline]
+    PC->>PC: buffer.push(envelope) [primary offline]
 
     loop Exponential Backoff
       Note over PC: attempt 0: wait 1s<br/>attempt 1: wait 2s<br/>attempt 2: wait 4s<br/>attempt 3: wait 8s<br/>... max 30s
@@ -561,13 +588,14 @@ sequenceDiagram
   end
 
   rect rgb(13, 48, 30)
-    Note over PBus,NR: Peer Event -> Notification
+    Note over PBus,NR: Primary-Only Notification Delivery (macbook)
     PBus->>FN: onAny(envelope) [source: peer]
     FN->>FN: Filter: only process source=peer
     FN->>FN: Map event to notification<br/>(SessionStarted, SpecTransition, etc.)
     FN->>NR: routeNotificationParallel(notification)
     NR->>NR: findMatchingRule(notification)
-    NR->>NR: Dispatch to channels (TTS, desktop, slack)
+    NR->>NR: Dispatch to channels (TTS/ElevenLabs,<br/>desktop notifications, iMessage)
+    Note over NR: omarchy does NOT deliver<br/>notifications -- primary role only
   end
         </pre>
       </div>
@@ -576,42 +604,50 @@ sequenceDiagram
     <!-- Section 5: Notification Pipeline -->
     <section id="notification-pipeline">
       <h2><span class="section-num">5.</span> Notification Pipeline</h2>
-      <p class="desc">Event-driven notification system with per-project routing rules, meeting-aware buffering, and multi-channel delivery.</p>
+      <p class="desc">Events originate on agent machines (omarchy, other dev servers) and are forwarded to macbook (role=primary) via WebSocket peer federation. The primary's NotificationEngine applies per-project routing rules and delivers via TTS/ElevenLabs, system say, desktop notifications, and iMessage. Agent machines collect and forward — they do not deliver notifications locally.</p>
       <div class="diagram-card">
         <pre class="mermaid">
 sequenceDiagram
-  participant Sock as Socket Events<br/>(CC hooks)
-  participant SW as Spec Watcher
-  participant Fed as Federation Notify<br/>(peer events)
-  participant Bus as Lifecycle Bus
-  participant Dispatch as Socket Dispatch
-  participant Router as Notification Router
-  participant Rules as Routing Rules
-  participant Meeting as Meeting State
-  participant Buffer as Notification Buffer
+  participant Sock as Socket Events<br/>(omarchy CC hooks)
+  participant SW as Spec Watcher<br/>(omarchy)
+  participant AgentBus as Lifecycle Bus<br/>(omarchy, role=agent)
+  participant AgentPC as Peer Connector<br/>(omarchy)
+  participant WS as WebSocket Federation<br/>omarchy -> macbook
+  participant Fed as Federation Notify<br/>(macbook, role=primary)
+  participant Router as Notification Router<br/>(macbook)
+  participant Rules as Routing Rules<br/>(macbook)
+  participant Meeting as Meeting State<br/>(macbook)
+  participant Buffer as Notification Buffer<br/>(macbook)
   participant DB as PostgreSQL<br/>(notifications table)
-  participant TTS as TTS Channel<br/>(ElevenLabs)
-  participant Desktop as Desktop Channel
-  participant Slack as Slack Channel
+  participant TTS as TTS Channel<br/>(ElevenLabs + system say)
+  participant Desktop as Desktop Channel<br/>(macbook)
+  participant IMsg as iMessage Channel<br/>(macbook)
 
   rect rgb(45, 31, 78)
-    Note over Sock,Dispatch: Event Sources
-    Sock->>Dispatch: {event:"notification", message, channels:["tts"]}
-    Dispatch->>Bus: emit("NotificationFired")
-    SW->>Bus: emit("SpecTransition")
-    SW->>TTS: sendSpecTtsNotification (direct, coalesced)
-    Fed->>Router: routeNotificationParallel (peer events)
+    Note over Sock,AgentBus: Event Sources on Agent (omarchy)
+    Sock->>AgentBus: emit("NotificationFired") via Socket Dispatch
+    SW->>AgentBus: emit("SpecTransition")
+    Note over AgentBus: omarchy collects all local events.<br/>Does NOT deliver notifications locally.
   end
 
   rect rgb(13, 31, 48)
-    Note over Router,Rules: Routing Decision
+    Note over AgentBus,WS: Forward to Primary via WebSocket Federation
+    AgentBus->>AgentPC: onAny(envelope) [source: local]
+    AgentPC->>WS: JSON.stringify(envelope)
+    WS->>Fed: injectPeerEvent(envelope) [source: peer, origin: omarchy]
+    Note over Fed: macbook receives all agent events<br/>via the federation WebSocket
+  end
+
+  rect rgb(45, 34, 0)
+    Note over Fed,Rules: Primary Routing Decision (macbook)
+    Fed->>Router: routeNotificationParallel(notification)
     Router->>Rules: findMatchingRule(notification)
     Note over Rules: 1. Match project-specific rule<br/>2. Match wildcard rule (no project)<br/>3. Fall back to DEFAULT_RULES<br/>   [channels: ["desktop"], meeting: "buffer"]
     Rules-->>Router: NotificationRule {channels, meeting_behavior}
   end
 
-  rect rgb(45, 34, 0)
-    Note over Meeting,Buffer: Meeting-Aware Buffering
+  rect rgb(13, 48, 30)
+    Note over Meeting,Buffer: Meeting-Aware Buffering (macbook)
     alt Meeting active (meeting_behavior: "buffer")
       Router->>Buffer: insertNotification(db, row)
       Buffer->>DB: INSERT (status: queued)
@@ -627,27 +663,27 @@ sequenceDiagram
     end
   end
 
-  rect rgb(13, 48, 30)
-    Note over Router,Slack: Multi-Channel Delivery (parallel)
+  rect rgb(48, 13, 30)
+    Note over Router,IMsg: Primary-Only Multi-Channel Delivery (macbook)
     Router->>Router: Promise.allSettled(channels)
     par TTS delivery
       Router->>TTS: sendTtsNotification(row)
-      TTS->>TTS: POST /v1/text-to-speech/{voiceId}<br/>(ElevenLabs API)
-      Note over TTS: Falls back to console log<br/>if ELEVENLABS_API_KEY unset
+      TTS->>TTS: POST /v1/text-to-speech/{voiceId}<br/>(ElevenLabs API) or system say
+      Note over TTS: Falls back to system say<br/>if ELEVENLABS_API_KEY unset
       TTS-->>Router: success
     and Desktop delivery
       Router->>Desktop: sendDesktopNotification(row)
       Desktop-->>Router: success
-    and Slack delivery
-      Router->>Slack: sendSlackNotification(row)
-      Slack-->>Router: success
+    and iMessage delivery
+      Router->>IMsg: sendIMessageNotification(row)
+      IMsg-->>Router: success
     end
     Router->>Router: Collect {delivered[], failed[]}
     Router->>DB: UPDATE status=delivered, sentAt=now
   end
 
   rect rgb(48, 13, 13)
-    Note over Router,DB: Mode Control
+    Note over Router,DB: Mode Control (macbook primary)
     Note over Router: Mode selection per config:<br/> full -- all channels active<br/> system -- desktop only<br/> noduck -- TTS muted, others active<br/> silent -- all channels suppressed
   end
         </pre>
