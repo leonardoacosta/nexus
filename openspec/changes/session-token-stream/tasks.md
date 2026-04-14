@@ -47,7 +47,7 @@
 
 ## 9. Tests — Unit
 
-- [ ] 9.1 Unit test `transcript-locator` — file exists immediately, file appears within 5s window, timeout path returns null [beads:nx-t7zi]
+- [x] 9.1 Unit test `transcript-locator` — file exists immediately, file appears within 5s window, timeout path returns null [beads:nx-t7zi]
 - [ ] 9.2 Unit test `attributeTurnToCredential` — pre-swap turn maps to initial credential, post-swap turn maps to swap target, no-swap fallback uses `sessions.credential_id` [beads:nx-etv8]
 - [ ] 9.3 Unit test `computeCost` — known model yields deterministic USD, unknown model returns null and logs warn-once [beads:nx-31kt]
 
