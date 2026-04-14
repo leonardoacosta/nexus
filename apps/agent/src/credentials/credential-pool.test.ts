@@ -38,6 +38,9 @@ describe("credential pool — concurrent lease race (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 0,
+      fingerprint: "test-fp-race-1",
+      duplicateGroupId: "test-fp-race-1",
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

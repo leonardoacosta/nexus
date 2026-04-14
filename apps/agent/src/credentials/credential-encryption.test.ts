@@ -69,6 +69,9 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 0,
+      fingerprint: "test-fp-dec-test-1",
+      duplicateGroupId: "test-fp-dec-test-1",
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -166,6 +169,9 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 10,
+      fingerprint: "test-fp-wrr-high",
+      duplicateGroupId: "test-fp-wrr-high",
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -181,6 +187,9 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: null,
       cooldownUntil: null,
       rateLimitCount: 2,
+      fingerprint: "test-fp-wrr-low",
+      duplicateGroupId: "test-fp-wrr-low",
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -259,6 +268,9 @@ describe("credential pool — encryption storage (unit)", () => {
       leasedAt: new Date(),
       cooldownUntil: null,
       rateLimitCount: 43,
+      fingerprint: "test-fp-prerotate-1",
+      duplicateGroupId: "test-fp-prerotate-1",
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
