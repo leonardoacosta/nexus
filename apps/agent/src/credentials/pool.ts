@@ -55,6 +55,32 @@ export interface CredentialPromoteResult {
   previousPrimary: string | null;
 }
 
+/**
+ * Trimmed credential representation nested under a primary's `duplicates`
+ * array in the `GET /credentials` response. Intentionally excludes
+ * `valueEncrypted`, `leasedBy`, `cooldownUntil`, and any other field that
+ * could leak token material or operational state of a non-primary row.
+ */
+export interface CredentialDuplicateEntry {
+  id: string;
+  name: string;
+  fingerprint: string;
+  duplicateGroupId: string | null;
+  isPrimary: boolean;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Top-level entry returned by `CredentialPool.list()`. Primary entries
+ * carry a `duplicates` array of their non-primary siblings; non-primary
+ * entries omit the field entirely.
+ */
+export type CredentialListEntry = Omit<CredentialRow, "valueEncrypted"> & {
+  duplicates?: CredentialDuplicateEntry[];
+};
+
 /** Credential pool with lease/release/cooldown lifecycle. */
 export class CredentialPool {
   private db: Db;
@@ -600,11 +626,54 @@ export class CredentialPool {
     );
   }
 
+  /**
+   * Sibling entry nested under a primary credential's `duplicates` array.
+   * Intentionally omits `valueEncrypted` and any token material.
+   */
+  // eslint-disable-next-line @typescript-eslint/member-ordering
+  // (kept inline so the type lives next to its only consumer)
+
   /** List all credentials with status info (no values exposed). */
-  async list(): Promise<Array<Omit<CredentialRow, "valueEncrypted">>> {
-    return (await queryAllCredentials(this.db)).map(
-      ({ valueEncrypted: _e, ...rest }) => rest,
-    );
+  async list(): Promise<CredentialListEntry[]> {
+    const rows = await queryAllCredentials(this.db);
+
+    // Index every row by its duplicate group so primaries can attach a
+    // `duplicates` array of their non-primary siblings without N extra
+    // queries. Rows without a duplicate_group_id (legacy pre-backfill) fall
+    // back to their fingerprint, then to a synthetic group keyed by id.
+    type SafeRow = Omit<CredentialRow, "valueEncrypted">;
+    const groupMap = new Map<string, SafeRow[]>();
+    const safeRows: SafeRow[] = rows.map(({ valueEncrypted: _e, ...rest }) => rest);
+
+    for (const row of safeRows) {
+      const groupKey = row.duplicateGroupId ?? row.fingerprint ?? `__id:${row.id}`;
+      const bucket = groupMap.get(groupKey) ?? [];
+      bucket.push(row);
+      groupMap.set(groupKey, bucket);
+    }
+
+    return safeRows.map((row) => {
+      if (!row.isPrimary) {
+        // Non-primary rows appear at the top level too (per spec) but
+        // without a nested duplicates array.
+        return row satisfies CredentialListEntry;
+      }
+      const groupKey =
+        row.duplicateGroupId ?? row.fingerprint ?? `__id:${row.id}`;
+      const siblings = (groupMap.get(groupKey) ?? [])
+        .filter((m) => m.id !== row.id)
+        .map<CredentialDuplicateEntry>((m) => ({
+          id: m.id,
+          name: m.name,
+          fingerprint: m.fingerprint,
+          duplicateGroupId: m.duplicateGroupId,
+          isPrimary: m.isPrimary,
+          status: m.status,
+          createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
+        }));
+      return { ...row, duplicates: siblings };
+    });
   }
 
   /** Recover credentials whose cooldown has expired. */

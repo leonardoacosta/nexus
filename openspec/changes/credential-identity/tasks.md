@@ -29,7 +29,7 @@
 
 ## 5. API — Response Shape
 
-- [ ] 5.1 `pool.list()` returns entries annotated with `fingerprint`, `duplicate_group_id`, `is_primary`; primary entries gain a `duplicates: [...]` array listing non-primary siblings in the same group [beads:nx-mhi4]
+- [x] 5.1 `pool.list()` returns entries annotated with `fingerprint`, `duplicate_group_id`, `is_primary`; primary entries gain a `duplicates: [...]` array listing non-primary siblings in the same group [beads:nx-mhi4]
 - [ ] 5.2 Confirm no `value_encrypted`, `access_token`, or refresh token material appears in the serialized response at any nesting level (extend existing test or add a new grep assertion) [beads:nx-3zw0]
 
 ## 6. API — DELETE Endpoint
