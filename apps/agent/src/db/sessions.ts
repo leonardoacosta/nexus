@@ -114,6 +114,8 @@ function sessionToRow(session: Session): SessionRow {
     tmuxSession: session.tmuxSession ?? null,
     tmuxTarget: session.tmuxTarget ?? null,
     spec: session.spec ?? null,
+    credentialId: null,
+    credentialFingerprint: null,
   };
 }
 

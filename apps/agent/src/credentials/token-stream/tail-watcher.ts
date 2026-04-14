@@ -101,9 +101,10 @@ export class TailWatcher {
           encoding: "utf-8",
         });
 
-        stream.on("data", (chunk: string) => {
-          bytesRead += Buffer.byteLength(chunk, "utf-8");
-          buffer += chunk;
+        stream.on("data", (chunk: string | Buffer) => {
+          const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+          bytesRead += Buffer.byteLength(str, "utf-8");
+          buffer += str;
 
           // Split on newlines, holding the last incomplete chunk
           const lines = buffer.split("\n");
