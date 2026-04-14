@@ -66,13 +66,13 @@ export const credentials = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => ({
-    fingerprintIdx: index("credentials_fingerprint_idx").on(table.fingerprint),
-    groupPrimaryIdx: index("credentials_group_primary_idx").on(
+  (table) => [
+    index("credentials_fingerprint_idx").on(table.fingerprint),
+    index("credentials_group_primary_idx").on(
       table.duplicateGroupId,
       table.isPrimary,
     ),
-  }),
+  ],
 );
 
 export const credentialsRelations = relations(credentials, ({ one }) => ({
