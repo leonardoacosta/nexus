@@ -4,7 +4,7 @@
 ## 1. Database Layer
 
 - [x] 1.1 Add `credential_id TEXT NULL` (FK `credentials.id`) and `credential_fingerprint TEXT NULL` columns to `sessions` in `packages/db/src/schema/sessions.ts`; generate migration [beads:nx-9eq3]
-- [ ] 1.2 Create `session_token_turns` table (`id` PK, `session_id` FK, `ts`, `model`, `service_tier`, `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cost_usd`, `credential_id`, `credential_fingerprint`, `UNIQUE(session_id, ts)`) with indexes on `(credential_fingerprint, ts)` and `(session_id)`; generate migration [beads:nx-dln8]
+- [x] 1.2 Create `session_token_turns` table (`id` PK, `session_id` FK, `ts`, `model`, `service_tier`, `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cost_usd`, `credential_id`, `credential_fingerprint`, `UNIQUE(session_id, ts)`) with indexes on `(credential_fingerprint, ts)` and `(session_id)`; generate migration [beads:nx-dln8]
 - [ ] 1.3 Create `session_token_watcher_state` table (`session_id` PK, `transcript_path`, `byte_offset` BIGINT DEFAULT 0, `updated_at`); generate migration [beads:nx-lu51]
 - [ ] 1.4 Create `apps/agent/src/credentials/model-pricing.ts` with a typed const map `model → { input_rate, output_rate, cache_read_rate, cache_creation_rate }` covering the current Anthropic catalog [beads:nx-m297]
 

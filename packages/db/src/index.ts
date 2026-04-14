@@ -27,6 +27,7 @@ export {
   agents,
   projects,
   projectLocations,
+  sessionTokenTurns,
 } from "./schema";
 
 // Relations (used by drizzle's relational query API)
@@ -56,6 +57,7 @@ import type {
   sessionEvents as sessionEventsTable,
   notifications as notificationsTable,
   credentials as credentialsTable,
+  sessionTokenTurns as sessionTokenTurnsTable,
 } from "./schema";
 
 export type Session = typeof sessionsTable.$inferSelect;
@@ -72,3 +74,6 @@ export type NewNotification = typeof notificationsTable.$inferInsert;
 
 export type Credential = typeof credentialsTable.$inferSelect;
 export type NewCredential = typeof credentialsTable.$inferInsert;
+
+export type SessionTokenTurn = typeof sessionTokenTurnsTable.$inferSelect;
+export type NewSessionTokenTurn = typeof sessionTokenTurnsTable.$inferInsert;
