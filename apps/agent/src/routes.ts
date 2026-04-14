@@ -33,6 +33,7 @@ import {
   handleListCredentials,
   handleReportRateLimit,
   handleCredentialHealth,
+  handleDeleteCredential,
 } from "./routes/credentials";
 import {
   handleGetSpecsAll,
@@ -374,6 +375,18 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
         const badId = validateCredentialId(params.id!);
         if (badId) return badId;
         return handleCredentialHealth(params.id!, req);
+      },
+    },
+    // credential-identity: delete a credential (with orphan protection on
+    // primary-of-multi-member-group, gated by ?promote=<sibling_id>).
+    {
+      method: "DELETE",
+      path: "/credentials/:id",
+      requiresDb: true,
+      handler(req, params) {
+        const badId = validateCredentialId(params.id!);
+        if (badId) return badId;
+        return handleDeleteCredential(params.id!, req);
       },
     },
     {
