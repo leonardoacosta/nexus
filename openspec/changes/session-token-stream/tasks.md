@@ -38,8 +38,8 @@
 ## 7. API Layer
 
 - [x] 7.1 Implement `GET /sessions/{id}/tokens` in `apps/agent/src/routes/sessions.ts` — return `{ turns: [...], aggregates: { input, output, cache_creation, cache_read, cost_usd, turn_count } }` [beads:nx-a8zn]
-- [ ] 7.2 Implement `GET /credentials/{id}/usage?window=24h` in `apps/agent/src/routes/credentials.ts` — look up target credential's fingerprint, aggregate `session_token_turns` over the window filtered by `credential_fingerprint`, return `{ input, output, cache_creation, cache_read, cost_usd, turn_count, session_count }` [beads:nx-kat0]
-- [ ] 7.3 Validate `window` parameter as one of `1h`, `6h`, `24h`, `7d`; return 400 on unrecognized values [beads:nx-pqd2]
+- [x] 7.2 Implement `GET /credentials/{id}/usage?window=24h` in `apps/agent/src/routes/credentials.ts` — look up target credential's fingerprint, aggregate `session_token_turns` over the window filtered by `credential_fingerprint`, return `{ input, output, cache_creation, cache_read, cost_usd, turn_count, session_count }` [beads:nx-kat0]
+- [x] 7.3 Validate `window` parameter as one of `1h`, `6h`, `24h`, `7d`; return 400 on unrecognized values [beads:nx-pqd2]
 
 ## 8. API Layer — Live Stream
 

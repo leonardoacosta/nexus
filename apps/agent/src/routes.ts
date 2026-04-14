@@ -35,6 +35,7 @@ import {
   handleCredentialHealth,
   handleDeleteCredential,
   handlePromoteCredential,
+  handleCredentialUsage,
 } from "./routes/credentials";
 import {
   handleGetSpecsAll,
@@ -353,6 +354,17 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
       requiresDb: true,
       handler(req) {
         return handleLeaseCredential(req);
+      },
+    },
+    // Credential usage endpoint (session-token-stream)
+    {
+      method: "GET",
+      path: "/credentials/:id/usage",
+      requiresDb: true,
+      handler(req, params) {
+        const badId = validateCredentialId(params.id!);
+        if (badId) return badId;
+        return handleCredentialUsage(dbRef, params.id!, req);
       },
     },
     // Credential parameterized routes are NOT gated by requiresDb so that
