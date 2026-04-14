@@ -26,7 +26,7 @@
 
 ## 5. Service Layer — Cost Calculator
 
-- [ ] 5.1 Implement `computeCost(model, usage)` using the `model-pricing.ts` map; return `null` and log WARN-once per `(session_id, model)` pair when the model is unknown [beads:nx-x138]
+- [x] 5.1 Implement `computeCost(model, usage)` using the `model-pricing.ts` map; return `null` and log WARN-once per `(session_id, model)` pair when the model is unknown [beads:nx-x138]
 
 ## 6. Service Layer — Lifecycle & Persistence
 
