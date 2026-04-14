@@ -21,8 +21,8 @@
 
 ## 4. Service Layer — Credential Attribution
 
-- [ ] 4.1 Implement `attributeTurnToCredential(sessionId, turnTs)` — query `credential_swaps WHERE session_id = ? AND swapped_at <= ? ORDER BY swapped_at DESC LIMIT 1`, falling back to `sessions.credential_id` if no swap matches [beads:nx-1jow]
-- [ ] 4.2 Return both `credential_id` and `credential_fingerprint` (join against `credentials` for the fingerprint lookup) [beads:nx-8ypu]
+- [x] 4.1 Implement `attributeTurnToCredential(sessionId, turnTs)` — query `credential_swaps WHERE session_id = ? AND swapped_at <= ? ORDER BY swapped_at DESC LIMIT 1`, falling back to `sessions.credential_id` if no swap matches [beads:nx-1jow]
+- [x] 4.2 Return both `credential_id` and `credential_fingerprint` (join against `credentials` for the fingerprint lookup) [beads:nx-8ypu]
 
 ## 5. Service Layer — Cost Calculator
 
