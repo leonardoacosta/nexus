@@ -280,8 +280,10 @@ export async function handleDeleteCredential(
  * its duplicate group.
  *
  * Returns 200 with the new group snapshot on success, 404 if the id is
- * unknown, 409 on cross-group drift. Idempotent — already-primary returns
- * 200 with no state change (and no audit log) so callers can retry safely.
+ * unknown, 409 on cross-group drift. Idempotent: when the target is already
+ * primary, `pool.promote()` returns `previousPrimary = null` and we skip
+ * both the demote/promote update path AND the audit log emit, so callers
+ * can retry safely without polluting the audit trail.
  */
 export async function handlePromoteCredential(
   id: string,
@@ -291,14 +293,15 @@ export async function handlePromoteCredential(
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
 
+  const ip = extractCallerIp(request);
+  const actor =
+    request.headers.get("x-nexus-actor") ??
+    request.headers.get("x-forwarded-user") ??
+    "system";
+
+  let result: Awaited<ReturnType<CredentialPool["promote"]>>;
   try {
-    const result = await pool.promote(id);
-    return jsonResponse({
-      id: result.newPrimary,
-      duplicateGroupId: result.groupId,
-      isPrimary: true,
-      previousPrimary: result.previousPrimary,
-    });
+    result = await pool.promote(id);
   } catch (err) {
     if (err instanceof Error && err.message === "credential not found") {
       return jsonResponse({ error: "credential not found" }, 404);
@@ -314,6 +317,26 @@ export async function handlePromoteCredential(
     }
     throw err;
   }
+
+  // Audit log only on real state change. Idempotent no-op (target was
+  // already primary) returns previousPrimary === null and is silent.
+  if (result.previousPrimary !== null) {
+    emitAudit({
+      event: "credential.promoted",
+      credential_id: result.newPrimary,
+      actor,
+      ip,
+      timestamp_iso: new Date().toISOString(),
+      detail: { previous_primary: result.previousPrimary },
+    });
+  }
+
+  return jsonResponse({
+    id: result.newPrimary,
+    duplicateGroupId: result.groupId,
+    isPrimary: true,
+    previousPrimary: result.previousPrimary,
+  });
 }
 
 /** POST /credentials/{id}/report-rate-limit — report rate limit, trigger cooldown + rotation. */
