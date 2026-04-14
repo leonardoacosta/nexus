@@ -237,6 +237,11 @@ export async function handleDeleteCredential(
 
   const url = new URL(request.url);
   const promoteId = url.searchParams.get("promote") ?? undefined;
+  const ip = extractCallerIp(request);
+  const actor =
+    request.headers.get("x-nexus-actor") ??
+    request.headers.get("x-forwarded-user") ??
+    "system";
 
   try {
     await pool.deleteById(id, promoteId ? { promoteId } : undefined);
@@ -257,6 +262,15 @@ export async function handleDeleteCredential(
     }
     throw err;
   }
+
+  emitAudit({
+    event: "credential.deleted",
+    credential_id: id,
+    actor,
+    ip,
+    timestamp_iso: new Date().toISOString(),
+    detail: promoteId ? { promoted_to: promoteId } : undefined,
+  });
 
   return new Response(null, { status: 204 });
 }

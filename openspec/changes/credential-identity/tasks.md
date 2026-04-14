@@ -36,7 +36,7 @@
 
 - [x] 6.1 Add `DELETE /credentials/{id}` handler in `apps/agent/src/routes/credentials.ts` that reads `?promote=` from the URL; returns 404 if id unknown [beads:nx-0g5k]
 - [x] 6.2 Handler returns 409 when the row is the primary of a multi-member group and no `promote` query param is supplied [beads:nx-idhw]
-- [ ] 6.3 Handler invokes `pool.deleteById(id, { promoteId })` and emits a `credential.deleted` audit log entry with `actor`, `ip`, `detail.promoted_to` when applicable [beads:nx-ezmr]
+- [x] 6.3 Handler invokes `pool.deleteById(id, { promoteId })` and emits a `credential.deleted` audit log entry with `actor`, `ip`, `detail.promoted_to` when applicable [beads:nx-ezmr]
 - [ ] 6.4 Register the route in the agent HTTP router [beads:nx-1axc]
 
 ## 7. API — Promote Endpoint
