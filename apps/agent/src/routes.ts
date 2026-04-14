@@ -14,7 +14,7 @@ import { logger } from "@nexus/core";
 import os from "node:os";
 import type { Route } from "./router";
 import type { ServerState } from "./server-websocket";
-import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
+import { handleGetSessions, handleGetSessionById, handleSessionStart, handleGetSessionTokens } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
 import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
@@ -232,6 +232,14 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
       handler(req) {
         const url = new URL(req.url);
         return handleGetSessions(dbRef, url);
+      },
+    },
+    {
+      method: "GET",
+      path: "/sessions/:id/tokens",
+      requiresDb: true,
+      handler(_req, params) {
+        return handleGetSessionTokens(dbRef, params.id!);
       },
     },
     {

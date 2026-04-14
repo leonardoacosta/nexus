@@ -1,4 +1,5 @@
 import type { Db } from "@nexus/db";
+import { sessionTokenTurns, eq, sql } from "@nexus/db";
 import {
   queryActiveSessions,
   queryRecentSessions,
@@ -264,6 +265,64 @@ export async function handleSessionStart(request: Request): Promise<Response> {
 
   return new Response(
     JSON.stringify({ session_name: sessionName, started: true }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+// ── GET /sessions/{id}/tokens ─────────────────────────────────────────────
+
+/**
+ * GET /sessions/{id}/tokens — per-turn token breakdown + aggregates.
+ *
+ * Returns all token turns for a session ordered by timestamp, plus
+ * computed aggregates (total tokens, cost, turn count).
+ */
+export async function handleGetSessionTokens(
+  db: Db,
+  id: string,
+): Promise<Response> {
+  // Verify session exists
+  const session = await getSessionById(db, id);
+  if (!session) {
+    return new Response(
+      JSON.stringify({ error: "session not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Fetch all turns for this session
+  const turns = await db
+    .select()
+    .from(sessionTokenTurns)
+    .where(eq(sessionTokenTurns.sessionId, id))
+    .orderBy(sessionTokenTurns.ts);
+
+  // Compute aggregates
+  const aggregates = {
+    input: 0,
+    output: 0,
+    cache_creation: 0,
+    cache_read: 0,
+    cost_usd: null as number | null,
+    turn_count: turns.length,
+  };
+
+  let costAccumulator: number | null = 0;
+  for (const turn of turns) {
+    aggregates.input += turn.inputTokens;
+    aggregates.output += turn.outputTokens;
+    aggregates.cache_creation += turn.cacheCreationInputTokens;
+    aggregates.cache_read += turn.cacheReadInputTokens;
+    if (turn.costUsd !== null && costAccumulator !== null) {
+      costAccumulator += parseFloat(turn.costUsd);
+    } else {
+      costAccumulator = null;
+    }
+  }
+  aggregates.cost_usd = costAccumulator;
+
+  return new Response(
+    JSON.stringify({ turns, aggregates }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }
