@@ -16,7 +16,7 @@
 
 ## 3. Service — Pool Integration
 
-- [ ] 3.1 `CredentialPool.add()` computes fingerprint from plaintext before encryption and stores it in the insert; if an existing row shares the fingerprint, the new row is inserted with `is_primary = false` and joined to the existing group [beads:nx-2f1a]
+- [x] 3.1 `CredentialPool.add()` computes fingerprint from plaintext before encryption and stores it in the insert; if an existing row shares the fingerprint, the new row is inserted with `is_primary = false` and joined to the existing group [beads:nx-2f1a]
 - [ ] 3.2 `CredentialPool.add()` promotes the new row to `is_primary = true` when its mtime is newer than the current primary of the group (group's previous primary is demoted in the same transaction) [beads:nx-om1o]
 - [ ] 3.3 `CredentialPool.lease()` adds `and(eq(credentials.isPrimary, true))` to its candidate predicate; non-primary rows are unreachable via lease [beads:nx-wgr6]
 - [ ] 3.4 Add `CredentialPool.promote(id)` method that transactionally demotes the current primary of the group and marks the given row primary; idempotent when `id` is already primary; throws if `id` and current primary belong to different groups [beads:nx-0tmw]

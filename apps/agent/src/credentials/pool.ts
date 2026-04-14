@@ -3,7 +3,6 @@ import { credentials } from "@nexus/db";
 import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
 import { logger } from "@nexus/core";
 import {
-  insertCredential,
   getCredentialById,
   queryAllCredentials,
   queryExpiredCooldowns,
@@ -11,6 +10,10 @@ import {
 } from "./store";
 import type { CredentialRow } from "./store";
 import { encrypt, decrypt } from "./encryption";
+import {
+  computeCredentialFingerprint,
+  CredentialParseError,
+} from "./credentials.helpers";
 import type { Buffer } from "node:buffer";
 import * as Sentry from "@sentry/node";
 
@@ -62,7 +65,19 @@ export class CredentialPool {
 
   // ─── Public API ─────────────────────────────────────────────────────────────
 
-  /** Add a new credential to the pool (value is encrypted at rest). */
+  /**
+   * Add a new credential to the pool (value is encrypted at rest).
+   *
+   * Computes the credential's fingerprint from the decrypted plaintext and
+   * attaches the new row to its duplicate group. If no row in the same group
+   * exists yet, the new row becomes the group's primary. Otherwise the row
+   * is inserted with `is_primary = false`; the caller / a follow-up step
+   * decides whether to promote it.
+   *
+   * Throws `CredentialParseError` (re-thrown with original `code` set) if
+   * the plaintext cannot be parsed as an OAuth blob — HTTP handlers should
+   * translate this to a 400.
+   */
   async add(credential: {
     id: string;
     name: string;
@@ -70,26 +85,66 @@ export class CredentialPool {
     value_plaintext: string;
   }): Promise<void> {
     const key = this.requireKey();
-    const valueEncrypted = encrypt(credential.value_plaintext, key);
 
+    // Compute the fingerprint up front. If parsing fails, surface the typed
+    // error so the HTTP layer can return 400 BAD_REQUEST instead of 500.
+    let fingerprint: string;
+    try {
+      fingerprint = computeCredentialFingerprint(credential.value_plaintext);
+    } catch (err) {
+      if (err instanceof CredentialParseError) {
+        throw err;
+      }
+      throw new CredentialParseError(
+        `failed to compute credential fingerprint: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const valueEncrypted = encrypt(credential.value_plaintext, key);
     const now = new Date();
-    await insertCredential(this.db, {
-      id: credential.id,
-      name: credential.name,
-      type: credential.type,
-      valueEncrypted,
-      encryptionKeyId: "v1",
-      // NULL = shared across all agents (current implicit behavior).
-      agentId: null,
-      status: "available",
-      leasedBy: null,
-      leasedAt: null,
-      cooldownUntil: null,
-      rateLimitCount: 0,
-      createdAt: now,
-      updatedAt: now,
+
+    await this.db.transaction(async (tx) => {
+      // Look for an existing primary in the same duplicate group.
+      const existingPrimary = await tx
+        .select()
+        .from(credentials)
+        .where(
+          and(
+            eq(credentials.duplicateGroupId, fingerprint),
+            eq(credentials.isPrimary, true),
+          ),
+        )
+        .limit(1);
+
+      const isFirstInGroup = existingPrimary.length === 0;
+
+      await tx.insert(credentials).values({
+        id: credential.id,
+        name: credential.name,
+        type: credential.type,
+        valueEncrypted,
+        encryptionKeyId: "v1",
+        // NULL = shared across all agents (current implicit behavior).
+        agentId: null,
+        status: "available",
+        leasedBy: null,
+        leasedAt: null,
+        cooldownUntil: null,
+        rateLimitCount: 0,
+        fingerprint,
+        duplicateGroupId: fingerprint,
+        // First row in the group becomes primary; otherwise insert as
+        // non-primary. Task 3.2 will extend this to promote based on mtime.
+        isPrimary: isFirstInGroup,
+        createdAt: now,
+        updatedAt: now,
+      });
     });
-    logger.info({ id: credential.id, name: credential.name }, "credential added to pool");
+
+    logger.info(
+      { id: credential.id, name: credential.name, fingerprint },
+      "credential added to pool",
+    );
   }
 
   /**
