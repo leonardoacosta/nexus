@@ -15,9 +15,9 @@
 
 ## 3. Service Layer — Tail Watcher
 
-- [ ] 3.1 Implement `tail-watcher.ts` — open `fs.createReadStream(path, { start: byte_offset })`, buffer partial lines, parse each newline-delimited JSON, skip lines without `message.usage` [beads:nx-8tl4]
-- [ ] 3.2 Extract `{ts: message.timestamp, model: message.model, service_tier: message.usage.service_tier, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}` per turn [beads:nx-vgfi]
-- [ ] 3.3 Subscribe to `fs.watch` on the transcript path for subsequent append events; re-enter the read loop on each signal [beads:nx-n0j0]
+- [x] 3.1 Implement `tail-watcher.ts` — open `fs.createReadStream(path, { start: byte_offset })`, buffer partial lines, parse each newline-delimited JSON, skip lines without `message.usage` [beads:nx-8tl4]
+- [x] 3.2 Extract `{ts: message.timestamp, model: message.model, service_tier: message.usage.service_tier, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}` per turn [beads:nx-vgfi]
+- [x] 3.3 Subscribe to `fs.watch` on the transcript path for subsequent append events; re-enter the read loop on each signal [beads:nx-n0j0]
 
 ## 4. Service Layer — Credential Attribution
 
