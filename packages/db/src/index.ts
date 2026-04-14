@@ -72,13 +72,3 @@ export type NewNotification = typeof notificationsTable.$inferInsert;
 
 export type Credential = typeof credentialsTable.$inferSelect;
 export type NewCredential = typeof credentialsTable.$inferInsert;
-
-// Migration helpers (post-SQL data backfills).
-export {
-  backfillCredentialFingerprints,
-  sha256Hex,
-  type BackfillLogger,
-  type BackfillOptions,
-  type BackfillResult,
-  type DecryptFn,
-} from "./migrations/backfill-credential-fingerprints";
