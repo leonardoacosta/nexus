@@ -19,7 +19,35 @@ describe("credential pool — encryption storage (unit)", () => {
   it("[12.2] add() stores encrypted value — decryptable, unreadable as plaintext", async () => {
     const { decrypt } = await import("./encryption");
 
+    // pool.add() now requires valid OAuth JSON for fingerprint computation
+    const plaintext = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "sk-ant-oat01-test",
+        refreshToken: "sk-ant-ort01-enc-test-secret",
+        expiresAt: 1775033611232,
+        scopes: ["user:inference"],
+        subscriptionType: "max",
+        rateLimitTier: "default_claude_max_20x",
+      },
+    });
+
     let storedRow: CredentialRow | null = null;
+
+    // The transaction mock needs select/insert/update because pool.add()
+    // now queries for existing primaries inside the transaction.
+    const txMock = {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: () => Promise.resolve([]) }),
+        }),
+      }),
+      insert: (_table: unknown) => ({
+        values: (row: CredentialRow) => {
+          storedRow = row;
+          return Promise.resolve();
+        },
+      }),
+    };
 
     const mockDb = {
       insert: (_table: unknown) => ({
@@ -34,20 +62,20 @@ describe("credential pool — encryption storage (unit)", () => {
           orderBy: () => ({ limit: () => Promise.resolve([]) }),
         }),
       }),
-      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txMock),
     } as unknown as import("@nexus/db").Db;
 
     const pool = new CredentialPool(mockDb, { encryptionKey: TEST_KEY });
-    await pool.add({ id: "enc-test-1", name: "enc-test", type: "anthropic", value_plaintext: "sk-secret-value" });
+    await pool.add({ id: "enc-test-1", name: "enc-test", type: "anthropic", value_plaintext: plaintext });
 
     expect(storedRow).not.toBeNull();
     const row = storedRow!;
 
-    expect(row.valueEncrypted).not.toBe("sk-secret-value");
+    expect(row.valueEncrypted).not.toBe(plaintext);
     expect(row.valueEncrypted).not.toBeNull();
 
     const decrypted = decrypt(row.valueEncrypted!, TEST_KEY);
-    expect(decrypted).toBe("sk-secret-value");
+    expect(decrypted).toBe(plaintext);
 
     const wrongKey = Buffer.from("0000000000000000000000000000000000000000000000000000000000000002", "hex") as NodeBuffer;
     expect(() => decrypt(row.valueEncrypted!, wrongKey)).toThrow();
