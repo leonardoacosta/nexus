@@ -20,7 +20,7 @@
 - [x] 3.2 `CredentialPool.add()` promotes the new row to `is_primary = true` when its mtime is newer than the current primary of the group (group's previous primary is demoted in the same transaction) [beads:nx-om1o]
 - [x] 3.3 `CredentialPool.lease()` adds `and(eq(credentials.isPrimary, true))` to its candidate predicate; non-primary rows are unreachable via lease [beads:nx-wgr6]
 - [x] 3.4 Add `CredentialPool.promote(id)` method that transactionally demotes the current primary of the group and marks the given row primary; idempotent when `id` is already primary; throws if `id` and current primary belong to different groups [beads:nx-0tmw]
-- [ ] 3.5 Add `CredentialPool.deleteById(id, opts?: { promoteId?: string })` method: rejects if row is primary AND group has >1 member AND `promoteId` is absent; when `promoteId` is supplied, runs `promote(promoteId)` then deletes [beads:nx-b0v4]
+- [x] 3.5 Add `CredentialPool.deleteById(id, opts?: { promoteId?: string })` method: rejects if row is primary AND group has >1 member AND `promoteId` is absent; when `promoteId` is supplied, runs `promote(promoteId)` then deletes [beads:nx-b0v4]
 
 ## 4. Service — File Watcher Integration
 

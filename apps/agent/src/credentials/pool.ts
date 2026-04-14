@@ -494,6 +494,112 @@ export class CredentialPool {
     );
   }
 
+  /**
+   * Delete a credential by id with orphan protection.
+   *
+   * Behavior:
+   * - Unknown id → throws `Error("credential not found")`.
+   * - `is_primary = false`, OR group size 1 → row is deleted unconditionally.
+   * - `is_primary = true` AND group has more than one member:
+   *   - No `opts.promoteId` → throws `CredentialDeleteError` with the list
+   *     of eligible sibling ids; HTTP layer translates to 409.
+   *   - With `opts.promoteId` → promotes the named sibling first
+   *     (re-using `promote()` semantics), then deletes the original row.
+   *
+   * All DB writes for the multi-member primary case run in a single
+   * transaction so a crash mid-delete cannot leave the group without a
+   * primary.
+   */
+  async deleteById(
+    id: string,
+    opts?: { promoteId?: string },
+  ): Promise<void> {
+    return Sentry.startSpan(
+      { name: "credential.delete", attributes: { id } },
+      async () => {
+        await this.db.transaction(async (tx) => {
+          const targetRows = await tx
+            .select()
+            .from(credentials)
+            .where(eq(credentials.id, id))
+            .limit(1);
+          const target = targetRows[0];
+          if (!target) {
+            throw new Error("credential not found");
+          }
+
+          const groupId = target.duplicateGroupId ?? target.fingerprint;
+
+          // Fetch every member of the same duplicate group so we can decide
+          // whether orphan protection applies and so the error response can
+          // name the eligible promotion targets.
+          const groupMembers = await tx
+            .select()
+            .from(credentials)
+            .where(eq(credentials.duplicateGroupId, groupId));
+
+          const isMultiMember = groupMembers.length > 1;
+          const isPrimary = target.isPrimary;
+
+          // Primary of a multi-member group requires explicit promotion.
+          if (isPrimary && isMultiMember) {
+            const siblings = groupMembers
+              .filter((m) => m.id !== target.id)
+              .map((m) => m.id);
+
+            if (!opts?.promoteId) {
+              throw new CredentialDeleteError(
+                `cannot delete primary credential ${id}: group has ${groupMembers.length} members, must specify a sibling id via promoteId`,
+                siblings,
+              );
+            }
+
+            if (!siblings.includes(opts.promoteId)) {
+              throw new CredentialDeleteError(
+                `promoteId ${opts.promoteId} is not a sibling of ${id}`,
+                siblings,
+              );
+            }
+
+            // Inline promotion (cannot call this.promote because it opens
+            // its own transaction). Demote target, promote sibling.
+            await tx
+              .update(credentials)
+              .set({ isPrimary: false })
+              .where(eq(credentials.id, target.id));
+            await tx
+              .update(credentials)
+              .set({ isPrimary: true })
+              .where(eq(credentials.id, opts.promoteId));
+
+            logger.info(
+              {
+                id: target.id,
+                promotedId: opts.promoteId,
+                fingerprint: groupId,
+                event: "credential.promoted",
+              },
+              "credential promoted to primary (delete-with-promote)",
+            );
+          }
+
+          // Finally, delete the original row.
+          await tx.delete(credentials).where(eq(credentials.id, target.id));
+
+          logger.info(
+            {
+              id: target.id,
+              fingerprint: groupId,
+              promotedId: opts?.promoteId ?? null,
+              event: "credential.deleted",
+            },
+            "credential deleted from pool",
+          );
+        });
+      },
+    );
+  }
+
   /** List all credentials with status info (no values exposed). */
   async list(): Promise<Array<Omit<CredentialRow, "valueEncrypted">>> {
     return (await queryAllCredentials(this.db)).map(
