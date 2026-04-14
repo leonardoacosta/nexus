@@ -26,6 +26,35 @@ const DEFAULT_LEASE_TTL_MS = 30 * 60 * 1000;
 /** Five-hour window in milliseconds for predictive pre-rotation utilization check. */
 const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
 
+/**
+ * Thrown when `CredentialPool.deleteById()` is called against a primary row
+ * whose duplicate group has more than one member, but the caller did not
+ * supply a `promoteId`. HTTP handlers translate this to 409 Conflict so the
+ * caller can retry with `?promote=<sibling_id>`.
+ */
+export class CredentialDeleteError extends Error {
+  readonly code = "REQUIRES_PROMOTE" as const;
+  /** Sibling ids the caller can use as the promotion target. */
+  readonly siblings: readonly string[];
+
+  constructor(message: string, siblings: readonly string[]) {
+    super(message);
+    this.name = "CredentialDeleteError";
+    this.siblings = siblings;
+  }
+}
+
+/**
+ * Result of a successful `CredentialPool.promote()` call. The IDs let the
+ * HTTP layer emit a precise audit log entry without re-querying the row.
+ */
+export interface CredentialPromoteResult {
+  groupId: string;
+  newPrimary: string;
+  /** Null when the promoted row was already primary (no-op). */
+  previousPrimary: string | null;
+}
+
 /** Credential pool with lease/release/cooldown lifecycle. */
 export class CredentialPool {
   private db: Db;
@@ -369,6 +398,100 @@ export class CredentialPool {
     if (!row.valueEncrypted) return null;
     const key = this.requireKey();
     return decrypt(row.valueEncrypted, key);
+  }
+
+  /**
+   * Promote the given credential to `is_primary = true` within its duplicate
+   * group, atomically demoting whoever currently holds the primary slot.
+   *
+   * Idempotent: if the row is already primary, returns immediately with
+   * `previousPrimary = null` so callers can skip side effects (audit log,
+   * symlink swap) on no-op promotions.
+   *
+   * @throws Error("credential not found") when `id` is unknown.
+   * @throws Error("cross-group promotion not allowed") when the existing
+   *   primary belongs to a different `duplicate_group_id` than `id` — this
+   *   should never happen in steady state and indicates a data drift bug.
+   */
+  async promote(id: string): Promise<CredentialPromoteResult> {
+    return Sentry.startSpan(
+      { name: "credential.promote", attributes: { id } },
+      async () => {
+        return this.db.transaction(async (tx) => {
+          const targetRows = await tx
+            .select()
+            .from(credentials)
+            .where(eq(credentials.id, id))
+            .limit(1);
+          const target = targetRows[0];
+          if (!target) {
+            throw new Error("credential not found");
+          }
+
+          const groupId = target.duplicateGroupId ?? target.fingerprint;
+
+          // Idempotent no-op if already primary.
+          if (target.isPrimary) {
+            return {
+              groupId,
+              newPrimary: target.id,
+              previousPrimary: null,
+            };
+          }
+
+          const currentPrimaryRows = await tx
+            .select()
+            .from(credentials)
+            .where(
+              and(
+                eq(credentials.duplicateGroupId, groupId),
+                eq(credentials.isPrimary, true),
+              ),
+            )
+            .limit(1);
+          const currentPrimary = currentPrimaryRows[0] ?? null;
+
+          // Defensive guard: if a primary somehow exists in a different
+          // duplicate_group_id (data drift), refuse to swap and surface the
+          // inconsistency to the caller.
+          if (
+            currentPrimary !== null &&
+            (currentPrimary.duplicateGroupId ?? currentPrimary.fingerprint) !==
+              groupId
+          ) {
+            throw new Error("cross-group promotion not allowed");
+          }
+
+          if (currentPrimary !== null) {
+            await tx
+              .update(credentials)
+              .set({ isPrimary: false })
+              .where(eq(credentials.id, currentPrimary.id));
+          }
+
+          await tx
+            .update(credentials)
+            .set({ isPrimary: true })
+            .where(eq(credentials.id, target.id));
+
+          logger.info(
+            {
+              id: target.id,
+              demotedId: currentPrimary?.id ?? null,
+              fingerprint: groupId,
+              event: "credential.promoted",
+            },
+            "credential promoted to primary",
+          );
+
+          return {
+            groupId,
+            newPrimary: target.id,
+            previousPrimary: currentPrimary?.id ?? null,
+          };
+        });
+      },
+    );
   }
 
   /** List all credentials with status info (no values exposed). */
