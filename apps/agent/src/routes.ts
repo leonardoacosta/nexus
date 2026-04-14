@@ -34,6 +34,7 @@ import {
   handleReportRateLimit,
   handleCredentialHealth,
   handleDeleteCredential,
+  handlePromoteCredential,
 } from "./routes/credentials";
 import {
   handleGetSpecsAll,
@@ -387,6 +388,18 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
         const badId = validateCredentialId(params.id!);
         if (badId) return badId;
         return handleDeleteCredential(params.id!, req);
+      },
+    },
+    // credential-identity: promote a credential to primary within its
+    // duplicate group (idempotent — already-primary is a 200 no-op).
+    {
+      method: "POST",
+      path: "/credentials/:id/promote",
+      requiresDb: true,
+      handler(req, params) {
+        const badId = validateCredentialId(params.id!);
+        if (badId) return badId;
+        return handlePromoteCredential(params.id!, req);
       },
     },
     {
