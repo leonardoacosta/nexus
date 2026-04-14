@@ -275,6 +275,47 @@ export async function handleDeleteCredential(
   return new Response(null, { status: 204 });
 }
 
+/**
+ * POST /credentials/{id}/promote — promote a credential to primary within
+ * its duplicate group.
+ *
+ * Returns 200 with the new group snapshot on success, 404 if the id is
+ * unknown, 409 on cross-group drift. Idempotent — already-primary returns
+ * 200 with no state change (and no audit log) so callers can retry safely.
+ */
+export async function handlePromoteCredential(
+  id: string,
+  request: Request,
+): Promise<Response> {
+  if (!pool) {
+    return jsonResponse({ error: "credential system not initialized" }, 500);
+  }
+
+  try {
+    const result = await pool.promote(id);
+    return jsonResponse({
+      id: result.newPrimary,
+      duplicateGroupId: result.groupId,
+      isPrimary: true,
+      previousPrimary: result.previousPrimary,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "credential not found") {
+      return jsonResponse({ error: "credential not found" }, 404);
+    }
+    if (
+      err instanceof Error &&
+      err.message === "cross-group promotion not allowed"
+    ) {
+      return jsonResponse(
+        { error: "cross-group promotion not allowed" },
+        409,
+      );
+    }
+    throw err;
+  }
+}
+
 /** POST /credentials/{id}/report-rate-limit — report rate limit, trigger cooldown + rotation. */
 export async function handleReportRateLimit(
   id: string,

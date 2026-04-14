@@ -41,7 +41,7 @@
 
 ## 7. API — Promote Endpoint
 
-- [ ] 7.1 Add `POST /credentials/{id}/promote` handler that invokes `pool.promote(id)`; returns 200 with the updated group membership on success, 404 for unknown id, 409 when id and current primary belong to different groups [beads:nx-tgxv]
+- [x] 7.1 Add `POST /credentials/{id}/promote` handler that invokes `pool.promote(id)`; returns 200 with the updated group membership on success, 404 for unknown id, 409 when id and current primary belong to different groups [beads:nx-tgxv]
 - [ ] 7.2 Handler is idempotent (already-primary returns 200 with no state change) and emits a `credential.promoted` audit log entry [beads:nx-wcb7]
 - [ ] 7.3 Register the route in the agent HTTP router [beads:nx-f8ne]
 
