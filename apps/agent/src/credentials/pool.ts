@@ -105,7 +105,7 @@ export class CredentialPool {
 
     await this.db.transaction(async (tx) => {
       // Look for an existing primary in the same duplicate group.
-      const existingPrimary = await tx
+      const existingPrimaryRows = await tx
         .select()
         .from(credentials)
         .where(
@@ -116,7 +116,23 @@ export class CredentialPool {
         )
         .limit(1);
 
-      const isFirstInGroup = existingPrimary.length === 0;
+      const existingPrimary = existingPrimaryRows[0] ?? null;
+      const isFirstInGroup = existingPrimary === null;
+
+      // Determine whether the new row should outrank the current primary.
+      // Newest mtime (updatedAt) wins; tiebreak alphabetical name ascending.
+      // First-in-group is unconditionally primary.
+      let newRowIsPrimary = isFirstInGroup;
+      if (existingPrimary !== null) {
+        const newMtime = now.getTime();
+        const oldMtime = existingPrimary.updatedAt.getTime();
+        if (newMtime > oldMtime) {
+          newRowIsPrimary = true;
+        } else if (newMtime === oldMtime) {
+          newRowIsPrimary =
+            credential.name.localeCompare(existingPrimary.name) < 0;
+        }
+      }
 
       await tx.insert(credentials).values({
         id: credential.id,
@@ -133,12 +149,29 @@ export class CredentialPool {
         rateLimitCount: 0,
         fingerprint,
         duplicateGroupId: fingerprint,
-        // First row in the group becomes primary; otherwise insert as
-        // non-primary. Task 3.2 will extend this to promote based on mtime.
-        isPrimary: isFirstInGroup,
+        isPrimary: newRowIsPrimary,
         createdAt: now,
         updatedAt: now,
       });
+
+      // If the new row is taking over as primary, demote the existing one
+      // in the same transaction so the group has exactly one primary at all
+      // times.
+      if (newRowIsPrimary && existingPrimary !== null) {
+        await tx
+          .update(credentials)
+          .set({ isPrimary: false })
+          .where(eq(credentials.id, existingPrimary.id));
+        logger.info(
+          {
+            id: credential.id,
+            demotedId: existingPrimary.id,
+            fingerprint,
+            event: "credential.primary_swap",
+          },
+          "credential primary swapped on add (newer mtime)",
+        );
+      }
     });
 
     logger.info(
