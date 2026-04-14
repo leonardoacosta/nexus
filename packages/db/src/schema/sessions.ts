@@ -37,6 +37,12 @@ export const sessions = pgTable("sessions", {
   tmuxSession: text("tmux_session"),
   tmuxTarget: text("tmux_target"),
   spec: text("spec"),
+
+  // Token-stream fields — added in session-token-stream change
+  /** FK to credentials.id (not enforced via Drizzle references to avoid Neon issues) */
+  credentialId: text("credential_id"),
+  /** Denormalized from credentials.fingerprint for aggregation without JOIN */
+  credentialFingerprint: text("credential_fingerprint"),
 });
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
