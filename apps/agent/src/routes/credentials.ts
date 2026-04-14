@@ -1,7 +1,10 @@
 import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core";
 import { fetchWithTimeout } from "@nexus/core/fetch";
-import { CredentialPool } from "../credentials/pool";
+import {
+  CredentialPool,
+  CredentialDeleteError,
+} from "../credentials/pool";
 
 // ── Audit logger ────────────────────────────────────────────────────────────
 
@@ -238,6 +241,17 @@ export async function handleDeleteCredential(
   try {
     await pool.deleteById(id, promoteId ? { promoteId } : undefined);
   } catch (err) {
+    if (err instanceof CredentialDeleteError) {
+      return jsonResponse(
+        {
+          error:
+            "must specify ?promote=<sibling_id> when deleting primary of multi-member group",
+          code: err.code,
+          siblings: err.siblings,
+        },
+        409,
+      );
+    }
     if (err instanceof Error && err.message === "credential not found") {
       return jsonResponse({ error: "credential not found" }, 404);
     }
