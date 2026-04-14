@@ -206,7 +206,16 @@ export class CredentialPool {
           const rows = await tx
             .select()
             .from(credentials)
-            .where(and(eq(credentials.status, "available"), eq(credentials.type, type)))
+            .where(
+              and(
+                eq(credentials.status, "available"),
+                eq(credentials.type, type),
+                // credential-identity: only primary rows are leaseable.
+                // Non-primary duplicates remain visible in GET /credentials
+                // but never participate in lease selection.
+                eq(credentials.isPrimary, true),
+              ),
+            )
             .orderBy(
               asc(credentials.rateLimitCount),
               sql`leased_at asc nulls first`,
