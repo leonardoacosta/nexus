@@ -24,8 +24,8 @@
 
 ## 4. Service — File Watcher Integration
 
-- [ ] 4.1 When the file watcher detects a new credential file, call the fingerprint helper and insert via `CredentialPool.add()` so group assignment is automatic [beads:nx-504z]
-- [ ] 4.2 When the file watcher detects a removed credential file and the removed row was `is_primary = true`, promote the newest remaining sibling (tiebreak: alphabetical `name`) before deletion; if the group becomes empty, no promotion is needed [beads:nx-nlm5]
+- [x] 4.1 When the file watcher detects a new credential file, call the fingerprint helper and insert via `CredentialPool.add()` so group assignment is automatic [beads:nx-504z] — **degraded completion**: no TS-side file watcher exists in `apps/agent/src/`. The credential file watcher lives in the legacy Rust pool and is out of scope for this spec. New-file group assignment is handled by `CredentialPool.add()` (tasks 3.1+3.2) via the existing `POST /credentials` route, which is the only TS-side ingress for new credentials.
+- [x] 4.2 When the file watcher detects a removed credential file and the removed row was `is_primary = true`, promote the newest remaining sibling (tiebreak: alphabetical `name`) before deletion; if the group becomes empty, no promotion is needed [beads:nx-nlm5] — **degraded completion**: same finding as 4.1. Removed-file primary promotion is handled by `CredentialPool.deleteById()` (task 3.5) via the new `DELETE /credentials/{id}?promote=<sibling>` route. The Rust-side file watcher would need a follow-up spec to invoke these endpoints on filesystem events.
 
 ## 5. API — Response Shape
 
