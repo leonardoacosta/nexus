@@ -218,6 +218,35 @@ export async function handleListCredentials(): Promise<Response> {
   return jsonResponse(await pool.list());
 }
 
+/**
+ * DELETE /credentials/{id} — delete a credential row.
+ *
+ * Reads `?promote=<sibling_id>` from the URL query string. Returns 404 when
+ * the id does not exist, 204 on success.
+ */
+export async function handleDeleteCredential(
+  id: string,
+  request: Request,
+): Promise<Response> {
+  if (!pool) {
+    return jsonResponse({ error: "credential system not initialized" }, 500);
+  }
+
+  const url = new URL(request.url);
+  const promoteId = url.searchParams.get("promote") ?? undefined;
+
+  try {
+    await pool.deleteById(id, promoteId ? { promoteId } : undefined);
+  } catch (err) {
+    if (err instanceof Error && err.message === "credential not found") {
+      return jsonResponse({ error: "credential not found" }, 404);
+    }
+    throw err;
+  }
+
+  return new Response(null, { status: 204 });
+}
+
 /** POST /credentials/{id}/report-rate-limit — report rate limit, trigger cooldown + rotation. */
 export async function handleReportRateLimit(
   id: string,
