@@ -13,6 +13,8 @@ export {
   asc,
   inArray,
   notInArray,
+  sql,
+  max,
 } from "drizzle-orm";
 
 // Schema tables
