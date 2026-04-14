@@ -12,7 +12,7 @@
 ## 2. Service — Fingerprint Helper
 
 - [x] 2.1 Add `computeCredentialFingerprint(plaintext: string): string` to `apps/agent/src/credentials/credentials.helpers.ts` — parses JSON, extracts `claudeAiOauth.refreshToken`, returns SHA-256 hex; throws `CredentialParseError` if malformed [beads:nx-6nm4]
-- [ ] 2.2 Unit-test the helper: valid OAuth JSON, missing `claudeAiOauth`, missing `refreshToken`, non-JSON input, ensures deterministic hex output for identical tokens [beads:nx-bpue]
+- [x] 2.2 Unit-test the helper: valid OAuth JSON, missing `claudeAiOauth`, missing `refreshToken`, non-JSON input, ensures deterministic hex output for identical tokens [beads:nx-bpue]
 
 ## 3. Service — Pool Integration
 
@@ -30,7 +30,7 @@
 ## 5. API — Response Shape
 
 - [x] 5.1 `pool.list()` returns entries annotated with `fingerprint`, `duplicate_group_id`, `is_primary`; primary entries gain a `duplicates: [...]` array listing non-primary siblings in the same group [beads:nx-mhi4]
-- [ ] 5.2 Confirm no `value_encrypted`, `access_token`, or refresh token material appears in the serialized response at any nesting level (extend existing test or add a new grep assertion) [beads:nx-3zw0]
+- [x] 5.2 Confirm no `value_encrypted`, `access_token`, or refresh token material appears in the serialized response at any nesting level (extend existing test or add a new grep assertion) [beads:nx-3zw0]
 
 ## 6. API — DELETE Endpoint
 
@@ -47,11 +47,11 @@
 
 ## 8. Tests
 
-- [ ] 8.1 Unit test: `pool.add()` with a new fingerprint creates a fresh group and marks the row primary [beads:nx-ngh7]
-- [ ] 8.2 Unit test: `pool.add()` with a duplicate fingerprint attaches as non-primary by default [beads:nx-kdhb]
-- [ ] 8.3 Unit test: `pool.lease()` skips non-primary rows even when they have `rate_limit_count = 0` [beads:nx-ayfo]
-- [ ] 8.4 Unit test: `pool.promote(id)` atomically swaps primary flag within a group and rejects cross-group promotion [beads:nx-0jl3]
-- [ ] 8.5 Unit test: `pool.deleteById()` rejects primary-in-multi-member-group without promote, succeeds with promote [beads:nx-wnxb]
-- [ ] 8.6 Integration test: migration backfill collapses three synthetic duplicates into one group with the newest row primary [beads:nx-yg2m]
-- [ ] 8.7 Integration test: `GET /credentials` response includes `fingerprint`/`duplicate_group_id`/`is_primary` and nests `duplicates` on primaries [beads:nx-7vuw]
-- [ ] 8.8 Integration test: `DELETE /credentials/{id}?promote=<sibling>` promotes the sibling and deletes the old primary in one request [beads:nx-ohn7]
+- [x] 8.1 Unit test: `pool.add()` with a new fingerprint creates a fresh group and marks the row primary [beads:nx-ngh7]
+- [x] 8.2 Unit test: `pool.add()` with a duplicate fingerprint attaches as non-primary by default [beads:nx-kdhb]
+- [x] 8.3 Unit test: `pool.lease()` skips non-primary rows even when they have `rate_limit_count = 0` [beads:nx-ayfo]
+- [x] 8.4 Unit test: `pool.promote(id)` atomically swaps primary flag within a group and rejects cross-group promotion [beads:nx-0jl3]
+- [x] 8.5 Unit test: `pool.deleteById()` rejects primary-in-multi-member-group without promote, succeeds with promote [beads:nx-wnxb]
+- [x] 8.6 Integration test: migration backfill collapses three synthetic duplicates into one group with the newest row primary [beads:nx-yg2m]
+- [x] 8.7 Integration test: `GET /credentials` response includes `fingerprint`/`duplicate_group_id`/`is_primary` and nests `duplicates` on primaries [beads:nx-7vuw]
+- [x] 8.8 Integration test: `DELETE /credentials/{id}?promote=<sibling>` promotes the sibling and deletes the old primary in one request [beads:nx-ohn7]
