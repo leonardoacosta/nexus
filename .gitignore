@@ -40,6 +40,9 @@ node_modules/
 # Build outputs
 dist/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Turborepo
 .turbo/
 
