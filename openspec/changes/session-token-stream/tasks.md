@@ -10,8 +10,8 @@
 
 ## 2. Service Layer — Transcript Discovery
 
-- [ ] 2.1 Implement `transcript-locator.ts` — compute `~/.claude/projects/${cwd.replaceAll('/', '-')}/${cc_session_id}.jsonl`, return the path if it exists, otherwise attach an `fs.watch` on the parent directory with a 5s timeout [beads:nx-mkxe]
-- [ ] 2.2 On timeout, log WARN once and return null so the caller can skip tracking without failing the session [beads:nx-1kdq]
+- [x] 2.1 Implement `transcript-locator.ts` — compute `~/.claude/projects/${cwd.replaceAll('/', '-')}/${cc_session_id}.jsonl`, return the path if it exists, otherwise attach an `fs.watch` on the parent directory with a 5s timeout [beads:nx-mkxe]
+- [x] 2.2 On timeout, log WARN once and return null so the caller can skip tracking without failing the session [beads:nx-1kdq]
 
 ## 3. Service Layer — Tail Watcher
 
