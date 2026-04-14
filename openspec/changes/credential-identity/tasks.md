@@ -4,7 +4,7 @@
 ## 1. DB Schema
 
 - [x] 1.1 Add `fingerprint TEXT NOT NULL`, `duplicate_group_id TEXT`, `is_primary BOOLEAN NOT NULL DEFAULT false` columns to `packages/db/src/schema/credentials.ts` [beads:nx-l9oo]
-- [ ] 1.2 Add index on `credentials.fingerprint` and composite index on `(duplicate_group_id, is_primary)` [beads:nx-3mdm]
+- [x] 1.2 Add index on `credentials.fingerprint` and composite index on `(duplicate_group_id, is_primary)` [beads:nx-3mdm]
 - [ ] 1.3 Generate Drizzle migration (`pnpm --filter @nexus/db db:generate`) with the new columns defaulted so the migration is append-only at the SQL level [beads:nx-zc0a]
 - [ ] 1.4 Write backfill SQL/TS step: for each existing row, decrypt the stored value, compute SHA-256 of the parsed refresh token, set `fingerprint` and `duplicate_group_id = fingerprint`, mark the newest `updated_at` row per group `is_primary = true` (tiebreak: alphabetical `name`) [beads:nx-qpbh]
 - [ ] 1.5 Degraded-row handling in backfill: rows whose value fails to parse as OAuth JSON get `fingerprint = 'UNKNOWN-' || id`, `is_primary = true`, and a WARN log [beads:nx-z2gg]
