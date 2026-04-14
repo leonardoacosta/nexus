@@ -3,7 +3,29 @@
 import dynamic from "next/dynamic";
 
 const TerminalPanel = dynamic(
-  () => import("./TerminalPanel").then((m) => m.TerminalPanel),
+  () =>
+    import("./TerminalPanel").then((m) => m.TerminalPanel).catch((err) => {
+      console.error("[LazyTerminalPanel] Failed to load TerminalPanel:", err);
+      // Return a fallback component so the page doesn't crash
+      const Fallback = ({ agentHost: _a, sessionId: _s }: { agentHost: string; sessionId: string }) => (
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--color-fg-muted)",
+            fontSize: "var(--font-size-sm)",
+            minHeight: 400,
+          }}
+        >
+          Failed to load terminal. Please refresh the page.
+        </div>
+      );
+      Fallback.displayName = "TerminalPanelLoadError";
+      return Fallback;
+    }),
   {
     ssr: false,
     loading: () => (

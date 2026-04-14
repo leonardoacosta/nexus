@@ -1,25 +1,57 @@
 "use server";
 
 import type { AgentConfig } from "@nexus/core";
-import { eq } from "@nexus/db";
+import { eq, agents as agentsTable, healthSnapshots, sql } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
 import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
-import { agents as agentsTable } from "@nexus/db";
 
 export interface SettingsResult {
   agentStatuses: AgentStatus[];
 }
 
+/** Threshold (ms) — agents with a snapshot newer than this are considered online. */
+const ONLINE_THRESHOLD_MS = 90_000; // 3x the 30s health-scheduler interval
+
 /**
- * Fetch agent statuses from all configured agents.
- * Used by the settings page to display agent connection status.
+ * Derive agent statuses from the database.
+ * Uses the latest health snapshot timestamp per agent to determine online/offline.
  */
 export async function fetchAgentStatuses(): Promise<SettingsResult> {
-  const client = await getClient();
-  // Trigger a lightweight fetch to refresh agent online/offline status
-  await client.fetchAllHealth();
-  const agentStatuses = client.getAgentStatuses();
+  const db = getDb();
+
+  const agentRows = await db
+    .select({
+      id: agentsTable.id,
+      name: agentsTable.name,
+      lastSeen: agentsTable.lastSeen,
+    })
+    .from(agentsTable)
+    .where(eq(agentsTable.enabled, true));
+
+  // Get the latest snapshot timestamp per agent in a single query
+  const latestSnapshots = await db
+    .select({
+      agentId: healthSnapshots.agentId,
+      latestTs: sql<Date>`max(${healthSnapshots.timestamp})`.as("latest_ts"),
+    })
+    .from(healthSnapshots)
+    .groupBy(healthSnapshots.agentId);
+
+  const snapshotMap = new Map(latestSnapshots.map((s) => [s.agentId, s.latestTs]));
+  const now = Date.now();
+
+  const agentStatuses: AgentStatus[] = agentRows.map((agent) => {
+    const snapshotTs = snapshotMap.get(agent.id);
+    const lastSeen = snapshotTs ?? agent.lastSeen ?? null;
+    const online = lastSeen != null && now - new Date(lastSeen).getTime() < ONLINE_THRESHOLD_MS;
+
+    return {
+      name: agent.name || agent.id,
+      online,
+      lastSeen: lastSeen ? new Date(lastSeen) : null,
+    };
+  });
 
   return { agentStatuses };
 }

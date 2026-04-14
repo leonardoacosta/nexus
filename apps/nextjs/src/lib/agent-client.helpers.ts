@@ -2,7 +2,7 @@
  * Shared test helpers for agent-client test files.
  */
 
-import type { AgentConfig, Session, HealthMetrics, Project } from "@nexus/core";
+import type { AgentConfig, Session } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -40,21 +40,6 @@ export function makeSession(id: string, overrides: Partial<Session> = {}): Sessi
     sessionType: "ad_hoc",
     ...overrides,
   };
-}
-
-export function makeHealth(hostname: string): HealthMetrics {
-  return {
-    hostname,
-    uptime_seconds: 86400,
-    cpu: { overall_percent: 25, per_core_percent: [25], load_average: [1.0] },
-    ram: { total_bytes: 16e9, used_bytes: 8e9, percent: 50 },
-    disk: [{ mount: "/", total_bytes: 500e9, used_bytes: 200e9, percent: 40 }],
-    docker: null,
-  };
-}
-
-export function makeProject(name: string): Project {
-  return { name, active_sessions: 1, total_sessions: 5, machines: ["dev-1"] };
 }
 
 // ---------------------------------------------------------------------------

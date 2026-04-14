@@ -133,7 +133,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         setSessions(result.sessions);
       }
     }).catch((err: unknown) => {
-      console.error("[CommandPalette] Failed to fetch sessions:", err);
+      // No Sentry available — structured console.error is the best we have.
+      // TODO(sentry): Replace with Sentry.captureException(err) when Sentry is integrated.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[CommandPalette] Failed to fetch sessions:", message);
     });
 
     return () => {

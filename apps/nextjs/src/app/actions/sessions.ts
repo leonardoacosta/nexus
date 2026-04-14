@@ -1,6 +1,8 @@
 "use server";
 
 import type { Session } from "@nexus/core";
+import { sessions as sessionsTable, projects, agents, eq, desc } from "@nexus/db";
+import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
 import type { WithAgent } from "@/lib/agent-client";
 
@@ -10,16 +12,74 @@ export interface SessionsResult {
 }
 
 /**
- * Fetch all sessions from all configured agents.
- * Returns sessions sorted: active first, then by last heartbeat descending.
+ * Fetch all sessions from the database.
+ * Returns sessions sorted: active first, then by last activity descending.
  */
 export async function fetchSessions(): Promise<SessionsResult> {
-  const client = await getClient();
-  const sessions = await client.fetchAllSessions();
-  const agentCount = client.getAgentStatuses().length;
+  const db = getDb();
+
+  const [rows, agentRows] = await Promise.all([
+    db
+      .select({
+        id: sessionsTable.id,
+        projectId: sessionsTable.projectId,
+        projectName: projects.name,
+        machine: sessionsTable.machine,
+        status: sessionsTable.status,
+        startedAt: sessionsTable.startedAt,
+        lastActivity: sessionsTable.lastActivity,
+        endedAt: sessionsTable.endedAt,
+        pid: sessionsTable.pid,
+        cwd: sessionsTable.cwd,
+        branch: sessionsTable.branch,
+        sessionType: sessionsTable.sessionType,
+        model: sessionsTable.model,
+        rateLimitUtilization: sessionsTable.rateLimitUtilization,
+        totalCostUsd: sessionsTable.totalCostUsd,
+        rateLimitResetAt: sessionsTable.rateLimitResetAt,
+        idleSince: sessionsTable.idleSince,
+        ccSessionId: sessionsTable.ccSessionId,
+        tmuxSession: sessionsTable.tmuxSession,
+        tmuxTarget: sessionsTable.tmuxTarget,
+        spec: sessionsTable.spec,
+      })
+      .from(sessionsTable)
+      .leftJoin(projects, eq(sessionsTable.projectId, projects.id))
+      .orderBy(desc(sessionsTable.lastActivity)),
+    db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.enabled, true)),
+  ]);
+
+  // Map DB rows to the WithAgent<Session> shape consumers expect
+  const mapped: WithAgent<Session>[] = rows.map((row) => ({
+    id: row.id,
+    pid: row.pid ?? 0,
+    project: row.projectName ?? null,
+    projectId: row.projectId,
+    machine: row.machine,
+    cwd: row.cwd ?? "",
+    branch: row.branch ?? null,
+    startedAt: row.startedAt,
+    lastHeartbeat: row.lastActivity,
+    endedAt: row.endedAt ?? null,
+    status: (row.status as Session["status"]) ?? "ended",
+    spec: row.spec ?? null,
+    command: null,
+    agent: row.machine,
+    tmuxSession: row.tmuxSession ?? null,
+    ccSessionId: row.ccSessionId ?? null,
+    tmuxTarget: row.tmuxTarget ?? null,
+    rateLimitUtilization: row.rateLimitUtilization ?? null,
+    rateLimitType: null,
+    totalCostUsd: row.totalCostUsd ?? null,
+    model: row.model ?? null,
+    sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+  }));
 
   // Sort: active first, then by lastHeartbeat descending
-  const sorted = [...sessions].sort((a, b) => {
+  const sorted = [...mapped].sort((a, b) => {
     const statusOrder: Record<string, number> = {
       active: 0,
       idle: 1,
@@ -36,7 +96,7 @@ export async function fetchSessions(): Promise<SessionsResult> {
     return b.lastHeartbeat.getTime() - a.lastHeartbeat.getTime();
   });
 
-  return { sessions: sorted, agentCount };
+  return { sessions: sorted, agentCount: agentRows.length };
 }
 
 /**

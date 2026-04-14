@@ -3,7 +3,6 @@ import type {
   NexusConfig,
   Session,
   HealthMetrics,
-  Project,
   DiscoveredProject,
 } from "@nexus/core";
 import { fetchWithTimeout } from "@nexus/core/fetch";
@@ -51,8 +50,7 @@ const REQUEST_TIMEOUT_MS = 3_000;
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 1;
 
-const CACHE_TTL_SHORT_MS = 1_000; // sessions, health
-const CACHE_TTL_LONG_MS = 5_000; // projects
+const CACHE_TTL_LONG_MS = 5_000; // discovered projects
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -148,28 +146,7 @@ export class AgentClient {
     }
   }
 
-  // ---- Parallel multi-agent fetches ----------------------------------------
-
-  async fetchAllSessions(): Promise<WithAgent<Session>[]> {
-    return this.cache.get("all-sessions", CACHE_TTL_SHORT_MS, async () => {
-      const results = await this.fetchFromAll<Session[]>("/sessions");
-      return this.mergeResults(results);
-    });
-  }
-
-  async fetchAllHealth(): Promise<WithAgent<HealthMetrics>[]> {
-    return this.cache.get("all-health", CACHE_TTL_SHORT_MS, async () => {
-      const results = await this.fetchFromAll<HealthMetrics>("/health");
-      return this.mergeResults(results);
-    });
-  }
-
-  async fetchAllProjects(): Promise<WithAgent<Project>[]> {
-    return this.cache.get("all-projects", CACHE_TTL_LONG_MS, async () => {
-      const results = await this.fetchFromAll<Project[]>("/projects");
-      return this.mergeResults(results);
-    });
-  }
+  // ---- Multi-agent fetches --------------------------------------------------
 
   async fetchDiscoveredProjects(): Promise<WithAgent<DiscoveredProject>[]> {
     return this.cache.get("all-discovered-projects", CACHE_TTL_LONG_MS, async () => {
@@ -407,54 +384,6 @@ export class AgentClient {
   }
 
   // ---- Internals -----------------------------------------------------------
-
-  /**
-   * Fire parallel requests to all agents for a given path.
-   * Returns settled results keyed by agent name.
-   */
-  private async fetchFromAll<T>(
-    path: string,
-  ): Promise<Map<string, T>> {
-    const settled = await Promise.allSettled(
-      this.agents.map(async (agent) => {
-        const res = await fetchWithRetry(`${agentBaseUrl(agent)}${path}`);
-        const data = (await res.json()) as T;
-        this.markOnline(agent.name);
-        return { name: agent.name, data };
-      }),
-    );
-
-    const results = new Map<string, T>();
-    for (let i = 0; i < settled.length; i++) {
-      const result = settled[i]!;
-      const agentName = this.agents[i]!.name;
-      if (result.status === "fulfilled") {
-        results.set(result.value.name, result.value.data);
-      } else {
-        this.markOffline(agentName);
-      }
-    }
-
-    return results;
-  }
-
-  /**
-   * Merge results from multiple agents into a flat array, tagging each item
-   * with the source agent name.
-   */
-  private mergeResults<T>(resultsByAgent: Map<string, T | T[]>): WithAgent<T>[] {
-    const merged: WithAgent<T>[] = [];
-    for (const [agentName, data] of resultsByAgent) {
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          merged.push({ ...item, agent: agentName });
-        }
-      } else {
-        merged.push({ ...data, agent: agentName });
-      }
-    }
-    return merged;
-  }
 
   private findAgent(name: string): AgentConfig | undefined {
     return this.agents.find((a) => a.name === name);
