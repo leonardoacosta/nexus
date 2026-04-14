@@ -11,7 +11,7 @@
 
 ## 2. Service — Fingerprint Helper
 
-- [ ] 2.1 Add `computeCredentialFingerprint(plaintext: string): string` to `apps/agent/src/credentials/credentials.helpers.ts` — parses JSON, extracts `claudeAiOauth.refreshToken`, returns SHA-256 hex; throws `CredentialParseError` if malformed [beads:nx-6nm4]
+- [x] 2.1 Add `computeCredentialFingerprint(plaintext: string): string` to `apps/agent/src/credentials/credentials.helpers.ts` — parses JSON, extracts `claudeAiOauth.refreshToken`, returns SHA-256 hex; throws `CredentialParseError` if malformed [beads:nx-6nm4]
 - [ ] 2.2 Unit-test the helper: valid OAuth JSON, missing `claudeAiOauth`, missing `refreshToken`, non-JSON input, ensures deterministic hex output for identical tokens [beads:nx-bpue]
 
 ## 3. Service — Pool Integration
