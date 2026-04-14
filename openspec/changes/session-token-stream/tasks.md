@@ -54,6 +54,6 @@
 ## 10. Tests — Integration
 
 - [x] 10.1 Integration test: feed a fixture JSONL transcript through the tail watcher end-to-end, assert `session_token_turns` rows match and aggregates are correct [beads:nx-zmup]
-- [ ] 10.2 Integration test: simulate a mid-session `credential_swaps` row and assert turns before/after the swap timestamp are attributed to the correct credential [beads:nx-z551]
+- [x] 10.2 Integration test: simulate a mid-session `credential_swaps` row and assert turns before/after the swap timestamp are attributed to the correct credential [beads:nx-z551]
 - [ ] 10.3 Integration test: write N turns, stop the watcher mid-stream, restart the lifecycle loop, and assert the resume offset skips already-inserted rows (UNIQUE constraint never fires) and the new tail picks up the remaining lines [beads:nx-lgb5]
 - [ ] 10.4 Integration test: `GET /sessions/{id}/tokens` returns turns and aggregates; `GET /credentials/{id}/usage?window=24h` rolls up by fingerprint across duplicate-group members [beads:nx-vbzh]
