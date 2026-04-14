@@ -30,10 +30,10 @@
 
 ## 6. Service Layer — Lifecycle & Persistence
 
-- [ ] 6.1 Implement `startWatcher(session)` — invoked on `session_start`; sets `sessions.credential_id` and `sessions.credential_fingerprint` from the pool's current lease, then begins tail watching [beads:nx-sgw4]
-- [ ] 6.2 Implement `stopWatcher(sessionId)` — invoked on `session_stop`; flushes any pending batch and closes streams [beads:nx-1vgr]
-- [ ] 6.3 On each successful insert batch, update `session_token_watcher_state.byte_offset` and `updated_at` in a single transaction with the turn inserts [beads:nx-um4w]
-- [ ] 6.4 On agent startup, load `session_token_watcher_state` rows for still-active sessions and resume tail watching from the stored offsets [beads:nx-uay7]
+- [x] 6.1 Implement `startWatcher(session)` — invoked on `session_start`; sets `sessions.credential_id` and `sessions.credential_fingerprint` from the pool's current lease, then begins tail watching [beads:nx-sgw4]
+- [x] 6.2 Implement `stopWatcher(sessionId)` — invoked on `session_stop`; flushes any pending batch and closes streams [beads:nx-1vgr]
+- [x] 6.3 On each successful insert batch, update `session_token_watcher_state.byte_offset` and `updated_at` in a single transaction with the turn inserts [beads:nx-um4w]
+- [x] 6.4 On agent startup, load `session_token_watcher_state` rows for still-active sessions and resume tail watching from the stored offsets [beads:nx-uay7]
 
 ## 7. API Layer
 
@@ -43,7 +43,7 @@
 
 ## 8. API Layer — Live Stream
 
-- [ ] 8.1 Emit `token.turn` events on the existing notification/socket bus after each successful insert batch with `{session_id, credential_id, credential_fingerprint, tokens_delta, cost_delta}` (event is append-only, no replay) [beads:nx-xw8f]
+- [x] 8.1 Emit `token.turn` events on the existing notification/socket bus after each successful insert batch with `{session_id, credential_id, credential_fingerprint, tokens_delta, cost_delta}` (event is append-only, no replay) [beads:nx-xw8f]
 
 ## 9. Tests — Unit
 
