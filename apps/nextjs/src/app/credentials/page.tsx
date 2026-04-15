@@ -51,7 +51,8 @@ function buildPlanSummary(credentials: Credential[]): string {
 // ---------------------------------------------------------------------------
 
 export default async function CredentialsPage() {
-  const { groups, credentials, totalAccounts } = await fetchCredentials();
+  const { groups, credentials, totalAccounts, agentReachable, failedAgents } =
+    await fetchCredentials();
 
   const planSummary = buildPlanSummary(credentials);
 
@@ -105,10 +106,37 @@ export default async function CredentialsPage() {
         </span>
       </div>
 
-      {flatCredentials.length === 0 ? (
+      {!agentReachable ? (
+        <div
+          style={{
+            padding: "var(--space-4)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid #d4a017",
+            background: "rgba(212, 160, 23, 0.08)",
+            color: "#b8860b",
+          }}
+        >
+          <p
+            style={{
+              fontWeight: "var(--font-weight-semibold)",
+              marginBottom: "var(--space-2)",
+            }}
+          >
+            Could not reach agent
+          </p>
+          <p
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-fg-muted)",
+            }}
+          >
+            Failed to connect to: {failedAgents.join(", ")}
+          </p>
+        </div>
+      ) : flatCredentials.length === 0 ? (
         <p style={{ color: "var(--color-fg-muted)" }}>
-          No credentials found. Ensure the agent is running and has credential
-          files configured.
+          No credentials found. The agent is running but has no credential files
+          configured.
         </p>
       ) : (
         <CredentialsTable
