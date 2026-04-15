@@ -122,6 +122,8 @@ export function createSessionManager(
           rateLimitType: null,
           totalCostUsd: null,
           model: null,
+          credentialId: null,
+          credentialFingerprint: null,
           sessionType: "ad_hoc",
         };
         // Write-through: DB first, then Map
@@ -339,6 +341,8 @@ export function createSessionManager(
             rateLimitType: null,
             totalCostUsd: row.totalCostUsd ?? null,
             model: row.model ?? null,
+            credentialId: row.credentialId ?? null,
+            credentialFingerprint: row.credentialFingerprint ?? null,
             sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
           };
           sessions.set(id, session);

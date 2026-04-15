@@ -37,6 +37,8 @@ export function makeSession(id: string, overrides: Partial<Session> = {}): Sessi
     rateLimitType: null,
     totalCostUsd: null,
     model: null,
+    credentialId: null,
+    credentialFingerprint: null,
     sessionType: "ad_hoc",
     ...overrides,
   };

@@ -55,6 +55,8 @@ export async function upsertSession(db: Db, session: Session): Promise<void> {
         tmuxSession: row.tmuxSession,
         tmuxTarget: row.tmuxTarget,
         spec: row.spec,
+        credentialId: row.credentialId,
+        credentialFingerprint: row.credentialFingerprint,
       },
     });
 }
@@ -87,6 +89,8 @@ function rowToSession(row: SessionRow): Session {
     rateLimitType: null,
     totalCostUsd: row.totalCostUsd ?? null,
     model: row.model ?? null,
+    credentialId: row.credentialId ?? null,
+    credentialFingerprint: row.credentialFingerprint ?? null,
     sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
   };
 }
@@ -114,8 +118,8 @@ function sessionToRow(session: Session): SessionRow {
     tmuxSession: session.tmuxSession ?? null,
     tmuxTarget: session.tmuxTarget ?? null,
     spec: session.spec ?? null,
-    credentialId: null,
-    credentialFingerprint: null,
+    credentialId: session.credentialId ?? null,
+    credentialFingerprint: session.credentialFingerprint ?? null,
   };
 }
 

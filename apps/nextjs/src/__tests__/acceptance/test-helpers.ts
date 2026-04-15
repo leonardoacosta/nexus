@@ -31,6 +31,8 @@ export function makeSession(overrides: Partial<WithAgent<Session>> = {}): WithAg
     rateLimitType: null,
     totalCostUsd: null,
     model: null,
+    credentialId: null,
+    credentialFingerprint: null,
     sessionType: "ad_hoc",
     ...overrides,
   };

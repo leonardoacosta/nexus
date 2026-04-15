@@ -330,6 +330,8 @@ export class CredentialPool {
       }
     });
 
+    void this.emitEvent(credential.id, "added", null, { name: credential.name, fingerprint });
+
     logger.info(
       { id: credential.id, name: credential.name, fingerprint },
       "credential added to pool",
@@ -435,6 +437,7 @@ export class CredentialPool {
           level: "info",
           data: { id: result.id, type, leasedBy },
         });
+        void this.emitEvent(result.id, "leased", leasedBy);
         return decryptedRow;
       },
     );
@@ -468,6 +471,7 @@ export class CredentialPool {
           level: "info",
           data: { id },
         });
+        void this.emitEvent(id, "released");
         return true;
       },
     );
@@ -514,6 +518,7 @@ export class CredentialPool {
           level: "warning",
           data: { id, cooldown_until: cooldownUntil },
         });
+        void this.emitEvent(id, "cooldown_entered", leasedBy, { cooldown_until: cooldownUntil.toISOString() });
 
         const cooledDown = (await getCredentialById(this.db, id))!;
 
@@ -621,10 +626,14 @@ export class CredentialPool {
             "credential promoted to primary",
           );
 
+          const newPrimaryId = target.id;
+          const previousPrimary = currentPrimary?.id ?? null;
+          void this.emitEvent(newPrimaryId, "promoted", null, { previous_primary: previousPrimary });
+
           return {
             groupId,
-            newPrimary: target.id,
-            previousPrimary: currentPrimary?.id ?? null,
+            newPrimary: newPrimaryId,
+            previousPrimary,
           };
         });
       },
@@ -732,6 +741,7 @@ export class CredentialPool {
             },
             "credential deleted from pool",
           );
+          void this.emitEvent(id, "deleted", null, { fingerprint: groupId });
         });
       },
     );
@@ -843,6 +853,7 @@ export class CredentialPool {
 
     if (updated > 0) {
       logger.info({ updated, total: files.length }, "credential metadata refreshed from disk");
+      void this.emitEvent("system", "metadata_refreshed", null, { updated, total: files.length });
     }
     return updated;
   }

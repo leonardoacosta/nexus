@@ -92,7 +92,7 @@ try {
 // notification router, and command handler.
 let socketServer: SocketServer | null = null;
 
-const socketEventHandler = createSocketEventDispatcher({ sessionManager, lifecycleBus });
+const socketEventHandler = createSocketEventDispatcher({ sessionManager, lifecycleBus, db });
 
 startSocketServer({
   onEvent: socketEventHandler,

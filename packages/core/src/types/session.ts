@@ -38,6 +38,12 @@ export interface Session {
   totalCostUsd: number | null;
   model: string | null;
 
+  // Credential binding (best-effort, populated from session_start events)
+  /** FK to credentials.id — NULL when credential binding is unavailable. */
+  credentialId: string | null;
+  /** SHA-256 fingerprint of the credential's refresh token — denormalized for aggregation. */
+  credentialFingerprint: string | null;
+
   sessionType: SessionType;
 }
 

@@ -75,6 +75,8 @@ export async function fetchSessions(): Promise<SessionsResult> {
     rateLimitType: null,
     totalCostUsd: row.totalCostUsd ?? null,
     model: row.model ?? null,
+    credentialId: null,
+    credentialFingerprint: null,
     sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
   }));
 

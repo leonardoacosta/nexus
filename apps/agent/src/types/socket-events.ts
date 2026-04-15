@@ -21,6 +21,8 @@ export interface SessionStartEvent {
   branch?: string;
   cc_session_id?: string;
   tmux_target?: string;
+  /** Credential fingerprint (SHA-256 of refresh token) for session-credential binding. */
+  credential_fingerprint?: string;
 }
 
 export interface SessionStopEvent {

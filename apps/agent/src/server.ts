@@ -26,6 +26,7 @@ import {
   handleReportRateLimit,
   handleCredentialHealth,
 } from "./routes/credentials";
+import { startCredentialWatcher } from "./credentials/credential-watcher";
 import {
   handleGetSpecsAll,
   handleListSpecs,
@@ -726,6 +727,8 @@ export function startServer(
     const pool = getCredentialPool();
     if (pool) {
       safeFireAndForget(pool.refreshMetadata(), "credential-metadata-refresh");
+      // Watch credential directory for new/changed files
+      startCredentialWatcher(pool);
     }
   }
 

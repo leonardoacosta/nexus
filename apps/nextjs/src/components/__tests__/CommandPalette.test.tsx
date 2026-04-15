@@ -37,6 +37,8 @@ function makeSession(overrides: Partial<WithAgent<Session>> = {}): WithAgent<Ses
     rateLimitType: null,
     totalCostUsd: null,
     model: null,
+    credentialId: null,
+    credentialFingerprint: null,
     sessionType: "ad_hoc",
     ...overrides,
   };

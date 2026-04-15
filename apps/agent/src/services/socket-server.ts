@@ -15,6 +15,8 @@ import { existsSync, unlinkSync } from "node:fs";
 import { createLogger } from "@nexus/core";
 import type { WatcherEvent } from "@nexus/core";
 import type { Socket } from "bun";
+import type { Db } from "@nexus/db";
+import { credentials, eq } from "@nexus/db";
 import type { SocketEvent, SocketCommand, SocketResponse } from "../types/socket-events";
 import { isSocketEvent, isSocketCommand } from "../types/socket-events";
 import type { SessionManager } from "../session-manager";
@@ -70,6 +72,8 @@ export interface SocketServerOptions {
 export interface SocketDispatchDeps {
   sessionManager: SessionManager;
   lifecycleBus: LifecycleBus;
+  /** Optional DB for credential lookup during session-credential binding. */
+  db?: Db;
 }
 
 /**
@@ -80,7 +84,7 @@ export interface SocketDispatchDeps {
 export function createSocketEventDispatcher(
   deps: SocketDispatchDeps,
 ): SocketEventHandler {
-  const { sessionManager, lifecycleBus } = deps;
+  const { sessionManager, lifecycleBus, db } = deps;
 
   return function dispatchEvent(event: SocketEvent): void {
     switch (event.event) {
@@ -92,6 +96,24 @@ export function createSocketEventDispatcher(
           path: event.cwd ?? "",
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+
+        // Best-effort credential binding: if the event includes a
+        // credential fingerprint, look up the credential and populate
+        // credentialId + credentialFingerprint on the session.
+        if (event.credential_fingerprint && db) {
+          bindSessionCredential(
+            sessionManager,
+            db,
+            event.session_id,
+            event.credential_fingerprint,
+          ).catch((err: unknown) => {
+            log.warn(
+              { error: err, sessionId: event.session_id },
+              "socket: credential binding failed (best-effort)",
+            );
+          });
+        }
+
         lifecycleBus.emit("SessionStarted", {
           sessionId: event.session_id,
           project: event.project,
@@ -103,6 +125,7 @@ export function createSocketEventDispatcher(
             sessionId: event.session_id,
             project: event.project,
             model: event.model,
+            credentialFingerprint: event.credential_fingerprint ?? null,
           },
           "socket: session_start",
         );
@@ -421,6 +444,57 @@ export async function startSocketServer(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Best-effort credential binding for a session.
+ *
+ * Looks up the credential by fingerprint and mutates the in-memory session
+ * with `credentialId` and `credentialFingerprint`. The session manager's
+ * write-through will persist the update on the next upsert cycle, but we
+ * also trigger an explicit upsert to ensure the DB row is updated promptly.
+ *
+ * Never throws — callers should `.catch()` to avoid unhandled rejections.
+ */
+async function bindSessionCredential(
+  sessionManager: SessionManager,
+  db: Db,
+  sessionId: string,
+  fingerprint: string,
+): Promise<void> {
+  const session = sessionManager.getById(sessionId);
+  if (!session) {
+    log.debug({ sessionId }, "socket: credential binding skipped — session not found in cache");
+    return;
+  }
+
+  // Always store the fingerprint, even if we can't resolve the credential ID.
+  session.credentialFingerprint = fingerprint;
+
+  // Look up the credential by fingerprint.
+  const rows = await db
+    .select({ id: credentials.id })
+    .from(credentials)
+    .where(eq(credentials.fingerprint, fingerprint))
+    .limit(1);
+
+  if (rows.length > 0 && rows[0]) {
+    session.credentialId = rows[0].id;
+    log.info(
+      { sessionId, credentialId: rows[0].id, fingerprint },
+      "socket: session bound to credential",
+    );
+  } else {
+    log.debug(
+      { sessionId, fingerprint },
+      "socket: no credential found for fingerprint — credentialId stays null",
+    );
+  }
+
+  // Trigger an explicit write-through to persist the binding.
+  // Import upsertSession to avoid coupling to session-manager internals.
+  const { upsertSession } = await import("../db/sessions");
+  await upsertSession(db, session);
+}
 
 /**
  * Handle a SocketCommand: call the handler, write the JSON response, then
