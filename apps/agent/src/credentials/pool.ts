@@ -1,5 +1,5 @@
 import type { Db } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { credentials, credentialEvents } from "@nexus/db";
 import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
 import { logger } from "@nexus/core";
 import {
@@ -18,6 +18,7 @@ import {
 import type { Buffer } from "node:buffer";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import * as Sentry from "@sentry/node";
 
 /** Default cooldown duration in milliseconds (5 minutes). */
@@ -128,6 +129,32 @@ export class CredentialPool {
       );
     }
     return this.encryptionKey;
+  }
+
+  /**
+   * Persist a credential lifecycle event to the audit table.
+   * Fire-and-forget — failures are logged but never block the caller.
+   */
+  private async emitEvent(
+    credentialId: string,
+    eventType: string,
+    sessionId?: string | null,
+    metadata?: Record<string, unknown> | null,
+  ): Promise<void> {
+    try {
+      await this.db.insert(credentialEvents).values({
+        id: randomUUID(),
+        credentialId,
+        eventType,
+        sessionId: sessionId ?? null,
+        metadata: metadata ?? null,
+      });
+    } catch (err) {
+      logger.warn(
+        { credentialId, eventType, error: err instanceof Error ? err.message : String(err) },
+        "failed to persist credential event",
+      );
+    }
   }
 
   /**
