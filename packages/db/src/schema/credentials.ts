@@ -60,6 +60,12 @@ export const credentials = pgTable(
      * visible in the API but are excluded from `CredentialPool.lease()`.
      */
     isPrimary: boolean("is_primary").notNull().default(false),
+    /** Anthropic subscription tier: "max", "team", "pro", etc. Extracted from decrypted OAuth blob. */
+    subscriptionType: text("subscription_type"),
+    /** Anthropic rate-limit tier: "default_claude_max_5x", "default_claude_max_20x", etc. */
+    rateLimitTier: text("rate_limit_tier"),
+    /** OAuth access token expiry. Extracted from claudeAiOauth.expiresAt (epoch ms → timestamptz). */
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" })
       .notNull()

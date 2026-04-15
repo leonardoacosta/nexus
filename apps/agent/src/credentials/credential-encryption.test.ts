@@ -100,6 +100,9 @@ describe("credential pool — encryption storage (unit)", () => {
       fingerprint: "test-fp-dec-test-1",
       duplicateGroupId: "test-fp-dec-test-1",
       isPrimary: true,
+      subscriptionType: null,
+      rateLimitTier: null,
+      expiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -200,6 +203,9 @@ describe("credential pool — encryption storage (unit)", () => {
       fingerprint: "test-fp-wrr-high",
       duplicateGroupId: "test-fp-wrr-high",
       isPrimary: true,
+      subscriptionType: null,
+      rateLimitTier: null,
+      expiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -218,6 +224,9 @@ describe("credential pool — encryption storage (unit)", () => {
       fingerprint: "test-fp-wrr-low",
       duplicateGroupId: "test-fp-wrr-low",
       isPrimary: true,
+      subscriptionType: null,
+      rateLimitTier: null,
+      expiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -299,6 +308,9 @@ describe("credential pool — encryption storage (unit)", () => {
       fingerprint: "test-fp-prerotate-1",
       duplicateGroupId: "test-fp-prerotate-1",
       isPrimary: true,
+      subscriptionType: null,
+      rateLimitTier: null,
+      expiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

@@ -93,6 +93,40 @@ export function computeCredentialFingerprint(plaintext: string): string {
   return createHash("sha256").update(refreshToken).digest("hex");
 }
 
+/**
+ * Extract subscription metadata from an OAuth credential plaintext blob.
+ *
+ * Returns the three metadata fields (all nullable) without throwing — missing
+ * or malformed blobs simply produce nulls. This is intentionally lenient: the
+ * fingerprint step already validated the JSON structure; metadata extraction is
+ * best-effort.
+ */
+export function extractCredentialMetadata(plaintext: string): {
+  subscriptionType: string | null;
+  rateLimitTier: string | null;
+  expiresAt: Date | null;
+} {
+  try {
+    const parsed = JSON.parse(plaintext);
+    const oauth = parsed?.claudeAiOauth;
+    if (typeof oauth !== "object" || oauth === null) {
+      return { subscriptionType: null, rateLimitTier: null, expiresAt: null };
+    }
+    return {
+      subscriptionType:
+        typeof oauth.subscriptionType === "string"
+          ? oauth.subscriptionType
+          : null,
+      rateLimitTier:
+        typeof oauth.rateLimitTier === "string" ? oauth.rateLimitTier : null,
+      expiresAt:
+        typeof oauth.expiresAt === "number" ? new Date(oauth.expiresAt) : null,
+    };
+  } catch {
+    return { subscriptionType: null, rateLimitTier: null, expiresAt: null };
+  }
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const hasPg = !!process.env.POSTGRES_URL;
@@ -137,6 +171,9 @@ export function makeRow(id: string, overrides: Partial<CredentialRow> = {}): Cre
     fingerprint,
     duplicateGroupId: fingerprint,
     isPrimary: true,
+    subscriptionType: null,
+    rateLimitTier: null,
+    expiresAt: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

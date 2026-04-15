@@ -12,6 +12,7 @@ import type { CredentialRow } from "./store";
 import { encrypt, decrypt } from "./encryption";
 import {
   computeCredentialFingerprint,
+  extractCredentialMetadata,
   CredentialParseError,
 } from "./credentials.helpers";
 import type { Buffer } from "node:buffer";
@@ -68,6 +69,9 @@ export interface CredentialDuplicateEntry {
   duplicateGroupId: string | null;
   isPrimary: boolean;
   status: string;
+  subscriptionType: string | null;
+  rateLimitTier: string | null;
+  expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,6 +160,7 @@ export class CredentialPool {
     }
 
     const valueEncrypted = encrypt(credential.value_plaintext, key);
+    const metadata = extractCredentialMetadata(credential.value_plaintext);
     const now = new Date();
 
     await this.db.transaction(async (tx) => {
@@ -205,6 +210,9 @@ export class CredentialPool {
         fingerprint,
         duplicateGroupId: fingerprint,
         isPrimary: newRowIsPrimary,
+        subscriptionType: metadata.subscriptionType,
+        rateLimitTier: metadata.rateLimitTier,
+        expiresAt: metadata.expiresAt,
         createdAt: now,
         updatedAt: now,
       });
@@ -669,6 +677,9 @@ export class CredentialPool {
           duplicateGroupId: m.duplicateGroupId,
           isPrimary: m.isPrimary,
           status: m.status,
+          subscriptionType: m.subscriptionType,
+          rateLimitTier: m.rateLimitTier,
+          expiresAt: m.expiresAt,
           createdAt: m.createdAt,
           updatedAt: m.updatedAt,
         }));
