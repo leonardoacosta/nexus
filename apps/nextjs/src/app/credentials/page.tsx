@@ -2,7 +2,11 @@
 export const dynamic = "force-dynamic";
 
 import { fetchCredentials } from "../actions/credentials";
-import type { CredentialGroup, Credential } from "../actions/credentials";
+import type { Credential, CredentialGroup } from "../actions/credentials";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -10,306 +14,390 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMs = now - then;
-  const diffMin = Math.floor(diffMs / 60_000);
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  return `${diffDays}d ago`;
+/** Extract multiplier from tier string, e.g. "default_claude_max_20x" → "20x" */
+function parseTier(tier: string | null): string {
+  if (!tier) return "—";
+  const match = tier.match(/(\d+x)/);
+  return match ? match[1]! : tier;
 }
 
-function UsageSummary({ usage }: { usage: NonNullable<CredentialGroup["usage"]> }) {
+/** Capitalize subscription type: "max" → "Max" */
+function formatPlan(sub: string | null): string {
+  if (!sub) return "—";
+  return sub.charAt(0).toUpperCase() + sub.slice(1);
+}
+
+/** Compute days remaining from expiresAt, or "expired" */
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return "—";
+  const now = Date.now();
+  const expires = new Date(expiresAt).getTime();
+  const diffMs = expires - now;
+  if (diffMs <= 0) return "expired";
+  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (days === 1) return "1d";
+  return `${days}d`;
+}
+
+/** Color for plan badge background */
+function planBadgeColor(sub: string | null): {
+  bg: string;
+  fg: string;
+} {
+  switch (sub?.toLowerCase()) {
+    case "max":
+      return { bg: "var(--color-success-ghost)", fg: "var(--color-success)" };
+    case "team":
+      return { bg: "var(--color-info-ghost)", fg: "var(--color-info)" };
+    case "pro":
+      return { bg: "rgba(168, 85, 247, 0.12)", fg: "#A855F7" };
+    default:
+      return {
+        bg: "var(--color-surface-raised)",
+        fg: "var(--color-fg-muted)",
+      };
+  }
+}
+
+/** Color for status text */
+function statusColor(status: string): string {
+  switch (status) {
+    case "available":
+      return "var(--color-success)";
+    case "rate_limited":
+      return "var(--color-warning)";
+    case "expired":
+      return "var(--color-error)";
+    default:
+      return "var(--color-fg-dim)";
+  }
+}
+
+/** Build a summary string like "15 Max (20x) · 3 Team (5x)" */
+function buildPlanSummary(credentials: Credential[]): string {
+  const planCounts = new Map<string, { count: number; tier: string }>();
+  for (const cred of credentials) {
+    const plan = formatPlan(cred.subscriptionType);
+    const tier = parseTier(cred.rateLimitTier);
+    const key = `${plan}|${tier}`;
+    const existing = planCounts.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      planCounts.set(key, { count: 1, tier });
+    }
+  }
   const parts: string[] = [];
-  if (usage.input || usage.output) {
-    parts.push(`${formatNumber(usage.input)} in / ${formatNumber(usage.output)} out`);
+  for (const [key, { count, tier }] of planCounts) {
+    const plan = key.split("|")[0];
+    if (plan && plan !== "—") {
+      parts.push(`${count} ${plan} (${tier})`);
+    }
   }
-  if (usage.cost_usd != null) {
-    parts.push(`$${usage.cost_usd.toFixed(2)}`);
-  }
-  if (usage.session_count) {
-    parts.push(`${usage.session_count} session${usage.session_count !== 1 ? "s" : ""}`);
-  }
-  if (usage.turn_count) {
-    parts.push(`${usage.turn_count} turn${usage.turn_count !== 1 ? "s" : ""}`);
-  }
+  return parts.length > 0 ? parts.join(" \u00b7 ") : "";
+}
 
-  if (parts.length === 0) return null;
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 
+function PlanBadge({ subscriptionType }: { subscriptionType: string | null }) {
+  const label = formatPlan(subscriptionType);
+  if (label === "—") return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
+  const colors = planBadgeColor(subscriptionType);
   return (
-    <div
+    <span
       style={{
-        fontSize: "var(--font-size-sm)",
-        color: "var(--color-fg-dim)",
-        borderTop: "1px solid var(--color-border)",
-        paddingTop: "var(--space-3)",
-        marginTop: "var(--space-3)",
+        display: "inline-block",
+        fontSize: "var(--font-size-xs)",
+        fontWeight: "var(--font-weight-medium)",
+        color: colors.fg,
+        background: colors.bg,
+        padding: "var(--space-0_5) var(--space-2)",
+        borderRadius: "var(--radius-sm)",
+        lineHeight: "var(--line-height-tight)",
       }}
     >
-      <span style={{ fontWeight: "var(--font-weight-medium)", color: "var(--color-fg-muted)" }}>
-        Usage (24h):
-      </span>{" "}
-      {parts.join(" | ")}
-    </div>
+      {label}
+    </span>
   );
 }
 
-function MemberRow({
-  credential,
-  isPrimary,
-}: {
-  credential: Credential;
-  isPrimary: boolean;
-}) {
+function StatusDot({ status }: { status: string }) {
+  const color = statusColor(status);
   return (
-    <div
+    <span
       style={{
-        display: "flex",
-        alignItems: "baseline",
-        gap: "var(--space-3)",
-        padding: "var(--space-2) 0",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--space-1_5)",
+        fontSize: "var(--font-size-xs)",
+        color,
       }}
     >
       <span
         style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--font-size-sm)",
-          color: isPrimary ? "var(--color-fg)" : "var(--color-fg-dim)",
-          fontWeight: isPrimary
-            ? "var(--font-weight-medium)"
-            : "var(--font-weight-normal)",
+          display: "inline-block",
+          width: "6px",
+          height: "6px",
+          borderRadius: "var(--radius-full)",
+          background: color,
         }}
-      >
-        {isPrimary ? "\u2605 " : "  "}
-        {credential.id}
-        {isPrimary ? " (primary)" : ""}
-      </span>
-
-      <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-fg-muted)" }}>
-        Created {timeAgo(credential.createdAt)}
-      </span>
-
-      {credential.rateLimitCount > 0 && (
-        <span
-          style={{
-            fontSize: "var(--font-size-xs)",
-            color: "var(--color-warning)",
-            background: "var(--color-warning-ghost)",
-            padding: "var(--space-0_5) var(--space-2)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        >
-          Rate limits: {credential.rateLimitCount}
-        </span>
-      )}
-
-      {credential.leasedBy && (
-        <span
-          style={{
-            fontSize: "var(--font-size-xs)",
-            color: "var(--color-info)",
-            background: "var(--color-info-ghost)",
-            padding: "var(--space-0_5) var(--space-2)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        >
-          Leased: {credential.leasedBy}
-        </span>
-      )}
-
-      {!isPrimary && (
-        <span
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            gap: "var(--space-2)",
-          }}
-        >
-          <span
-            style={{
-              fontSize: "var(--font-size-xs)",
-              color: "var(--color-fg-muted)",
-              border: "1px solid var(--color-border)",
-              padding: "var(--space-0_5) var(--space-2)",
-              borderRadius: "var(--radius-sm)",
-              cursor: "default",
-              opacity: 0.6,
-            }}
-          >
-            Promote
-          </span>
-          <span
-            style={{
-              fontSize: "var(--font-size-xs)",
-              color: "var(--color-error)",
-              border: "1px solid var(--color-border)",
-              padding: "var(--space-0_5) var(--space-2)",
-              borderRadius: "var(--radius-sm)",
-              cursor: "default",
-              opacity: 0.6,
-            }}
-          >
-            Delete
-          </span>
-        </span>
-      )}
-    </div>
+      />
+      {status}
+    </span>
   );
 }
 
-function GroupCard({ group }: { group: CredentialGroup }) {
-  const isSolo = group.members.length === 1;
-  const shortFingerprint = group.fingerprint.slice(0, 12);
+function UsageCell({ group }: { group: CredentialGroup }) {
+  if (!group.usage) {
+    return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
+  }
+  const { input, output } = group.usage;
+  if (!input && !output) {
+    return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
+  }
+  return (
+    <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>
+      {formatNumber(input)} in / {formatNumber(output)} out
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Table row
+// ---------------------------------------------------------------------------
+
+function CredentialRow({
+  credential,
+  group,
+}: {
+  credential: Credential;
+  group: CredentialGroup;
+}) {
+  const duplicateCount = credential.duplicates?.length ?? 0;
 
   return (
-    <div
+    <tr
       style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "var(--space-4) var(--space-5)",
+        borderBottom: "1px solid var(--color-border)",
+        transition: "background var(--transition-fast)",
       }}
+      // CSS hover via class would be ideal but we use inline styles per project convention
+      // The hover effect is handled via the global stylesheet addition below
+      className="cred-row"
     >
-      {/* Group header */}
-      <div
+      {/* Name */}
+      <td
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-3)",
-          marginBottom: "var(--space-3)",
+          padding: "var(--space-2) var(--space-3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--font-size-sm)",
+          color: "var(--color-fg)",
+          whiteSpace: "nowrap",
         }}
       >
-        <span
-          style={{
-            fontSize: "var(--font-size-sm)",
-            fontWeight: "var(--font-weight-semibold)",
-            color: "var(--color-fg)",
-          }}
-        >
-          Account: {shortFingerprint}...
-        </span>
-        {isSolo && (
+        {credential.name}
+        {duplicateCount > 0 && (
           <span
             style={{
               fontSize: "var(--font-size-xs)",
               color: "var(--color-fg-muted)",
-              background: "var(--color-surface-raised)",
-              padding: "var(--space-0_5) var(--space-2)",
-              borderRadius: "var(--radius-sm)",
+              marginLeft: "var(--space-1_5)",
             }}
           >
-            solo
+            (+{duplicateCount})
           </span>
         )}
-        {!isSolo && (
-          <span
-            style={{
-              fontSize: "var(--font-size-xs)",
-              color: "var(--color-fg-muted)",
-            }}
-          >
-            {group.members.length} files
-          </span>
-        )}
-      </div>
+      </td>
 
-      {/* Status line */}
-      <div
+      {/* Plan */}
+      <td style={{ padding: "var(--space-2) var(--space-3)" }}>
+        <PlanBadge subscriptionType={credential.subscriptionType} />
+      </td>
+
+      {/* Tier */}
+      <td
         style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontFamily: "var(--font-mono)",
           fontSize: "var(--font-size-xs)",
-          color: "var(--color-fg-muted)",
-          marginBottom: "var(--space-3)",
-          display: "flex",
-          gap: "var(--space-4)",
+          color: "var(--color-fg-dim)",
+          whiteSpace: "nowrap",
         }}
       >
-        <span>
-          Status:{" "}
-          <span
-            style={{
-              color:
-                group.primary.status === "available"
-                  ? "var(--color-success)"
-                  : group.primary.status === "rate_limited"
-                    ? "var(--color-warning)"
-                    : "var(--color-fg-dim)",
-            }}
-          >
-            {group.primary.status}
-          </span>
-        </span>
-        <span>Type: {group.primary.type}</span>
-      </div>
+        {parseTier(credential.rateLimitTier)}
+      </td>
 
-      {/* Members */}
-      <div
+      {/* Status */}
+      <td style={{ padding: "var(--space-2) var(--space-3)" }}>
+        <StatusDot status={credential.status} />
+      </td>
+
+      {/* Rate Limits */}
+      <td
         style={{
-          borderTop: "1px solid var(--color-border)",
-          paddingTop: "var(--space-2)",
+          padding: "var(--space-2) var(--space-3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--font-size-xs)",
+          color:
+            credential.rateLimitCount > 0
+              ? "var(--color-warning)"
+              : "var(--color-fg-dim)",
+          textAlign: "right",
         }}
       >
-        {group.members.map((member) => (
-          <MemberRow
-            key={member.id}
-            credential={member}
-            isPrimary={member.id === group.primary.id}
-          />
-        ))}
-      </div>
+        {credential.rateLimitCount}
+      </td>
 
-      {/* Usage summary */}
-      {group.usage && <UsageSummary usage={group.usage} />}
-    </div>
+      {/* Expires */}
+      <td
+        style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          color:
+            formatExpiry(credential.expiresAt) === "expired"
+              ? "var(--color-error)"
+              : "var(--color-fg-dim)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {formatExpiry(credential.expiresAt)}
+      </td>
+
+      {/* Usage */}
+      <td
+        style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-fg-dim)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <UsageCell group={group} />
+      </td>
+    </tr>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default async function CredentialsPage() {
-  const { groups, totalAccounts, totalFiles } = await fetchCredentials();
+  const { groups, credentials, totalAccounts } = await fetchCredentials();
+
+  const planSummary = buildPlanSummary(credentials);
+
+  // Build a map from credential id to its group (for usage lookup)
+  const credGroupMap = new Map<string, CredentialGroup>();
+  for (const group of groups) {
+    for (const member of group.members) {
+      credGroupMap.set(member.id, group);
+    }
+  }
+
+  // Flatten all credentials sorted: primary first within each group, then by name
+  const flatCredentials = groups.flatMap((g) => g.members);
 
   return (
     <div>
-      <h1
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: "var(--font-weight-bold)",
-          color: "var(--color-fg)",
-          marginBottom: "var(--space-2)",
-          letterSpacing: "var(--tracking-tight)",
+      {/* Hover style for table rows — injected once */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `.cred-row:hover { background: var(--color-surface-raised) !important; }`,
         }}
-      >
-        Credentials
-      </h1>
+      />
 
-      <p
+      {/* Header */}
+      <div
         style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-fg-muted)",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
           marginBottom: "var(--space-6)",
         }}
       >
-        {totalAccounts} account{totalAccounts !== 1 ? "s" : ""}, {totalFiles} total
-        file{totalFiles !== 1 ? "s" : ""}
-      </p>
+        <h1
+          style={{
+            fontSize: "var(--font-size-2xl)",
+            fontWeight: "var(--font-weight-bold)",
+            color: "var(--color-fg)",
+            letterSpacing: "var(--tracking-tight)",
+          }}
+        >
+          Credentials
+        </h1>
+        <span
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-fg-muted)",
+          }}
+        >
+          {totalAccounts} account{totalAccounts !== 1 ? "s" : ""}
+          {planSummary ? ` \u00b7 ${planSummary}` : ""}
+        </span>
+      </div>
 
-      {groups.length === 0 ? (
+      {flatCredentials.length === 0 ? (
         <p style={{ color: "var(--color-fg-muted)" }}>
-          No credentials found. Ensure the agent is running and has credential files configured.
+          No credentials found. Ensure the agent is running and has credential
+          files configured.
         </p>
       ) : (
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-4)",
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-lg)",
+            overflow: "hidden",
           }}
         >
-          {groups.map((group) => (
-            <GroupCard key={group.fingerprint} group={group} />
-          ))}
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            <thead>
+              <tr
+                style={{
+                  borderBottom: "1px solid var(--color-border)",
+                  background: "var(--color-surface-raised)",
+                }}
+              >
+                {["Name", "Plan", "Tier", "Status", "Rate Limits", "Expires", "Usage (24h)"].map(
+                  (label) => (
+                    <th
+                      key={label}
+                      style={{
+                        padding: "var(--space-2) var(--space-3)",
+                        textAlign: label === "Rate Limits" ? "right" : "left",
+                        fontSize: "var(--font-size-xs)",
+                        fontWeight: "var(--font-weight-medium)",
+                        color: "var(--color-fg-muted)",
+                        textTransform: "uppercase" as const,
+                        letterSpacing: "var(--tracking-wide)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {label}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {flatCredentials.map((cred) => (
+                <CredentialRow
+                  key={cred.id}
+                  credential={cred}
+                  group={credGroupMap.get(cred.id)!}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

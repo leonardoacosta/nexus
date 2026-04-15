@@ -23,6 +23,9 @@ export interface Credential {
   fingerprint: string;
   duplicateGroupId: string;
   isPrimary: boolean;
+  subscriptionType: string | null;
+  rateLimitTier: string | null;
+  expiresAt: string | null;
   rateLimitCount: number;
   leasedBy: string | null;
   createdAt: string;
@@ -49,6 +52,7 @@ export interface CredentialGroup {
 
 export interface CredentialsResult {
   groups: CredentialGroup[];
+  credentials: Credential[];
   totalAccounts: number;
   totalFiles: number;
   agentSource: string;
@@ -96,7 +100,13 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
   }
 
   if (allCredentials.length === 0) {
-    return { groups: [], totalAccounts: 0, totalFiles: 0, agentSource };
+    return {
+      groups: [],
+      credentials: [],
+      totalAccounts: 0,
+      totalFiles: 0,
+      agentSource,
+    };
   }
 
   // Group by duplicateGroupId (same as fingerprint)
@@ -131,11 +141,12 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
     });
   }
 
-  // Fetch usage for each primary credential in parallel
+  // Fetch usage for up to 10 primary credentials in parallel (best-effort)
   const agentConfig = configs.find((a) => a.name === agentSource) ?? configs[0];
   if (agentConfig) {
+    const usageSlice = groups.slice(0, 10);
     const usageResults = await Promise.allSettled(
-      groups.map(async (group) => {
+      usageSlice.map(async (group) => {
         const res = await fetchWithTimeout(
           `http://${agentConfig.host}:${agentConfig.port}/credentials/${encodeURIComponent(group.primary.id)}/usage?window=24h`,
           {
@@ -159,6 +170,7 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
 
   return {
     groups,
+    credentials: allCredentials,
     totalAccounts: groups.length,
     totalFiles: allCredentials.length,
     agentSource,
