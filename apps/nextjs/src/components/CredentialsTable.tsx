@@ -14,8 +14,7 @@ type SortColumn =
   | "tier"
   | "firstSeen"
   | "tokenExpiry"
-  | "mcps"
-  | "rateLimits";
+  | "mcps";
 type SortDirection = "asc" | "desc";
 
 interface SortState {
@@ -121,24 +120,6 @@ function parseMcpProviders(providers: string | null): string[] {
   return providers.split(",").filter((p) => p.length > 0);
 }
 
-/** Get display label for an MCP provider. */
-function mcpLabel(provider: string): string {
-  switch (provider.toLowerCase()) {
-    case "posthog":
-      return "P";
-    case "figma":
-      return "F";
-    case "slack":
-      return "S";
-    case "stripe":
-      return "St";
-    case "miro":
-      return "M";
-    default:
-      return provider.charAt(0).toUpperCase();
-  }
-}
-
 /** Get badge color for an MCP provider. */
 function mcpBadgeColor(provider: string): { bg: string; fg: string } {
   switch (provider.toLowerCase()) {
@@ -196,9 +177,6 @@ function compareCredentials(
         parseMcpProviders(a.mcpProviders).length -
         parseMcpProviders(b.mcpProviders).length
       );
-    }
-    case "rateLimits": {
-      return a.rateLimitCount - b.rateLimitCount;
     }
   }
 }
@@ -299,18 +277,18 @@ function McpBadges({ providers }: { providers: string | null }) {
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "10px",
+              fontSize: "11px",
               fontWeight: "var(--font-weight-medium)",
               fontFamily: "var(--font-mono)",
               color: colors.fg,
               background: colors.bg,
-              padding: "1px 4px",
+              padding: "1px 6px",
               borderRadius: "2px",
               lineHeight: 1.3,
               letterSpacing: "0",
             }}
           >
-            {mcpLabel(provider)}
+            {provider}
           </span>
         );
       })}
@@ -429,21 +407,6 @@ function CredentialRow({
         <McpBadges providers={credential.mcpProviders} />
       </td>
 
-      {/* Rate Limits */}
-      <td
-        style={{
-          padding: "var(--space-2) var(--space-3)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--font-size-xs)",
-          color:
-            credential.rateLimitCount > 0
-              ? "var(--color-warning)"
-              : "var(--color-fg-dim)",
-          textAlign: "right",
-        }}
-      >
-        {credential.rateLimitCount}
-      </td>
     </tr>
   );
 }
@@ -545,13 +508,6 @@ export function CredentialsTable({
               column="mcps"
               current={sort}
               onSort={handleSort}
-            />
-            <SortHeader
-              label="Rate Limits"
-              column="rateLimits"
-              current={sort}
-              onSort={handleSort}
-              align="right"
             />
           </tr>
         </thead>

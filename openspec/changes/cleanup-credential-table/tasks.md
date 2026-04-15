@@ -13,8 +13,8 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] Replace MCP single-letter badges with full-name colored pills in CredentialsTable.tsx [owner:ui-engineer] [beads:nx-7ja2]
-- [ ] [3.2] [P-1] Remove rate limits column (header, sort logic, and cell) from CredentialsTable.tsx [owner:ui-engineer] [beads:nx-bbqg]
+- [x] [3.1] [P-1] Replace MCP single-letter badges with full-name colored pills in CredentialsTable.tsx [owner:ui-engineer] [beads:nx-7ja2]
+- [x] [3.2] [P-1] Remove rate limits column (header, sort logic, and cell) from CredentialsTable.tsx [owner:ui-engineer] [beads:nx-bbqg]
 
 ## E2E Batch
 
