@@ -66,6 +66,16 @@ export const credentials = pgTable(
     rateLimitTier: text("rate_limit_tier"),
     /** OAuth access token expiry. Extracted from claudeAiOauth.expiresAt (epoch ms → timestamptz). */
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
+    /** Anthropic account email from /api/oauth/profile. */
+    accountEmail: text("account_email"),
+    /** Anthropic account display name from /api/oauth/profile. */
+    accountName: text("account_name"),
+    /** Anthropic account UUID from /api/oauth/profile. */
+    accountUuid: text("account_uuid"),
+    /** Anthropic organization name from /api/oauth/profile. */
+    orgName: text("org_name"),
+    /** Anthropic organization UUID from /api/oauth/profile. */
+    orgUuid: text("org_uuid"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" })
       .notNull()

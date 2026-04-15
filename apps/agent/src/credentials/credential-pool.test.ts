@@ -63,6 +63,11 @@ describe("credential pool — concurrent lease race (unit)", () => {
       subscriptionType: null,
       rateLimitTier: null,
       expiresAt: null,
+      accountEmail: null,
+      accountName: null,
+      accountUuid: null,
+      orgName: null,
+      orgUuid: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

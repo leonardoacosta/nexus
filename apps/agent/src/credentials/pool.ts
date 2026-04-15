@@ -72,6 +72,11 @@ export interface CredentialDuplicateEntry {
   subscriptionType: string | null;
   rateLimitTier: string | null;
   expiresAt: Date | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  accountUuid: string | null;
+  orgName: string | null;
+  orgUuid: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -120,6 +125,63 @@ export class CredentialPool {
       );
     }
     return this.encryptionKey;
+  }
+
+  /**
+   * Probe the Anthropic /api/oauth/profile endpoint and persist account
+   * identity fields on the credential row. Best-effort: caller should
+   * `.catch()` the returned promise.
+   */
+  private async probeIdentity(
+    credentialId: string,
+    plaintext: string,
+  ): Promise<void> {
+    let accessToken: string;
+    try {
+      const parsed = JSON.parse(plaintext);
+      accessToken = parsed?.claudeAiOauth?.accessToken;
+      if (!accessToken || typeof accessToken !== "string") return;
+    } catch {
+      return;
+    }
+
+    const res = await fetch(
+      "https://api.anthropic.com/api/oauth/profile",
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) {
+      logger.debug(
+        { credentialId, status: res.status },
+        "identity probe returned non-200",
+      );
+      return;
+    }
+
+    const profile = (await res.json()) as {
+      account?: { uuid?: string; full_name?: string; email?: string };
+      organization?: { uuid?: string; name?: string };
+    };
+
+    await this.db
+      .update(credentials)
+      .set({
+        accountEmail: profile.account?.email ?? null,
+        accountName: profile.account?.full_name ?? null,
+        accountUuid: profile.account?.uuid ?? null,
+        orgName: profile.organization?.name ?? null,
+        orgUuid: profile.organization?.uuid ?? null,
+      })
+      .where(eq(credentials.id, credentialId));
+
+    logger.info(
+      {
+        credentialId,
+        email: profile.account?.email,
+        org: profile.organization?.name,
+        event: "credential.identity_probed",
+      },
+      "credential identity probed successfully",
+    );
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -240,6 +302,16 @@ export class CredentialPool {
     logger.info(
       { id: credential.id, name: credential.name, fingerprint },
       "credential added to pool",
+    );
+
+    // Best-effort: probe Anthropic profile API for account identity.
+    // Non-blocking — failures are logged but never surface to the caller.
+    this.probeIdentity(credential.id, credential.value_plaintext).catch(
+      (err) =>
+        logger.warn(
+          { id: credential.id, err },
+          "best-effort identity probe failed on add",
+        ),
     );
   }
 
@@ -680,6 +752,11 @@ export class CredentialPool {
           subscriptionType: m.subscriptionType,
           rateLimitTier: m.rateLimitTier,
           expiresAt: m.expiresAt,
+          accountEmail: m.accountEmail,
+          accountName: m.accountName,
+          accountUuid: m.accountUuid,
+          orgName: m.orgName,
+          orgUuid: m.orgUuid,
           createdAt: m.createdAt,
           updatedAt: m.updatedAt,
         }));

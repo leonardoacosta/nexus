@@ -187,27 +187,45 @@ function CredentialRow({
       // The hover effect is handled via the global stylesheet addition below
       className="cred-row"
     >
-      {/* Name */}
+      {/* Account */}
       <td
         style={{
           padding: "var(--space-2) var(--space-3)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-fg)",
           whiteSpace: "nowrap",
         }}
       >
-        {credential.name}
-        {duplicateCount > 0 && (
-          <span
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-fg)",
+            lineHeight: "var(--line-height-tight)",
+          }}
+        >
+          {credential.accountEmail ?? credential.name}
+          {duplicateCount > 0 && (
+            <span
+              style={{
+                fontSize: "var(--font-size-xs)",
+                color: "var(--color-fg-muted)",
+                marginLeft: "var(--space-1_5)",
+              }}
+            >
+              (+{duplicateCount})
+            </span>
+          )}
+        </div>
+        {credential.orgName && (
+          <div
             style={{
               fontSize: "var(--font-size-xs)",
               color: "var(--color-fg-muted)",
-              marginLeft: "var(--space-1_5)",
+              lineHeight: "var(--line-height-tight)",
+              marginTop: "1px",
             }}
           >
-            (+{duplicateCount})
-          </span>
+            {credential.orgName}
+          </div>
         )}
       </td>
 
@@ -367,7 +385,7 @@ export default async function CredentialsPage() {
                   background: "var(--color-surface-raised)",
                 }}
               >
-                {["Name", "Plan", "Tier", "Status", "Rate Limits", "Expires", "Usage (24h)"].map(
+                {["Account", "Plan", "Tier", "Status", "Rate Limits", "Expires", "Usage (24h)"].map(
                   (label) => (
                     <th
                       key={label}

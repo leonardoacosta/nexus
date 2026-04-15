@@ -26,6 +26,11 @@ export interface Credential {
   subscriptionType: string | null;
   rateLimitTier: string | null;
   expiresAt: string | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  accountUuid: string | null;
+  orgName: string | null;
+  orgUuid: string | null;
   rateLimitCount: number;
   leasedBy: string | null;
   createdAt: string;
