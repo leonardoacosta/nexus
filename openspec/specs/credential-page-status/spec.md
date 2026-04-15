@@ -1,6 +1,9 @@
-# credential-page-status — Spec Delta
+# credential-page-status Specification
 
-## ADDED Requirements
+## Purpose
+Credential page display behavior — agent reachability signals, error states, metadata freshness, and column presentation.
+
+## Requirements
 
 ### Requirement: Agent reachability signal in fetchCredentials
 
@@ -50,3 +53,37 @@ When credentials load successfully, the page header MUST display the name of the
 - **Given** `fetchCredentials()` returns `agentReachable: true`, `agentSource: "omarchy"`, and 18 credentials
 - **When** the credential page renders
 - **Then** the header displays "18 accounts" followed by "via omarchy"
+
+---
+
+### Requirement: MCP provider display format
+
+The MCP providers column MUST display full provider names (e.g., "figma", "slack", "posthog") as small colored pills instead of single-letter abbreviations. Each pill MUST retain the provider-specific color scheme and MUST show the full lowercase name.
+
+#### Scenario: multiple MCP providers displayed as full-name pills
+- **Given** a credential has `mcpProviders: "figma,posthog,slack"`
+- **When** the credential table renders that row
+- **Then** three colored pills appear: "figma" (purple), "posthog" (blue), "slack" (green)
+
+---
+
+### Requirement: Rate limits column hidden
+
+The credential table MUST NOT render the `rateLimitCount` column or its sort header until the interception pipeline populates it with real data.
+
+#### Scenario: rate limits column absent from table
+- **Given** the credential table renders with any set of credentials
+- **When** the user views the table headers
+- **Then** there is no "Rate Limits" column header and no rate limit values in any row
+
+---
+
+### Requirement: Credential metadata refresh on agent startup
+
+On startup, the agent MUST re-read all `acct-*.json` files from `~/.config/nexus/credentials/`, compute the fingerprint for each, and update `expiresAt`, `subscriptionType`, `rateLimitTier`, and `mcpProviders` in the database for every credential row whose fingerprint matches.
+
+#### Scenario: stale expiresAt refreshed on startup
+- **Given** credential file `acct-abc.json` has a refreshed access token expiring in 2 hours
+- **And** the DB row with the same fingerprint has `expiresAt` set to 11 days ago
+- **When** the agent starts and calls `refreshMetadata()`
+- **Then** the DB row's `expiresAt` is updated to the new 2-hour expiry timestamp
