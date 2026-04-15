@@ -16,6 +16,7 @@ import { handleCommand } from "./services/command-handler";
 import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
+import { TokenStreamLifecycle } from "./credentials/token-stream/lifecycle";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -106,6 +107,46 @@ startSocketServer({
   );
 });
 
+// ── Token stream lifecycle ─────────────────────────────────────────────────
+// Watches per-session transcripts for token usage and persists cost data.
+const tokenStreamLifecycle = new TokenStreamLifecycle(db);
+
+lifecycleBus.on("SessionStarted", async (envelope) => {
+  const { sessionId, cwd } = envelope.payload;
+  try {
+    await tokenStreamLifecycle.startWatcher({
+      id: sessionId,
+      cwd: cwd ?? "",
+      ccSessionId: sessionId,
+    });
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err), sessionId },
+      "token stream watcher failed to start",
+    );
+  }
+});
+
+lifecycleBus.on("SessionStopped", async (envelope) => {
+  const { sessionId } = envelope.payload;
+  try {
+    await tokenStreamLifecycle.stopWatcher(sessionId);
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err), sessionId },
+      "token stream watcher failed to stop",
+    );
+  }
+});
+
+// Resume watchers for sessions that were active before the agent restarted.
+tokenStreamLifecycle.resumeActiveWatchers().catch((err) => {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "token stream watcher resume failed — will start watchers on new session events",
+  );
+});
+
 // ── Cron service ───────────────────────────────────────────────────────────
 // Scheduled maintenance (daily) and drift detection (weekly).
 let cronService: CronService | null = null;
@@ -160,6 +201,7 @@ async function shutdown() {
   }
 
   // Stop new services first.
+  await tokenStreamLifecycle.stopAll();
   specWatcher?.stop();
   cronService?.stop();
   socketServer?.stop();

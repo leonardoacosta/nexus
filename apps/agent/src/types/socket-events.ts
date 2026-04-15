@@ -237,15 +237,22 @@ const VALID_COMMANDS = new Set([
   "notification_set",
 ]);
 
-/** Type guard: returns true if the parsed JSON is a valid SocketEvent. */
+/** Type guard: returns true if the parsed JSON is a valid SocketEvent.
+ *
+ * CC hooks send `event_type` instead of `event` in their JSON payloads.
+ * This guard normalises the field name so the rest of the dispatch chain
+ * can rely on `event` being present.
+ */
 export function isSocketEvent(obj: unknown): obj is SocketEvent {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    "event" in obj &&
-    typeof (obj as Record<string, unknown>).event === "string" &&
-    VALID_EVENTS.has((obj as Record<string, unknown>).event as string)
-  );
+  if (typeof obj !== "object" || obj === null) return false;
+  const rec = obj as Record<string, unknown>;
+
+  // Normalize: CC hooks send "event_type", socket protocol expects "event"
+  if (!("event" in rec) && "event_type" in rec && typeof rec.event_type === "string") {
+    rec.event = rec.event_type;
+  }
+
+  return "event" in rec && typeof rec.event === "string" && VALID_EVENTS.has(rec.event as string);
 }
 
 /** Type guard: returns true if the parsed JSON is a valid SocketCommand. */
