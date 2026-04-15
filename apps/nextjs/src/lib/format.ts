@@ -32,7 +32,8 @@ export function formatDuration(ms: number): string {
  * Format a timestamp as a relative time string.
  * Examples: "3m ago", "2h ago", "just now"
  */
-export function formatRelativeTime(timestamp: string | Date): string {
+export function formatRelativeTime(timestamp: string | Date | undefined | null): string {
+  if (!timestamp) return "—";
   const date = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
   const now = Date.now();
   const diffMs = now - date.getTime();

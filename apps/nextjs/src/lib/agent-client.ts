@@ -224,9 +224,13 @@ export class AgentClient {
       const res = await fetchWithRetry(
         `${agentBaseUrl(agent)}/sessions/${encodeURIComponent(sessionId)}`,
       );
-      const data = (await res.json()) as Session;
+      const raw = (await res.json()) as Record<string, unknown>;
       this.markOnline(agentName);
-      return { ...data, agent: agentName };
+      return {
+        ...raw,
+        lastHeartbeat: raw.lastActivity ?? raw.lastHeartbeat,
+        agent: agentName,
+      } as WithAgent<Session>;
     } catch {
       this.markOffline(agentName);
       return null;
