@@ -16,6 +16,8 @@ import {
   CredentialParseError,
 } from "./credentials.helpers";
 import type { Buffer } from "node:buffer";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as Sentry from "@sentry/node";
 
 /** Default cooldown duration in milliseconds (5 minutes). */
@@ -765,6 +767,57 @@ export class CredentialPool {
         }));
       return { ...row, duplicates: siblings };
     });
+  }
+
+  /**
+   * Re-read credential files from disk and update metadata columns
+   * (expiresAt, subscriptionType, rateLimitTier, mcpProviders) for each
+   * credential whose fingerprint matches a DB row.
+   */
+  async refreshMetadata(): Promise<number> {
+    const credDir = join(process.env.HOME ?? "", ".config/nexus/credentials");
+
+    let allFiles: string[];
+    try {
+      allFiles = await readdir(credDir);
+    } catch {
+      logger.warn({ dir: credDir }, "credential directory not found, skipping metadata refresh");
+      return 0;
+    }
+
+    const files = allFiles.filter((f) => f.startsWith("acct-") && f.endsWith(".json"));
+    let updated = 0;
+
+    for (const file of files) {
+      try {
+        const plaintext = await readFile(join(credDir, file), "utf-8");
+        const fingerprint = computeCredentialFingerprint(plaintext);
+        const metadata = extractCredentialMetadata(plaintext);
+
+        await this.db
+          .update(credentials)
+          .set({
+            expiresAt: metadata.expiresAt,
+            subscriptionType: metadata.subscriptionType,
+            rateLimitTier: metadata.rateLimitTier,
+            mcpProviders: metadata.mcpProviders,
+            updatedAt: new Date(),
+          })
+          .where(eq(credentials.fingerprint, fingerprint));
+
+        updated++;
+      } catch (err) {
+        logger.warn(
+          { file, error: err instanceof Error ? err.message : String(err) },
+          "failed to refresh credential metadata",
+        );
+      }
+    }
+
+    if (updated > 0) {
+      logger.info({ updated, total: files.length }, "credential metadata refreshed from disk");
+    }
+    return updated;
   }
 
   /** Recover credentials whose cooldown has expired. */
