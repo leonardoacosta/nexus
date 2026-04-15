@@ -8,3 +8,4 @@ export * from "./projects";
 export * from "./projectLocations";
 export { sessionTokenTurns } from "./sessionTokenTurns";
 export { sessionTokenWatcherState } from "./sessionTokenWatcherState";
+export { credentialEvents } from "./credentialEvents";

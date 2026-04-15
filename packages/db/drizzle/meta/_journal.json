@@ -127,6 +127,13 @@
       "when": 1776220780262,
       "tag": "0017_fixed_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1776290733649,
+      "tag": "0018_robust_killraven",
+      "breakpoints": true
     }
   ]
 }
