@@ -14,7 +14,7 @@
 - [x] [2.3] [P-2] Wire `emitEvent()` calls into existing pool methods: `lease()`, `release()`, `reportRateLimit()`, `add()`, `deleteById()`, `promote()`, `refreshMetadata()` [owner:api-engineer] [beads:nx-ukt0]
 - [x] [2.4] [P-2] Start file watcher on agent boot in server.ts after credential pool init [owner:api-engineer] [beads:nx-7wz6]
 - [x] [2.5] [P-2] Add session-credential binding: extract `credentialFingerprint` from socket `session_start` events, look up credential, populate `sessions.credentialId` + `credentialFingerprint` [owner:api-engineer] [beads:nx-zhxi]
-- [ ] [2.6] [P-3] Add retention cleanup for credential_events (delete events > 30 days) alongside existing health_snapshots retention [owner:api-engineer] [beads:nx-lwpo]
+- [x] [2.6] [P-3] Add retention cleanup for credential_events (delete events > 30 days) alongside existing health_snapshots retention [owner:api-engineer] [beads:nx-lwpo]
 
 ## UI Batch
 
