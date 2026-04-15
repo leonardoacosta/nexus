@@ -62,6 +62,8 @@ export interface CredentialsResult {
   totalAccounts: number;
   totalFiles: number;
   agentSource: string;
+  agentReachable: boolean;
+  failedAgents: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +86,8 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
 
   let allCredentials: Credential[] = [];
   let agentSource = "unknown";
+  let agentReachable = false;
+  const failedAgents: string[] = [];
 
   // Try each agent until one responds
   for (const agent of configs) {
@@ -96,12 +100,16 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
           cache: "no-store",
         },
       );
-      if (!res.ok) continue;
+      if (!res.ok) {
+        failedAgents.push(`${agent.name} (${agent.host}:${agent.port})`);
+        continue;
+      }
       allCredentials = (await res.json()) as Credential[];
       agentSource = agent.name;
+      agentReachable = true;
       break;
     } catch {
-      // Agent unreachable, try next
+      failedAgents.push(`${agent.name} (${agent.host}:${agent.port})`);
     }
   }
 
@@ -112,6 +120,8 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
       totalAccounts: 0,
       totalFiles: 0,
       agentSource,
+      agentReachable,
+      failedAgents,
     };
   }
 
@@ -180,5 +190,7 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
     totalAccounts: groups.length,
     totalFiles: allCredentials.length,
     agentSource,
+    agentReachable: true,
+    failedAgents,
   };
 }
