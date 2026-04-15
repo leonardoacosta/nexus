@@ -18,6 +18,7 @@ import {
 } from "./routes/notifications";
 import {
   initCredentialRoutes,
+  getCredentialPool,
   handleAddCredential,
   handleLeaseCredential,
   handleReleaseCredential,
@@ -719,6 +720,13 @@ export function startServer(
       encryptionKey: options?.encryptionKey,
       prerotateThreshold: options?.prerotateThreshold,
     });
+
+    // Refresh credential metadata from disk (expiresAt, mcpProviders, etc.)
+    // Fire-and-forget — stale metadata doesn't block server startup.
+    const pool = getCredentialPool();
+    if (pool) {
+      safeFireAndForget(pool.refreshMetadata(), "credential-metadata-refresh");
+    }
   }
 
   // Initialize subsystems that do not need the DB.

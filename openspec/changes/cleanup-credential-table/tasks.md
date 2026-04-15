@@ -9,7 +9,7 @@
 ## API Batch
 
 - [x] [2.1] [P-1] Add `refreshMetadata()` method to CredentialPool that reads credential files, computes fingerprints, and updates expiresAt/subscriptionType/rateLimitTier/mcpProviders for matching DB rows [owner:api-engineer] [beads:nx-fw2u]
-- [ ] [2.2] [P-2] Call `refreshMetadata()` on agent startup after pool initialization in index.ts [owner:api-engineer] [beads:nx-8w6t]
+- [x] [2.2] [P-2] Call `refreshMetadata()` on agent startup after pool initialization in index.ts [owner:api-engineer] [beads:nx-8w6t]
 
 ## UI Batch
 
