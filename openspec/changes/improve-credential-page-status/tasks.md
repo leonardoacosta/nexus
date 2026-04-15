@@ -19,7 +19,7 @@
 
 ## Ops Batch
 
-- [ ] [5.1] [P-1] Change `Restart=on-failure` to `Restart=always` in nexus-agent.service and add `StartLimitBurst=5` + `StartLimitIntervalSec=60` [owner:devops-engineer] [beads:nx-w8jg]
+- [x] [5.1] [P-1] Change `Restart=on-failure` to `Restart=always` in nexus-agent.service and add `StartLimitBurst=5` + `StartLimitIntervalSec=60` [owner:devops-engineer] [beads:nx-w8jg]
 
 ## E2E Batch
 
