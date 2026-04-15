@@ -23,5 +23,5 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Verify credential page shows warning banner when agent is stopped [owner:e2e-engineer] [beads:nx-ufde]
-- [ ] [4.2] Verify credential page shows "via <agent>" attribution when agent is running [owner:e2e-engineer] [beads:nx-t6sw]
+- [ ] [4.1] [deferred] Verify credential page shows warning banner when agent is stopped [owner:e2e-engineer] [beads:nx-ufde]
+- [ ] [4.2] [deferred] Verify credential page shows "via <agent>" attribution when agent is running [owner:e2e-engineer] [beads:nx-t6sw]
