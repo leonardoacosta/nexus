@@ -76,6 +76,8 @@ export const credentials = pgTable(
     orgName: text("org_name"),
     /** Anthropic organization UUID from /api/oauth/profile. */
     orgUuid: text("org_uuid"),
+    /** Comma-separated MCP provider names extracted from mcpOAuth keys (e.g. "figma,posthog,slack"). */
+    mcpProviders: text("mcp_providers"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" })
       .notNull()

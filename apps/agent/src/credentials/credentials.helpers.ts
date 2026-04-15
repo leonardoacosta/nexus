@@ -105,13 +105,31 @@ export function extractCredentialMetadata(plaintext: string): {
   subscriptionType: string | null;
   rateLimitTier: string | null;
   expiresAt: Date | null;
+  mcpProviders: string | null;
 } {
   try {
     const parsed = JSON.parse(plaintext);
     const oauth = parsed?.claudeAiOauth;
     if (typeof oauth !== "object" || oauth === null) {
-      return { subscriptionType: null, rateLimitTier: null, expiresAt: null };
+      return { subscriptionType: null, rateLimitTier: null, expiresAt: null, mcpProviders: null };
     }
+
+    // Extract MCP provider names from mcpOAuth keys
+    let mcpProviders: string | null = null;
+    const mcpOAuth = parsed?.mcpOAuth;
+    if (typeof mcpOAuth === "object" && mcpOAuth !== null) {
+      const names = [
+        ...new Set(
+          Object.values(mcpOAuth)
+            .map((v: unknown) => (v as { serverName?: string })?.serverName)
+            .filter((n): n is string => typeof n === "string" && n.length > 0),
+        ),
+      ].sort();
+      if (names.length > 0) {
+        mcpProviders = names.join(",");
+      }
+    }
+
     return {
       subscriptionType:
         typeof oauth.subscriptionType === "string"
@@ -121,9 +139,10 @@ export function extractCredentialMetadata(plaintext: string): {
         typeof oauth.rateLimitTier === "string" ? oauth.rateLimitTier : null,
       expiresAt:
         typeof oauth.expiresAt === "number" ? new Date(oauth.expiresAt) : null,
+      mcpProviders,
     };
   } catch {
-    return { subscriptionType: null, rateLimitTier: null, expiresAt: null };
+    return { subscriptionType: null, rateLimitTier: null, expiresAt: null, mcpProviders: null };
   }
 }
 
@@ -179,6 +198,7 @@ export function makeRow(id: string, overrides: Partial<CredentialRow> = {}): Cre
     accountUuid: null,
     orgName: null,
     orgUuid: null,
+    mcpProviders: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

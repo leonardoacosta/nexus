@@ -108,6 +108,7 @@ describe("credential pool — encryption storage (unit)", () => {
       accountUuid: null,
       orgName: null,
       orgUuid: null,
+      mcpProviders: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -216,6 +217,7 @@ describe("credential pool — encryption storage (unit)", () => {
       accountUuid: null,
       orgName: null,
       orgUuid: null,
+      mcpProviders: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -242,6 +244,7 @@ describe("credential pool — encryption storage (unit)", () => {
       accountUuid: null,
       orgName: null,
       orgUuid: null,
+      mcpProviders: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -331,6 +334,7 @@ describe("credential pool — encryption storage (unit)", () => {
       accountUuid: null,
       orgName: null,
       orgUuid: null,
+      mcpProviders: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

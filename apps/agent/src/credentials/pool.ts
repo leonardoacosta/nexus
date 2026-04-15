@@ -77,6 +77,7 @@ export interface CredentialDuplicateEntry {
   accountUuid: string | null;
   orgName: string | null;
   orgUuid: string | null;
+  mcpProviders: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -275,6 +276,7 @@ export class CredentialPool {
         subscriptionType: metadata.subscriptionType,
         rateLimitTier: metadata.rateLimitTier,
         expiresAt: metadata.expiresAt,
+        mcpProviders: metadata.mcpProviders,
         createdAt: now,
         updatedAt: now,
       });
@@ -757,6 +759,7 @@ export class CredentialPool {
           accountUuid: m.accountUuid,
           orgName: m.orgName,
           orgUuid: m.orgUuid,
+          mcpProviders: m.mcpProviders,
           createdAt: m.createdAt,
           updatedAt: m.updatedAt,
         }));

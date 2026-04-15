@@ -8,7 +8,14 @@ import type { Credential, CredentialGroup } from "@/app/actions/credentials";
 // Types
 // ---------------------------------------------------------------------------
 
-type SortColumn = "account" | "plan" | "tier" | "status" | "rateLimits" | "expires";
+type SortColumn =
+  | "account"
+  | "plan"
+  | "tier"
+  | "firstSeen"
+  | "tokenExpiry"
+  | "mcps"
+  | "rateLimits";
 type SortDirection = "asc" | "desc";
 
 interface SortState {
@@ -17,17 +24,11 @@ interface SortState {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers (duplicated from page — pure formatting, no server deps)
+// Helpers
 // ---------------------------------------------------------------------------
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-  return String(n);
-}
-
 function parseTier(tier: string | null): string {
-  if (!tier) return "—";
+  if (!tier) return "\u2014";
   const match = tier.match(/(\d+x)/);
   return match ? match[1]! : tier;
 }
@@ -39,19 +40,8 @@ function parseTierNumeric(tier: string | null): number {
 }
 
 function formatPlan(sub: string | null): string {
-  if (!sub) return "—";
+  if (!sub) return "\u2014";
   return sub.charAt(0).toUpperCase() + sub.slice(1);
-}
-
-function formatExpiry(expiresAt: string | null): string {
-  if (!expiresAt) return "—";
-  const now = Date.now();
-  const expires = new Date(expiresAt).getTime();
-  const diffMs = expires - now;
-  if (diffMs <= 0) return "expired";
-  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  if (days === 1) return "1d";
-  return `${days}d`;
 }
 
 function planBadgeColor(sub: string | null): { bg: string; fg: string } {
@@ -70,16 +60,100 @@ function planBadgeColor(sub: string | null): { bg: string; fg: string } {
   }
 }
 
-function statusColor(status: string): string {
-  switch (status) {
-    case "available":
-      return "var(--color-success)";
-    case "rate_limited":
-      return "var(--color-warning)";
-    case "expired":
-      return "var(--color-error)";
+/** Format a date string as relative time (e.g. "14d ago", "2h ago"). */
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "\u2014";
+  const now = Date.now();
+  const date = new Date(dateStr).getTime();
+  const diffMs = now - date;
+  const absDiff = Math.abs(diffMs);
+
+  const minutes = Math.floor(absDiff / (1000 * 60));
+  const hours = Math.floor(absDiff / (1000 * 60 * 60));
+  const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return "just now";
+}
+
+/** Format token expiry as relative time with direction. */
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return "\u2014";
+  const now = Date.now();
+  const expires = new Date(expiresAt).getTime();
+  const diffMs = expires - now;
+
+  if (diffMs <= 0) {
+    // Expired
+    const absDiff = Math.abs(diffMs);
+    const hours = Math.floor(absDiff / (1000 * 60 * 60));
+    const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+    if (days > 0) return `expired ${days}d ago`;
+    if (hours > 0) return `expired ${hours}h ago`;
+    return "expired";
+  }
+
+  // Not expired
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days > 0) return `in ${days}d`;
+  if (hours > 0) return `in ${hours}h`;
+  return `in <1h`;
+}
+
+/** Get color for token expiry based on time remaining. */
+function expiryColor(expiresAt: string | null): string {
+  if (!expiresAt) return "var(--color-fg-dim)";
+  const now = Date.now();
+  const expires = new Date(expiresAt).getTime();
+  const diffMs = expires - now;
+
+  if (diffMs <= 0) return "var(--color-error)";
+  if (diffMs < 24 * 60 * 60 * 1000) return "var(--color-warning)";
+  return "var(--color-success)";
+}
+
+/** Parse MCP providers from comma-separated string. */
+function parseMcpProviders(providers: string | null): string[] {
+  if (!providers) return [];
+  return providers.split(",").filter((p) => p.length > 0);
+}
+
+/** Get display label for an MCP provider. */
+function mcpLabel(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case "posthog":
+      return "P";
+    case "figma":
+      return "F";
+    case "slack":
+      return "S";
+    case "stripe":
+      return "St";
+    case "miro":
+      return "M";
     default:
-      return "var(--color-fg-dim)";
+      return provider.charAt(0).toUpperCase();
+  }
+}
+
+/** Get badge color for an MCP provider. */
+function mcpBadgeColor(provider: string): { bg: string; fg: string } {
+  switch (provider.toLowerCase()) {
+    case "posthog":
+      return { bg: "rgba(59, 130, 246, 0.15)", fg: "#3B82F6" };
+    case "figma":
+      return { bg: "rgba(168, 85, 247, 0.15)", fg: "#A855F7" };
+    case "slack":
+      return { bg: "rgba(34, 197, 94, 0.15)", fg: "#22C55E" };
+    case "stripe":
+      return { bg: "rgba(99, 102, 241, 0.15)", fg: "#6366F1" };
+    case "miro":
+      return { bg: "rgba(249, 115, 22, 0.15)", fg: "#F97316" };
+    default:
+      return { bg: "var(--color-surface-raised)", fg: "var(--color-fg-muted)" };
   }
 }
 
@@ -88,7 +162,7 @@ function statusColor(status: string): string {
 // ---------------------------------------------------------------------------
 
 function getExpiryTimestamp(expiresAt: string | null): number {
-  if (!expiresAt) return Infinity; // no expiry sorts last
+  if (!expiresAt) return Infinity;
   return new Date(expiresAt).getTime();
 }
 
@@ -111,14 +185,20 @@ function compareCredentials(
     case "tier": {
       return parseTierNumeric(a.rateLimitTier) - parseTierNumeric(b.rateLimitTier);
     }
-    case "status": {
-      return a.status.localeCompare(b.status);
+    case "firstSeen": {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    }
+    case "tokenExpiry": {
+      return getExpiryTimestamp(a.expiresAt) - getExpiryTimestamp(b.expiresAt);
+    }
+    case "mcps": {
+      return (
+        parseMcpProviders(a.mcpProviders).length -
+        parseMcpProviders(b.mcpProviders).length
+      );
     }
     case "rateLimits": {
       return a.rateLimitCount - b.rateLimitCount;
-    }
-    case "expires": {
-      return getExpiryTimestamp(a.expiresAt) - getExpiryTimestamp(b.expiresAt);
     }
   }
 }
@@ -181,8 +261,8 @@ function SortHeader({
 
 function PlanBadge({ subscriptionType }: { subscriptionType: string | null }) {
   const label = formatPlan(subscriptionType);
-  if (label === "—")
-    return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
+  if (label === "\u2014")
+    return <span style={{ color: "var(--color-fg-muted)" }}>{"\u2014"}</span>;
   const colors = planBadgeColor(subscriptionType);
   return (
     <span
@@ -202,58 +282,46 @@ function PlanBadge({ subscriptionType }: { subscriptionType: string | null }) {
   );
 }
 
-function StatusDot({ status }: { status: string }) {
-  const color = statusColor(status);
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--space-1_5)",
-        fontSize: "var(--font-size-xs)",
-        color,
-      }}
-    >
-      <span
-        style={{
-          display: "inline-block",
-          width: "6px",
-          height: "6px",
-          borderRadius: "var(--radius-full)",
-          background: color,
-        }}
-      />
-      {status}
-    </span>
-  );
-}
-
-function UsageCell({ group }: { group: CredentialGroup }) {
-  if (!group.usage) {
-    return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
-  }
-  const { input, output } = group.usage;
-  if (!input && !output) {
-    return <span style={{ color: "var(--color-fg-muted)" }}>—</span>;
+function McpBadges({ providers }: { providers: string | null }) {
+  const parsed = parseMcpProviders(providers);
+  if (parsed.length === 0) {
+    return <span style={{ color: "var(--color-fg-muted)" }}>{"\u2014"}</span>;
   }
   return (
-    <span
-      style={{
-        fontFamily: "var(--font-mono)",
-        fontSize: "var(--font-size-xs)",
-      }}
-    >
-      {formatNumber(input)} in / {formatNumber(output)} out
+    <span style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+      {parsed.map((provider) => {
+        const colors = mcpBadgeColor(provider);
+        return (
+          <span
+            key={provider}
+            title={provider}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "10px",
+              fontWeight: "var(--font-weight-medium)",
+              fontFamily: "var(--font-mono)",
+              color: colors.fg,
+              background: colors.bg,
+              padding: "1px 4px",
+              borderRadius: "2px",
+              lineHeight: 1.3,
+              letterSpacing: "0",
+            }}
+          >
+            {mcpLabel(provider)}
+          </span>
+        );
+      })}
     </span>
   );
 }
 
 function CredentialRow({
   credential,
-  group,
 }: {
   credential: Credential;
-  group: CredentialGroup;
 }) {
   const duplicateCount = credential.duplicates?.length ?? 0;
 
@@ -325,9 +393,40 @@ function CredentialRow({
         {parseTier(credential.rateLimitTier)}
       </td>
 
-      {/* Status */}
-      <td style={{ padding: "var(--space-2) var(--space-3)" }}>
-        <StatusDot status={credential.status} />
+      {/* First Seen */}
+      <td
+        style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-fg-dim)",
+          whiteSpace: "nowrap",
+        }}
+        suppressHydrationWarning
+      >
+        {formatRelativeTime(credential.createdAt)}
+      </td>
+
+      {/* Token Expiry */}
+      <td
+        style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          color: expiryColor(credential.expiresAt),
+          whiteSpace: "nowrap",
+        }}
+        suppressHydrationWarning
+      >
+        {formatExpiry(credential.expiresAt)}
+      </td>
+
+      {/* MCPs */}
+      <td
+        style={{
+          padding: "var(--space-2) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+        }}
+      >
+        <McpBadges providers={credential.mcpProviders} />
       </td>
 
       {/* Rate Limits */}
@@ -345,34 +444,6 @@ function CredentialRow({
       >
         {credential.rateLimitCount}
       </td>
-
-      {/* Expires */}
-      <td
-        style={{
-          padding: "var(--space-2) var(--space-3)",
-          fontSize: "var(--font-size-xs)",
-          color:
-            formatExpiry(credential.expiresAt) === "expired"
-              ? "var(--color-error)"
-              : "var(--color-fg-dim)",
-          whiteSpace: "nowrap",
-        }}
-        suppressHydrationWarning
-      >
-        {formatExpiry(credential.expiresAt)}
-      </td>
-
-      {/* Usage */}
-      <td
-        style={{
-          padding: "var(--space-2) var(--space-3)",
-          fontSize: "var(--font-size-xs)",
-          color: "var(--color-fg-dim)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        <UsageCell group={group} />
-      </td>
     </tr>
   );
 }
@@ -383,7 +454,6 @@ function CredentialRow({
 
 export function CredentialsTable({
   credentials,
-  credGroupMap,
 }: {
   credentials: Credential[];
   credGroupMap: Record<string, CredentialGroup>;
@@ -401,7 +471,6 @@ export function CredentialsTable({
       if (prev.direction === "asc") {
         return { column, direction: "desc" };
       }
-      // desc -> reset
       return { column: null, direction: null };
     });
   };
@@ -460,8 +529,20 @@ export function CredentialsTable({
               onSort={handleSort}
             />
             <SortHeader
-              label="Status"
-              column="status"
+              label="First Seen"
+              column="firstSeen"
+              current={sort}
+              onSort={handleSort}
+            />
+            <SortHeader
+              label="Token Expiry"
+              column="tokenExpiry"
+              current={sort}
+              onSort={handleSort}
+            />
+            <SortHeader
+              label="MCPs"
+              column="mcps"
               current={sort}
               onSort={handleSort}
             />
@@ -472,27 +553,6 @@ export function CredentialsTable({
               onSort={handleSort}
               align="right"
             />
-            <SortHeader
-              label="Expires"
-              column="expires"
-              current={sort}
-              onSort={handleSort}
-            />
-            {/* Usage — not sortable */}
-            <th
-              style={{
-                padding: "var(--space-2) var(--space-3)",
-                textAlign: "left",
-                fontSize: "var(--font-size-xs)",
-                fontWeight: "var(--font-weight-medium)",
-                color: "var(--color-fg-muted)",
-                textTransform: "uppercase",
-                letterSpacing: "var(--tracking-wide)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Usage (24h)
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -500,7 +560,6 @@ export function CredentialsTable({
             <CredentialRow
               key={cred.id}
               credential={cred}
-              group={credGroupMap[cred.id]!}
             />
           ))}
         </tbody>

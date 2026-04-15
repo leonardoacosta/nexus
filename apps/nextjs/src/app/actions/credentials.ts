@@ -31,6 +31,7 @@ export interface Credential {
   accountUuid: string | null;
   orgName: string | null;
   orgUuid: string | null;
+  mcpProviders: string | null;
   rateLimitCount: number;
   leasedBy: string | null;
   createdAt: string;
