@@ -51,8 +51,14 @@ function buildPlanSummary(credentials: Credential[]): string {
 // ---------------------------------------------------------------------------
 
 export default async function CredentialsPage() {
-  const { groups, credentials, totalAccounts, agentReachable, failedAgents } =
-    await fetchCredentials();
+  const {
+    groups,
+    credentials,
+    totalAccounts,
+    agentSource,
+    agentReachable,
+    failedAgents,
+  } = await fetchCredentials();
 
   const planSummary = buildPlanSummary(credentials);
 
@@ -103,6 +109,9 @@ export default async function CredentialsPage() {
         >
           {totalAccounts} account{totalAccounts !== 1 ? "s" : ""}
           {planSummary ? ` \u00b7 ${planSummary}` : ""}
+          {agentReachable && agentSource !== "unknown" ? (
+            <span style={{ opacity: 0.6 }}>{` \u00b7 via ${agentSource}`}</span>
+          ) : null}
         </span>
       </div>
 

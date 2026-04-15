@@ -15,7 +15,7 @@
 
 - [x] [3.1] [P-1] Create warning banner component for agent-unreachable state with failed agent list [owner:ui-engineer] [beads:nx-2flp]
 - [x] [3.2] [P-1] Update credential page to branch on `agentReachable`: show banner (false) vs table/empty (true) [owner:ui-engineer] [beads:nx-lzud]
-- [ ] [3.3] [P-2] Add "via <agentSource>" attribution to the page header when credentials load successfully [owner:ui-engineer] [beads:nx-hu52]
+- [x] [3.3] [P-2] Add "via <agentSource>" attribution to the page header when credentials load successfully [owner:ui-engineer] [beads:nx-hu52]
 
 ## Ops Batch
 
