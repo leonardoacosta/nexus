@@ -436,34 +436,9 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
 // [2.1] + [2.2] Integration assertions against the full nx repo
 //
 // These run against the real repo (REPO_ROOT) and pin the post-patch
-// baselines. If B2 ever drifts above 0 or A9 above 3, CI fails with a
-// pointer at the offending file.
+// baselines. Post-fix-audit-real-debt, A9 is also zero (baseline asserted
+// further below in the fix-audit-real-debt block).
 // ---------------------------------------------------------------------------
-
-/**
- * Expected A9 findings after the rule-fix patch landed.
- *
- * These are the real unhandled-rejection sites — each is a `.then(...)`
- * without a `.catch(...)` within 3 lines. Prior cleanup specs (e.g.
- * `finalize-audit-cleanup` tasks 3.13/3.14/2.8/2.9) claimed to fix these but
- * only covered a subset, so these three remained post-Wave 1. They are the
- * legitimate baseline, not bugs in the detection rule.
- *
- * If this list grows, a new .then(...) without .catch(...) has appeared in
- * production code and MUST be either:
- *   1. Refactored to add a .catch() handler (preferred), or
- *   2. Rewritten as `void someAsync()` if fire-and-forget is intentional,
- *      or
- *   3. Added to this list with a comment explaining why it's acceptable.
- *
- * If the list shrinks, one of the baseline sites was fixed — update this
- * constant to match the new reality.
- */
-const EXPECTED_A9_SITES: Array<{ file: string; line: number }> = [
-  { file: "apps/nextjs/src/components/CommandPalette.tsx", line: 131 },
-  { file: "apps/agent/src/session-manager.ts", line: 319 },
-  { file: "apps/agent/src/watcher-bridge.ts", line: 119 },
-];
 
 describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
   "audit-scan rule fixes — nx repo baseline",
@@ -482,31 +457,6 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       //   (b) the regex was reverted — re-apply the Wave 1 patch
       expect(b2.length).toBe(0);
     });
-
-    test("[2.2] A9 finding count matches the documented baseline (3 real unhandled rejections)", () => {
-      const report = runAuditScan();
-      const a9 = findingsWithId(report, "A9");
-
-      // Assert exact count — both over-counting (rule over-matches) and
-      // under-counting (new unhandled rejection crept in) should fail.
-      expect(a9.length).toBe(EXPECTED_A9_SITES.length);
-
-      // Assert each expected site is present. Building a set of file:line
-      // strings is cheap and produces a readable diff on failure.
-      const actualSites = new Set(a9.map((f) => `${f.file}:${f.line}`));
-      for (const expected of EXPECTED_A9_SITES) {
-        expect(actualSites.has(`${expected.file}:${expected.line}`)).toBe(true);
-      }
-
-      // And assert there are no *extra* sites — if the rule starts matching
-      // a new file, the test must fail loud so the reviewer decides: fix the
-      // rejection, mark it `void`, or (rare) add it to the baseline list.
-      const expectedSites = new Set(
-        EXPECTED_A9_SITES.map((s) => `${s.file}:${s.line}`),
-      );
-      const unexpected = [...actualSites].filter((s) => !expectedSites.has(s));
-      expect(unexpected).toEqual([]);
-    });
   },
 );
 
@@ -521,24 +471,6 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
 //
 // Spec: openspec/changes/extend-audit-suppressions/specs/audit-suppressions/spec.md
 // ---------------------------------------------------------------------------
-
-/**
- * Expected F2 (console.error outside apps/agent) findings on the nx repo
- * after the extend-audit-suppressions change.
- *
- * These three sites are documented UI debt tracked in beads issue nx-agsx
- * ("Fix remaining F2 UI console.error sites"). They are intentionally NOT
- * suppressed — the suppression config only excuses CLI scripts and migration
- * runners, which are the intentional console-output channel.
- *
- * Under-count means someone fixed a site without updating this baseline.
- * Over-count means new real F2 debt was introduced in product UI code.
- */
-const EXPECTED_F2_SITES: Array<{ file: string; line: number }> = [
-  { file: "apps/nextjs/src/components/CommandPalette.tsx", line: 136 },
-  { file: "apps/nextjs/src/components/CommandPalette.tsx", line: 139 },
-  { file: "apps/nextjs/src/components/LazyTerminalPanel.tsx", line: 8 },
-];
 
 describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
   "extend-audit-suppressions — post-suppression nx repo baseline",
@@ -567,49 +499,131 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       // self-ref + nexus-status + tailscale (extend-audit-suppressions).
       expect(d4.length).toBe(0);
     });
+  },
+);
 
-    test("[2.1] F2 finding count is exactly 3 with the documented UI-debt sites", () => {
+// ---------------------------------------------------------------------------
+// [5.1] + [5.2] fix-audit-real-debt baselines
+//
+// This spec cleaned up real debt (SQL placeholders, fetch timeouts, timestamp
+// timezones, console.error → Sentry migration, findMany limits) AND closed
+// suppression gaps for the remaining tool-noise categories (A3 migrations,
+// A4 CLI, E7 self-ref, Bun.serve). Score climbed 83 → 99.
+//
+// Follow-up work moved to beads (not asserted here):
+//   - A5 TODO resolution:         nx-fa79, nx-qgnq
+//   - A12 commented-code cleanup: nx-mnrr, nx-9yrx
+//   - B4 production-file splits:  nx-iwu3
+//   - Bun.serve rule refinement:  nx-77ra
+//   - A9 rule refinement:         nx-at1t
+//
+// Intentionally NOT asserted (info-level edge cases, no cleanup planned):
+//   - B3 (god-module)         — 1 finding, architectural observation
+//   - C11 (soft-delete)       — 1 finding, domain-model trade-off
+//   - F5 (PostHog reference)  — 1 finding, third-party SDK
+//   - F8 (/api/health route)  — 1 finding, intentional health endpoint
+//   - G10 (env naming)        — 1 finding, existing convention
+//
+// Spec: openspec/changes/fix-audit-real-debt/specs/audit-debt-baselines/spec.md
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "fix-audit-real-debt — post-cleanup nx repo baseline",
+  () => {
+    test("[5.1] A3 finding count is zero (console.warn suppressed in migrations + autoSkipTestFiles)", () => {
+      const report = runAuditScan();
+      const a3 = findingsWithId(report, "A3");
+      expect(a3.length).toBe(0);
+    });
+
+    test("[5.1] A4 finding count is zero (console.error CLI suppressed + UI Sentry-migrated)", () => {
+      const report = runAuditScan();
+      const a4 = findingsWithId(report, "A4");
+      expect(a4.length).toBe(0);
+    });
+
+    test("[5.1] A9 finding count is zero (session-manager + watcher-bridge + CommandPalette all addressed)", () => {
+      const report = runAuditScan();
+      const a9 = findingsWithId(report, "A9");
+
+      // Previously baselined at 3 sites (session-manager.ts:319,
+      // watcher-bridge.ts:119, CommandPalette.tsx:131). All resolved or
+      // rule-refined under fix-audit-real-debt tasks 2.4 + 3.3. See
+      // nx-at1t for any rule-refinement follow-up.
+      expect(a9.length).toBe(0);
+    });
+
+    test("[5.1] C2 finding count is zero (timestamps withTimezone)", () => {
+      const report = runAuditScan();
+      const c2 = findingsWithId(report, "C2");
+      expect(c2.length).toBe(0);
+    });
+
+    test("[5.1] C5 finding count is zero (SQL placeholders)", () => {
+      const report = runAuditScan();
+      const c5 = findingsWithId(report, "C5");
+      expect(c5.length).toBe(0);
+    });
+
+    test("[5.1] C15 finding count is zero (findMany limits)", () => {
+      const report = runAuditScan();
+      const c15 = findingsWithId(report, "C15");
+      expect(c15.length).toBe(0);
+    });
+
+    test("[5.1] D5 finding count is zero (constant-literal dangerouslySetInnerHTML suppressed)", () => {
+      const report = runAuditScan();
+      const d5 = findingsWithId(report, "D5");
+
+      // credentials/page.tsx:80 renders a constant literal (not user data)
+      // and is suppressed in .audit-suppressions.json with a justification.
+      // Spec permits either 0 (suppressed) or exactly 1 (retained with
+      // comment). Current state: suppressed, so asserting 0.
+      expect(d5.length).toBe(0);
+    });
+
+    test("[5.1] E7 finding count is zero (fetch timeouts + self-ref suppressed + Bun.serve suppressed)", () => {
+      const report = runAuditScan();
+      const e7 = findingsWithId(report, "E7");
+
+      // Spec permits either 0 (self-ref suppressed) or 1 (packages/core/src/
+      // fetch.ts self-ref only). Current state: suppressed, so asserting 0.
+      expect(e7.length).toBe(0);
+    });
+
+    test("[5.1] F2 finding count is zero (CommandPalette + LazyTerminalPanel migrated to Sentry)", () => {
       const report = runAuditScan();
       const f2 = findingsWithId(report, "F2");
 
-      // F2=3 is documented UI debt tracked in beads issue nx-agsx (Fix
-      // remaining F2 UI console.error sites). Under-count means someone
-      // fixed without updating; over-count means new real debt was
-      // introduced.
-      expect(f2.length).toBe(EXPECTED_F2_SITES.length);
-
-      // Exact file:line match — ensures the fixes land at the right sites,
-      // not that an unrelated new F2 appeared while a baseline site was
-      // silently fixed.
-      const actualSites = new Set(f2.map((f) => `${f.file}:${f.line}`));
-      for (const expected of EXPECTED_F2_SITES) {
-        expect(actualSites.has(`${expected.file}:${expected.line}`)).toBe(true);
-      }
-
-      const expectedSites = new Set(
-        EXPECTED_F2_SITES.map((s) => `${s.file}:${s.line}`),
-      );
-      const unexpected = [...actualSites].filter((s) => !expectedSites.has(s));
-      expect(unexpected).toEqual([]);
+      // Previously baselined at 3 sites (CommandPalette.tsx:136, :139,
+      // LazyTerminalPanel.tsx:8). All migrated to Sentry.captureException
+      // under fix-audit-real-debt tasks 3.1 + 3.2.
+      expect(f2.length).toBe(0);
     });
 
-    test("[2.1] suppressions.by_config reflects the new stanzas (>= 60)", () => {
+    test("[5.1] suppressions.by_config reflects expanded stanzas (>= 100)", () => {
       const report = runAuditScan();
 
-      // by_config climbed from 4 to 70 after extend-audit-suppressions added
-      // A2/F2/E5/D4 entries. Using >= 60 to tolerate minor rule drift while
-      // still catching a wholesale revert of the new stanzas.
-      expect(report.suppressions.by_config).toBeGreaterThanOrEqual(60);
+      // by_config trajectory:
+      //   extend-audit-suppressions: 4  → 70
+      //   fix-audit-real-debt:      70 → 104
+      // Using >= 100 to tolerate minor rule drift while still catching a
+      // wholesale revert of the new stanzas.
+      expect(report.suppressions.by_config).toBeGreaterThanOrEqual(100);
     });
 
-    test("[2.2] composite audit score meets the post-suppression target (>= 83)", () => {
+    test("[5.2] composite audit score meets the post-cleanup floor (>= 88)", () => {
       const report = runAuditScan();
 
-      // Composite baseline lifted from 71 (post-B2/A9-rule-fixes) to 83
-      // (post-extend-audit-suppressions). Movement reflects removal of 66
-      // tool-noise findings, not new product work. Target from spec:
-      // `composite >= 83`; stretch target 87+ is tracked as future debt work.
-      expect(report.score).toBeGreaterThanOrEqual(83);
+      // Composite score trajectory across audit waves:
+      //   finalize-audit-cleanup:   72 → 71   (suppression infrastructure)
+      //   fix-audit-scan-rules:     71 → 77   (B2/A9 rule bug fixes)
+      //   extend-audit-suppressions: 77 → 83   (tool-noise suppressions)
+      //   fix-audit-real-debt:      83 → 99   (real debt + final gaps)
+      //
+      // Spec requires floor of 88 (not strict equality) to leave room for
+      // minor rule drift as audit-scan evolves. Current actual: 99.
+      expect(report.score).toBeGreaterThanOrEqual(88);
     });
   },
 );

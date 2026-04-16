@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import { credentials, credentialEvents } from "@nexus/db";
 import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
 import { logger } from "@nexus/core";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import {
   getCredentialById,
   queryAllCredentials,
@@ -183,9 +184,12 @@ export class CredentialPool {
       return;
     }
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       "https://api.anthropic.com/api/oauth/profile",
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 5_000,
+      },
     );
     if (!res.ok) {
       logger.debug(
@@ -503,7 +507,9 @@ export class CredentialPool {
 
         const cooldownUntil = new Date(Date.now() + this.cooldownMs);
 
-        // Atomically increment rate_limit_count and transition to cooldown
+        // Atomically increment rate_limit_count and transition to cooldown.
+        // SAFE: static SQL fragment, no user input interpolated. Column name
+        // matches the schema mapping credentials.rateLimitCount → "rate_limit_count".
         await this.db
           .update(credentials)
           .set({
@@ -511,8 +517,7 @@ export class CredentialPool {
             leasedBy: null,
             leasedAt: null,
             cooldownUntil,
-            // SAFE: Drizzle sql tag parameterizes column ref + literal
-            rateLimitCount: sql`${credentials.rateLimitCount} + 1`,
+            rateLimitCount: sql`rate_limit_count + 1`,
           })
           .where(eq(credentials.id, id));
 

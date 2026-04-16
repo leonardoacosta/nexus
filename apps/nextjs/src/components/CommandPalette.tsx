@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 import type { Session } from "@nexus/core";
 import type { WithAgent } from "@/lib/agent-client";
 import { fetchSessions } from "@/app/actions/sessions";
@@ -133,10 +134,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         setSessions(result.sessions);
       }
     }).catch((err: unknown) => {
-      // No Sentry available — structured console.error is the best we have.
-      // TODO(sentry): Replace with Sentry.captureException(err) when Sentry is integrated.
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[CommandPalette] Failed to fetch sessions:", message);
+      const error = err instanceof Error ? err : new Error(String(err));
+      Sentry.captureException(error, {
+        tags: { component: "CommandPalette" },
+        extra: { operation: "fetchSessions" },
+      });
     });
 
     return () => {

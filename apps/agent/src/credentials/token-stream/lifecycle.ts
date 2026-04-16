@@ -15,8 +15,8 @@ import {
   eq,
   and,
   inArray,
-  sql,
 } from "@nexus/db";
+import { ne } from "drizzle-orm";
 import { createLogger } from "@nexus/core";
 
 import { locateTranscript } from "./transcript-locator";
@@ -173,7 +173,7 @@ export class TokenStreamLifecycle {
         and(
           inArray(sessions.id, sessionIds),
           // Only resume for non-ended sessions
-          sql`${sessions.status} != 'ended'`,
+          ne(sessions.status, "ended"),
         ),
       );
 

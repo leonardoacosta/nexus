@@ -10,6 +10,7 @@
 import { createDb } from "@nexus/db";
 import { credentials } from "@nexus/db";
 import { eq } from "drizzle-orm";
+import { fetchWithTimeout } from "@nexus/core/fetch";
 import { loadEncryptionKey, decrypt } from "../credentials/encryption";
 
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
@@ -76,8 +77,9 @@ async function main() {
         continue;
       }
 
-      const res = await fetch(PROFILE_URL, {
+      const res = await fetchWithTimeout(PROFILE_URL, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 5_000,
       });
 
       if (!res.ok) {

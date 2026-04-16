@@ -6,6 +6,7 @@ import {
   and,
   sql,
 } from "@nexus/db";
+import { gte } from "drizzle-orm";
 import { createLogger } from "@nexus/core";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import {
@@ -536,7 +537,7 @@ export async function handleCredentialUsage(
     .where(
       and(
         eq(sessionTokenTurns.credentialFingerprint, fingerprint),
-        sql`${sessionTokenTurns.ts} >= ${windowStart}`,
+        gte(sessionTokenTurns.ts, windowStart),
       ),
     );
 

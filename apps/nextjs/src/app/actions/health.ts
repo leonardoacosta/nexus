@@ -1,7 +1,7 @@
 "use server";
 
 import type { HealthMetrics } from "@nexus/core";
-import { healthSnapshots, agents, eq, desc, sql } from "@nexus/db";
+import { healthSnapshots, agents, eq, and, desc, sql } from "@nexus/db";
 import { getDb } from "@/lib/db";
 import type { WithAgent, AgentStatus } from "@/lib/agent-client";
 
@@ -46,7 +46,10 @@ export async function fetchHealth(): Promise<HealthResult> {
       .from(healthSnapshots)
       .innerJoin(
         latestPerAgent,
-        sql`${healthSnapshots.agentId} = ${latestPerAgent.agentId} AND ${healthSnapshots.id} = ${latestPerAgent.maxId}`,
+        and(
+          eq(healthSnapshots.agentId, latestPerAgent.agentId),
+          eq(healthSnapshots.id, latestPerAgent.maxId),
+        ),
       )
       .orderBy(desc(healthSnapshots.timestamp)),
     db

@@ -6,7 +6,7 @@ export const sessionTokenWatcherState = pgTable(
     sessionId: text("session_id").primaryKey(),
     transcriptPath: text("transcript_path").notNull(),
     byteOffset: bigint("byte_offset", { mode: "number" }).notNull().default(0),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .notNull()
       .$defaultFn(() => new Date()),
   },

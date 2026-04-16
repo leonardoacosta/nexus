@@ -1,11 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import * as Sentry from "@sentry/nextjs";
 
 const TerminalPanel = dynamic(
   () =>
-    import("./TerminalPanel").then((m) => m.TerminalPanel).catch((err) => {
-      console.error("[LazyTerminalPanel] Failed to load TerminalPanel:", err);
+    import("./TerminalPanel").then((m) => m.TerminalPanel).catch((err: unknown) => {
+      Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
+        tags: { component: "LazyTerminalPanel" },
+      });
       // Return a fallback component so the page doesn't crash
       const Fallback = ({ agentHost: _a, sessionId: _s }: { agentHost: string; sessionId: string }) => (
         <div

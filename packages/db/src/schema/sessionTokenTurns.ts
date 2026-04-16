@@ -15,7 +15,7 @@ export const sessionTokenTurns = pgTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     sessionId: text("session_id").notNull(),
-    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    ts: timestamp("ts", { mode: "date", withTimezone: true }).notNull(),
     model: text("model").notNull(),
     serviceTier: text("service_tier"),
     inputTokens: integer("input_tokens").notNull(),
