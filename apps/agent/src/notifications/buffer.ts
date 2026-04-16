@@ -92,7 +92,8 @@ export async function queryNotificationsByStatus(
     .select()
     .from(notifications)
     .where(eq(notifications.status, status))
-    .orderBy(asc(notifications.createdAt));
+    .orderBy(asc(notifications.createdAt))
+    .limit(500);
 }
 
 /** Mark a notification as delivered. */

@@ -6,12 +6,14 @@
         "apps/agent/src/terminal/pty-source.ts",
         "apps/agent/src/services/pty*"
       ],
-      "reason": "tmux harness management is the product — spawn is core capability, wrapped by safeSpawn"
+      "reason": "tmux harness management is the product \u2014 spawn is core capability, wrapped by safeSpawn"
     },
     {
       "id": "D4",
-      "paths": ["apps/agent/src/watcher-bridge.ts"],
-      "reason": "Claude Code hook relay — spawns CC binary with validated project paths, migrated to safeSpawn"
+      "paths": [
+        "apps/agent/src/watcher-bridge.ts"
+      ],
+      "reason": "Claude Code hook relay \u2014 spawns CC binary with validated project paths, migrated to safeSpawn"
     },
     {
       "id": "D4",
@@ -19,7 +21,7 @@
         "apps/agent/src/utils/exec.ts",
         "apps/agent/src/routes/projects-discovered.ts"
       ],
-      "reason": "safeSpawn re-export + git discovery — both migrated to safeSpawn wrapper"
+      "reason": "safeSpawn re-export + git discovery \u2014 both migrated to safeSpawn wrapper"
     },
     {
       "id": "A2",
@@ -30,7 +32,7 @@
         "apps/agent/src/scripts/probe-credential-identity.ts",
         "packages/db/src/migrate.ts"
       ],
-      "reason": "CLI one-shot scripts and migration runner — console.log/error IS the intended output channel, not a leaked debug statement"
+      "reason": "CLI one-shot scripts and migration runner \u2014 console.log/error IS the intended output channel, not a leaked debug statement"
     },
     {
       "id": "F2",
@@ -41,7 +43,7 @@
         "apps/agent/src/scripts/probe-credential-identity.ts",
         "packages/db/src/migrate.ts"
       ],
-      "reason": "CLI one-shot scripts — console.error IS the intended stderr channel; no Sentry instrumentation because these exit immediately"
+      "reason": "CLI one-shot scripts \u2014 console.error IS the intended stderr channel; no Sentry instrumentation because these exit immediately"
     },
     {
       "id": "E5",
@@ -53,7 +55,7 @@
         "apps/agent/src/db/agent-registry.ts",
         "apps/nexus-status/src/**"
       ],
-      "reason": "Boot-phase config loaders and CLI utilities — sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths"
+      "reason": "Boot-phase config loaders and CLI utilities \u2014 sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths"
     },
     {
       "id": "D4",
@@ -63,7 +65,19 @@
         "apps/agent/src/db/agent-registry.ts"
       ],
       "reason": "Trusted execs: safe-spawn.ts is the wrapper itself (self-reference); nexus-status runs constant-arg git probes with no user input; agent-registry runs `tailscale ip -4` with no interpolation"
+    },
+    {
+      "id": "C15",
+      "paths": [
+        "packages/db/src/schema/notifications.ts"
+      ],
+      "reason": "Example query in JSDoc comment demonstrating relational query syntax \u2014 actual queryNotificationsByStatus() in buffer.ts fixed with .limit(500)"
     }
   ],
-  "autoSkipTestFiles": ["E7", "E5", "D4", "A6"]
+  "autoSkipTestFiles": [
+    "E7",
+    "E5",
+    "D4",
+    "A6"
+  ]
 }
