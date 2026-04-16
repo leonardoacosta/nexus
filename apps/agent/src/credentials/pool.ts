@@ -59,6 +59,14 @@ export interface CredentialPromoteResult {
   previousPrimary: string | null;
 }
 
+/** Result of a manual credential swap. */
+export type ManualSwapResult = {
+  /** The credential that was parked on cooldown (null if target was already best-available). */
+  parked: CredentialRow | null;
+  /** The target credential that is now the preferred available credential. */
+  activated: CredentialRow;
+};
+
 /**
  * Trimmed credential representation nested under a primary's `duplicates`
  * array in the `GET /credentials` response. Intentionally excludes
@@ -636,6 +644,98 @@ export class CredentialPool {
             previousPrimary,
           };
         });
+      },
+    );
+  }
+
+  /**
+   * Force the pool to prefer a specific credential by parking the current
+   * best-available on a timed cooldown. Intended for external callers (tmux
+   * menus) that need to manually switch the active credential.
+   *
+   * @returns The swap result, or `null` if `targetId` is not found in the DB.
+   * @throws Error("target credential is in cooldown") when the target is
+   *   currently cooling down and cannot be activated.
+   */
+  async manualSwap(targetId: string): Promise<ManualSwapResult | null> {
+    return Sentry.startSpan(
+      { name: "credential.manual_swap", attributes: { targetId } },
+      async () => {
+        // 1. Look up targetId in the DB.
+        const target = await getCredentialById(this.db, targetId);
+        if (!target) {
+          return null;
+        }
+
+        // 2. If target is in cooldown status, throw.
+        if (target.status === "cooldown") {
+          throw new Error("target credential is in cooldown");
+        }
+
+        // 3. Find the current "best available" credential (excluding the target).
+        const bestRows = await this.db
+          .select()
+          .from(credentials)
+          .where(
+            and(
+              eq(credentials.status, "available"),
+              eq(credentials.isPrimary, true),
+            ),
+          )
+          .orderBy(
+            asc(credentials.rateLimitCount),
+            sql`leased_at asc nulls first`,
+          )
+          .limit(2); // fetch up to 2 so we can exclude target and still have one
+
+        const bestAvailable = bestRows.find((r) => r.id !== targetId) ?? null;
+
+        // If no other best-available found, target is already the only/best.
+        if (!bestAvailable) {
+          logger.info(
+            { targetId, event: "credential.manual_swap" },
+            "manual swap: target is already best-available, no parking needed",
+          );
+          return { parked: null, activated: target };
+        }
+
+        // 4. Park the best-available credential on cooldown.
+        const cooldownUntil = new Date(Date.now() + this.cooldownMs);
+        await this.db
+          .update(credentials)
+          .set({
+            status: "cooldown",
+            cooldownUntil,
+            leasedBy: null,
+            leasedAt: null,
+          })
+          .where(eq(credentials.id, bestAvailable.id));
+
+        // 5. Emit credential events for both.
+        void this.emitEvent(bestAvailable.id, "manual_swap_out");
+        void this.emitEvent(targetId, "manual_swap_in");
+
+        // 6. Re-fetch both rows to return the final state.
+        const parkedRow = await getCredentialById(this.db, bestAvailable.id);
+        const activatedRow = await getCredentialById(this.db, targetId);
+
+        logger.info(
+          {
+            targetId,
+            parkedId: bestAvailable.id,
+            cooldownUntil,
+            event: "credential.manual_swap",
+          },
+          "manual swap: parked current best-available, target is now preferred",
+        );
+        Sentry.addBreadcrumb({
+          category: "credential",
+          message: "manual credential swap",
+          level: "info",
+          data: { targetId, parkedId: bestAvailable.id, cooldownUntil },
+        });
+
+        return { parked: parkedRow, activated: activatedRow! };
       },
     );
   }
