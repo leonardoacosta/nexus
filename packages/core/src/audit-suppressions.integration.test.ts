@@ -111,6 +111,8 @@ interface AuditSuppressions {
 interface AuditReport {
   findings: AuditFinding[];
   suppressions: AuditSuppressions;
+  /** Composite 0–100 audit score. Used by extend-audit-suppressions baseline. */
+  score: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +506,110 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       );
       const unexpected = [...actualSites].filter((s) => !expectedSites.has(s));
       expect(unexpected).toEqual([]);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// [2.1] + [2.2] extend-audit-suppressions baselines
+//
+// Wave 1 of extend-audit-suppressions shipped 4 new suppression entries in
+// .audit-suppressions.json (A2 CLI-scripts, F2 CLI-scripts, E5 boot-phase
+// loaders, D4 safeSpawn self-ref + nexus-status + tailscale). These tests pin
+// the resulting per-rule baselines so a silent revert of any suppression
+// stanza — or a new real finding in a suppressed category — fails CI.
+//
+// Spec: openspec/changes/extend-audit-suppressions/specs/audit-suppressions/spec.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Expected F2 (console.error outside apps/agent) findings on the nx repo
+ * after the extend-audit-suppressions change.
+ *
+ * These three sites are documented UI debt tracked in beads issue nx-agsx
+ * ("Fix remaining F2 UI console.error sites"). They are intentionally NOT
+ * suppressed — the suppression config only excuses CLI scripts and migration
+ * runners, which are the intentional console-output channel.
+ *
+ * Under-count means someone fixed a site without updating this baseline.
+ * Over-count means new real F2 debt was introduced in product UI code.
+ */
+const EXPECTED_F2_SITES: Array<{ file: string; line: number }> = [
+  { file: "apps/nextjs/src/components/CommandPalette.tsx", line: 136 },
+  { file: "apps/nextjs/src/components/CommandPalette.tsx", line: 139 },
+  { file: "apps/nextjs/src/components/LazyTerminalPanel.tsx", line: 8 },
+];
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "extend-audit-suppressions — post-suppression nx repo baseline",
+  () => {
+    test("[2.1] A2 finding count is zero on the nx repo", () => {
+      const report = runAuditScan();
+      const a2 = findingsWithId(report, "A2");
+
+      // A2 suppressed via .audit-suppressions.json (CLI scripts + migrate.ts).
+      expect(a2.length).toBe(0);
+    });
+
+    test("[2.1] E5 finding count is zero on the nx repo", () => {
+      const report = runAuditScan();
+      const e5 = findingsWithId(report, "E5");
+
+      // E5 suppressed via .audit-suppressions.json (boot-phase loaders).
+      expect(e5.length).toBe(0);
+    });
+
+    test("[2.1] D4 finding count is zero on the nx repo", () => {
+      const report = runAuditScan();
+      const d4 = findingsWithId(report, "D4");
+
+      // D4 fully suppressed: tmux/CC wrappers (pre-existing) + safeSpawn
+      // self-ref + nexus-status + tailscale (extend-audit-suppressions).
+      expect(d4.length).toBe(0);
+    });
+
+    test("[2.1] F2 finding count is exactly 3 with the documented UI-debt sites", () => {
+      const report = runAuditScan();
+      const f2 = findingsWithId(report, "F2");
+
+      // F2=3 is documented UI debt tracked in beads issue nx-agsx (Fix
+      // remaining F2 UI console.error sites). Under-count means someone
+      // fixed without updating; over-count means new real debt was
+      // introduced.
+      expect(f2.length).toBe(EXPECTED_F2_SITES.length);
+
+      // Exact file:line match — ensures the fixes land at the right sites,
+      // not that an unrelated new F2 appeared while a baseline site was
+      // silently fixed.
+      const actualSites = new Set(f2.map((f) => `${f.file}:${f.line}`));
+      for (const expected of EXPECTED_F2_SITES) {
+        expect(actualSites.has(`${expected.file}:${expected.line}`)).toBe(true);
+      }
+
+      const expectedSites = new Set(
+        EXPECTED_F2_SITES.map((s) => `${s.file}:${s.line}`),
+      );
+      const unexpected = [...actualSites].filter((s) => !expectedSites.has(s));
+      expect(unexpected).toEqual([]);
+    });
+
+    test("[2.1] suppressions.by_config reflects the new stanzas (>= 60)", () => {
+      const report = runAuditScan();
+
+      // by_config climbed from 4 to 70 after extend-audit-suppressions added
+      // A2/F2/E5/D4 entries. Using >= 60 to tolerate minor rule drift while
+      // still catching a wholesale revert of the new stanzas.
+      expect(report.suppressions.by_config).toBeGreaterThanOrEqual(60);
+    });
+
+    test("[2.2] composite audit score meets the post-suppression target (>= 83)", () => {
+      const report = runAuditScan();
+
+      // Composite baseline lifted from 71 (post-B2/A9-rule-fixes) to 83
+      // (post-extend-audit-suppressions). Movement reflects removal of 66
+      // tool-noise findings, not new product work. Target from spec:
+      // `composite >= 83`; stretch target 87+ is tracked as future debt work.
+      expect(report.score).toBeGreaterThanOrEqual(83);
     });
   },
 );

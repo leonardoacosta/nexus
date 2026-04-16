@@ -20,6 +20,49 @@
         "apps/agent/src/routes/projects-discovered.ts"
       ],
       "reason": "safeSpawn re-export + git discovery — both migrated to safeSpawn wrapper"
+    },
+    {
+      "id": "A2",
+      "paths": [
+        "apps/agent/src/scripts/backfill-credential-metadata.ts",
+        "apps/agent/src/scripts/backfill-mcp-providers.ts",
+        "apps/agent/src/scripts/import-credentials.ts",
+        "apps/agent/src/scripts/probe-credential-identity.ts",
+        "packages/db/src/migrate.ts"
+      ],
+      "reason": "CLI one-shot scripts and migration runner — console.log/error IS the intended output channel, not a leaked debug statement"
+    },
+    {
+      "id": "F2",
+      "paths": [
+        "apps/agent/src/scripts/backfill-credential-metadata.ts",
+        "apps/agent/src/scripts/backfill-mcp-providers.ts",
+        "apps/agent/src/scripts/import-credentials.ts",
+        "apps/agent/src/scripts/probe-credential-identity.ts",
+        "packages/db/src/migrate.ts"
+      ],
+      "reason": "CLI one-shot scripts — console.error IS the intended stderr channel; no Sentry instrumentation because these exit immediately"
+    },
+    {
+      "id": "E5",
+      "paths": [
+        "packages/core/src/config.ts",
+        "apps/agent/src/services/config-loader.ts",
+        "apps/agent/src/services/spec-watcher.ts",
+        "apps/agent/src/services/command-registry.ts",
+        "apps/agent/src/db/agent-registry.ts",
+        "apps/nexus-status/src/**"
+      ],
+      "reason": "Boot-phase config loaders and CLI utilities — sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths"
+    },
+    {
+      "id": "D4",
+      "paths": [
+        "packages/core/src/safe-spawn.ts",
+        "apps/nexus-status/src/**",
+        "apps/agent/src/db/agent-registry.ts"
+      ],
+      "reason": "Trusted execs: safe-spawn.ts is the wrapper itself (self-reference); nexus-status runs constant-arg git probes with no user input; agent-registry runs `tailscale ip -4` with no interpolation"
     }
   ],
   "autoSkipTestFiles": ["E7", "E5", "D4", "A6"]
