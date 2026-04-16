@@ -36,6 +36,7 @@ import {
   handleDeleteCredential,
   handlePromoteCredential,
   handleCredentialUsage,
+  handleSwapCredential,
 } from "./routes/credentials";
 import {
   handleGetSpecsAll,
@@ -428,6 +429,15 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
       requiresDb: true,
       handler() {
         return handleListCredentials();
+      },
+    },
+    // credential-swap: manual account switch by name
+    {
+      method: "POST",
+      path: "/credentials/swap",
+      requiresDb: true,
+      handler(req) {
+        return handleSwapCredential(req);
       },
     },
 
