@@ -10,13 +10,20 @@
       "persistent": true
     },
     "lint": {
-      "dependsOn": ["^build", "lint:sql-safety"]
+      "dependsOn": ["^build", "lint:sql-safety", "lint:audit-suppressions"]
     },
     "lint:sql-safety": {
       "cache": false
     },
+    "lint:audit-suppressions": {
+      "cache": false
+    },
     "typecheck": {
       "dependsOn": ["^build"]
+    },
+    "test": {
+      "cache": false,
+      "env": ["POSTGRES_URL", "NEXUS_ATTACH_SECRET"]
     }
   }
 }

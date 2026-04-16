@@ -1,0 +1,89 @@
+# db-integrity Specification
+
+## Purpose
+TBD - created by archiving change finalize-audit-cleanup. Update Purpose after archive.
+## Requirements
+### Requirement: agent_id column on agent-scoped tables
+
+`health_snapshots`, `credentials`, and `notifications` SHALL have an `agent_id text` column with a foreign key to `agents.id`. `health_snapshots.agent_id` SHALL be `NOT NULL` with `ON DELETE CASCADE`. `credentials.agent_id` and `notifications.agent_id` SHALL be nullable with `ON DELETE SET NULL`, where NULL means "shared across all agents".
+
+#### Scenario: health_snapshots has agent_id populated
+
+- **GIVEN** the migration has run
+- **WHEN** a row is queried from `health_snapshots`
+- **THEN** the row SHALL have a non-null `agent_id` referencing a valid `agents.id`
+- **AND** existing pre-migration rows SHALL have been backfilled with the current sole agent's id
+
+#### Scenario: credentials NULL agent_id means shared
+
+- **WHEN** a credential is inserted with `agent_id = NULL`
+- **THEN** the row SHALL be interpreted as "available to all agents"
+- **AND** the pool query in `apps/agent/src/credentials/pool.ts` SHALL accept NULL matches
+
+#### Scenario: Deleting an agent preserves shared credentials
+
+- **GIVEN** an agent with 2 agent-scoped credentials and 3 shared (NULL agent_id) credentials in the pool
+- **WHEN** the agent is deleted
+- **THEN** the 2 agent-scoped credentials' `agent_id` SHALL be set to NULL
+- **AND** the 3 shared credentials SHALL remain untouched
+
+### Requirement: Drizzle relations for all tables
+
+`packages/db/src/schema/*` SHALL define `relations()` for every table that participates in a foreign key. The barrel export SHALL expose these relations alongside the table definitions.
+
+#### Scenario: Sessions has relations to project and agent
+
+- **GIVEN** `packages/db/src/schema/sessions.ts`
+- **WHEN** the file is read
+- **THEN** it SHALL export a `sessionsRelations` via `relations(sessions, ({ one }) => ({ project: one(projects), agent: one(agents) }))`
+- **AND** `db.query.sessions.findMany({ with: { project: true, agent: true } })` SHALL work at runtime
+
+#### Scenario: All agent-scoped tables have relations
+
+- **WHEN** `packages/db/src/schema/*.ts` is scanned
+- **THEN** every table with an `agent_id` or `machine` FK column SHALL have a matching `relations()` definition with a `one(agents)` entry
+- **AND** audit-scan SHALL report zero C10 findings
+
+### Requirement: sessions.project_id uuid with FK
+
+`sessions` SHALL have exactly one column referencing projects: `project_id uuid REFERENCES projects(id) ON DELETE SET NULL`. The legacy `sessions.project text NOT NULL` column and the dead `sessions.project_id text` nullable column SHALL be dropped.
+
+#### Scenario: Schema has one project reference
+
+- **WHEN** the sessions table is described in Postgres
+- **THEN** it SHALL have a single `project_id` column with type `uuid`
+- **AND** SHALL NOT have a `project` column
+- **AND** SHALL have a foreign key constraint `sessions_project_id_fkey` referencing `projects(id) ON DELETE SET NULL`
+
+#### Scenario: Migration drops old columns cleanly
+
+- **WHEN** the generated migration runs against the current DB (0 sessions rows)
+- **THEN** it SHALL `DROP COLUMN project` and `DROP COLUMN project_id` (the text variant)
+- **AND** `ADD COLUMN project_id uuid REFERENCES projects(id) ON DELETE SET NULL`
+- **AND** SHALL NOT require any backfill (empty table)
+
+#### Scenario: Deleting a project nulls session references
+
+- **GIVEN** a project with 5 historical sessions referencing it via `project_id`
+- **WHEN** the project is deleted
+- **THEN** all 5 sessions SHALL remain in the database
+- **AND** their `project_id` column SHALL be NULL
+
+### Requirement: Tilde expansion on projectsDir
+
+`projectsDir` values ingested from config or user input SHALL have leading `~` expanded to the user's home directory before persistence, discovery, or path comparison. This closes nx-8v2a.
+
+#### Scenario: User configures projectsDir with tilde
+
+- **GIVEN** `agents.toml` contains `projectsDir = "~/dev"`
+- **WHEN** the agent loads the config
+- **THEN** the runtime value of `projectsDir` SHALL be `/home/<user>/dev`
+- **AND** project discovery SHALL scan that directory
+
+#### Scenario: API accepts tilde path
+
+- **GIVEN** the registry API receives a POST with `projectsDir: "~/work"`
+- **WHEN** the handler processes the request
+- **THEN** the persisted value SHALL be the expanded absolute path
+- **AND** the API response SHALL echo the expanded path
+

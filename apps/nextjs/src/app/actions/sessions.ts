@@ -1,15 +1,26 @@
 "use server";
 
 import type { Session } from "@nexus/core";
-import { sessions as sessionsTable, projects, agents, eq, desc } from "@nexus/db";
+import { sessions as sessionsTable, projects, agents, healthSnapshots, eq, desc, sql } from "@nexus/db";
 import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
 import type { WithAgent } from "@/lib/agent-client";
 
 export interface SessionsResult {
   sessions: WithAgent<Session>[];
+  /** Number of enabled agents configured (regardless of online state). */
   agentCount: number;
+  /**
+   * Number of enabled agents considered online — i.e. either agents.lastSeen
+   * or their latest health snapshot is newer than ONLINE_THRESHOLD_MS (90s).
+   * Used by the dashboard to render an "all agents offline" banner when
+   * agentCount > 0 && onlineAgentCount === 0.
+   */
+  onlineAgentCount: number;
 }
+
+/** Threshold (ms) — agents with a snapshot/lastSeen newer than this are considered online. */
+const ONLINE_THRESHOLD_MS = 90_000;
 
 /**
  * Fetch all sessions from the database.
@@ -18,7 +29,7 @@ export interface SessionsResult {
 export async function fetchSessions(): Promise<SessionsResult> {
   const db = getDb();
 
-  const [rows, agentRows] = await Promise.all([
+  const [rows, agentRows, snapshotRows] = await Promise.all([
     db
       .select({
         id: sessionsTable.id,
@@ -47,9 +58,16 @@ export async function fetchSessions(): Promise<SessionsResult> {
       .leftJoin(projects, eq(sessionsTable.projectId, projects.id))
       .orderBy(desc(sessionsTable.lastActivity)),
     db
-      .select({ id: agents.id })
+      .select({ id: agents.id, lastSeen: agents.lastSeen })
       .from(agents)
       .where(eq(agents.enabled, true)),
+    db
+      .select({
+        agentId: healthSnapshots.agentId,
+        maxTimestamp: sql<Date>`max(${healthSnapshots.timestamp})`.as("max_ts"),
+      })
+      .from(healthSnapshots)
+      .groupBy(healthSnapshots.agentId),
   ]);
 
   // Map DB rows to the WithAgent<Session> shape consumers expect
@@ -98,7 +116,36 @@ export async function fetchSessions(): Promise<SessionsResult> {
     return b.lastHeartbeat.getTime() - a.lastHeartbeat.getTime();
   });
 
-  return { sessions: sorted, agentCount: agentRows.length };
+  // Compute online agent count — consider an agent online if either
+  // agents.lastSeen or its latest health snapshot is within the freshness
+  // window. Matches the 90s threshold used by fetchHealth().
+  const now = Date.now();
+  const latestSnapshotByAgent = new Map<string, Date>();
+  for (const row of snapshotRows) {
+    if (row.maxTimestamp) {
+      latestSnapshotByAgent.set(row.agentId, new Date(row.maxTimestamp));
+    }
+  }
+
+  let onlineAgentCount = 0;
+  for (const agent of agentRows) {
+    const snapshotTs = latestSnapshotByAgent.get(agent.id);
+    const freshest = [snapshotTs, agent.lastSeen ?? null]
+      .filter((d): d is Date => d != null)
+      .reduce<Date | null>(
+        (acc, d) => (acc == null || d.getTime() > acc.getTime() ? d : acc),
+        null,
+      );
+    if (freshest != null && now - freshest.getTime() < ONLINE_THRESHOLD_MS) {
+      onlineAgentCount++;
+    }
+  }
+
+  return {
+    sessions: sorted,
+    agentCount: agentRows.length,
+    onlineAgentCount,
+  };
 }
 
 /**

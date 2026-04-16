@@ -9,6 +9,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "lint:sql-safety": "./scripts/lint-sql-safety.sh",
+    "lint:audit-suppressions": "./scripts/validate-audit-suppressions.sh",
     "tf": "./infra/scripts/tf.sh"
   },
   "devDependencies": {

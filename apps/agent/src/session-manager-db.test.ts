@@ -6,10 +6,11 @@
  * [2.3] Graceful degradation: DB failure -> session still in Map
  */
 
-import { describe, test, expect, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { createSessionManager } from "./session-manager";
 import type { SessionManager } from "./session-manager";
 import type { WatcherEvent, Session } from "@nexus/core";
+import type { Db } from "@nexus/db";
 import * as sessionsDb from "./db/sessions";
 
 // ── Mock DB helpers ────────────────────────────────────────────────────────
@@ -23,14 +24,16 @@ let mockStore: Map<string, Session>;
  */
 let mockDbShouldFail = false;
 
-/** Error log capture for assertion. */
-let capturedErrors: Array<{ id: string; error: string }> = [];
-
 /**
  * Create a minimal mock Db proxy that stubs upsertSession and
  * loadActiveSessions via module-level mocks.
+ *
+ * The Proxy returns chained query-builder stubs for `select`, `insert`, and
+ * `update`; the real persistence work is handled by the `spyOn` mocks on
+ * `./db/sessions`. The returned proxy is cast to `Db` via `unknown` because
+ * we only implement the surface area the session-manager exercises in tests.
  */
-function createTestDb(): any {
+function createTestDb(): Db {
   // The mock DB is a simple proxy — the real work is done by mocking
   // the sessionsDb module functions below.
   return new Proxy(
@@ -71,7 +74,7 @@ function createTestDb(): any {
         return () => new Proxy({}, { get: () => () => ({}) });
       },
     },
-  );
+  ) as unknown as Db;
 }
 
 // ── Module-level mocks ─────────────────────────────────────────────────────
@@ -85,11 +88,10 @@ let loadSpy: ReturnType<typeof spyOn>;
 function setupMocks() {
   mockStore = new Map();
   mockDbShouldFail = false;
-  capturedErrors = [];
 
   // Mock upsertSession: store to mockStore (or reject if shouldFail)
   upsertSpy = spyOn(sessionsDb, "upsertSession").mockImplementation(
-    async (_db: any, session: Session) => {
+    async (_db: Db, session: Session) => {
       if (mockDbShouldFail) {
         throw new Error("mock DB write failure");
       }
@@ -99,7 +101,7 @@ function setupMocks() {
 
   // Mock loadActiveSessions: return sessions from mockStore
   loadSpy = spyOn(sessionsDb, "loadActiveSessions").mockImplementation(
-    async (_db: any) => {
+    async (_db: Db) => {
       return Array.from(mockStore.values()).filter((s) => s.endedAt === null);
     },
   );

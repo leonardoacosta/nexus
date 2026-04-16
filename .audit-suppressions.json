@@ -1,0 +1,26 @@
+{
+  "suppressions": [
+    {
+      "id": "D4",
+      "paths": [
+        "apps/agent/src/terminal/pty-source.ts",
+        "apps/agent/src/services/pty*"
+      ],
+      "reason": "tmux harness management is the product — spawn is core capability, wrapped by safeSpawn"
+    },
+    {
+      "id": "D4",
+      "paths": ["apps/agent/src/watcher-bridge.ts"],
+      "reason": "Claude Code hook relay — spawns CC binary with validated project paths, migrated to safeSpawn"
+    },
+    {
+      "id": "D4",
+      "paths": [
+        "apps/agent/src/utils/exec.ts",
+        "apps/agent/src/routes/projects-discovered.ts"
+      ],
+      "reason": "safeSpawn re-export + git discovery — both migrated to safeSpawn wrapper"
+    }
+  ],
+  "autoSkipTestFiles": ["E7", "E5", "D4", "A6"]
+}

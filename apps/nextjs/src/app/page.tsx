@@ -4,7 +4,7 @@ import { fetchSessions } from "./actions/sessions";
 import { SessionListPoller } from "@/components/SessionListPoller";
 
 export default async function Home() {
-  const { sessions, agentCount } = await fetchSessions();
+  const { sessions, agentCount, onlineAgentCount } = await fetchSessions();
 
   return (
     <div>
@@ -22,6 +22,7 @@ export default async function Home() {
       <SessionListPoller
         initialSessions={sessions}
         initialAgentCount={agentCount}
+        initialOnlineAgentCount={onlineAgentCount}
       />
     </div>
   );
