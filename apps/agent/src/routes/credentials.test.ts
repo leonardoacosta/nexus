@@ -8,12 +8,14 @@
  * - Error paths (pool not initialized, missing fields) propagate correctly
  */
 
-import { describe, expect, it, beforeEach } from "bun:test";
+import { describe, expect, it, beforeEach, spyOn } from "bun:test";
 import {
   resetCredentialRoutes,
   handleLeaseCredential,
   handleReportRateLimit,
   handleCredentialHealth,
+  handleSwapCredential,
+  getCredentialPool,
 } from "./credentials";
 
 // ── Request helpers ───────────────────────────────────────────────────────────
@@ -177,5 +179,205 @@ describe("credential route handlers — input validation", () => {
       // Pool DB call throws — acceptable in unit test without real PG
       expect(true).toBe(true);
     }
+  });
+});
+
+// ── POST /credentials/swap (mocked pool) ───────────────────────────────────
+
+/** Minimal credential list entry for mocking pool.list(). */
+function makeListEntry(overrides: {
+  id: string;
+  name: string;
+  status?: string;
+}) {
+  const now = new Date();
+  return {
+    id: overrides.id,
+    name: overrides.name,
+    type: "anthropic",
+    agentId: null,
+    encryptionKeyId: "v1",
+    status: overrides.status ?? "available",
+    leasedBy: null,
+    leasedAt: null,
+    cooldownUntil: null,
+    rateLimitCount: 0,
+    fingerprint: `fp-${overrides.id}`,
+    duplicateGroupId: `fp-${overrides.id}`,
+    isPrimary: true,
+    subscriptionType: null,
+    rateLimitTier: null,
+    expiresAt: null,
+    accountEmail: null,
+    accountName: null,
+    accountUuid: null,
+    orgName: null,
+    orgUuid: null,
+    mcpProviders: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** Minimal credential row for mocking pool.manualSwap() return values. */
+function makeCredentialRow(overrides: {
+  id: string;
+  name: string;
+  status?: string;
+}) {
+  const now = new Date();
+  return {
+    id: overrides.id,
+    name: overrides.name,
+    type: "anthropic",
+    valueEncrypted: "encrypted-secret-value",
+    agentId: null,
+    encryptionKeyId: "v1",
+    status: overrides.status ?? "available",
+    leasedBy: null,
+    leasedAt: null,
+    cooldownUntil: null,
+    rateLimitCount: 0,
+    fingerprint: `fp-${overrides.id}`,
+    duplicateGroupId: `fp-${overrides.id}`,
+    isPrimary: true,
+    subscriptionType: null,
+    rateLimitTier: null,
+    expiresAt: null,
+    accountEmail: null,
+    accountName: null,
+    accountUuid: null,
+    orgName: null,
+    orgUuid: null,
+    mcpProviders: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+describe("POST /credentials/swap", () => {
+  beforeEach(() => {
+    resetCredentialRoutes();
+    const fakeDb = {} as unknown as import("@nexus/db").Db;
+    const { initCredentialRoutes } = require("./credentials");
+    initCredentialRoutes(fakeDb, { encryptionKey: Buffer.alloc(32, 1) });
+  });
+
+  it("returns 500 when pool not initialized", async () => {
+    resetCredentialRoutes(); // undo beforeEach init
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {
+      to: "work",
+    });
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("credential system not initialized");
+  });
+
+  it("returns 400 when 'to' field is missing", async () => {
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {});
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toContain("to");
+  });
+
+  it("successful swap — returns 200 with swapped: true, parked, and activated", async () => {
+    const pool = getCredentialPool()!;
+    const personalEntry = makeListEntry({ id: "cred-personal", name: "personal" });
+    const workEntry = makeListEntry({ id: "cred-work", name: "work" });
+
+    spyOn(pool, "list").mockResolvedValue([personalEntry, workEntry]);
+    spyOn(pool, "manualSwap").mockResolvedValue({
+      parked: makeCredentialRow({ id: "cred-personal", name: "personal", status: "cooldown" }),
+      activated: makeCredentialRow({ id: "cred-work", name: "work" }),
+    });
+
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {
+      to: "work",
+    });
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      swapped: boolean;
+      parked: Record<string, unknown> | null;
+      activated: Record<string, unknown>;
+    };
+    expect(body.swapped).toBe(true);
+    expect(body.parked).not.toBeNull();
+    expect(body.parked!.id).toBe("cred-personal");
+    expect(body.activated.id).toBe("cred-work");
+
+    // valueEncrypted must NOT appear in response
+    expect(body.parked!).not.toHaveProperty("valueEncrypted");
+    expect(body.activated).not.toHaveProperty("valueEncrypted");
+  });
+
+  it("404 name-not-found — returns 404 when target name does not exist", async () => {
+    const pool = getCredentialPool()!;
+    const personalEntry = makeListEntry({ id: "cred-personal", name: "personal" });
+
+    spyOn(pool, "list").mockResolvedValue([personalEntry]);
+
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {
+      to: "nonexistent",
+    });
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(404);
+
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("credential not found");
+    expect(body.name).toBe("nonexistent");
+  });
+
+  it("409 target-in-cooldown — returns 409 when target credential is cooling down", async () => {
+    const pool = getCredentialPool()!;
+    const personalEntry = makeListEntry({ id: "cred-personal", name: "personal" });
+    const workEntry = makeListEntry({ id: "cred-work", name: "work", status: "cooldown" });
+
+    spyOn(pool, "list").mockResolvedValue([personalEntry, workEntry]);
+    spyOn(pool, "manualSwap").mockRejectedValue(
+      new Error("target credential is in cooldown"),
+    );
+
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {
+      to: "work",
+    });
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(409);
+
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("target credential is in cooldown");
+    expect(body.name).toBe("work");
+  });
+
+  it("200 no-op — returns parked: null when target is already best-available", async () => {
+    const pool = getCredentialPool()!;
+    const personalEntry = makeListEntry({ id: "cred-personal", name: "personal" });
+
+    spyOn(pool, "list").mockResolvedValue([personalEntry]);
+    spyOn(pool, "manualSwap").mockResolvedValue({
+      parked: null,
+      activated: makeCredentialRow({ id: "cred-personal", name: "personal" }),
+    });
+
+    const req = makePostRequest("http://127.0.0.1:7400/credentials/swap", {
+      to: "personal",
+    });
+    const res = await handleSwapCredential(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      swapped: boolean;
+      parked: Record<string, unknown> | null;
+      activated: Record<string, unknown>;
+    };
+    expect(body.swapped).toBe(true);
+    expect(body.parked).toBeNull();
+    expect(body.activated.id).toBe("cred-personal");
+
+    // valueEncrypted must NOT appear even in no-op response
+    expect(body.activated).not.toHaveProperty("valueEncrypted");
   });
 });

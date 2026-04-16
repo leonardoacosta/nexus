@@ -10,4 +10,4 @@
 
 ## E2E Batch
 
-- [ ] [2.1] [P-1] Add unit tests to `apps/agent/src/routes/credentials.test.ts` covering: successful swap, 404 name-not-found, 409 target-in-cooldown, 200 no-op (already best-available), audit entries emitted on success [owner:test-writer] [beads:nx-hmr9]
+- [x] [2.1] [P-1] Add unit tests to `apps/agent/src/routes/credentials.test.ts` covering: successful swap, 404 name-not-found, 409 target-in-cooldown, 200 no-op (already best-available), audit entries emitted on success [owner:test-writer] [beads:nx-hmr9]
