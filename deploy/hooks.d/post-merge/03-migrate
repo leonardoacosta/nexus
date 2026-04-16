@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Nexus DB — post-merge migration hook
+# Runs db:push when packages/db/ changed between ORIG_HEAD and HEAD.
+# Fail-soft: logs a warning on failure but never blocks subsequent hooks.
+
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[1;31m'
+RESET='\033[0m'
+
+info()  { printf "${GREEN}db-migrate: %s${RESET}\n" "$1"; }
+skip()  { printf "${YELLOW}db-migrate: %s${RESET}\n" "$1"; }
+warn()  { printf "${RED}db-migrate: %s${RESET}\n" "$1" >&2; }
+
+# ── Check for schema changes ────────────────────────────────────
+
+if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^packages/db/'; then
+    skip "no packages/db/ changes, skipping migration"
+    exit 0
+fi
+
+# ── Resolve repo root ───────────────────────────────────────────
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+
+# ── Source POSTGRES_URL from Terraform outputs (if available) ───
+
+TF_ENV="$REPO_DIR/infra/.tf-outputs.env"
+if [[ -f "$TF_ENV" ]]; then
+    # shellcheck source=/dev/null
+    source "$TF_ENV"
+    info "sourced POSTGRES_URL from infra/.tf-outputs.env"
+fi
+
+# ── Run migration (fail-soft) ───────────────────────────────────
+
+info "running db:push..."
+
+if ! (cd "$REPO_DIR" && pnpm --filter @nexus/db db:push); then
+    warn "db:push failed — run manually: pnpm --filter @nexus/db db:push"
+    exit 0
+fi
+
+info "db:push complete"
