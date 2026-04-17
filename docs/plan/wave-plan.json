@@ -1,65 +1,24 @@
 {
-  "plan_name": "nexus-arch-improvements",
-  "status": "completed",
-  "mode": "consolidated",
-  "pre_audit_sha": "de1166e",
-  "created_at": "2026-04-09T20:50:01-05:00",
-  "current_wave": 4,
-  "completed_waves": [
-    1,
-    2,
-    3,
-    4
+  "generated_at": "2026-04-17T18:34:33.674662",
+  "generated_by": "wave-state init",
+  "spec_names": [
+    "refine-credential-page-grouping",
+    "add-spec-page-live-updates"
   ],
-  "completed_specs": [
-    "simplify-agent-quick-wins",
-    "flatten-event-routing",
-    "add-app-context",
-    "unify-session-source"
-  ],
+  "status": "pending",
+  "current_wave": 1,
+  "current_phase": null,
+  "completed_waves": [],
+  "completed_specs": [],
   "failed_specs": [],
-  "decisions": [
-    {
-      "date": "2026-04-09",
-      "decision": "All 4 specs share server.ts/services/ \u2014 sequential single-spec waves in dependency order",
-      "rationale": "quick-wins modifies routes/ and services/, flatten-routing modifies services/ and index.ts, app-context touches everything, session-source depends on app-context",
-      "source": "orchestrator",
-      "affected_waves": [
-        1,
-        2,
-        3,
-        4
-      ],
-      "affected_specs": [
-        "simplify-agent-quick-wins",
-        "flatten-event-routing",
-        "add-app-context",
-        "unify-session-source"
-      ]
-    },
-    {
-      "date": "2026-04-09",
-      "decision": "Excluded add-credential-swap-endpoint and migrate-nx-terraform \u2014 unrelated to architecture improvements",
-      "rationale": "credential-swap is a feature spec, terraform is infra \u2014 both independent of agent refactoring",
-      "source": "orchestrator",
-      "affected_waves": [],
-      "affected_specs": [
-        "add-credential-swap-endpoint",
-        "migrate-nx-terraform"
-      ]
-    }
-  ],
+  "decisions": [],
   "waves": [
     {
       "wave": 1,
-      "label": "Quick wins: execJson helper, config cache, split operational.ts",
       "specs": [
         {
-          "name": "simplify-agent-quick-wins",
-          "path": "openspec/changes/simplify-agent-quick-wins",
-          "task_count": 9,
-          "beads_epic": "nx-mu5z",
-          "status": "merged",
+          "name": "refine-credential-page-grouping",
+          "status": "queued",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -69,20 +28,11 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": "2026-04-10T02:01:25.316141+00:00"
-        }
-      ]
-    },
-    {
-      "wave": 2,
-      "label": "Flatten event routing: remove socket-dispatch intermediary",
-      "specs": [
+          "merged_at": null
+        },
         {
-          "name": "flatten-event-routing",
-          "path": "openspec/changes/flatten-event-routing",
-          "task_count": 6,
-          "beads_epic": "nx-x2fx",
-          "status": "merged",
+          "name": "add-spec-page-live-updates",
+          "status": "queued",
           "phase": null,
           "branch": null,
           "pr": null,
@@ -92,69 +42,20 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": "2026-04-10T02:05:58.215838+00:00"
-        }
-      ]
-    },
-    {
-      "wave": 3,
-      "label": "AppContext: centralize singletons, fix memory leaks",
-      "specs": [
-        {
-          "name": "add-app-context",
-          "path": "openspec/changes/add-app-context",
-          "task_count": 9,
-          "beads_epic": "nx-42q1",
-          "status": "merged",
-          "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "ci": null,
-          "dispatched_at": null,
-          "merged_at": "2026-04-10T02:13:45.207143+00:00"
-        }
-      ]
-    },
-    {
-      "wave": 4,
-      "label": "Unify session source: Postgres write-through, in-memory read-through",
-      "specs": [
-        {
-          "name": "unify-session-source",
-          "path": "openspec/changes/unify-session-source",
-          "task_count": 9,
-          "beads_epic": "nx-sknk",
-          "status": "merged",
-          "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
-          "gates_passed": [],
-          "gates_failed": [],
-          "ci": null,
-          "dispatched_at": null,
-          "merged_at": "2026-04-10T02:20:22.379043+00:00"
+          "merged_at": null
         }
       ]
     }
   ],
+  "started_at": "2026-04-17T18:34:53.358029",
+  "completed_at": null,
+  "mode": "consolidated",
   "mega_batch_state": {
     "current_phase": null,
     "phases_completed": [],
     "task_results": {
-      "simplify-agent-quick-wins": {},
-      "flatten-event-routing": {},
-      "add-app-context": {},
-      "unify-session-source": {}
-    },
-    "phase_started_at": {},
-    "phase_completed_at": {}
-  },
-  "started_at": "2026-04-09T20:50:01-05:00",
-  "completed_at": "2026-04-10T02:20:22.379049+00:00"
+      "refine-credential-page-grouping": {},
+      "add-spec-page-live-updates": {}
+    }
+  }
 }
