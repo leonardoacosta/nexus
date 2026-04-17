@@ -77,7 +77,7 @@ async function sendToSocket(data: string): Promise<string> {
         open(socket) {
           socket.write(data);
           // Don't end() here -- let the server close the connection
-          // if it needs to send a response (commands). For events,
+          // if it needs to send a response for commands. For events,
           // end after a short delay to allow processing.
           socket.end();
         },

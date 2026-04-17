@@ -1,9 +1,20 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, beforeEach } from "bun:test";
 import os from "node:os";
+import { resetAgentIdCache } from "@nexus/core";
 import { upsertSelfInRegistry } from "./agent-registry";
 
 describe("upsertSelfInRegistry", () => {
-  it("calls db.insert with the current hostname as id", async () => {
+  beforeEach(() => {
+    // Ensure getAgentId() re-evaluates for each test so prior runs don't
+    // leak a cached identity into this suite. Also point NEXUS_CONFIG_DIR
+    // at a guaranteed-nonexistent path so the helper deterministically
+    // falls back to os.hostname() regardless of the developer's own
+    // ~/.config/nexus/agents.toml.
+    resetAgentIdCache();
+    process.env.NEXUS_CONFIG_DIR = "/tmp/nexus-nonexistent-for-test";
+  });
+
+  it("calls db.insert with the resolved agent identity as id", async () => {
     // Track what values were passed to .values()
     let capturedValues: Record<string, unknown> | null = null;
     let capturedConflictSet: Record<string, unknown> | null = null;

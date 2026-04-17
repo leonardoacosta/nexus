@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
-import { expandTilde } from "@nexus/core";
+import { expandTilde, getAgentId } from "@nexus/core";
 import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -22,7 +22,10 @@ function getTailscaleIp(): string {
  *   that user-editable fields (name, projectsDir) are never overwritten.
  */
 export async function upsertSelfInRegistry(db: Db): Promise<void> {
-  const hostname = os.hostname();
+  // Identity is sourced from agents.toml (self_name → matched agent.name).
+  // Falls back to os.hostname() when no config is present — preserves
+  // backward compat for single-machine deploys that never set a config.
+  const agentId = getAgentId();
   const host = getTailscaleIp();
   const port = parseInt(process.env.NEXUS_PORT ?? "7400", 10);
   const projectsDir = expandTilde(
@@ -33,8 +36,8 @@ export async function upsertSelfInRegistry(db: Db): Promise<void> {
   await db
     .insert(agents)
     .values({
-      id: hostname,
-      name: hostname,
+      id: agentId,
+      name: agentId,
       host,
       port,
       projectsDir,

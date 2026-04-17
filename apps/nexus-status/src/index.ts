@@ -260,10 +260,11 @@ async function getApiUsage(): Promise<UsageResponse | null> {
     );
     if (!fresh) return null;
 
-    // Write cache
+    // Write cache — 0o600 satisfies credential-pool spec requirement for restrictive
+    // permissions on cache files (usage-cache.json is low-sensitivity but spec-gated).
     try {
       const cached: CachedUsage = { fetched_at: nowSecs(), data: fresh };
-      writeFileSync(cachePath, JSON.stringify(cached));
+      writeFileSync(cachePath, JSON.stringify(cached), { mode: 0o600 });
     } catch {
       // Non-fatal
     }
@@ -298,10 +299,11 @@ async function getAccountDomain(): Promise<string | null> {
 
     const domain = email.split("@")[1] ?? email;
 
-    // Write cache
+    // Write cache — 0o600 per credential-pool spec (profile-cache.json holds email
+    // domain; low-sensitivity but spec-gated for consistency with usage-cache).
     try {
       const cached: CachedProfile = { fetched_at: nowSecs(), domain };
-      writeFileSync(cachePath, JSON.stringify(cached));
+      writeFileSync(cachePath, JSON.stringify(cached), { mode: 0o600 });
     } catch {
       // Non-fatal
     }

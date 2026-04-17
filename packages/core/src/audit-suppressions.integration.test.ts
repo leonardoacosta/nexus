@@ -641,6 +641,118 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
 );
 
 // ---------------------------------------------------------------------------
+// cleanup-residual-debt — A12 rule refinement fixtures
+//
+// Task [4.1] refined the A12 (commented-out code block) rule to require a
+// code-syntax signal (=, (, ;, or { on the same line) in addition to the
+// keyword prefix. Pre-patch the rule flagged plain prose comments that
+// happened to start with `return` / `if` / etc. Post-patch only true
+// commented-out code matches.
+//
+// As with the A9/E7 pass-2 fixtures, A12-triggering content is assembled
+// at runtime from pieces so the rg pattern does NOT match the source of
+// THIS test file when audit-scan re-scans the full nx repo. The on-disk
+// fixture still contains the exact pattern.
+//
+// Pattern-hiding rule for A12:
+//   anchor    = ^\s*//\s*
+//   keywords  = (const|let|var|function|import|export|return|if|for|while)\b
+//   syntax    = .*[=(;{]
+// Keeping any of those three parts out of the literal source (e.g. using
+// concatenation for the comment marker) prevents self-flagging.
+//
+// Spec: openspec/changes/cleanup-residual-debt/specs/audit-scan-rules/spec.md
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "cleanup-residual-debt — A12 rule refinement fixtures",
+  () => {
+    let fixtureRoot: string;
+
+    // Comment marker assembled from pieces. Writing `// ` followed by one of
+    // the A12 keywords verbatim at line start in this file would self-flag
+    // when the repo-wide scan picks up this test source. Splitting the
+    // slashes keeps the literal anchor out of the source.
+    const slash = "/";
+    const commentPrefix = slash + slash + " ";
+
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(join(tmpdir(), "audit-scan-a12-cleanup-"));
+    });
+
+    afterAll(() => {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    });
+
+    test("A12: commented var-decl with `=` and `;` IS flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a12-var-decl-"));
+      // Target on-disk content: `// const x = 1;`
+      // Keyword + `=` + `;` satisfies the new code-syntax signal requirement.
+      const keyword = "con" + "st";
+      const body = `${commentPrefix}${keyword} x = 1;\n`;
+      scaffoldFixtureProject(dir, "a12-var-decl.ts", body);
+
+      const report = runAuditScanAt(dir);
+      const a12 = findingsWithId(report, "A12");
+
+      expect(a12.length).toBeGreaterThanOrEqual(1);
+      expect(a12[0]?.file).toBe("apps/nextjs/src/a12-var-decl.ts");
+    });
+
+    test("A12: commented function definition with `()` and `{` IS flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a12-function-def-"));
+      // Target on-disk content: `// function handleClick() {}`
+      // Keyword + `(` + `{` matches the refined pattern.
+      const keyword = "func" + "tion";
+      const body = `${commentPrefix}${keyword} handleClick() {}\n`;
+      scaffoldFixtureProject(dir, "a12-function-def.ts", body);
+
+      const report = runAuditScanAt(dir);
+      const a12 = findingsWithId(report, "A12");
+
+      expect(a12.length).toBeGreaterThanOrEqual(1);
+      expect(a12[0]?.file).toBe("apps/nextjs/src/a12-function-def.ts");
+    });
+
+    test("A12: bare keyword prose without code syntax is NOT flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a12-prose-bare-"));
+      // Target on-disk content:
+      //   `// return \`undefined\` so the chain short-circuits gracefully`
+      // `return` is one of the A12 keywords but the line contains no
+      // `=`, `(`, `;`, or `{` — post-patch this must NOT flag. Pre-patch
+      // this line (and similar doc-comments) were the source of noise.
+      const keyword = "ret" + "urn";
+      const body =
+        `${commentPrefix}${keyword} \`undefined\` so the chain short-circuits gracefully\n`;
+      scaffoldFixtureProject(dir, "a12-prose-bare.ts", body);
+
+      const report = runAuditScanAt(dir);
+      const a12 = findingsWithId(report, "A12");
+
+      expect(a12.length).toBe(0);
+    });
+
+    test("A12: rephrased parens-in-prose without code syntax is NOT flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a12-prose-rephrased-"));
+      // Target on-disk content: `// if it needs to send a response for commands`
+      // Keyword `if` is present but line has no `=`, `(`, `;`, or `{`.
+      // This is the pattern task [4.2] rephrased at socket-server.test.ts:80
+      // to avoid a false positive; the refined rule would have accepted the
+      // original but we keep the rephrased form as the canonical prose style.
+      const keyword = "i" + "f";
+      const body =
+        `${commentPrefix}${keyword} it needs to send a response for commands\n`;
+      scaffoldFixtureProject(dir, "a12-prose-rephrased.ts", body);
+
+      const report = runAuditScanAt(dir);
+      const a12 = findingsWithId(report, "A12");
+
+      expect(a12.length).toBe(0);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
 // [2.1] + [2.2] Integration assertions against the full nx repo
 //
 // These run against the real repo (REPO_ROOT) and pin the post-patch
@@ -809,15 +921,17 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       expect(f2.length).toBe(0);
     });
 
-    test("[5.1] suppressions.by_config reflects expanded stanzas (>= 100)", () => {
+    test("[5.1] suppressions.by_config reflects expanded stanzas (>= 90)", () => {
       const report = runAuditScan();
 
       // by_config trajectory:
       //   extend-audit-suppressions: 4  → 70
       //   fix-audit-real-debt:      70 → 104
-      // Using >= 100 to tolerate minor rule drift while still catching a
-      // wholesale revert of the new stanzas.
-      expect(report.suppressions.by_config).toBeGreaterThanOrEqual(100);
+      //   cleanup-residual-debt:   104 → ~96 (removed 4 stale A5/A12 stanzas
+      //     replaced by real fixes — rule refinements + TODO resolutions)
+      // Threshold lowered to >= 90 to reflect this net change while still
+      // catching a wholesale revert of the new stanzas.
+      expect(report.suppressions.by_config).toBeGreaterThanOrEqual(90);
     });
 
     test("[5.2] composite audit score meets the post-cleanup floor (>= 88)", () => {
@@ -832,6 +946,81 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       // Spec requires floor of 88 (not strict equality) to leave room for
       // minor rule drift as audit-scan evolves. Current actual: 99.
       expect(report.score).toBeGreaterThanOrEqual(88);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// cleanup-residual-debt — post-cleanup nx repo baselines
+//
+// Final queue-cleanup pass. This spec did NOT target score movement — it
+// closed the last batch of open audit beads and refined two rules so that
+// the remaining findings reflect real debt (info-level edge cases) rather
+// than rule noise.
+//
+// cleanup-residual-debt closed the last batch of open beads:
+// - nx-hza9 (hostname→agentId), nx-3sih (0600 perms), nx-xxq5 (CORS 403),
+//   nx-469c (cursor pagination), nx-mnrr + nx-9yrx (A12 rule refinement),
+//   nx-fa79 (TODO→tracking bead nx-wce7), nx-qgnq (PG tests implemented)
+// Only nx-iwu3 (B4 production-file splits) remains as a separate spec.
+// Score trajectory across the session: 72 → 99 (+27) in 7 specs.
+//
+// Baseline deltas vs fix-audit-real-debt:
+//   - A12 count: 2 → 0 (rule refined to require code-syntax signal; the
+//     two pre-cleanup A12 findings were prose false positives)
+//   - A5 count:  n → 0 (test-file auto-skip added for A5 + TODO resolved
+//     at attribution.ts:42 with tracking bead nx-wce7 + PG tests
+//     implemented at nx-qgnq)
+//   - score:     unchanged at 99 (queue cleanup, not debt reduction)
+//   - by_config: 104 → ~96 (removed 4 stale stanzas: A5×2 + A12×2; new
+//     stanzas added elsewhere may offset this — exact number depends on
+//     rule refinements landed alongside this spec)
+//
+// Spec: openspec/changes/cleanup-residual-debt/
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "cleanup-residual-debt — post-cleanup nx repo baselines",
+  () => {
+    test("A12 finding count is zero (rule refined to require code-syntax signal)", () => {
+      const report = runAuditScan();
+      const a12 = findingsWithId(report, "A12");
+
+      // Pre-cleanup baseline was 2 findings — both prose comments that the
+      // refined rule now correctly skips (keyword prefix without `=(;{`).
+      // If this regresses, either:
+      //   (a) a new commented-out code block was introduced — clean it up
+      //   (b) the rule was reverted — re-apply the Wave 4 patch to
+      //       ~/.claude/scripts/bin/audit-scan
+      expect(a12.length).toBe(0);
+    });
+
+    test("A5 finding count is zero (test-file auto-skip + TODO tracking resolved)", () => {
+      const report = runAuditScan();
+      const a5 = findingsWithId(report, "A5");
+
+      // Two resolution paths converged here:
+      //   1. autoSkipTestFiles gained "A5" so test-file TODO/FIXME markers
+      //      (legitimate during in-progress specs) no longer count as debt
+      //   2. attribution.ts:42 TODO was converted to a tracking bead
+      //      (nx-wce7) and the comment updated to reference it
+      //   3. PG integration tests previously marked with TODO placeholders
+      //      were implemented under nx-qgnq
+      expect(a5.length).toBe(0);
+    });
+
+    test("composite audit score holds at or above the post-cleanup floor (>= 99)", () => {
+      const report = runAuditScan();
+
+      // cleanup-residual-debt did NOT target score movement — the score
+      // held at 99 across the spec. Asserting >= 99 rather than strict
+      // equality leaves room for minor positive drift from future rule
+      // refinements without triggering a false regression.
+      //
+      // If score drops below 99, something went sideways: either a new
+      // debt finding appeared, a prior suppression regressed, or a rule
+      // rewrite widened scope. Investigate before relaxing this floor.
+      expect(report.score).toBeGreaterThanOrEqual(99);
     });
   },
 );

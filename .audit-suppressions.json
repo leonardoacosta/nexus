@@ -107,34 +107,6 @@
       "reason": "Migration runners use console.warn for operator-facing progress output; no structured logger at migration-runtime"
     },
     {
-      "id": "A5",
-      "paths": [
-        "apps/agent/src/credentials/token-stream/attribution.ts"
-      ],
-      "reason": "Deferred to bead nx-fa79 \u2014 TODO resolution in production credentials code, tracked for follow-up review"
-    },
-    {
-      "id": "A5",
-      "paths": [
-        "apps/agent/src/db/db.test.ts"
-      ],
-      "reason": "Deferred to bead nx-qgnq \u2014 test-file TODO, may indicate incomplete coverage; review scheduled"
-    },
-    {
-      "id": "A12",
-      "paths": [
-        "apps/agent/src/services/socket-server.test.ts"
-      ],
-      "reason": "Deferred to bead nx-mnrr \u2014 commented test code, decide delete vs restore during follow-up"
-    },
-    {
-      "id": "A12",
-      "paths": [
-        "apps/agent/src/session-manager.ts"
-      ],
-      "reason": "Deferred to bead nx-9yrx \u2014 commented production code, review and resolve during follow-up"
-    },
-    {
       "id": "B4",
       "paths": [
         "apps/agent/src/credentials/pool.ts",
@@ -155,6 +127,7 @@
     "A3",
     "A4",
     "F2",
-    "B4"
+    "B4",
+    "A5"
   ]
 }

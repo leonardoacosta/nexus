@@ -1,13 +1,13 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
 import { eq } from "drizzle-orm";
-import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger, expandTilde, safeSpawn } from "@nexus/core";
+import { createLogger, expandTilde, getAgentId, safeSpawn } from "@nexus/core";
 import { queryRecentSessions } from "../db/sessions";
 import { upsertProjectLocations } from "../db/project-registry";
 import type { ProjectToUpsert } from "../db/project-registry";
+import { encodeCursor, parseCursor, parseLimit } from "./cursor";
 
 // ── Logger ─────────────────────────────────────────────────────────────────
 
@@ -19,6 +19,19 @@ const CACHE_TTL_MS = 5_000; // 5 seconds
 /** Sessions active within the last 1 hour are counted as active (aligned with QUERY_WINDOW_HOURS). */
 const ACTIVE_SESSION_WINDOW_MS = 60 * 60 * 1_000; // 1 hour
 export const QUERY_WINDOW_HOURS = 24; // hours of history to include in session cross-reference
+/** Legacy (non-cursor) response cap — preserves existing `truncated: true` semantics. */
+const LEGACY_SCAN_CAP = 100;
+/**
+ * Upper bound on scan size for cursor callers. Large enough that any realistic
+ * projects directory fits, small enough that a misconfigured dir can't hang
+ * the request indefinitely on git-remote spawns.
+ */
+const PAGINATED_SCAN_CAP = 1_000;
+
+// ── Pagination constants ───────────────────────────────────────────────────
+
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
 
 // ── Tilde expansion ────────────────────────────────────────────────────────
 
@@ -41,10 +54,28 @@ export interface AgentDiscoveredProject {
   gitRemoteUrl: string | null;
 }
 
-/** Wire format returned by GET /projects/discovered. */
+/** Legacy wire format returned by GET /projects/discovered (no cursor/limit). */
 export interface AgentDiscoveredProjectsResponse {
   projects: AgentDiscoveredProject[];
   truncated: boolean;
+  /** True when projectsDir is not configured for this agent. */
+  configured: boolean;
+}
+
+/**
+ * Paginated wire format returned by GET /projects/discovered when `cursor`
+ * or `limit` query params are supplied.
+ *
+ * `items` is the windowed page sorted by path ascending (the cursor marker
+ * is the last emitted item's path). `nextCursor` is the opaque continuation
+ * token, or null when the caller has reached the end.
+ *
+ * `truncated` is intentionally omitted here: cursor callers advance through
+ * the full result set page-by-page and don't need the legacy overflow signal.
+ */
+export interface AgentDiscoveredProjectsPaginatedResponse {
+  items: AgentDiscoveredProject[];
+  nextCursor: string | null;
   /** True when projectsDir is not configured for this agent. */
   configured: boolean;
 }
@@ -88,11 +119,20 @@ interface CacheEntry<T> {
   computedAt: number;
 }
 
-let discoveredCache: CacheEntry<AgentDiscoveredProjectsResponse | { error: string }> | null = null;
+/**
+ * Cached scan result. Separate entries for legacy (100-cap) and paginated
+ * (larger cap) callers so we don't re-scan the whole dir on every cursor
+ * page, and don't penalise legacy callers with larger scans.
+ */
+let legacyCache: CacheEntry<AgentDiscoveredProjectsResponse | { error: string }> | null = null;
+let paginatedCache: CacheEntry<
+  { projects: AgentDiscoveredProject[]; configured: boolean } | { error: string }
+> | null = null;
 
-/** Clear the discovered projects cache (useful for testing). */
+/** Clear the discovered projects caches (useful for testing). */
 export function clearDiscoveredProjectsCache(): void {
-  discoveredCache = null;
+  legacyCache = null;
+  paginatedCache = null;
 }
 
 // ── Module-level dedup set ─────────────────────────────────────────────────
@@ -100,121 +140,34 @@ export function clearDiscoveredProjectsCache(): void {
 // cache-miss compute cycle so it tracks the current scan, not prior scans.
 let seenCanonicalPaths = new Set<string>();
 
-// ── Route handler ──────────────────────────────────────────────────────────
+// ── Scan helpers ───────────────────────────────────────────────────────────
 
-/** GET /projects/discovered — git repos found under the agent's projectsDir. */
-export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
-  const start = Date.now();
-  const route = "/projects/discovered";
-
-  const now = Date.now();
-  if (discoveredCache && now < discoveredCache.expiry) {
-    const durationMs = Date.now() - start;
-    const cached = discoveredCache.data;
-    const count = "projects" in cached ? (cached as AgentDiscoveredProjectsResponse).projects.length : 0;
-    const cacheAge = now - discoveredCache.computedAt;
-    log.info({ route, durationMs, count, fromCache: true }, "projects-discovered request");
-    return new Response(JSON.stringify(cached), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Cache-Age": String(cacheAge),
-        "X-Cache-TTL": String(CACHE_TTL_MS),
-      },
-    });
-  }
-
-  // 1. Look up the agent row by hostname
-  const rows = await db
-    .select()
-    .from(agents)
-    .where(eq(agents.id, os.hostname()))
-    .limit(1);
-
-  const agent = rows[0];
-  if (!agent) {
-    return new Response(JSON.stringify({ error: "Agent not registered" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  const rawProjectsDir = (agent.projectsDir ?? "").trim();
-
-  // 4. Empty projectsDir — return early without scanning
-  if (!rawProjectsDir) {
-    log.info(
-      { route, agentId: agent.id },
-      `projectsDir not configured for agent ${agent.id} — returning empty project list`,
-    );
-    const empty: AgentDiscoveredProjectsResponse = {
-      projects: [],
-      truncated: false,
-      configured: false,
-    };
-    const computedAt = Date.now();
-    discoveredCache = { data: empty, expiry: computedAt + CACHE_TTL_MS, computedAt };
-    const durationMs = Date.now() - start;
-    log.info({ route, durationMs, count: 0, fromCache: false }, "projects-discovered request");
-    return new Response(JSON.stringify(empty), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Cache-Age": "0",
-        "X-Cache-TTL": String(CACHE_TTL_MS),
-      },
-    });
-  }
-
-  // 11.1 Input validation — reject path traversal
-  if (rawProjectsDir.includes("..")) {
-    return new Response(
-      JSON.stringify({ error: "projectsDir must not contain path traversal sequences (..)" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  // 3. Tilde expansion and absolute-path check
-  const projectsDir = expandProjectsDir(rawProjectsDir);
-
-  if (!path.isAbsolute(projectsDir)) {
-    return new Response(
-      JSON.stringify({ error: "projectsDir must resolve to an absolute path" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  // 7.1 Require expanded path to start with /home/ or /Users/
-  if (!projectsDir.startsWith("/home/") && !projectsDir.startsWith("/Users/")) {
-    return new Response(
-      JSON.stringify({
-        error: `projectsDir must resolve under /home/ or /Users/ (got: ${projectsDir})`,
-      }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  // 7. Fetch recent sessions to cross-reference
+/**
+ * Perform the git-repo scan and session cross-reference for a given agent's
+ * projectsDir. Stops at `cap` entries. Returns both the (possibly capped)
+ * project list and a `truncated` flag.
+ *
+ * Callers are responsible for input validation (path traversal, absolute,
+ * /home/|/Users/ prefix) before invoking this helper.
+ */
+async function scanProjects(
+  projectsDir: string,
+  db: Db,
+  cap: number,
+): Promise<
+  | { ok: true; projects: AgentDiscoveredProject[]; truncated: boolean }
+  | { ok: false; error: string }
+> {
+  // Fetch recent sessions to cross-reference
   const recentSessions = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
 
-  // 5-6. Scan projectsDir one level deep for git repos
   let entries: fs.Dirent[] = [];
   try {
     entries = fs.readdirSync(projectsDir, { withFileTypes: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ route, projectsDir, error: message }, "readdirSync failed");
-    const errResp = { error: message };
-    const computedAt = Date.now();
-    discoveredCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
-    return new Response(JSON.stringify(errResp), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Cache-Age": "0",
-        "X-Cache-TTL": String(CACHE_TTL_MS),
-      },
-    });
+    log.error({ projectsDir, error: message }, "readdirSync failed");
+    return { ok: false, error: message };
   }
 
   const projects: AgentDiscoveredProject[] = [];
@@ -227,17 +180,17 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
 
     const fullPath = path.join(projectsDir, entry.name);
 
-    // 6.1 Resolve symlinks — skip broken ones
+    // Resolve symlinks — skip broken ones
     let canonicalPath: string;
     try {
       canonicalPath = fs.realpathSync(fullPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ route, fullPath, error: message }, "realpathSync failed — skipping entry");
+      log.warn({ fullPath, error: message }, "realpathSync failed — skipping entry");
       continue;
     }
 
-    // 6.2 Skip entries that resolve to an already-seen canonical path
+    // Skip entries that resolve to an already-seen canonical path
     if (seenCanonicalPaths.has(canonicalPath)) continue;
 
     // Only include directories that contain a .git subdirectory
@@ -245,7 +198,7 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
 
     seenCanonicalPaths.add(canonicalPath);
 
-    // 8. Cross-reference with recent sessions — count active and total
+    // Cross-reference with recent sessions — count active and total
     const name = entry.name;
     const nowMs = Date.now();
 
@@ -271,50 +224,337 @@ export async function handleGetDiscoveredProjects(db: Db): Promise<Response> {
     const gitRemoteUrl = await getGitRemoteUrl(canonicalPath);
     projects.push({ name, path: canonicalPath, activeSessions, totalSessions, gitRemoteUrl });
 
-    // 9. Cap at 100 results
-    if (projects.length >= 100) {
+    if (projects.length >= cap) {
       truncated = true;
       break;
     }
   }
 
-  // Sort alphabetically by name
-  projects.sort((a, b) => a.name.localeCompare(b.name));
+  return { ok: true, projects, truncated };
+}
 
-  // Upsert discovered projects into the canonical registry.
-  // Awaited (not fire-and-forget) so data is consistent before responding.
-  const toUpsert: ProjectToUpsert[] = projects.map((p) => ({
-    name: p.name,
-    path: p.path,
-    activeSessions: p.activeSessions,
-    totalSessions: p.totalSessions,
-    gitRemoteUrl: p.gitRemoteUrl,
-  }));
+/**
+ * Resolve the agent row and validate its projectsDir field. Returns either a
+ * successful resolution (absolute, validated path) or a Response to short-
+ * circuit the handler with.
+ */
+async function resolveAgentProjectsDir(
+  db: Db,
+): Promise<
+  | { kind: "ok"; agent: { id: string }; projectsDir: string }
+  | { kind: "response"; response: Response }
+  | { kind: "unconfigured"; agent: { id: string } }
+> {
+  const rows = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.id, getAgentId()))
+    .limit(1);
 
-  try {
-    await upsertProjectLocations(db, agent.id, toUpsert);
-  } catch (err) {
-    log.warn({ error: err instanceof Error ? err.message : String(err) }, "project registry upsert failed — non-fatal");
+  const agent = rows[0];
+  if (!agent) {
+    return {
+      kind: "response",
+      response: new Response(JSON.stringify({ error: "Agent not registered" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
   }
 
-  const result: AgentDiscoveredProjectsResponse = {
-    projects,
-    truncated,
-    configured: true,
+  const rawProjectsDir = (agent.projectsDir ?? "").trim();
+
+  if (!rawProjectsDir) {
+    return { kind: "unconfigured", agent };
+  }
+
+  if (rawProjectsDir.includes("..")) {
+    return {
+      kind: "response",
+      response: new Response(
+        JSON.stringify({ error: "projectsDir must not contain path traversal sequences (..)" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    };
+  }
+
+  const projectsDir = expandProjectsDir(rawProjectsDir);
+
+  if (!path.isAbsolute(projectsDir)) {
+    return {
+      kind: "response",
+      response: new Response(
+        JSON.stringify({ error: "projectsDir must resolve to an absolute path" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    };
+  }
+
+  if (!projectsDir.startsWith("/home/") && !projectsDir.startsWith("/Users/")) {
+    return {
+      kind: "response",
+      response: new Response(
+        JSON.stringify({
+          error: `projectsDir must resolve under /home/ or /Users/ (got: ${projectsDir})`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    };
+  }
+
+  return { kind: "ok", agent, projectsDir };
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────
+
+/**
+ * GET /projects/discovered — git repos found under the agent's projectsDir.
+ *
+ * Pagination:
+ * - No `cursor` and no `limit` query params: legacy behavior — returns
+ *   `{ projects, truncated, configured }` with `truncated: true` when the
+ *   scan exceeds 100 entries (existing contract).
+ * - `cursor` or `limit` present: returns
+ *   `{ items, nextCursor, configured }`. The cursor is an opaque base64
+ *   string (internally the last-seen path); callers MUST treat it as opaque.
+ *   Full scan window is raised to 1000 entries so pagination can cover the
+ *   whole directory; beyond that a page ends with nextCursor=null even if
+ *   more items exist on disk.
+ *
+ * Invalid cursors produce a 400 response without leaking the encoding format.
+ * `limit` is silently clamped to [1, 200]; default is 50.
+ */
+export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Response> {
+  const start = Date.now();
+  const route = "/projects/discovered";
+
+  const rawCursor = url?.searchParams.get("cursor") ?? null;
+  const rawLimit = url?.searchParams.get("limit") ?? null;
+  const paginated = rawCursor !== null || rawLimit !== null;
+
+  // Validate cursor up front so bad input fails before any DB/scan work.
+  let cursorMarker: string | null = null;
+  if (rawCursor !== null) {
+    cursorMarker = parseCursor(rawCursor);
+    if (cursorMarker === null) {
+      log.info({ route }, "rejected request with invalid cursor");
+      return new Response(
+        JSON.stringify({ error: "invalid cursor" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+
+  const limit = parseLimit(rawLimit, DEFAULT_LIMIT, MAX_LIMIT);
+  if (rawLimit !== null) {
+    const requested = Number(rawLimit);
+    if (Number.isFinite(requested) && requested > MAX_LIMIT) {
+      log.warn(
+        { route, requested, clampedTo: MAX_LIMIT },
+        "limit exceeded max — clamped",
+      );
+    }
+  }
+
+  const now = Date.now();
+
+  // ── Legacy path (no cursor, no limit) ─────────────────────────────────
+  if (!paginated) {
+    if (legacyCache && now < legacyCache.expiry) {
+      const durationMs = Date.now() - start;
+      const cached = legacyCache.data;
+      const count = "projects" in cached ? cached.projects.length : 0;
+      const cacheAge = now - legacyCache.computedAt;
+      log.info({ route, durationMs, count, fromCache: true }, "projects-discovered request");
+      return new Response(JSON.stringify(cached), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cache-Age": String(cacheAge),
+          "X-Cache-TTL": String(CACHE_TTL_MS),
+        },
+      });
+    }
+
+    const resolved = await resolveAgentProjectsDir(db);
+    if (resolved.kind === "response") return resolved.response;
+    if (resolved.kind === "unconfigured") {
+      log.info(
+        { route, agentId: resolved.agent.id },
+        `projectsDir not configured for agent ${resolved.agent.id} — returning empty project list`,
+      );
+      const empty: AgentDiscoveredProjectsResponse = {
+        projects: [],
+        truncated: false,
+        configured: false,
+      };
+      const computedAt = Date.now();
+      legacyCache = { data: empty, expiry: computedAt + CACHE_TTL_MS, computedAt };
+      const durationMs = Date.now() - start;
+      log.info({ route, durationMs, count: 0, fromCache: false }, "projects-discovered request");
+      return new Response(JSON.stringify(empty), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cache-Age": "0",
+          "X-Cache-TTL": String(CACHE_TTL_MS),
+        },
+      });
+    }
+
+    const { agent, projectsDir } = resolved;
+    const scan = await scanProjects(projectsDir, db, LEGACY_SCAN_CAP);
+    if (!scan.ok) {
+      const errResp = { error: scan.error };
+      const computedAt = Date.now();
+      legacyCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
+      return new Response(JSON.stringify(errResp), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cache-Age": "0",
+          "X-Cache-TTL": String(CACHE_TTL_MS),
+        },
+      });
+    }
+
+    scan.projects.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Upsert discovered projects into the canonical registry.
+    // Awaited (not fire-and-forget) so data is consistent before responding.
+    const toUpsert: ProjectToUpsert[] = scan.projects.map((p) => ({
+      name: p.name,
+      path: p.path,
+      activeSessions: p.activeSessions,
+      totalSessions: p.totalSessions,
+      gitRemoteUrl: p.gitRemoteUrl,
+    }));
+    try {
+      await upsertProjectLocations(db, agent.id, toUpsert);
+    } catch (err) {
+      log.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "project registry upsert failed — non-fatal",
+      );
+    }
+
+    const result: AgentDiscoveredProjectsResponse = {
+      projects: scan.projects,
+      truncated: scan.truncated,
+      configured: true,
+    };
+    const computedAt = Date.now();
+    legacyCache = { data: result, expiry: computedAt + CACHE_TTL_MS, computedAt };
+    const durationMs = Date.now() - start;
+    log.info({ route, durationMs, count: scan.projects.length, fromCache: false }, "projects-discovered request");
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cache-Age": "0",
+        "X-Cache-TTL": String(CACHE_TTL_MS),
+      },
+    });
+  }
+
+  // ── Paginated path (cursor and/or limit) ──────────────────────────────
+  let scanData: { projects: AgentDiscoveredProject[]; configured: boolean };
+  if (paginatedCache && now < paginatedCache.expiry) {
+    const cached = paginatedCache.data;
+    if ("error" in cached) {
+      return new Response(JSON.stringify(cached), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cache-Age": String(now - paginatedCache.computedAt),
+          "X-Cache-TTL": String(CACHE_TTL_MS),
+        },
+      });
+    }
+    scanData = cached;
+    log.info(
+      { route, count: scanData.projects.length, fromCache: true, paginated: true },
+      "projects-discovered request (cache hit)",
+    );
+  } else {
+    const resolved = await resolveAgentProjectsDir(db);
+    if (resolved.kind === "response") return resolved.response;
+    if (resolved.kind === "unconfigured") {
+      scanData = { projects: [], configured: false };
+      const computedAt = Date.now();
+      paginatedCache = { data: scanData, expiry: computedAt + CACHE_TTL_MS, computedAt };
+    } else {
+      const { agent, projectsDir } = resolved;
+      const scan = await scanProjects(projectsDir, db, PAGINATED_SCAN_CAP);
+      if (!scan.ok) {
+        const errResp = { error: scan.error };
+        const computedAt = Date.now();
+        paginatedCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
+        return new Response(JSON.stringify(errResp), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Cache-Age": "0",
+            "X-Cache-TTL": String(CACHE_TTL_MS),
+          },
+        });
+      }
+
+      // Sort by path (cursor is path-based) — stable and covers the case
+      // where two repos share a name across subtrees.
+      scan.projects.sort((a, b) => a.path.localeCompare(b.path));
+
+      const toUpsert: ProjectToUpsert[] = scan.projects.map((p) => ({
+        name: p.name,
+        path: p.path,
+        activeSessions: p.activeSessions,
+        totalSessions: p.totalSessions,
+        gitRemoteUrl: p.gitRemoteUrl,
+      }));
+      try {
+        await upsertProjectLocations(db, agent.id, toUpsert);
+      } catch (err) {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "project registry upsert failed — non-fatal",
+        );
+      }
+
+      scanData = { projects: scan.projects, configured: true };
+      const computedAt = Date.now();
+      paginatedCache = { data: scanData, expiry: computedAt + CACHE_TTL_MS, computedAt };
+    }
+    log.info(
+      { route, count: scanData.projects.length, fromCache: false, paginated: true },
+      "projects-discovered request",
+    );
+  }
+
+  // Filter past the cursor (exclusive) and cap at limit.
+  const filtered = cursorMarker !== null
+    ? scanData.projects.filter((p) => p.path > cursorMarker!)
+    : scanData.projects;
+
+  const page = filtered.slice(0, limit);
+  const nextCursor =
+    filtered.length > limit && page.length > 0
+      ? encodeCursor(page[page.length - 1]!.path)
+      : null;
+
+  const body: AgentDiscoveredProjectsPaginatedResponse = {
+    items: page,
+    nextCursor,
+    configured: scanData.configured,
   };
 
-  const computedAt = Date.now();
-  discoveredCache = { data: result, expiry: computedAt + CACHE_TTL_MS, computedAt };
-
   const durationMs = Date.now() - start;
-  log.info({ route, durationMs, count: projects.length, fromCache: false }, "projects-discovered request");
+  log.info(
+    { route, durationMs, pageSize: page.length, hasNextCursor: nextCursor !== null },
+    "paginated shape served",
+  );
 
-  return new Response(JSON.stringify(result), {
+  return new Response(JSON.stringify(body), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cache-Age": "0",
-      "X-Cache-TTL": String(CACHE_TTL_MS),
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }

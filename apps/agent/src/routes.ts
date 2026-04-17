@@ -10,7 +10,7 @@
 
 import type { Db } from "@nexus/db";
 import type { HealthMetrics } from "@nexus/core";
-import { logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core";
 import os from "node:os";
 import type { Route } from "./router";
 import type { ServerState } from "./server-websocket";
@@ -201,8 +201,9 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
 
         const snapshot = {
           timestamp: new Date(),
-          // Agent identity matches `upsertSelfInRegistry` (hostname-based).
-          agentId: os.hostname(),
+          // Agent identity matches `upsertSelfInRegistry` — resolved via
+          // agents.toml (self_name) with os.hostname() fallback.
+          agentId: getAgentId(),
           cpuPercent: (metrics.cpu as { overall_percent: number }).overall_percent,
           ramPercent: (metrics.ram as { percent: number }).percent,
           diskPercent,
@@ -266,8 +267,8 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
       method: "GET",
       path: "/projects",
       requiresDb: true,
-      handler() {
-        return handleGetProjects(dbRef);
+      handler(req) {
+        return handleGetProjects(dbRef, new URL(req.url));
       },
     },
     {
@@ -282,8 +283,8 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
       method: "GET",
       path: "/projects/discovered",
       requiresDb: true,
-      handler() {
-        return handleGetDiscoveredProjects(dbRef);
+      handler(req) {
+        return handleGetDiscoveredProjects(dbRef, new URL(req.url));
       },
     },
 

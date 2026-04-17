@@ -15,19 +15,47 @@ describe("CORS", () => {
       "http://100.64.0.1:3000",
     );
     expect(res.headers.get("access-control-allow-methods")).toBe(
-      "GET, POST, OPTIONS",
+      "GET, POST, PUT, OPTIONS",
     );
     expect(res.headers.get("access-control-allow-headers")).toBe(
       "Content-Type, x-nexus-secret",
     );
   });
 
-  it("does not set CORS headers for non-Tailscale origins", async () => {
+  it("blocks non-Tailscale browser origins with 403 (task 2.3 defense-in-depth)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
       headers: { Origin: "http://example.com", "x-nexus-secret": ATTACH_SECRET },
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("origin not allowed");
+  });
+
+  it("treats malformed Origin as absent (falls through to auth gate)", async () => {
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "not-a-url", "x-nexus-secret": ATTACH_SECRET },
+    });
+    // Malformed origin → not classified as non-Tailscale → auth gate applies
+    // and passes with valid secret → 200 on /health.
+    expect(res.status).toBe(200);
+  });
+
+  it("passes through requests with no Origin header (curl/wscat)", async () => {
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { "x-nexus-secret": ATTACH_SECRET },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("still allows OPTIONS preflight from any Origin (browsers need it)", async () => {
+    const res = await fetch(`${baseUrl}/health`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://example.com" },
+    });
+    // OPTIONS bypasses the 403 block. Non-Tailscale preflight returns 204 but
+    // without Access-Control-Allow-Origin (withCors only sets headers for TS).
+    expect(res.status).toBe(204);
   });
 
   it("handles OPTIONS preflight with CORS headers", async () => {

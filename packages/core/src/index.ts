@@ -21,6 +21,9 @@ export {
   parseConfig,
   AgentConfigSchema,
   NexusConfigSchema,
+  getAgentId,
+  getAgentsConfigPath,
+  resetAgentIdCache,
 } from "./config";
 export type {
   AgentConfig,

@@ -1,8 +1,7 @@
-import os from "node:os";
 import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
-import { logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
@@ -76,8 +75,9 @@ export class HealthScheduler {
 
     const snapshot = {
       timestamp: new Date(),
-      // Agent identity matches `upsertSelfInRegistry` (hostname-based).
-      agentId: os.hostname(),
+      // Agent identity matches `upsertSelfInRegistry` — resolved via
+      // agents.toml (self_name) with os.hostname() fallback.
+      agentId: getAgentId(),
       cpuPercent: metrics.cpu.overall_percent,
       ramPercent: metrics.ram.percent,
       diskPercent,

@@ -39,11 +39,8 @@ export async function attributeTurnToCredential(
   sessionId: string,
   _turnTs: Date,
 ): Promise<AttributionResult> {
-  // TODO: When credential_swaps table is added to the Bun DB schema:
-  //   1. Query: SELECT credential_id, swapped_at FROM credential_swaps
-  //      WHERE session_id = ? AND swapped_at <= ? ORDER BY swapped_at DESC LIMIT 1
-  //   2. If a swap matches, look up credentials.fingerprint for that credential_id
-  //   3. If no swap matches, fall through to the session-level fallback below
+  // Future work: see bead nx-wce7 (Add credential_swaps table) for per-turn
+  // credential attribution. Current fallback uses session-level credential.
 
   // Fallback: use the session's initial credential assignment
   const sessionRows = await db

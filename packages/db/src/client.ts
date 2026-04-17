@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import postgres, { type Options } from "postgres";
 import * as schema from "./schema";
 
 /**
@@ -7,8 +7,21 @@ import * as schema from "./schema";
  *
  * The connection string is read from POSTGRES_URL (.env at project root).
  * Call this once at startup — the returned `db` instance is safe to reuse.
+ *
+ * `options` is passed through to postgres.js. The primary use case is
+ * integration tests that need to pin every pooled connection to a
+ * non-default `search_path`:
+ *
+ *     createDb(url, { connection: { search_path: '"nx_test_xyz",public' } })
+ *
+ * postgres.js applies `connection.*` values to every new connection via
+ * the startup packet, so this is the correct way to scope the whole pool
+ * to an isolated schema.
  */
-export function createDb(url?: string) {
+export function createDb(
+  url?: string,
+  options?: Options<Record<string, never>>,
+) {
   const connectionString = url ?? process.env.POSTGRES_URL;
   if (!connectionString) {
     throw new Error(
@@ -17,7 +30,7 @@ export function createDb(url?: string) {
     );
   }
 
-  const client = postgres(connectionString);
+  const client = postgres(connectionString, options ?? {});
   const db = drizzle(client, { schema });
 
   return { db, client };

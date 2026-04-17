@@ -1,5 +1,5 @@
 import type { Db } from "@nexus/db";
-import { logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core";
 import type { HealthMetrics } from "@nexus/core";
 import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
@@ -115,6 +115,25 @@ function isTailscaleOrigin(origin: string | null): boolean {
   }
 }
 
+/**
+ * Return true if the origin is a well-formed URL that is NOT a Tailscale host.
+ *
+ * Used for defense-in-depth 403 blocking. A present-but-malformed Origin is
+ * treated as if no Origin were sent (proceed via auth gate) — we cannot
+ * confidently label a garbage string "non-Tailscale" so we defer to the
+ * `x-nexus-secret` check rather than reject.
+ */
+function isDisallowedBrowserOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return !/^100\./.test(url.hostname);
+  } catch {
+    // Malformed Origin — treat as absent (scenario 5 of terminal-attach spec).
+    return false;
+  }
+}
+
 /** Attach CORS headers when the request comes from a Tailscale origin. */
 function withCors(request: Request, response: Response): Response {
   const origin = request.headers.get("origin");
@@ -188,6 +207,21 @@ function createRequestHandler(state: ServerState, db?: Db) {
     // CORS preflight — must be exempted from auth so browsers can negotiate headers
     if (request.method === "OPTIONS") {
       return withCors(request, new Response(null, { status: 204 }));
+    }
+
+    // ── Origin defense-in-depth ───────────────────────────────────────────
+    // Browser requests from non-Tailscale origins are rejected with 403 before
+    // any real work happens. Non-browser clients (curl, wscat) omit Origin and
+    // are unaffected — the `x-nexus-secret` check below remains the primary
+    // gate for those. Malformed Origin values are treated as absent (we can't
+    // confidently classify a garbage string as "non-Tailscale") and fall
+    // through to the auth gate.
+    const origin = request.headers.get("origin");
+    if (isDisallowedBrowserOrigin(origin)) {
+      return new Response(JSON.stringify({ error: "origin not allowed" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     // ── Global REST auth middleware ───────────────────────────────────────
@@ -275,7 +309,7 @@ function createRequestHandler(state: ServerState, db?: Db) {
 
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
-        return handleGetProjects(db).then((r) => withCors(request, r)).catch((err) => {
+        return handleGetProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/projects", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
@@ -289,7 +323,7 @@ function createRequestHandler(state: ServerState, db?: Db) {
       }
 
       if (url.pathname === "/projects/discovered" && request.method === "GET") {
-        return handleGetDiscoveredProjects(db).then((r) => withCors(request, r)).catch((err) => {
+        return handleGetDiscoveredProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/projects/discovered", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
@@ -351,8 +385,9 @@ function createRequestHandler(state: ServerState, db?: Db) {
 
           const snapshot = {
             timestamp: new Date(),
-            // Agent identity matches `upsertSelfInRegistry` (hostname-based).
-            agentId: os.hostname(),
+            // Agent identity matches `upsertSelfInRegistry` — resolved via
+            // agents.toml (self_name) with os.hostname() fallback.
+            agentId: getAgentId(),
             cpuPercent: (metrics.cpu as { overall_percent: number }).overall_percent,
             ramPercent: (metrics.ram as { percent: number }).percent,
             diskPercent,
