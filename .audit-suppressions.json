@@ -109,14 +109,16 @@
     {
       "id": "B4",
       "paths": [
-        "apps/agent/src/credentials/pool.ts",
-        "apps/agent/src/server.ts",
-        "apps/agent/src/routes.ts",
-        "apps/agent/src/routes/credentials.ts",
-        "apps/agent/src/services/socket-server.ts",
-        "apps/nextjs/src/components/CredentialsTable.tsx"
+        "apps/agent/src/credentials/pool/pool-core.ts"
       ],
-      "reason": "Deferred to spec-candidate bead nx-iwu3 \u2014 6 production files >500 lines, structured split planned as its own spec"
+      "reason": "Cohesive CredentialPool class (1018 lines) — 13 public methods share private state (db, cooldownMs, leaseTtlMs, encryptionKey, prerotateThreshold, cleanupTimer). Splitting introduces awkward state passing or module-level singletons. split-b4-large-files spec explicitly allowed this: 'a cohesive class is better than an artificially-split one'. Types, errors, and module-level constants are already extracted into pool/types.ts, pool/errors.ts."
+    },
+    {
+      "id": "B4",
+      "paths": [
+        "apps/agent/src/routes/projects-discovered.ts"
+      ],
+      "reason": "Grew to 560 lines during cleanup-residual-debt task 2.2 (cursor pagination added ~89 lines for dual-shape response + cursor encoding). Not part of the original nx-iwu3 scope. Acceptable — file has clean separation between scan logic and handler; a split would fragment a short-lived cache model for marginal gain."
     }
   ],
   "autoSkipTestFiles": [

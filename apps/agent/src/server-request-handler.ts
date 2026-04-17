@@ -1,0 +1,376 @@
+/**
+ * HTTP request dispatcher extracted from server.ts.
+ *
+ * Encapsulates:
+ * - WebSocket upgrade delegation
+ * - CORS preflight handling
+ * - Origin defense-in-depth (403 block for non-Tailscale browser origins)
+ * - Global REST auth (x-nexus-secret)
+ * - Credential ID pre-validation for path-parameterised credential routes
+ * - Route dispatch for every HTTP route served by nexus-agent
+ *
+ * Route-group sub-dispatchers live in:
+ * - server-routes-credentials.ts — /credentials/*
+ * - server-routes-specs.ts       — /specs/*, /commands/*
+ */
+
+import type { Db } from "@nexus/db";
+import { logger } from "@nexus/core";
+import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
+import { handleGetProjects } from "./routes/projects";
+import { handleGetAgentSelf } from "./routes/agent-self";
+import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
+import { handleGetHealthHistory } from "./routes/health-history";
+import {
+  handleSendNotification,
+  handleMeetingStart,
+  handleMeetingEnd,
+  handleMeetingStatus,
+} from "./routes/notifications";
+import {
+  handleAnalyticsHealth,
+  handleAnalyticsSpecs,
+  handleAnalyticsCredentials,
+  handleAnalyticsGit,
+  handleAnalyticsLifecycle,
+  handleAnalyticsCron,
+} from "./routes/analytics";
+import {
+  handleProjectStatus,
+  handleProjectBeads,
+  handleProjectGit,
+  handleProjectSpecs,
+  handleRunCommand,
+} from "./routes/project-detail";
+import { handleStatusline } from "./routes/statusline";
+import { handleHooks } from "./routes/hooks";
+import { handleRecommend } from "./routes/recommend";
+import { handleEnvironment } from "./routes/environment-route";
+import { handleFailures } from "./routes/failures-route";
+import { handleCron } from "./routes/cron-routes";
+import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
+import type { WsData } from "./terminal/stream-manager";
+import { ServerState, handleWsUpgrade } from "./server-websocket";
+import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
+import { CREDENTIAL_ID_RE, requireSecret } from "./server-auth";
+import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
+import { tryHandleCredentialRoute } from "./server-routes-credentials";
+import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
+
+/** Create the route dispatch handler, optionally backed by a database. */
+export function createRequestHandler(state: ServerState, db?: Db) {
+  return function handleRequest(
+    request: Request,
+    server: import("bun").Server<WsData>,
+  ): Response | Promise<Response> | undefined {
+    const url = new URL(request.url);
+
+    // ── WebSocket upgrade routes ──────────────────────────────────────────
+    const wsResult = handleWsUpgrade(state, request, url, server);
+    // null  → URL didn't match any WS route; continue to HTTP dispatch
+    // undefined → upgrade succeeded (Bun convention: return undefined)
+    // Response → auth failure, connection limit, bad request, etc.
+    if (wsResult !== null) return wsResult;
+
+    // CORS preflight — must be exempted from auth so browsers can negotiate headers
+    if (request.method === "OPTIONS") {
+      return withCors(request, new Response(null, { status: 204 }));
+    }
+
+    // ── Origin defense-in-depth ───────────────────────────────────────────
+    // Browser requests from non-Tailscale origins are rejected with 403 before
+    // any real work happens. Non-browser clients (curl, wscat) omit Origin and
+    // are unaffected — the `x-nexus-secret` check below remains the primary
+    // gate for those. Malformed Origin values are treated as absent (we can't
+    // confidently classify a garbage string as "non-Tailscale") and fall
+    // through to the auth gate.
+    const origin = request.headers.get("origin");
+    if (isDisallowedBrowserOrigin(origin)) {
+      return new Response(JSON.stringify({ error: "origin not allowed" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // ── Global REST auth middleware ───────────────────────────────────────
+    // All REST routes require x-nexus-secret. Applied after WebSocket upgrade
+    // checks (which validate inline) and after OPTIONS preflight (browsers must
+    // be able to send a preflight without credentials to discover allowed headers).
+    const authErr = requireSecret(request);
+    if (authErr) return authErr;
+
+    if (url.pathname === "/health") {
+      return handleHealthGet(request, url, state);
+    }
+
+    // ── Credential ID pre-validation (before DB guard) ──────────────────
+    // Validate credential IDs in path-parameterised routes immediately after
+    // auth so that malformed IDs (path traversal, HTML injection, spaces)
+    // are rejected with 400 before any DB interaction.  This must run even
+    // when no DB is configured so that the sanitisation gate is always active.
+    const earlyCredReleaseMatch = url.pathname.match(/^\/credentials\/([^/]+)\/release$/);
+    if (earlyCredReleaseMatch && request.method === "POST") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredReleaseMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+    const earlyCredRateLimitMatch = url.pathname.match(/^\/credentials\/([^/]+)\/report-rate-limit$/);
+    if (earlyCredRateLimitMatch && request.method === "POST") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredRateLimitMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+    const earlyCredHealthMatch = url.pathname.match(/^\/credentials\/([^/]+)\/health$/);
+    if (earlyCredHealthMatch && request.method === "GET") {
+      if (!CREDENTIAL_ID_RE.test(earlyCredHealthMatch[1]!)) {
+        return withCors(request, new Response("Bad Request", { status: 400 }));
+      }
+    }
+
+    // ── Session & project routes (require DB) ────────────────────────────
+    if (db) {
+      // GET /sessions
+      if (url.pathname === "/sessions" && request.method === "GET") {
+        return handleGetSessions(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/sessions", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /sessions/{id}
+      const sessionMatch = url.pathname.match(/^\/sessions\/(.+)$/);
+      if (sessionMatch && request.method === "GET") {
+        return handleGetSessionById(db, sessionMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/sessions/:id", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /projects
+      if (url.pathname === "/projects" && request.method === "GET") {
+        return handleGetProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/projects", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/agent/self" && request.method === "GET") {
+        return handleGetAgentSelf(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/agent/self", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/projects/discovered" && request.method === "GET") {
+        return handleGetDiscoveredProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/projects/discovered", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /health/history
+      if (url.pathname === "/health/history" && request.method === "GET") {
+        return handleGetHealthHistory(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/health/history", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // POST /health/ingest — accept a HealthMetrics JSON body from the Rust collector
+      if (url.pathname === "/health/ingest" && request.method === "POST") {
+        return handleHealthIngest(request, db);
+      }
+
+      // ── Notification routes ──────────────────────────────────────────
+      if (url.pathname === "/notifications/send" && request.method === "POST") {
+        return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/meeting/start" && request.method === "POST") {
+        return withCors(request, handleMeetingStart());
+      }
+
+      if (url.pathname === "/meeting/end" && request.method === "POST") {
+        return handleMeetingEnd().then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/meeting/end", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/meeting/status" && request.method === "GET") {
+        return withCors(request, handleMeetingStatus());
+      }
+
+      // ── Credential routes (delegated) ────────────────────────────────
+      const credResult = tryHandleCredentialRoute(request, url);
+      if (credResult !== null) return credResult;
+
+      // ── Analytics routes ──────────────────────────────────────────────
+      if (url.pathname === "/analytics/health" && request.method === "GET") {
+        return handleAnalyticsHealth(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/health", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/specs" && request.method === "GET") {
+        return handleAnalyticsSpecs(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/specs", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/credentials" && request.method === "GET") {
+        return handleAnalyticsCredentials(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/credentials", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/git" && request.method === "GET") {
+        return handleAnalyticsGit(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/git", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/lifecycle" && request.method === "GET") {
+        return handleAnalyticsLifecycle(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/lifecycle", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/cron" && request.method === "GET") {
+        return handleAnalyticsCron(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/cron", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Statusline & operational routes (require DB for session queries) ──
+      if (url.pathname === "/statusline" && request.method === "GET") {
+        return handleStatusline(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/statusline", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/hooks" && request.method === "POST") {
+        return handleHooks(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/hooks", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/recommend" && request.method === "GET") {
+        return handleRecommend(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/recommend", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Events routes (require DB) ────────────────────────────────────
+      if (url.pathname === "/events" && request.method === "GET") {
+        return handleGetEvents(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/events", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Session start (requires DB context) ───────────────────────────
+      if (url.pathname === "/session/start" && request.method === "POST") {
+        return handleSessionStart(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/session/start", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── Project detail routes (require DB for project resolution) ─────
+      const projectStatusMatch = url.pathname.match(/^\/project\/([^/]+)\/status$/);
+      if (projectStatusMatch && request.method === "GET") {
+        return handleProjectStatus(projectStatusMatch[1]!, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/status", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectBeadsMatch = url.pathname.match(/^\/project\/([^/]+)\/beads$/);
+      if (projectBeadsMatch && request.method === "GET") {
+        return handleProjectBeads(projectBeadsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/beads", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectGitMatch = url.pathname.match(/^\/project\/([^/]+)\/git$/);
+      if (projectGitMatch && request.method === "GET") {
+        return handleProjectGit(projectGitMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/git", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectSpecsMatch = url.pathname.match(/^\/project\/([^/]+)\/specs$/);
+      if (projectSpecsMatch && request.method === "GET") {
+        return handleProjectSpecs(projectSpecsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/specs", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const projectRunMatch = url.pathname.match(/^\/project\/([^/]+)\/run$/);
+      if (projectRunMatch && request.method === "POST") {
+        return handleRunCommand(projectRunMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/project/:code/run", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+    }
+
+    // ── Routes that do not require a DB connection ────────────────────────
+
+    // ── Spec routes (delegated) ───────────────────────────────────────────
+    const specResult = tryHandleSpecRoute(request, url);
+    if (specResult !== null) return specResult;
+
+    // ── Command routes (delegated) ────────────────────────────────────────
+    const commandResult = tryHandleCommandRoute(request, url);
+    if (commandResult !== null) return commandResult;
+
+    // ── Operational routes (no DB required) ──────────────────────────────
+    if (url.pathname === "/environment" && request.method === "GET") {
+      return handleEnvironment().then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/environment", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/failures" && request.method === "GET") {
+      return handleFailures(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/failures", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/cron" && request.method === "GET") {
+      return withCors(request, handleCron());
+    }
+
+    // ── SSE stream ──────────────────────────────────────────────────────
+    if (url.pathname === "/events/stream" && request.method === "GET") {
+      return withCors(request, handleEventsStream());
+    }
+
+    return withCors(
+      request,
+      new Response(JSON.stringify({ error: "not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+}

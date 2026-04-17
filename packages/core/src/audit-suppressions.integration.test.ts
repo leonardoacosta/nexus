@@ -1024,3 +1024,101 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
     });
   },
 );
+
+// ---------------------------------------------------------------------------
+// split-b4-large-files — post-split nx repo baselines
+//
+// split-b4-large-files closed nx-iwu3 — the last audit-debt bead.
+// 6 large production files split into focused modules behind barrel re-exports.
+//   pool.ts              1083 → 5 modules (pool/types, errors, pool-core, index + barrel)
+//   server.ts             786 → 8 modules (server-* helpers + 85-line entry)
+//   routes.ts             694 → 13 domain builders + 72-line orchestrator
+//   routes/credentials.ts 638 → 7 modules (init, 4 handler groups, shared, index + barrel)
+//   services/socket-server.ts 521 → 3 modules + barrel
+//   CredentialsTable.tsx  525 → 8 sibling components + 1-line barrel
+// Result: B4 count 6 → 0 (2 narrow justified suppressions added),
+// composite score 99 → 100, all tests pass unchanged.
+//
+// Spec: openspec/changes/split-b4-large-files/
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "split-b4-large-files — post-split nx repo baselines",
+  () => {
+    test("B4 finding count is zero (the 6 production files split behind barrels)", () => {
+      const report = runAuditScan();
+      const b4 = findingsWithId(report, "B4");
+
+      // Primary assertion proving the splits worked (nx-iwu3 resolution).
+      // Pre-split baseline was 6 findings on:
+      //   apps/agent/src/credentials/pool.ts                (1083 lines)
+      //   apps/agent/src/server.ts                          (786 lines)
+      //   apps/agent/src/routes.ts                          (694 lines)
+      //   apps/agent/src/routes/credentials.ts              (638 lines)
+      //   apps/agent/src/services/socket-server.ts          (521 lines)
+      //   apps/nextjs/src/components/CredentialsTable.tsx   (525 lines)
+      // All now split into focused modules; original paths preserved as
+      // barrel re-exports or thin orchestrators. Residual cohesive-class
+      // callsites (pool-core, projects-discovered cursor expansion) were
+      // converted to narrow suppressions with specific reasons in
+      // .audit-suppressions.json.
+      expect(b4.length).toBe(0);
+    });
+
+    test("composite audit score holds at or above post-split floor (>= 99)", () => {
+      const report = runAuditScan();
+
+      // Split landed with score 99 → 100. Asserting >= 99 (not strict
+      // equality to 100) tolerates minor one-off drift from rule additions
+      // or transient file growth without a false regression. If this
+      // drops below 99, a real debt finding appeared or a suppression
+      // regressed — investigate before relaxing the floor.
+      expect(report.score).toBeGreaterThanOrEqual(99);
+    });
+
+    test("pure barrel files stay slim (<= 20 lines)", () => {
+      // These four original paths became pure barrel re-exports — they
+      // exist only to preserve import paths; real implementation lives in
+      // sibling files. A growing barrel signals that implementation is
+      // leaking back into the barrel instead of staying in focused
+      // modules (which would re-introduce the B4 finding).
+      const pureBarrels = [
+        "apps/agent/src/credentials/pool.ts",
+        "apps/agent/src/routes/credentials.ts",
+        "apps/agent/src/services/socket-server.ts",
+        "apps/nextjs/src/components/CredentialsTable.tsx",
+      ];
+
+      for (const relativePath of pureBarrels) {
+        const absolute = resolve(REPO_ROOT, relativePath);
+        const contents = readFileSync(absolute, "utf-8");
+        // Count lines by counting newlines; treat a missing trailing
+        // newline as still its own line. This matches `wc -l` + 1 for
+        // files without a trailing newline, which is conservative (allows
+        // up to 20 content lines either way).
+        const lineCount = contents.split("\n").length;
+        expect(lineCount).toBeLessThanOrEqual(20);
+      }
+    });
+
+    test("orchestrator files stay focused (<= 100 lines)", () => {
+      // server.ts (85 lines) and routes.ts (72 lines) are NOT pure
+      // barrels — they remain thin orchestrators that wire helpers
+      // together (startServer singleton management, buildRoutes
+      // concatenation). Threshold of 100 catches regression where an
+      // orchestrator grows back toward a god-file while still leaving
+      // room for reasonable wiring logic.
+      const orchestrators = [
+        "apps/agent/src/server.ts",
+        "apps/agent/src/routes.ts",
+      ];
+
+      for (const relativePath of orchestrators) {
+        const absolute = resolve(REPO_ROOT, relativePath);
+        const contents = readFileSync(absolute, "utf-8");
+        const lineCount = contents.split("\n").length;
+        expect(lineCount).toBeLessThanOrEqual(100);
+      }
+    });
+  },
+);
