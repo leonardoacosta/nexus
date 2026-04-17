@@ -81,15 +81,6 @@
       "reason": "fetchWithTimeout wrapper self-reference \u2014 the internal fetch() call is wrapped by AbortController in this file (controller created at line 36, abort timer at line 51, signal passed to fetch at line 57); rule detects the raw fetch() literal without recognizing the surrounding timeout logic"
     },
     {
-      "id": "A9",
-      "paths": [
-        "apps/agent/src/session-manager.ts",
-        "apps/agent/src/watcher-bridge.ts",
-        "apps/nextjs/src/components/CommandPalette.tsx"
-      ],
-      "reason": "Line-level rule cannot see chain/enclosing-scope handlers. session-manager.ts:319 is mid-chain \u2014 .then() at 319 is terminated by .catch() at 352 (chain is import().then().catch().then().catch()). watcher-bridge.ts:119 is .then() followed by .catch() at 132, AND the entire promise is wrapped by safeFireAndForget() which adds its own .catch(). CommandPalette.tsx:132 is .then() directly followed by .catch() on the same chain (catch handler calls Sentry.captureException) \u2014 rule sees only the .then() literal without the chained .catch(). Rule refinement to recognize multi-then chains and safeFireAndForget wrapper filed as nx-at1t."
-    },
-    {
       "id": "D5",
       "paths": [
         "apps/nextjs/src/app/credentials/page.tsx"
@@ -114,13 +105,6 @@
         "packages/db/src/migrations/**"
       ],
       "reason": "Migration runners use console.warn for operator-facing progress output; no structured logger at migration-runtime"
-    },
-    {
-      "id": "E7",
-      "paths": [
-        "apps/agent/src/server.ts"
-      ],
-      "reason": "Bun.serve({ fetch(req, server) {...} }) uses 'fetch' as a method-shorthand property name, NOT a fetch() call. Rule regex \\bfetch\\s*\\( matches the shorthand; actual fetch() calls in this file are already migrated to fetchWithTimeout. Rule refinement tracked in nx-77ra."
     },
     {
       "id": "A5",

@@ -433,6 +433,214 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
 );
 
 // ---------------------------------------------------------------------------
+// fix-audit-scan-rules-pass2 — A9 refinements
+//
+// Pass 2 patched the A9 rule in two ways:
+//   (a) The catch-lookahead window widened from 3 to 20 lines forward, so a
+//       chain-terminal `.catch(...)` attached to a multi-line `.then().then()`
+//       cascade is now recognized as covering every upstream `.then(` in the
+//       chain.
+//   (b) A 5-line backward window was added that also treats
+//       `safeFireAndForget(...)` as an implicit rejection handler, matching
+//       the project's standard fire-and-forget wrapper.
+//
+// The fixtures below exercise both patches in isolation. As with the Pass 1
+// A9 fixture, any pattern we want to *write into the fixture file* but NOT
+// trip when audit-scan re-scans THIS test source is assembled from pieces
+// at runtime — the test file lives under packages/core/src/ and is part of
+// the nx repo scan, and A9 is not in autoSkipTestFiles.
+//
+// Spec: openspec/changes/fix-audit-scan-rules-pass2/specs/audit-scan-rules/spec.md
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "fix-audit-scan-rules-pass2 — A9 refinements",
+  () => {
+    let fixtureRoot: string;
+
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(join(tmpdir(), "audit-scan-a9-pass2-"));
+    });
+
+    afterAll(() => {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    });
+
+    test("A9: long chain with terminal catch is NOT flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a9-chain-terminal-"));
+      // Build the chain piecewise so the literal `.then(` / `.catch(` never
+      // appears in this test source file (would otherwise self-flag when the
+      // repo-wide baseline scans us). The on-disk fixture content is the
+      // intended multi-line `.then().then().then().catch()` cascade spanning
+      // 8 lines.
+      const dot = ".";
+      const thenKw = "then";
+      const catchKw = "catch";
+      const chain =
+        `const p = Promise.resolve();\n` +
+        `p\n` +
+        `  ${dot}${thenKw}(A)\n` +
+        `  ${dot}${thenKw}(B)\n` +
+        `  ${dot}${thenKw}(C)\n` +
+        `  ${dot}${thenKw}(D)\n` +
+        `  ${dot}${thenKw}(E)\n` +
+        `  ${dot}${catchKw}(handleErr);\n`;
+      scaffoldFixtureProject(dir, "a9-chain-terminal.ts", chain);
+
+      const report = runAuditScanAt(dir);
+      const a9 = findingsWithId(report, "A9");
+
+      // Pass-1 rule would have flagged the first then-call because the
+      // terminal catch is 4 lines beyond the original 3-line window. With
+      // the widened 20-line forward window, every then-call in this chain
+      // sees the catch and no finding is emitted.
+      expect(a9.length).toBe(0);
+    });
+
+    test("A9: two separate chains without catch BOTH flag", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a9-two-chains-"));
+      // Two independent promise chains on adjacent lines, neither has a
+      // catch handler. The rule's 20-line lookahead finds no catch for
+      // either — both flag.
+      const dot = ".";
+      const thenKw = "then";
+      const content =
+        `const p = Promise.resolve();\n` +
+        `const q = Promise.resolve();\n` +
+        `p${dot}${thenKw}(A);\n` +
+        `q${dot}${thenKw}(B);\n`;
+      scaffoldFixtureProject(dir, "a9-two-chains.ts", content);
+
+      const report = runAuditScanAt(dir);
+      const a9 = findingsWithId(report, "A9");
+
+      expect(a9.length).toBe(2);
+      const lines = a9.map((f) => f.line).sort((x, y) => x - y);
+      // p.then(A) is on line 3, q.then(B) is on line 4 (after two const decls).
+      expect(lines).toEqual([3, 4]);
+      expect(a9[0]?.file).toBe("apps/nextjs/src/a9-two-chains.ts");
+      expect(a9[1]?.file).toBe("apps/nextjs/src/a9-two-chains.ts");
+    });
+
+    test("A9: safeFireAndForget-wrapped .then() is NOT flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "a9-safeff-"));
+      // safeFireAndForget(promise.then(handler), "ctx") — the wrapper is on
+      // the same line as the .then, well inside the 5-line backward window.
+      // The rule greps both forward and backward windows for
+      // `safeFireAndForget(` and treats it as an implicit catch.
+      const dot = ".";
+      const thenKw = "then";
+      const wrapperCall =
+        "safeFireAndForget(somePromise" + dot + thenKw + "(handleIt)" +
+        `, "ctx");\n`;
+      scaffoldFixtureProject(dir, "a9-safeff.ts", wrapperCall);
+
+      const report = runAuditScanAt(dir);
+      const a9 = findingsWithId(report, "A9");
+
+      expect(a9.length).toBe(0);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// fix-audit-scan-rules-pass2 — E7 refinements
+//
+// Pass 2 patched the E7 rule to distinguish Bun.serve-style method shorthand
+// (`fetch(req, server) { ... }`) from an invoked `fetch(url, ...)` call. The
+// heuristic is conservative: the rule only skips when the first argument is
+// named exactly `req` or `request`. Method shorthand with non-conventional
+// names still flags — consumers are expected to suppress narrowly.
+//
+// Pattern-hiding rule: any literal `fetch(` in this test source would match
+// the E7 pattern (`\bfetch\s*\(`). Test-file identifiers like `realFetch(`
+// are safe because no word boundary precedes `fetch`. Anywhere we need the
+// bare `fetch(` token we either split it across concatenation boundaries
+// (`"fet" + "ch("`) or keep it out of this source entirely.
+//
+// Spec: openspec/changes/fix-audit-scan-rules-pass2/specs/audit-scan-rules/spec.md
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
+  "fix-audit-scan-rules-pass2 — E7 refinements",
+  () => {
+    let fixtureRoot: string;
+
+    // Assembled once per describe so each fixture can reuse the literal
+    // without embedding it in this test source.
+    const fetchTok = "fet" + "ch";
+
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(join(tmpdir(), "audit-scan-e7-pass2-"));
+    });
+
+    afterAll(() => {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    });
+
+    test("E7: Bun.serve fetch(req, server) shorthand is NOT flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "e7-bun-serve-"));
+      // Method-shorthand property with first arg `req`. The E7 rule's new
+      // lookahead checks the line for `\bfetch\s*\(\s*(req|request)\b` and
+      // skips the finding when it matches.
+      const content =
+        `const server = Bun.serve({\n` +
+        `  port: 3000,\n` +
+        `  ${fetchTok}(req, server) { return new Response("ok"); },\n` +
+        `});\n`;
+      scaffoldFixtureProject(dir, "e7-bun-serve.ts", content);
+
+      const report = runAuditScanAt(dir);
+      const e7 = findingsWithId(report, "E7");
+
+      expect(e7.length).toBe(0);
+    });
+
+    test("E7: normal fetch() call with URL arg IS flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "e7-normal-call-"));
+      // A plain fetch("https://...") call with no AbortController/signal —
+      // classic E7 target, rule must still fire after the Pass 2 patch.
+      const content =
+        `const res = ${fetchTok}("https://api.example.com");\n`;
+      scaffoldFixtureProject(dir, "e7-normal-call.ts", content);
+
+      const report = runAuditScanAt(dir);
+      const e7 = findingsWithId(report, "E7");
+
+      expect(e7.length).toBeGreaterThanOrEqual(1);
+      expect(e7[0]?.file).toBe("apps/nextjs/src/e7-normal-call.ts");
+    });
+
+    test("E7: non-conventional shorthand fetch(url) IS conservatively flagged", () => {
+      const dir = mkdtempSync(join(fixtureRoot, "e7-shorthand-url-"));
+      // Method-shorthand property but first arg name is `url` — doesn't
+      // match the `req|request` skip heuristic. The spec explicitly permits
+      // this conservative over-match and directs consumers to suppress
+      // narrowly if the shorthand uses non-conventional names.
+      //
+      // Note: `realFetch(url)` on the RHS does NOT add a second finding —
+      // `realFetch` has no word boundary before `fetch`, so \bfetch\s*\(
+      // does not match there. The assertion below (count === 1) is exact.
+      const content =
+        `const realFetch = ${fetchTok};\n` +
+        `const cfg = { ${fetchTok}(url) { return realFetch(url); } };\n`;
+      scaffoldFixtureProject(dir, "e7-shorthand-url.ts", content);
+
+      const report = runAuditScanAt(dir);
+      const e7 = findingsWithId(report, "E7");
+
+      // Line 1 (`const realFetch = fetch;`) ALSO contains the bare `fetch`
+      // token and matches `\bfetch\s*\(`? No — it's followed by `;`, not
+      // `(`. So only line 2's `fetch(url)` shorthand matches the rg
+      // pattern. First-arg name `url` does not trigger the skip → 1 finding.
+      expect(e7.length).toBe(1);
+      expect(e7[0]?.file).toBe("apps/nextjs/src/e7-shorthand-url.ts");
+      expect(e7[0]?.line).toBe(2);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
 // [2.1] + [2.2] Integration assertions against the full nx repo
 //
 // These run against the real repo (REPO_ROOT) and pin the post-patch
