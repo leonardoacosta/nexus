@@ -13,7 +13,7 @@
  * tick is used to populate initial state without emitting events.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -39,6 +39,13 @@ const SUBPROCESS_TIMEOUT_MS = 5_000;
 
 /** Delay after collecting all events before sending a batched TTS notification (ms). */
 const COALESCE_DELAY_MS = 1_000;
+
+/**
+ * Debounce applied to per-spec file-watch events. Burst writes (e.g. editor
+ * saves, `bd sync`) can fire the watcher many times in rapid succession;
+ * we coalesce them into a single targeted refresh.
+ */
+const WATCH_DEBOUNCE_MS = 300;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -308,6 +315,238 @@ async function sendSpecTtsNotification(message: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// fs.watch for openspec/changes/
+// ---------------------------------------------------------------------------
+
+/** A project whose fs.watch setup failed; poll-only fallback is in effect. */
+interface WatchDegraded {
+  code: string;
+  reason: string;
+}
+
+const activeWatchers = new Map<string, FSWatcher>();
+const watchDegraded = new Map<string, WatchDegraded>();
+const pendingSpecRefresh = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Targeted re-poll of a single change directory. Runs `openspec show
+ * <spec> --json` (not a full `openspec list`) so bursty writes across
+ * many specs do not amplify into a full-registry scan.
+ *
+ * Any detected task-progress / completion transition is emitted onto
+ * the lifecycle bus just like the poll loop.
+ */
+async function refreshSingleSpec(
+  project: ProjectPath,
+  specName: string,
+): Promise<void> {
+  try {
+    const stdout = await execText("openspec", ["show", specName, "--json"], {
+      cwd: project.cwd,
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    });
+
+    // Parse `openspec show <spec>` output — it may emit either a single
+    // snapshot object or an array; normalize to array of `SpecSnapshot`.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      return;
+    }
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const snapshots: SpecSnapshot[] = [];
+    for (const raw of arr) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const item = raw as Record<string, unknown>;
+      const name = typeof item.name === "string" ? item.name : specName;
+      const lastModifiedRaw = item.lastModified ?? item.last_modified;
+      snapshots.push({
+        name,
+        status: typeof item.status === "string" ? item.status : "unknown",
+        completedTasks: Number(item.completedTasks ?? item.completed_tasks ?? 0),
+        totalTasks: Number(item.totalTasks ?? item.total_tasks ?? 0),
+        lastModified:
+          typeof lastModifiedRaw === "string" ? lastModifiedRaw : undefined,
+      });
+    }
+
+    if (snapshots.length === 0) {
+      // Spec directory removed between the fs event and the re-poll. Fall
+      // through to a full pollProjectSpecs() so the removal event fires.
+      const full = await pollProjectSpecs(project.cwd);
+      const events = processProjectSpecs(project.code, project.cwd, full, false);
+      for (const ev of events) {
+        lifecycleBus.emit("SpecTransition", {
+          project: ev.project,
+          specName: ev.name,
+          transition: ev.type,
+          completed: "completed" in ev ? ev.completed : undefined,
+          total: "total" in ev ? ev.total : undefined,
+        });
+      }
+      return;
+    }
+
+    // Run change detection restricted to the affected spec. We splice the
+    // single snapshot into a current-spec-only array for processing so the
+    // rest of the project's state is not touched.
+    const state = projectState.get(project.code);
+    const otherSpecs: SpecSnapshot[] = state
+      ? [...state.values()]
+          .filter((t) => t.name !== specName)
+          .map((t) => ({
+            name: t.name,
+            status: "pending",
+            completedTasks: t.completedTasks,
+            totalTasks: t.totalTasks,
+            lastModified: undefined,
+          }))
+      : [];
+    const composite = [...otherSpecs, ...snapshots];
+    const events = processProjectSpecs(project.code, project.cwd, composite, false);
+    for (const ev of events) {
+      if (ev.name !== specName) continue;
+      lifecycleBus.emit("SpecTransition", {
+        project: ev.project,
+        specName: ev.name,
+        transition: ev.type,
+        completed: "completed" in ev ? ev.completed : undefined,
+        total: "total" in ev ? ev.total : undefined,
+      });
+    }
+  } catch (err) {
+    log.debug(
+      { project: project.code, spec: specName, error: err },
+      "refreshSingleSpec failed",
+    );
+  }
+}
+
+/**
+ * Install a shallow `fs.watch()` on `<project>/openspec/changes/` for
+ * every registered project. Events are debounced per-spec (300ms) and
+ * trigger a targeted `openspec show` refresh.
+ *
+ * ENOSPC (inotify limit exhaustion on Linux) is caught and recorded as a
+ * degraded-watch state; the 60-second poll remains as a safety net so
+ * the page still updates, just with higher latency.
+ *
+ * Returns a disposer that closes every watcher.
+ */
+export function startChangesFsWatchers(): () => void {
+  const projects = loadProjectRegistry();
+
+  for (const project of projects) {
+    const changesDir = join(project.cwd, "openspec", "changes");
+    if (!existsSync(changesDir)) continue;
+    if (activeWatchers.has(project.code)) continue;
+
+    try {
+      // Shallow watch only — avoids amplifying inotify usage by descending
+      // into every change's `specs/` subtree.
+      const watcher = fsWatch(changesDir, { persistent: false }, (_event, filename) => {
+        if (!filename) return;
+        // `filename` is either the change directory itself or a file inside
+        // it. We treat the first path segment as the spec name so edits
+        // within `proposal.md`/`tasks.md` still trigger a refresh of the
+        // parent change.
+        const specName = filename.split(/[\\/]/)[0];
+        if (!specName) return;
+
+        const key = `${project.code}::${specName}`;
+        const existing = pendingSpecRefresh.get(key);
+        if (existing) clearTimeout(existing);
+
+        pendingSpecRefresh.set(
+          key,
+          setTimeout(() => {
+            pendingSpecRefresh.delete(key);
+            refreshSingleSpec(project, specName).catch((err) => {
+              log.debug(
+                { project: project.code, spec: specName, error: err },
+                "debounced spec refresh failed",
+              );
+            });
+          }, WATCH_DEBOUNCE_MS),
+        );
+      });
+      watcher.on("error", (err) => {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOSPC") {
+          log.warn(
+            { project: project.code },
+            "spec-watcher: ENOSPC on fs.watch -- degrading to poll-only for this project",
+          );
+          watchDegraded.set(project.code, {
+            code: project.code,
+            reason: "ENOSPC",
+          });
+          watcher.close();
+          activeWatchers.delete(project.code);
+        } else {
+          log.debug(
+            { project: project.code, error: err },
+            "spec-watcher: fs.watch emitted error",
+          );
+        }
+      });
+      activeWatchers.set(project.code, watcher);
+      log.info(
+        { project: project.code, dir: changesDir },
+        "spec-watcher: fs.watch installed on openspec/changes/",
+      );
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOSPC") {
+        log.warn(
+          { project: project.code },
+          "spec-watcher: ENOSPC creating fs.watch -- continuing with 60s poll only",
+        );
+        watchDegraded.set(project.code, {
+          code: project.code,
+          reason: "ENOSPC",
+        });
+      } else {
+        log.warn(
+          {
+            project: project.code,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "spec-watcher: failed to install fs.watch, continuing with poll",
+        );
+        watchDegraded.set(project.code, {
+          code: project.code,
+          reason:
+            err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  return function stopFsWatchers() {
+    for (const [code, timer] of pendingSpecRefresh) {
+      clearTimeout(timer);
+      pendingSpecRefresh.delete(code);
+    }
+    for (const [code, watcher] of activeWatchers) {
+      try {
+        watcher.close();
+      } catch {
+        // Swallow close() errors — shutting down, nothing to do.
+      }
+      activeWatchers.delete(code);
+    }
+    watchDegraded.clear();
+  };
+}
+
+/** Test-only accessor: which projects are watch-degraded. */
+export function _getWatchDegradedForTest(): WatchDegraded[] {
+  return [...watchDegraded.values()];
+}
+
+// ---------------------------------------------------------------------------
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
@@ -325,11 +564,16 @@ function delay(ms: number): Promise<void> {
  *
  * Polls all registered projects every 60s, detects spec state transitions,
  * and fires TTS notifications. First tick populates initial state silently.
+ *
+ * Also installs per-project `fs.watch` watchers on `openspec/changes/` so
+ * edits to proposals/tasks update the in-memory state within ~300ms
+ * without waiting for the next poll cycle.
  */
 export function startSpecWatcher(): SpecWatcherService {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let firstTick = true;
+  let stopFsWatchers: (() => void) | null = null;
 
   async function tick(): Promise<void> {
     if (stopped) return;
@@ -425,6 +669,20 @@ export function startSpecWatcher(): SpecWatcherService {
     log.error({ error: err }, "spec-watcher: initial tick failed");
   });
 
+  // Install fs.watch for every project after a short delay so the initial
+  // poll tick has a chance to populate `projectState` first. The fs
+  // watchers themselves do not read state; the delay just avoids a
+  // spurious "new_spec" flood when the first watch event races with the
+  // first poll.
+  setTimeout(() => {
+    if (stopped) return;
+    try {
+      stopFsWatchers = startChangesFsWatchers();
+    } catch (err) {
+      log.warn({ error: err }, "spec-watcher: failed to install fs watchers");
+    }
+  }, 500);
+
   log.info({ intervalSecs: POLL_INTERVAL_MS / 1000 }, "Spec-watcher service started");
 
   return {
@@ -432,6 +690,14 @@ export function startSpecWatcher(): SpecWatcherService {
       stopped = true;
       if (timer) clearTimeout(timer);
       timer = null;
+      if (stopFsWatchers) {
+        try {
+          stopFsWatchers();
+        } catch {
+          // Ignore close errors during shutdown.
+        }
+        stopFsWatchers = null;
+      }
       log.info("Spec-watcher service stopped");
     },
   };

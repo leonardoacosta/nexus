@@ -4,21 +4,21 @@
 
 ## Agent Batch
 
-- [ ] [1.1] [P-1] Add `fs.watch` per project on `openspec/changes/` (shallow) inside spec-watcher [owner:api-engineer] [beads:nx-1lzx]
-- [ ] [1.2] [P-1] Debounce watch events per spec (300ms) and trigger targeted `openspec show` [owner:api-engineer] [beads:nx-mqim]
-- [ ] [1.3] [P-2] Handle ENOSPC gracefully — log warning and continue with poll-only mode [owner:api-engineer] [beads:nx-k6yx]
-- [ ] [1.4] [P-2] Add `GET /specs/events` SSE handler subscribing to lifecycleBus [owner:api-engineer] [beads:nx-zgb2]
-- [ ] [1.5] [P-2] Coalesce bus events into 5-second windows before flushing to SSE clients [owner:api-engineer] [beads:nx-yagg]
+- [x] [1.1] [P-1] Add `fs.watch` per project on `openspec/changes/` (shallow) inside spec-watcher [owner:api-engineer] [beads:nx-1lzx]
+- [x] [1.2] [P-1] Debounce watch events per spec (300ms) and trigger targeted `openspec show` [owner:api-engineer] [beads:nx-mqim]
+- [x] [1.3] [P-2] Handle ENOSPC gracefully — log warning and continue with poll-only mode [owner:api-engineer] [beads:nx-k6yx]
+- [x] [1.4] [P-2] Add `GET /specs/events` SSE handler subscribing to lifecycleBus [owner:api-engineer] [beads:nx-zgb2]
+- [x] [1.5] [P-2] Coalesce bus events into 5-second windows before flushing to SSE clients [owner:api-engineer] [beads:nx-yagg]
 
 ## Types Batch
 
-- [ ] [2.1] [P-1] Define `SpecTransitionEvent` discriminated union (new|progress|complete|archived) [owner:types-engineer] [beads:nx-r06f]
-- [ ] [2.2] [P-1] Define SSE message framing schema shared by agent and client [owner:types-engineer] [beads:nx-pb21]
+- [x] [2.1] [P-1] Define `SpecTransitionEvent` discriminated union (new|progress|complete|archived) [owner:types-engineer] [beads:nx-r06f]
+- [x] [2.2] [P-1] Define SSE message framing schema shared by agent and client [owner:types-engineer] [beads:nx-pb21]
 
 ## API Batch
 
-- [ ] [3.1] [P-1] Extract `getAgentBaseUrl()` helper used by both specs and credentials pages [owner:api-engineer] [beads:nx-mlj6]
-- [ ] [3.2] [P-1] Replace hardcoded `:7402` in specs page with `getAgentBaseUrl()` [owner:api-engineer] [beads:nx-pmtv]
+- [x] [3.1] [P-1] Extract `getAgentBaseUrl()` helper used by both specs and credentials pages [owner:api-engineer] [beads:nx-mlj6]
+- [x] [3.2] [P-1] Replace hardcoded `:7402` in specs page with `getAgentBaseUrl()` [owner:api-engineer] [beads:nx-pmtv]
 
 ## UI Batch
 

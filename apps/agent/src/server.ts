@@ -18,7 +18,10 @@ import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core";
 import { initNotificationRoutes } from "./routes/notifications";
 import { initCredentialRoutes, getCredentialPool } from "./routes/credentials";
-import { startCredentialWatcher } from "./credentials/credential-watcher";
+import {
+  startCredentialWatcher,
+  startActiveCredentialWatcher,
+} from "./credentials/credential-watcher";
 import { initCommandRoutes } from "./routes/commands";
 import { initConfigLoader } from "./services/config-loader";
 import type { WsData } from "./terminal/stream-manager";
@@ -63,6 +66,8 @@ export function startServer(
       safeFireAndForget(pool.refreshMetadata(), "credential-metadata-refresh");
       // Watch credential directory for new/changed files
       startCredentialWatcher(pool);
+      // Watch ~/.claude/.credentials.json symlink for active-account tracking
+      startActiveCredentialWatcher(pool);
     }
   }
 

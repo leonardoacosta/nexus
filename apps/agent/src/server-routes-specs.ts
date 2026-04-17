@@ -15,6 +15,7 @@ import {
   handleReadSpec,
   handleSpecStatus,
 } from "./routes/specs";
+import { handleSpecEventsStream } from "./routes/specs-events";
 import {
   handleListCommands,
   handleListCommandsByNamespace,
@@ -36,6 +37,18 @@ export function tryHandleSpecRoute(
       logger.error({ route: "/specs/all", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
+  }
+
+  // GET /specs/events — SSE stream of spec transitions. Must be handled
+  // before the parameterised /specs/:project/:name/* routes so the
+  // literal `events` segment does not match as a project code.
+  if (url.pathname === "/specs/events" && request.method === "GET") {
+    try {
+      return withCors(request, handleSpecEventsStream());
+    } catch (err) {
+      logger.error({ route: "/specs/events", method: "GET", err }, "route handler failed");
+      return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    }
   }
 
   if (url.pathname === "/specs" && request.method === "GET") {

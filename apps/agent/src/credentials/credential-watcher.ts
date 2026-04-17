@@ -8,6 +8,16 @@ import {
 } from "./credentials.helpers";
 import { randomUUID } from "node:crypto";
 
+// Re-export the active-credential watcher so callers can start both
+// watchers via a single import surface. The active watcher tracks the
+// symlink at `~/.claude/.credentials.json`; the pool watcher below tracks
+// the credential *directory* for new/changed pool files.
+export {
+  startActiveCredentialWatcher,
+  getActiveCredentialSnapshot,
+} from "./active-credential-watcher";
+export type { ActiveCredentialSnapshot } from "./active-credential-watcher";
+
 const DEBOUNCE_MS = 200;
 const CRED_DIR = join(process.env.HOME ?? "", ".config/nexus/credentials");
 

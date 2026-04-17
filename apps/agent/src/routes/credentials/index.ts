@@ -42,3 +42,5 @@ export {
 } from "./handlers-health-usage";
 
 export { handleSwapCredential } from "./handlers-swap";
+
+export { handleGetActiveCredential } from "./handlers-active";

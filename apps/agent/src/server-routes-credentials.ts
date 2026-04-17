@@ -14,6 +14,7 @@ import {
   handleListCredentials,
   handleReportRateLimit,
   handleCredentialHealth,
+  handleGetActiveCredential,
 } from "./routes/credentials";
 import { withCors } from "./server-origin";
 import { CREDENTIAL_ID_RE } from "./server-auth";
@@ -39,6 +40,16 @@ export function tryHandleCredentialRoute(
   if (url.pathname === "/credentials" && request.method === "GET") {
     return handleListCredentials().then((r) => withCors(request, r)).catch((err) => {
       logger.error({ route: "/credentials", method: "GET", err }, "route handler failed");
+      return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    });
+  }
+
+  // GET /credentials/active — active-for-Claude-Code fingerprint snapshot.
+  // Must appear before parameterised `/credentials/:id/...` routes so the
+  // reserved word `active` does not match the id regex.
+  if (url.pathname === "/credentials/active" && request.method === "GET") {
+    return handleGetActiveCredential().then((r) => withCors(request, r)).catch((err) => {
+      logger.error({ route: "/credentials/active", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
   }

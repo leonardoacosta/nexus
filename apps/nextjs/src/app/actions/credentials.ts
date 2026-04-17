@@ -1,27 +1,25 @@
 "use server";
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
+import type { Account, CredentialFile } from "@nexus/core";
 import { getAgentConfigs } from "@/lib/get-client";
 
 // ---------------------------------------------------------------------------
-// Types
+// Wire types (what the agent returns)
 // ---------------------------------------------------------------------------
 
-interface CredentialDuplicate {
-  id: string;
-  name: string;
-  isPrimary: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Credential {
+/**
+ * Row shape returned by `GET /credentials`. The agent sends Drizzle rows
+ * post-serialization, so timestamps arrive as ISO strings — we cast them
+ * to `CredentialFile`'s `string | null` types verbatim.
+ */
+interface WireCredentialRow {
   id: string;
   name: string;
   status: string;
   type: string;
   fingerprint: string;
-  duplicateGroupId: string;
+  duplicateGroupId: string | null;
   isPrimary: boolean;
   subscriptionType: string | null;
   rateLimitTier: string | null;
@@ -36,7 +34,28 @@ export interface Credential {
   leasedBy: string | null;
   createdAt: string;
   updatedAt: string;
-  duplicates?: CredentialDuplicate[];
+}
+
+/** Envelope response shape for `GET /credentials`. */
+interface CredentialsListResponse {
+  credentials: WireCredentialRow[];
+  activeFingerprint: string | null;
+}
+
+/**
+ * Re-exported for callers that still need the per-file row shape. Kept
+ * for backward compatibility with code that deals with the flat list.
+ * New code should prefer `Account.snapshots` which already has the
+ * richer `CredentialFile` shape from `@nexus/core`.
+ */
+export interface Credential extends WireCredentialRow {
+  /** Nested duplicates only appear on primary rows in the agent response. */
+  duplicates?: Array<
+    Pick<
+      WireCredentialRow,
+      "id" | "name" | "isPrimary" | "createdAt" | "updatedAt"
+    >
+  >;
 }
 
 export interface CredentialUsage {
@@ -49,6 +68,13 @@ export interface CredentialUsage {
   session_count: number;
 }
 
+/**
+ * Legacy group shape retained for the existing CredentialsTable component.
+ *
+ * The UI phase of this change will migrate to `Account` directly; in the
+ * meantime `credGroupMap[id] -> CredentialGroup` preserves the previous
+ * API so the page renders unchanged.
+ */
 export interface CredentialGroup {
   fingerprint: string;
   primary: Credential;
@@ -56,14 +82,34 @@ export interface CredentialGroup {
   usage: CredentialUsage | null;
 }
 
+// ---------------------------------------------------------------------------
+// Return shape
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of `fetchCredentials()`.
+ *
+ * Account-first: `accounts` holds one entry per OAuth refresh-token
+ * fingerprint. Each account carries the nested snapshot files on disk
+ * plus subscription/usage metadata. `credentials` is retained as a
+ * flat convenience view (primary-first within each account) for the
+ * existing table component during the rollout.
+ */
 export interface CredentialsResult {
-  groups: CredentialGroup[];
+  accounts: Account[];
   credentials: Credential[];
+  /**
+   * Legacy per-fingerprint grouping. Kept while the UI still consumes
+   * `CredentialGroup`. Will be dropped once `accounts` is wired through.
+   */
+  groups: CredentialGroup[];
   totalAccounts: number;
   totalFiles: number;
   agentSource: string;
   agentReachable: boolean;
   failedAgents: string[];
+  /** Raw fingerprint reported by the agent's active-credential watcher. */
+  activeFingerprint: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,23 +119,94 @@ export interface CredentialsResult {
 const REQUEST_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Strip the agent's envelope; accept legacy array shape for resilience. */
+function parseListResponse(json: unknown): CredentialsListResponse {
+  if (Array.isArray(json)) {
+    // Legacy agent (pre envelope) — treat whole body as credentials array.
+    return {
+      credentials: json as WireCredentialRow[],
+      activeFingerprint: null,
+    };
+  }
+  const obj = json as Partial<CredentialsListResponse>;
+  return {
+    credentials: Array.isArray(obj.credentials) ? obj.credentials : [],
+    activeFingerprint:
+      typeof obj.activeFingerprint === "string" || obj.activeFingerprint === null
+        ? obj.activeFingerprint
+        : null,
+  };
+}
+
+/**
+ * Collapse an array of rows into per-fingerprint snapshot groups.
+ * Sort order within a group: primary first, then by createdAt ascending.
+ */
+function groupByFingerprint(
+  rows: WireCredentialRow[],
+): Map<string, WireCredentialRow[]> {
+  const groups = new Map<string, WireCredentialRow[]>();
+  for (const row of rows) {
+    const key = row.duplicateGroupId || row.fingerprint;
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
+  }
+  for (const [key, bucket] of groups) {
+    bucket.sort((a, b) => {
+      if (a.isPrimary && !b.isPrimary) return -1;
+      if (!a.isPrimary && b.isPrimary) return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+    groups.set(key, bucket);
+  }
+  return groups;
+}
+
+function toCredentialFile(row: WireCredentialRow): CredentialFile {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    type: row.type,
+    fingerprint: row.fingerprint,
+    duplicateGroupId: row.duplicateGroupId ?? row.fingerprint,
+    isPrimary: row.isPrimary,
+    expiresAt: row.expiresAt,
+    rateLimitCount: row.rateLimitCount,
+    leasedBy: row.leasedBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Server action
 // ---------------------------------------------------------------------------
 
 /**
  * Fetch credentials from the first reachable agent, group by fingerprint,
- * and fetch 24h usage for each primary credential.
+ * attach the active-account indicator, and fetch per-account usage for
+ * every visible account (with per-account error isolation so a single
+ * Anthropic API hiccup does not tank the whole page).
  */
 export async function fetchCredentials(): Promise<CredentialsResult> {
   const configs = await getAgentConfigs();
   const secret = process.env.NEXUS_ATTACH_SECRET ?? "";
 
-  let allCredentials: Credential[] = [];
+  let allRows: WireCredentialRow[] = [];
+  let activeFingerprint: string | null = null;
   let agentSource = "unknown";
   let agentReachable = false;
   const failedAgents: string[] = [];
 
-  // Try each agent until one responds
+  // Try each agent until one responds.
   for (const agent of configs) {
     try {
       const res = await fetchWithTimeout(
@@ -104,7 +221,9 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
         failedAgents.push(`${agent.name} (${agent.host}:${agent.port})`);
         continue;
       }
-      allCredentials = (await res.json()) as Credential[];
+      const parsed = parseListResponse(await res.json());
+      allRows = parsed.credentials;
+      activeFingerprint = parsed.activeFingerprint;
       agentSource = agent.name;
       agentReachable = true;
       break;
@@ -113,84 +232,106 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
     }
   }
 
-  if (allCredentials.length === 0) {
+  if (allRows.length === 0) {
     return {
-      groups: [],
+      accounts: [],
       credentials: [],
+      groups: [],
       totalAccounts: 0,
       totalFiles: 0,
       agentSource,
       agentReachable,
       failedAgents,
+      activeFingerprint,
     };
   }
 
-  // Group by duplicateGroupId (same as fingerprint)
-  const groupMap = new Map<string, Credential[]>();
-  for (const cred of allCredentials) {
-    const key = cred.duplicateGroupId || cred.fingerprint;
-    const group = groupMap.get(key);
-    if (group) {
-      group.push(cred);
-    } else {
-      groupMap.set(key, [cred]);
-    }
-  }
+  // Build per-fingerprint buckets (snapshots).
+  const buckets = groupByFingerprint(allRows);
 
-  // Build groups with primary first
-  const groups: CredentialGroup[] = [];
-  for (const [fingerprint, members] of groupMap) {
-    // Sort: primary first, then by createdAt ascending
-    const sorted = [...members].sort((a, b) => {
-      if (a.isPrimary && !b.isPrimary) return -1;
-      if (!a.isPrimary && b.isPrimary) return 1;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
-
-    const primary = sorted.find((m) => m.isPrimary) ?? sorted[0]!;
-
-    groups.push({
-      fingerprint,
-      primary,
-      members: sorted,
-      usage: null,
+  // Initial accounts — usage fields null, will be filled in below.
+  const accounts: Account[] = [];
+  for (const bucket of buckets.values()) {
+    const primary = bucket.find((r) => r.isPrimary) ?? bucket[0]!;
+    accounts.push({
+      fingerprint: primary.fingerprint,
+      isActiveForCc:
+        activeFingerprint !== null && primary.fingerprint === activeFingerprint,
+      usagePercent: null,
+      resetsAt: null,
+      plan: primary.subscriptionType,
+      tier: primary.rateLimitTier,
+      snapshots: bucket.map(toCredentialFile),
     });
   }
 
-  // Fetch usage for up to 10 primary credentials in parallel (best-effort)
-  const agentConfig = configs.find((a) => a.name === agentSource) ?? configs[0];
+  // Fetch usage for every visible account (not just the first 10) with
+  // per-account error isolation — one failing Anthropic request must not
+  // zero out the rest of the table. Results are accumulated into
+  // `perAccountUsage` keyed by primary credential id so both the new
+  // `accounts[]` and legacy `groups[]` shapes can consume them.
+  const perAccountUsage = new Map<string, CredentialUsage>();
+  const agentConfig =
+    configs.find((a) => a.name === agentSource) ?? configs[0];
   if (agentConfig) {
-    const usageSlice = groups.slice(0, 10);
-    const usageResults = await Promise.allSettled(
-      usageSlice.map(async (group) => {
-        const res = await fetchWithTimeout(
-          `http://${agentConfig.host}:${agentConfig.port}/credentials/${encodeURIComponent(group.primary.id)}/usage?window=24h`,
-          {
-            timeout: REQUEST_TIMEOUT_MS,
-            headers: { "x-nexus-secret": secret },
-            cache: "no-store",
-          },
-        );
-        if (!res.ok) return null;
-        return (await res.json()) as CredentialUsage;
+    const baseUrl = `http://${agentConfig.host}:${agentConfig.port}`;
+    await Promise.all(
+      accounts.map(async (account) => {
+        const primary = account.snapshots[0];
+        if (!primary) return;
+        try {
+          const res = await fetchWithTimeout(
+            `${baseUrl}/credentials/${encodeURIComponent(primary.id)}/usage?window=24h`,
+            {
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: { "x-nexus-secret": secret },
+              cache: "no-store",
+            },
+          );
+          if (!res.ok) return;
+          const usage = (await res.json()) as CredentialUsage | null;
+          if (!usage || typeof usage !== "object") return;
+          perAccountUsage.set(primary.id, usage);
+        } catch {
+          // Swallow per-account failures — other accounts still render.
+        }
       }),
     );
-
-    for (let i = 0; i < usageResults.length; i++) {
-      const result = usageResults[i]!;
-      if (result.status === "fulfilled" && result.value) {
-        groups[i]!.usage = result.value;
-      }
-    }
   }
 
+  // Flat view preserved for the legacy table: primary-first per account,
+  // then concatenated in account order.
+  const flatCredentials: Credential[] = accounts.flatMap((account) =>
+    account.snapshots.map((snap) => {
+      const row = allRows.find((r) => r.id === snap.id)!;
+      return { ...row };
+    }),
+  );
+
+  // Legacy `groups` derived from accounts so existing UI keeps working.
+  const groups: CredentialGroup[] = accounts.map((account) => {
+    const members: Credential[] = account.snapshots.map((snap) => {
+      const row = allRows.find((r) => r.id === snap.id)!;
+      return { ...row };
+    });
+    const primary = members.find((m) => m.isPrimary) ?? members[0]!;
+    return {
+      fingerprint: account.fingerprint,
+      primary,
+      members,
+      usage: perAccountUsage.get(primary.id) ?? null,
+    };
+  });
+
   return {
+    accounts,
+    credentials: flatCredentials,
     groups,
-    credentials: allCredentials,
-    totalAccounts: groups.length,
-    totalFiles: allCredentials.length,
+    totalAccounts: accounts.length,
+    totalFiles: allRows.length,
     agentSource,
     agentReachable: true,
     failedAgents,
+    activeFingerprint,
   };
 }

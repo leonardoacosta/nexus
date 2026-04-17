@@ -21,6 +21,7 @@ import {
   handlePromoteCredential,
   handleCredentialUsage,
   handleSwapCredential,
+  handleGetActiveCredential,
 } from "./credentials";
 
 // ── Credential ID validation ────────────────────────────────────────────────
@@ -52,6 +53,17 @@ export function buildCredentialsRoutes(db?: Db): Route[] {
       requiresDb: true,
       handler() {
         return handleListCredentials();
+      },
+    },
+    // GET /credentials/active — active-for-Claude-Code fingerprint snapshot.
+    // Registered before parameterised `/credentials/:id/...` routes so the
+    // reserved literal `active` is matched here rather than as an id.
+    {
+      method: "GET",
+      path: "/credentials/active",
+      requiresDb: true,
+      handler() {
+        return handleGetActiveCredential();
       },
     },
     {

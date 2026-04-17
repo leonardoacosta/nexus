@@ -14,6 +14,30 @@ export type {
   Credential,
   CredentialStatus,
 } from "./types/credential";
+export type {
+  Account,
+  CredentialFile,
+  UsageSnapshot,
+} from "./types/account";
+export {
+  credentialsActiveResponseSchema,
+} from "./types/credentials-active";
+export type {
+  CredentialsActiveResponse,
+} from "./types/credentials-active";
+export type {
+  SpecTransitionEvent,
+  SpecTransitionKind,
+  SpecTransitionNewEvent,
+  SpecTransitionProgressEvent,
+  SpecTransitionCompleteEvent,
+  SpecTransitionArchivedEvent,
+  SpecEventsFrame,
+} from "./types/spec-events";
+export {
+  specEventsFrameSchema,
+  SPEC_EVENTS_EVENT_NAME,
+} from "./types/spec-events";
 export { fetchWithTimeout } from "./fetch";
 export { logger, createLogger } from "./logger";
 export type { Logger } from "./logger";

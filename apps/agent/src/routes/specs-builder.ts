@@ -19,6 +19,7 @@ import {
   handleReadSpec,
   handleSpecStatus,
 } from "./specs";
+import { handleSpecEventsStream } from "./specs-events";
 
 export function buildSpecsRoutes(): Route[] {
   return [
@@ -27,6 +28,16 @@ export function buildSpecsRoutes(): Route[] {
       path: "/specs/all",
       handler() {
         return handleGetSpecsAll();
+      },
+    },
+    // GET /specs/events — live SSE stream of spec transitions. Must be
+    // registered before `/specs/:project/:name` so the literal "events"
+    // segment does not match as a project code.
+    {
+      method: "GET",
+      path: "/specs/events",
+      handler() {
+        return handleSpecEventsStream();
       },
     },
     {

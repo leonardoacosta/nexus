@@ -2,7 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
-import { getAgentConfigs } from "@/lib/get-client";
+import { getAgentBaseUrl } from "@/lib/agent-url";
 
 interface SpecSnapshot {
   name: string;
@@ -30,13 +30,12 @@ interface AllSpecsResponse {
 }
 
 async function fetchSpecs(): Promise<AllSpecsResponse> {
-  const configs = await getAgentConfigs();
-  const agent = configs[0];
-  if (!agent) return { projects: [] };
+  const resolved = await getAgentBaseUrl();
+  if (!resolved) return { projects: [] };
 
   try {
     const res = await fetchWithTimeout(
-      `http://${agent.host}:7402/specs/all`,
+      `${resolved.baseUrl}/specs/all`,
       {
         headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
         cache: "no-store",

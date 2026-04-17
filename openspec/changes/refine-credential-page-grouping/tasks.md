@@ -4,21 +4,21 @@
 
 ## Agent Batch
 
-- [ ] [1.1] [P-1] Add fs watcher for `~/.claude/.credentials.json` with realpath resolution and 200ms debounce [owner:api-engineer] [beads:nx-46hm]
-- [ ] [1.2] [P-1] Compute active fingerprint by parsing watched file and matching against pool rows [owner:api-engineer] [beads:nx-kuid]
-- [ ] [1.3] [P-2] Add `GET /credentials/active` endpoint returning `{ fingerprint, resolvedPath, observedAt }` [owner:api-engineer] [beads:nx-j1ik]
-- [ ] [1.4] [P-2] Include `activeFingerprint` in `GET /credentials` response payload [owner:api-engineer] [beads:nx-w0zl]
+- [x] [1.1] [P-1] Add fs watcher for `~/.claude/.credentials.json` with realpath resolution and 200ms debounce [owner:api-engineer] [beads:nx-46hm]
+- [x] [1.2] [P-1] Compute active fingerprint by parsing watched file and matching against pool rows [owner:api-engineer] [beads:nx-kuid]
+- [x] [1.3] [P-2] Add `GET /credentials/active` endpoint returning `{ fingerprint, resolvedPath, observedAt }` [owner:api-engineer] [beads:nx-j1ik]
+- [x] [1.4] [P-2] Include `activeFingerprint` in `GET /credentials` response payload [owner:api-engineer] [beads:nx-w0zl]
 
 ## Types Batch
 
-- [ ] [2.1] [P-1] Define `Account`, `CredentialFile`, `UsageSnapshot` types in shared types package [owner:types-engineer] [beads:nx-7qzi]
-- [ ] [2.2] [P-1] Define Zod schema for `/credentials/active` response [owner:types-engineer] [beads:nx-t0d0]
+- [x] [2.1] [P-1] Define `Account`, `CredentialFile`, `UsageSnapshot` types in shared types package [owner:types-engineer] [beads:nx-7qzi]
+- [x] [2.2] [P-1] Define Zod schema for `/credentials/active` response [owner:types-engineer] [beads:nx-t0d0]
 
 ## API Batch
 
-- [ ] [3.1] [P-1] Reshape `fetchCredentials()` server action to account-first structure with nested snapshots [owner:api-engineer] [beads:nx-ioku]
-- [ ] [3.2] [P-2] Merge active fingerprint into account rows before returning [owner:api-engineer] [beads:nx-ervr]
-- [ ] [3.3] [P-2] Expand usage fetch scope from first-10 to all visible accounts with per-account error isolation [owner:api-engineer] [beads:nx-kv04]
+- [x] [3.1] [P-1] Reshape `fetchCredentials()` server action to account-first structure with nested snapshots [owner:api-engineer] [beads:nx-ioku]
+- [x] [3.2] [P-2] Merge active fingerprint into account rows before returning [owner:api-engineer] [beads:nx-ervr]
+- [x] [3.3] [P-2] Expand usage fetch scope from first-10 to all visible accounts with per-account error isolation [owner:api-engineer] [beads:nx-kv04]
 
 ## UI Batch
 

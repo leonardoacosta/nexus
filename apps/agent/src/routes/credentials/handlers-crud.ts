@@ -7,6 +7,7 @@
  */
 
 import { CredentialDeleteError } from "../../credentials/pool";
+import { getActiveCredentialSnapshot } from "../../credentials/credential-watcher";
 import {
   checkTlsEnforcement,
   emitAudit,
@@ -65,14 +66,35 @@ export async function handleAddCredential(request: Request): Promise<Response> {
   return jsonResponse({ id, name, type, status: "available" }, 201);
 }
 
-/** GET /credentials — list all credentials (no values). */
+/**
+ * GET /credentials — list all credentials (no values).
+ *
+ * Response shape (envelope):
+ *   {
+ *     credentials: CredentialListEntry[],
+ *     activeFingerprint: string | null
+ *   }
+ *
+ * `activeFingerprint` mirrors `GET /credentials/active` and is merged in here
+ * so the dashboard can render the active-account indicator on first load
+ * without a second round trip. The value comes from the in-memory snapshot
+ * maintained by `startActiveCredentialWatcher()`.
+ */
 export async function handleListCredentials(): Promise<Response> {
   const pool = poolRef.current;
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
 
-  return jsonResponse(await pool.list());
+  const [credentials, snap] = await Promise.all([
+    pool.list(),
+    Promise.resolve(getActiveCredentialSnapshot()),
+  ]);
+
+  return jsonResponse({
+    credentials,
+    activeFingerprint: snap.fingerprint,
+  });
 }
 
 /**
