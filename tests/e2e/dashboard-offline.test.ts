@@ -77,7 +77,7 @@ if (!IS_TEST_DB) {
   const db = dbHandle.db;
   const pg = dbHandle.client;
 
-  // The server action `fetchSessions` calls `getDb()` from
+  // The server action `fetchSessions` calls `getReadOnlyDb()` from
   // apps/nextjs/src/lib/db.ts, which lazy-reads POSTGRES_URL at first access.
   // That's the same URL we just used, so both connections point at the same
   // Postgres. No further wiring is required.

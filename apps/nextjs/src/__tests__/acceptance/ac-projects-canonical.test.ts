@@ -38,7 +38,7 @@ mockChain.where.mockImplementation(() => Promise.resolve(_rows));
 const mockDb = { select: mockChain.select };
 
 vi.mock("@/lib/db", () => ({
-  getDb: vi.fn(() => mockDb),
+  getReadOnlyDb: vi.fn(() => mockDb),
 }));
 
 // @nexus/db exports are only used as column references passed to the mock
