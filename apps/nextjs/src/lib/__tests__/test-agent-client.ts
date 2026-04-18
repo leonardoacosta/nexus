@@ -1,4 +1,5 @@
-import type { AgentConfig, DiscoveredProject } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
+import type { DiscoveredProject } from "@nexus/core";
 import { AgentClient, type WithAgent } from "../agent-client";
 
 /**

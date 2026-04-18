@@ -23,7 +23,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-2] Verify dashboard works against agent endpoints (no direct writes) [owner:ui-engineer] [beads:nx-b2k0]
+- [x] [3.1] [P-2] Verify dashboard works against agent endpoints (no direct writes) [owner:ui-engineer] [beads:nx-b2k0]
 
 ## E2E Batch
 

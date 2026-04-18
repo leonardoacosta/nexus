@@ -4,7 +4,8 @@
 
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { AgentClient } from "../agent-client";
-import type { AgentConfig, DiscoveredProject, DiscoveredProjectsResponse } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
+import type { DiscoveredProject, DiscoveredProjectsResponse } from "@nexus/core";
 import { jsonResponse } from "../agent-client.helpers";
 
 describe("AgentClient", () => {
