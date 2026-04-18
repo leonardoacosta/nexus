@@ -4,8 +4,8 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add ReadOnlyDb type narrowing in packages/db/src/readonly.ts (omits insert/update/delete/execute/transaction) [owner:db-engineer] [beads:nx-wd5k]
-- [ ] [1.2] [P-1] Add `./readonly` subpath export to packages/db/package.json [owner:db-engineer] [beads:nx-lker]
+- [x] [1.1] [P-1] Add ReadOnlyDb type narrowing in packages/db/src/readonly.ts (omits insert/update/delete/execute/transaction) [owner:db-engineer] [beads:nx-wd5k]
+- [x] [1.2] [P-1] Add `./readonly` subpath export to packages/db/package.json [owner:db-engineer] [beads:nx-lker]
 
 ## API Batch
 

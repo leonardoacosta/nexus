@@ -15,6 +15,10 @@
     "./schema": {
       "types": "./src/schema/index.ts",
       "default": "./src/schema/index.ts"
+    },
+    "./readonly": {
+      "types": "./src/readonly.ts",
+      "default": "./src/readonly.ts"
     }
   },
   "scripts": {
