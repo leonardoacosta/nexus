@@ -17,6 +17,6 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Unit test /api/health returns 200 with { status: "ok", version: string, timestamp: string } [owner:e2e-engineer] [beads:nx-fauy]
-- [ ] [3.2] Unit test PostHogProvider no-ops when NEXT_PUBLIC_POSTHOG_KEY is unset (no posthog.init call, no errors) [owner:e2e-engineer] [beads:nx-b8fr]
-- [ ] [3.3] Unit test instrument.ts reads NEXUS_VERSION with npm_package_version fallback [owner:e2e-engineer] [beads:nx-onf8]
+- [x] [3.1] Unit test /api/health returns 200 with { status: "ok", version: string, timestamp: string } [owner:e2e-engineer] [beads:nx-fauy]
+- [x] [3.2] Unit test PostHogProvider no-ops when NEXT_PUBLIC_POSTHOG_KEY is unset (no posthog.init call, no errors) [owner:e2e-engineer] [beads:nx-b8fr]
+- [x] [3.3] Unit test instrument.ts reads NEXUS_VERSION with npm_package_version fallback [owner:e2e-engineer] [beads:nx-onf8]

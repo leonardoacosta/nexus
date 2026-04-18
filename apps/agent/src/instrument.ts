@@ -6,13 +6,26 @@ import * as Sentry from "@sentry/node";
  * Must be imported before any other application code.
  * No-ops gracefully when SENTRY_DSN is not set (dev/local environments).
  */
+
+/**
+ * Resolves the release string for Sentry.
+ *
+ * Priority:
+ *   1. NEXUS_VERSION  — set by CI/CD at build time
+ *   2. npm_package_version — set by `bun run` from package.json
+ *   3. undefined — Sentry omits release field gracefully
+ */
+export function resolveRelease(): string | undefined {
+  return process.env.NEXUS_VERSION ?? process.env.npm_package_version;
+}
+
 const dsn = process.env.SENTRY_DSN;
 
 if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? "production",
-    release: process.env.NEXUS_VERSION ?? process.env.npm_package_version,
+    release: resolveRelease(),
     // Capture 100% of transactions in production; tune down if volume is high
     tracesSampleRate: 1.0,
     // Don't send PII — no user context, no IP addresses
