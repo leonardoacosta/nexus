@@ -134,6 +134,13 @@
       "when": 1776290733649,
       "tag": "0018_robust_killraven",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776537320591,
+      "tag": "0019_goofy_lockjaw",
+      "breakpoints": true
     }
   ]
 }

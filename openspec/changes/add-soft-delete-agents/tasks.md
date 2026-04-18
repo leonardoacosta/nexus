@@ -4,8 +4,8 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add deletedAt timestamp column to packages/db/src/schema/agents.ts [owner:db-engineer] [beads:nx-n9ex]
-- [ ] [1.2] [P-2] Run pnpm drizzle-kit generate to produce migration file [owner:db-engineer] [beads:nx-wr90]
+- [x] [1.1] [P-1] Add deletedAt timestamp column to packages/db/src/schema/agents.ts [owner:db-engineer] [beads:nx-n9ex]
+- [x] [1.2] [P-2] Run pnpm drizzle-kit generate to produce migration file [owner:db-engineer] [beads:nx-wr90]
 
 ## API Batch
 

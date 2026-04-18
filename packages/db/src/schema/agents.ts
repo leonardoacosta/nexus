@@ -12,6 +12,7 @@ export const agents = pgTable("agents", {
   enabled: boolean("enabled").default(true),
   lastSeen: timestamp("last_seen", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { mode: "date" }),
 });
 
 /**
