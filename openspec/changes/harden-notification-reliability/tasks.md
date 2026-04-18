@@ -12,7 +12,7 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Unit test buffer: insert >1000 → assert size stays at 1000 and the first entries are evicted (FIFO) [owner:e2e-engineer] [beads:nx-qpcb]
-- [ ] [2.2] Unit test meeting-state: double-start throws `InvalidStateError`; end-without-start throws `InvalidStateError`; start-end-start succeeds [owner:e2e-engineer] [beads:nx-vogc]
-- [ ] [2.3] Unit test router: mock slow handler (never resolves) + assert timeout fires within bound + `Sentry.captureException` called with channel info [owner:e2e-engineer] [beads:nx-cchl]
-- [ ] [2.4] Unit test router: notification to unknown channel → `log.warn` emitted + `Sentry.addBreadcrumb` called naming the missing channel [owner:e2e-engineer] [beads:nx-bf32]
+- [x] [2.1] Unit test buffer: insert >1000 → assert size stays at 1000 and the first entries are evicted (FIFO) [owner:e2e-engineer] [beads:nx-qpcb]
+- [x] [2.2] Unit test meeting-state: double-start throws `InvalidStateError`; end-without-start throws `InvalidStateError`; start-end-start succeeds [owner:e2e-engineer] [beads:nx-vogc]
+- [x] [2.3] Unit test router: mock slow handler (never resolves) + assert timeout fires within bound + `Sentry.captureException` called with channel info [owner:e2e-engineer] [beads:nx-cchl]
+- [x] [2.4] Unit test router: notification to unknown channel → `log.warn` emitted + `Sentry.addBreadcrumb` called naming the missing channel [owner:e2e-engineer] [beads:nx-bf32]

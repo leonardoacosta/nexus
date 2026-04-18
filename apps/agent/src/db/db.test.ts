@@ -227,17 +227,149 @@ describe.skip("session CRUD — remaining (requires live PG)", () => {
 
 // ─── 7.3 Health snapshots ────────────────────────────────────────────────────
 
-describe.skip("health snapshots (requires live PG)", () => {
-  it("inserts a health snapshot", () => {
-    expect(true).toBe(true);
+// Unique schema name for health-snapshot tests — mirrors the session-CRUD
+// pattern so these tests are isolated and re-runnable in parallel.
+const HEALTH_SCHEMA = `nx_health_test_${Date.now()}_${Math.floor(
+  Math.random() * 1e6,
+)}`;
+
+// Minimal DDL for the health_snapshots + agents tables (needed for FK).
+const HEALTH_DDL = `
+  CREATE TABLE "agents" (
+    "id" text PRIMARY KEY NOT NULL,
+    "host" text NOT NULL,
+    "name" text DEFAULT '',
+    "port" integer DEFAULT 7400
+  );
+
+  CREATE TABLE "health_snapshots" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "timestamp" timestamp NOT NULL,
+    "agent_id" text NOT NULL REFERENCES "agents"("id") ON DELETE CASCADE,
+    "cpu_percent" real,
+    "ram_percent" real,
+    "disk_percent" real,
+    "docker_containers" integer,
+    "raw_json" text
+  );
+`;
+
+describe.skipIf(!hasPg)("health snapshots (requires live PG)", () => {
+  let adminSql: ReturnType<typeof createDb>["client"];
+  let scopedDb: import("@nexus/db").Db;
+  let scopedClient: ReturnType<typeof createDb>["client"];
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+    const adminHandle = createDb(url);
+    adminSql = adminHandle.client;
+
+    await adminSql.unsafe(`CREATE SCHEMA "${HEALTH_SCHEMA}"`);
+    await adminSql.unsafe(`SET search_path TO "${HEALTH_SCHEMA}", public`);
+    await adminSql.unsafe(HEALTH_DDL);
+
+    // Insert a test agent so FK references succeed
+    await adminSql.unsafe(
+      `INSERT INTO "agents" ("id", "host") VALUES ('test-agent-hs', 'localhost')`,
+    );
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${HEALTH_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    scopedDb = scopedHandle.db;
   });
 
-  it("handles null metric fields", () => {
-    expect(true).toBe(true);
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminSql.unsafe(
+          `DROP SCHEMA IF EXISTS "${HEALTH_SCHEMA}" CASCADE`,
+        );
+      } finally {
+        await adminSql.end({ timeout: 5 });
+      }
+    }
   });
 
-  it("queries time-series within the window, ordered ascending", () => {
-    expect(true).toBe(true);
+  it("inserts a health snapshot", async () => {
+    // Use raw SQL to avoid mock.module("./db/health") interference from
+    // health-scheduler.test.ts which replaces insertHealthSnapshot with a spy.
+    const ts = new Date().toISOString();
+    await adminSql.unsafe(`
+      INSERT INTO "${HEALTH_SCHEMA}".health_snapshots
+        ("timestamp", "agent_id", "cpu_percent", "ram_percent", "disk_percent", "docker_containers", "raw_json")
+      VALUES
+        ('${ts}', 'test-agent-hs', 42.5, 60.0, 75.0, 3, '{"hostname":"test-host"}')
+    `);
+
+    const rows = await adminSql.unsafe(
+      `SELECT * FROM "${HEALTH_SCHEMA}".health_snapshots WHERE agent_id = 'test-agent-hs' ORDER BY id DESC LIMIT 1`,
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const row = rows[0] as Record<string, unknown>;
+    expect(Number(row.cpu_percent)).toBeCloseTo(42.5, 4);
+    expect(Number(row.ram_percent)).toBeCloseTo(60.0, 4);
+    expect(Number(row.disk_percent)).toBeCloseTo(75.0, 4);
+    expect(row.docker_containers).toBe(3);
+  });
+
+  it("handles null metric fields", async () => {
+    const ts = new Date().toISOString();
+    await adminSql.unsafe(`
+      INSERT INTO "${HEALTH_SCHEMA}".health_snapshots
+        ("timestamp", "agent_id", "cpu_percent", "ram_percent", "disk_percent", "docker_containers", "raw_json")
+      VALUES
+        ('${ts}', 'test-agent-hs', NULL, NULL, NULL, NULL, NULL)
+    `);
+
+    const rows = await adminSql.unsafe(
+      `SELECT * FROM "${HEALTH_SCHEMA}".health_snapshots WHERE cpu_percent IS NULL AND agent_id = 'test-agent-hs' ORDER BY id DESC LIMIT 1`,
+    );
+    expect(rows.length).toBe(1);
+    const row = rows[0] as Record<string, unknown>;
+    expect(row.cpu_percent).toBeNull();
+    expect(row.ram_percent).toBeNull();
+    expect(row.disk_percent).toBeNull();
+    expect(row.docker_containers).toBeNull();
+    expect(row.raw_json).toBeNull();
+  });
+
+  it("queries time-series within the window, ordered ascending", async () => {
+    const now = Date.now();
+    const t1 = new Date(now - 3000).toISOString();
+    const t2 = new Date(now - 2000).toISOString();
+    const t3 = new Date(now - 1000).toISOString();
+
+    // Insert 3 snapshots via raw SQL to bypass any module mock on ./db/health
+    await adminSql.unsafe(`
+      INSERT INTO "${HEALTH_SCHEMA}".health_snapshots
+        ("timestamp", "agent_id", "cpu_percent")
+      VALUES
+        ('${t1}', 'test-agent-hs', 10),
+        ('${t2}', 'test-agent-hs', 20),
+        ('${t3}', 'test-agent-hs', 30)
+    `);
+
+    // Query via raw SQL with a 1-hour window, ordering by timestamp ascending
+    const cutoff = new Date(now - 3_600_000).toISOString();
+    const results = await adminSql.unsafe(
+      `SELECT * FROM "${HEALTH_SCHEMA}".health_snapshots
+       WHERE "timestamp" >= '${cutoff}'
+       ORDER BY "timestamp" ASC`,
+    ) as Array<Record<string, unknown>>;
+
+    // At minimum the 3 rows we just inserted are within range
+    expect(results.length).toBeGreaterThanOrEqual(3);
+
+    // Verify ascending order
+    for (let i = 1; i < results.length; i++) {
+      const prev = new Date(results[i - 1]!.timestamp as string).getTime();
+      const curr = new Date(results[i]!.timestamp as string).getTime();
+      expect(curr).toBeGreaterThanOrEqual(prev);
+    }
   });
 });
 
