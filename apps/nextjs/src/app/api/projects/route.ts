@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getReadOnlyDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
 import { PROJECT_SELECT_FIELDS, buildCanonicalProjects } from "@/lib/projects";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const db = getDb();
+    const db = getReadOnlyDb();
 
     const rows = await db
       .select(PROJECT_SELECT_FIELDS)

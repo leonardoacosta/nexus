@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { CanonicalProject } from "@nexus/core";
-import { getDb } from "@/lib/db";
+import { getReadOnlyDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
 import { PROJECT_SELECT_FIELDS, buildCanonicalProjects } from "@/lib/projects";
 import { getClient } from "@/lib/get-client";
@@ -23,7 +23,7 @@ export interface ProjectsResult {
  * Sorted by active session count descending, then alphabetically.
  */
 export async function fetchProjects(): Promise<ProjectsResult> {
-  const db = getDb();
+  const db = getReadOnlyDb();
 
   const rows = await db
     .select(PROJECT_SELECT_FIELDS)
@@ -68,7 +68,7 @@ export async function fetchProjects(): Promise<ProjectsResult> {
  * Returns null if not found.
  */
 export async function fetchProject(name: string): Promise<CanonicalProject | null> {
-  const db = getDb();
+  const db = getReadOnlyDb();
 
   const rows = await db
     .select(PROJECT_SELECT_FIELDS)

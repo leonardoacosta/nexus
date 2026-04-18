@@ -2,7 +2,7 @@
 
 import type { HealthMetrics } from "@nexus/core";
 import { healthSnapshots, agents, eq, and, desc, sql } from "@nexus/db";
-import { getDb } from "@/lib/db";
+import { getReadOnlyDb } from "@/lib/db";
 import type { WithAgent, AgentStatus } from "@/lib/agent-client";
 
 export interface HealthResult {
@@ -19,7 +19,7 @@ const ONLINE_THRESHOLD_MS = 90_000; // 3x the 30s health-scheduler interval
  * derived from snapshot freshness.
  */
 export async function fetchHealth(): Promise<HealthResult> {
-  const db = getDb();
+  const db = getReadOnlyDb();
 
   // Subquery: latest snapshot id per agent
   const latestPerAgent = db

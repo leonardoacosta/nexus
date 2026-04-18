@@ -22,25 +22,12 @@ function _getDb(): Db {
 }
 
 /**
- * Full Db instance for server-side reads (select queries).
- *
- * NOTE: Even though this returns `Db`, all direct writes from apps/nextjs are
- * forbidden — use the agent HTTP API instead. This alias is intentionally NOT
- * exported as `ReadOnlyDb` because some callers (e.g. drizzle `.select()` with
- * joins) rely on the full Drizzle query builder surface. The ESLint guard on
- * apps/nextjs prevents importing `Db` type by name, but this factory function
- * is the one deliberate exception (lib/db.ts is the DB factory).
- */
-export function getDb(): Db {
-  return _getDb();
-}
-
-/**
  * Narrowed read-only view of the DB singleton.
  *
- * Use this wherever the consumer only needs reads and you want the type system
- * to enforce that no writes can compile. All write paths must go through the
- * agent HTTP API.
+ * The only public DB accessor exported from this module. All Server Actions
+ * and route handlers in apps/nextjs type their handle as ReadOnlyDb — the
+ * type system enforces that no writes can compile. All write paths must go
+ * through the agent HTTP API.
  */
 export function getReadOnlyDb(): ReadOnlyDb {
   return asReadOnly(_getDb());

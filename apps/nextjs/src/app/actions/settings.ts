@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { AgentConfig } from "@nexus/core/node";
 import { agents as agentsTable, healthSnapshots, sql, eq } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
-import { getDb } from "@/lib/db";
+import { getReadOnlyDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
 
 export interface SettingsResult {
@@ -19,7 +19,7 @@ const ONLINE_THRESHOLD_MS = 90_000; // 3x the 30s health-scheduler interval
  * Uses the latest health snapshot timestamp per agent to determine online/offline.
  */
 export async function fetchAgentStatuses(): Promise<SettingsResult> {
-  const db = getDb();
+  const db = getReadOnlyDb();
 
   const agentRows = await db
     .select({
