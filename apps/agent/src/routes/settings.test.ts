@@ -11,7 +11,7 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { handleSaveAgent, handleDeleteAgent } from "./settings";
 import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
-import { agents } from "@nexus/db";
+import { agents, isNull, and } from "@nexus/db";
 import { eq } from "drizzle-orm";
 
 const hasPg = !!process.env.POSTGRES_URL;
@@ -125,5 +125,99 @@ describe.skipIf(!hasPg)("DELETE /agents/:id (requires live PG)", () => {
   it("returns 400 for empty id", async () => {
     const res = await handleDeleteAgent(db, "");
     expect(res.status).toBe(400);
+  });
+});
+
+// ── 3.1 Soft-delete contract ──────────────────────────────────────────────────
+
+const SOFT_DELETE_AGENT_ID = "test-agent-soft-delete-001";
+
+async function cleanupSoftDeleteAgent(db: Db) {
+  await db.delete(agents).where(eq(agents.id, SOFT_DELETE_AGENT_ID));
+}
+
+describe.skipIf(!hasPg)("DELETE soft-delete contract (requires live PG)", () => {
+  let db: Db;
+
+  beforeAll(async () => {
+    db = openDatabase();
+    await cleanupSoftDeleteAgent(db);
+    // Seed a fresh agent so the delete handler has something to tombstone.
+    const req = makeRequest({ name: SOFT_DELETE_AGENT_ID, host: "127.0.0.1", port: 7400 });
+    await handleSaveAgent(db, req);
+  });
+
+  afterAll(async () => {
+    await cleanupSoftDeleteAgent(db);
+  });
+
+  it("sets deleted_at on the row after DELETE", async () => {
+    const res = await handleDeleteAgent(db, SOFT_DELETE_AGENT_ID);
+    expect(res.status).toBe(200);
+
+    // Raw SELECT to bypass any ORM-level filter — we want the tombstoned row.
+    const rows = await db.select().from(agents).where(eq(agents.id, SOFT_DELETE_AGENT_ID));
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.deletedAt).toBeInstanceOf(Date);
+  });
+
+  it("does NOT physically remove the row after DELETE", async () => {
+    // The row must still exist in the table even after soft-delete.
+    const rows = await db.select().from(agents).where(eq(agents.id, SOFT_DELETE_AGENT_ID));
+    expect(rows.length).toBe(1);
+  });
+});
+
+// ── 3.2 List query excludes soft-deleted agents ───────────────────────────────
+
+const LIST_AGENT_LIVE_1 = "test-agent-list-live-001";
+const LIST_AGENT_LIVE_2 = "test-agent-list-live-002";
+const LIST_AGENT_DELETED = "test-agent-list-deleted-001";
+
+async function cleanupListAgents(db: Db) {
+  await db.delete(agents).where(eq(agents.id, LIST_AGENT_LIVE_1));
+  await db.delete(agents).where(eq(agents.id, LIST_AGENT_LIVE_2));
+  await db.delete(agents).where(eq(agents.id, LIST_AGENT_DELETED));
+}
+
+describe.skipIf(!hasPg)("agent list query excludes soft-deleted rows (requires live PG)", () => {
+  let db: Db;
+
+  beforeAll(async () => {
+    db = openDatabase();
+    await cleanupListAgents(db);
+
+    // Seed 2 live agents and 1 soft-deleted agent.
+    for (const id of [LIST_AGENT_LIVE_1, LIST_AGENT_LIVE_2, LIST_AGENT_DELETED]) {
+      const req = makeRequest({ name: id, host: "127.0.0.1", port: 7400 });
+      await handleSaveAgent(db, req);
+    }
+    // Soft-delete the third.
+    await handleDeleteAgent(db, LIST_AGENT_DELETED);
+  });
+
+  afterAll(async () => {
+    await cleanupListAgents(db);
+  });
+
+  it("returns only live agents when filtering isNull(deletedAt)", async () => {
+    // Mirror the production query from apps/nextjs/src/lib/get-client.ts:
+    //   db.select().from(agents).where(and(eq(agents.enabled, true), isNull(agents.deletedAt)))
+    const rows = await db
+      .select()
+      .from(agents)
+      .where(and(eq(agents.enabled, true), isNull(agents.deletedAt)));
+
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain(LIST_AGENT_LIVE_1);
+    expect(ids).toContain(LIST_AGENT_LIVE_2);
+    expect(ids).not.toContain(LIST_AGENT_DELETED);
+  });
+
+  it("soft-deleted agent is present in an unfiltered SELECT", async () => {
+    // Confirm the deleted agent was not physically removed.
+    const rows = await db.select().from(agents).where(eq(agents.id, LIST_AGENT_DELETED));
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.deletedAt).toBeInstanceOf(Date);
   });
 });

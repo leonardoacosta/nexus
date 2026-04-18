@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { createDb } from "@nexus/db";
+import { createDb, agents as agentsTable, eq as eqOp } from "@nexus/db";
 import type { Db } from "@nexus/db";
 import { getSessionById, insertSession } from "./sessions";
 import type { SessionRow } from "./sessions";
@@ -410,5 +410,122 @@ describe.skip("retention cleanup (requires live PG)", () => {
 
   it("handles cleanup on empty tables without error", () => {
     expect(true).toBe(true);
+  });
+});
+
+// ─── 7.6 Soft-delete tombstone tolerance ────────────────────────────────────
+//
+// Verifies that an ID-based agent lookup (no isNull(deletedAt) filter) still
+// resolves the row after it has been soft-deleted. This locks the requirement
+// that historical session joins can always reach their agent record even after
+// the agent has been tombstoned via DELETE /agents/:id.
+
+const TOMBSTONE_SCHEMA = `nx_tombstone_test_${Date.now()}_${Math.floor(
+  Math.random() * 1e6,
+)}`;
+
+// Full agents DDL matching production shape (migration 0019) so Drizzle ORM
+// can SELECT all columns without "column does not exist" errors.
+const TOMBSTONE_DDL = `
+  CREATE TABLE "agents" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text DEFAULT '',
+    "host" text NOT NULL,
+    "port" integer DEFAULT 7400,
+    "projects_dir" text DEFAULT '',
+    "enabled" boolean DEFAULT true,
+    "last_seen" timestamp,
+    "created_at" timestamp DEFAULT now(),
+    "deleted_at" timestamp
+  );
+
+  CREATE TABLE "sessions" (
+    "id" text PRIMARY KEY NOT NULL,
+    "machine" text NOT NULL,
+    "status" text DEFAULT 'active' NOT NULL,
+    "started_at" timestamp NOT NULL,
+    "last_activity" timestamp NOT NULL,
+    "ended_at" timestamp
+  );
+`;
+
+describe.skipIf(!hasPg)("soft-delete tombstone tolerance (requires live PG)", () => {
+  let adminSql: Sql;
+  let adminClient: Sql;
+  let scopedClient: ReturnType<typeof createDb>["client"];
+  let db: Db;
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+
+    const adminHandle = createDb(url);
+    adminClient = adminHandle.client;
+    adminSql = adminClient;
+
+    await adminSql.unsafe(`CREATE SCHEMA "${TOMBSTONE_SCHEMA}"`);
+    await adminSql.unsafe(
+      `SET search_path TO "${TOMBSTONE_SCHEMA}", public`,
+    );
+    await adminSql.unsafe(TOMBSTONE_DDL);
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${TOMBSTONE_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    db = scopedHandle.db;
+  });
+
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminSql.unsafe(
+          `DROP SCHEMA IF EXISTS "${TOMBSTONE_SCHEMA}" CASCADE`,
+        );
+      } finally {
+        await adminClient.end({ timeout: 5 });
+      }
+    }
+  });
+
+  it("ID lookup resolves a soft-deleted agent row (no isNull filter)", async () => {
+    const agentId = "tombstone-agent-001";
+    const now = new Date();
+
+    // Seed agent + a session that references it via machine.
+    await adminSql.unsafe(
+      `INSERT INTO "${TOMBSTONE_SCHEMA}".agents ("id", "host", "enabled")
+       VALUES ('${agentId}', 'localhost', true)`,
+    );
+    await adminSql.unsafe(
+      `INSERT INTO "${TOMBSTONE_SCHEMA}".sessions ("id", "machine", "status", "started_at", "last_activity")
+       VALUES ('sess-tombstone-001', '${agentId}', 'ended', '${now.toISOString()}', '${now.toISOString()}')`,
+    );
+
+    // Soft-delete the agent.
+    await adminSql.unsafe(
+      `UPDATE "${TOMBSTONE_SCHEMA}".agents
+       SET "deleted_at" = NOW()
+       WHERE "id" = '${agentId}'`,
+    );
+
+    // ID-based lookup (mirrors agent-self.ts: db.select().from(agents).where(eq(agents.id, id)))
+    // — no isNull(deletedAt) guard. The row must still be returned.
+    const rows = await db.select().from(agentsTable).where(eqOp(agentsTable.id, agentId));
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.id).toBe(agentId);
+    expect(rows[0]!.deletedAt).toBeInstanceOf(Date);
+  });
+
+  it("the session referencing the tombstoned agent is still queryable", async () => {
+    // Confirm the session row itself is intact — historical joins are not broken.
+    const sessionRows = await adminSql.unsafe(
+      `SELECT * FROM "${TOMBSTONE_SCHEMA}".sessions WHERE id = 'sess-tombstone-001'`,
+    ) as Array<Record<string, unknown>>;
+
+    expect(sessionRows.length).toBe(1);
+    expect(sessionRows[0]!.machine).toBe("tombstone-agent-001");
   });
 });
