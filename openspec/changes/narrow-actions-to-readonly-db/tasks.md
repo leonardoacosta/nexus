@@ -18,4 +18,4 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Add unit test asserting `getReadOnlyDb()` is the only export from apps/nextjs/src/lib/db.ts (no `getDb` export) [owner:e2e-engineer] [beads:nx-g61t]
+- [x] [2.1] Add unit test asserting `getReadOnlyDb()` is the only export from apps/nextjs/src/lib/db.ts (no `getDb` export) [owner:e2e-engineer] [beads:nx-g61t]
