@@ -21,31 +21,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-// -- Spec events wire types ------------------------------------------------
-// Mirrors `packages/core/src/types/spec-events.ts`. Duplicated here (rather
-// than imported from `@nexus/core`) because the barrel re-exports node-only
-// helpers (`safeSpawn`, `expandTilde`) which trip webpack's
-// UnhandledSchemeError on `node:path` / `node:os` when pulled into a client
-// component. Keep this in sync with the core source of truth.
-
-type SpecTransitionEvent =
-  | { kind: "new"; project: string; spec: string }
-  | {
-      kind: "progress";
-      project: string;
-      spec: string;
-      completed: number;
-      total: number;
-    }
-  | { kind: "complete"; project: string; spec: string }
-  | { kind: "archived"; project: string; spec: string };
-
-interface SpecEventsFrame {
-  seq: number;
-  ts: string;
-  events: SpecTransitionEvent[];
-}
+import type { SpecTransitionEvent, SpecEventsFrame } from "@nexus/core";
+import { SPEC_EVENTS_EVENT_NAME } from "@nexus/core";
+import type { AllSpecsResponse, ProjectSpecStatus } from "./types";
 
 interface ParseResult {
   success: boolean;
@@ -115,10 +93,6 @@ function parseSpecEventsFrame(value: unknown): ParseResult {
     data: { seq: obj.seq, ts: obj.ts, events },
   };
 }
-
-const SPEC_EVENTS_EVENT_NAME = "spec-transition" as const;
-
-import type { AllSpecsResponse, ProjectSpecStatus } from "./types";
 
 const BACKOFF_SEQUENCE_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 const HIGHLIGHT_DURATION_MS = 400;

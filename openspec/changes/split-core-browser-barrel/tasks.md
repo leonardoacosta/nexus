@@ -15,8 +15,8 @@
 
 ## UI Batch
 
-- [ ] [2.1] [P-1] Delete duplicated SpecTransitionEvent/SpecEventsFrame in apps/nextjs/src/app/specs/spec-events-subscriber.tsx:25-48; import from @nexus/core [owner:ui-engineer] [beads:nx-kb16]
-- [ ] [2.2] [P-2] Verify production build of apps/nextjs succeeds with `next build` [owner:ui-engineer] [beads:nx-bc8p]
+- [x] [2.1] [P-1] Delete duplicated SpecTransitionEvent/SpecEventsFrame in apps/nextjs/src/app/specs/spec-events-subscriber.tsx:25-48; import from @nexus/core [owner:ui-engineer] [beads:nx-kb16]
+- [x] [2.2] [P-2] Verify production build of apps/nextjs succeeds with `next build` [owner:ui-engineer] [beads:nx-bc8p]
 
 ## E2E Batch
 
