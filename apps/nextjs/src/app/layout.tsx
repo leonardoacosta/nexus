@@ -3,6 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Sidebar } from "@/components/Sidebar";
 import { CommandPaletteProvider } from "@/components/CommandPaletteProvider";
+import PostHogProvider from "@/components/posthog-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,11 +19,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body>
-        <div className="app-shell">
-          <Sidebar />
-          <main className="main-content">{children}</main>
-        </div>
-        <CommandPaletteProvider />
+        <PostHogProvider>
+          <div className="app-shell">
+            <Sidebar />
+            <main className="main-content">{children}</main>
+          </div>
+          <CommandPaletteProvider />
+        </PostHogProvider>
       </body>
     </html>
   );

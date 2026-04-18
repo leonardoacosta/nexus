@@ -11,9 +11,9 @@
 
 ## UI Batch
 
-- [ ] [2.1] [P-1] Add posthog-js dependency to apps/nextjs/package.json [owner:ui-engineer] [beads:nx-cltc]
-- [ ] [2.2] [P-2] Create PostHogProvider wrapper at apps/nextjs/src/components/posthog-provider.tsx — gated on NEXT_PUBLIC_POSTHOG_KEY, no-op if missing [owner:ui-engineer] [beads:nx-9r8c]
-- [ ] [2.3] [P-3] Wire PostHogProvider at apps/nextjs/src/app/layout.tsx as the outermost client boundary [owner:ui-engineer] [beads:nx-3lii]
+- [x] [2.1] [P-1] Add posthog-js dependency to apps/nextjs/package.json [owner:ui-engineer] [beads:nx-cltc]
+- [x] [2.2] [P-2] Create PostHogProvider wrapper at apps/nextjs/src/components/posthog-provider.tsx — gated on NEXT_PUBLIC_POSTHOG_KEY, no-op if missing [owner:ui-engineer] [beads:nx-9r8c]
+- [x] [2.3] [P-3] Wire PostHogProvider at apps/nextjs/src/app/layout.tsx as the outermost client boundary [owner:ui-engineer] [beads:nx-3lii]
 
 ## E2E Batch
 
