@@ -18,6 +18,6 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Add unit test in apps/nextjs/src/app/actions/projects-mutation.test.ts asserting updateProject calls revalidatePath with the correct paths after success [owner:e2e-engineer] [beads:nx-g4wd]
-- [ ] [2.2] Add unit test in apps/nextjs/src/app/actions/settings-mutation.test.ts asserting saveAgentConfig calls revalidatePath('/settings') after success and on the delete branch [owner:e2e-engineer] [beads:nx-6h29]
-- [ ] [2.3] Verify revalidate is NOT called when the underlying HTTP call fails (errors should propagate without fake-success cache invalidation) [owner:e2e-engineer] [beads:nx-sac6]
+- [x] [2.1] Add unit test in apps/nextjs/src/app/actions/projects-mutation.test.ts asserting updateProject calls revalidatePath with the correct paths after success [owner:e2e-engineer] [beads:nx-g4wd]
+- [x] [2.2] Add unit test in apps/nextjs/src/app/actions/settings-mutation.test.ts asserting saveAgentConfig calls revalidatePath('/settings') after success and on the delete branch [owner:e2e-engineer] [beads:nx-6h29]
+- [x] [2.3] Verify revalidate is NOT called when the underlying HTTP call fails (errors should propagate without fake-success cache invalidation) [owner:e2e-engineer] [beads:nx-sac6]
