@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "plan_name": "add-revalidation-to-server-actions",
+  "generated_at": "2026-04-18T05:59:00Z",
+  "generated_by": "/apply:all (orchestrator, single-spec wave)",
+  "status": "completed",
+  "completed_at": "2026-04-18T06:15:00Z",
+  "mode": "consolidated",
+  "pre_audit_sha": "9fc2288",
+  "spec_names": ["add-revalidation-to-server-actions"],
+  "current_wave": 1,
+  "current_phase": null,
+  "completed_waves": [],
+  "completed_specs": [],
+  "failed_specs": [],
+  "started_at": "2026-04-18T05:59:00Z",
+  "completed_at": null,
+  "decisions": [
+    {
+      "timestamp": "2026-04-18T05:59:00Z",
+      "text": "Single-spec wave acceptable (apply:all guardrail allows it)",
+      "rationale": "User invoked /apply:all explicitly; spec is small (6 tasks); checkpoint/resume tracking still useful even for single-spec runs.",
+      "source": "guardrail",
+      "affected_waves": [1]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "rationale": "Single spec — closes Wave-3 cache-invalidation gap. Pattern B (API+E2E only).",
+      "specs": [
+        {
+          "name": "add-revalidation-to-server-actions",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "nx-stcy",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    }
+  ],
+  "mega_batch_state": {
+    "current_wave": 1,
+    "current_phase": null,
+    "phases_completed": [],
+    "task_results": {"add-revalidation-to-server-actions": {}},
+    "phase_started_at": {},
+    "phase_completed_at": {}
+  }
+}

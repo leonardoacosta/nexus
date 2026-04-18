@@ -1,39 +1,51 @@
 {
   "version": 1,
-  "plan_name": "add-revalidation-to-server-actions",
-  "generated_at": "2026-04-18T05:59:00Z",
-  "generated_by": "/apply:all (orchestrator, single-spec wave)",
+  "plan_name": "post-audit-hardening",
+  "generated_at": "2026-04-18T15:12:00Z",
+  "generated_by": "/apply:all (orchestrator, autonomous)",
   "status": "completed",
-  "completed_at": "2026-04-18T06:15:00Z",
+  "completed_at": "2026-04-18T15:35:00Z",
   "mode": "consolidated",
-  "pre_audit_sha": "9fc2288",
-  "spec_names": ["add-revalidation-to-server-actions"],
+  "pre_audit_sha": "6e6e600",
+  "spec_names": ["harden-health-timeseries", "harden-notification-reliability"],
   "current_wave": 1,
   "current_phase": null,
   "completed_waves": [],
   "completed_specs": [],
   "failed_specs": [],
-  "started_at": "2026-04-18T05:59:00Z",
+  "started_at": "2026-04-18T15:12:00Z",
   "completed_at": null,
   "decisions": [
     {
-      "timestamp": "2026-04-18T05:59:00Z",
-      "text": "Single-spec wave acceptable (apply:all guardrail allows it)",
-      "rationale": "User invoked /apply:all explicitly; spec is small (6 tasks); checkpoint/resume tracking still useful even for single-spec runs.",
+      "timestamp": "2026-04-18T15:12:00Z",
+      "text": "Single-wave parallel execution for 2 specs with zero file overlap",
+      "rationale": "harden-health-timeseries touches packages/db/src/schema/healthSnapshots.ts, packages/db/src/migrations/, apps/agent/src/health-collector.ts + 2 test files. harden-notification-reliability touches apps/agent/src/notifications/{buffer,meeting-state,router}.ts + tests. No file overlap → parallel safe.",
       "source": "guardrail",
-      "affected_waves": [1]
+      "affected_waves": [1],
+      "affected_specs": ["harden-health-timeseries", "harden-notification-reliability"]
     }
   ],
   "waves": [
     {
       "wave": 1,
-      "rationale": "Single spec — closes Wave-3 cache-invalidation gap. Pattern B (API+E2E only).",
+      "rationale": "Both specs are TS-only hardening with zero file overlap. 15 tasks total well under 40-task cap.",
       "specs": [
         {
-          "name": "add-revalidation-to-server-actions",
+          "name": "harden-health-timeseries",
           "status": "queued",
           "task_count": 6,
-          "epic": "nx-stcy",
+          "epic": "nx-m8ip",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "harden-notification-reliability",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "nx-uj6t",
           "phase": null,
           "gates_passed": [],
           "gates_failed": [],
@@ -47,7 +59,10 @@
     "current_wave": 1,
     "current_phase": null,
     "phases_completed": [],
-    "task_results": {"add-revalidation-to-server-actions": {}},
+    "task_results": {
+      "harden-health-timeseries": {},
+      "harden-notification-reliability": {}
+    },
     "phase_started_at": {},
     "phase_completed_at": {}
   }
