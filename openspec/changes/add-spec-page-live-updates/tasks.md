@@ -30,7 +30,7 @@
 
 ## E2E Batch
 
-- [ ] [5.1] Test: specs page loads at all (validates port fix) [owner:e2e-engineer] [beads:nx-682r]
-- [ ] [5.2] Test: ticking a checkbox in tasks.md updates the page within 2 seconds without reload [owner:e2e-engineer] [beads:nx-hcm6]
-- [ ] [5.3] Test: archiving a spec removes it from the page within 2 seconds without reload [owner:e2e-engineer] [beads:nx-rcu9]
-- [ ] [5.4] Test: SSE reconnect after simulated network drop catches a missed transition via refetch [owner:e2e-engineer] [beads:nx-v15e]
+- [x] [5.1] Test: specs page loads at all (validates port fix) [owner:e2e-engineer] [beads:nx-682r]
+- [x] [5.2] Test: ticking a checkbox in tasks.md updates the page within 2 seconds without reload [owner:e2e-engineer] [beads:nx-hcm6]
+- [x] [5.3] Test: archiving a spec removes it from the page within 2 seconds without reload [owner:e2e-engineer] [beads:nx-rcu9]
+- [x] [5.4] Test: SSE reconnect after simulated network drop catches a missed transition via refetch [owner:e2e-engineer] [beads:nx-v15e]

@@ -31,6 +31,6 @@
 
 ## E2E Batch
 
-- [ ] [5.1] Test: page renders N account rows for N fingerprints, expanding shows snapshot files [owner:e2e-engineer] [beads:nx-j2x4]
-- [ ] [5.2] Test: swapping `~/.claude/.credentials.json` target updates active badge within 3s [owner:e2e-engineer] [beads:nx-7ty2]
-- [ ] [5.3] Test: usage cell renders percent when polled, fallback when not polled [owner:e2e-engineer] [beads:nx-uc44]
+- [x] [5.1] Test: page renders N account rows for N fingerprints, expanding shows snapshot files [owner:e2e-engineer] [beads:nx-j2x4]
+- [x] [5.2] Test: swapping `~/.claude/.credentials.json` target updates active badge within 3s [owner:e2e-engineer] [beads:nx-7ty2]
+- [x] [5.3] Test: usage cell renders percent when polled, fallback when not polled [owner:e2e-engineer] [beads:nx-uc44]
