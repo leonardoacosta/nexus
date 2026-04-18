@@ -51,11 +51,12 @@
         "packages/core/src/config.ts",
         "apps/agent/src/services/config-loader.ts",
         "apps/agent/src/services/spec-watcher.ts",
+        "apps/agent/src/services/spec-watcher/**",
         "apps/agent/src/services/command-registry.ts",
         "apps/agent/src/db/agent-registry.ts",
         "apps/nexus-status/src/**"
       ],
-      "reason": "Boot-phase config loaders and CLI utilities \u2014 sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths"
+      "reason": "Boot-phase config loaders and CLI utilities \u2014 sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths. spec-watcher/** added after 2026-04-18 refactor split spec-watcher.ts into a directory."
     },
     {
       "id": "D4",
@@ -134,6 +135,8 @@
     "A5",
     "A6",
     "A7",
+    "A9",
+    "A12",
     "B4",
     "D4",
     "D5",
