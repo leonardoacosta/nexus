@@ -1,9 +1,43 @@
 import type { NotificationChannel, NotificationRule } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
+import { captureException, addBreadcrumb } from "@sentry/node";
 import type { NotificationRow } from "./buffer";
 import { sendDesktopNotification } from "./channels/desktop";
 import { sendTtsNotification } from "./channels/tts";
 import { sendSlackNotification } from "./channels/slack";
+
+/** Timeout in ms for a single channel handler invocation. */
+const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
+
+/**
+ * Wrap a channel handler call with a deadline. If the handler does not resolve
+ * within NOTIFICATION_TIMEOUT_MS, the promise rejects with a TimeoutError and
+ * Sentry captures the exception.
+ */
+async function withChannelTimeout(
+  channel: NotificationChannel,
+  notification: NotificationRow,
+  handler: (n: NotificationRow) => Promise<boolean>,
+): Promise<boolean> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(
+        `notification delivery timeout: ${channel} (notificationId=${notification.id})`,
+      );
+      captureException(err);
+      reject(err);
+    }, NOTIFICATION_TIMEOUT_MS);
+  });
+
+  try {
+    const result = await Promise.race([handler(notification), timeoutPromise]);
+    return result;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 const log = createLogger("agent:notifications:router");
 
@@ -67,10 +101,16 @@ export async function routeNotification(
   for (const channel of rule.channels) {
     const handler = CHANNEL_HANDLERS[channel];
     if (handler === undefined) {
-      log.warn({ channel, notificationId: notification.id }, "unknown notification channel");
+      log.warn({ channel, notificationId: notification.id }, "No handler for channel");
+      addBreadcrumb({
+        category: "notification",
+        level: "warning",
+        message: "missing handler",
+        data: { channel, notificationId: notification.id },
+      });
       continue;
     }
-    const success = await handler(notification);
+    const success = await withChannelTimeout(channel, notification, handler);
     results.push({ channel, success });
   }
 
@@ -90,14 +130,20 @@ export async function routeNotificationParallel(
 
   const knownChannels = rule.channels.filter((ch) => {
     if (CHANNEL_HANDLERS[ch] === undefined) {
-      log.warn({ channel: ch, notificationId: notification.id }, "unknown notification channel");
+      log.warn({ channel: ch, notificationId: notification.id }, "No handler for channel");
+      addBreadcrumb({
+        category: "notification",
+        level: "warning",
+        message: "missing handler",
+        data: { channel: ch, notificationId: notification.id },
+      });
       return false;
     }
     return true;
   }) as NotificationChannel[];
 
   const settled = await Promise.allSettled(
-    knownChannels.map((ch) => CHANNEL_HANDLERS[ch]!(notification)),
+    knownChannels.map((ch) => withChannelTimeout(ch, notification, CHANNEL_HANDLERS[ch]!)),
   );
 
   const delivered: string[] = [];

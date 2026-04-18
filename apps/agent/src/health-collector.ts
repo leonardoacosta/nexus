@@ -124,7 +124,7 @@ export class HealthCollector {
       // Failure: double the backoff interval (cap at max) and set next check time
       this.dockerBackoffMs = Math.min(this.dockerBackoffMs * 2, DOCKER_BACKOFF_MAX_MS);
       this.dockerBackoffUntil = Date.now() + this.dockerBackoffMs;
-      logger.debug(
+      logger.warn(
         { err, nextCheckMs: this.dockerBackoffMs },
         "docker collection failed — applying backoff",
       );

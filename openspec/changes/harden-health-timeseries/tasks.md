@@ -8,7 +8,7 @@
 
 ## API Batch
 
-- [ ] [2.1] [P-1] In apps/agent/src/health-collector.ts collectDocker() catch block, change logger.debug to logger.warn so Docker daemon failures are visible at default log levels [owner:api-engineer] [beads:nx-lzfb]
+- [x] [2.1] [P-1] In apps/agent/src/health-collector.ts collectDocker() catch block, change logger.debug to logger.warn so Docker daemon failures are visible at default log levels [owner:api-engineer] [beads:nx-lzfb]
 
 ## E2E Batch
 
