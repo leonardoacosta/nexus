@@ -5,10 +5,12 @@
     "refine-credential-page-grouping",
     "add-spec-page-live-updates"
   ],
-  "status": "pending",
-  "current_wave": 1,
+  "status": "completed",
+  "current_wave": 2,
   "current_phase": null,
-  "completed_waves": [],
+  "completed_waves": [
+    1
+  ],
   "completed_specs": [],
   "failed_specs": [],
   "decisions": [],
@@ -28,7 +30,8 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": null,
+          "_warning": "unexpected status 'queued' at completion"
         },
         {
           "name": "add-spec-page-live-updates",
@@ -42,20 +45,35 @@
           "gates_failed": [],
           "ci": null,
           "dispatched_at": null,
-          "merged_at": null
+          "merged_at": null,
+          "_warning": "unexpected status 'queued' at completion"
         }
       ]
     }
   ],
   "started_at": "2026-04-17T18:34:53.358029",
-  "completed_at": null,
+  "completed_at": "2026-04-17T19:34:01.900741",
   "mode": "consolidated",
   "mega_batch_state": {
     "current_phase": null,
-    "phases_completed": [],
+    "phases_completed": [
+      "api",
+      "ui",
+      "e2e"
+    ],
     "task_results": {
       "refine-credential-page-grouping": {},
       "add-spec-page-live-updates": {}
+    },
+    "phase_started_at": {
+      "api": "2026-04-17T18:36:13.476083",
+      "ui": "2026-04-17T18:55:37.501140",
+      "e2e": "2026-04-17T19:05:39.054719"
+    },
+    "phase_completed_at": {
+      "api": "2026-04-17T18:55:37.455176",
+      "ui": "2026-04-17T19:05:39.011266",
+      "e2e": "2026-04-17T19:31:07.918705"
     }
   }
 }
