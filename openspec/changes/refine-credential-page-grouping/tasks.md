@@ -22,12 +22,12 @@
 
 ## UI Batch
 
-- [ ] [4.1] [P-1] Build `AccountRow` component with expand/collapse for snapshots [owner:ui-engineer] [beads:nx-phdc]
-- [ ] [4.2] [P-1] Build `UsageCell` showing percent + resets-at with unpolled fallback [owner:ui-engineer] [beads:nx-nbq3]
-- [ ] [4.3] [P-1] Build `ActiveBadge` component with tooltip showing resolved path [owner:ui-engineer] [beads:nx-9ccy]
-- [ ] [4.4] [P-2] Replace flat table with account-first grouped table in credentials page [owner:ui-engineer] [beads:nx-db5l]
-- [ ] [4.5] [P-2] Update page header count to reflect account cardinality, not file cardinality [owner:ui-engineer] [beads:nx-nc65]
-- [ ] [4.6] [P-3] Preserve column sort on account rows; add nested sort for snapshot rows [owner:ui-engineer] [beads:nx-3n7l]
+- [x] [4.1] [P-1] Build `AccountRow` component with expand/collapse for snapshots [owner:ui-engineer] [beads:nx-phdc]
+- [x] [4.2] [P-1] Build `UsageCell` showing percent + resets-at with unpolled fallback [owner:ui-engineer] [beads:nx-nbq3]
+- [x] [4.3] [P-1] Build `ActiveBadge` component with tooltip showing resolved path [owner:ui-engineer] [beads:nx-9ccy]
+- [x] [4.4] [P-2] Replace flat table with account-first grouped table in credentials page [owner:ui-engineer] [beads:nx-db5l]
+- [x] [4.5] [P-2] Update page header count to reflect account cardinality, not file cardinality [owner:ui-engineer] [beads:nx-nc65]
+- [x] [4.6] [P-3] Preserve column sort on account rows; add nested sort for snapshot rows [owner:ui-engineer] [beads:nx-3n7l]
 
 ## E2E Batch
 

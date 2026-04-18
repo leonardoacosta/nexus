@@ -2,8 +2,11 @@
 export const dynamic = "force-dynamic";
 
 import { fetchCredentials } from "../actions/credentials";
-import type { Credential, CredentialGroup } from "../actions/credentials";
-import { CredentialsTable } from "@/components/CredentialsTable";
+import type { Credential } from "../actions/credentials";
+import { AccountsTable } from "@/components/credentials-table";
+import { getAgentBaseUrl } from "@/lib/agent-url";
+import { fetchWithTimeout } from "@nexus/core/fetch";
+import { credentialsActiveResponseSchema } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,7 +25,7 @@ function formatPlan(sub: string | null): string {
   return sub.charAt(0).toUpperCase() + sub.slice(1);
 }
 
-/** Build a summary string like "15 Max (20x) · 3 Team (5x)" */
+/** Build a summary string like "15 Max (20x) · 3 Team (5x)" from flat credentials. */
 function buildPlanSummary(credentials: Credential[]): string {
   const planCounts = new Map<string, { count: number; tier: string }>();
   for (const cred of credentials) {
@@ -46,32 +49,54 @@ function buildPlanSummary(credentials: Credential[]): string {
   return parts.length > 0 ? parts.join(" \u00b7 ") : "";
 }
 
+/**
+ * Fetch the agent's currently-resolved `.credentials.json` path so the
+ * `ActiveBadge` tooltip can show it. Falls back to null on any error —
+ * the badge still renders, just without a specific path in the tooltip.
+ */
+async function fetchActiveResolvedPath(): Promise<string | null> {
+  const resolved = await getAgentBaseUrl();
+  if (!resolved) return null;
+  try {
+    const res = await fetchWithTimeout(
+      `${resolved.baseUrl}/credentials/active`,
+      {
+        timeout: 3_000,
+        headers: {
+          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return null;
+    const parsed = credentialsActiveResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return null;
+    return parsed.data.resolvedPath;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default async function CredentialsPage() {
-  const {
-    groups,
-    credentials,
-    totalAccounts,
-    agentSource,
-    agentReachable,
-    failedAgents,
-  } = await fetchCredentials();
+  const [
+    {
+      accounts,
+      credentials,
+      totalAccounts,
+      agentSource,
+      agentReachable,
+      failedAgents,
+      activeFingerprint,
+    },
+    resolvedPath,
+  ] = await Promise.all([fetchCredentials(), fetchActiveResolvedPath()]);
 
   const planSummary = buildPlanSummary(credentials);
-
-  // Build a plain object map from credential id to its group (serializable for client)
-  const credGroupMap: Record<string, CredentialGroup> = {};
-  for (const group of groups) {
-    for (const member of group.members) {
-      credGroupMap[member.id] = group;
-    }
-  }
-
-  // Flatten all credentials: primary first within each group, then by name
-  const flatCredentials = groups.flatMap((g) => g.members);
+  const hasActiveAccount = activeFingerprint !== null;
 
   return (
     <div>
@@ -89,6 +114,8 @@ export default async function CredentialsPage() {
           alignItems: "baseline",
           justifyContent: "space-between",
           marginBottom: "var(--space-6)",
+          gap: "var(--space-4)",
+          flexWrap: "wrap",
         }}
       >
         <h1
@@ -111,6 +138,17 @@ export default async function CredentialsPage() {
           {planSummary ? ` \u00b7 ${planSummary}` : ""}
           {agentReachable && agentSource !== "unknown" ? (
             <span style={{ opacity: 0.6 }}>{` \u00b7 via ${agentSource}`}</span>
+          ) : null}
+          {agentReachable && accounts.length > 0 && !hasActiveAccount ? (
+            <span
+              style={{
+                opacity: 0.8,
+                color: "var(--color-warning)",
+                marginLeft: "var(--space-2)",
+              }}
+            >
+              {"\u00b7 no active credential detected"}
+            </span>
           ) : null}
         </span>
       </div>
@@ -142,15 +180,16 @@ export default async function CredentialsPage() {
             Failed to connect to: {failedAgents.join(", ")}
           </p>
         </div>
-      ) : flatCredentials.length === 0 ? (
+      ) : accounts.length === 0 ? (
         <p style={{ color: "var(--color-fg-muted)" }}>
           No credentials found. The agent is running but has no credential files
           configured.
         </p>
       ) : (
-        <CredentialsTable
-          credentials={flatCredentials}
-          credGroupMap={credGroupMap}
+        <AccountsTable
+          accounts={accounts}
+          credentials={credentials}
+          resolvedPath={resolvedPath}
         />
       )}
     </div>

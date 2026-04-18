@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import type { Credential, CredentialGroup } from "@/app/actions/credentials";
 
 import { CredentialRow } from "./row";
+export { AccountsTable } from "./accounts-table";
+export type { AccountsTableProps } from "./accounts-table";
 import { compareCredentials } from "./sort";
 import { SortHeader } from "./sort-header";
 import type { SortColumn, SortState } from "./types";

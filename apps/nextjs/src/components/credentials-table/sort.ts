@@ -45,5 +45,10 @@ export function compareCredentials(
         parseMcpProviders(b.mcpProviders).length
       );
     }
+    case "usage": {
+      // Flat credential rows don't carry usage; account-first comparator
+      // handles this column. Return 0 to keep the switch exhaustive.
+      return 0;
+    }
   }
 }

@@ -22,11 +22,11 @@
 
 ## UI Batch
 
-- [ ] [4.1] [P-1] Build `SpecEventsSubscriber` client component wrapping the specs table [owner:ui-engineer] [beads:nx-0lkw]
-- [ ] [4.2] [P-2] Subscribe to `/specs/events` via EventSource with exponential-backoff reconnect [owner:ui-engineer] [beads:nx-7j30]
-- [ ] [4.3] [P-2] On reconnect, refetch `/specs/all` to reconcile potentially-missed transitions [owner:ui-engineer] [beads:nx-zm1c]
-- [ ] [4.4] [P-2] Merge incoming transitions into local state and animate changed rows [owner:ui-engineer] [beads:nx-pib8]
-- [ ] [4.5] [P-3] Show a small "live" indicator in page header when SSE is connected [owner:ui-engineer] [beads:nx-x670]
+- [x] [4.1] [P-1] Build `SpecEventsSubscriber` client component wrapping the specs table [owner:ui-engineer] [beads:nx-0lkw]
+- [x] [4.2] [P-2] Subscribe to `/specs/events` via EventSource with exponential-backoff reconnect [owner:ui-engineer] [beads:nx-7j30]
+- [x] [4.3] [P-2] On reconnect, refetch `/specs/all` to reconcile potentially-missed transitions [owner:ui-engineer] [beads:nx-zm1c]
+- [x] [4.4] [P-2] Merge incoming transitions into local state and animate changed rows [owner:ui-engineer] [beads:nx-pib8]
+- [x] [4.5] [P-3] Show a small "live" indicator in page header when SSE is connected [owner:ui-engineer] [beads:nx-x670]
 
 ## E2E Batch
 
