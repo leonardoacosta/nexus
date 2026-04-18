@@ -4,10 +4,10 @@
 
 ## API Batch
 
-- [ ] [1.1] [P-1] Add /api/health route at apps/nextjs/src/app/api/health/route.ts returning { status, version, timestamp } with export const dynamic = 'force-dynamic' [owner:api-engineer] [beads:nx-spz1]
-- [ ] [1.2] [P-1] Switch release env var in apps/agent/src/instrument.ts:15 from npm_package_version to (NEXUS_VERSION ?? npm_package_version) [owner:api-engineer] [beads:nx-rsrt]
-- [ ] [1.3] [P-2] Add release field to apps/nextjs/sentry.server.config.ts and sentry.client.config.ts using (NEXUS_VERSION ?? npm_package_version) — these files currently have no release field at all [owner:api-engineer] [beads:nx-h2wm]
-- [ ] [1.4] [P-2] Add NEXUS_VERSION and NEXT_PUBLIC_POSTHOG_KEY and NEXT_PUBLIC_POSTHOG_HOST to .env.example [owner:api-engineer] [beads:nx-w8ii]
+- [x] [1.1] [P-1] Add /api/health route at apps/nextjs/src/app/api/health/route.ts returning { status, version, timestamp } with export const dynamic = 'force-dynamic' [owner:api-engineer] [beads:nx-spz1]
+- [x] [1.2] [P-1] Switch release env var in apps/agent/src/instrument.ts:15 from npm_package_version to (NEXUS_VERSION ?? npm_package_version) [owner:api-engineer] [beads:nx-rsrt]
+- [x] [1.3] [P-2] Add release field to apps/nextjs/sentry.server.config.ts and sentry.client.config.ts using (NEXUS_VERSION ?? npm_package_version) — these files currently have no release field at all [owner:api-engineer] [beads:nx-h2wm]
+- [x] [1.4] [P-2] Add NEXUS_VERSION and NEXT_PUBLIC_POSTHOG_KEY and NEXT_PUBLIC_POSTHOG_HOST to .env.example [owner:api-engineer] [beads:nx-w8ii]
 
 ## UI Batch
 

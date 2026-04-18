@@ -22,6 +22,7 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? "production",
+    release: process.env.NEXUS_VERSION ?? process.env.npm_package_version,
     tracesSampleRate: 1.0,
     sendDefaultPii: false,
     beforeSend: scrubSensitiveHeaders,
