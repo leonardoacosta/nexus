@@ -22,11 +22,101 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  SPEC_EVENTS_EVENT_NAME,
-  specEventsFrameSchema,
-  type SpecTransitionEvent,
-} from "@nexus/core";
+// -- Spec events wire types ------------------------------------------------
+// Mirrors `packages/core/src/types/spec-events.ts`. Duplicated here (rather
+// than imported from `@nexus/core`) because the barrel re-exports node-only
+// helpers (`safeSpawn`, `expandTilde`) which trip webpack's
+// UnhandledSchemeError on `node:path` / `node:os` when pulled into a client
+// component. Keep this in sync with the core source of truth.
+
+type SpecTransitionEvent =
+  | { kind: "new"; project: string; spec: string }
+  | {
+      kind: "progress";
+      project: string;
+      spec: string;
+      completed: number;
+      total: number;
+    }
+  | { kind: "complete"; project: string; spec: string }
+  | { kind: "archived"; project: string; spec: string };
+
+interface SpecEventsFrame {
+  seq: number;
+  ts: string;
+  events: SpecTransitionEvent[];
+}
+
+interface ParseResult {
+  success: boolean;
+  data: SpecEventsFrame;
+}
+
+/**
+ * Minimal runtime validator for the SSE frame payload. Structural checks
+ * only — rejects obviously malformed frames, accepts the rest. Keeps the
+ * client bundle free of zod so we don't have to pull it in as a direct
+ * dep just for one schema.
+ */
+function parseSpecEventsFrame(value: unknown): ParseResult {
+  const empty: SpecEventsFrame = { seq: 0, ts: "", events: [] };
+  if (!value || typeof value !== "object") return { success: false, data: empty };
+  const obj = value as Record<string, unknown>;
+  if (
+    typeof obj.seq !== "number" ||
+    !Number.isFinite(obj.seq) ||
+    typeof obj.ts !== "string" ||
+    !Array.isArray(obj.events)
+  ) {
+    return { success: false, data: empty };
+  }
+  const events: SpecTransitionEvent[] = [];
+  for (const raw of obj.events) {
+    if (!raw || typeof raw !== "object") return { success: false, data: empty };
+    const ev = raw as Record<string, unknown>;
+    if (
+      typeof ev.kind !== "string" ||
+      typeof ev.project !== "string" ||
+      typeof ev.spec !== "string"
+    ) {
+      return { success: false, data: empty };
+    }
+    switch (ev.kind) {
+      case "new":
+      case "complete":
+      case "archived":
+        events.push({
+          kind: ev.kind,
+          project: ev.project,
+          spec: ev.spec,
+        });
+        break;
+      case "progress":
+        if (
+          typeof ev.completed !== "number" ||
+          typeof ev.total !== "number"
+        ) {
+          return { success: false, data: empty };
+        }
+        events.push({
+          kind: "progress",
+          project: ev.project,
+          spec: ev.spec,
+          completed: ev.completed,
+          total: ev.total,
+        });
+        break;
+      default:
+        return { success: false, data: empty };
+    }
+  }
+  return {
+    success: true,
+    data: { seq: obj.seq, ts: obj.ts, events },
+  };
+}
+
+const SPEC_EVENTS_EVENT_NAME = "spec-transition" as const;
 
 import type { AllSpecsResponse, ProjectSpecStatus } from "./types";
 
@@ -216,7 +306,7 @@ export function SpecEventsSubscriber({
         const messageEvt = evt as MessageEvent;
         try {
           const json = JSON.parse(messageEvt.data);
-          const parsed = specEventsFrameSchema.safeParse(json);
+          const parsed = parseSpecEventsFrame(json);
           if (!parsed.success) return;
           setProjects((prev) => {
             let next = prev;
