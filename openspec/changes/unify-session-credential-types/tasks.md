@@ -15,7 +15,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] Verify dashboard session components compile against new Session shape [owner:ui-engineer] [beads:nx-q2xi]
+- [x] [3.1] [P-1] Verify dashboard session components compile against new Session shape [owner:ui-engineer] [beads:nx-q2xi]
 
 ## E2E Batch
 
