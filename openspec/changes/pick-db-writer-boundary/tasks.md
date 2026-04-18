@@ -27,5 +27,5 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Add E2E test asserting all dashboard mutations succeed via agent HTTP path [owner:e2e-engineer] [beads:nx-4wue]
-- [ ] [4.2] Add unit test asserting ReadOnlyDb type rejects .insert/.update/.delete at compile time [owner:e2e-engineer] [beads:nx-aiuq]
+- [x] [4.1] Add E2E test asserting all dashboard mutations succeed via agent HTTP path [owner:e2e-engineer] [beads:nx-4wue]
+- [x] [4.2] Add unit test asserting ReadOnlyDb type rejects .insert/.update/.delete at compile time [owner:e2e-engineer] [beads:nx-aiuq]
