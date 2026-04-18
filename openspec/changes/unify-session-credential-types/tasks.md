@@ -19,5 +19,5 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Add unit test asserting domain Session keys are subset/superset relationship with DB row keys [owner:e2e-engineer] [beads:nx-wuq5]
-- [ ] [4.2] Add unit test that fails if a status enum value exists in DB but not in TS union (or vice versa) [owner:e2e-engineer] [beads:nx-tqrj]
+- [x] [4.1] Add unit test asserting domain Session keys are subset/superset relationship with DB row keys [owner:e2e-engineer] [beads:nx-wuq5]
+- [x] [4.2] Add unit test that fails if a status enum value exists in DB but not in TS union (or vice versa) [owner:e2e-engineer] [beads:nx-tqrj]

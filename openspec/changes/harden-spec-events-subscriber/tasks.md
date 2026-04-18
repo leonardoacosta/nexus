@@ -22,5 +22,5 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Add Playwright test asserting <script>...</script> in spec content does not execute [owner:e2e-engineer] [beads:nx-99kt]
-- [ ] [2.2] Add unit test asserting fetch is aborted when component unmounts mid-request [owner:e2e-engineer] [beads:nx-zdim]
+- [x] [2.1] Add Playwright test asserting <script>...</script> in spec content does not execute [owner:e2e-engineer] [beads:nx-99kt]
+- [x] [2.2] Add unit test asserting fetch is aborted when component unmounts mid-request [owner:e2e-engineer] [beads:nx-zdim]
