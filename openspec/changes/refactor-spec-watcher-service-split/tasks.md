@@ -16,5 +16,5 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Add line-count assertion test (or ESLint rule) asserting each spec-watcher/*.ts file is ≤250 lines [owner:e2e-engineer] [beads:nx-5q0m]
-- [ ] [2.2] Add unit test for parseSpecList + processProjectSpecs in spec-watcher/parser.test.ts that does NOT spawn subprocesses (proves parser is pure) [owner:e2e-engineer] [beads:nx-vj4b]
+- [x] [2.1] Add line-count assertion test (or ESLint rule) asserting each spec-watcher/*.ts file is ≤250 lines [owner:e2e-engineer] [beads:nx-5q0m]
+- [x] [2.2] Add unit test for parseSpecList + processProjectSpecs in spec-watcher/parser.test.ts that does NOT spawn subprocesses (proves parser is pure) [owner:e2e-engineer] [beads:nx-vj4b]
