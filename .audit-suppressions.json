@@ -119,17 +119,27 @@
         "apps/agent/src/routes/projects-discovered.ts"
       ],
       "reason": "Grew to 560 lines during cleanup-residual-debt task 2.2 (cursor pagination added ~89 lines for dual-shape response + cursor encoding). Not part of the original nx-iwu3 scope. Acceptable — file has clean separation between scan logic and handler; a split would fragment a short-lived cache model for marginal gain."
+    },
+    {
+      "id": "B2",
+      "paths": [
+        "apps/nextjs/src/lib/db.ts"
+      ],
+      "reason": "Sole sanctioned dashboard exception: this IS the DB factory. ESLint guard already exempts this file from the @nexus/db named-import ban (see eslint.config.mjs paths config). The two `@nexus/db/client` imports here are how `getDb()` and `getReadOnlyDb()` get their underlying connection — moving them into a 'public' barrel would defeat the boundary."
     }
   ],
   "autoSkipTestFiles": [
-    "E7",
-    "E5",
-    "D4",
-    "A6",
     "A3",
     "A4",
-    "F2",
+    "A5",
+    "A6",
+    "A7",
     "B4",
-    "A5"
+    "D4",
+    "D5",
+    "E5",
+    "E6",
+    "E7",
+    "F2"
   ]
 }
