@@ -8,10 +8,10 @@
 
 ## API Batch
 
-- [ ] [2.1] [P-1] Refactor packages/core/src/types/session.ts: derive base Session from @nexus/db Pick/Omit; add computed fields (lastHeartbeat, command, agent, rateLimitType) as separate SessionRuntimeFields type [owner:types-engineer] [beads:nx-49du]
-- [ ] [2.2] [P-1] Move WireCredentialRow declaration from apps/nextjs/src/app/actions/credentials.ts:16 into packages/core/src/types/account.ts [owner:types-engineer] [beads:nx-04em]
-- [ ] [2.3] [P-2] Replace mapper at apps/nextjs/src/app/actions/sessions.ts:74-99 with computeSessionRuntimeFields helper; remove `as Session["status"]` and `as Session["sessionType"]` casts [owner:api-engineer] [beads:nx-wa7x]
-- [ ] [2.4] [P-2] Update all ~30 import sites of Session from @nexus/core to use new shape [owner:api-engineer] [beads:nx-arr5]
+- [x] [2.1] [P-1] Refactor packages/core/src/types/session.ts: derive base Session from @nexus/db Pick/Omit; add computed fields (lastHeartbeat, command, agent, rateLimitType) as separate SessionRuntimeFields type [owner:types-engineer] [beads:nx-49du]
+- [x] [2.2] [P-1] Move WireCredentialRow declaration from apps/nextjs/src/app/actions/credentials.ts:16 into packages/core/src/types/account.ts [owner:types-engineer] [beads:nx-04em]
+- [x] [2.3] [P-2] Replace mapper at apps/nextjs/src/app/actions/sessions.ts:74-99 with computeSessionRuntimeFields helper; remove `as Session["status"]` and `as Session["sessionType"]` casts [owner:api-engineer] [beads:nx-wa7x]
+- [x] [2.4] [P-2] Update all ~30 import sites of Session from @nexus/core to use new shape [owner:api-engineer] [beads:nx-arr5]
 
 ## UI Batch
 

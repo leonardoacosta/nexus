@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import { sessions } from "@nexus/db";
 import { eq, isNull, inArray, gte, desc } from "drizzle-orm";
 import type { Session } from "@nexus/core";
+import { narrowSessionStatus, narrowSessionType } from "@nexus/core";
 
 /** Row shape returned from the `sessions` table. */
 export type SessionRow = typeof sessions.$inferSelect;
@@ -78,7 +79,7 @@ function rowToSession(row: SessionRow): Session {
     startedAt: row.startedAt,
     lastHeartbeat: row.lastActivity,
     endedAt: row.endedAt ?? null,
-    status: (row.status as Session["status"]) ?? "active",
+    status: narrowSessionStatus(row.status, "active"),
     spec: row.spec ?? null,
     command: null,
     agent: null,
@@ -91,7 +92,7 @@ function rowToSession(row: SessionRow): Session {
     model: row.model ?? null,
     credentialId: row.credentialId ?? null,
     credentialFingerprint: row.credentialFingerprint ?? null,
-    sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+    sessionType: narrowSessionType(row.sessionType),
   };
 }
 

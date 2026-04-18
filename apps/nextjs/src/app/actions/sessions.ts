@@ -1,6 +1,7 @@
 "use server";
 
 import type { Session } from "@nexus/core";
+import { narrowSessionStatus, narrowSessionType } from "@nexus/core";
 import { sessions as sessionsTable, projects, agents, healthSnapshots, eq, desc, sql } from "@nexus/db";
 import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
@@ -70,19 +71,32 @@ export async function fetchSessions(): Promise<SessionsResult> {
       .groupBy(healthSnapshots.agentId),
   ]);
 
-  // Map DB rows to the WithAgent<Session> shape consumers expect
+  // Map DB rows to the WithAgent<Session> shape consumers expect.
+  //
+  // Null-handling decisions (per design.md §Key/value mismatches):
+  //   cwd         — DB nullable → fallback to "" (non-null domain)
+  //   pid         — DB nullable → fallback to 0  (non-null domain)
+  //   lastHeartbeat — renamed from lastActivity (DB column)
+  //
+  // Enum-drift narrowing (no `as` casts):
+  //   status      — narrowSessionStatus() throws on unknown string value
+  //   sessionType — narrowSessionType() defaults null → "ad_hoc", throws on unknown
   const mapped: WithAgent<Session>[] = rows.map((row) => ({
     id: row.id,
+    // DB: number | null → domain: number. Fallback to 0 for sessions without pid.
     pid: row.pid ?? 0,
     project: row.projectName ?? null,
     projectId: row.projectId,
     machine: row.machine,
+    // DB: string | null → domain: string. Fallback to "" for sessions without cwd.
     cwd: row.cwd ?? "",
     branch: row.branch ?? null,
     startedAt: row.startedAt,
+    // Rename: DB lastActivity → domain lastHeartbeat
     lastHeartbeat: row.lastActivity,
     endedAt: row.endedAt ?? null,
-    status: (row.status as Session["status"]) ?? "ended",
+    // Runtime narrowing — throws early on unknown enum value instead of silent bad data.
+    status: narrowSessionStatus(row.status, "ended"),
     spec: row.spec ?? null,
     command: null,
     agent: row.machine,
@@ -95,7 +109,8 @@ export async function fetchSessions(): Promise<SessionsResult> {
     model: row.model ?? null,
     credentialId: null,
     credentialFingerprint: null,
-    sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+    // Runtime narrowing — null DB value defaults to "ad_hoc".
+    sessionType: narrowSessionType(row.sessionType),
   }));
 
   // Sort: active first, then by lastHeartbeat descending

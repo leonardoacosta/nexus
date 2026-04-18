@@ -12,6 +12,44 @@
  * boundary without transformation.
  */
 
+// ---------------------------------------------------------------------------
+// Wire types (what the Bun agent returns over HTTP)
+// ---------------------------------------------------------------------------
+
+/**
+ * Row shape returned by `GET /credentials` on the Bun agent.
+ *
+ * The agent serialises Drizzle rows to JSON, so timestamps arrive as
+ * ISO-8601 strings. `valueEncrypted` is intentionally absent — the agent
+ * must never include it in HTTP responses.
+ *
+ * Moved from `apps/nextjs/src/app/actions/credentials.ts` so that any
+ * package (agent, nextjs, tests) can import this type without pulling in
+ * Next.js app internals.
+ */
+export interface WireCredentialRow {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+  fingerprint: string;
+  duplicateGroupId: string | null;
+  isPrimary: boolean;
+  subscriptionType: string | null;
+  rateLimitTier: string | null;
+  expiresAt: string | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  accountUuid: string | null;
+  orgName: string | null;
+  orgUuid: string | null;
+  mcpProviders: string | null;
+  rateLimitCount: number;
+  leasedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * A single credential file observed on disk.
  *

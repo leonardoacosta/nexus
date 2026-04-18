@@ -1,40 +1,11 @@
 "use server";
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
-import type { Account, CredentialFile } from "@nexus/core";
+import type { Account, CredentialFile, WireCredentialRow } from "@nexus/core";
 import { getAgentConfigs } from "@/lib/get-client";
 
-// ---------------------------------------------------------------------------
-// Wire types (what the agent returns)
-// ---------------------------------------------------------------------------
-
-/**
- * Row shape returned by `GET /credentials`. The agent sends Drizzle rows
- * post-serialization, so timestamps arrive as ISO strings — we cast them
- * to `CredentialFile`'s `string | null` types verbatim.
- */
-interface WireCredentialRow {
-  id: string;
-  name: string;
-  status: string;
-  type: string;
-  fingerprint: string;
-  duplicateGroupId: string | null;
-  isPrimary: boolean;
-  subscriptionType: string | null;
-  rateLimitTier: string | null;
-  expiresAt: string | null;
-  accountEmail: string | null;
-  accountName: string | null;
-  accountUuid: string | null;
-  orgName: string | null;
-  orgUuid: string | null;
-  mcpProviders: string | null;
-  rateLimitCount: number;
-  leasedBy: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+// WireCredentialRow is defined in @nexus/core/types/account and re-exported
+// from @nexus/core. The local declaration has been removed per task [2.2].
 
 /** Envelope response shape for `GET /credentials`. */
 interface CredentialsListResponse {

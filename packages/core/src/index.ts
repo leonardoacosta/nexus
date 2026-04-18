@@ -1,4 +1,5 @@
-export type { Session, SessionStatus, SessionType } from "./types/session";
+export type { Session, SessionStatus, SessionType, SessionRuntimeFields } from "./types/session";
+export { narrowSessionStatus, narrowSessionType } from "./types/session";
 export type { HealthMetrics, ProcessInfo } from "./types/health";
 export type { Project, DiscoveredProject, DiscoveredProjectsResponse, ProjectLocation, CanonicalProject } from "./types/project";
 export type { WatcherEvent, WatcherCommand } from "./types/ipc";
@@ -18,6 +19,7 @@ export type {
   Account,
   CredentialFile,
   UsageSnapshot,
+  WireCredentialRow,
 } from "./types/account";
 export {
   credentialsActiveResponseSchema,

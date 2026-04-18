@@ -146,6 +146,9 @@ importers:
       '@bufbuild/protobuf':
         specifier: ^2.11.0
         version: 2.11.0
+      '@nexus/db':
+        specifier: workspace:*
+        version: link:../db
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
