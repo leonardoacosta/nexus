@@ -6,7 +6,7 @@
  * history, type overrides, and per-project notification rules.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type {
   SocketCommand,
   SocketResponse,

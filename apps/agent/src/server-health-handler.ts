@@ -9,7 +9,7 @@
 
 import os from "node:os";
 import type { Db } from "@nexus/db";
-import { getAgentId, logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core/node";
 import type { HealthMetrics } from "@nexus/core";
 import { insertHealthSnapshot } from "./db/health";
 import { withCors } from "./server-origin";

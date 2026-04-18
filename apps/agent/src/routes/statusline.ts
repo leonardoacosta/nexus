@@ -5,7 +5,7 @@
  */
 
 import type { Db } from "@nexus/db";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import os from "node:os";
 import { queryActiveSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";

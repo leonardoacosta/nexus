@@ -11,7 +11,7 @@
  */
 
 import { EventEmitter } from "node:events";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:lifecycle-bus");
 

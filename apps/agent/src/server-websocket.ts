@@ -10,7 +10,7 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { timingSafeEqual } from "node:crypto";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";

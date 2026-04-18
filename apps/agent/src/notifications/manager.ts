@@ -1,5 +1,5 @@
 import type { Db } from "@nexus/db";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import {
   insertNotification,
   queryNotificationsByStatus,

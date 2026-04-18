@@ -17,7 +17,7 @@ import { existsSync, readFileSync, watch as fsWatch, type FSWatcher } from "node
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { sendTtsNotification } from "../notifications/channels/tts";
 import { lifecycleBus } from "./lifecycle-bus";
 import { execText } from "../utils/exec";

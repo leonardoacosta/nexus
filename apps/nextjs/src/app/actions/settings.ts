@@ -1,6 +1,6 @@
 "use server";
 
-import type { AgentConfig } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
 import { eq, agents as agentsTable, healthSnapshots, sql } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
 import { getDb } from "@/lib/db";

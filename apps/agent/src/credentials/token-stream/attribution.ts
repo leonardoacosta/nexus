@@ -14,7 +14,7 @@
 
 import type { Db } from "@nexus/db";
 import { sessions, credentials, eq } from "@nexus/db";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:token-stream:attribution");
 

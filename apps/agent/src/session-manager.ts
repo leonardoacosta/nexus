@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import type { Session, WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { loadActiveSessions, upsertSession } from "./db/sessions";

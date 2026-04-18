@@ -11,7 +11,7 @@
  * spawn primitive changed.
  */
 
-import { safeSpawn, type SafeSpawnHandle } from "@nexus/core";
+import { safeSpawn, type SafeSpawnHandle } from "@nexus/core/node";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
-import { getAgentId } from "@nexus/core";
+import { getAgentId } from "@nexus/core/node";
 import { eq } from "drizzle-orm";
 
 /** GET /agent — return the agent row for this machine, 404 if not registered. */

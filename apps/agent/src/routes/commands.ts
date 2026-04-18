@@ -5,7 +5,7 @@
  * service for in-memory command lookup and filesystem writes for updates.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { CommandRegistry } from "../services/command-registry";
 
 const log = createLogger("agent:routes:commands");

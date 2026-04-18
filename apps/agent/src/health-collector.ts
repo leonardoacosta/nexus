@@ -1,5 +1,5 @@
 import type { HealthMetrics, ProcessInfo } from "@nexus/core";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import si from "systeminformation";
 import os from "node:os";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";

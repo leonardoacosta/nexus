@@ -12,7 +12,7 @@
  */
 
 import type { WatcherEvent } from "@nexus/core";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { detectProject, resolveSessionId } from "./detect";
 import { writeEvent } from "./event-writer";
 

@@ -2,7 +2,8 @@
  * Shared test helpers for agent-client test files.
  */
 
-import type { AgentConfig, Session } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
+import type { Session } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Fixtures

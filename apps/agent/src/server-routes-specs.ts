@@ -5,7 +5,7 @@
  * and /commands, /commands/:name.
  */
 
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import {
   handleGetSpecsAll,
   handleListSpecs,

@@ -1,7 +1,7 @@
 import type { Db } from "@nexus/db";
 import { healthSnapshots, sessionEvents, credentialEvents } from "@nexus/db";
 import { lt } from "drizzle-orm";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { safeFireAndForget } from "../utils/safe-fire-and-forget";
 
 const HEALTH_RETENTION_DAYS = Number(process.env.HEALTH_RETENTION_DAYS ?? "30");

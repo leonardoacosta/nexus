@@ -1,4 +1,4 @@
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 
 /**
  * Wrap a fire-and-forget promise so that rejections are logged instead of

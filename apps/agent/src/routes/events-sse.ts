@@ -16,7 +16,7 @@
 import type { Db } from "@nexus/db";
 import { sessionEvents } from "@nexus/db";
 import { desc, eq } from "drizzle-orm";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import {
   lifecycleBus,
   type LifecycleEnvelope,

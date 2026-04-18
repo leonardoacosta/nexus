@@ -8,7 +8,7 @@
  * already handled by their originating subsystems.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import {
   lifecycleBus,
   type LifecycleEnvelope,

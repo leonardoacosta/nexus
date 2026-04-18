@@ -1,4 +1,4 @@
-import { logger, safeSpawn } from "@nexus/core";
+import { logger, safeSpawn } from "@nexus/core/node";
 import type { WatcherEvent, WatcherCommand } from "@nexus/core";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";

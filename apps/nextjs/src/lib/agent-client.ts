@@ -1,6 +1,5 @@
+import type { AgentConfig, NexusConfig } from "@nexus/core/node";
 import type {
-  AgentConfig,
-  NexusConfig,
   Session,
   HealthMetrics,
   DiscoveredProject,

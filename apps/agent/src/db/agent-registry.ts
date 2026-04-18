@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
-import { expandTilde, getAgentId } from "@nexus/core";
+import { expandTilde, getAgentId } from "@nexus/core/node";
 import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";

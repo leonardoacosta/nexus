@@ -8,7 +8,7 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 
 // ── Security: attach secret ─────────────────────────────────────────────────
 const _attachSecretRaw = process.env.NEXUS_ATTACH_SECRET;

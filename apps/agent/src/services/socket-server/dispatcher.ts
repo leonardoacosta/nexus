@@ -6,7 +6,7 @@
  * notification history, and TTS channel.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { credentials, eq } from "@nexus/db";

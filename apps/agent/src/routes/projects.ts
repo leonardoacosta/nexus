@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import type { Project } from "@nexus/core";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";

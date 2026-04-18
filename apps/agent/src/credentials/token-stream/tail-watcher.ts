@@ -8,7 +8,7 @@
  */
 
 import { createReadStream, watch, type FSWatcher } from "node:fs";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:token-stream:tail");
 

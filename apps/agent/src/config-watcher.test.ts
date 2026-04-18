@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { watchConfig } from "./config-watcher";
-import type { NexusConfig } from "@nexus/core";
+import type { NexusConfig } from "@nexus/core/node";
 
 const VALID_CONFIG = `
 self_name = "omarchy"

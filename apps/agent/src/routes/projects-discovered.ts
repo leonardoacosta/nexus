@@ -3,7 +3,7 @@ import { agents } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger, expandTilde, getAgentId, safeSpawn } from "@nexus/core";
+import { createLogger, expandTilde, getAgentId, safeSpawn } from "@nexus/core/node";
 import { queryRecentSessions } from "../db/sessions";
 import { upsertProjectLocations } from "../db/project-registry";
 import type { ProjectToUpsert } from "../db/project-registry";

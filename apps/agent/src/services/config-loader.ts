@@ -11,7 +11,7 @@
 import { readFileSync, watch, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createLogger, expandTilde } from "@nexus/core";
+import { createLogger, expandTilde } from "@nexus/core/node";
 
 const log = createLogger("agent:config-loader");
 

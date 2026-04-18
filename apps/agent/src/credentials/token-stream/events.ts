@@ -11,7 +11,7 @@ import {
   type LifecycleEventMap,
   type LifecycleEventName,
 } from "../../services/lifecycle-bus";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:token-stream:events");
 

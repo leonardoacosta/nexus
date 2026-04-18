@@ -8,7 +8,7 @@
  */
 
 import { computeTokenCost } from "../model-pricing";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:token-stream:cost");
 

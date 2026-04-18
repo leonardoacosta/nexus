@@ -11,6 +11,10 @@
     "./fetch": {
       "types": "./src/fetch.ts",
       "default": "./src/fetch.ts"
+    },
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./src/node.ts"
     }
   },
   "scripts": {

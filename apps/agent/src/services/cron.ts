@@ -16,7 +16,7 @@
 import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { execText } from "../utils/exec";
 import { getSettings } from "./config-loader";
 

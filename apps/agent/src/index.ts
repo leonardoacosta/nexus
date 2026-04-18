@@ -1,5 +1,5 @@
 import "./instrument";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { startServer, healthCollector, streamManager } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
 import { createSessionManager } from "./session-manager";

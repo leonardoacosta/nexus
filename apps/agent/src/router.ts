@@ -8,7 +8,7 @@
  * Designed for Bun's native HTTP server (Request -> Response).
  */
 
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 
 // ---------------------------------------------------------------------------
 // Route type definition

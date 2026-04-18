@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Db } from "@nexus/db";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
 

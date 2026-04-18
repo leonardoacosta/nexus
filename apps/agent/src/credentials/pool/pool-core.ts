@@ -1,7 +1,7 @@
 import type { Db } from "@nexus/db";
 import { credentials, credentialEvents } from "@nexus/db";
 import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import {
   getCredentialById,

@@ -1,5 +1,5 @@
 import { AgentClient, TtlCache } from "./agent-client";
-import type { AgentConfig } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
 import { getDb } from "./db";
 import { agents, eq } from "@nexus/db";
 

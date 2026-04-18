@@ -9,7 +9,7 @@
 
 import type { Db } from "@nexus/db";
 import type { HealthMetrics } from "@nexus/core";
-import { getAgentId, logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core/node";
 import os from "node:os";
 import type { Route } from "../router";
 import type { ServerState } from "../server-websocket";

@@ -12,7 +12,7 @@
  * fs.watch → bus path takes <500ms.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type {
   SpecEventsFrame,
   SpecTransitionEvent,

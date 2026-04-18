@@ -17,7 +17,7 @@ import {
   inArray,
 } from "@nexus/db";
 import { ne } from "drizzle-orm";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 import { locateTranscript } from "./transcript-locator";
 import { TailWatcher, type ParsedTurn } from "./tail-watcher";

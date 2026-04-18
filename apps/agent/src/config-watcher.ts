@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { parseConfig, type NexusConfig } from "@nexus/core";
+import { parseConfig, type NexusConfig } from "@nexus/core/node";
 
 /**
  * Watch a nexus config file for changes and invoke a callback with the

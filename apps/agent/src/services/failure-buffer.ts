@@ -9,7 +9,7 @@
  * the PostgreSQL schema doesn't have a failures table.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:services:failure-buffer");
 

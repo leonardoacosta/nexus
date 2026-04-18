@@ -1,6 +1,6 @@
 import { createDb } from "@nexus/db";
 import type { Db } from "@nexus/db";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 
 /**
  * Open the Nexus database connection via Drizzle + postgres.js.

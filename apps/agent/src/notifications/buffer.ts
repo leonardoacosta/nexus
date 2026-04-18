@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import type { Db } from "@nexus/db";
 import { notifications } from "@nexus/db";
 import type { NotificationStatus } from "@nexus/core";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { eq, asc } from "drizzle-orm";
 
 const log = createLogger("agent:notifications:buffer");

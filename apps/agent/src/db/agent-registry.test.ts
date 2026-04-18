@@ -1,6 +1,6 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
 import os from "node:os";
-import { resetAgentIdCache } from "@nexus/core";
+import { resetAgentIdCache } from "@nexus/core/node";
 import { upsertSelfInRegistry } from "./agent-registry";
 
 describe("upsertSelfInRegistry", () => {

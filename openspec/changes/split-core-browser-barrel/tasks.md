@@ -8,10 +8,10 @@
 
 ## API Batch
 
-- [ ] [1.1] [P-1] Add `./node` subpath export to packages/core/package.json [owner:api-engineer] [beads:nx-uk65]
-- [ ] [1.2] [P-1] Move safeSpawn/expandTilde/parseConfig/logger exports from index.ts to new packages/core/src/node.ts [owner:api-engineer] [beads:nx-ft36]
-- [ ] [1.3] [P-2] Update all apps/agent imports from `@nexus/core` to `@nexus/core/node` for moved symbols [owner:api-engineer] [beads:nx-6vsz]
-- [ ] [1.4] [P-2] Add ESLint guard: browser barrel cannot import from packages/core/src/node.ts [owner:api-engineer] [beads:nx-2gu3]
+- [x] [1.1] [P-1] Add `./node` subpath export to packages/core/package.json [owner:api-engineer] [beads:nx-uk65]
+- [x] [1.2] [P-1] Move safeSpawn/expandTilde/parseConfig/logger exports from index.ts to new packages/core/src/node.ts [owner:api-engineer] [beads:nx-ft36]
+- [x] [1.3] [P-2] Update all apps/agent imports from `@nexus/core` to `@nexus/core/node` for moved symbols [owner:api-engineer] [beads:nx-6vsz]
+- [x] [1.4] [P-2] Add ESLint guard: browser barrel cannot import from packages/core/src/node.ts [owner:api-engineer] [beads:nx-2gu3]
 
 ## UI Batch
 

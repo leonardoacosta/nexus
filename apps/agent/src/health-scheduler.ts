@@ -1,7 +1,7 @@
 import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
-import { getAgentId, logger } from "@nexus/core";
+import { getAgentId, logger } from "@nexus/core/node";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds

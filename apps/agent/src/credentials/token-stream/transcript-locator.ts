@@ -13,7 +13,7 @@
 import { existsSync, watch, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:token-stream:locator");
 

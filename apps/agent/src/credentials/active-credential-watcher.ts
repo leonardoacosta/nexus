@@ -23,7 +23,7 @@
 import { watch, readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import {
   computeCredentialFingerprint,
   CredentialParseError,

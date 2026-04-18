@@ -14,7 +14,7 @@
  * second lookup.
  */
 
-import type { AgentConfig } from "@nexus/core";
+import type { AgentConfig } from "@nexus/core/node";
 import { getAgentConfigs } from "./get-client";
 
 /**

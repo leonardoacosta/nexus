@@ -8,7 +8,7 @@
  * is defined by `./index.ts`.
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type { CredentialPool } from "../../credentials/pool";
 
 // ── Audit logger ────────────────────────────────────────────────────────────

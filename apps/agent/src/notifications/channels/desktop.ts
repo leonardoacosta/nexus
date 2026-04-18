@@ -1,4 +1,4 @@
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 

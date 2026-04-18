@@ -6,7 +6,7 @@
  * Each handler is pre-gated by `CREDENTIAL_ID_RE` when the id is path-bound.
  */
 
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import {
   handleAddCredential,
   handleLeaseCredential,

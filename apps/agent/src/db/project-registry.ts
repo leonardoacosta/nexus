@@ -1,7 +1,7 @@
 import type { Db } from "@nexus/db";
 import { projects, projectLocations } from "@nexus/db";
 import { eq, and, notInArray, inArray, or } from "drizzle-orm";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:db:project-registry");
 

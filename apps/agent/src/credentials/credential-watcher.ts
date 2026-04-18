@@ -1,6 +1,6 @@
 import { watch, readFile, readdir } from "node:fs/promises";
 import { join, basename } from "node:path";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import type { CredentialPool } from "./pool";
 import {
   computeCredentialFingerprint,

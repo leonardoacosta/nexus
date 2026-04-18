@@ -16,7 +16,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, basename, dirname, extname } from "node:path";
 import { homedir } from "node:os";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:services:command-registry");
 

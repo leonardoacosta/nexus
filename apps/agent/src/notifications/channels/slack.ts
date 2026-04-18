@@ -1,4 +1,4 @@
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";

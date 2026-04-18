@@ -7,7 +7,7 @@
  */
 
 import { existsSync, unlinkSync } from "node:fs";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type { Socket } from "bun";
 import type { SocketCommand, SocketResponse } from "../../types/socket-events";
 import { isSocketEvent, isSocketCommand } from "../../types/socket-events";

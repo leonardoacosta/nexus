@@ -1,5 +1,5 @@
 import type { NotificationChannel, NotificationRule } from "@nexus/core";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import type { NotificationRow } from "./buffer";
 import { sendDesktopNotification } from "./channels/desktop";
 import { sendTtsNotification } from "./channels/tts";

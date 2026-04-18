@@ -22,4 +22,24 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
+  // Guard: the browser-safe barrel (packages/core/src/index.ts) must never
+  // import from the node-only subpath. This prevents regressions where a
+  // contributor re-adds a node-only export to the default barrel.
+  {
+    files: ["packages/core/src/index.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["./node", "./node.ts"],
+              message:
+                "The browser-safe barrel (index.ts) must not import from the node-only subpath (node.ts). Add node-only exports to @nexus/core/node instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

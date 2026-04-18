@@ -6,7 +6,7 @@
  * then shells out to the appropriate tool (bd, git, openspec).
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pollProjectSpecs } from "../services/spec-watcher";

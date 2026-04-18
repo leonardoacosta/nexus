@@ -5,7 +5,7 @@
  */
 
 import type { Db } from "@nexus/db";
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:routes:hooks");
 

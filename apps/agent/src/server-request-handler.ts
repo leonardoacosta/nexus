@@ -15,7 +15,7 @@
  */
 
 import type { Db } from "@nexus/db";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
 import { handleGetProjects } from "./routes/projects";
 import { handleGetAgentSelf } from "./routes/agent-self";

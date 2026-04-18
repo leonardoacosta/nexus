@@ -10,7 +10,7 @@
  *   2. Direct `openspec` subprocess calls (for per-project spec operations)
  */
 
-import { createLogger } from "@nexus/core";
+import { createLogger } from "@nexus/core/node";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {

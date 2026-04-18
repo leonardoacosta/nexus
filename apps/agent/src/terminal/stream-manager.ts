@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { logger } from "@nexus/core";
+import { logger } from "@nexus/core/node";
 import type { PtySource } from "./pty-source";
 
 export interface WsData {
