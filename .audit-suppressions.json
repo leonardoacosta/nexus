@@ -127,6 +127,28 @@
         "apps/nextjs/src/lib/db.ts"
       ],
       "reason": "Sole sanctioned dashboard exception: this IS the DB factory. ESLint guard already exempts this file from the @nexus/db named-import ban (see eslint.config.mjs paths config). The two `@nexus/db/client` imports here are how `getDb()` and `getReadOnlyDb()` get their underlying connection — moving them into a 'public' barrel would defeat the boundary."
+    },
+    {
+      "id": "D6",
+      "paths": [
+        "apps/nextjs/src/components/posthog-provider.tsx"
+      ],
+      "reason": "NEXT_PUBLIC_POSTHOG_KEY is INTENTIONALLY browser-exposed — this is PostHog's public write-key pattern (https://posthog.com/docs/libraries/next-js). The key is a project identifier for ingestion, not a secret. Analytics endpoints authenticate by key scope, not by confidentiality. PostHog's admin/personal API keys are different and NEVER use the NEXT_PUBLIC_ prefix."
+    },
+    {
+      "id": "G10",
+      "paths": [
+        "apps/nextjs/src/app/api/health/route.ts",
+        "apps/agent/src/instrument.ts"
+      ],
+      "reason": "npm_package_version is an intentional fallback for NEXUS_VERSION (per 2026-04-18 add-dashboard-observability-baseline spec). Pattern: `process.env.NEXUS_VERSION ?? process.env.npm_package_version` gives ops control via SCREAMING_SNAKE_CASE env var while preserving pnpm/npm-auto-injected version in dev. Rule flags the presence of npm_package_version without recognizing the SCREAMING_SNAKE_CASE alternative is tried first."
+    },
+    {
+      "id": "F8",
+      "paths": [
+        "apps/nextjs"
+      ],
+      "reason": "apps/nextjs/src/app/api/health/route.ts EXISTS (shipped 2026-04-18 in add-dashboard-observability-baseline spec). Scanner's route detection (likely grep for api/health or api/healthcheck) misses Next.js 15 App Router's route.ts convention. Verified live via build + 11 unit tests in route.test.ts."
     }
   ],
   "autoSkipTestFiles": [
@@ -140,9 +162,11 @@
     "B4",
     "D4",
     "D5",
+    "D6",
     "E5",
     "E6",
     "E7",
-    "F2"
+    "F2",
+    "G10"
   ]
 }
