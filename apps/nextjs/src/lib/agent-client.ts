@@ -348,6 +348,79 @@ export class AgentClient {
     }
   }
 
+  async updateProject(
+    data: { id: string; tags?: string[]; description?: string },
+  ): Promise<{ updated: boolean }> {
+    // PATCH to the first reachable agent — the projects table is shared across
+    // all agents via the same Postgres instance, so any agent can apply the write.
+    const agent = this.agents[0];
+    if (!agent) throw new Error("No agents configured");
+
+    const res = await fetchWithTimeout(
+      `${agentBaseUrl(agent)}/projects/${encodeURIComponent(data.id)}`,
+      {
+        method: "PATCH",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          "Content-Type": "application/json",
+          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+        },
+        body: JSON.stringify({ tags: data.tags, description: data.description }),
+      },
+    );
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    this.markOnline(agent.name);
+    return (await res.json()) as { updated: boolean };
+  }
+
+  async saveAgent(
+    agent: { name: string; host: string; port: number },
+  ): Promise<{ saved: boolean }> {
+    const target = this.agents[0];
+    if (!target) throw new Error("No agents configured");
+
+    const res = await fetchWithTimeout(`${agentBaseUrl(target)}/agents`, {
+      method: "POST",
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: {
+        "Content-Type": "application/json",
+        "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+      },
+      body: JSON.stringify(agent),
+    });
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    this.markOnline(target.name);
+    return (await res.json()) as { saved: boolean };
+  }
+
+  async deleteAgent(agentId: string): Promise<{ deleted: boolean }> {
+    const target = this.agents[0];
+    if (!target) throw new Error("No agents configured");
+
+    const res = await fetchWithTimeout(
+      `${agentBaseUrl(target)}/agents/${encodeURIComponent(agentId)}`,
+      {
+        method: "DELETE",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
+        },
+      },
+    );
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    this.markOnline(target.name);
+    return (await res.json()) as { deleted: boolean };
+  }
+
   async updateCommand(
     agentName: string,
     name: string,

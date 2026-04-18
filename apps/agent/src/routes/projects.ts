@@ -1,6 +1,7 @@
 import type { Db } from "@nexus/db";
 import type { Project } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
+import { projects as projectsTable, eq } from "@nexus/db";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
@@ -182,4 +183,89 @@ export async function handleGetProjects(db: Db, url?: URL): Promise<Response> {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// ── PATCH /projects/:id ────────────────────────────────────────────────────
+
+/**
+ * PATCH /projects/:id — update mutable metadata on a project.
+ *
+ * Allowed fields: `tags` (string[]), `description` (string).
+ * Tags are normalized to trimmed lowercase before writing.
+ *
+ * Returns 200 `{ updated: true }` on success, 400 on bad input, 404 if not found.
+ */
+export async function handleUpdateProject(
+  db: Db,
+  id: string,
+  request: Request,
+): Promise<Response> {
+  // Validate UUID format — reject obviously bad IDs before any DB work.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(id)) {
+    return new Response(
+      JSON.stringify({ error: "invalid project id format" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  let body: { tags?: unknown; description?: unknown };
+  try {
+    body = (await request.json()) as { tags?: unknown; description?: unknown };
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "invalid JSON body" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  const patch: { tags?: string[]; description?: string } = {};
+
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
+      return new Response(
+        JSON.stringify({ error: "tags must be an array of strings" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    patch.tags = (body.tags as string[]).map((t) => t.trim().toLowerCase());
+  }
+
+  if (body.description !== undefined) {
+    if (typeof body.description !== "string") {
+      return new Response(
+        JSON.stringify({ error: "description must be a string" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    patch.description = body.description;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return new Response(
+      JSON.stringify({ error: "no updatable fields provided" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Verify project exists before updating.
+  const existing = await db
+    .select({ id: projectsTable.id })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, id))
+    .limit(1);
+
+  if (existing.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "project not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  await db.update(projectsTable).set(patch).where(eq(projectsTable.id, id));
+
+  return new Response(
+    JSON.stringify({ updated: true }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
 }

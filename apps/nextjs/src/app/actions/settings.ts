@@ -1,7 +1,7 @@
 "use server";
 
 import type { AgentConfig } from "@nexus/core/node";
-import { eq, agents as agentsTable, healthSnapshots, sql } from "@nexus/db";
+import { agents as agentsTable, healthSnapshots, sql, eq } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
 import { getDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
@@ -87,36 +87,21 @@ export async function fetchAgentConfigs(): Promise<
 }
 
 /**
- * Persist an agent entry to the database.
- * Upserts on add; deletes on remove.
+ * Persist an agent entry via the agent HTTP API.
+ * Upserts on add (POST /agents); deletes on remove (DELETE /agents/:id).
+ *
+ * Delegates to the agent so that apps/nextjs never writes directly to the DB.
  */
 export async function saveAgentConfig(
   action: "add" | "remove",
   agent: AgentConfig,
 ): Promise<void> {
-  const db = getDb();
+  const client = await getClient();
 
   if (action === "add") {
-    await db
-      .insert(agentsTable)
-      .values({
-        id: agent.name,
-        name: agent.name,
-        host: agent.host,
-        port: agent.port,
-        enabled: true,
-      })
-      .onConflictDoUpdate({
-        target: agentsTable.id,
-        set: {
-          name: agent.name,
-          host: agent.host,
-          port: agent.port,
-          enabled: true,
-        },
-      });
+    await client.saveAgent({ name: agent.name, host: agent.host, port: agent.port ?? 7400 });
   } else {
-    await db.delete(agentsTable).where(eq(agentsTable.id, agent.name));
+    await client.deleteAgent(agent.name);
   }
 }
 

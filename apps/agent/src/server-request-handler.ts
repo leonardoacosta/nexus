@@ -17,7 +17,8 @@
 import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
 import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
-import { handleGetProjects } from "./routes/projects";
+import { handleGetProjects, handleUpdateProject } from "./routes/projects";
+import { handleSaveAgent, handleDeleteAgent } from "./routes/settings";
 import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
@@ -157,6 +158,32 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/agent/self" && request.method === "GET") {
         return handleGetAgentSelf(db).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/agent/self", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // PATCH /projects/:id — update mutable project metadata (tags, description)
+      const projectUpdateMatch = url.pathname.match(/^\/projects\/([^/]+)$/);
+      if (projectUpdateMatch && request.method === "PATCH") {
+        return handleUpdateProject(db, projectUpdateMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/projects/:id", method: "PATCH", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // POST /agents — upsert agent config (add or update)
+      if (url.pathname === "/agents" && request.method === "POST") {
+        return handleSaveAgent(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/agents", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // DELETE /agents/:id — remove agent config
+      const agentDeleteMatch = url.pathname.match(/^\/agents\/([^/]+)$/);
+      if (agentDeleteMatch && request.method === "DELETE") {
+        return handleDeleteAgent(db, agentDeleteMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/agents/:id", method: "DELETE", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

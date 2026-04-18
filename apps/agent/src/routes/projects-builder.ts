@@ -9,7 +9,7 @@
 
 import type { Db } from "@nexus/db";
 import type { Route } from "../router";
-import { handleGetProjects } from "./projects";
+import { handleGetProjects, handleUpdateProject } from "./projects";
 import { handleGetAgentSelf } from "./agent-self";
 import { handleGetDiscoveredProjects } from "./projects-discovered";
 
@@ -39,6 +39,14 @@ export function buildProjectsRoutes(db?: Db): Route[] {
       requiresDb: true,
       handler(req) {
         return handleGetDiscoveredProjects(dbRef, new URL(req.url));
+      },
+    },
+    {
+      method: "PATCH",
+      path: "/projects/:id",
+      requiresDb: true,
+      handler(req, params) {
+        return handleUpdateProject(dbRef, params.id!, req);
       },
     },
   ];

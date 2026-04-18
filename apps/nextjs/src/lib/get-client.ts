@@ -1,6 +1,6 @@
 import { AgentClient, TtlCache } from "./agent-client";
 import type { AgentConfig } from "@nexus/core/node";
-import { getDb } from "./db";
+import { getReadOnlyDb } from "./db";
 import { agents, eq } from "@nexus/db";
 
 /**
@@ -12,11 +12,11 @@ import { agents, eq } from "@nexus/db";
 const sharedCache = new TtlCache();
 
 /**
- * Read enabled agents from the database.
+ * Read enabled agents from the database using the narrowed ReadOnlyDb view.
  * Returns localhost:7400 fallback when the table is empty.
  */
 export async function getAgentConfigs(): Promise<AgentConfig[]> {
-  const db = getDb();
+  const db = getReadOnlyDb();
   const rows = await db.select().from(agents).where(eq(agents.enabled, true));
 
   if (rows.length === 0) {

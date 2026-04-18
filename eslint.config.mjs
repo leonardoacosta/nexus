@@ -42,4 +42,54 @@ export default tseslint.config(
       ],
     },
   },
+  // Guard: apps/nextjs is a read-only DB consumer. All writes must route through
+  // the agent HTTP API. Banning the full `Db` type and `@nexus/db/client` write
+  // surface at the import level gives a compile-time (and lint-time) signal when
+  // someone accidentally adds a direct write path.
+  //
+  // Allowed: `@nexus/db` (for schema tables, helpers like `eq`/`sql`),
+  //          `@nexus/db/readonly` (ReadOnlyDb type + asReadOnly helper),
+  //          `@nexus/db/schema` (schema-only import).
+  // Blocked: `Db` named import from `@nexus/db` or `@nexus/db/client`.
+  // Guard: apps/nextjs is a read-only DB consumer outside of lib/db.ts.
+  // All writes must route through the agent HTTP API.
+  //
+  // lib/db.ts is the single DB factory and may import createDb from @nexus/db/client.
+  // All other nextjs files must use ReadOnlyDb from @nexus/db/readonly.
+  //
+  // The rule blocks:
+  //   - The full `Db` type from `@nexus/db` or `@nexus/db/client` (outside lib/db.ts)
+  //   - Direct `@nexus/db/client` imports outside the DB factory
+  {
+    files: [
+      "apps/nextjs/**/*.ts",
+      "apps/nextjs/**/*.tsx",
+    ],
+    ignores: [
+      // lib/db.ts is the DB factory — it legitimately constructs the Db instance.
+      "apps/nextjs/src/lib/db.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@nexus/db/client",
+              message:
+                "apps/nextjs must not import from @nexus/db/client directly (outside lib/db.ts). Use @nexus/db/readonly for typed read access and route all writes through the agent HTTP API.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@nexus/db"],
+              importNames: ["Db"],
+              message:
+                "apps/nextjs must not use the full Db type (outside lib/db.ts). Import ReadOnlyDb from @nexus/db/readonly instead. All writes must go through the agent HTTP API.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

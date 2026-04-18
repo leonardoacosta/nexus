@@ -4,6 +4,7 @@ import type { CanonicalProject } from "@nexus/core";
 import { getDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
 import { PROJECT_SELECT_FIELDS, buildCanonicalProjects } from "@/lib/projects";
+import { getClient } from "@/lib/get-client";
 
 export interface TagGroupSummary {
   tag: string;
@@ -84,13 +85,14 @@ export async function fetchProject(name: string): Promise<CanonicalProject | nul
 /**
  * Update mutable metadata fields on a project.
  * Tags are normalized to trimmed lowercase before writing.
+ *
+ * Delegates to the agent HTTP API (PATCH /projects/:id) so that
+ * apps/nextjs never writes directly to the DB.
  */
 export async function updateProject(
   id: string,
   data: { tags?: string[]; description?: string },
 ): Promise<void> {
-  const db = getDb();
-
   const patch: { tags?: string[]; description?: string } = {};
   if (data.tags !== undefined) {
     patch.tags = data.tags.map((t) => t.trim().toLowerCase());
@@ -101,5 +103,6 @@ export async function updateProject(
 
   if (Object.keys(patch).length === 0) return;
 
-  await db.update(projects).set(patch).where(eq(projects.id, id));
+  const client = await getClient();
+  await client.updateProject({ id, ...patch });
 }
