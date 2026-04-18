@@ -1,7 +1,7 @@
 "use server";
 
 import type { HealthMetrics } from "@nexus/core";
-import { healthSnapshots, agents, eq, and, desc, sql } from "@nexus/db";
+import { healthSnapshots, agents, eq, and, desc, sql, isNull } from "@nexus/db";
 import { getReadOnlyDb } from "@/lib/db";
 import type { WithAgent, AgentStatus } from "@/lib/agent-client";
 
@@ -59,7 +59,7 @@ export async function fetchHealth(): Promise<HealthResult> {
         lastSeen: agents.lastSeen,
       })
       .from(agents)
-      .where(eq(agents.enabled, true)),
+      .where(and(eq(agents.enabled, true), isNull(agents.deletedAt))),
   ]);
 
   const now = Date.now();

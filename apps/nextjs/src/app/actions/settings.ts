@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { AgentConfig } from "@nexus/core/node";
-import { agents as agentsTable, healthSnapshots, sql, eq } from "@nexus/db";
+import { agents as agentsTable, healthSnapshots, sql, and, eq, isNull } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
 import { getReadOnlyDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
@@ -28,7 +28,7 @@ export async function fetchAgentStatuses(): Promise<SettingsResult> {
       lastSeen: agentsTable.lastSeen,
     })
     .from(agentsTable)
-    .where(eq(agentsTable.enabled, true));
+    .where(and(eq(agentsTable.enabled, true), isNull(agentsTable.deletedAt)));
 
   // Get the latest snapshot timestamp per agent in a single query
   const latestSnapshots = await db

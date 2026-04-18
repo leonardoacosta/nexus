@@ -95,7 +95,7 @@ export async function handleDeleteAgent(db: Db, id: string): Promise<Response> {
     );
   }
 
-  await db.delete(agentsTable).where(eq(agentsTable.id, id));
+  await db.update(agentsTable).set({ deletedAt: new Date() }).where(eq(agentsTable.id, id));
 
   return new Response(
     JSON.stringify({ deleted: true }),

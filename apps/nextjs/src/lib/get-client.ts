@@ -1,7 +1,7 @@
 import { AgentClient, TtlCache } from "./agent-client";
 import type { AgentConfig } from "@nexus/core/node";
 import { getReadOnlyDb } from "./db";
-import { agents, eq } from "@nexus/db";
+import { agents, and, eq, isNull } from "@nexus/db";
 
 /**
  * Module-level cache that persists across `getClient()` calls within the same
@@ -17,7 +17,7 @@ const sharedCache = new TtlCache();
  */
 export async function getAgentConfigs(): Promise<AgentConfig[]> {
   const db = getReadOnlyDb();
-  const rows = await db.select().from(agents).where(eq(agents.enabled, true));
+  const rows = await db.select().from(agents).where(and(eq(agents.enabled, true), isNull(agents.deletedAt)));
 
   if (rows.length === 0) {
     return [{ name: "localhost", host: "127.0.0.1", port: 7400 }];

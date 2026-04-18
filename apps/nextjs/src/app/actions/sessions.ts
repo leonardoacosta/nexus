@@ -2,7 +2,7 @@
 
 import type { Session } from "@nexus/core";
 import { narrowSessionStatus, narrowSessionType } from "@nexus/core";
-import { sessions as sessionsTable, projects, agents, healthSnapshots, eq, desc, sql } from "@nexus/db";
+import { sessions as sessionsTable, projects, agents, healthSnapshots, and, eq, desc, sql, isNull } from "@nexus/db";
 import { getReadOnlyDb } from "@/lib/db";
 import { getClient } from "@/lib/get-client";
 import type { WithAgent } from "@/lib/agent-client";
@@ -61,7 +61,7 @@ export async function fetchSessions(): Promise<SessionsResult> {
     db
       .select({ id: agents.id, lastSeen: agents.lastSeen })
       .from(agents)
-      .where(eq(agents.enabled, true)),
+      .where(and(eq(agents.enabled, true), isNull(agents.deletedAt))),
     db
       .select({
         agentId: healthSnapshots.agentId,
