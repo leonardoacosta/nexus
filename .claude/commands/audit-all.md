@@ -177,5 +177,5 @@ After all 7 agents complete, synthesize into a unified report:
 - Total issues: N (P1: N, P2: N, P3: N, GCF: N)
 - Regressions caught: N
 - Highest risk domain: [one sentence]
-**ready for /apply-waves**
+**ready for /apply:all**
 ```

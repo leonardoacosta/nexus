@@ -132,5 +132,5 @@ echo '{"phase":"health-monitoring","domain":"rust","severity":"P2","description"
 
 ## Summary
 - Total issues: N (P1: N, P2: N, P3: N, GCF: N)
-**ready for /apply-waves**
+**ready for /apply:all**
 ```

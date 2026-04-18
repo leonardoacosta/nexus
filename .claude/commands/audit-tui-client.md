@@ -128,5 +128,5 @@ echo '{"phase":"tui-client","domain":"rust","severity":"P2","description":"[desc
 
 ## Summary
 - Total issues: N (P1: N, P2: N, P3: N, GCF: N)
-**ready for /apply-waves**
+**ready for /apply:all**
 ```

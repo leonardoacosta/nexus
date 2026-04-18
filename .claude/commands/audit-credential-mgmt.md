@@ -141,5 +141,5 @@ echo '{"phase":"credential-mgmt","domain":"security","severity":"P1","descriptio
 
 ## Summary
 - Total issues: N (P1: N, P2: N, P3: N, GCF: N)
-**ready for /apply-waves**
+**ready for /apply:all**
 ```
