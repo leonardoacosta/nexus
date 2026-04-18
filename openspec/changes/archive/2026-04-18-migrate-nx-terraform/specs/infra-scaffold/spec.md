@@ -48,7 +48,7 @@ The `infra/modules/tailscale/` module SHALL declare a Tailscale ACL entry granti
 - **WHEN** `pnpm tf output` is called
 - **THEN** sensitive values are masked with `(sensitive value)` by Terraform
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: root package.json exposes `pnpm tf *` interface
 Root `package.json` SHALL include a `"tf"` script pointing to `./infra/scripts/tf.sh` so engineers can run all Terraform operations from any directory in the monorepo without cd-ing into `infra/`.
