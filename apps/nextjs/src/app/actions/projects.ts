@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import type { CanonicalProject } from "@nexus/core";
 import { getDb } from "@/lib/db";
 import { projects, projectLocations, agents, eq } from "@nexus/db";
@@ -88,21 +89,30 @@ export async function fetchProject(name: string): Promise<CanonicalProject | nul
  *
  * Delegates to the agent HTTP API (PATCH /projects/:id) so that
  * apps/nextjs never writes directly to the DB.
+ *
+ * `name` is required for RSC cache invalidation — it maps to the
+ * `/projects/[name]` route segment. Pass `project.name` from the caller.
  */
 export async function updateProject(
   id: string,
-  data: { tags?: string[]; description?: string },
+  data: { tags?: string[]; description?: string; name?: string },
 ): Promise<void> {
+  const { name, ...rest } = data;
   const patch: { tags?: string[]; description?: string } = {};
-  if (data.tags !== undefined) {
-    patch.tags = data.tags.map((t) => t.trim().toLowerCase());
+  if (rest.tags !== undefined) {
+    patch.tags = rest.tags.map((t) => t.trim().toLowerCase());
   }
-  if (data.description !== undefined) {
-    patch.description = data.description;
+  if (rest.description !== undefined) {
+    patch.description = rest.description;
   }
 
   if (Object.keys(patch).length === 0) return;
 
   const client = await getClient();
   await client.updateProject({ id, ...patch });
+
+  revalidatePath("/projects");
+  if (name) {
+    revalidatePath(`/projects/${encodeURIComponent(name)}`);
+  }
 }

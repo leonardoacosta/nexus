@@ -63,7 +63,7 @@ export function ProjectSettingsPanel({ project }: ProjectSettingsPanelProps) {
 
     startTransition(async () => {
       try {
-        await updateProject(project.id, { tags, description });
+        await updateProject(project.id, { tags, description, name: project.name });
 
         setSaveStatus("success");
         if (clearTimerRef.current) clearTimeout(clearTimerRef.current);

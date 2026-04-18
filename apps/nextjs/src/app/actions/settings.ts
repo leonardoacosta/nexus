@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import type { AgentConfig } from "@nexus/core/node";
 import { agents as agentsTable, healthSnapshots, sql, eq } from "@nexus/db";
 import type { AgentStatus } from "@/lib/agent-client";
@@ -100,8 +101,10 @@ export async function saveAgentConfig(
 
   if (action === "add") {
     await client.saveAgent({ name: agent.name, host: agent.host, port: agent.port ?? 7400 });
+    revalidatePath("/settings");
   } else {
     await client.deleteAgent(agent.name);
+    revalidatePath("/settings");
   }
 }
 
