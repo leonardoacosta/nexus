@@ -20,4 +20,4 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add unit test in packages/core that imports the browser barrel and asserts no node:os/node:path/node:fs in resolved deps [owner:e2e-engineer] [beads:nx-raug]
+- [x] [3.1] Add unit test in packages/core that imports the browser barrel and asserts no node:os/node:path/node:fs in resolved deps [owner:e2e-engineer] [beads:nx-raug]
