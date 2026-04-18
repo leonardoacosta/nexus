@@ -4,7 +4,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Audit packages/db Session/CredentialRow $inferSelect shapes; document delta vs domain types in design notes [owner:db-engineer] [beads:nx-n0l1]
+- [x] [1.1] [P-1] Audit packages/db Session/CredentialRow $inferSelect shapes; document delta vs domain types in design notes [owner:db-engineer] [beads:nx-n0l1]
 
 ## API Batch
 
