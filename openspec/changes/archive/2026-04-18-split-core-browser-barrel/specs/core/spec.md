@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Package exports
 The `@nexus/core` package SHALL expose two distinct entry points: a browser-safe default barrel and a node-only `./node` subpath. The default entry (`@nexus/core`) SHALL only export symbols whose transitive imports are safe in a browser environment — types, zod schemas, and string constants. The `@nexus/core/node` subpath SHALL export node-runtime helpers (`safeSpawn`, `expandTilde`, `parseConfig`, `logger`, `createLogger`, and the config/spawn schemas and error types). The pre-existing `@nexus/core/fetch` subpath SHALL remain unchanged.

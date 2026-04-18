@@ -1,6 +1,6 @@
 # dashboard-data-paths Spec Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Single database writer
 

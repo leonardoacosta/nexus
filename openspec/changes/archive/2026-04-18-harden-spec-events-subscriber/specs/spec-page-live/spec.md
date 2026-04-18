@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Safe content rendering
 The spec events subscriber component MUST NOT render arbitrary HTML via `dangerouslySetInnerHTML`. Markdown or HTML content from spec events MUST be sanitized through an allowlist before rendering.

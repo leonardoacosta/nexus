@@ -1,79 +1,130 @@
 {
-  "generated_at": "2026-04-17T18:34:33.674662",
-  "generated_by": "wave-state init",
-  "spec_names": [
-    "refine-credential-page-grouping",
-    "add-spec-page-live-updates"
-  ],
+  "version": 1,
+  "plan_name": "audit-2026-04-17-p1-cleanup",
+  "generated_at": "2026-04-18T02:46:30Z",
+  "generated_by": "/apply:all (orchestrator)",
   "status": "completed",
-  "current_wave": 2,
-  "current_phase": null,
-  "completed_waves": [
-    1
+  "completed_at": "2026-04-18T03:30:00Z",
+  "mode": "consolidated",
+  "pre_audit_sha": "0f7fad6e",
+  "spec_names": [
+    "split-core-browser-barrel",
+    "unify-session-credential-types",
+    "harden-spec-events-subscriber",
+    "pick-db-writer-boundary"
   ],
-  "completed_specs": [],
+  "current_wave": 3,
+  "current_phase": null,
+  "completed_waves": [1, 2],
+  "completed_specs": ["split-core-browser-barrel", "unify-session-credential-types", "harden-spec-events-subscriber"],
   "failed_specs": [],
-  "decisions": [],
+  "wave_2_commits": ["c1109b4", "5fe498d", "d3ddf8f", "d55537b"],
+  "wave_2_tag": "audit-2026-04-17-p1-cleanup-wave-2",
+  "wave_2_deploy_status": "verified (systemd nexus-agent active)",
+  "wave_2_notes": "17 tasks (1 DB, 4 API, 8 UI, 4 E2E) across 2 parallel specs. Subscriber 545→253 lines. 29 new tests pass.",
+  "wave_1_commits": ["d508eb7", "aa6b890", "3505827"],
+  "wave_1_tag": "audit-2026-04-17-p1-cleanup-wave-1",
+  "wave_1_deploy_status": "verified (systemd nexus-agent active 22:15:27 CDT)",
+  "wave_1_gate_notes": "Lint failed pre-existing (7 errors in apps/agent test files dating Apr 6-8, predate Wave 1). audit-suppressions test failed pre-existing (D5 in spec-events-subscriber.tsx — Wave 2 spec #3 will fix). Build gate PASS, browser-barrel.test.ts PASS.",
+  "started_at": "2026-04-18T02:46:30Z",
+  "completed_at": null,
+  "decisions": [
+    {
+      "timestamp": "2026-04-18T02:08:41Z",
+      "text": "Override beads epic priority from auto-recommended P0 to P2",
+      "rationale": "Audit-driven cleanup specs are key debt, not production-broken per BEADS.md priority model. P0 is reserved for active user harm.",
+      "source": "user",
+      "affected_waves": [1, 2, 3],
+      "affected_specs": [
+        "split-core-browser-barrel",
+        "unify-session-credential-types",
+        "harden-spec-events-subscriber",
+        "pick-db-writer-boundary"
+      ]
+    },
+    {
+      "timestamp": "2026-04-18T02:46:30Z",
+      "text": "Option A — full autonomous chain through 3 waves",
+      "rationale": "User explicitly chose Option A (Full chain) after being presented with A/B/C/D scope options. Acknowledges multi-hour runtime + 3 production deploys via git_hook.",
+      "source": "user",
+      "affected_waves": [1, 2, 3]
+    }
+  ],
   "waves": [
     {
       "wave": 1,
+      "rationale": "Foundation. Splits @nexus/core barrel for browser/node safety. Alone because it touches apps/nextjs/src/app/specs/spec-events-subscriber.tsx (deletes duplicates), which conflicts with wave 2 spec #3.",
       "specs": [
         {
-          "name": "refine-credential-page-grouping",
+          "name": "split-core-browser-barrel",
           "status": "queued",
+          "task_count": 7,
+          "epic": "nx-xish",
           "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
           "gates_passed": [],
           "gates_failed": [],
-          "ci": null,
           "dispatched_at": null,
-          "merged_at": null,
-          "_warning": "unexpected status 'queued' at completion"
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 2,
+      "rationale": "Parallel. No file overlap after Wave 1 cleans the subscriber duplicates. #2 owns packages/core/src/types/* and actions/*; #3 owns apps/nextjs/src/app/specs/* (refactor + AbortController + sanitize).",
+      "specs": [
+        {
+          "name": "unify-session-credential-types",
+          "status": "queued",
+          "task_count": 8,
+          "epic": "nx-23yz",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
         },
         {
-          "name": "add-spec-page-live-updates",
+          "name": "harden-spec-events-subscriber",
           "status": "queued",
+          "task_count": 9,
+          "epic": "nx-gvcj",
           "phase": null,
-          "branch": null,
-          "pr": null,
-          "pr_url": null,
-          "pr_state": null,
           "gates_passed": [],
           "gates_failed": [],
-          "ci": null,
           "dispatched_at": null,
-          "merged_at": null,
-          "_warning": "unexpected status 'queued' at completion"
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "rationale": "Alone. Touches apps/nextjs/src/app/actions/sessions.ts which conflicts with wave 2 spec #2. Largest blast radius (~70 files). Includes design.md trade-off (Option A: dashboard as pure HTTP client of agent).",
+      "specs": [
+        {
+          "name": "pick-db-writer-boundary",
+          "status": "queued",
+          "task_count": 16,
+          "epic": "nx-zbgg",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
         }
       ]
     }
   ],
-  "started_at": "2026-04-17T18:34:53.358029",
-  "completed_at": "2026-04-17T19:34:01.900741",
-  "mode": "consolidated",
   "mega_batch_state": {
+    "current_wave": 1,
     "current_phase": null,
-    "phases_completed": [
-      "api",
-      "ui",
-      "e2e"
-    ],
+    "phases_completed": [],
     "task_results": {
-      "refine-credential-page-grouping": {},
-      "add-spec-page-live-updates": {}
+      "split-core-browser-barrel": {},
+      "unify-session-credential-types": {},
+      "harden-spec-events-subscriber": {},
+      "pick-db-writer-boundary": {}
     },
-    "phase_started_at": {
-      "api": "2026-04-17T18:36:13.476083",
-      "ui": "2026-04-17T18:55:37.501140",
-      "e2e": "2026-04-17T19:05:39.054719"
-    },
-    "phase_completed_at": {
-      "api": "2026-04-17T18:55:37.455176",
-      "ui": "2026-04-17T19:05:39.011266",
-      "e2e": "2026-04-17T19:31:07.918705"
-    }
+    "phase_started_at": {},
+    "phase_completed_at": {}
   }
 }

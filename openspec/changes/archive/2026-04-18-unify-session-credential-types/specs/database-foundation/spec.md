@@ -1,6 +1,6 @@
 # database-foundation Spec Delta — unify-session-credential-types
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Type ownership
 
