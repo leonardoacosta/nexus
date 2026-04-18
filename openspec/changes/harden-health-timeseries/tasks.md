@@ -4,7 +4,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Run pnpm drizzle-kit generate in packages/db to produce migration file for health_snapshots_timestamp_idx (schema already declares the index — migration is missing) [owner:db-engineer] [beads:nx-d7eq]
+- [x] [1.1] [P-1] Run pnpm drizzle-kit generate in packages/db to produce migration file for health_snapshots_timestamp_idx (schema already declares the index — migration is missing) [owner:db-engineer] [beads:nx-d7eq]
 
 ## API Batch
 
