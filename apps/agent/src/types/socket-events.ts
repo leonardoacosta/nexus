@@ -40,7 +40,33 @@ export interface NotificationEvent {
   message: string;
   message_type?: string;
   channels?: string[];
-  /** Project code that owns this notification (e.g., "cc", "oo", "nx"). */
+  /**
+   * Originating project slug. Identifies which project emitted this notification
+   * (e.g., `"nova"`, `"nx"`, `"cc"`, `"oo"`). Used by downstream channels
+   * (tts, slack, etc.) to attribute output to the source project.
+   *
+   * @remarks
+   * MAY be omitted, `null`, or the empty string `""` — all three cases are
+   * treated equivalently as "no project context" by downstream channels
+   * (no default substitution, no `"nexus"` fallback).
+   *
+   * @example
+   * Shell sender (derives from current working directory):
+   * ```sh
+   * echo "{\"event\":\"notification\",\"message\":\"build done\",\"project\":\"$(basename \"$PWD\")\"}" \
+   *   | socat - UNIX-CONNECT:/tmp/nexus-agent.sock
+   * ```
+   *
+   * @example
+   * TypeScript sender:
+   * ```ts
+   * const evt: NotificationEvent = {
+   *   event: "notification",
+   *   message: "build done",
+   *   project: "nx",
+   * };
+   * ```
+   */
   project?: string;
   question?: string;
   session_id?: string;

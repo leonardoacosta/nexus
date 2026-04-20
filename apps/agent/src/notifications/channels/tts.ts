@@ -11,8 +11,12 @@ import type { NotificationRow } from "../buffer";
 export async function sendTtsNotification(notification: NotificationRow): Promise<boolean> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
+  const text = notification.project
+    ? `${notification.project}: ${notification.body}`
+    : notification.body;
+
   if (!apiKey) {
-    logger.info({ id: notification.id, body: notification.body }, "tts notification (stub — no ELEVENLABS_API_KEY)");
+    logger.info({ id: notification.id, body: text }, "tts notification (stub — no ELEVENLABS_API_KEY)");
     return true;
   }
 
@@ -27,7 +31,7 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: notification.body,
+          text,
           model_id: "eleven_monolingual_v1",
         }),
         timeout: 5_000,
