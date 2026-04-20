@@ -30,7 +30,7 @@
         <key>LOG_LEVEL</key>
         <string>info</string>
         <key>PATH</key>
-        <string>/Users/${USER}/.local/bin:/Users/${USER}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/Users/${USER}/.local/bin:/Users/${USER}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin</string>
         <key>HOME</key>
         <string>/Users/${USER}</string>
     </dict>
