@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(pkill -f \"git add\")",
-      "Bash(rm -f /home/nyaptor/dev/nx/.git/index.lock)"
+      "Bash(rm -f /home/nyaptor/dev/nx/.git/index.lock)",
+      "Bash(socat - UNIX-CONNECT:/tmp/nexus-agent.sock)",
+      "Edit(/home/nyaptor/dev/nx/*)"
     ]
   }
 }
