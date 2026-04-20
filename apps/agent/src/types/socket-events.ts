@@ -40,6 +40,8 @@ export interface NotificationEvent {
   message: string;
   message_type?: string;
   channels?: string[];
+  /** Project code that owns this notification (e.g., "cc", "oo", "nx"). */
+  project?: string;
   question?: string;
   session_id?: string;
 }

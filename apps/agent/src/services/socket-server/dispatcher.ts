@@ -105,12 +105,14 @@ export function createSocketEventDispatcher(
       case "notification": {
         const effectiveChannels = event.channels ?? ["tts"];
         const messageType = event.message_type ?? "brief";
+        const project = event.project ?? null;
 
         log.info(
           {
             message: event.message,
             messageType,
             channels: effectiveChannels,
+            project,
             hasQuestion: !!event.question,
           },
           "socket: notification",
@@ -134,7 +136,7 @@ export function createSocketEventDispatcher(
             channel: "tts" as const,
             priority: "normal" as const,
             status: "queued" as const,
-            project: null,
+            project,
             // Socket event router has no agent context; pass null (global).
             agentId: null,
             createdAt: new Date(),
