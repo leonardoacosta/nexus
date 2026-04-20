@@ -6,9 +6,17 @@
     <key>Label</key>
     <string>com.nexus.agent</string>
 
+    <!--
+      Wrapper sources ~/.config/nexus/secrets.env before exec'ing the agent.
+      This gives us reboot persistence without relying on `launchctl setenv`
+      state (which dies at logout) or inlining secrets in the plist itself.
+      `exec` replaces the bash process so no extra PID sticks around.
+    -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/${USER}/.local/bin/nexus-agent</string>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>set -a; source "$HOME/.config/nexus/secrets.env"; set +a; exec "$HOME/.local/bin/nexus-agent"</string>
     </array>
 
     <key>RunAtLoad</key>
