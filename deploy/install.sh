@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Nexus — installation script
-# Copies pre-built binaries and installs the appropriate service files.
+# Nexus — installation script (Bun v4)
+# Builds the Bun binaries, installs them, and installs the service files
+# and git-hook dispatchers.
 #
 # Usage:
-#   deploy/install.sh                    # install agent + TUI (default)
+#   deploy/install.sh                    # build + install agent (+ nexus-register if present)
 #   deploy/install.sh --dashboard        # also install Next.js dashboard service + Traefik config
+#   deploy/install.sh --no-build         # skip build, install pre-built binaries from apps/*/
 #
 # Environment variables:
 #   TRAEFIK_DYNAMIC_DIR   Directory Traefik watches for dynamic config (default: /etc/traefik/dynamic)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nexus"
 TRAEFIK_DYNAMIC_DIR="${TRAEFIK_DYNAMIC_DIR:-/etc/traefik/dynamic}"
 INSTALL_DASHBOARD=false
+DO_BUILD=true
 
-# Parse flags
 for arg in "$@"; do
     case "$arg" in
         --dashboard) INSTALL_DASHBOARD=true ;;
+        --no-build)  DO_BUILD=false ;;
         *) ;;
     esac
 done
@@ -35,6 +39,10 @@ if ! command -v tmux &>/dev/null; then
     error "tmux is required but not found on PATH. Install it first (e.g. apt install tmux / brew install tmux)."
 fi
 
+if $DO_BUILD && ! command -v bun &>/dev/null; then
+    error "bun is required for building. Install from https://bun.sh or pass --no-build."
+fi
+
 OS="$(uname -s)"
 case "$OS" in
     Linux)  PLATFORM="linux" ;;
@@ -44,23 +52,32 @@ esac
 
 info "Detected platform: $PLATFORM"
 
+# ── Build binaries ──────────────────────────────────────────────────
+
+if $DO_BUILD; then
+    info "Building @nexus/agent (bun build --compile)"
+    (cd "$REPO_DIR/apps/agent" && bun run build) || error "apps/agent build failed"
+
+    if [[ -d "$REPO_DIR/apps/nexus-register" ]]; then
+        info "Building @nexus/register"
+        (cd "$REPO_DIR/apps/nexus-register" && bun run build) || error "apps/nexus-register build failed"
+    fi
+fi
+
 # ── Locate binaries ─────────────────────────────────────────────────
 
-# Look for pre-built binaries next to this script, then fall back to
-# the workspace release directory.
 find_binary() {
     local name="$1"
-    if [[ -f "$SCRIPT_DIR/$name" ]]; then
-        echo "$SCRIPT_DIR/$name"
-    elif [[ -f "$SCRIPT_DIR/../target/release/$name" ]]; then
-        echo "$SCRIPT_DIR/../target/release/$name"
+    local subdir="$2"
+    local path="$REPO_DIR/apps/$subdir/$name"
+    if [[ -f "$path" ]]; then
+        echo "$path"
     else
-        error "Binary '$name' not found. Build first with: cargo build --release"
+        error "Binary '$name' not found at $path. Build first (omit --no-build)."
     fi
 }
 
-AGENT_BIN="$(find_binary nexus-agent)"
-TUI_BIN="$(find_binary nexus)"
+AGENT_BIN="$(find_binary nexus-agent agent)"
 
 # ── Install binaries ────────────────────────────────────────────────
 
@@ -69,8 +86,10 @@ mkdir -p "$BIN_DIR"
 info "Installing nexus-agent to $BIN_DIR/"
 install -m 755 "$AGENT_BIN" "$BIN_DIR/nexus-agent"
 
-info "Installing nexus (TUI) to $BIN_DIR/"
-install -m 755 "$TUI_BIN" "$BIN_DIR/nexus"
+if [[ -f "$REPO_DIR/apps/nexus-register/nexus-register" ]]; then
+    info "Installing nexus-register to $BIN_DIR/"
+    install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register" "$BIN_DIR/nexus-register"
+fi
 
 # ── Create config directory ─────────────────────────────────────────
 
@@ -99,23 +118,21 @@ elif [[ "$PLATFORM" == "macos" ]]; then
     mkdir -p "$LAUNCH_DIR"
 
     info "Installing launchd user agent"
-    # Replace ${USER} placeholder with the actual username
     sed "s|\${USER}|$USER|g" "$SCRIPT_DIR/com.nexus.agent.plist" > "$LAUNCH_DIR/com.nexus.agent.plist"
 
     echo ""
     info "Installation complete. Next steps:"
+    echo "  launchctl bootout gui/\$(id -u)/com.nexus.agent 2>/dev/null || true"
     echo "  launchctl load ~/Library/LaunchAgents/com.nexus.agent.plist"
     echo "  tail -f ~/Library/Logs/nexus-agent.stdout.log   # view logs"
 fi
 
-# ── Install git hooks ──────────────────────────────────────────────
+# ── Install git hook dispatchers ───────────────────────────────────
 
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [[ -d "$REPO_DIR/.git" ]]; then
-    info "Installing git hooks"
-    cp "$SCRIPT_DIR/hooks/post-merge-dispatcher" "$REPO_DIR/.git/hooks/post-merge"
-    cp "$SCRIPT_DIR/hooks/pre-push-dispatcher" "$REPO_DIR/.git/hooks/pre-push"
-    chmod +x "$REPO_DIR/.git/hooks/post-merge" "$REPO_DIR/.git/hooks/pre-push"
+    info "Installing git hook dispatchers"
+    install -m 755 "$SCRIPT_DIR/hooks/post-merge-dispatcher" "$REPO_DIR/.git/hooks/post-merge"
+    install -m 755 "$SCRIPT_DIR/hooks/pre-push-dispatcher" "$REPO_DIR/.git/hooks/pre-push"
 else
     warn "Not a git repository — skipping hook installation"
 fi
@@ -138,7 +155,6 @@ if $INSTALL_DASHBOARD; then
         warn "Dashboard systemd service is Linux-only. Skipping service install on $PLATFORM."
     fi
 
-    # Install Traefik dynamic config
     if [[ -d "$TRAEFIK_DYNAMIC_DIR" ]]; then
         install -m 644 "$SCRIPT_DIR/traefik/nexus-dashboard.yml" "$TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
         info "Installed Traefik config to $TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
