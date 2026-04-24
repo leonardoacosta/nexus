@@ -122,9 +122,14 @@ export function createSocketEventDispatcher(
         recordNotification(event.message, messageType, effectiveChannels);
 
         // Emit to lifecycle bus for federation
+        // Schema updated 2026-04-24 — id/title/body now required.
         lifecycleBus.emit("NotificationFired", {
-          message: event.message,
+          id: `socket-notif-${Date.now()}`,
+          title: "Notification",
+          body: event.message,
           channel: effectiveChannels.join(","),
+          project: project ?? undefined,
+          message: event.message, // back-compat alias
         });
 
         // Route to TTS if TTS is in the channels list.

@@ -62,7 +62,19 @@ export function getRoutingRules(): NotificationRule[] {
   return [...projectRules, ...DEFAULT_RULES];
 }
 
-/** Find the best matching rule for a notification. */
+/** Find the best matching rule for a notification.
+ *
+ * Precedence:
+ *   1. Project-specific rule (projectRules with matching project)
+ *   2. Wildcard rule (projectRules with no project)
+ *   3. Caller's notification.channel (respect explicit channel request)
+ *   4. DEFAULT_RULES (hardcoded fallback — desktop only)
+ *
+ * Fix 2026-04-24: Previously fell through to DEFAULT_RULES['desktop']
+ * unconditionally, which meant every /notifications/send with
+ * channel='tts' or channel='slack' dispatched to the desktop handler.
+ * Now the notification's own channel is honored when no rule matches.
+ */
 export function findMatchingRule(notification: NotificationRow): NotificationRule {
   // Try project-specific rule first
   if (notification.project) {
@@ -74,7 +86,15 @@ export function findMatchingRule(notification: NotificationRow): NotificationRul
   const wildcardRule = projectRules.find((r) => !r.project);
   if (wildcardRule) return wildcardRule;
 
-  // Fall back to default
+  // Respect caller's explicit channel request
+  if (notification.channel) {
+    return {
+      channels: [notification.channel as NotificationChannel],
+      meeting_behavior: "buffer",
+    };
+  }
+
+  // Fall back to hardcoded default
   return DEFAULT_RULES[0]!;
 }
 

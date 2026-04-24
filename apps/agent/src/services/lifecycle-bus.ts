@@ -55,9 +55,18 @@ export interface CredentialSwapPayload {
 }
 
 export interface NotificationFiredPayload {
-  message: string;
+  /** Notification id (idempotency key). */
+  id: string;
+  /** Banner title (shown on desktop); TTS ignores title. */
+  title: string;
+  /** Full message body — used as TTS text and banner subtitle. */
+  body: string;
+  /** Delivery channel: "desktop" | "tts" | "slack". */
   channel: string;
+  /** Optional project scope. */
   project?: string;
+  /** @deprecated Use `body` instead. Kept for subscribers on the old schema. */
+  message?: string;
 }
 
 // ---------------------------------------------------------------------------

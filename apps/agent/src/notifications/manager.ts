@@ -9,6 +9,7 @@ import {
 import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
 import { routeNotification, findMatchingRule, routeNotificationParallel } from "./router";
+import { lifecycleBus } from "../services/lifecycle-bus";
 
 /**
  * Notification manager — orchestrates the lifecycle:
@@ -108,6 +109,20 @@ export class NotificationManager {
     if (anyDelivered) {
       await markNotificationDelivered(this.db, notification.id);
       notification.status = "delivered";
+
+      // Emit NotificationFired on the lifecycle bus so SSE subscribers
+      // (e.g. Mac-side listener) can dispatch osascript/say locally.
+      // Fires once per notification, not once per channel.
+      for (const channel of delivered) {
+        lifecycleBus.emit("NotificationFired", {
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          channel,
+          project: notification.project ?? undefined,
+          message: notification.body, // back-compat alias
+        });
+      }
     }
 
     if (failed.length > 0) {

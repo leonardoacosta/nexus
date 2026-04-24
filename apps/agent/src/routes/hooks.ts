@@ -37,7 +37,7 @@ interface HookEventPayload {
 // ---------------------------------------------------------------------------
 
 export async function handleHooks(
-  db: Db,
+  _db: Db,
   request: Request,
 ): Promise<Response> {
   let payload: HookEventPayload;
@@ -55,8 +55,11 @@ export async function handleHooks(
 
   log.info({ event: eventName, sessionId: payload.session_id }, "hook event received");
 
-  // For now, acknowledge all hook events. The socket dispatch layer
-  // handles the actual session lifecycle management.
+  // Current behavior: acknowledge and log. Event processing (session
+  // lifecycle updates, dashboard materialization, notifications) is
+  // tracked as future work — see nx bd issue for /hooks handler
+  // extension. No socket dispatch layer exists despite prior comments
+  // referencing one (removed 2026-04-24).
   switch (eventName) {
     case "session_start":
     case "session_stop":
