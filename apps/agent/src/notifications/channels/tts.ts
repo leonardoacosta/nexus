@@ -4,38 +4,52 @@ import { captureException } from "@sentry/node";
 import type { NotificationRow } from "../buffer";
 
 /**
- * TTS notification channel — signal-only on the agent side.
+ * TTS notification channel — agent synthesizes via ElevenLabs, listener plays.
  *
- * Architecture (2026-04-24): TTS delivery happens client-side, not here.
- * The Mac-side nexus-notifier daemon subscribes to the lifecycle bus SSE
- * stream at /events/stream, filters for NotificationFired events with
- * channel="tts", and invokes the local `say` command. The agent's job is
- * just to mark the notification as delivered so NotificationFired emits.
+ * Architecture (2026-04-25): The agent is the sole holder of
+ * ELEVENLABS_API_KEY and the sole point of quota accounting. When the key
+ * is set, this channel POSTs the project-prefixed text to the ElevenLabs
+ * text-to-speech endpoint, captures the resulting mp3 bytes, and surfaces
+ * them base64-encoded on the structured return so the manager can attach
+ * them to the `NotificationFired` lifecycle event.
  *
- * Optional legacy path: when NEXUS_TTS_USE_ELEVENLABS=1 AND
- * ELEVENLABS_API_KEY is set, the agent also calls the ElevenLabs API as
- * a fallback for headless hosts without a Mac listener. Defaults to off
- * to avoid burning ElevenLabs quota on content the Mac will re-speak
- * anyway.
+ * The agent MUST NOT play audio locally — homelab is headless. Playback
+ * is the listener's responsibility (Mac-side `nexus-notifier` daemon
+ * subscribes to /events/stream and pipes the bytes into `afplay`).
+ *
+ * When ELEVENLABS_API_KEY is unset, the channel is signal-only: it marks
+ * the notification as delivered and returns `audioBase64: undefined` so
+ * `NotificationFired` still fires for any listener that owns its own TTS
+ * (Slack bridge, mobile AVSpeechSynthesizer, etc.).
  */
-export async function sendTtsNotification(notification: NotificationRow): Promise<boolean> {
-  const useElevenLabs = process.env.NEXUS_TTS_USE_ELEVENLABS === "1";
+
+export interface TtsResult {
+  /** Whether the channel accepted the notification for delivery. */
+  success: boolean;
+  /** Base64-encoded mp3 bytes from ElevenLabs (absent when key is unset). */
+  audioBase64?: string;
+}
+
+export async function sendTtsNotification(
+  notification: NotificationRow,
+): Promise<TtsResult> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
   const text = notification.project
     ? `${notification.project}: ${notification.body}`
     : notification.body;
 
-  // Default path: signal-only. Delivery = "accepted for Mac-side dispatch".
-  if (!useElevenLabs || !apiKey) {
+  // No API key: signal-only branch. Return success without audio so the
+  // lifecycle event still fires for non-audio listeners.
+  if (!apiKey) {
     logger.info(
       { id: notification.id, body: text },
-      "tts notification accepted (Mac-side delivery via NotificationFired)",
+      "tts notification accepted (signal-only — no ELEVENLABS_API_KEY)",
     );
-    return true;
+    return { success: true };
   }
 
-  // Legacy path: agent-side ElevenLabs delivery (opt-in).
+  // Key set: synthesize via ElevenLabs and return the mp3 bytes.
   try {
     const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
     const res = await fetchWithTimeout(
@@ -61,14 +75,23 @@ export async function sendTtsNotification(notification: NotificationRow): Promis
       throw err;
     }
 
-    logger.info({ id: notification.id }, "tts notification sent via ElevenLabs");
-    return true;
+    const buf = await res.arrayBuffer();
+    const audioBase64 = Buffer.from(buf).toString("base64");
+
+    logger.info(
+      { id: notification.id, bytes: buf.byteLength },
+      "tts notification synthesized via ElevenLabs",
+    );
+    return { success: true, audioBase64 };
   } catch (err) {
     captureException(err);
-    logger.error({
-      id: notification.id,
-      error: err instanceof Error ? err.message : String(err),
-    }, "tts notification failed");
+    logger.error(
+      {
+        id: notification.id,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "tts notification failed",
+    );
     throw err;
   }
 }

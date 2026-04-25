@@ -171,7 +171,7 @@ describe("sendTtsNotification", () => {
 
     const result = await sendTtsNotification(notif);
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true });
     expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
     expect(loggerInfoMock).toHaveBeenCalled();
     const [firstArg] = loggerInfoMock.mock.calls[0] as [

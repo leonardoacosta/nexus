@@ -110,24 +110,27 @@ export class NotificationManager {
       await markNotificationDelivered(this.db, notification.id);
       notification.status = "delivered";
 
-      // Emit NotificationFired on the lifecycle bus so SSE subscribers
-      // (e.g. Mac-side listener) can dispatch osascript/say locally.
-      // Fires once per notification, not once per channel.
-      for (const channel of delivered) {
+      // Emit NotificationFired on the lifecycle bus once per delivered
+      // channel. SSE subscribers (e.g. Mac-side `nexus-notifier` daemon)
+      // dispatch on the channel name and use audioBase64 (TTS only) to
+      // pipe the mp3 bytes into a local audio sink.
+      for (const { channel, audioBase64 } of delivered) {
         lifecycleBus.emit("NotificationFired", {
           id: notification.id,
           title: notification.title,
           body: notification.body,
           channel,
           project: notification.project ?? undefined,
+          audioBase64,
           message: notification.body, // back-compat alias
         });
       }
     }
 
     if (failed.length > 0) {
+      const deliveredNames = delivered.map((d) => d.channel);
       logger.warn(
-        { id: notification.id, delivered, failed },
+        { id: notification.id, delivered: deliveredNames, failed },
         failed.length === delivered.length + failed.length
           ? "notification delivery failed on all channels"
           : "notification delivery partial failure",

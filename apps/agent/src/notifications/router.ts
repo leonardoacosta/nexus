@@ -10,6 +10,28 @@ import { sendSlackNotification } from "./channels/slack";
 const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
 
 /**
+ * Per-channel structured result.
+ *
+ * Channels that produce additional metadata (e.g. TTS returns base64 mp3
+ * bytes alongside the success flag) widen this with optional fields. The
+ * manager threads these fields onto the `NotificationFired` lifecycle event
+ * so SSE listeners can act on them.
+ */
+export interface ChannelResult {
+  success: boolean;
+  /** Base64-encoded mp3 bytes when the TTS channel synthesized audio. */
+  audioBase64?: string;
+}
+
+/** Channel handlers may return a bare boolean (legacy) or a structured result. */
+type ChannelHandlerReturn = boolean | ChannelResult;
+
+function normalizeResult(value: ChannelHandlerReturn): ChannelResult {
+  if (typeof value === "boolean") return { success: value };
+  return value;
+}
+
+/**
  * Wrap a channel handler call with a deadline. If the handler does not resolve
  * within NOTIFICATION_TIMEOUT_MS, the promise rejects with a TimeoutError and
  * Sentry captures the exception.
@@ -17,8 +39,8 @@ const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS
 async function withChannelTimeout(
   channel: NotificationChannel,
   notification: NotificationRow,
-  handler: (n: NotificationRow) => Promise<boolean>,
-): Promise<boolean> {
+  handler: (n: NotificationRow) => Promise<ChannelHandlerReturn>,
+): Promise<ChannelResult> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
@@ -33,7 +55,7 @@ async function withChannelTimeout(
 
   try {
     const result = await Promise.race([handler(notification), timeoutPromise]);
-    return result;
+    return normalizeResult(result);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -101,7 +123,7 @@ export function findMatchingRule(notification: NotificationRow): NotificationRul
 /** Channel dispatch map. */
 const CHANNEL_HANDLERS: Record<
   NotificationChannel,
-  (notification: NotificationRow) => Promise<boolean>
+  (notification: NotificationRow) => Promise<ChannelHandlerReturn>
 > = {
   desktop: sendDesktopNotification,
   tts: sendTtsNotification,
@@ -130,22 +152,30 @@ export async function routeNotification(
       });
       continue;
     }
-    const success = await withChannelTimeout(channel, notification, handler);
+    const { success } = await withChannelTimeout(channel, notification, handler);
     results.push({ channel, success });
   }
 
   return results;
 }
 
+/** Per-channel delivery outcome surfaced to the manager. */
+export interface DeliveredChannel {
+  channel: NotificationChannel;
+  /** Audio bytes (base64) when the channel produced them — TTS only. */
+  audioBase64?: string;
+}
+
 /**
  * Route a notification to all matching channels in parallel (D4).
  *
  * Uses Promise.allSettled so a single failing channel does not block others.
- * Returns separate lists of delivered and failed channel names.
+ * Delivered channels carry per-channel metadata (e.g. TTS audio bytes) so the
+ * manager can attach them to the lifecycle event.
  */
 export async function routeNotificationParallel(
   notification: NotificationRow,
-): Promise<{ delivered: string[]; failed: string[] }> {
+): Promise<{ delivered: DeliveredChannel[]; failed: string[] }> {
   const rule = findMatchingRule(notification);
 
   const knownChannels = rule.channels.filter((ch) => {
@@ -166,13 +196,19 @@ export async function routeNotificationParallel(
     knownChannels.map((ch) => withChannelTimeout(ch, notification, CHANNEL_HANDLERS[ch]!)),
   );
 
-  const delivered: string[] = [];
+  const delivered: DeliveredChannel[] = [];
   const failed: string[] = [];
 
   for (const [i, result] of settled.entries()) {
     const channelName = knownChannels[i]!;
     if (result.status === "fulfilled") {
-      delivered.push(channelName);
+      const value = result.value;
+      if (value.success) {
+        delivered.push({ channel: channelName, audioBase64: value.audioBase64 });
+      } else {
+        // Handler returned `success: false` — treat as a soft failure.
+        failed.push(channelName);
+      }
     } else {
       failed.push(channelName);
       log.error(

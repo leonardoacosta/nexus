@@ -122,10 +122,17 @@ describe("delivery channels", () => {
   });
 
   it("tts channel succeeds (stub mode without API key)", async () => {
-    const { sendTtsNotification } = await import("./channels/tts");
-    const notif = makeNotification();
-    const result = await sendTtsNotification(notif as never);
-    expect(result).toBe(true);
+    const originalKey = process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_API_KEY;
+    try {
+      const { sendTtsNotification } = await import("./channels/tts");
+      const notif = makeNotification();
+      const result = await sendTtsNotification(notif as never);
+      expect(result.success).toBe(true);
+      expect(result.audioBase64).toBeUndefined();
+    } finally {
+      if (originalKey !== undefined) process.env.ELEVENLABS_API_KEY = originalKey;
+    }
   });
 
   it("slack channel succeeds (stub mode without webhook URL)", async () => {
@@ -175,14 +182,23 @@ describe("project-aware routing", () => {
   });
 
   it("routes notification to multiple channels", async () => {
-    setRoutingRules([
-      { project: "co", channels: ["desktop", "tts", "slack"], meeting_behavior: "buffer" },
-    ]);
+    // Force the TTS handler down its signal-only branch so this test
+    // doesn't reach out to ElevenLabs when an env-var leaks in from a
+    // sibling test running in the same bun process.
+    const originalKey = process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_API_KEY;
+    try {
+      setRoutingRules([
+        { project: "co", channels: ["desktop", "tts", "slack"], meeting_behavior: "buffer" },
+      ]);
 
-    const notif = makeNotification({ project: "co" });
-    const results = await routeNotification(notif as never);
-    expect(results).toHaveLength(3);
-    expect(results.every((r) => r.success)).toBe(true);
-    expect(results.map((r) => r.channel)).toEqual(["desktop", "tts", "slack"]);
+      const notif = makeNotification({ project: "co" });
+      const results = await routeNotification(notif as never);
+      expect(results).toHaveLength(3);
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(results.map((r) => r.channel)).toEqual(["desktop", "tts", "slack"]);
+    } finally {
+      if (originalKey !== undefined) process.env.ELEVENLABS_API_KEY = originalKey;
+    }
   });
 });

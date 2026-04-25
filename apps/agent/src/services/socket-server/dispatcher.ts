@@ -121,18 +121,31 @@ export function createSocketEventDispatcher(
         // Record in history for the `history` command.
         recordNotification(event.message, messageType, effectiveChannels);
 
-        // Emit to lifecycle bus for federation
-        // Schema updated 2026-04-24 — id/title/body now required.
+        // Emit to lifecycle bus for federation.
+        //
+        // Audio policy (2026-04-25): the legacy socket path is text-only.
+        // The HTTP `/notifications/send` route is the canonical source for
+        // audio-attached `NotificationFired` events — that path runs through
+        // `NotificationManager.deliverNotification`, which calls
+        // `sendTtsNotification` synchronously and threads the resulting
+        // `audioBase64` onto the lifecycle event. The fire-and-forget
+        // `sendTtsNotification(stubRow)` call below cannot feed back into
+        // this emission without re-architecting, so we explicitly omit
+        // `audioBase64` here and let the listener fall through silently.
+        // See `restore-tts-mac-audio-dispatch` spec (2026-04-25) §
+        // "Socket-server path remains consistent with audio-optionality".
         lifecycleBus.emit("NotificationFired", {
           id: `socket-notif-${Date.now()}`,
           title: "Notification",
           body: event.message,
           channel: effectiveChannels.join(","),
           project: project ?? undefined,
+          // audioBase64 explicitly omitted — see comment above.
           message: event.message, // back-compat alias
         });
 
-        // Route to TTS if TTS is in the channels list.
+        // Route to TTS if TTS is in the channels list. Fire-and-forget —
+        // the response audio is intentionally discarded on this path.
         if (effectiveChannels.includes("tts")) {
           const stubRow = {
             id: `socket-notif-${Date.now()}`,

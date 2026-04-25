@@ -2,12 +2,12 @@
 
 ## Agent Batch (Linux, TypeScript)
 
-- [ ] [1.1] [P-1] Remove the `NEXUS_TTS_USE_ELEVENLABS` opt-in gate in `apps/agent/src/notifications/channels/tts.ts`. When `ELEVENLABS_API_KEY` is set, ElevenLabs is called by default. Restore the pre-refactor control flow. [owner:api-engineer]
-- [ ] [1.2] [P-1] In the same file, capture the ElevenLabs response body as `ArrayBuffer` → base64 string. Return it from `sendTtsNotification` via a structured return (not just `boolean`) so the manager can attach to `NotificationFired`. Change signature to `Promise<{ success: boolean; audioBase64?: string }>` — update router.ts callers and manager.ts consumer. [owner:api-engineer]
-- [ ] [1.3] [P-1] Extend `NotificationFiredPayload` in `apps/agent/src/services/lifecycle-bus.ts` with optional `audioBase64?: string`. Keep existing fields (`id`, `title`, `body`, `channel`, `project`, `message`) untouched for back-compat. [owner:api-engineer]
-- [ ] [1.4] [P-1] In `apps/agent/src/notifications/manager.ts` `deliverNotification`, accept per-channel payload metadata from `routeNotificationParallel` and include `audioBase64` in the `lifecycleBus.emit("NotificationFired", …)` call when the TTS channel returned audio. [owner:api-engineer]
-- [ ] [1.5] [P-2] Audit `apps/agent/src/services/socket-server/dispatcher.ts` for `NotificationFired` emission. Decide (and document inline) whether the socket path also carries audio or stays text-only. If text-only, ensure `audioBase64` is explicitly omitted from those emissions. [owner:api-engineer]
-- [ ] [1.6] [P-2] Remove dead references to the `NEXUS_TTS_USE_ELEVENLABS` env var across the repo (docs, service files, deploy scripts). [owner:api-engineer]
+- [x] [1.1] [P-1] Remove the `NEXUS_TTS_USE_ELEVENLABS` opt-in gate in `apps/agent/src/notifications/channels/tts.ts`. When `ELEVENLABS_API_KEY` is set, ElevenLabs is called by default. Restore the pre-refactor control flow. [owner:api-engineer]
+- [x] [1.2] [P-1] In the same file, capture the ElevenLabs response body as `ArrayBuffer` → base64 string. Return it from `sendTtsNotification` via a structured return (not just `boolean`) so the manager can attach to `NotificationFired`. Change signature to `Promise<{ success: boolean; audioBase64?: string }>` — update router.ts callers and manager.ts consumer. [owner:api-engineer]
+- [x] [1.3] [P-1] Extend `NotificationFiredPayload` in `apps/agent/src/services/lifecycle-bus.ts` with optional `audioBase64?: string`. Keep existing fields (`id`, `title`, `body`, `channel`, `project`, `message`) untouched for back-compat. [owner:api-engineer]
+- [x] [1.4] [P-1] In `apps/agent/src/notifications/manager.ts` `deliverNotification`, accept per-channel payload metadata from `routeNotificationParallel` and include `audioBase64` in the `lifecycleBus.emit("NotificationFired", …)` call when the TTS channel returned audio. [owner:api-engineer]
+- [x] [1.5] [P-2] Audit `apps/agent/src/services/socket-server/dispatcher.ts` for `NotificationFired` emission. Decide (and document inline) whether the socket path also carries audio or stays text-only. If text-only, ensure `audioBase64` is explicitly omitted from those emissions. [owner:api-engineer]
+- [x] [1.6] [P-2] Remove dead references to the `NEXUS_TTS_USE_ELEVENLABS` env var across the repo (docs, service files, deploy scripts). [owner:api-engineer]
 
 ## E2E Batch (Linux, TypeScript)
 
