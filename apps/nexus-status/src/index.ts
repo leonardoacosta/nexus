@@ -5,12 +5,39 @@
  * Runs on every prompt render. Outputs a compact one-line status to stdout.
  * On any error, outputs empty string — statusline must never crash.
  *
- * Reads CC context from stdin (JSON piped by Claude Code):
- *   { context_window: { remaining_percentage: number }, model: { display_name: string } }
+ * Reads CC context from stdin (JSON piped by Claude Code) — canonical payload
+ * per https://code.claude.com/docs/en/statusline (2026-04-24). All fields
+ * optional; renderer degrades gracefully when any are absent.
+ *
+ *   {
+ *     hook_event_name?: "StatusLine",
+ *     session_id?: string,
+ *     transcript_path?: string,
+ *     cwd?: string,
+ *     model?: { id?: string; display_name?: string },
+ *     workspace?: { current_dir?: string; project_dir?: string },
+ *     version?: string,
+ *     output_style?: string,
+ *     cost?: {
+ *       total_cost_usd?: number,
+ *       total_duration_ms?: number,
+ *       total_api_duration_ms?: number,
+ *       total_lines_added?: number,
+ *       total_lines_removed?: number,
+ *     },
+ *     context_window?: {
+ *       used_percentage?: number,    // CC sends used%, NOT remaining%
+ *       used_tokens?: number,
+ *       max_tokens?: number,
+ *     },
+ *     rate_limits?: {
+ *       five_hour?: { resets_at?: number },  // unix seconds
+ *     },
+ *   }
  *
  * Environment:
  *   NEXUS_ATTACH_SECRET — Required auth header for agent API
- *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: cwd)
+ *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: workspace.project_dir, then cwd)
  */
 
 import { readFileSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
@@ -32,8 +59,29 @@ const DIM = "\x1b[38;5;240m"; // gray
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface CcInput {
-  context_window?: { remaining_percentage?: number };
-  model?: { display_name: string };
+  hook_event_name?: string;
+  session_id?: string;
+  transcript_path?: string;
+  cwd?: string;
+  model?: { id?: string; display_name?: string };
+  workspace?: { current_dir?: string; project_dir?: string };
+  version?: string;
+  output_style?: string;
+  cost?: {
+    total_cost_usd?: number;
+    total_duration_ms?: number;
+    total_api_duration_ms?: number;
+    total_lines_added?: number;
+    total_lines_removed?: number;
+  };
+  context_window?: {
+    used_percentage?: number;
+    used_tokens?: number;
+    max_tokens?: number;
+  };
+  rate_limits?: {
+    five_hour?: { resets_at?: number };
+  };
 }
 
 interface StatuslineSession {
@@ -113,6 +161,28 @@ function deriveProjectCode(dir: string): string {
 function shortenModel(model: string): string {
   const parts = model.split(/\s+/);
   return parts[1] ?? model;
+}
+
+/** Truncate output_style name to ≤ 8 chars for statusline display. */
+function shortenOutputStyle(style: string): string {
+  if (style.length <= 8) return style;
+  // Strip suffix after first dash, then truncate to 8
+  const head = style.split(/[-_]/)[0] ?? style;
+  return head.length <= 8 ? head : head.slice(0, 8);
+}
+
+/** Format remaining seconds as countdown ↻Xd, ↻H:MMh, ↻Mm, or ↻now. */
+function formatCountdown(remainingSecs: number): string {
+  if (remainingSecs <= 0) return "↻now";
+  if (remainingSecs >= 86400 * 2) {
+    return `↻${Math.floor(remainingSecs / 86400)}d`;
+  }
+  if (remainingSecs < 3600) {
+    return `↻${Math.floor(remainingSecs / 60)}m`;
+  }
+  const h = Math.floor(remainingSecs / 3600);
+  const m = Math.floor((remainingSecs % 3600) / 60);
+  return `↻${h}:${String(m).padStart(2, "0")}h`;
 }
 
 /** Parse agent URL from agents.toml (simple regex, no TOML dep). */
@@ -320,7 +390,7 @@ function renderGauge(label: string, pct: number, suffix: string): string {
   const color = pct <= 20 ? CTX_LOW : pct <= 40 ? CTX_MED : CTX_HIGH;
   const filled = Math.floor((pct * 7) / 100);
   const empty = 7 - filled;
-  const bar = "\u2550".repeat(filled) + "\u2500".repeat(empty);
+  const bar = "═".repeat(filled) + "─".repeat(empty);
   return `${DIM}${label}${RESET} ${color}${bar} ${suffix}${RESET}`;
 }
 
@@ -351,13 +421,13 @@ function momentumIndicator(projected: number): string {
   let arrow: string;
   let color: string;
   if (projected >= 95) {
-    arrow = "\u2191";
+    arrow = "↑";
     color = CTX_LOW;
   } else if (projected >= 75) {
-    arrow = "\u2197";
+    arrow = "↗";
     color = CTX_MED;
   } else {
-    arrow = "\u2192";
+    arrow = "→";
     color = CTX_HIGH;
   }
   return `${color}${arrow}${Math.round(projected)}%${RESET}`;
@@ -368,27 +438,22 @@ function renderUsageGauge(
   utilization: number,
   resetsAt: string | undefined,
   windowSecs: number,
+  /** CC-sourced unix-seconds reset; takes precedence over resetsAt when present. */
+  ccResetsAtUnixSecs?: number,
 ): string {
   const now = nowSecs();
-  const remainingSecs = resetsAt
-    ? Math.max((parseTimestamp(resetsAt) ?? now) - now, 0)
-    : 0;
+  let remainingSecs = 0;
+  if (ccResetsAtUnixSecs != null && Number.isFinite(ccResetsAtUnixSecs)) {
+    remainingSecs = Math.max(ccResetsAtUnixSecs - now, 0);
+  } else if (resetsAt) {
+    remainingSecs = Math.max((parseTimestamp(resetsAt) ?? now) - now, 0);
+  }
 
   const remainingPct = Math.max(100 - utilization, 0);
   const projected = projectUtilization(utilization, windowSecs, remainingSecs);
   const momentum = momentumIndicator(projected);
 
-  // Countdown string
-  let countdown: string;
-  if (remainingSecs === 0) {
-    countdown = "\u21bbnow";
-  } else if (remainingSecs >= 86400 * 2) {
-    countdown = `\u21bb${Math.floor(remainingSecs / 86400)}d`;
-  } else {
-    const h = Math.floor(remainingSecs / 3600);
-    const m = Math.floor((remainingSecs % 3600) / 60);
-    countdown = `\u21bb${h}:${String(m).padStart(2, "0")}h`;
-  }
+  const countdown = formatCountdown(remainingSecs);
 
   const suffix = momentum
     ? `${Math.round(utilization)}% ${momentum} ${countdown}`
@@ -402,44 +467,50 @@ function renderUsageGauge(
   return renderGauge(label, gaugePct, suffix);
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Renderer (pure, testable) ────────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  const ccInput = readStdinInput();
+interface RenderDeps {
+  /** Git status for the resolved project dir (null = not a repo / unavailable). */
+  git: GitInfo | null;
+  /** Result of agent /statusline fetch; may be null on failure. */
+  nexusData: StatuslineResponse | null;
+  /** Result of Anthropic Usage API fetch; may be null. */
+  usage: UsageResponse | null;
+  /** Account domain from OAuth profile cache; may be null. */
+  accountDomain: string | null;
+  /** Project directory used for fallback project-code derivation. */
+  projectDir: string;
+}
 
-  const projectDir =
-    process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
-  const projectCode = deriveProjectCode(projectDir);
-  const git = getGitStatus(projectDir);
-  const agentUrl = getLocalAgentUrl();
+/**
+ * Build the statusline string from a CC payload + ambient deps.
+ *
+ * Project-name resolution (task 1.8):
+ *   1. ccInput.workspace.project_dir → basename
+ *   2. fallback to deriveProjectCode(projectDir)
+ *
+ * No git subprocess is invoked from here — the caller passes pre-resolved git.
+ */
+export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
+  const { git, nexusData, usage, accountDomain, projectDir } = deps;
 
-  // CC model name (from stdin)
-  const ccModel = ccInput.model
-    ? shortenModel(ccInput.model.display_name)
-    : null;
+  // Project name: prefer CC payload, fall back to derived
+  const projectCode = ccInput.workspace?.project_dir
+    ? basename(ccInput.workspace.project_dir)
+    : deriveProjectCode(projectDir);
 
-  // Parallel fetches: agent statusline, API usage, account domain
-  const [nexusData, usage, accountDomain] = await Promise.all([
-    fetchStatusline(agentUrl),
-    getApiUsage(),
-    getAccountDomain(),
-  ]);
+  const session = nexusData?.sessions.find((s) => s.project === projectCode);
 
-  const session = nexusData?.sessions.find(
-    (s) => s.project === projectCode,
-  );
-
-  // ── Build parts ──────────────────────────────────────────────────────────
   const parts: string[] = [];
 
   // Session count indicator
   const sessionCount = nexusData?.sessions.length ?? 0;
   if (sessionCount > 1) {
-    parts.push(`${DIM}\u25C9${RESET} ${sessionCount}`);
+    parts.push(`${DIM}◉${RESET} ${sessionCount}`);
   } else if (sessionCount === 1) {
-    parts.push(`${DIM}\u25C9${RESET}`);
+    parts.push(`${DIM}◉${RESET}`);
   } else {
-    parts.push(`${DIM}\u25CC${RESET}`);
+    parts.push(`${DIM}◌${RESET}`);
   }
 
   // Account domain
@@ -448,8 +519,34 @@ async function main(): Promise<void> {
     parts.push(`${DIM}@${short}${RESET}`);
   }
 
-  // Project code
+  // Project code (from CC workspace.project_dir or fallback)
   parts.push(`${PROJ}${projectCode}${RESET}`);
+
+  // Cost segment (DIM, only when ≥ $0.01) — between project name and 5H segment
+  const totalCost = ccInput.cost?.total_cost_usd;
+  if (totalCost != null && totalCost >= 0.01) {
+    parts.push(`${DIM}$${totalCost.toFixed(2)}${RESET}`);
+  }
+
+  // Line-delta segment (DIM, only when both present and at least one nonzero)
+  const linesAdded = ccInput.cost?.total_lines_added;
+  const linesRemoved = ccInput.cost?.total_lines_removed;
+  if (
+    linesAdded != null &&
+    linesRemoved != null &&
+    (linesAdded > 0 || linesRemoved > 0)
+  ) {
+    parts.push(`${DIM}+${linesAdded}/-${linesRemoved}${RESET}`);
+  }
+
+  // CC model name + output_style (between project info and git)
+  if (ccInput.model?.display_name) {
+    parts.push(`${DIM}${shortenModel(ccInput.model.display_name)}${RESET}`);
+  }
+  const outputStyle = ccInput.output_style;
+  if (outputStyle && outputStyle !== "default") {
+    parts.push(`${DIM}${shortenOutputStyle(outputStyle)}${RESET}`);
+  }
 
   // Git branch
   if (git) {
@@ -457,7 +554,7 @@ async function main(): Promise<void> {
       ? `${GIT_DIRTY}${git.branch}*${RESET}`
       : `${GIT}${git.branch}${RESET}`;
     if (git.ahead > 0) {
-      branchPart += `  ${DIM}\u2191${git.ahead}${RESET}`;
+      branchPart += `  ${DIM}↑${git.ahead}${RESET}`;
     }
     parts.push(branchPart);
   }
@@ -465,20 +562,29 @@ async function main(): Promise<void> {
   // Active spec (from nexus-agent session — spec field may be absent)
   const spec = (session as Record<string, unknown> | undefined)?.spec;
   if (typeof spec === "string" && spec.length > 0) {
-    parts.push(`\u26A1 ${SPEC}${spec}${RESET}`);
+    parts.push(`⚡ ${SPEC}${spec}${RESET}`);
   }
 
-  // Context window (from CC stdin)
-  const remaining = ccInput.context_window?.remaining_percentage;
-  if (remaining != null) {
+  // Context window — CC sends used_percentage; we display remaining
+  const usedPct = ccInput.context_window?.used_percentage;
+  if (usedPct != null) {
+    const remaining = 100 - usedPct;
     parts.push(renderContext(remaining));
   }
 
   // Session (5hr) and Weekly (7d) usage
   if (usage) {
     if (usage.five_hour) {
+      // Prefer CC-supplied resets_at (unix seconds) when present (task 1.7)
+      const ccResetsAt = ccInput.rate_limits?.five_hour?.resets_at;
       parts.push(
-        renderUsageGauge("5H", usage.five_hour.utilization, usage.five_hour.resets_at, 5 * 3600),
+        renderUsageGauge(
+          "5H",
+          usage.five_hour.utilization,
+          usage.five_hour.resets_at,
+          5 * 3600,
+          ccResetsAt,
+        ),
       );
     }
     if (usage.seven_day) {
@@ -488,9 +594,49 @@ async function main(): Promise<void> {
     }
   }
 
-  process.stdout.write(parts.join("  "));
+  return parts.join("  ");
 }
 
-main().catch(() => {
-  // Silent — statusline must never crash
-});
+export type { CcInput, GitInfo, StatuslineResponse, UsageResponse };
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const ccInput = readStdinInput();
+
+  // Project dir resolution: CC workspace.project_dir → CLAUDE_PROJECT_DIR → cwd
+  const projectDir =
+    ccInput.workspace?.project_dir ??
+    process.env.CLAUDE_PROJECT_DIR ??
+    process.cwd();
+
+  // git is still needed for branch + dirty detection (no CC equivalent yet)
+  const git = getGitStatus(projectDir);
+  const agentUrl = getLocalAgentUrl();
+
+  // Parallel fetches: agent statusline, API usage, account domain
+  const [nexusData, usage, accountDomain] = await Promise.all([
+    fetchStatusline(agentUrl),
+    getApiUsage(),
+    getAccountDomain(),
+  ]);
+
+  const out = renderStatusline(ccInput, {
+    git,
+    nexusData,
+    usage,
+    accountDomain,
+    projectDir,
+  });
+
+  process.stdout.write(out);
+}
+
+// Only run main() when invoked as a binary, not when imported by tests.
+// Bun.main is the absolute path of the entry-point script; import.meta.path
+// is this file's path. They match only when this file IS the entry-point.
+if (typeof Bun !== "undefined" && Bun.main === import.meta.path) {
+  main().catch(() => {
+    // Silent — statusline must never crash
+  });
+}
