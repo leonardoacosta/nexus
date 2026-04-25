@@ -13,16 +13,16 @@
 
 ## E2E Batch (unit tests)
 
-- [ ] [2.1] [P-1] Add `apps/nexus-status/src/index.test.ts` (or extend existing test file if present) with a fixture representing the current canonical CC payload. Assert the rendered output contains a context-bar segment. [owner:e2e-engineer]
-- [ ] [2.2] [P-1] Test: CC payload with `used_percentage: 25` renders `~75%` remaining color-banded as `CTX_HIGH`. [owner:e2e-engineer]
-- [ ] [2.3] [P-1] Test: CC payload with `used_percentage: 85` renders `~15%` remaining color-banded as `CTX_LOW`. [owner:e2e-engineer]
-- [ ] [2.4] [P-1] Test: payload missing `context_window` at all — the renderer MUST NOT crash and MUST NOT render a context segment. [owner:e2e-engineer]
-- [ ] [2.5] [P-1] Test: `cost.total_cost_usd = 0.12` renders `$0.12` in DIM. [owner:e2e-engineer]
-- [ ] [2.6] [P-1] Test: `cost.total_cost_usd = 0.003` (below threshold) renders no cost segment. [owner:e2e-engineer]
-- [ ] [2.7] [P-1] Test: `cost.total_lines_added = 10`, `total_lines_removed = 2` renders `+10/-2`. Zero values render nothing. [owner:e2e-engineer]
-- [ ] [2.8] [P-2] Test: `output_style = "tts-summary"` renders an 8-char truncation. `output_style = "default"` renders nothing. [owner:e2e-engineer]
-- [ ] [2.9] [P-1] Test: `rate_limits.five_hour.resets_at` in 30 minutes renders `↻30m` (or equivalent format). [owner:e2e-engineer]
-- [ ] [2.10] [P-1] Test: `workspace.project_dir = "/home/x/dev/oo"` — assert the renderer uses `oo` as project and does NOT invoke `git remote get-url`. Mock `execSync` to detect the call. [owner:e2e-engineer]
+- [x] [2.1] [P-1] Add `apps/nexus-status/src/index.test.ts` (or extend existing test file if present) with a fixture representing the current canonical CC payload. Assert the rendered output contains a context-bar segment. [owner:e2e-engineer]
+- [x] [2.2] [P-1] Test: CC payload with `used_percentage: 25` renders `~75%` remaining color-banded as `CTX_HIGH`. [owner:e2e-engineer]
+- [x] [2.3] [P-1] Test: CC payload with `used_percentage: 85` renders `~15%` remaining color-banded as `CTX_LOW`. [owner:e2e-engineer]
+- [x] [2.4] [P-1] Test: payload missing `context_window` at all — the renderer MUST NOT crash and MUST NOT render a context segment. [owner:e2e-engineer]
+- [x] [2.5] [P-1] Test: `cost.total_cost_usd = 0.12` renders `$0.12` in DIM. [owner:e2e-engineer]
+- [x] [2.6] [P-1] Test: `cost.total_cost_usd = 0.003` (below threshold) renders no cost segment. [owner:e2e-engineer]
+- [x] [2.7] [P-1] Test: `cost.total_lines_added = 10`, `total_lines_removed = 2` renders `+10/-2`. Zero values render nothing. [owner:e2e-engineer]
+- [x] [2.8] [P-2] Test: `output_style = "tts-summary"` renders an 8-char truncation. `output_style = "default"` renders nothing. [owner:e2e-engineer]
+- [x] [2.9] [P-1] Test: `rate_limits.five_hour.resets_at` in 30 minutes renders `↻30m` (or equivalent format). [owner:e2e-engineer]
+- [x] [2.10] [P-1] Test: `workspace.project_dir = "/home/x/dev/oo"` — assert the renderer uses `oo` as project and does NOT invoke `git remote get-url`. Mock `execSync` to detect the call. [owner:e2e-engineer]
 
 ## Build + Deploy Batch
 
