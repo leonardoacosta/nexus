@@ -1,5 +1,5 @@
-# Legacy Rust build artifacts (safe to remove after target/ is deleted)
-/target/
+# Rust build artifacts (any package, any depth)
+target/
 
 # Gate hook temp files
 
@@ -39,6 +39,15 @@ node_modules/
 
 # Build outputs
 dist/
+build/
+out/
+
+# Compiled binaries (any package)
+*.exe
+*.dll
+*.so
+*.dylib
+*.wasm
 
 # TypeScript incremental build cache
 *.tsbuildinfo
