@@ -8,13 +8,17 @@
 // of the user-facing happy path so that, the day Playwright lands, the e2e
 // gate already has a credible smoke test to run.
 //
-// Why .skip vs deletion: the spec (E2E task 4.1, beads:nx-tov87) is satisfied
-// by acknowledging the surface, identifying the data-testids the form
-// already exposes, and documenting the round-trip we'd verify. Re-enabling
-// is a one-line change once `pnpm --filter @nexus/nextjs add -D @playwright/test`
-// and a `playwright.config.ts` are in place.
+// Why .skip vs deletion: the spec (E2E task 4.1, beads:nx-tov87 +
+// beads:nx-b3g5k) is satisfied by acknowledging the surface, identifying the
+// data-testids the form already exposes, and documenting the round-trip we'd
+// verify. Re-enabling is a one-line change once
+// `pnpm --filter @nexus/nextjs add -D @playwright/test` and a
+// `playwright.config.ts` are in place.
 //
-// Spec: openspec/changes/add-elevenlabs-credential/proposal.md
+// Specs:
+//   - openspec/changes/add-elevenlabs-credential/proposal.md (happy path)
+//   - openspec/changes/harden-elevenlabs-credential-p2-p3-gcf/proposal.md
+//     (placeholder regression, network-error label, empty-apiKey rejection)
 //
 // @ts-nocheck — playwright is not a dependency yet; we don't want this file
 // to fail the repo-wide `pnpm tsc --noEmit` gate before Playwright is wired.
@@ -75,6 +79,143 @@ const TEST_KEY = "xi-e2e-test-key-12345"; // not a real ElevenLabs key
 //     // ── Cleanup ──────────────────────────────────────────────────────────
 //     page.once("dialog", (dialog) => dialog.accept());
 //     await page.getByTestId("elevenlabs-delete").click();
+//     await expect(page.getByTestId("elevenlabs-empty-state")).toBeVisible();
+//   });
+//
+//   // ──────────────────────────────────────────────────────────────────────
+//   // [4.1.a] MaskedKeyInput placeholder regression
+//   //
+//   // Spec: harden-elevenlabs-credential-p2-p3-gcf — "MaskedKeyInput
+//   // placeholder MUST never bind to value". The component renders bullets
+//   // like "••••••••" as the placeholder when hasKey===true, but the input
+//   // VALUE must remain empty so the user can type a fresh key without
+//   // having to clear masked content first. A future refactor that binds
+//   // the bullet string to `value` instead of `placeholder` would silently
+//   // break this contract — this test pins the invariant at the rendered
+//   // DOM level.
+//   //
+//   // Precondition: a credential row already exists. We seed it via the
+//   // agent's PATCH endpoint (the dashboard never sees raw keys, and
+//   // neither does this seed call), then reload so hasKey===true on first
+//   // render.
+//   // ──────────────────────────────────────────────────────────────────────
+//   test("first render with hasKey=true: input.value is empty and never equals placeholder", async ({
+//     page,
+//   }) => {
+//     // Seed a stored key so the page renders in the hasKey===true branch.
+//     await page.request.patch("/api/elevenlabs/credentials", {
+//       data: { apiKey: TEST_KEY },
+//     });
+//
+//     await page.goto("/integrations/elevenlabs");
+//     // Empty-state banner should be absent now that a key is stored.
+//     await expect(page.getByTestId("elevenlabs-empty-state")).toHaveCount(0);
+//
+//     const input = page.getByTestId("elevenlabs-api-key-input");
+//     await expect(input).toBeVisible();
+//
+//     // The contract: value is "" on first render even when hasKey===true.
+//     // The bullet string lives in the placeholder attribute, never in value.
+//     const value = await input.inputValue();
+//     const placeholder = await input.getAttribute("placeholder");
+//     expect(value).toBe("");
+//     expect(placeholder).not.toBeNull();
+//     expect(value).not.toBe(placeholder);
+//     // Defense-in-depth: the bullet character itself must not appear in
+//     // value at any time, regardless of what the placeholder string is.
+//     expect(value).not.toMatch(/[•·●○]/);
+//
+//     // Cleanup so subsequent tests start from empty-state.
+//     await page.request.delete("/api/elevenlabs/credentials").catch(() => {});
+//   });
+//
+//   // ──────────────────────────────────────────────────────────────────────
+//   // [4.1.b] Network-error friendly label
+//   //
+//   // Spec: harden-elevenlabs-credential-p2-p3-gcf — "Network-error status
+//   // code MUST surface as a recognizable signal". The agent maps fetch
+//   // throws (DNS, ETIMEDOUT, etc.) to `{ ok: false, statusCode: null,
+//   // error: "network" }`, and TestConnectionPanel renders that null as
+//   // "Network error — could not reach api.elevenlabs.io" instead of the
+//   // legacy "Status: 0".
+//   //
+//   // We mock the agent's /test response via page.route() — this isolates
+//   // the dashboard's rendering contract from the agent's actual upstream
+//   // behavior, so the test stays deterministic even when ElevenLabs is up.
+//   // ──────────────────────────────────────────────────────────────────────
+//   test("network-error response renders friendly label, not 'Status: 0'", async ({
+//     page,
+//   }) => {
+//     // Seed a stored key so the test-connection button is enabled.
+//     await page.request.patch("/api/elevenlabs/credentials", {
+//       data: { apiKey: TEST_KEY },
+//     });
+//
+//     // Intercept the agent's test endpoint. The exact route is proxied
+//     // through the dashboard; match either shape for resilience.
+//     await page.route(
+//       /\/elevenlabs\/credentials\/test(\?|$)/,
+//       async (route) => {
+//         await route.fulfill({
+//           status: 200,
+//           contentType: "application/json",
+//           body: JSON.stringify({
+//             ok: false,
+//             statusCode: null,
+//             error: "network",
+//           }),
+//         });
+//       },
+//     );
+//
+//     await page.goto("/integrations/elevenlabs");
+//     await page.getByTestId("elevenlabs-test-connection").click();
+//
+//     // The friendly label must appear; "Status: 0" must NOT.
+//     const statusPanel = page.getByTestId("elevenlabs-test-status");
+//     await expect(statusPanel).toContainText(/Network error/i);
+//     await expect(statusPanel).not.toContainText("Status: 0");
+//
+//     // Cleanup.
+//     await page.request.delete("/api/elevenlabs/credentials").catch(() => {});
+//   });
+//
+//   // ──────────────────────────────────────────────────────────────────────
+//   // [4.1.c] Empty apiKey rejected at the boundary
+//   //
+//   // Spec: harden-elevenlabs-credential-p2-p3-gcf — "PATCH input MUST
+//   // validate against the canonical Zod schema". Pre-hardening, an
+//   // empty-string apiKey was encrypted, stored, and reported `hasKey:
+//   // true` while every upstream call 401'd. After hardening, the agent
+//   // returns 400 `{"error":"invalid input"}`, and the dashboard's error
+//   // whitelist (in actions/elevenlabs-credentials.ts) maps that to the
+//   // user-facing message "Invalid input. The API key cannot be empty."
+//   // ──────────────────────────────────────────────────────────────────────
+//   test("submitting empty apiKey surfaces the 'Invalid input' message", async ({
+//     page,
+//   }) => {
+//     // Start from empty-state.
+//     await page.request.delete("/api/elevenlabs/credentials").catch(() => {});
+//
+//     await page.goto("/integrations/elevenlabs");
+//
+//     const input = page.getByTestId("elevenlabs-api-key-input");
+//     await expect(input).toBeVisible();
+//     // Explicitly clear (input is already empty on first load, but be
+//     // defensive — a future autofill or stored-key precondition could
+//     // change this).
+//     await input.fill("");
+//     await page.getByTestId("elevenlabs-save").click();
+//
+//     // The whitelist maps agent error "invalid input" → friendly text
+//     // beginning with "Invalid input". Match case-insensitively to keep
+//     // the assertion resilient to copy edits.
+//     const errorPanel = page.getByTestId("elevenlabs-save-error").or(
+//       page.getByRole("alert"),
+//     );
+//     await expect(errorPanel).toContainText(/Invalid input/i);
+//
+//     // The empty-state banner must still be visible — nothing was stored.
 //     await expect(page.getByTestId("elevenlabs-empty-state")).toBeVisible();
 //   });
 // });

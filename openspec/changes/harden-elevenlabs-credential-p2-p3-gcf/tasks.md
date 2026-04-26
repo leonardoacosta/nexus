@@ -28,4 +28,4 @@
 
 ## E2E Batch
 
-- [ ] [4.1] [P-2] Extend the existing Playwright spec at `apps/nextjs/e2e/integrations-elevenlabs.spec.ts` (currently `.skip`'d) to assert: (a) input.value !== bullet placeholder on first render, (b) network-error result renders the friendly label not "Status: 0", (c) submitting an empty apiKey produces the new "invalid input" message rather than silently storing an empty value. Keep the file `.skip`'d if Playwright is still not wired; the test bodies remain valuable as documentation. [owner:e2e-engineer] [type:testing] [beads:nx-b3g5k]
+- [x] [4.1] [P-2] Extend the existing Playwright spec at `apps/nextjs/e2e/integrations-elevenlabs.spec.ts` (currently `.skip`'d) to assert: (a) input.value !== bullet placeholder on first render, (b) network-error result renders the friendly label not "Status: 0", (c) submitting an empty apiKey produces the new "invalid input" message rather than silently storing an empty value. Keep the file `.skip`'d if Playwright is still not wired; the test bodies remain valuable as documentation. [owner:e2e-engineer] [type:testing] [beads:nx-b3g5k]
