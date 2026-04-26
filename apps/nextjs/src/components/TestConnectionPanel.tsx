@@ -51,6 +51,14 @@ function statusText(state: PanelState): string | null {
     return `Status: ✓ ${statusCode} — connection ok`;
   }
 
+  // `statusCode === null` ⇒ no HTTP exchange occurred (DNS, timeout, refused).
+  // Render a friendly label instead of the meaningless "Status: 0" placeholder.
+  // Spec: harden-elevenlabs-credential-p2-p3-gcf §
+  // "Network-error status code MUST surface as a recognizable signal"
+  if (statusCode === null) {
+    return "Network error — could not reach api.elevenlabs.io";
+  }
+
   // Error branches — drive copy off the upstream status code.
   if (statusCode === 401) {
     return `Status: ✗ 401 — invalid or expired API key`;

@@ -41,6 +41,52 @@ class AgentUnreachableError extends Error {
   }
 }
 
+/**
+ * Map known agent error strings to user-facing copy.
+ *
+ * The agent's `/elevenlabs/*` routes return JSON like `{"error":"<code>"}` for
+ * recognized failure modes. We whitelist those codes so the dashboard never
+ * leaks a raw agent body into the DOM (where it could expose internal state)
+ * and unknown errors collapse to a generic "check the agent log" message —
+ * the raw text still goes to the server-side console for diagnosis.
+ *
+ * Spec: harden-elevenlabs-credential-p2-p3-gcf §
+ * "Server-action error path MUST whitelist agent error codes"
+ */
+const AGENT_ERROR_WHITELIST: Record<string, string> = {
+  "encryption key not configured":
+    "Encryption key not configured on the agent. Set NEXUS_ENCRYPTION_KEY and restart.",
+  "invalid input": "Invalid input. The API key cannot be empty.",
+  "no credential stored": "No credentials are stored yet. Save a key first.",
+  "could not decrypt stored credential":
+    "Stored credential is corrupted. Delete and re-save.",
+};
+
+const GENERIC_AGENT_ERROR =
+  "Could not save credentials. Check the agent log.";
+
+function mapAgentError(rawText: string, contextLabel: string): string {
+  // Log the raw text for server-side diagnostics; never echo it to the
+  // thrown Error message, which would render in the browser DOM.
+  console.error(`[elevenlabs-credentials] ${contextLabel}: ${rawText}`);
+
+  if (!rawText) return GENERIC_AGENT_ERROR;
+
+  // Agent bodies are typically JSON `{"error":"<code>"}` but tolerate a
+  // raw string body too — match `error` field if parseable.
+  let code = rawText.trim();
+  try {
+    const parsed = JSON.parse(rawText) as { error?: unknown };
+    if (typeof parsed.error === "string") {
+      code = parsed.error.trim();
+    }
+  } catch {
+    // Not JSON — fall through with the raw trimmed text.
+  }
+
+  return AGENT_ERROR_WHITELIST[code.toLowerCase()] ?? GENERIC_AGENT_ERROR;
+}
+
 function authHeaders(): Record<string, string> {
   return {
     "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
@@ -97,9 +143,7 @@ export async function saveCredentials(input: {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `Agent returned ${res.status} for PATCH /elevenlabs/credentials${
-        text ? `: ${text}` : ""
-      }`,
+      mapAgentError(text, `PATCH /elevenlabs/credentials → ${res.status}`),
     );
   }
   return elevenlabsCredentialsResponse.parse(await res.json());
@@ -119,7 +163,10 @@ export async function testCredentials(): Promise<ElevenlabsTestResponse> {
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`Agent returned ${res.status} for POST /elevenlabs/credentials/test`);
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      mapAgentError(text, `POST /elevenlabs/credentials/test → ${res.status}`),
+    );
   }
   return elevenlabsTestResponse.parse(await res.json());
 }
@@ -137,7 +184,10 @@ export async function deleteCredentials(): Promise<void> {
     cache: "no-store",
   });
   if (!res.ok && res.status !== 404) {
-    throw new Error(`Agent returned ${res.status} for DELETE /elevenlabs/credentials`);
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      mapAgentError(text, `DELETE /elevenlabs/credentials → ${res.status}`),
+    );
   }
 }
 
