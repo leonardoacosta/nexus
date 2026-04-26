@@ -42,14 +42,26 @@ import {
   handleGetCredentials,
   handlePatchCredentials,
   handleDeleteCredentials,
-  initElevenlabsCredentialRoutes,
-  resetElevenlabsCredentialRoutes,
+  handleTestConnection,
 } from "./elevenlabs-credentials";
 import {
   handleListVoices,
   resetVoiceCache,
 } from "./elevenlabs-voices";
+import {
+  setElevenlabsRuntime,
+  resetElevenlabsRuntime,
+} from "../credentials/elevenlabs-runtime";
 import { encrypt } from "../credentials/encryption";
+
+// Local aliases that match the prior init/reset names so the existing test
+// bodies stay readable. Both forward to the shared runtime module.
+function initElevenlabsCredentialRoutes(key: Buffer | undefined): void {
+  setElevenlabsRuntime({ encryptionKey: key });
+}
+function resetElevenlabsCredentialRoutes(): void {
+  resetElevenlabsRuntime();
+}
 
 // ─── Fake DB ──────────────────────────────────────────────────────────────
 
@@ -238,6 +250,142 @@ describe("DELETE /elevenlabs/credentials", () => {
       }),
     );
     expect(res.status).toBe(204);
+    expect(rows.length).toBe(0);
+  });
+});
+
+describe("POST /elevenlabs/credentials/test — non-leakage + decrypt failure + missing row", () => {
+  beforeEach(() => {
+    resetElevenlabsCredentialRoutes();
+    initElevenlabsCredentialRoutes(STUB_KEY);
+    fetchWithTimeoutMock.mockClear();
+  });
+
+  it("response body never echoes the decrypted apiKey, even on a 200 with subscription data", async () => {
+    const plaintext = "xi-secret-AAA";
+    const ciphertext = encrypt(plaintext, STUB_KEY);
+    const { db } = makeFakeDb([
+      {
+        id: "row-1",
+        agentId: "test-agent",
+        valueEncrypted: ciphertext,
+        encryptionKeyId: "v1",
+        voiceId: null,
+        voiceName: null,
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    fetchWithTimeoutMock.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            subscription: {
+              tier: "pro",
+              character_count: 100,
+              character_limit: 10000,
+              next_character_count_reset_unix: 1_900_000_000,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/elevenlabs/credentials/test", {
+        method: "POST",
+      }),
+    );
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text).not.toContain(plaintext);
+    expect(text).not.toContain(ciphertext);
+    expect(text).not.toContain("value_encrypted");
+    expect(text).not.toContain("valueEncrypted");
+
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.statusCode).toBe(200);
+    // Subscription fields should be present, but the apiKey must not appear
+    // anywhere — including transformed inside the subscription block.
+    expect(body.subscription).toMatchObject({
+      tier: "pro",
+      characterCount: 100,
+      characterLimit: 10000,
+    });
+  });
+
+  it("returns 500 + 'could not decrypt stored credential' when decrypt throws, without calling upstream", async () => {
+    // A short, malformed string — the AES-GCM decrypt path will throw
+    // "ciphertext too short — invalid or corrupted" before any HTTP call.
+    const corrupted = Buffer.from("garbage").toString("base64");
+    const { db } = makeFakeDb([
+      {
+        id: "row-1",
+        agentId: "test-agent",
+        valueEncrypted: corrupted,
+        encryptionKeyId: "v1",
+        voiceId: null,
+        voiceName: null,
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/elevenlabs/credentials/test", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("could not decrypt stored credential");
+    // Critically, no upstream HTTP call should have been attempted.
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 + 'no credential stored' when no row exists", async () => {
+    const { db } = makeFakeDb([]);
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/elevenlabs/credentials/test", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("no credential stored");
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /elevenlabs/credentials — Zod validation", () => {
+  beforeEach(() => {
+    resetElevenlabsCredentialRoutes();
+    initElevenlabsCredentialRoutes(STUB_KEY);
+  });
+
+  it("rejects empty-string apiKey with 400 and 'invalid input'", async () => {
+    const { db, rows } = makeFakeDb([]);
+    const res = await handlePatchCredentials(
+      db,
+      makeRequest("http://127.0.0.1/elevenlabs/credentials", {
+        method: "PATCH",
+        body: { apiKey: "" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; detail: unknown };
+    expect(body.error).toBe("invalid input");
+    expect(Array.isArray(body.detail)).toBe(true);
+    // Crucially, no row should have been written.
     expect(rows.length).toBe(0);
   });
 });

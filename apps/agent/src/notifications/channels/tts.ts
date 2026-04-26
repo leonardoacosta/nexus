@@ -6,7 +6,11 @@ import type { Db } from "@nexus/db";
 import { elevenlabsCredentials } from "@nexus/db";
 import type { NotificationRow } from "../buffer";
 import { decrypt } from "../../credentials/encryption";
-import { getElevenlabsEncryptionKey } from "../../routes/elevenlabs-credentials";
+import {
+  getElevenlabsDb,
+  getElevenlabsEncryptionKey,
+} from "../../credentials/elevenlabs-runtime";
+import { lifecycleBus } from "../../services/lifecycle-bus";
 
 /**
  * TTS notification channel — agent synthesizes via ElevenLabs, listener plays.
@@ -32,6 +36,11 @@ import { getElevenlabsEncryptionKey } from "../../routes/elevenlabs-credentials"
  * fall back to local `say(1)`. Suppressing the lifecycle event would
  * silence every downstream consumer over what is fundamentally an
  * enrichment failure.
+ *
+ * Runtime state (db handle, encryption key) is read from
+ * `apps/agent/src/credentials/elevenlabs-runtime.ts`. Tests can pass a
+ * per-call `{ db }` context to override the runtime db without touching
+ * the global setter.
  */
 
 export interface TtsResult {
@@ -44,32 +53,70 @@ export interface TtsResult {
 /**
  * Optional dependency bundle threaded by the notifications manager so the
  * channel can read the per-agent ElevenLabs row before falling back to env.
+ *
+ * Production code does not pass a `TtsContext` — the runtime db installed
+ * by `startServer()` is read via `getElevenlabsDb()`. Tests bypass the
+ * global state by passing `{ db }` directly.
  */
 export interface TtsContext {
   db?: Db;
 }
 
-/**
- * Module-level db ref used by the production channel-handler dispatch
- * (which doesn't accept a per-call context). The notifications manager
- * installs this in its constructor; tests bypass it by passing `{ db }`
- * directly to `sendTtsNotification`.
- */
-let ambientDb: Db | undefined;
-
-/** Install the ambient db ref (called once by the manager). */
-export function setTtsDb(db: Db | undefined): void {
-  ambientDb = db;
-}
-
-/** Reset (testing only). */
-export function resetTtsDb(): void {
-  ambientDb = undefined;
-}
-
 interface ResolvedCredential {
   apiKey: string;
   voiceId: string | null;
+}
+
+/**
+ * Recursively strip any object key matching `/^xi-api-key$/i` at any depth.
+ *
+ * Some fetch wrappers attach the failed request (including its outbound
+ * headers) to thrown errors for diagnostics. Those headers can include
+ * `xi-api-key`, the very secret the channel inserted for synthesis. Logging
+ * such an error verbatim risks leaking the key to the log aggregator and
+ * downstream telemetry (Sentry breadcrumbs, etc.). Run every err object
+ * through this helper before passing it to `logger.warn`.
+ *
+ * Cycle-safe: tracks visited objects in a WeakSet so self-referential
+ * structures don't infinite-loop. Falls back to a string description when
+ * the input isn't an object.
+ */
+export function scrubFetchError(err: unknown): unknown {
+  const seen = new WeakSet<object>();
+
+  function walk(value: unknown): unknown {
+    if (value === null || typeof value !== "object") return value;
+    if (seen.has(value as object)) return "[Circular]";
+    seen.add(value as object);
+
+    if (Array.isArray(value)) {
+      return value.map(walk);
+    }
+
+    // Preserve Error shape (message, name, stack) — copy enumerable props
+    // *and* the standard Error fields onto a plain object.
+    if (value instanceof Error) {
+      const out: Record<string, unknown> = {
+        name: value.name,
+        message: value.message,
+      };
+      if (value.stack) out.stack = value.stack;
+      for (const [k, v] of Object.entries(value)) {
+        if (/^xi-api-key$/i.test(k)) continue;
+        out[k] = walk(v);
+      }
+      return out;
+    }
+
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (/^xi-api-key$/i.test(k)) continue;
+      out[k] = walk(v);
+    }
+    return out;
+  }
+
+  return walk(err);
 }
 
 /**
@@ -79,6 +126,10 @@ interface ResolvedCredential {
  * stay in signal-only mode. Never throws — DB-read failures fall back to
  * env. Encryption-key absence is treated like a missing row (we don't
  * have a way to surface a 400 from inside the channel).
+ *
+ * Decrypt failures (corrupted ciphertext, key drift) emit a
+ * `CredentialDecryptFallback` lifecycle event before falling back to env
+ * so a dashboard widget or log query can count fallbacks per day.
  */
 async function resolveCredential(
   db: Db | undefined,
@@ -97,15 +148,22 @@ async function resolveCredential(
             return { apiKey, voiceId: row.voiceId };
           } catch (err) {
             logger.warn(
-              { err, agentId },
+              { err: scrubFetchError(err), agentId },
               "tts: decrypt failed for stored key — falling back to env",
             );
+            // Audit signal: corrupted ciphertext or master-key drift forced
+            // the channel to drop back to env. Downstream consumers can
+            // count these per day to spot rotation drift before it bites.
+            lifecycleBus.emit("CredentialDecryptFallback", {
+              agentId,
+              source: "tts",
+            });
           }
         }
       }
     } catch (err) {
       logger.warn(
-        { err },
+        { err: scrubFetchError(err) },
         "tts: DB lookup failed — falling back to env",
       );
     }
@@ -129,7 +187,7 @@ export async function sendTtsNotification(
     ? `${notification.project}: ${notification.body}`
     : notification.body;
 
-  const credential = await resolveCredential(context?.db ?? ambientDb);
+  const credential = await resolveCredential(context?.db ?? getElevenlabsDb());
 
   // Neither DB row nor env: signal-only branch.
   if (!credential) {
@@ -185,6 +243,7 @@ export async function sendTtsNotification(
     logger.warn(
       {
         id: notification.id,
+        err: scrubFetchError(err),
         error: err instanceof Error ? err.message : String(err),
       },
       "tts synthesis failed — falling back to signal-only (listener will use local TTS)",

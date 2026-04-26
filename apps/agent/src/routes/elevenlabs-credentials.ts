@@ -13,7 +13,13 @@
  *   DELETE /elevenlabs/credentials       — drops the row for this agent
  *   POST   /elevenlabs/credentials/test  — proxies /v1/user, persists outcome
  *
+ * Runtime state (encryption key + db handle) lives in
+ * `apps/agent/src/credentials/elevenlabs-runtime.ts` and is installed by
+ * `startServer()` once during boot. Both this module and the TTS channel
+ * read from those getters so neither layer reaches into the other.
+ *
  * Spec: openspec/changes/add-elevenlabs-credential/
+ *       openspec/changes/harden-elevenlabs-credential-p2-p3-gcf/
  */
 
 import { randomUUID } from "node:crypto";
@@ -21,35 +27,13 @@ import type { Db } from "@nexus/db";
 import { elevenlabsCredentials } from "@nexus/db";
 import { logger, getAgentId } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
+import { elevenlabsPatchInput } from "@nexus/core";
 import { eq } from "drizzle-orm";
 
 import { decrypt, encrypt } from "../credentials/encryption";
+import { getElevenlabsEncryptionKey } from "../credentials/elevenlabs-runtime";
+import { invalidateVoiceCache } from "./elevenlabs-voices";
 import type { ElevenlabsCredentialsResponse } from "@nexus/core";
-
-// ── Encryption-key resolution (same shape as credentials route module) ─────
-//
-// The agent's `startServer()` threads a 32-byte key buffer through
-// `initCredentialRoutes` for the OAuth credential pool. We use the same key
-// for ElevenLabs ciphertext but install it independently so the dashboard's
-// PATCH endpoint can return a clear "encryption key not configured" error
-// instead of crashing the whole route module.
-
-let elevenlabsKeyRef: Buffer | null = null;
-
-/** Install the master encryption key. Called once at server startup. */
-export function initElevenlabsCredentialRoutes(key: Buffer | undefined): void {
-  elevenlabsKeyRef = key ?? null;
-}
-
-/** Reset key (testing only). */
-export function resetElevenlabsCredentialRoutes(): void {
-  elevenlabsKeyRef = null;
-}
-
-/** Read the installed key. Returns null when NEXUS_ENCRYPTION_KEY was unset. */
-export function getElevenlabsEncryptionKey(): Buffer | null {
-  return elevenlabsKeyRef;
-}
 
 // ── Response helpers ───────────────────────────────────────────────────────
 
@@ -108,23 +92,27 @@ export async function handlePatchCredentials(
   db: Db,
   request: Request,
 ): Promise<Response> {
-  const key = elevenlabsKeyRef;
+  const key = getElevenlabsEncryptionKey();
   if (!key) {
     return jsonResponse({ error: "encryption key not configured" }, 400);
   }
 
-  let body: { apiKey?: unknown; voiceId?: unknown; voiceName?: unknown };
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as typeof body;
+    rawBody = await request.json();
   } catch {
     return jsonResponse({ error: "invalid json body" }, 400);
   }
 
-  const apiKey = typeof body.apiKey === "string" ? body.apiKey : undefined;
-  const voiceId = typeof body.voiceId === "string" ? body.voiceId : undefined;
-  const voiceName =
-    typeof body.voiceName === "string" ? body.voiceName : undefined;
+  const parsed = elevenlabsPatchInput.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonResponse(
+      { error: "invalid input", detail: parsed.error.issues },
+      400,
+    );
+  }
 
+  const { apiKey, voiceId, voiceName } = parsed.data;
   if (apiKey === undefined && voiceId === undefined && voiceName === undefined) {
     return jsonResponse({ error: "no fields supplied" }, 400);
   }
@@ -154,6 +142,13 @@ export async function handlePatchCredentials(
     });
   }
 
+  // The voice list cache keys on agentId and is a function of the apiKey.
+  // Rotating the apiKey MUST invalidate so the next /voices fetch goes
+  // upstream rather than returning entries authorized by the old key.
+  if (apiKey !== undefined) {
+    invalidateVoiceCache(agentId);
+  }
+
   const refreshed = await db.query.elevenlabsCredentials.findFirst({
     where: eq(elevenlabsCredentials.agentId, agentId),
   });
@@ -169,6 +164,9 @@ export async function handleDeleteCredentials(
   await db
     .delete(elevenlabsCredentials)
     .where(eq(elevenlabsCredentials.agentId, agentId));
+  // Always evict — even if the row didn't exist, ensuring no stale cache
+  // outlives a delete is cheaper than racing the existence check.
+  invalidateVoiceCache(agentId);
   return new Response(null, { status: 204 });
 }
 
@@ -178,12 +176,16 @@ export async function handleDeleteCredentials(
  * Persists `last_test_status_code` regardless of outcome and `last_test_ok_at`
  * only on 2xx. Returns the optional `subscription` block when the upstream
  * shape includes it.
+ *
+ * When the upstream fetch *throws* (DNS failure, timeout, connection refused),
+ * persists `last_test_status_code = NULL` (no HTTP exchange occurred) and
+ * returns `{ ok: false, statusCode: null, error: "network" }`.
  */
 export async function handleTestConnection(
   db: Db,
   _request: Request,
 ): Promise<Response> {
-  const key = elevenlabsKeyRef;
+  const key = getElevenlabsEncryptionKey();
   if (!key) {
     return jsonResponse({ error: "encryption key not configured" }, 400);
   }
@@ -201,11 +203,12 @@ export async function handleTestConnection(
     apiKey = decrypt(row.valueEncrypted, key);
   } catch (err) {
     logger.error({ err, agentId }, "elevenlabs: failed to decrypt stored key");
-    return jsonResponse({ error: "decryption failed" }, 500);
+    return jsonResponse({ error: "could not decrypt stored credential" }, 500);
   }
 
-  let statusCode = 0;
+  let statusCode: number | null = null;
   let subscription: ElevenlabsTestSubscriptionShape | undefined;
+  let networkError = false;
   try {
     const res = await fetchWithTimeout("https://api.elevenlabs.io/v1/user", {
       method: "GET",
@@ -240,11 +243,14 @@ export async function handleTestConnection(
       { err, agentId },
       "elevenlabs: test probe failed (network/timeout)",
     );
-    statusCode = 0;
+    networkError = true;
+    statusCode = null;
   }
 
-  // Persist outcome — last_test_status_code always, last_test_ok_at only on 2xx
-  const ok = statusCode >= 200 && statusCode < 300;
+  // Persist outcome — last_test_status_code stores the actual code or NULL
+  // for network failures. last_test_ok_at only on 2xx.
+  const ok =
+    statusCode !== null && statusCode >= 200 && statusCode < 300;
   await db
     .update(elevenlabsCredentials)
     .set({
@@ -253,10 +259,13 @@ export async function handleTestConnection(
     })
     .where(eq(elevenlabsCredentials.agentId, agentId));
 
-  const responseBody: { ok: boolean; statusCode: number; subscription?: ElevenlabsTestSubscriptionShape } = {
-    ok,
-    statusCode,
-  };
+  const responseBody: {
+    ok: boolean;
+    statusCode: number | null;
+    error?: string;
+    subscription?: ElevenlabsTestSubscriptionShape;
+  } = { ok, statusCode };
+  if (networkError) responseBody.error = "network";
   if (subscription) responseBody.subscription = subscription;
   return jsonResponse(responseBody);
 }

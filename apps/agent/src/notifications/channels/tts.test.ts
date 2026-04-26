@@ -279,17 +279,17 @@ describe("sendTtsNotification — DB row wins over env var", () => {
   it("uses DB-row api key when both DB row and ELEVENLABS_API_KEY env are set", async () => {
     process.env.ELEVENLABS_API_KEY = "ENV_KEY";
 
-    // Install a stub encryption key into the elevenlabs-credentials route
+    // Install a stub encryption key into the shared elevenlabs runtime
     // module so the channel's decrypt path resolves the same key the test
     // uses to encrypt. encrypt() lives in the agent's credentials helpers.
     const { encrypt } = await import("../../credentials/encryption");
     const {
-      initElevenlabsCredentialRoutes,
-      resetElevenlabsCredentialRoutes,
-    } = await import("../../routes/elevenlabs-credentials");
+      setElevenlabsRuntime,
+      resetElevenlabsRuntime,
+    } = await import("../../credentials/elevenlabs-runtime");
     const STUB_KEY = Buffer.alloc(32, 9);
-    resetElevenlabsCredentialRoutes();
-    initElevenlabsCredentialRoutes(STUB_KEY);
+    resetElevenlabsRuntime();
+    setElevenlabsRuntime({ encryptionKey: STUB_KEY });
 
     const ciphertext = encrypt("DB_KEY", STUB_KEY);
 

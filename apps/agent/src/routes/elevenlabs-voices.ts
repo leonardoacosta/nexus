@@ -1,5 +1,5 @@
 /**
- * ElevenLabs voice list proxy with 1-hour in-memory cache per agent.
+ * ElevenLabs voice list proxy with bounded LRU + 1-hour TTL cache per agent.
  *
  * The dashboard's voice dropdown calls this endpoint instead of hitting
  * ElevenLabs directly so:
@@ -9,7 +9,18 @@
  *   3. We can serve stale-on-error: if upstream throws or 5xxs, we return
  *      the last cached list so the dashboard stays usable.
  *
+ * Cache shape:
+ *   - 1-hour TTL per entry (`CACHE_TTL_MS`)
+ *   - 32-entry LRU cap (`MAX_CACHE_ENTRIES`) — deleting + re-inserting on
+ *     hit refreshes insertion order; insertion past cap evicts the oldest
+ *     (Map iteration order is insertion order per ECMAScript spec).
+ *   - `invalidateVoiceCache(agentId)` evicts a single entry — called by
+ *     `handlePatchCredentials` (when apiKey changes) and
+ *     `handleDeleteCredentials` (unconditionally) so cached voices never
+ *     reflect a stale or revoked key.
+ *
  * Spec: openspec/changes/add-elevenlabs-credential/
+ *       openspec/changes/harden-elevenlabs-credential-p2-p3-gcf/
  */
 
 import type { Db } from "@nexus/db";
@@ -19,7 +30,7 @@ import { fetchWithTimeout } from "@nexus/core/fetch";
 import { eq } from "drizzle-orm";
 
 import { decrypt } from "../credentials/encryption";
-import { getElevenlabsEncryptionKey } from "./elevenlabs-credentials";
+import { getElevenlabsEncryptionKey } from "../credentials/elevenlabs-runtime";
 import type { ElevenlabsVoicesResponse } from "@nexus/core";
 
 interface CacheEntry {
@@ -28,11 +39,36 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1_000; // 1 hour
+const MAX_CACHE_ENTRIES = 32;
 const cache = new Map<string, CacheEntry>();
+
+/** Touch an LRU entry — delete + reinsert refreshes insertion order. */
+function touch(agentId: string, entry: CacheEntry): void {
+  cache.delete(agentId);
+  cache.set(agentId, entry);
+}
+
+/** Insert with bounded eviction — oldest entry drops when at cap. */
+function setBounded(agentId: string, entry: CacheEntry): void {
+  cache.delete(agentId); // ensure re-insertion refreshes order
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  cache.set(agentId, entry);
+}
 
 /** Reset cache (testing only). */
 export function resetVoiceCache(): void {
   cache.clear();
+}
+
+/**
+ * Drop the cached voice list for one agent. Called by credential mutation
+ * handlers so a freshly-rotated apiKey never returns stale voices.
+ */
+export function invalidateVoiceCache(agentId: string): void {
+  cache.delete(agentId);
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -60,6 +96,7 @@ export async function handleListVoices(
 
   const cached = cache.get(agentId);
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    touch(agentId, cached);
     return jsonResponse({ voices: cached.voices });
   }
 
@@ -123,7 +160,7 @@ export async function handleListVoices(
       voices.push(entry);
     }
 
-    cache.set(agentId, { fetchedAt: now, voices });
+    setBounded(agentId, { fetchedAt: now, voices });
     return jsonResponse({ voices });
   } catch (err) {
     logger.warn({ err, agentId }, "elevenlabs voices: fetch failed");
