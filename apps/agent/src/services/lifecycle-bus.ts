@@ -54,6 +54,17 @@ export interface CredentialSwapPayload {
   reason: string;
 }
 
+export interface CredentialDecryptFallbackPayload {
+  /** Agent that experienced the decrypt failure. */
+  agentId: string;
+  /**
+   * Source channel that triggered the fallback (e.g. "tts").
+   * Lets downstream consumers group fallback counts by emitter when other
+   * channels eventually adopt the same signal.
+   */
+  source: string;
+}
+
 export interface NotificationFiredPayload {
   /** Notification id (idempotency key). */
   id: string;
@@ -91,6 +102,7 @@ export interface LifecycleEventMap {
   StatusChanged: StatusChangedPayload;
   SpecTransition: SpecTransitionPayload;
   CredentialSwap: CredentialSwapPayload;
+  CredentialDecryptFallback: CredentialDecryptFallbackPayload;
   NotificationFired: NotificationFiredPayload;
 }
 

@@ -46,7 +46,21 @@ export type ElevenlabsCredentialsResponse = z.infer<
  */
 export const elevenlabsTestResponse = z.object({
   ok: z.boolean(),
-  statusCode: z.number().int(),
+  /**
+   * HTTP status code from the upstream `/v1/user` probe.
+   *
+   * `null` means no HTTP exchange occurred — the fetch threw (DNS failure,
+   * timeout, connection refused). The dashboard renders `null` as a friendly
+   * "Network error — could not reach api.elevenlabs.io" label rather than
+   * the meaningless "Status: 0" placeholder.
+   */
+  statusCode: z.number().int().nullable(),
+  /**
+   * Optional error code surfaced when `ok=false`. Currently the only
+   * structured value is `"network"` (paired with `statusCode: null`); 4xx/5xx
+   * paths leave this absent and let the status code speak for itself.
+   */
+  error: z.string().optional(),
   subscription: z
     .object({
       tier: z.string(),
