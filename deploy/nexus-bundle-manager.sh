@@ -157,13 +157,50 @@ _write_info_plist() {
 PLIST
 }
 
+# Compile (once, cached) the Swift stub binary that requests UN authorization
+# on launch. terminal-notifier's `-sender` only renders the bundle's icon if
+# the bundle has registered as a notification source — calling
+# requestAuthorization() is what does the registration, regardless of grant.
+NEXUS_STATE_DIR="$HOME/Library/Application Support/nexus"
+NEXUS_STUB_BIN="$NEXUS_STATE_DIR/nexus-stub-bin"
+NEXUS_STUB_SRC="$HOME/bin/nexus-stub.swift"
+
+_ensure_stub_binary() {
+  if [ -x "$NEXUS_STUB_BIN" ] \
+     && [ -f "$NEXUS_STUB_SRC" ] \
+     && [ "$NEXUS_STUB_BIN" -nt "$NEXUS_STUB_SRC" ]; then
+    # Cached binary is newer than source — reuse.
+    return 0
+  fi
+  if [ ! -f "$NEXUS_STUB_SRC" ]; then
+    _log "stub source not found at $NEXUS_STUB_SRC — bundles will use shell fallback (no LEFT-icon registration)"
+    return 1
+  fi
+  /bin/mkdir -p "$NEXUS_STATE_DIR"
+  _log "compiling stub: $NEXUS_STUB_SRC -> $NEXUS_STUB_BIN"
+  if ! /usr/bin/swiftc -O "$NEXUS_STUB_SRC" -o "$NEXUS_STUB_BIN" 2>>"$LOG_FILE"; then
+    _log "swiftc failed; falling back to shell stub"
+    /bin/rm -f "$NEXUS_STUB_BIN"
+    return 1
+  fi
+  _log "stub compiled successfully"
+}
+
 _write_stub_executable() {
   local stub_path="$1"
+  if _ensure_stub_binary; then
+    # Copy the compiled binary into the bundle. (Hard-linking would be
+    # neater but breaks if /Applications and the cache are on different
+    # volumes; copy is portable.)
+    /bin/cp "$NEXUS_STUB_BIN" "$stub_path"
+    /bin/chmod +x "$stub_path"
+    return 0
+  fi
+  # Fallback: shell stub. Bundle will still work as a passive identity
+  # holder, but `-sender` won't override the LEFT icon because the
+  # bundle has never called requestAuthorization().
   /bin/cat > "$stub_path" <<'STUB'
 #!/bin/bash
-# Nexus notification-bundle stub. Never actually run by the user — exists
-# only so macOS treats this folder as a valid .app and accepts it as the
-# `-sender` of UNUserNotificationCenter banners. Exits cleanly if launched.
 exit 0
 STUB
   /bin/chmod +x "$stub_path"
@@ -209,6 +246,13 @@ ensure_bundle() {
   if [ -x "$LSREGISTER" ]; then
     "$LSREGISTER" -f "$app_dir" 2>>"$LOG_FILE" || _log "lsregister non-zero for $bundle_id"
   fi
+
+  # Launch the bundle hidden so its stub fires
+  # UNUserNotificationCenter.requestAuthorization() — that registration
+  # is what makes -sender <bundle-id> render the bundle's icon as the
+  # LEFT app-icon of subsequent banners. Without this step, terminal-
+  # notifier silently falls back to its own bundle's icon.
+  /usr/bin/open -gj "$app_dir" 2>>"$LOG_FILE" || _log "open -gj failed for $bundle_id"
 
   _log "bundle ready: $bundle_id"
   printf '%s' "$bundle_id"
