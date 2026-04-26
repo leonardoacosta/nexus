@@ -57,13 +57,7 @@ import { CREDENTIAL_ID_RE, requireSecret } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
-import {
-  handleGetCredentials as handleGetElevenlabsCredentials,
-  handlePatchCredentials as handlePatchElevenlabsCredentials,
-  handleDeleteCredentials as handleDeleteElevenlabsCredentials,
-  handleTestConnection as handleTestElevenlabsConnection,
-} from "./routes/elevenlabs-credentials";
-import { handleListVoices as handleListElevenlabsVoices } from "./routes/elevenlabs-voices";
+import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 
 /** Create the route dispatch handler, optionally backed by a database. */
 export function createRequestHandler(state: ServerState, db?: Db) {
@@ -242,111 +236,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       const credResult = tryHandleCredentialRoute(request, url);
       if (credResult !== null) return credResult;
 
-      // ── ElevenLabs credential + voices routes ────────────────────────
+      // ── ElevenLabs credential + voices routes (delegated) ────────────
       // Mounted after the OAuth credential group because they share the
       // same /credentials suffix at the second segment (no overlap, but
       // grouping the two credential families together keeps the
       // dispatcher easy to scan).
-      if (
-        url.pathname === "/elevenlabs/credentials" &&
-        request.method === "GET"
-      ) {
-        return handleGetElevenlabsCredentials(db, request)
-          .then((r) => withCors(request, r))
-          .catch((err) => {
-            logger.error(
-              { route: "/elevenlabs/credentials", method: "GET", err },
-              "route handler failed",
-            );
-            return withCors(
-              request,
-              new Response(JSON.stringify({ error: "internal error" }), {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-      }
-      if (
-        url.pathname === "/elevenlabs/credentials" &&
-        request.method === "PATCH"
-      ) {
-        return handlePatchElevenlabsCredentials(db, request)
-          .then((r) => withCors(request, r))
-          .catch((err) => {
-            logger.error(
-              { route: "/elevenlabs/credentials", method: "PATCH", err },
-              "route handler failed",
-            );
-            return withCors(
-              request,
-              new Response(JSON.stringify({ error: "internal error" }), {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-      }
-      if (
-        url.pathname === "/elevenlabs/credentials" &&
-        request.method === "DELETE"
-      ) {
-        return handleDeleteElevenlabsCredentials(db, request)
-          .then((r) => withCors(request, r))
-          .catch((err) => {
-            logger.error(
-              { route: "/elevenlabs/credentials", method: "DELETE", err },
-              "route handler failed",
-            );
-            return withCors(
-              request,
-              new Response(JSON.stringify({ error: "internal error" }), {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-      }
-      if (
-        url.pathname === "/elevenlabs/credentials/test" &&
-        request.method === "POST"
-      ) {
-        return handleTestElevenlabsConnection(db, request)
-          .then((r) => withCors(request, r))
-          .catch((err) => {
-            logger.error(
-              { route: "/elevenlabs/credentials/test", method: "POST", err },
-              "route handler failed",
-            );
-            return withCors(
-              request,
-              new Response(JSON.stringify({ error: "internal error" }), {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-      }
-      if (
-        url.pathname === "/elevenlabs/voices" &&
-        request.method === "GET"
-      ) {
-        return handleListElevenlabsVoices(db, request)
-          .then((r) => withCors(request, r))
-          .catch((err) => {
-            logger.error(
-              { route: "/elevenlabs/voices", method: "GET", err },
-              "route handler failed",
-            );
-            return withCors(
-              request,
-              new Response(JSON.stringify({ error: "internal error" }), {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-      }
+      const elevenlabsResult = tryHandleElevenlabsRoute(request, url, db);
+      if (elevenlabsResult !== null) return elevenlabsResult;
 
       // ── Analytics routes ──────────────────────────────────────────────
       if (url.pathname === "/analytics/health" && request.method === "GET") {

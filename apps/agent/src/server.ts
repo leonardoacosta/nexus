@@ -18,7 +18,7 @@ import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
 import { initNotificationRoutes } from "./routes/notifications";
 import { initCredentialRoutes, getCredentialPool } from "./routes/credentials";
-import { initElevenlabsCredentialRoutes } from "./routes/elevenlabs-credentials";
+import { setElevenlabsRuntime } from "./credentials/elevenlabs-runtime";
 import {
   startCredentialWatcher,
   startActiveCredentialWatcher,
@@ -59,11 +59,11 @@ export function startServer(
       encryptionKey: options?.encryptionKey,
       prerotateThreshold: options?.prerotateThreshold,
     });
-    // ElevenLabs credentials reuse the same master key as the OAuth pool.
-    // Installed independently so PATCH /elevenlabs/credentials can return a
-    // clean 400 ("encryption key not configured") instead of crashing when
-    // NEXUS_ENCRYPTION_KEY is unset.
-    initElevenlabsCredentialRoutes(options?.encryptionKey);
+    // ElevenLabs runtime state — single source of truth shared by routes
+    // and the TTS notification channel. Reuses the master key from the
+    // OAuth pool. PATCH /elevenlabs/credentials still returns a clean 400
+    // ("encryption key not configured") when NEXUS_ENCRYPTION_KEY is unset.
+    setElevenlabsRuntime({ db, encryptionKey: options?.encryptionKey });
 
     // Refresh credential metadata from disk (expiresAt, mcpProviders, etc.)
     // Fire-and-forget — stale metadata doesn't block server startup.
