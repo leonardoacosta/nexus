@@ -21,6 +21,13 @@ import type { NotificationRow } from "../buffer";
  * the notification as delivered and returns `audioBase64: undefined` so
  * `NotificationFired` still fires for any listener that owns its own TTS
  * (Slack bridge, mobile AVSpeechSynthesizer, etc.).
+ *
+ * When the key IS set but ElevenLabs rejects it (HTTP 4xx/5xx) or the
+ * request fails (network/timeout), the channel ALSO falls back to
+ * signal-only success. The synthesized mp3 is an enrichment, not a
+ * hard requirement — the listener can always use local TTS (Mac `say`,
+ * etc.). Returning failure here would suppress `NotificationFired`
+ * entirely and silence every downstream consumer.
  */
 
 export interface TtsResult {
@@ -49,7 +56,10 @@ export async function sendTtsNotification(
     return { success: true };
   }
 
-  // Key set: synthesize via ElevenLabs and return the mp3 bytes.
+  // Key set: synthesize via ElevenLabs and return the mp3 bytes. On any
+  // failure (4xx/5xx, network, timeout) we degrade to signal-only success
+  // so `NotificationFired` still fires and the listener can fall back to
+  // local TTS. ElevenLabs is enrichment, not a hard requirement.
   try {
     const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
     const res = await fetchWithTimeout(
@@ -71,8 +81,11 @@ export async function sendTtsNotification(
     if (!res.ok) {
       const err = new Error(`TTS API error: HTTP ${res.status}`);
       captureException(err);
-      logger.error({ id: notification.id, status: res.status }, "tts API error");
-      throw err;
+      logger.warn(
+        { id: notification.id, status: res.status },
+        "tts API error — falling back to signal-only (listener will use local TTS)",
+      );
+      return { success: true };
     }
 
     const buf = await res.arrayBuffer();
@@ -85,13 +98,13 @@ export async function sendTtsNotification(
     return { success: true, audioBase64 };
   } catch (err) {
     captureException(err);
-    logger.error(
+    logger.warn(
       {
         id: notification.id,
         error: err instanceof Error ? err.message : String(err),
       },
-      "tts notification failed",
+      "tts synthesis failed — falling back to signal-only (listener will use local TTS)",
     );
-    throw err;
+    return { success: true };
   }
 }

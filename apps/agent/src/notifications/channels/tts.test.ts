@@ -180,3 +180,75 @@ describe("sendTtsNotification", () => {
     expect(firstArg).toEqual({ id: "tts-2.4", body: "nx: tests green" });
   });
 });
+
+// ─── Graceful fallback (nx-4p8n follow-up: ElevenLabs failure → local TTS) ──
+//
+// When ELEVENLABS_API_KEY is set but the API rejects the call (401, 429,
+// network error, etc.) the channel must NOT throw. It must return
+// `{ success: true }` with no audioBase64 so `NotificationFired` still
+// fires and the Mac `nexus-notifier` can fall back to `say`.
+
+describe("sendTtsNotification — ElevenLabs failure fallback", () => {
+  let originalApiKey: string | undefined;
+
+  beforeEach(() => {
+    fetchWithTimeoutMock.mockClear();
+    loggerInfoMock.mockClear();
+    originalApiKey = process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = originalApiKey;
+    }
+  });
+
+  it("returns signal-only success on HTTP 401 (invalid/expired API key)", async () => {
+    fetchWithTimeoutMock.mockImplementationOnce(
+      async () => new Response(null, { status: 401 }),
+    );
+
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-fb-401", body: "ship it" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns signal-only success on HTTP 429 (quota exhausted)", async () => {
+    fetchWithTimeoutMock.mockImplementationOnce(
+      async () => new Response(null, { status: 429 }),
+    );
+
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-fb-429", body: "throttled" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+  });
+
+  it("returns signal-only success when fetch throws (network/timeout)", async () => {
+    fetchWithTimeoutMock.mockImplementationOnce(async () => {
+      throw new Error("ETIMEDOUT");
+    });
+
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-fb-timeout", body: "offline" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+  });
+});
