@@ -3,20 +3,14 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.nexus.notifier</string>
+  <string>com.nexus.tts-player</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>/Users/leonardoacosta/bin/nexus-notifier.sh listen</string>
+    <string>/Users/leonardoacosta/bin/nexus-notifier.sh drain</string>
   </array>
-
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>NEXUS_URL</key>
-    <string>http://homelab:7400</string>
-  </dict>
 
   <key>RunAtLoad</key>
   <true/>
@@ -25,12 +19,12 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/leonardoacosta/Library/Logs/nexus-notifier.out.log</string>
+  <string>/Users/leonardoacosta/Library/Logs/nexus-tts-player.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/leonardoacosta/Library/Logs/nexus-notifier.err.log</string>
+  <string>/Users/leonardoacosta/Library/Logs/nexus-tts-player.stderr.log</string>
 
   <key>ThrottleInterval</key>
-  <integer>10</integer>
+  <integer>5</integer>
 </dict>
 </plist>

@@ -117,6 +117,36 @@ case "$OS" in
         launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
         launchctl load "$PLIST"
         info "launchd agent loaded and running"
+
+        # ── Notifier listener + TTS drain worker ─────────────────────────
+        # Install both plists alongside the agent. The notifier script and
+        # the status helper deploy to ~/bin so the plist's absolute path
+        # resolves consistently across machines.
+        mkdir -p "$HOME/bin"
+        if [[ -f "$DEPLOY_DIR/nexus-notifier.sh" ]]; then
+            install -m 755 "$DEPLOY_DIR/nexus-notifier.sh" "$HOME/bin/nexus-notifier.sh"
+            info "nexus-notifier.sh installed to ~/bin"
+        fi
+        if [[ -f "$DEPLOY_DIR/nexus-notifier-status.sh" ]]; then
+            install -m 755 "$DEPLOY_DIR/nexus-notifier-status.sh" "$HOME/bin/nexus-notifier-status.sh"
+            info "nexus-notifier-status.sh installed to ~/bin"
+        fi
+
+        if [[ -f "$DEPLOY_DIR/com.nexus.notifier.plist" ]]; then
+            NOTIFIER_PLIST="$LAUNCH_DIR/com.nexus.notifier.plist"
+            cp "$DEPLOY_DIR/com.nexus.notifier.plist" "$NOTIFIER_PLIST"
+            launchctl bootout "gui/$(id -u)/com.nexus.notifier" 2>/dev/null || true
+            launchctl load "$NOTIFIER_PLIST"
+            info "notifier listener plist loaded"
+        fi
+
+        if [[ -f "$DEPLOY_DIR/com.nexus.tts-player.plist" ]]; then
+            PLAYER_PLIST="$LAUNCH_DIR/com.nexus.tts-player.plist"
+            cp "$DEPLOY_DIR/com.nexus.tts-player.plist" "$PLAYER_PLIST"
+            launchctl bootout "gui/$(id -u)/com.nexus.tts-player" 2>/dev/null || true
+            launchctl load "$PLAYER_PLIST"
+            info "TTS drain worker plist loaded"
+        fi
         ;;
 esac
 

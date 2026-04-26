@@ -1,49 +1,66 @@
 #!/usr/bin/env bash
 # nexus-notifier.sh — Mac-side listener for nexus NotificationFired events.
 #
-# Subscribes to the nexus-agent SSE stream on homelab via Tailscale,
-# filters for NotificationFired events, and dispatches native Mac
-# notifications:
+# Two modes (positional arg 1):
+#   listen  (default) — subscribe to the SSE stream, dispatch banners, and
+#                       enqueue TTS bodies onto the FIFO. Producer side.
+#   drain             — read lines from the FIFO and play each via /usr/bin/say.
+#                       Consumer side. Wraps each `say` in `timeout 60` so a
+#                       stuck utterance can never block the queue forever.
 #
-#   channel=desktop → terminal-notifier banner (falls back to osascript)
-#   channel=tts     → say (macOS built-in TTS)
-#   channel=slack   → ignored (server-side webhook handles this)
+# Why the split: a single fire-and-forget `say "$body" &` (the previous
+# behavior) produced N concurrent `say` processes for N notifications,
+# garbling audio. Splitting producer/consumer through a FIFO serializes
+# playback while keeping the SSE listener responsive — the producer write
+# is non-blocking (kernel buffers up to 64KB), so a long playback never
+# stalls the SSE-read loop.
 #
-# Why terminal-notifier > osascript: osascript routes notifications through
-# Script Editor's bundle ID, which gets a separate Notification permission
-# entry in System Settings — and macOS silently suppresses the banner if
-# that permission was never granted. terminal-notifier ships its own bundle
-# (`nu.dougal.terminal-notifier`) and shows up as its own row in System
-# Settings → Notifications, making the permission grant straightforward.
+# Why two launchctl agents: a wedged audio device crashes only the player;
+# the listener stays attached to SSE. A wedged stream crashes only the
+# listener; the player drains pending FIFO bytes and waits for new ones.
+# `KeepAlive` in both plists handles respawn within seconds.
 #
-# Reconnects on stream disconnect with 5-second backoff. Runs as a
-# launchd agent via ~/Library/LaunchAgents/com.nexus.notifier.plist.
-#
-# Environment:
-#   NEXUS_URL              — default http://homelab:7400
-#   NEXUS_ATTACH_SECRET    — required (match nexus-agent's secret)
-#   NEXUS_NOTIFIER_LOG     — default ~/Library/Logs/nexus-notifier.log
-#
-# Install:
-#   scp this file to ~/bin/nexus-notifier.sh on Mac
-#   chmod +x ~/bin/nexus-notifier.sh
-#   launchctl load ~/Library/LaunchAgents/com.nexus.notifier.plist
+# Spec: openspec/changes/add-tts-playback-queue/
 
-set -u
+set -uo pipefail
+
+# ── Helpers (single source of truth, used by both modes) ────────────────────
 
 NEXUS_URL="${NEXUS_URL:-http://homelab:7400}"
 LOG_FILE="${NEXUS_NOTIFIER_LOG:-$HOME/Library/Logs/nexus-notifier.log}"
+DRAIN_LOG="${NEXUS_TTS_PLAYER_LOG:-$HOME/Library/Logs/nexus-tts-player.log}"
 
-# Load secret from ~/.env if not already set (mirrors Linux side)
-if [ -z "${NEXUS_ATTACH_SECRET:-}" ] && [ -f "$HOME/.env" ]; then
-  # shellcheck disable=SC1091
-  set -a; . "$HOME/.env"; set +a
-fi
+# FIFO path lives alongside the agent's other runtime state under
+# ~/Library/Application Support/nexus/. /tmp was rejected because the FIFO
+# surviving a soft restart helps debugging; ~/.config/nexus is for *config*.
+NEXUS_NOTIFIER_FIFO="${NEXUS_NOTIFIER_FIFO:-$HOME/Library/Application Support/nexus/tts-queue.fifo}"
 
-if [ -z "${NEXUS_ATTACH_SECRET:-}" ]; then
-  echo "[$(date)] NEXUS_ATTACH_SECRET not set — cannot authenticate" >> "$LOG_FILE"
-  exit 1
-fi
+_load_secret() {
+  if [ -z "${NEXUS_ATTACH_SECRET:-}" ] && [ -f "$HOME/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a; . "$HOME/.env"; set +a
+  fi
+  if [ -z "${NEXUS_ATTACH_SECRET:-}" ]; then
+    echo "[$(date)] NEXUS_ATTACH_SECRET not set — cannot authenticate" >> "$LOG_FILE"
+    exit 1
+  fi
+}
+
+# Idempotently (re)create the FIFO with mode 0600. Stale FIFOs are purged
+# at startup — see spec § "Restart semantics SHALL be ephemeral".
+_ensure_fifo() {
+  local fifo_dir
+  fifo_dir="$(dirname "$NEXUS_NOTIFIER_FIFO")"
+  /bin/mkdir -p "$fifo_dir"
+  if [ -e "$NEXUS_NOTIFIER_FIFO" ] && [ ! -p "$NEXUS_NOTIFIER_FIFO" ]; then
+    # Path exists but isn't a FIFO — refuse to clobber a regular file.
+    echo "[$(date)] $NEXUS_NOTIFIER_FIFO exists and is not a FIFO; aborting" >> "$LOG_FILE"
+    exit 1
+  fi
+  /bin/rm -f "$NEXUS_NOTIFIER_FIFO" 2>/dev/null || true
+  /usr/bin/mkfifo "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE" || true
+  /bin/chmod 0600 "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE" || true
+}
 
 _escape_for_applescript() {
   # Escape double quotes + backslashes for AppleScript string literal.
@@ -51,11 +68,6 @@ _escape_for_applescript() {
 }
 
 # ── Emoji → PNG renderer with on-disk cache ─────────────────────────────────
-#
-# Renders an emoji to a 1024×1024 PNG using Apple Color Emoji (via Cocoa).
-# Caches the result keyed by the emoji's SHA-256 prefix so subsequent calls
-# are instant (Swift startup is ~1–2s, so first-call-per-emoji cost is
-# amortized over every future banner that uses the same project).
 ICON_CACHE_DIR="$HOME/Library/Application Support/nexus/icons"
 
 _nx_render_emoji_png() {
@@ -73,14 +85,12 @@ let size: CGFloat = 1024
 let img = NSImage(size: NSSize(width: size, height: size))
 img.lockFocus()
 
-// Transparent background — let the OS round-corner the icon.
 NSColor.clear.set()
 NSRect(x: 0, y: 0, width: size, height: size).fill()
 
 let style = NSMutableParagraphStyle()
 style.alignment = .center
 
-// 0.85 leaves ~7.5% margin on each side so the emoji doesn't bleed.
 let attrs: [NSAttributedString.Key: Any] = [
     .font: NSFont.systemFont(ofSize: size * 0.85),
     .paragraphStyle: style,
@@ -109,7 +119,6 @@ _nx_ensure_emoji_icon() {
   local emoji="$1"
   [ -z "$emoji" ] && return 1
   /bin/mkdir -p "$ICON_CACHE_DIR"
-  # SHA-256 prefix as cache key — composite emojis (ZWJ-joined) hash distinctly.
   local key
   key=$(printf '%s' "$emoji" | /usr/bin/shasum -a 256 | /usr/bin/head -c 16)
   local out="$ICON_CACHE_DIR/$key.png"
@@ -120,9 +129,6 @@ _nx_ensure_emoji_icon() {
   printf '%s' "$out"
 }
 
-# Pull the leading "word" from a title — for a title like "🔭 Nexus"
-# this returns "🔭" (composite emojis like 👨‍💻 stay intact because
-# parameter expansion splits on the space, not the ZWJ joiners).
 _nx_leading_emoji() {
   local title="$1"
   local first="${title%% *}"
@@ -132,10 +138,6 @@ _nx_leading_emoji() {
 _dispatch_banner() {
   local title="$1" body="$2" project="${3:-}"
 
-  # Decompose the title — assumes the agent emits "<emoji> <name>" via
-  # the auto-detect path in nx-send.sh. If the title has no leading emoji
-  # we skip the bundle path and fall back to terminal-notifier's default
-  # icon; the contentImage slot stays empty in that case too.
   local emoji name
   emoji=$(_nx_leading_emoji "$title")
   if [ -n "$emoji" ] && [ "$emoji" != "$title" ]; then
@@ -145,12 +147,6 @@ _dispatch_banner() {
     emoji=""
   fi
 
-  # Lazy-create a per-project .app bundle so terminal-notifier can pass
-  # `-sender <bundle-id>` and have macOS render the project's emoji as
-  # the LEFT app-icon. Bundle creation is idempotent (no-op if exists).
-  # When no project context is available, fall back to the generic
-  # Nexus bundle (also lazy-created) so the LEFT slot still says "Nexus"
-  # instead of terminal-notifier's default icon.
   local bundle_id=""
   if [ -x "$HOME/bin/nexus-bundle-manager.sh" ]; then
     if [ -n "$project" ] && [ -n "$emoji" ] && [ -n "$name" ]; then
@@ -161,18 +157,11 @@ _dispatch_banner() {
     fi
   fi
 
-  # contentImage stays as the project emoji PNG so the RIGHT slot of the
-  # banner reinforces the project identity even when -sender resolution
-  # fails (e.g. lsregister hasn't picked up a brand-new bundle yet).
   local icon=""
   if [ -n "$emoji" ]; then
     icon=$(_nx_ensure_emoji_icon "$emoji" 2>/dev/null) || icon=""
   fi
 
-  # Prefer terminal-notifier when installed: it owns its own bundle ID
-  # (`nu.dougal.terminal-notifier`) so macOS can grant it Notification
-  # permission independently. osascript routes through Script Editor's
-  # bundle, which is often unprivileged and silently suppresses banners.
   local tn
   for tn in /opt/homebrew/bin/terminal-notifier /usr/local/bin/terminal-notifier; do
     if [ -x "$tn" ]; then
@@ -184,19 +173,19 @@ _dispatch_banner() {
     fi
   done
 
-  # Fallback: osascript. Works only when Script Editor (or the calling
-  # terminal app) has Notification permission in System Settings.
   local esc_title esc_body
   esc_title=$(_escape_for_applescript "$title")
   esc_body=$(_escape_for_applescript "$body")
   /usr/bin/osascript -e "display notification \"$esc_body\" with title \"$esc_title\"" 2>>"$LOG_FILE"
 }
 
+# Producer-side TTS dispatch — non-blocking write to the FIFO. Reverse of the
+# old `say "$body" &` which spawned overlapping processes. The drain worker
+# (run separately as `nexus-notifier.sh drain`) reads lines and synthesizes
+# them serially.
 _dispatch_tts() {
   local body="$1"
-  # `say` blocks until playback finishes; backgrounded so the listener
-  # keeps reading the SSE stream without delay.
-  /usr/bin/say -- "$body" 2>>"$LOG_FILE" &
+  printf '%s\n' "$body" >> "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE"
 }
 
 _process_event() {
@@ -215,10 +204,6 @@ _process_event() {
       echo "[$(date)] banner: [$title] $body" >> "$LOG_FILE"
       ;;
     tts)
-      # `tts` from the agent fans out into BOTH a banner AND speech: the
-      # agent rejects multi-channel strings ("desktop,tts"), and users who
-      # ask to be notified almost always want both senses. Pass channel=
-      # "desktop" upstream when you specifically want a silent banner.
       _dispatch_banner "$title" "$body" "$project"
       _dispatch_tts "$body"
       echo "[$(date)] tts+banner: [$title] $body" >> "$LOG_FILE"
@@ -229,7 +214,6 @@ _process_event() {
       echo "[$(date)] both: [$title] $body" >> "$LOG_FILE"
       ;;
     slack|"")
-      # Slack handled server-side; empty channel = ignore
       :
       ;;
     *)
@@ -238,19 +222,7 @@ _process_event() {
   esac
 }
 
-# ── Event dedup ─────────────────────────────────────────────────────────────
-#
-# The lifecycle bus has a known peer-echo loop where a notification fired on
-# Linux can be forwarded to Mac, re-emitted, and re-pushed onto the same SSE
-# stream — surfacing as "the same banner twice with a delay". Until that
-# loop is fixed at the bus layer, we dedupe in the listener: if we see the
-# same payload.id within DEDUP_WINDOW seconds we drop the second copy.
-#
-# Why these vars are at script scope and the loop uses process substitution:
-# `cmd | while read` runs the loop in a forked subshell, so any `LAST_*=`
-# assignments inside it die the moment the pipe closes. `while read; done <
-# <(cmd)` keeps the loop in the parent shell so dedup state persists across
-# events.
+# ── Event dedup (listen mode only) ──────────────────────────────────────────
 DEDUP_WINDOW="${NEXUS_NOTIFIER_DEDUP_WINDOW:-30}"
 LAST_DEDUP_ID=""
 LAST_DEDUP_TS=0
@@ -269,12 +241,6 @@ _should_skip_dup() {
 }
 
 _run_stream() {
-  # SSE frame format:
-  #   event: NotificationFired
-  #   data: {"event":"NotificationFired","payload":{...},"source":"local",...}
-  #   <blank line>
-  #
-  # We track two-line state: event name then data line.
   local event_name=""
   while IFS= read -r line; do
     case "$line" in
@@ -304,10 +270,53 @@ _run_stream() {
     "$NEXUS_URL/events/stream" 2>>"$LOG_FILE")
 }
 
-echo "[$(date)] nexus-notifier starting — url=$NEXUS_URL" >> "$LOG_FILE"
+# ── Mode: listen ────────────────────────────────────────────────────────────
 
-while true; do
-  _run_stream
-  echo "[$(date)] stream disconnected, reconnecting in 5s" >> "$LOG_FILE"
-  sleep 5
-done
+_run_listen() {
+  _load_secret
+  _ensure_fifo
+  echo "[$(date)] nexus-notifier (listen) starting — url=$NEXUS_URL fifo=$NEXUS_NOTIFIER_FIFO" >> "$LOG_FILE"
+  while true; do
+    _run_stream
+    echo "[$(date)] stream disconnected, reconnecting in 5s" >> "$LOG_FILE"
+    sleep 5
+  done
+}
+
+# ── Mode: drain ─────────────────────────────────────────────────────────────
+#
+# Read one line at a time from the FIFO and synthesize it via /usr/bin/say.
+# The 60-second timeout caps any single utterance — if `say` ever hangs on
+# a wedged audio device or a million-character body, the queue advances
+# instead of stalling forever. See design.md § "Why a 60-second timeout".
+
+_run_drain() {
+  _ensure_fifo
+  echo "[$(date)] nexus-tts-player (drain) starting — fifo=$NEXUS_NOTIFIER_FIFO" >> "$DRAIN_LOG"
+  # The `< "$FIFO"` redirect blocks until a writer attaches — this is exactly
+  # the semantics we want: no busy-wait, no polling.
+  while IFS= read -r line; do
+    if [ -n "$line" ]; then
+      /usr/bin/timeout 60 /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
+        echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
+    fi
+  done < "$NEXUS_NOTIFIER_FIFO"
+  # If the FIFO closes (all writers detached and EOF observed), the loop
+  # exits — launchctl `KeepAlive` will relaunch us within a second or two.
+  echo "[$(date)] drain loop exited (FIFO EOF) — exiting for KeepAlive respawn" >> "$DRAIN_LOG"
+}
+
+# ── Mode dispatcher ─────────────────────────────────────────────────────────
+
+case "${1:-listen}" in
+  listen)
+    _run_listen
+    ;;
+  drain)
+    _run_drain
+    ;;
+  *)
+    echo "usage: $0 [listen|drain]" >&2
+    exit 2
+    ;;
+esac
