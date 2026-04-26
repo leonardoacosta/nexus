@@ -1,33 +1,37 @@
-import { logger } from "@nexus/core/node";
+import { logger, getAgentId } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { captureException } from "@sentry/node";
+import { eq } from "drizzle-orm";
+import type { Db } from "@nexus/db";
+import { elevenlabsCredentials } from "@nexus/db";
 import type { NotificationRow } from "../buffer";
+import { decrypt } from "../../credentials/encryption";
+import { getElevenlabsEncryptionKey } from "../../routes/elevenlabs-credentials";
 
 /**
  * TTS notification channel — agent synthesizes via ElevenLabs, listener plays.
  *
- * Architecture (2026-04-25): The agent is the sole holder of
- * ELEVENLABS_API_KEY and the sole point of quota accounting. When the key
- * is set, this channel POSTs the project-prefixed text to the ElevenLabs
- * text-to-speech endpoint, captures the resulting mp3 bytes, and surfaces
- * them base64-encoded on the structured return so the manager can attach
- * them to the `NotificationFired` lifecycle event.
+ * Architecture (2026-04-26): The agent prefers a per-agent DB row in
+ * `elevenlabs_credentials` (encrypted at rest) over `process.env`. Order of
+ * resolution on every dispatch:
  *
- * The agent MUST NOT play audio locally — homelab is headless. Playback
- * is the listener's responsibility (Mac-side `nexus-notifier` daemon
- * subscribes to /events/stream and pipes the bytes into `afplay`).
+ *   1. DB row for this agent (decrypted on-the-fly, no in-memory cache)
+ *   2. `process.env.ELEVENLABS_API_KEY` (legacy / unmigrated agents)
+ *   3. Signal-only mode — no HTTP call, return success without audio
  *
- * When ELEVENLABS_API_KEY is unset, the channel is signal-only: it marks
- * the notification as delivered and returns `audioBase64: undefined` so
- * `NotificationFired` still fires for any listener that owns its own TTS
- * (Slack bridge, mobile AVSpeechSynthesizer, etc.).
+ * The DB read is intentionally re-issued on every dispatch so a dashboard
+ * PATCH propagates within a single dispatch cycle. There is no in-memory
+ * cache of the decrypted key (see design.md "Why no cache").
  *
- * When the key IS set but ElevenLabs rejects it (HTTP 4xx/5xx) or the
- * request fails (network/timeout), the channel ALSO falls back to
- * signal-only success. The synthesized mp3 is an enrichment, not a
- * hard requirement — the listener can always use local TTS (Mac `say`,
- * etc.). Returning failure here would suppress `NotificationFired`
- * entirely and silence every downstream consumer.
+ * The agent MUST NOT play audio locally — homelab is headless. Playback is
+ * the listener's responsibility (Mac-side `nexus-notifier` daemon).
+ *
+ * Graceful fallback: when the upstream API rejects the call (4xx/5xx) or
+ * the network throws, the channel returns `{ success: true }` with no
+ * audioBase64 so `NotificationFired` still fires and the Mac listener can
+ * fall back to local `say(1)`. Suppressing the lifecycle event would
+ * silence every downstream consumer over what is fundamentally an
+ * enrichment failure.
  */
 
 export interface TtsResult {
@@ -37,37 +41,117 @@ export interface TtsResult {
   audioBase64?: string;
 }
 
+/**
+ * Optional dependency bundle threaded by the notifications manager so the
+ * channel can read the per-agent ElevenLabs row before falling back to env.
+ */
+export interface TtsContext {
+  db?: Db;
+}
+
+/**
+ * Module-level db ref used by the production channel-handler dispatch
+ * (which doesn't accept a per-call context). The notifications manager
+ * installs this in its constructor; tests bypass it by passing `{ db }`
+ * directly to `sendTtsNotification`.
+ */
+let ambientDb: Db | undefined;
+
+/** Install the ambient db ref (called once by the manager). */
+export function setTtsDb(db: Db | undefined): void {
+  ambientDb = db;
+}
+
+/** Reset (testing only). */
+export function resetTtsDb(): void {
+  ambientDb = undefined;
+}
+
+interface ResolvedCredential {
+  apiKey: string;
+  voiceId: string | null;
+}
+
+/**
+ * Resolve the ElevenLabs credential for this dispatch.
+ *
+ * Returns `null` when neither DB nor env supplies a key — caller should
+ * stay in signal-only mode. Never throws — DB-read failures fall back to
+ * env. Encryption-key absence is treated like a missing row (we don't
+ * have a way to surface a 400 from inside the channel).
+ */
+async function resolveCredential(
+  db: Db | undefined,
+): Promise<ResolvedCredential | null> {
+  if (db) {
+    try {
+      const agentId = getAgentId();
+      const row = await db.query.elevenlabsCredentials.findFirst({
+        where: eq(elevenlabsCredentials.agentId, agentId),
+      });
+      if (row && row.valueEncrypted) {
+        const key = getElevenlabsEncryptionKey();
+        if (key) {
+          try {
+            const apiKey = decrypt(row.valueEncrypted, key);
+            return { apiKey, voiceId: row.voiceId };
+          } catch (err) {
+            logger.warn(
+              { err, agentId },
+              "tts: decrypt failed for stored key — falling back to env",
+            );
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { err },
+        "tts: DB lookup failed — falling back to env",
+      );
+    }
+  }
+
+  const envKey = process.env.ELEVENLABS_API_KEY;
+  if (envKey) {
+    return {
+      apiKey: envKey,
+      voiceId: process.env.ELEVENLABS_VOICE_ID ?? null,
+    };
+  }
+  return null;
+}
+
 export async function sendTtsNotification(
   notification: NotificationRow,
+  context?: TtsContext,
 ): Promise<TtsResult> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-
   const text = notification.project
     ? `${notification.project}: ${notification.body}`
     : notification.body;
 
-  // No API key: signal-only branch. Return success without audio so the
-  // lifecycle event still fires for non-audio listeners.
-  if (!apiKey) {
+  const credential = await resolveCredential(context?.db ?? ambientDb);
+
+  // Neither DB row nor env: signal-only branch.
+  if (!credential) {
     logger.info(
       { id: notification.id, body: text },
-      "tts notification accepted (signal-only — no ELEVENLABS_API_KEY)",
+      "tts notification accepted (signal-only — no key in DB or env)",
     );
     return { success: true };
   }
 
-  // Key set: synthesize via ElevenLabs and return the mp3 bytes. On any
+  // Key resolved: synthesize via ElevenLabs and return the mp3 bytes. On any
   // failure (4xx/5xx, network, timeout) we degrade to signal-only success
   // so `NotificationFired` still fires and the listener can fall back to
   // local TTS. ElevenLabs is enrichment, not a hard requirement.
   try {
-    const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
+    const voiceId = credential.voiceId ?? "21m00Tcm4TlvDq8ikWAM";
     const res = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         method: "POST",
         headers: {
-          "xi-api-key": apiKey,
+          "xi-api-key": credential.apiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

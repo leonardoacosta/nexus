@@ -24,6 +24,7 @@ export {
   sessionEvents,
   notifications,
   credentials,
+  elevenlabsCredentials,
   agents,
   projects,
   projectLocations,
@@ -38,6 +39,7 @@ export {
   healthSnapshotsRelations,
   notificationsRelations,
   credentialsRelations,
+  elevenlabsCredentialsRelations,
   agentsRelations,
   projectsRelations,
 } from "./schema";
@@ -50,6 +52,8 @@ export type {
   NewProject,
   ProjectLocation,
   NewProjectLocation,
+  ElevenlabsCredential,
+  NewElevenlabsCredential,
 } from "./schema";
 
 // Inferred types for tables that don't export their own types yet

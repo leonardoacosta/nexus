@@ -27,6 +27,18 @@ export {
 export type {
   CredentialsActiveResponse,
 } from "./types/credentials-active";
+export {
+  elevenlabsPatchInput,
+  elevenlabsCredentialsResponse,
+  elevenlabsTestResponse,
+  elevenlabsVoicesResponse,
+} from "./types/elevenlabs";
+export type {
+  ElevenlabsPatchInput,
+  ElevenlabsCredentialsResponse,
+  ElevenlabsTestResponse,
+  ElevenlabsVoicesResponse,
+} from "./types/elevenlabs";
 export type {
   SpecTransitionEvent,
   SpecTransitionKind,

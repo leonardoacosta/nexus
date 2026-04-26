@@ -10,6 +10,7 @@ import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
 import { routeNotification, findMatchingRule, routeNotificationParallel } from "./router";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { setTtsDb } from "./channels/tts";
 
 /**
  * Notification manager — orchestrates the lifecycle:
@@ -22,6 +23,10 @@ export class NotificationManager {
   constructor(db: Db, meetingState?: MeetingState) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
+    // Make `db` available to the TTS channel (which doesn't get db threaded
+    // through the channel-handler dispatch). The channel reads the per-agent
+    // elevenlabs_credentials row before falling back to env.
+    setTtsDb(db);
   }
 
   /** Get the meeting state instance. */

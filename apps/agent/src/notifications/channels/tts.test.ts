@@ -252,3 +252,81 @@ describe("sendTtsNotification — ElevenLabs failure fallback", () => {
     expect(result.audioBase64).toBeUndefined();
   });
 });
+
+// ─── add-elevenlabs-credential: DB-row wins over env-var ───────────────────
+//
+// The TTS channel MUST prefer the per-agent `elevenlabs_credentials` row
+// (decrypted on the fly) over `process.env.ELEVENLABS_API_KEY`. Both are
+// allowed; precedence is DB-then-env. This guarantees a dashboard PATCH
+// rotates the key without an agent restart.
+
+describe("sendTtsNotification — DB row wins over env var", () => {
+  let originalApiKey: string | undefined;
+
+  beforeEach(() => {
+    fetchWithTimeoutMock.mockClear();
+    originalApiKey = process.env.ELEVENLABS_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = originalApiKey;
+    }
+  });
+
+  it("uses DB-row api key when both DB row and ELEVENLABS_API_KEY env are set", async () => {
+    process.env.ELEVENLABS_API_KEY = "ENV_KEY";
+
+    // Install a stub encryption key into the elevenlabs-credentials route
+    // module so the channel's decrypt path resolves the same key the test
+    // uses to encrypt. encrypt() lives in the agent's credentials helpers.
+    const { encrypt } = await import("../../credentials/encryption");
+    const {
+      initElevenlabsCredentialRoutes,
+      resetElevenlabsCredentialRoutes,
+    } = await import("../../routes/elevenlabs-credentials");
+    const STUB_KEY = Buffer.alloc(32, 9);
+    resetElevenlabsCredentialRoutes();
+    initElevenlabsCredentialRoutes(STUB_KEY);
+
+    const ciphertext = encrypt("DB_KEY", STUB_KEY);
+
+    // Fake DB whose query API yields a row with our encrypted value.
+    const fakeDb = {
+      query: {
+        elevenlabsCredentials: {
+          findFirst: mock(async () => ({
+            id: "row-1",
+            agentId: "test-agent",
+            valueEncrypted: ciphertext,
+            encryptionKeyId: "v1",
+            voiceId: null,
+            voiceName: null,
+            lastTestOkAt: null,
+            lastTestStatusCode: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })),
+        },
+      },
+    } as unknown as import("@nexus/db").Db;
+
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-db-wins", body: "rotate me" }),
+      { db: fakeDb },
+    );
+
+    expect(result.success).toBe(true);
+    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchWithTimeoutMock.mock.calls[0] as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    expect(init.headers["xi-api-key"]).toBe("DB_KEY");
+    expect(init.headers["xi-api-key"]).not.toBe("ENV_KEY");
+  });
+});
