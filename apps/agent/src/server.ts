@@ -79,6 +79,12 @@ export function startServer(
 
   const server = Bun.serve<WsData>({
     port,
+    // SSE streams (e.g. /events/stream, /specs/events) hold connections open
+    // for minutes-to-hours with sparse keepalive frames. Bun's default
+    // idleTimeout is 10s, which silently closes those streams ~10s after the
+    // last byte. 255s (the maximum) is well past the longest keepalive
+    // interval (30s) used by any handler. See nx-4p8n.
+    idleTimeout: 255,
     fetch(req, server) {
       return handler(req, server);
     },
