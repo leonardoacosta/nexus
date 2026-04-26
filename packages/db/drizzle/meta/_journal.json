@@ -141,6 +141,13 @@
       "when": 1776537320591,
       "tag": "0019_goofy_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777241226082,
+      "tag": "0020_boring_sister_grimm",
+      "breakpoints": true
     }
   ]
 }
