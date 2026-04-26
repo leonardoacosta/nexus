@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # Nexus DB — post-merge migration hook
-# Runs db:push when packages/db/ changed between ORIG_HEAD and HEAD.
+# Runs db:migrate when packages/db/ changed between ORIG_HEAD and HEAD.
 # Fail-soft: logs a warning on failure but never blocks subsequent hooks.
 
 GREEN='\033[1;32m'
@@ -36,11 +36,11 @@ fi
 
 # ── Run migration (fail-soft) ───────────────────────────────────
 
-info "running db:push..."
+info "running db:migrate..."
 
-if ! (cd "$REPO_DIR" && pnpm --filter @nexus/db db:push); then
-    warn "db:push failed — run manually: pnpm --filter @nexus/db db:push"
+if ! (cd "$REPO_DIR" && pnpm --filter @nexus/db db:migrate); then
+    warn "db:migrate failed — run manually: pnpm --filter @nexus/db db:migrate"
     exit 0
 fi
 
-info "db:push complete"
+info "db:migrate complete"
