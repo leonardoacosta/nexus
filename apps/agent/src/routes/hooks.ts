@@ -43,6 +43,7 @@ interface HookEventPayload {
   machine?: string;
   tool_counts?: Record<string, number>;
   failure_count?: number;
+  /** post_compact: number of compactions observed by the session so far */
   compaction_count?: number;
   agent_spawns?: number;
   duration_ms?: number;
@@ -54,9 +55,40 @@ interface HookEventPayload {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+
+  /** Tool execution events: tool_use_end, tool_use_fail, permission_request */
+  tool?: string;
+  /** tool_use_fail: stderr/error description */
+  error?: string;
+  /** tool_use_fail: command line that failed */
+  command?: string;
+
+  /** Agent lifecycle: agent_spawn, agent_telemetry, agent_complete */
+  agent_type?: string;
+  agent_name?: string;
+  parent_agent?: string;
+  child_role?: string;
+
+  /** Command lifecycle: command_start, command_end */
+  run_id?: string;
+  parent_run_id?: string;
+  status?: string;
+
+  /** agent_telemetry only */
+  total_tokens?: number;
+  tool_uses?: number;
+  phase?: string;
+  wave?: number;
+  spec?: string;
+
+  /** hook_failure only */
+  handler?: string;
+  exit_code?: number;
+  stderr?: string;
 }
 
 const RECOGNIZED_EVENTS = new Set([
+  // Legacy lifecycle (pre-existing)
   "session_start",
   "session_stop",
   "stop_failure",
@@ -64,6 +96,32 @@ const RECOGNIZED_EVENTS = new Set([
   "session_summary",
   "session_heartbeat",
   "diagnostic_ping",
+  // Lifecycle expansion
+  "session_terminate",
+  "post_compact",
+  "pre_compact",
+  "heartbeat",
+  // Agents
+  "agent_spawn",
+  "agent_telemetry",
+  "agent_complete",
+  // Tools
+  "tool_use_end",
+  "tool_use_fail",
+  // Commands
+  "command_start",
+  "command_end",
+  "user_prompt",
+  // Operational
+  "permission_request",
+  "teammate_idle",
+  "task_completed",
+  "instructions_loaded",
+  "config_change",
+  "worktree_create",
+  "worktree_remove",
+  "notification",
+  "hook_failure",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -252,6 +310,7 @@ export async function handleHooks(
         break;
       case "session_stop":
       case "stop_success":
+      case "session_terminate":
         await updateSessionStatus(db, sessionId, "ended");
         break;
       case "stop_failure":

@@ -383,4 +383,574 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       .where(eq(sessions.id, sessionId));
     expect(sessionRows).toHaveLength(1);
   });
+
+  // ─── 7. Lifecycle event family (task 3.1) ───────────────────────────────
+
+  describe("Lifecycle events (extend-hooks-event-taxonomy 3.1)", () => {
+    it("session_terminate finalizes a still-active session (status='ended', endedAt set)", async () => {
+      const sessionId = "sess-terminate-1";
+
+      // Seed via session_start so the parent row is active.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_terminate",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; message: string };
+      expect(body.status).toBe("ok");
+      expect(body.message).toContain("session_terminate acknowledged");
+
+      const sessionRows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(sessionRows).toHaveLength(1);
+      expect(sessionRows[0]!.status).toBe("ended");
+      expect(sessionRows[0]!.endedAt).not.toBeNull();
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      const terminate = eventRows.find(
+        (r) => r.eventType === "session_terminate",
+      );
+      expect(terminate).toBeDefined();
+    });
+
+    it("post_compact persists with compaction_count preserved in metadata", async () => {
+      const sessionId = "sess-postcompact-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "post_compact",
+          session_id: sessionId,
+          compaction_count: 3,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("post_compact");
+      expect(eventRows[0]!.metadata).toBeTruthy();
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        compaction_count?: number;
+      };
+      expect(meta.compaction_count).toBe(3);
+    });
+
+    it("repeated post_compact appends one row per event (no upsert)", async () => {
+      const sessionId = "sess-postcompact-2";
+
+      for (const count of [1, 2, 3]) {
+        const res = await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: "post_compact",
+            session_id: sessionId,
+            compaction_count: count,
+          }),
+        );
+        expect(res.status).toBe(200);
+      }
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      const postCompacts = eventRows.filter(
+        (r) => r.eventType === "post_compact",
+      );
+      expect(postCompacts).toHaveLength(3);
+    });
+
+    it("pre_compact persists an event row", async () => {
+      const sessionId = "sess-precompact-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "pre_compact",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("pre_compact");
+    });
+
+    it("heartbeat (singular) persists despite legacy session_heartbeat name divergence", async () => {
+      const sessionId = "sess-heartbeat-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "heartbeat",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("heartbeat");
+    });
+  });
+
+  // ─── 8. Agent-Lifecycle event family (task 3.2) ─────────────────────────
+
+  describe("Agent-Lifecycle events (extend-hooks-event-taxonomy 3.2)", () => {
+    it("agent_spawn persists with full audit fields in metadata", async () => {
+      const sessionId = "sess-agentspawn-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "agent_spawn",
+          session_id: sessionId,
+          agent_type: "ui-engineer",
+          agent_name: "ui-engineer-abc",
+          parent_agent: "orchestrator",
+          child_role: "engineer",
+          model: "claude-sonnet-4-5",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("agent_spawn");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        agent_type?: string;
+        agent_name?: string;
+        parent_agent?: string;
+        child_role?: string;
+        model?: string;
+      };
+      expect(meta.agent_type).toBe("ui-engineer");
+      expect(meta.agent_name).toBe("ui-engineer-abc");
+      expect(meta.parent_agent).toBe("orchestrator");
+      expect(meta.child_role).toBe("engineer");
+      expect(meta.model).toBe("claude-sonnet-4-5");
+    });
+
+    it("agent_complete persists deregistration row", async () => {
+      const sessionId = "sess-agentcomplete-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "agent_complete",
+          session_id: sessionId,
+          agent_type: "ui-engineer",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("agent_complete");
+    });
+
+    it("agent_telemetry persists token + duration + spec/wave/phase metrics", async () => {
+      const sessionId = "sess-agenttelem-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "agent_telemetry",
+          session_id: sessionId,
+          agent_name: "ui-engineer-abc",
+          spec: "extend-hooks-event-taxonomy",
+          wave: "2",
+          phase: "apply",
+          model: "claude-sonnet-4-5",
+          total_tokens: 12450,
+          tool_uses: 8,
+          duration_ms: 23000,
+          status: "success",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("agent_telemetry");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        total_tokens?: number;
+        tool_uses?: number;
+        duration_ms?: number;
+        phase?: string;
+        wave?: string;
+        spec?: string;
+      };
+      expect(meta.total_tokens).toBe(12450);
+      expect(meta.tool_uses).toBe(8);
+      expect(meta.duration_ms).toBe(23000);
+      expect(meta.phase).toBe("apply");
+      expect(meta.wave).toBe("2");
+      expect(meta.spec).toBe("extend-hooks-event-taxonomy");
+    });
+  });
+
+  // ─── 9. Tool-Use event family (task 3.3) ────────────────────────────────
+
+  describe("Tool-Use events (extend-hooks-event-taxonomy 3.3)", () => {
+    it("tool_use_end persists with tool name and duration in metadata", async () => {
+      const sessionId = "sess-tooluseend-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "tool_use_end",
+          session_id: sessionId,
+          tool: "Edit",
+          success: true,
+          duration_ms: 1200,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("tool_use_end");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        tool?: string;
+        duration_ms?: number;
+      };
+      expect(meta.tool).toBe("Edit");
+      expect(meta.duration_ms).toBe(1200);
+    });
+
+    it("tool_use_fail preserves tool, error, command, duration_ms verbatim", async () => {
+      const sessionId = "sess-toolusefail-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "tool_use_fail",
+          session_id: sessionId,
+          tool: "Bash",
+          error: "permission denied",
+          command: "git push",
+          duration_ms: 80,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("tool_use_fail");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        tool?: string;
+        error?: string;
+        command?: string;
+        duration_ms?: number;
+      };
+      expect(meta.tool).toBe("Bash");
+      expect(meta.error).toBe("permission denied");
+      expect(meta.command).toBe("git push");
+      expect(meta.duration_ms).toBe(80);
+    });
+  });
+
+  // ─── 10. Command event family (task 3.4) ────────────────────────────────
+
+  describe("Command events (extend-hooks-event-taxonomy 3.4)", () => {
+    it("command_start persists run_id for downstream join", async () => {
+      const sessionId = "sess-commandstart-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "command_start",
+          session_id: sessionId,
+          run_id: "run-abc",
+          command: "/apply:all",
+          project: "nx",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("command_start");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        run_id?: string;
+        command?: string;
+      };
+      expect(meta.run_id).toBe("run-abc");
+      expect(meta.command).toBe("/apply:all");
+    });
+
+    it("command_end persists status and duration_ms", async () => {
+      const sessionId = "sess-commandend-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "command_end",
+          session_id: sessionId,
+          run_id: "run-abc",
+          command: "/apply:all",
+          status: "success",
+          duration_ms: 540000,
+          agent_count: 3,
+          total_tokens: 87654,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("command_end");
+      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+        status?: string;
+        duration_ms?: number;
+      };
+      expect(meta.status).toBe("success");
+      expect(meta.duration_ms).toBe(540000);
+    });
+
+    it("user_prompt persists row with event_type='user_prompt'", async () => {
+      const sessionId = "sess-userprompt-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "user_prompt",
+          session_id: sessionId,
+          project: "nx",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(eventRows).toHaveLength(1);
+      expect(eventRows[0]!.eventType).toBe("user_prompt");
+    });
+  });
+
+  // ─── 11. Operational event family (task 3.5) ────────────────────────────
+
+  describe("Operational events (extend-hooks-event-taxonomy 3.5)", () => {
+    // Each operational event:
+    //  (a) returns HTTP 200 with `${event} acknowledged`
+    //  (b) writes exactly one session_events row with the right event_type
+    //  (c) does NOT mutate the parent sessions row
+    //
+    // We seed each test with session_start and capture the post-seed
+    // sessions snapshot so we can assert no mutation after the operational
+    // event.
+
+    const OPERATIONAL_EVENTS = [
+      "permission_request",
+      "teammate_idle",
+      "task_completed",
+      "instructions_loaded",
+      "config_change",
+      "worktree_create",
+      "worktree_remove",
+      "notification",
+      "hook_failure",
+    ] as const;
+
+    for (const eventName of OPERATIONAL_EVENTS) {
+      it(`${eventName} writes one event row and does NOT mutate sessions`, async () => {
+        const sessionId = `sess-op-${eventName}`;
+
+        // Seed the parent row so we can later assert non-mutation.
+        await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: "session_start",
+            session_id: sessionId,
+          }),
+        );
+
+        const before = await db
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+        expect(before).toHaveLength(1);
+        const beforeStatus = before[0]!.status;
+        const beforeEndedAt = before[0]!.endedAt;
+
+        const res = await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: eventName,
+            session_id: sessionId,
+            // Sprinkle a typical payload field so metadata is non-trivial.
+            tool: eventName === "permission_request" ? "Bash" : undefined,
+            handler:
+              eventName === "hook_failure" ? "handle_session_stop" : undefined,
+          }),
+        );
+        expect(res.status).toBe(200);
+
+        const eventRows = await db
+          .select()
+          .from(sessionEvents)
+          .where(eq(sessionEvents.sessionId, sessionId));
+        const ourRows = eventRows.filter((r) => r.eventType === eventName);
+        expect(ourRows).toHaveLength(1);
+
+        // Parent sessions row must NOT have been mutated by an
+        // operational event. status and endedAt should match the
+        // post-session_start snapshot.
+        const after = await db
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+        expect(after).toHaveLength(1);
+        expect(after[0]!.status).toBe(beforeStatus);
+        expect(after[0]!.endedAt).toBe(beforeEndedAt);
+      });
+    }
+
+    it("permission_request preserves tool name in metadata", async () => {
+      const sessionId = "sess-op-permreq-meta";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "permission_request",
+          session_id: sessionId,
+          tool: "Bash",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      const row = eventRows.find((r) => r.eventType === "permission_request");
+      expect(row).toBeDefined();
+      const meta = JSON.parse(row!.metadata!) as { tool?: string };
+      expect(meta.tool).toBe("Bash");
+    });
+
+    it("hook_failure preserves handler / exit_code / stderr in metadata", async () => {
+      const sessionId = "sess-op-hookfail-meta";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "hook_failure",
+          session_id: sessionId,
+          handler: "handle_session_stop",
+          event: "session_stop",
+          exit_code: 1,
+          stderr: "stats jq write failed",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      const row = eventRows.find((r) => r.eventType === "hook_failure");
+      expect(row).toBeDefined();
+      const meta = JSON.parse(row!.metadata!) as {
+        handler?: string;
+        exit_code?: number;
+        stderr?: string;
+      };
+      expect(meta.handler).toBe("handle_session_stop");
+      expect(meta.exit_code).toBe(1);
+      expect(meta.stderr).toBe("stats jq write failed");
+    });
+  });
+
+  // ─── 12. Backward-compat: unknown future event (task 3.6) ───────────────
+
+  describe("Backward-compat — unrecognized future event (extend-hooks-event-taxonomy 3.6)", () => {
+    it("unknown event_type returns HTTP 200 with 'unknown event:' message and writes NO session_events row", async () => {
+      const sessionId = "sess-future-1";
+
+      // Pre-seed parent row so a missing session_events row can't be
+      // explained by FK protection — we want to prove the handler chose
+      // not to write, not that it couldn't.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "future_event_type_not_yet_invented",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; message: string };
+      expect(body.status).toBe("ok");
+      expect(body.message).toContain("unknown event:");
+      expect(body.message).toContain("future_event_type_not_yet_invented");
+
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      const futureRows = eventRows.filter(
+        (r) => r.eventType === "future_event_type_not_yet_invented",
+      );
+      expect(futureRows).toHaveLength(0);
+    });
+  });
 });
