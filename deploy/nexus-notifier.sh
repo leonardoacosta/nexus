@@ -264,7 +264,18 @@ _run_stream() {
         event_name=""
         ;;
     esac
-  done < <(/usr/bin/curl -sN --no-buffer --max-time 0 \
+  # `--max-time 1800` forces a reconnect every 30 minutes so a half-open
+  # TCP socket (Mac wifi sleep, Tailscale wake-from-sleep, NAT timeout) can
+  # never wedge the listener indefinitely. The previous `--max-time 0` left
+  # curl in a forever-blocked read() when a connection silently died — no
+  # FIN/RST ever arrived, so the outer reconnect loop never fired.
+  #
+  # `--keepalive-time 60` enables TCP-level keepalive probes every 60s
+  # (much tighter than the OS default of ~2 hours). When the peer is gone,
+  # the kernel returns ETIMEDOUT to curl and the loop reconnects.
+  done < <(/usr/bin/curl -sN --no-buffer \
+    --max-time 1800 \
+    --keepalive-time 60 \
     -H "Accept: text/event-stream" \
     -H "x-nexus-secret: $NEXUS_ATTACH_SECRET" \
     "$NEXUS_URL/events/stream" 2>>"$LOG_FILE")
@@ -289,21 +300,65 @@ _run_listen() {
 # The 60-second timeout caps any single utterance — if `say` ever hangs on
 # a wedged audio device or a million-character body, the queue advances
 # instead of stalling forever. See design.md § "Why a 60-second timeout".
+#
+# Two macOS-specific gotchas this drain handles:
+#
+# 1. macOS does NOT ship GNU `timeout`. It's part of coreutils, available via
+#    `brew install coreutils` as `gtimeout`. We probe for either binary (or
+#    fall through to running `say` without a timeout — `say` is well-behaved
+#    so this is acceptable when the operator hasn't installed coreutils).
+#
+# 2. Bash's `while read; done < FIFO` sees EOF as soon as the last writer
+#    closes its FD. The listener writes via `printf >> FIFO`, which opens-
+#    writes-closes per dispatch — so without the `exec 3<>` trick the drain
+#    loop exits after EVERY message, killing the worker and forcing a
+#    KeepAlive respawn (4s of dead air per notification). The RDWR open
+#    keeps a write-FD live in the drain process itself, so the read-side
+#    never sees zero-writers-closed and the loop survives across messages.
+
+# Resolve a usable timeout binary at startup. Falls back to `:` (no-op
+# wrapper) when neither gtimeout nor timeout is available, so `say`
+# still runs — just without the per-utterance cap.
+_resolve_timeout_cmd() {
+  if [ -x /opt/homebrew/bin/gtimeout ]; then
+    echo "/opt/homebrew/bin/gtimeout 60"
+  elif [ -x /usr/local/bin/gtimeout ]; then
+    echo "/usr/local/bin/gtimeout 60"
+  elif [ -x /usr/bin/timeout ]; then
+    echo "/usr/bin/timeout 60"
+  else
+    echo ""
+  fi
+}
 
 _run_drain() {
   _ensure_fifo
-  echo "[$(date)] nexus-tts-player (drain) starting — fifo=$NEXUS_NOTIFIER_FIFO" >> "$DRAIN_LOG"
-  # The `< "$FIFO"` redirect blocks until a writer attaches — this is exactly
-  # the semantics we want: no busy-wait, no polling.
-  while IFS= read -r line; do
-    if [ -n "$line" ]; then
-      /usr/bin/timeout 60 /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
+  local timeout_cmd
+  timeout_cmd=$(_resolve_timeout_cmd)
+  echo "[$(date)] nexus-tts-player (drain) starting — fifo=$NEXUS_NOTIFIER_FIFO ${timeout_cmd:+timeout=$timeout_cmd}${timeout_cmd:-(no timeout binary; running say uncapped)}" >> "$DRAIN_LOG"
+
+  # Open the FIFO RDWR on FD 3 so we hold a write-end in this process.
+  # That keeps the read side from seeing EOF when the listener closes its
+  # transient writer between dispatches. Without this, the loop would
+  # exit after every message and the launchctl respawn would gap audio.
+  exec 3<> "$NEXUS_NOTIFIER_FIFO"
+
+  while IFS= read -r line <&3; do
+    [ -z "$line" ] && continue
+    if [ -n "$timeout_cmd" ]; then
+      $timeout_cmd /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
         echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
+    else
+      /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
+        echo "[$(date)] say failed: $line" >> "$DRAIN_LOG"
     fi
-  done < "$NEXUS_NOTIFIER_FIFO"
-  # If the FIFO closes (all writers detached and EOF observed), the loop
-  # exits — launchctl `KeepAlive` will relaunch us within a second or two.
-  echo "[$(date)] drain loop exited (FIFO EOF) — exiting for KeepAlive respawn" >> "$DRAIN_LOG"
+  done
+
+  # Reaching here means the read FD itself errored — the FIFO was unlinked
+  # or the kernel returned an unrecoverable read error. Exit so launchctl
+  # KeepAlive relaunches us against a fresh FIFO.
+  exec 3<&-
+  echo "[$(date)] drain loop exited (read error or FIFO unlinked) — exiting for KeepAlive respawn" >> "$DRAIN_LOG"
 }
 
 # ── Mode dispatcher ─────────────────────────────────────────────────────────
