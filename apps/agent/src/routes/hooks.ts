@@ -24,6 +24,8 @@ import { appendSessionEvent } from "../db/events";
 import { computeCostUsd } from "../services/cost-calculator";
 import { lifecycleBus } from "../services/lifecycle-bus";
 import { hookEventThrottle } from "../services/hook-event-throttle";
+import { evaluateAndDispatch } from "../notifications/hook-trigger";
+import { getNotificationManager } from "./notifications";
 
 const log = createLogger("agent:routes:hooks");
 
@@ -31,7 +33,7 @@ const log = createLogger("agent:routes:hooks");
 // Types
 // ---------------------------------------------------------------------------
 
-interface HookEventPayload {
+export interface HookEventPayload {
   hook_event_name?: string;
   event?: string;
   session_id?: string;
@@ -60,8 +62,16 @@ interface HookEventPayload {
 
   /** Tool execution events: tool_use_end, tool_use_fail, permission_request */
   tool?: string;
+  /**
+   * Alias for `tool` used by the notification trigger spec (Wave 3,
+   * `add-hooks-notification-triggers`). Rules read `tool_name ?? tool` so
+   * either upstream key works; cc-side telemetry currently emits `tool`.
+   */
+  tool_name?: string;
   /** tool_use_fail: stderr/error description */
   error?: string;
+  /** Alias for `error` consumed by notification rules. */
+  error_message?: string;
   /** tool_use_fail: command line that failed */
   command?: string;
 
@@ -85,8 +95,18 @@ interface HookEventPayload {
 
   /** hook_failure only */
   handler?: string;
+  /** Alias for `handler` consumed by notification rules (`hook_failure`). */
+  hook_name?: string;
   exit_code?: number;
   stderr?: string;
+
+  /**
+   * `session_stop` crash predicate (Wave 3 notification trigger). When true,
+   * the session_stop rule fires desktop+slack. Either this flag or a
+   * `stop_reason` of error/api_error/crash/timeout/oom counts as a crash —
+   * see `notifications/hook-rules.ts`.
+   */
+  crash_flag?: boolean;
 }
 
 const RECOGNIZED_EVENTS = new Set([
@@ -351,6 +371,23 @@ export async function handleHooks(
     if (!throttled) {
       lifecycleBus.emit("HookEventReceived", hookPayload);
     }
+  }
+
+  // 5. Evaluate notification rules and dispatch via the existing
+  //    NotificationManager pipeline (Wave 3, add-hooks-notification-triggers).
+  //    The trigger MUST NOT cause this handler to return non-200 — cc events
+  //    are fire-and-forget. evaluateAndDispatch is no-throw by contract, but
+  //    the try/catch is non-negotiable belt-and-braces.
+  try {
+    const manager = getNotificationManager();
+    if (manager) {
+      await evaluateAndDispatch(db, manager, eventName, payload);
+    }
+  } catch (err) {
+    log.warn(
+      { err, event: eventName, sessionId },
+      "evaluateAndDispatch threw — hook still 200",
+    );
   }
 
   return jsonResponse(200, {

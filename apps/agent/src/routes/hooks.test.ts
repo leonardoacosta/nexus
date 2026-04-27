@@ -39,6 +39,11 @@ import {
   type LifecycleEnvelope,
 } from "../services/lifecycle-bus";
 import { hookEventThrottle } from "../services/hook-event-throttle";
+import {
+  initNotificationRoutes,
+  resetNotificationRoutes,
+} from "./notifications";
+import { _clearSuppressionForTests } from "../notifications/hook-trigger";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
@@ -113,6 +118,30 @@ const DDL = `
     "timestamp" timestamp NOT NULL,
     "metadata" text
   );
+
+  CREATE TABLE "notifications" (
+    "id" text PRIMARY KEY NOT NULL,
+    "channel" text NOT NULL,
+    "title" text NOT NULL,
+    "body" text NOT NULL,
+    "project" text,
+    "agent_id" text REFERENCES "agents"("id") ON DELETE SET NULL,
+    "priority" text DEFAULT 'normal' NOT NULL,
+    "status" text DEFAULT 'queued' NOT NULL,
+    "created_at" timestamp NOT NULL,
+    "sent_at" timestamp
+  );
+
+  CREATE TABLE "notification_settings" (
+    "id" integer PRIMARY KEY DEFAULT 1 NOT NULL,
+    "tts_enabled" boolean DEFAULT true NOT NULL,
+    "banner_enabled" boolean DEFAULT true NOT NULL,
+    "ducking_mode" text DEFAULT 'full' NOT NULL,
+    "updated_at" timestamp DEFAULT now() NOT NULL
+  );
+
+  INSERT INTO "notification_settings" ("id", "tts_enabled", "banner_enabled", "ducking_mode")
+    VALUES (1, true, true, 'full') ON CONFLICT ("id") DO NOTHING;
 `;
 
 function buildHookRequest(body: unknown): Request {
@@ -1086,5 +1115,88 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       expect(captured[0]!.payload.sessionId).toBe(sessionId);
       expect(captured[0]!.payload.count).toBe(10);
     }, 5_000);
+  });
+
+  // ─── 12. Notification triggers (add-hooks-notification-triggers 2.7) ────
+
+  describe("Notification triggers", () => {
+    beforeAll(async () => {
+      // Wire the singleton manager against the scoped test DB so handleHooks
+      // can dispatch through the real NotificationManager.send() pipeline.
+      await initNotificationRoutes(db);
+    });
+
+    afterAll(async () => {
+      await resetNotificationRoutes();
+    });
+
+    beforeEach(async () => {
+      // Each test starts with a clean suppression cache and an empty
+      // notifications table so the row-count assertion is deterministic.
+      _clearSuppressionForTests();
+      await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."notifications"`);
+    });
+
+    it("tool_use_fail persists session_event AND a desktop row in notifications", async () => {
+      const sessionId = "sess-trigger-tool-fail-1";
+
+      // Seed parent so we don't rely on stub-creation paths in this test.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "tool_use_fail",
+          session_id: sessionId,
+          project: "nx",
+          tool_name: "Bash",
+          error_message: "permission denied",
+        }),
+      );
+      // Hook handler MUST return 200 even when notification dispatch
+      // misbehaves — the contract is fire-and-forget.
+      expect(res.status).toBe(200);
+
+      // 1. The session_events row landed.
+      const eventRows = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      expect(
+        eventRows.some((r) => r.eventType === "tool_use_fail"),
+      ).toBe(true);
+
+      // 2. A desktop notification was inserted via the manager pipeline.
+      //    We query the table directly via the scoped client (mirrors the
+      //    runtime smoke verification step) rather than coupling to the
+      //    Drizzle relational handle.
+      const notifs = await scopedClient.unsafe<
+        Array<{
+          channel: string;
+          title: string;
+          body: string;
+          project: string | null;
+        }>
+      >(
+        `SELECT channel, title, body, project FROM "${SCHEMA}"."notifications" ORDER BY created_at ASC`,
+      );
+
+      const desktop = notifs.find((n) => n.channel === "desktop");
+      expect(desktop).toBeDefined();
+      expect(desktop!.title).toContain("Bash");
+      expect(desktop!.body).toContain("permission denied");
+      expect(desktop!.body.startsWith("nx: ")).toBe(true);
+      expect(desktop!.project).toBe("nx");
+
+      // Slack row also lands (rule = desktop + slack).
+      const slack = notifs.find((n) => n.channel === "slack");
+      expect(slack).toBeDefined();
+    });
   });
 });

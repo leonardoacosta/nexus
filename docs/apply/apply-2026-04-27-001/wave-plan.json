@@ -3,27 +3,82 @@
   "plan_id": "hooks-arc-2026-04-27",
   "plan_name": "hooks-arc",
   "generated_at": "2026-04-27T02:53:59-05:00",
-  "generated_by": "/apply:all (orchestrator override — corrected dependency order)",
-  "status": "in_progress",
+  "generated_by": "/apply:all (orchestrator override \u2014 corrected dependency order)",
+  "status": "completed",
   "mode": "consolidated",
   "pre_audit_sha": "28f7d58",
-  "spec_names": ["extend-hooks-event-taxonomy", "add-hooks-sse-fanout", "add-hooks-notification-triggers"],
+  "spec_names": [
+    "extend-hooks-event-taxonomy",
+    "add-hooks-sse-fanout",
+    "add-hooks-notification-triggers"
+  ],
   "current_wave": 1,
   "current_phase": null,
   "completed_waves": [],
   "completed_specs": [],
   "decisions": [
-    {"timestamp": "2026-04-27T02:53:59-05:00", "text": "Override auto-built wave order: taxonomy=Wave1 (foundation), sse-fanout=Wave2 (soft dep), triggers=Wave3 (HARD dep). Auto-build placed taxonomy at Wave 3 — would have failed because triggers references events not yet recognized.", "source": "orchestrator", "rationale": "beads DEPENDS_ON graph: nx-h8uxs blocks nx-mfarp + nx-6irva"}
+    {
+      "timestamp": "2026-04-27T02:53:59-05:00",
+      "text": "Override auto-built wave order: taxonomy=Wave1 (foundation), sse-fanout=Wave2 (soft dep), triggers=Wave3 (HARD dep). Auto-build placed taxonomy at Wave 3 \u2014 would have failed because triggers references events not yet recognized.",
+      "source": "orchestrator",
+      "rationale": "beads DEPENDS_ON graph: nx-h8uxs blocks nx-mfarp + nx-6irva"
+    }
   ],
   "waves": [
-    {"wave_number": 1, "specs": [{"name": "extend-hooks-event-taxonomy", "feature": "nx-h8uxs", "epic": "nx-u2m9a", "priority": 2, "task_count": 13}]},
-    {"wave_number": 2, "specs": [{"name": "add-hooks-sse-fanout", "feature": "nx-mfarp", "epic": "nx-u2m9a", "priority": 2, "task_count": 16}]},
-    {"wave_number": 3, "specs": [{"name": "add-hooks-notification-triggers", "feature": "nx-6irva", "epic": "nx-u2m9a", "priority": 2, "task_count": 11}]}
+    {
+      "wave_number": 1,
+      "specs": [
+        {
+          "name": "extend-hooks-event-taxonomy",
+          "feature": "nx-h8uxs",
+          "epic": "nx-u2m9a",
+          "priority": 2,
+          "task_count": 13,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    },
+    {
+      "wave_number": 2,
+      "specs": [
+        {
+          "name": "add-hooks-sse-fanout",
+          "feature": "nx-mfarp",
+          "epic": "nx-u2m9a",
+          "priority": 2,
+          "task_count": 16,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    },
+    {
+      "wave_number": 3,
+      "specs": [
+        {
+          "name": "add-hooks-notification-triggers",
+          "feature": "nx-6irva",
+          "epic": "nx-u2m9a",
+          "priority": 2,
+          "task_count": 11,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    }
   ],
   "conflicts": {
-    "extend-hooks-event-taxonomy": ["add-hooks-sse-fanout", "add-hooks-notification-triggers"],
-    "add-hooks-sse-fanout": ["extend-hooks-event-taxonomy", "add-hooks-notification-triggers"],
-    "add-hooks-notification-triggers": ["extend-hooks-event-taxonomy", "add-hooks-sse-fanout"]
+    "extend-hooks-event-taxonomy": [
+      "add-hooks-sse-fanout",
+      "add-hooks-notification-triggers"
+    ],
+    "add-hooks-sse-fanout": [
+      "extend-hooks-event-taxonomy",
+      "add-hooks-notification-triggers"
+    ],
+    "add-hooks-notification-triggers": [
+      "extend-hooks-event-taxonomy",
+      "add-hooks-sse-fanout"
+    ]
   },
-  "runtime": {}
+  "runtime": {},
+  "completed_at": "2026-04-27T03:24:57.482393"
 }
