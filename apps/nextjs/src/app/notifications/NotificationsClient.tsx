@@ -10,7 +10,10 @@ import {
   type NotificationSettingsPatch,
   type NotificationSettingsWire,
 } from "@/app/actions/notifications";
-import type { Reachability } from "@/lib/agent-reachability";
+import type {
+  Reachability,
+  ReachabilityAttempt,
+} from "@/lib/agent-reachability";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,31 +43,56 @@ interface NotificationsClientProps {
   agentReachable: boolean;
   /**
    * Full reachability classification. Drives the banner copy switch — each
-   * failure mode (`no-agent`, `timeout`, `stale-binary`, `http-error`) gets
-   * its own actionable message. See `bannerCopyForReachability` below.
+   * failure mode (`no-agent`, `all-failed`, `stale-binary`) gets its own
+   * actionable message. When `reachability.ok === true`, the banner is
+   * hidden regardless of `agentReachable` and a small "using <agent.name>"
+   * indicator is rendered when `reachability.failover === true`.
+   * See `bannerCopyForReachability` below.
    */
   reachability: Reachability;
+}
+
+/**
+ * Describe a single `ReachabilityAttempt` outcome in human-readable form
+ * for use in the terminal sentence of the banner. The "ok" branch should
+ * never appear in a failure banner but is defended for exhaustiveness.
+ */
+function describeAttempt(a: ReachabilityAttempt): string {
+  switch (a.outcome) {
+    case "ok":
+      return "responded ok";
+    case "timeout":
+      return "timed out";
+    case "http-error":
+      return `returned HTTP ${a.status}`;
+    case "bad-shape":
+      return "returned invalid /version payload";
+    case "stale-binary":
+      return `is stale (missing ${a.missing.join(", ")})`;
+  }
 }
 
 /**
  * Map a `Reachability` failure variant to user-facing banner copy.
  *
  * Returns "" when the agent is reachable — the caller suppresses the banner
- * via the existing `!agentReachable` guard, so this branch is unreachable in
- * practice but kept for exhaustiveness (TypeScript will flag any new variant
- * added to the union).
+ * via the `reachability.ok` guard. Failure copy names the LAST attempted
+ * agent's host:port so the user can act on the terminal failure.
  */
 function bannerCopyForReachability(r: Reachability): string {
   if (r.ok) return "";
   switch (r.reason) {
     case "no-agent":
       return "No agent registered — add one in Agents settings.";
-    case "timeout":
-      return `Agent ${r.agent.name} at ${r.agent.host}:${r.agent.port} not responding — check the daemon.`;
+    case "all-failed": {
+      const lastAttempt = r.attempts[r.attempts.length - 1];
+      const desc = lastAttempt
+        ? describeAttempt(lastAttempt)
+        : "could not be reached";
+      return `All agents unreachable — last attempt: ${r.agent.name} at ${r.agent.host}:${r.agent.port} ${desc}.`;
+    }
     case "stale-binary":
-      return `Agent build ${r.build.sha} is missing ${r.missing.join(", ")} — rebuild the agent.`;
-    case "http-error":
-      return `Agent ${r.agent.name} returned HTTP ${r.status} — check agent logs.`;
+      return `Agent ${r.agent.name} build ${r.build.sha} is missing ${r.missing.join(", ")} — rebuild the agent.`;
   }
 }
 
@@ -576,7 +604,31 @@ export function NotificationsClient({
               </div>
             </div>
 
-            {!agentReachable && (
+            {/*
+             * Failover indicator: shown when the agent IS reachable but a
+             * non-first agent in DB order answered. Informational style
+             * (muted text), not error/warning. Tested via
+             * `data-testid="agent-failover-indicator"`.
+             */}
+            {reachability.ok && reachability.failover && (
+              <span
+                data-testid="agent-failover-indicator"
+                style={{
+                  marginLeft: "auto",
+                  fontSize: "var(--font-size-xs)",
+                  color: "var(--color-fg-muted)",
+                }}
+              >
+                using {reachability.agent.name}
+              </span>
+            )}
+            {/*
+             * Unreachable banner: rendered when the reachability classifier
+             * could not get a healthy responder out of the registry. Copy
+             * names the LAST attempted agent's host:port and the terminal
+             * failure mode (timeout / HTTP / stale).
+             */}
+            {!reachability.ok && (
               <span
                 data-testid="agent-banner"
                 style={{

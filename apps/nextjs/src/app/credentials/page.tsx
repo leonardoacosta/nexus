@@ -5,27 +5,46 @@ import { fetchCredentials } from "../actions/credentials";
 import type { Credential } from "../actions/credentials";
 import { AccountsTable } from "@/components/credentials-table";
 import { getAgentBaseUrl } from "@/lib/agent-url";
-import type { Reachability } from "@/lib/agent-reachability";
+import type {
+  Reachability,
+  ReachabilityAttempt,
+} from "@/lib/agent-reachability";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { credentialsActiveResponseSchema } from "@nexus/core";
 
 // ---------------------------------------------------------------------------
 // Banner copy helpers — mirror the notifications page so both surfaces show
-// the same accurate diagnostic per failure mode instead of collapsing every
-// failure into a generic "Agent unreachable" string.
+// the same accurate diagnostic per failure mode. Per spec task 2.3 the legacy
+// `timeout` / `http-error` reasons collapsed into `all-failed` with rich
+// per-attempt diagnostics in `attempts[]`. The terminal banner names the LAST
+// attempt's outcome so operators see why every agent in the registry failed.
 // ---------------------------------------------------------------------------
+
+/** Short human description of a single per-agent attempt outcome. */
+function describeAttempt(a: ReachabilityAttempt): string {
+  switch (a.outcome) {
+    case "ok":
+      return "ok";
+    case "timeout":
+      return "timed out";
+    case "http-error":
+      return `HTTP ${a.status}`;
+    case "bad-shape":
+      return "returned invalid response shape";
+    case "stale-binary":
+      return `missing ${a.missing.join(", ")}`;
+  }
+}
 
 function bannerTitleForReachability(r: Reachability): string {
   if (r.ok) return "";
   switch (r.reason) {
     case "no-agent":
       return "No agent registered";
-    case "timeout":
-      return `Agent ${r.agent.name} not responding`;
+    case "all-failed":
+      return `All ${r.attempts.length} agent${r.attempts.length === 1 ? "" : "s"} unreachable`;
     case "stale-binary":
       return `Agent build ${r.build.sha} missing required capability`;
-    case "http-error":
-      return `Agent ${r.agent.name} returned HTTP ${r.status}`;
   }
 }
 
@@ -34,12 +53,15 @@ function bannerDetailForReachability(r: Reachability): string {
   switch (r.reason) {
     case "no-agent":
       return "Add an agent in Settings → Agents to manage credentials.";
-    case "timeout":
-      return `${r.agent.host}:${r.agent.port} did not respond within 5s — check the daemon.`;
+    case "all-failed": {
+      const last = r.attempts[r.attempts.length - 1];
+      if (!last) {
+        return `Check the agent logs at ${r.agent.host}:${r.agent.port}.`;
+      }
+      return `Last attempt: ${last.agent.name} ${describeAttempt(last)}.`;
+    }
     case "stale-binary":
-      return `Missing: ${r.missing.join(", ")}. Rebuild and restart the agent.`;
-    case "http-error":
-      return `Check the agent logs at ${r.agent.host}:${r.agent.port} for the underlying error.`;
+      return `Missing: ${r.missing.join(", ")} (build ${r.build.sha}). Rebuild and restart the agent.`;
   }
 }
 
@@ -171,6 +193,18 @@ export default async function CredentialsPage() {
           {agentReachable && agentSource !== "unknown" ? (
             <span style={{ opacity: 0.6 }}>{` \u00b7 via ${agentSource}`}</span>
           ) : null}
+          {reachability.ok && reachability.failover ? (
+            <span
+              data-testid="agent-failover-indicator"
+              style={{
+                opacity: 0.85,
+                color: "var(--color-warning)",
+                marginLeft: "var(--space-2)",
+              }}
+            >
+              {`\u00b7 using ${reachability.agent.name}`}
+            </span>
+          ) : null}
           {agentReachable && accounts.length > 0 && !hasActiveAccount ? (
             <span
               style={{
@@ -185,7 +219,7 @@ export default async function CredentialsPage() {
         </span>
       </div>
 
-      {!agentReachable ? (
+      {!reachability.ok ? (
         <div
           data-testid="agent-banner"
           style={{

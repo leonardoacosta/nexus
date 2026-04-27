@@ -20,9 +20,9 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] Update `apps/nextjs/src/app/notifications/NotificationsClient.tsx` to hide the unreachable banner when `reachability.ok === true`, regardless of which agent responded. When `reachability.failover === true`, render a small text indicator "using <agent.name>" near the page header (informational style, not error) [owner:ui-engineer] [type:ui] [beads:nx-g5gdv]
-- [ ] [3.2] [P-1] Update `apps/nextjs/src/app/credentials/page.tsx` to apply the same banner-hide-on-ok + "using <name>" indicator pattern. Preserve the existing "No credentials found" empty-state copy when reachability.ok and credentials list is empty [owner:ui-engineer] [type:ui] [beads:nx-col96]
-- [ ] [3.3] [P-2] Add `data-testid="agent-failover-indicator"` to the indicator element on both pages so e2e/inspection scripts can locate it without scraping copy [owner:ui-engineer] [type:ui] [beads:nx-0vl68]
+- [x] [3.1] [P-1] Update `apps/nextjs/src/app/notifications/NotificationsClient.tsx` to hide the unreachable banner when `reachability.ok === true`, regardless of which agent responded. When `reachability.failover === true`, render a small text indicator "using <agent.name>" near the page header (informational style, not error) [owner:ui-engineer] [type:ui] [beads:nx-g5gdv]
+- [x] [3.2] [P-1] Update `apps/nextjs/src/app/credentials/page.tsx` to apply the same banner-hide-on-ok + "using <name>" indicator pattern. Preserve the existing "No credentials found" empty-state copy when reachability.ok and credentials list is empty [owner:ui-engineer] [type:ui] [beads:nx-col96]
+- [x] [3.3] [P-2] Add `data-testid="agent-failover-indicator"` to the indicator element on both pages so e2e/inspection scripts can locate it without scraping copy [owner:ui-engineer] [type:ui] [beads:nx-0vl68]
 
 ## E2E Batch
 
