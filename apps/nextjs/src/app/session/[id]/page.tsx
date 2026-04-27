@@ -5,6 +5,7 @@ import { fetchSessionDetail } from "@/app/actions/session-detail";
 import { Badge, StatusDot } from "@nexus/ui";
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 import { LazyTerminalPanel } from "@/components/LazyTerminalPanel";
+import { SessionLiveSync } from "@/components/SessionLiveSync";
 import SessionDetailLoading from "./loading";
 
 function getStatusDotStatus(status: string): "active" | "idle" | "ended" {
@@ -30,6 +31,12 @@ async function SessionDetailContent({ id }: { id: string }) {
 
   return (
     <>
+      {/* Live SSE subscription — renderless client subcomponent that
+          triggers router.refresh() when a HookEventReceived event arrives
+          for this session id. Mounted inside the RSC tree so it inherits
+          the resolved id without prop-drilling through the page entry. */}
+      <SessionLiveSync sessionId={session.id} />
+
       {/* Top bar with back navigation */}
       <div
         style={{

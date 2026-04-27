@@ -22,6 +22,8 @@ import {
 } from "../db/sessions";
 import { appendSessionEvent } from "../db/events";
 import { computeCostUsd } from "../services/cost-calculator";
+import { lifecycleBus } from "../services/lifecycle-bus";
+import { hookEventThrottle } from "../services/hook-event-throttle";
 
 const log = createLogger("agent:routes:hooks");
 
@@ -331,6 +333,24 @@ export async function handleHooks(
       status: "ok",
       message: `${eventName} acknowledged (persistence error logged)`,
     });
+  }
+
+  // 4. Fan out to the lifecycle bus so SSE subscribers (dashboards, CLI)
+  //    can react in real time. Guarded on `insertedEventId !== null` so
+  //    we never broadcast an id that resolves to no row. High-frequency
+  //    types (`tool_use_start`/`tool_use_end`) flow through the throttle;
+  //    everything else emits immediately.
+  if (insertedEventId !== null) {
+    const hookPayload = {
+      eventType: eventName,
+      sessionId,
+      ...(payload.project !== undefined ? { project: payload.project } : {}),
+      eventId: insertedEventId,
+    };
+    const { throttled } = hookEventThrottle.enqueue(hookPayload);
+    if (!throttled) {
+      lifecycleBus.emit("HookEventReceived", hookPayload);
+    }
   }
 
   return jsonResponse(200, {

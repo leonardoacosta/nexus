@@ -27,12 +27,18 @@ import {
   beforeAll,
   afterAll,
   beforeEach,
+  afterEach,
 } from "bun:test";
 import { createDb, sessions, sessionEvents, eq } from "@nexus/db";
 import type { Db } from "@nexus/db";
 
 import { handleHooks } from "./hooks";
 import { computeCostUsd } from "../services/cost-calculator";
+import {
+  lifecycleBus,
+  type LifecycleEnvelope,
+} from "../services/lifecycle-bus";
+import { hookEventThrottle } from "../services/hook-event-throttle";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
@@ -952,5 +958,133 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       );
       expect(futureRows).toHaveLength(0);
     });
+  });
+
+  // ─── 13. Lifecycle-bus fan-out (add-hooks-sse-fanout 1.6) ───────────────
+
+  describe("Lifecycle-bus emission (add-hooks-sse-fanout 1.6)", () => {
+    let captured: LifecycleEnvelope<"HookEventReceived">[];
+    let handler: (env: LifecycleEnvelope<"HookEventReceived">) => void;
+
+    beforeEach(() => {
+      // Drop any pending throttle state from a previous test so single
+      // emits don't interleave with leftover bursts.
+      hookEventThrottle.clear();
+      captured = [];
+      handler = (env) => captured.push(env);
+      lifecycleBus.on("HookEventReceived", handler);
+    });
+
+    afterEach(() => {
+      lifecycleBus.off("HookEventReceived", handler);
+      hookEventThrottle.clear();
+    });
+
+    it("session_start (lifecycle, non-throttled) emits HookEventReceived immediately", async () => {
+      const sessionId = "sess-emit-start-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+          project: "nx",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      // Lifecycle events bypass the throttle — emission is sync, so it
+      // already fired by the time handleHooks returned.
+      expect(captured).toHaveLength(1);
+      const env = captured[0]!;
+      expect(env.event).toBe("HookEventReceived");
+      expect(env.payload.eventType).toBe("session_start");
+      expect(env.payload.sessionId).toBe(sessionId);
+      expect(env.payload.project).toBe("nx");
+      expect(typeof env.payload.eventId).toBe("number");
+      expect(env.payload.eventId).toBeGreaterThan(0);
+      // Lifecycle events have no count field.
+      expect(env.payload.count).toBeUndefined();
+    });
+
+    it("notification event emits with project field omitted when payload lacks it", async () => {
+      const sessionId = "sess-emit-noproject-1";
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "notification",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]!.payload.eventType).toBe("notification");
+      expect(captured[0]!.payload.project).toBeUndefined();
+    });
+
+    it("unknown (unrecognized) event suppresses emit (no persistence, no broadcast)", async () => {
+      const sessionId = "sess-emit-unknown-1";
+
+      // Pre-seed parent row so FK isn't the reason for missing event row.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+      captured.length = 0;
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "future_unknown_thing",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(captured).toHaveLength(0);
+    });
+
+    it("burst of tool_use_end events coalesces to ≤1 emit within the throttle window", async () => {
+      const sessionId = "sess-emit-throttle-1";
+
+      // Seed parent row so the burst doesn't waste cycles on stub creation.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+      // Drop the session_start emit so we count only the burst.
+      captured.length = 0;
+
+      // Fire 10 tool_use_end events back-to-back.
+      for (let i = 0; i < 10; i++) {
+        await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: "tool_use_end",
+            session_id: sessionId,
+            tool: "Edit",
+            duration_ms: 50 + i,
+          }),
+        );
+      }
+
+      // No emit should have fired yet — buffer is still pending.
+      expect(captured).toHaveLength(0);
+
+      // Wait for the production 500ms throttle window to expire.
+      await Bun.sleep(600);
+
+      // Exactly one coalesced emit with count=10.
+      expect(captured).toHaveLength(1);
+      expect(captured[0]!.payload.eventType).toBe("tool_use_end");
+      expect(captured[0]!.payload.sessionId).toBe(sessionId);
+      expect(captured[0]!.payload.count).toBe(10);
+    }, 5_000);
   });
 });

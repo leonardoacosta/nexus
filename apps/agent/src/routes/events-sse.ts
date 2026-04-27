@@ -118,6 +118,8 @@ export function handleEventsStream(): Response {
       }, 30_000);
 
       // Subscribe to lifecycle bus — push all events as SSE frames.
+      // Hook events flow through here too — handleHooks emits HookEventReceived
+      // after persistence, see add-hooks-sse-fanout (apply-2026-04-27-001).
       busHandler = (envelope: LifecycleEnvelope) => {
         try {
           const data = JSON.stringify(envelope);

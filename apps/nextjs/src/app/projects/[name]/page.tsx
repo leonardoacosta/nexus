@@ -5,6 +5,7 @@ import { fetchSessions } from "@/app/actions/sessions";
 import { fetchProject } from "@/app/actions/projects";
 import { SessionCard } from "@/components/SessionCard";
 import { ProjectSettingsPanel } from "@/components/ProjectSettingsPanel";
+import { ProjectLiveSync } from "@/components/ProjectLiveSync";
 
 export default async function ProjectDetailPage({
   params,
@@ -22,6 +23,12 @@ export default async function ProjectDetailPage({
 
   return (
     <div>
+      {/* Live SSE subscription — renderless client subcomponent that
+          triggers router.refresh() when a HookEventReceived event arrives
+          for this project. Refreshing re-runs the parallel fetchSessions /
+          fetchProject calls so badges update without a manual reload. */}
+      <ProjectLiveSync project={projectName} />
+
       <div
         style={{
           display: "flex",

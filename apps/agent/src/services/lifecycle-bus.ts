@@ -79,6 +79,29 @@ export interface SettingsChangedPayload {
   duckingMode: "full" | "half" | "mute";
 }
 
+/**
+ * Emitted by `handleHooks` after every successful `appendSessionEvent` insert.
+ *
+ * Carries a lean projection — `eventType`, `sessionId`, optional `project`,
+ * and the persisted row id (`eventId`). Subscribers MUST refetch the full row
+ * from `/sessions/:id/events` (or sibling endpoints) to read metadata; the bus
+ * never broadcasts the full hook payload (privacy + size).
+ *
+ * `count` is populated by `hook-event-throttle.ts` when high-frequency
+ * event types (`tool_use_start`, `tool_use_end`) coalesce within a 500ms
+ * window. When undefined or 1, the emit corresponds to a single event;
+ * when >1, `eventId` points to the LAST suppressed event in the window.
+ *
+ * See: openspec/changes/add-hooks-sse-fanout/specs/hooks-endpoint/spec.md
+ */
+export interface HookEventReceivedPayload {
+  eventType: string;
+  sessionId: string;
+  project?: string;
+  eventId: number;
+  count?: number;
+}
+
 export interface NotificationFiredPayload {
   /** Notification id (idempotency key). */
   id: string;
@@ -119,6 +142,7 @@ export interface LifecycleEventMap {
   CredentialDecryptFallback: CredentialDecryptFallbackPayload;
   NotificationFired: NotificationFiredPayload;
   SettingsChanged: SettingsChangedPayload;
+  HookEventReceived: HookEventReceivedPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;
