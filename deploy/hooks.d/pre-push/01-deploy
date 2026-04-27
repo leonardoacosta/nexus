@@ -85,6 +85,24 @@ case "$OS" in
         (cd "$REPO_DIR" && pnpm --filter @nexus/db db:migrate) || fail "db:migrate failed"
         systemctl --user start nexus-agent
         info "systemd service enabled and started"
+
+        # ── Dashboard (Next.js) — rebuild + restart if changed ────
+        # Mirrors deploy/hooks.d/post-merge/04-dashboard but runs on push from
+        # this same machine (post-merge only fires on `git pull`, leaving the
+        # dashboard stale after a local push).
+        if git diff --name-only "@{push}..HEAD" 2>/dev/null | grep -qE '^(apps/nextjs/|packages/db/|packages/core/)' \
+           || git diff --name-only HEAD~1..HEAD 2>/dev/null | grep -qE '^(apps/nextjs/|packages/db/|packages/core/)'; then
+            info "dashboard-related changes detected, rebuilding..."
+            if (cd "$REPO_DIR" && pnpm --filter @nexus/nextjs build); then
+                systemctl --user restart nexus-dashboard \
+                    && info "nexus-dashboard restarted" \
+                    || info "warning: nexus-dashboard restart failed (may need manual attention)"
+            else
+                info "warning: dashboard build failed, skipping restart"
+            fi
+        else
+            info "no dashboard-related changes, skipping rebuild"
+        fi
         ;;
     Darwin)
         LAUNCH_DIR="$HOME/Library/LaunchAgents"
