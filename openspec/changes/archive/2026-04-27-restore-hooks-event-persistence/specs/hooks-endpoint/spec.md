@@ -1,8 +1,7 @@
-# hooks-endpoint Specification
+# hooks-endpoint Specification (delta)
 
-## Purpose
-TBD - created by archiving change add-http-hooks-receiver. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: POST /hooks Endpoint
 
 nexus-agent SHALL expose a `POST /hooks` endpoint that accepts JSON payloads from Claude Code HTTP hooks and telemetry.sh, **persists each event to the `events` table**, dispatches based on `hook_event_name` or `event` field, and updates the `sessions` table for lifecycle events.
@@ -38,6 +37,8 @@ nexus-agent SHALL support `session_summary` events that carry per-session monito
 - **THEN** the handler computes cost server-side using model-aware rates (Opus 4.7: $15/M input, $75/M output, $1.50/M cache_read, $30/M cache_write 1h)
 - **AND** the computed value is stored in `total_cost_usd`
 
+## ADDED Requirements
+
 ### Requirement: SessionStop Event Type
 
 nexus-agent SHALL support `session_stop` events that finalize an active session. On receipt, `ended_at` SHALL be set to NOW() and `status` SHALL transition to `"ended"`.
@@ -67,4 +68,3 @@ nexus-agent SHALL accept a `diagnostic_ping` event type whose sole purpose is ro
 - **WHEN** they POST `{"hook_event_name": "diagnostic_ping", "session_id": "diag-<timestamp>"}` to `/hooks`
 - **THEN** within 1 second, `SELECT * FROM events WHERE event_type='diagnostic_ping' AND session_id='diag-<timestamp>'` returns the row
 - **AND** the operator can use this as a smoke test in deployment scripts
-

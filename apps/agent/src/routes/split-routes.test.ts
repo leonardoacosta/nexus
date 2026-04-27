@@ -19,6 +19,15 @@ mock.module("../db/sessions", () => ({
   queryActiveSessions: mock(() => Promise.resolve([])),
   queryRecentSessions: mock(() => Promise.resolve([])),
   getSessionById: mock(() => Promise.resolve(null)),
+  upsertSession: mock(() => Promise.resolve()),
+  updateSessionStatus: mock(() => Promise.resolve()),
+  insertSession: mock(() => Promise.resolve()),
+  loadActiveSessions: mock(() => Promise.resolve([])),
+}));
+
+mock.module("../db/events", () => ({
+  appendSessionEvent: mock(() => Promise.resolve(1)),
+  querySessionEvents: mock(() => Promise.resolve([])),
 }));
 
 // Mock config-loader since it may not be initialized in test context.
