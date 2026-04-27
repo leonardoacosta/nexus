@@ -4,13 +4,11 @@
 
 import { describe, expect, it } from "bun:test";
 import type { HealthMetrics } from "@nexus/core";
-import { ATTACH_SECRET, baseUrl, streamManager, MockPtySource } from "./server.helpers";
+import { baseUrl, streamManager, MockPtySource } from "./server.helpers";
 
 describe("/health", () => {
   it("returns 200 with HealthMetrics shape", async () => {
-    const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
@@ -61,7 +59,6 @@ describe("POST /health/ingest (task 9.3)", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-nexus-secret": ATTACH_SECRET,
       },
       body: JSON.stringify({
         hostname: "test-machine",
@@ -75,13 +72,16 @@ describe("POST /health/ingest (task 9.3)", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 401 without x-nexus-secret", async () => {
+  it("does not return 401 without x-nexus-secret (header gate removed by drop-attach-secret-gate)", async () => {
     const res = await fetch(`${baseUrl}/health/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hostname: "x", uptime_seconds: 0, cpu: {}, ram: {}, disk: [] }),
     });
-    expect(res.status).toBe(401);
+    // No DB → 404 from the dispatcher's no-DB fall-through. The point is
+    // it's no longer 401; the auth gate is gone.
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
   });
 
   it("returns 400 for missing required fields when body is invalid", async () => {
@@ -89,7 +89,6 @@ describe("POST /health/ingest (task 9.3)", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-nexus-secret": ATTACH_SECRET,
       },
       body: "not json at all",
     });

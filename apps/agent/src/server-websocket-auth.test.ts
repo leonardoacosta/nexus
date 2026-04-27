@@ -1,140 +1,114 @@
 /**
- * Server WebSocket and REST authentication tests.
+ * Server REST + WebSocket no-auth contract tests.
  *
- * Covers WebSocket upgrade auth, query-string token auth, REST auth,
- * timing-safe comparison, session ID validation, and credential ID sanitization.
+ * Auth gate dropped in `drop-attach-secret-gate` — both REST and WebSocket
+ * surfaces now respond without an `x-nexus-secret` header / `?token=` query
+ * param. Reachability is bounded at the bind layer (loopback + Tailscale only)
+ * — every connection that reaches dispatch is already authenticated by
+ * WireGuard or local OS identity.
+ *
+ * The tests in this file pin the no-auth contract: previously gated routes
+ * now succeed without credentials, stale headers are no-ops, and WebSocket
+ * upgrades no longer return 401.
  */
 
 import { describe, expect, it } from "bun:test";
-import { ATTACH_SECRET, baseUrl } from "./server.helpers";
+import { baseUrl } from "./server.helpers";
 
-// ── Security: WebSocket authentication ──────────────────────────────────────
+// ── WebSocket: no-auth contract ─────────────────────────────────────────────
 
-describe("WebSocket security: authentication", () => {
-  it("[2.1] /sessions/{id}/stream upgrade without secret returns 401", async () => {
+describe("WebSocket: no auth gate (drop-attach-secret-gate)", () => {
+  it("/sessions/{id}/stream upgrade without token does not return 401", async () => {
     const res = await fetch(`${baseUrl}/sessions/some-session/stream`);
-    expect(res.status).toBe(401);
+    expect(res.status).not.toBe(401);
+    // No PTY attached → 404 from the upgrade handler
+    expect(res.status).toBe(404);
   });
 
-  it("[2.1] /sessions/{id}/interact upgrade without secret returns 401", async () => {
+  it("/sessions/{id}/interact upgrade without token does not return 401", async () => {
     const res = await fetch(`${baseUrl}/sessions/some-session/interact`);
-    expect(res.status).toBe(401);
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
   });
 
-  it("[2.1] /sessions/{id}/stream upgrade with wrong secret returns 401", async () => {
+  it("/sessions/{id}/stream upgrade with stale x-nexus-secret header is ignored", async () => {
     const res = await fetch(`${baseUrl}/sessions/some-session/stream`, {
       headers: { "x-nexus-secret": "wrong-secret" },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
   });
 
-  it("[2.1] /sessions/{id}/interact upgrade with wrong secret returns 401", async () => {
+  it("/sessions/{id}/interact upgrade with stale x-nexus-secret header is ignored", async () => {
     const res = await fetch(`${baseUrl}/sessions/some-session/interact`, {
       headers: { "x-nexus-secret": "wrong-secret" },
     });
-    expect(res.status).toBe(401);
-  });
-});
-
-// ── Security: WebSocket query-string token auth ──────────────────────────────
-
-describe("WebSocket query-string token auth", () => {
-  it("[1.4] stream: missing token (no header, no QS) → 401", async () => {
-    const res = await fetch(`${baseUrl}/sessions/some-session/stream`);
-    expect(res.status).toBe(401);
-  });
-
-  it("[1.4] stream: wrong token in query-string → 401", async () => {
-    const res = await fetch(`${baseUrl}/sessions/some-session/stream?token=wrong-token`);
-    expect(res.status).toBe(401);
-  });
-
-  it("[1.4] stream: correct token in query-string → passes auth (404 because no PTY, not 401)", async () => {
-    const res = await fetch(
-      `${baseUrl}/sessions/some-session/stream?token=${encodeURIComponent(ATTACH_SECRET)}`,
-    );
     expect(res.status).not.toBe(401);
     expect(res.status).toBe(404);
   });
 
-  it("[1.4] interact: missing token (no header, no QS) → 401", async () => {
-    const res = await fetch(`${baseUrl}/sessions/some-session/interact`);
-    expect(res.status).toBe(401);
+  it("/sessions/{id}/stream upgrade with stale ?token= query param is ignored", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/stream?token=anything`);
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
   });
 
-  it("[1.4] interact: wrong token in query-string → 401", async () => {
-    const res = await fetch(`${baseUrl}/sessions/some-session/interact?token=wrong-token`);
-    expect(res.status).toBe(401);
-  });
-
-  it("[1.4] interact: correct token in query-string → passes auth (404 because no PTY, not 401)", async () => {
-    const res = await fetch(
-      `${baseUrl}/sessions/some-session/interact?token=${encodeURIComponent(ATTACH_SECRET)}`,
-    );
+  it("/sessions/{id}/interact upgrade with stale ?token= query param is ignored", async () => {
+    const res = await fetch(`${baseUrl}/sessions/some-session/interact?token=anything`);
     expect(res.status).not.toBe(401);
     expect(res.status).toBe(404);
   });
 });
 
-// ── Task 1.3: Global REST auth — missing x-nexus-secret returns 401 ──────────
+// ── REST: no-auth contract ──────────────────────────────────────────────────
 
-describe("REST auth: missing x-nexus-secret returns 401 (task 1.3)", () => {
-  const routes = [
-    { method: "GET", path: "/credentials" },
-    { method: "GET", path: "/sessions" },
-    { method: "GET", path: "/projects" },
-    { method: "GET", path: "/health" },
-    { method: "POST", path: "/notifications/send" },
-  ];
+describe("REST endpoints: no header required (drop-attach-secret-gate)", () => {
+  it("GET /health without x-nexus-secret returns 200", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
+  });
 
-  for (const { method, path } of routes) {
-    it(`${method} ${path} without x-nexus-secret returns 401`, async () => {
-      const res = await fetch(`${baseUrl}${path}`, { method });
-      expect(res.status).toBe(401);
-    });
-  }
+  it("GET /sessions without x-nexus-secret does not return 401", async () => {
+    const res = await fetch(`${baseUrl}/sessions`);
+    expect(res.status).not.toBe(401);
+  });
+
+  it("GET /projects without x-nexus-secret does not return 401", async () => {
+    const res = await fetch(`${baseUrl}/projects`);
+    expect(res.status).not.toBe(401);
+  });
+
+  it("GET /credentials without x-nexus-secret does not return 401", async () => {
+    const res = await fetch(`${baseUrl}/credentials`);
+    expect(res.status).not.toBe(401);
+  });
+
+  it("POST /notifications/send without x-nexus-secret does not return 401", async () => {
+    const res = await fetch(`${baseUrl}/notifications/send`, { method: "POST" });
+    expect(res.status).not.toBe(401);
+  });
 });
 
-// ── Task 1.4: Global REST auth — correct secret passes through ───────────────
-
-describe("REST auth: correct x-nexus-secret passes through (task 1.4)", () => {
-  it("GET /health with correct secret returns 200", async () => {
+describe("REST endpoints: stale x-nexus-secret header is ignored", () => {
+  it("GET /health with any header value returns 200 (no behavior change)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
+      headers: { "x-nexus-secret": "anything" },
     });
     expect(res.status).toBe(200);
   });
 
-  it("GET /sessions with correct secret does not return 401", async () => {
-    const res = await fetch(`${baseUrl}/sessions`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
-    expect(res.status).not.toBe(401);
-  });
-});
-
-// ── Task 2.4: Timing-safe comparison — different byte length returns 401 ─────
-
-describe("Timing-safe comparison: different byte length (task 2.4)", () => {
-  it("secret header shorter than ATTACH_SECRET returns 401 without throwing", async () => {
+  it("GET /health with a wrong secret is ignored — 200 (no longer 401)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": "x" },
+      headers: { "x-nexus-secret": "wrong-secret" },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 
-  it("secret header longer than ATTACH_SECRET returns 401 without throwing", async () => {
-    const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET.repeat(3) + "extra" },
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it("empty secret header returns 401 without throwing", async () => {
+  it("GET /health with an empty secret is ignored — 200 (no longer 401)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
       headers: { "x-nexus-secret": "" },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 });
 
@@ -156,14 +130,14 @@ describe("WebSocket security: session ID validation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("[2.6] valid alphanumeric session ID proceeds past validation (reaches auth/session checks)", async () => {
+  it("[2.6] valid alphanumeric session ID proceeds past validation (404 since no PTY)", async () => {
     const res = await fetch(`${baseUrl}/sessions/valid-session-123/stream`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 
-  it("[8.2] session ID with dots is accepted (returns 401 not 400)", async () => {
+  it("[8.2] session ID with dots is accepted (404 since no PTY, not 400)", async () => {
     const res = await fetch(`${baseUrl}/sessions/session.2026-04-06.1/stream`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 
   it("[8.2] session ID with slashes is rejected with 400", async () => {
@@ -185,7 +159,7 @@ describe("Credential ID sanitization (task 5.4)", () => {
     it(`POST /credentials/${id}/release with ${label} returns 400`, async () => {
       const res = await fetch(`${baseUrl}/credentials/${id}/release`, {
         method: "POST",
-        headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(400);
@@ -194,7 +168,7 @@ describe("Credential ID sanitization (task 5.4)", () => {
     it(`POST /credentials/${id}/report-rate-limit with ${label} returns 400`, async () => {
       const res = await fetch(`${baseUrl}/credentials/${id}/report-rate-limit`, {
         method: "POST",
-        headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(400);

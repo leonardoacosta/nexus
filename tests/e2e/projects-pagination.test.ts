@@ -51,7 +51,6 @@
  * --------------
  *   1. docker compose -f docker-compose.test.yml up -d
  *   2. POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test \
- *      NEXUS_ATTACH_SECRET=e2e-pagination-secret \
  *      bun test tests/e2e/projects-pagination.test.ts
  */
 
@@ -66,13 +65,9 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 const POSTGRES_URL = process.env.POSTGRES_URL;
 const IS_TEST_DB = !!POSTGRES_URL && /\/nexus_test(?:[?#]|$)/.test(POSTGRES_URL);
 
-// The agent's server.ts reads NEXUS_ATTACH_SECRET at module load and calls
-// process.exit(1) if missing. Set a deterministic value BEFORE importing the
-// server module so `startServer` succeeds regardless of the caller's env.
-const TEST_SECRET = "e2e-pagination-test-secret";
-process.env.NEXUS_ATTACH_SECRET =
-  process.env.NEXUS_ATTACH_SECRET ?? TEST_SECRET;
-const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET!;
+// Auth gate dropped in `drop-attach-secret-gate` — the agent no longer reads
+// any secret at module load. REST routes accept requests without the legacy
+// `x-nexus-secret` header.
 
 if (!IS_TEST_DB) {
   const reason = POSTGRES_URL
@@ -238,10 +233,10 @@ if (!IS_TEST_DB) {
     }
   });
 
-  /** Fetch helper that attaches the auth header every REST route requires. */
+  /** Fetch helper for the (now auth-less) /projects endpoint. */
   async function getProjects(query: string = ""): Promise<Response> {
     const url = `${httpBase}/projects${query}`;
-    return fetch(url, { headers: { "x-nexus-secret": ATTACH_SECRET } });
+    return fetch(url);
   }
 
   // ── Response-shape types (mirrors routes/projects.ts) ───────────────────

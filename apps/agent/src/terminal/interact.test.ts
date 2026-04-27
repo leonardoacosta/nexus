@@ -2,8 +2,6 @@ import { describe, expect, it, afterAll, beforeAll, afterEach } from "bun:test";
 import { startServer, healthCollector, streamManager } from "../server";
 import { MockPtySource } from "./pty-source";
 
-const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET ?? "test";
-
 const server = startServer(0);
 const baseUrl = `http://localhost:${server.port}`;
 const wsUrl = `ws://localhost:${server.port}`;
@@ -23,10 +21,7 @@ function connectWs(
   opened: Promise<void>;
   closed: Promise<{ code: number; reason: string }>;
 }> {
-  const ws = new WebSocket(
-    `${wsUrl}${path}`,
-    { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
-  );
+  const ws = new WebSocket(`${wsUrl}${path}`);
   ws.binaryType = "arraybuffer";
   const messages: (string | Uint8Array)[] = [];
 
@@ -215,9 +210,7 @@ describe("WebSocket interact: mutex", () => {
 
 describe("WebSocket interact: invalid session", () => {
   it("returns 404 for non-existent session", async () => {
-    const res = await fetch(`${baseUrl}/sessions/nonexistent/interact`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${baseUrl}/sessions/nonexistent/interact`);
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string };
     expect(body.error).toBe("session not found");

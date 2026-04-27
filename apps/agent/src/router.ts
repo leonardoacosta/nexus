@@ -37,8 +37,11 @@ export interface Route {
    */
   requiresDb?: boolean;
   /**
-   * When true (default), the route requires the `x-nexus-secret` header.
+   * When true (default), the route is gated by the configured `authCheck`.
    * Set to false for unauthenticated endpoints (e.g. health probes).
+   *
+   * Note: this struct is currently unused — `createRouter` is exported but
+   * not called by `server-request-handler.ts`. Kept for future consolidation.
    * @default true
    */
   requiresAuth?: boolean;

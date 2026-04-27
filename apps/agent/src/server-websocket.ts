@@ -5,13 +5,16 @@
  * - ServerState class (connection tracking, ping/pong heartbeat)
  * - WebSocket upgrade routing (stream, interact, federation)
  * - WebSocket event handlers (open, message, close, pong)
- * - WebSocket auth (constant-time secret comparison)
  * - Connection limit enforcement
+ *
+ * Auth note: the legacy `x-nexus-secret` header / `?token=` query-string gate
+ * was removed by `drop-attach-secret-gate`. Reachability is now bounded at
+ * the bind layer (loopback + Tailscale only) — every connection that reaches
+ * upgrade is already authenticated by WireGuard or local OS identity.
  */
 
 import type { ServerWebSocket } from "bun";
 import { logger } from "@nexus/core/node";
-import { timingSafeEqual } from "node:crypto";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
 import {
@@ -33,14 +36,6 @@ const SESSION_ID_RE = /^[a-zA-Z0-9_.-]+$/;
 const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
 const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
 const WS_FEDERATION_PATH = "/ws/federation";
-
-// ── Security: attach secret ─────────────────────────────────────────────────
-const _attachSecretRaw = process.env.NEXUS_ATTACH_SECRET;
-if (!_attachSecretRaw) {
-  logger.error("NEXUS_ATTACH_SECRET is not set — refusing to start (fail-closed)");
-  process.exit(1);
-}
-const ATTACH_SECRET: string = _attachSecretRaw;
 
 // ── ServerState: encapsulates all per-server mutable state ─────────────────
 
@@ -109,32 +104,6 @@ export class ServerState {
 }
 
 /**
- * Validate WebSocket upgrade authentication.
- *
- * Browsers cannot set custom HTTP headers on WebSocket upgrades, so this
- * function accepts the secret from either:
- *   1. The `x-nexus-secret` request header (used by server-side / non-browser clients), or
- *   2. The `token` query-string parameter (used by browser-based XTerminal).
- *
- * Both paths use constant-time comparison to prevent timing attacks.
- * Returns `null` on success, `Response(401)` on failure.
- */
-export function requireSecretWs(request: Request, url: URL): Response | null {
-  // Prefer the header (same path as requireSecret)
-  const fromHeader = request.headers.get("x-nexus-secret");
-  const provided = fromHeader !== null ? fromHeader : (url.searchParams.get("token") ?? "");
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(ATTACH_SECRET);
-  if (
-    providedBuf.length !== expectedBuf.length ||
-    !timingSafeEqual(providedBuf, expectedBuf)
-  ) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-  return null;
-}
-
-/**
  * Handle WebSocket upgrade requests for /sessions/:id/stream,
  * /sessions/:id/interact, and /ws/federation.
  *
@@ -157,9 +126,6 @@ export function handleWsUpgrade(
     if (!SESSION_ID_RE.test(sessionId)) {
       return new Response("Bad Request", { status: 400 });
     }
-    // Validate secret via header or ?token= query param (browser WS can't set headers)
-    const streamAuthErr = requireSecretWs(request, url);
-    if (streamAuthErr) return streamAuthErr;
     // Enforce connection limit
     if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
       return new Response("Too Many Requests", { status: 429 });
@@ -188,9 +154,6 @@ export function handleWsUpgrade(
     if (!SESSION_ID_RE.test(sessionId)) {
       return new Response("Bad Request", { status: 400 });
     }
-    // Validate secret via header or ?token= query param (browser WS can't set headers)
-    const interactAuthErr = requireSecretWs(request, url);
-    if (interactAuthErr) return interactAuthErr;
     // Enforce connection limit
     if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
       return new Response("Too Many Requests", { status: 429 });
@@ -212,8 +175,6 @@ export function handleWsUpgrade(
 
   // ── /ws/federation ──────────────────────────────────────────────────────
   if (url.pathname === WS_FEDERATION_PATH) {
-    const fedAuthErr = requireSecretWs(request, url);
-    if (fedAuthErr) return fedAuthErr;
     if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
       return new Response("Too Many Requests", { status: 429 });
     }

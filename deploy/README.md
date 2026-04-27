@@ -86,7 +86,6 @@ ssh mac 'tail -f ~/Library/Logs/nexus-notifier.log'
 | ----------------------- | ----------------------------- | ---------------------------------------------------- |
 | `ELEVENLABS_API_KEY`    | Linux agent only (DB or env)  | The agent synthesizes; the Mac just plays bytes.     |
 | `ELEVENLABS_VOICE_ID`   | Linux agent only (optional)   | Defaults to `21m00Tcm4TlvDq8ikWAM` if unset.         |
-| `NEXUS_ATTACH_SECRET`   | Linux agent **and** Mac       | Bearer for the SSE handshake (`x-nexus-secret`).     |
 
 ### Linux side
 
@@ -103,24 +102,17 @@ secret survives reboot:
 ```ini
 [Service]
 Environment="ELEVENLABS_API_KEY=sk_..."
-Environment="NEXUS_ATTACH_SECRET=..."
 ```
 
 `systemctl --user daemon-reload && systemctl --user restart nexus-agent`.
 
 ### Mac side
 
-The listener reads `NEXUS_ATTACH_SECRET` from `~/.env` on startup
-(launched via `set -a; . ~/.env; set +a` so plain `KEY=value` lines
-work). Drop it once:
-
-```bash
-echo 'NEXUS_ATTACH_SECRET=...' >> ~/.env
-chmod 600 ~/.env
-```
-
-Restart the listener: `launchctl unload && launchctl load
-~/Library/LaunchAgents/com.nexus.notifier.plist`.
+The listener no longer reads any auth secret — the agent's REST/SSE
+endpoints are loopback + Tailscale-bound and require no header
+(`drop-attach-secret-gate`). If the listener is already installed it
+will keep working after a `git pull` + relaunch with no extra
+provisioning step.
 
 Do not put `ELEVENLABS_API_KEY` on the Mac. The Mac never calls
 ElevenLabs directly — every byte of audio comes pre-synthesized over

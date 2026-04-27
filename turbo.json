@@ -23,7 +23,7 @@
     },
     "test": {
       "cache": false,
-      "env": ["POSTGRES_URL", "NEXUS_ATTACH_SECRET"]
+      "env": ["POSTGRES_URL"]
     }
   }
 }

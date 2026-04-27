@@ -77,12 +77,6 @@ export interface NotificationsPageData {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function authHeaders(): Record<string, string> {
-  return {
-    "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
-  };
-}
-
 function rowToWire(row: Notification): NotificationRow {
   return {
     id: row.id,
@@ -115,7 +109,6 @@ export async function fetchNotificationSettings(): Promise<NotificationSettingsW
       `${resolved.baseUrl}/notifications/settings`,
       {
         timeout: REQUEST_TIMEOUT_MS,
-        headers: authHeaders(),
         cache: "no-store",
       },
     );
@@ -188,7 +181,7 @@ export async function updateNotificationSettings(
     {
       method: "PATCH",
       timeout: REQUEST_TIMEOUT_MS,
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
       cache: "no-store",
     },
@@ -226,7 +219,7 @@ export async function replayNotification(
     const res = await fetchWithTimeout(`${resolved.baseUrl}/notifications/send`, {
       method: "POST",
       timeout: REQUEST_TIMEOUT_MS,
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id,
         channel: input.channel,

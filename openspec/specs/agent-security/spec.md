@@ -14,36 +14,6 @@ The agent SHALL read `bind_address` from `agents.toml` configuration and bind bo
 - **WHEN** `bind_address = "0.0.0.0"` is set in agents.toml
 - **THEN** both servers bind to `0.0.0.0` as specified
 
-### Requirement: Shared Secret Authentication for Run Endpoint
-All REST endpoints SHALL require a valid shared secret in the `X-Nexus-Secret` header. The
-global auth middleware MUST check the secret before dispatching any REST route. Requests that
-omit or provide an invalid secret SHALL be rejected with HTTP 401. WebSocket upgrade paths
-(`/sessions/{id}/stream` and `/sessions/{id}/interact`) validate the secret inline before the
-upgrade and are exempt from the global middleware check. The secret SHALL be configurable via
-`agents.toml` or the `NEXUS_SECRET` environment variable and SHALL be compared using a
-constant-time equality function (`crypto.timingSafeEqual`) to prevent timing side-channel
-attacks.
-
-#### Scenario: Valid secret provided to REST route
-- **WHEN** any REST request (e.g. `GET /sessions`, `POST /credentials`, `GET /health`) includes a valid `X-Nexus-Secret` header
-- **THEN** the request is dispatched to its handler normally
-
-#### Scenario: Missing or invalid secret on REST route
-- **WHEN** any REST request omits the `X-Nexus-Secret` header or provides an incorrect value
-- **THEN** the server responds with HTTP 401 Unauthorized before the route handler is called
-
-#### Scenario: No secret configured
-- **WHEN** no secret is configured in agents.toml or environment
-- **THEN** the agent refuses to start (fail-closed) and all routes reject with HTTP 401
-
-#### Scenario: Timing-safe comparison prevents oracle
-- **WHEN** a request provides a secret of the wrong length or with a single differing byte
-- **THEN** the comparison completes without throwing and returns 401, with no observable timing difference relative to a fully mismatched secret
-
-#### Scenario: WebSocket upgrade validates secret inline
-- **WHEN** a WebSocket upgrade request to `/sessions/{id}/stream` or `/sessions/{id}/interact` includes an invalid or missing `X-Nexus-Secret`
-- **THEN** the server responds with HTTP 401 before the upgrade is attempted
-
 ### Requirement: CORS Allows Auth Header for Browser Clients
 The CORS middleware SHALL include `x-nexus-secret` in the `Access-Control-Allow-Headers`
 response header so that browser clients hosted at a Tailscale origin can include the auth
@@ -170,4 +140,33 @@ usage-data filenames.
   permissions more permissive than `0o700`
 - **THEN** the agent tightens permissions to `0o700` before writing any state
   files
+
+### Requirement: Agent binds to loopback and Tailscale interface by default
+
+When `bind_address` is unset or set to `"0.0.0.0"` in `agents.toml`, the agent SHALL bind its HTTP server to two addresses simultaneously: `127.0.0.1` (loopback) and the Tailscale interface IP discovered via `tailscale ip -4` at boot. Random LAN clients on other interfaces SHALL NOT reach the agent. An explicit `bind_address` value other than `"0.0.0.0"` SHALL be honored verbatim and SHALL NOT trigger the multi-bind default.
+
+#### Scenario: Default bind to loopback plus Tailscale
+
+- **GIVEN** `bind_address` is not set in `agents.toml` (or set to `"0.0.0.0"`)
+- **AND** the host has a `tailscale0` interface with IP `100.73.182.4`
+- **WHEN** the agent starts
+- **THEN** `curl http://127.0.0.1:7400/health` SHALL return 200
+- **AND** `curl http://100.73.182.4:7400/health` SHALL return 200
+- **AND** a request from a non-loopback non-Tailscale interface (e.g. a `192.168.1.x` LAN address) SHALL fail to connect
+
+#### Scenario: Tailscale unavailable degrades to loopback-only
+
+- **GIVEN** `tailscale ip -4` exits non-zero (Tailscale not installed, daemon down, or no network)
+- **WHEN** the agent starts
+- **THEN** the agent SHALL bind to `127.0.0.1` only
+- **AND** SHALL log a warning naming the missed Tailscale binding
+- **AND** SHALL NOT exit with an error (loopback-only is a valid degraded mode)
+
+#### Scenario: Explicit bind override is honored without the Tailscale fallback
+
+- **GIVEN** `agents.toml` contains `bind_address = "127.0.0.1"`
+- **WHEN** the agent starts
+- **THEN** the agent SHALL bind ONLY to `127.0.0.1`
+- **AND** SHALL NOT additionally bind to Tailscale
+- **AND** SHALL NOT shell out to `tailscale ip -4` at all
 

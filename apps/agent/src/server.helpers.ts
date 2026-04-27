@@ -3,16 +3,14 @@
  *
  * Provides the shared server instance, URLs, and utility functions
  * used across all server test splits.
+ *
+ * Auth note: the legacy `x-nexus-secret` / `NEXUS_ATTACH_SECRET` gate was
+ * removed by `drop-attach-secret-gate`. Tests no longer need to inject
+ * the header — every endpoint accepts unauthenticated traffic.
  */
 
 import { startServer, healthCollector, streamManager } from "./server";
 import { MockPtySource } from "./terminal/pty-source";
-
-const TEST_SECRET = "test-secret-for-unit-tests";
-// Ensure the env var is set before importing server (module-level read).
-// When running the full suite via `NEXUS_ATTACH_SECRET=...` the value is
-// already present; we just capture whatever was set.
-export const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET ?? TEST_SECRET;
 
 export const server = startServer(0);
 export const baseUrl = `http://localhost:${server.port}`;
@@ -34,10 +32,7 @@ export function delay(ms: number): Promise<void> {
 export async function openInteractWs(
   sid: string,
 ): Promise<{ ws: WebSocket; messages: string[]; opened: Promise<void> }> {
-  const ws = new WebSocket(
-    `${wsUrl}/sessions/${sid}/interact`,
-    { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
-  );
+  const ws = new WebSocket(`${wsUrl}/sessions/${sid}/interact`);
   const messages: string[] = [];
   const opened = new Promise<void>((resolve, reject) => {
     ws.addEventListener("open", () => resolve());

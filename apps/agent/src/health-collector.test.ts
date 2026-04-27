@@ -301,8 +301,6 @@ async function waitForCollector(maxMs = 2000): Promise<void> {
   }
 }
 
-const ATTACH_SECRET = process.env["NEXUS_ATTACH_SECRET"] ?? "test";
-
 describe("/health endpoint", () => {
   const server = startServer(0);
   const baseUrl = `http://localhost:${server.port}`;
@@ -315,9 +313,7 @@ describe("/health endpoint", () => {
   it("returns HealthMetrics shape (default — no detail)", async () => {
     await waitForCollector();
 
-    const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json");
 
@@ -341,9 +337,7 @@ describe("/health endpoint", () => {
   it("returns detail fields with ?detail=true", async () => {
     await waitForCollector();
 
-    const res = await fetch(`${baseUrl}/health?detail=true`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${baseUrl}/health?detail=true`);
     expect(res.status).toBe(200);
 
     const body = await res.json() as HealthMetrics;

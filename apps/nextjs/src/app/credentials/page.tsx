@@ -97,9 +97,6 @@ async function fetchActiveResolvedPath(): Promise<string | null> {
       `${resolved.baseUrl}/credentials/active`,
       {
         timeout: 3_000,
-        headers: {
-          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
-        },
         cache: "no-store",
       },
     );

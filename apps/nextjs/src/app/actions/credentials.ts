@@ -191,7 +191,6 @@ function toCredentialFile(row: WireCredentialRow): CredentialFile {
 export async function fetchCredentials(): Promise<CredentialsResult> {
   const reachability = await probeAgent();
   const configs = await getAgentConfigs();
-  const secret = process.env.NEXUS_ATTACH_SECRET ?? "";
 
   // Probe failed: short-circuit. The page-data return shape mirrors the
   // existing empty-state below so the UI consumer renders unchanged.
@@ -228,7 +227,6 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
         `http://${agent.host}:${agent.port}/credentials`,
         {
           timeout: REQUEST_TIMEOUT_MS,
-          headers: { "x-nexus-secret": secret },
           cache: "no-store",
         },
       );
@@ -299,7 +297,6 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
             `${baseUrl}/credentials/${encodeURIComponent(primary.id)}/usage?window=24h`,
             {
               timeout: REQUEST_TIMEOUT_MS,
-              headers: { "x-nexus-secret": secret },
               cache: "no-store",
             },
           );

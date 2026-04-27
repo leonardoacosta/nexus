@@ -5,7 +5,6 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  ATTACH_SECRET,
   baseUrl,
   wsUrl,
   delay,
@@ -27,10 +26,7 @@ describe("WebSocket security: connection limit", () => {
     const openPromises: Promise<void>[] = [];
 
     for (let i = 0; i < MAX; i++) {
-      const ws = new WebSocket(
-        `${wsUrl}/sessions/${sessionId}/stream`,
-        { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
-      );
+      const ws = new WebSocket(`${wsUrl}/sessions/${sessionId}/stream`);
       sockets.push(ws);
       openPromises.push(
         new Promise<void>((resolve) => {
@@ -44,9 +40,7 @@ describe("WebSocket security: connection limit", () => {
     await Promise.all(openPromises);
     await delay(50);
 
-    const overflow = await fetch(`${baseUrl}/sessions/${sessionId}/stream`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const overflow = await fetch(`${baseUrl}/sessions/${sessionId}/stream`);
     expect(overflow.status).toBe(429);
 
     for (const ws of sockets) {
@@ -173,10 +167,7 @@ describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
     const pty = new MockPtySource({ intervalMs: 0 });
     streamManager.attach(sid, pty);
 
-    const ws1 = new WebSocket(
-      `${wsUrl}/sessions/${sid}/interact`,
-      { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
-    );
+    const ws1 = new WebSocket(`${wsUrl}/sessions/${sid}/interact`);
     const ws1Opened = new Promise<void>((resolve) => {
       ws1.addEventListener("open", () => resolve());
       ws1.addEventListener("close", () => resolve());
@@ -186,10 +177,7 @@ describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
     await delay(30);
 
     let secondCloseCode: number | null = null;
-    const ws2 = new WebSocket(
-      `${wsUrl}/sessions/${sid}/interact`,
-      { headers: { "x-nexus-secret": ATTACH_SECRET } } as unknown as string,
-    );
+    const ws2 = new WebSocket(`${wsUrl}/sessions/${sid}/interact`);
     const ws2Settled = new Promise<void>((resolve) => {
       ws2.addEventListener("open", () => resolve());
       ws2.addEventListener("close", (ev) => {
@@ -215,7 +203,7 @@ describe("TLS enforcement for POST /credentials (task 7.3)", () => {
   it("POST /credentials on loopback (http://localhost) is allowed past TLS check", async () => {
     const res = await fetch(`${baseUrl}/credentials`, {
       method: "POST",
-      headers: { "x-nexus-secret": ATTACH_SECRET, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: "test", name: "test", type: "api_key", value: "val" }),
     });
     expect(res.status).not.toBe(426);
@@ -226,7 +214,6 @@ describe("TLS enforcement for POST /credentials (task 7.3)", () => {
     const res = await fetch(`${baseUrl}/credentials`, {
       method: "POST",
       headers: {
-        "x-nexus-secret": ATTACH_SECRET,
         "Content-Type": "application/json",
         "x-forwarded-proto": "https",
       },

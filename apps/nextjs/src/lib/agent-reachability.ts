@@ -5,11 +5,6 @@
  * into a discriminated union so the dashboard can render actionable banner
  * copy instead of collapsing every failure into "Agent unreachable".
  *
- * The agent's `/version` endpoint is auth-exempt (no `x-nexus-secret` header
- * needed) — the agent's `LEGACY_DISPATCH_ROUTES` exemption list bypasses auth
- * for `/version` specifically, so the dashboard can probe before the user
- * has configured the shared secret.
- *
  * Spec: openspec/changes/agent-version-handshake/specs/dashboard-data-paths/spec.md
  */
 

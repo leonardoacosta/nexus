@@ -89,7 +89,6 @@ function mapAgentError(rawText: string, contextLabel: string): string {
 
 function authHeaders(): Record<string, string> {
   return {
-    "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
     "Cache-Control": "no-store",
   };
 }

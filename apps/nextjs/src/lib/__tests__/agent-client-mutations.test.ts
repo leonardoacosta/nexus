@@ -5,7 +5,7 @@
  * deleteAgent) route correctly through the agent HTTP API:
  *   - Correct HTTP method and URL
  *   - Correct request body (where applicable)
- *   - x-nexus-secret header present
+ *   - No shared-secret header sent (drop-attach-secret-gate dropped the gate)
  *   - Error surfaces (404, 500, network error) — not silently swallowed
  */
 
@@ -84,7 +84,9 @@ describe("AgentClient mutations (wave-3 boundary tests)", () => {
       const req = getCapture()!;
       expect(req.url).toBe(`${BASE}/projects/proj-123`);
       expect(req.method).toBe("PATCH");
-      expect(req.headers["x-nexus-secret"]).toBe(TEST_SECRET);
+      // Auth gate dropped — no shared-secret header should reach the agent.
+      const projectsHeaderKeys = Object.keys(req.headers).map((k) => k.toLowerCase());
+      expect(projectsHeaderKeys.some((k) => k.includes("nexus-secret"))).toBe(false);
       expect(req.headers["content-type"]).toContain("application/json");
       expect(req.body).toEqual({ tags: ["rust", "cli"], description: "Updated desc" });
     });
@@ -146,7 +148,9 @@ describe("AgentClient mutations (wave-3 boundary tests)", () => {
       const req = getCapture()!;
       expect(req.url).toBe(`${BASE}/agents`);
       expect(req.method).toBe("POST");
-      expect(req.headers["x-nexus-secret"]).toBe(TEST_SECRET);
+      // Auth gate dropped — no shared-secret header should reach the agent.
+      const agentsHeaderKeys = Object.keys(req.headers).map((k) => k.toLowerCase());
+      expect(agentsHeaderKeys.some((k) => k.includes("nexus-secret"))).toBe(false);
       expect(req.headers["content-type"]).toContain("application/json");
       expect(req.body).toEqual({ name: "mac", host: "100.64.0.5", port: 7400 });
     });
@@ -204,7 +208,9 @@ describe("AgentClient mutations (wave-3 boundary tests)", () => {
       const req = getCapture()!;
       expect(req.url).toBe(`${BASE}/agents/agent-abc`);
       expect(req.method).toBe("DELETE");
-      expect(req.headers["x-nexus-secret"]).toBe(TEST_SECRET);
+      // Auth gate dropped — no shared-secret header should reach the agent.
+      const deleteHeaderKeys = Object.keys(req.headers).map((k) => k.toLowerCase());
+      expect(deleteHeaderKeys.some((k) => k.includes("nexus-secret"))).toBe(false);
       // DELETE has no body
       expect(req.body).toBeUndefined();
     });

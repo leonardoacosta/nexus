@@ -192,13 +192,6 @@ export interface PeerConnectorService {
   peerNames(): string[];
 }
 
-let secret: string | undefined;
-
-/** Set the attach secret used for federation auth. */
-export function setPeerSecret(s: string): void {
-  secret = s;
-}
-
 /**
  * Start the peer connector service.
  *
@@ -278,12 +271,10 @@ export async function startPeerConnector(
     log.info({ peer: conn.agent.name, url }, "peer-connector: connecting");
 
     try {
-      const headers: Record<string, string> = {};
-      if (secret) {
-        headers["x-nexus-secret"] = secret;
-      }
-
-      const ws = new WebSocket(url, { headers } as WebSocketInit);
+      // Federation auth gate removed by `drop-attach-secret-gate`. Reach is
+      // bounded at the bind layer (Tailscale only) — every peer URL we connect
+      // to is already authenticated by WireGuard.
+      const ws = new WebSocket(url);
 
       ws.onopen = () => {
         log.info({ peer: conn.agent.name }, "peer-connector: connected");
@@ -421,9 +412,4 @@ export async function startPeerConnector(
       return connections.map((c) => c.agent.name);
     },
   };
-}
-
-// Re-export for WebSocket init typing
-interface WebSocketInit {
-  headers?: Record<string, string>;
 }

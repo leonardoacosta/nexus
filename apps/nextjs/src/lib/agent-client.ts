@@ -106,7 +106,6 @@ async function fetchWithRetry(url: string): Promise<Response> {
     try {
       const res = await fetchWithTimeout(url, {
         timeout: REQUEST_TIMEOUT_MS,
-        headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -269,7 +268,6 @@ export class AgentClient {
         timeout: REQUEST_TIMEOUT_MS,
         headers: {
           "Content-Type": "application/json",
-          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
         },
         body: JSON.stringify(body),
       });
@@ -363,7 +361,6 @@ export class AgentClient {
         timeout: REQUEST_TIMEOUT_MS,
         headers: {
           "Content-Type": "application/json",
-          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
         },
         body: JSON.stringify({ tags: data.tags, description: data.description }),
       },
@@ -387,7 +384,6 @@ export class AgentClient {
       timeout: REQUEST_TIMEOUT_MS,
       headers: {
         "Content-Type": "application/json",
-        "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
       },
       body: JSON.stringify(agent),
     });
@@ -408,9 +404,6 @@ export class AgentClient {
       {
         method: "DELETE",
         timeout: REQUEST_TIMEOUT_MS,
-        headers: {
-          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
-        },
       },
     );
     if (!res.ok) {
@@ -436,7 +429,6 @@ export class AgentClient {
         timeout: REQUEST_TIMEOUT_MS,
         headers: {
           "Content-Type": "application/json",
-          "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "",
         },
         body: JSON.stringify({ content }),
       },

@@ -25,14 +25,9 @@
 
 import { describe, expect, it, afterAll, beforeAll } from "bun:test";
 
-// The agent server reads NEXUS_ATTACH_SECRET at module load and exits the
-// process if it's missing. Set a deterministic value BEFORE importing the
-// server module so `startServer` succeeds regardless of the caller's env.
-const TEST_SECRET = "e2e-attach-test-secret";
-process.env.NEXUS_ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET ?? TEST_SECRET;
-const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET!;
-
-// Import after env setup.
+// Auth gate dropped in `drop-attach-secret-gate` — the agent no longer reads
+// any secret at module load. WebSocket upgrades are gated solely by bind
+// address (loopback + Tailscale) and PTY presence.
 const { startServer, streamManager } = await import("../../apps/agent/src/server");
 const { MockPtySource } = await import("../../apps/agent/src/terminal/pty-source");
 
@@ -58,10 +53,11 @@ interface ConnectedWs {
   opened: Promise<void>;
 }
 
-function connectBrowserStyle(path: string, token: string): ConnectedWs {
-  // Matches XTerminal.tsx: browsers append the token as a query-string
-  // parameter because custom WebSocket upgrade headers are not allowed.
-  const url = `${wsBase}${path}?token=${encodeURIComponent(token)}`;
+function connectBrowserStyle(path: string): ConnectedWs {
+  // No auth gate after drop-attach-secret-gate — the WebSocket upgrade is
+  // accepted on any path that resolves to an attached PTY. The bind address
+  // (loopback / Tailscale) is the only access boundary.
+  const url = `${wsBase}${path}`;
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
 
@@ -98,9 +94,7 @@ afterAll(() => {
 describe("E2E [5.3]: Attach via WebSocket when agent is up", () => {
   // ── Pre-flight: agent is actually listening ────────────────────────────────
   it("agent health endpoint responds (server is live)", async () => {
-    const res = await fetch(`${httpBase}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${httpBase}/health`);
     // 200 or 204 both indicate the server is up — we don't care about the
     // exact health payload here, only that the HTTP boundary answers.
     expect([200, 204].includes(res.status)).toBe(true);
@@ -112,10 +106,7 @@ describe("E2E [5.3]: Attach via WebSocket when agent is up", () => {
     const pty = new MockPtySource({ intervalMs: 0 });
     streamManager.attach(sessionId, pty);
 
-    const conn = connectBrowserStyle(
-      `/sessions/${sessionId}/stream`,
-      ATTACH_SECRET,
-    );
+    const conn = connectBrowserStyle(`/sessions/${sessionId}/stream`);
 
     // If auth or routing is broken the open promise will never resolve and
     // the test will time out with a clear failure — better than a silent pass.
@@ -137,15 +128,13 @@ describe("E2E [5.3]: Attach via WebSocket when agent is up", () => {
     streamManager.endSession(sessionId);
   });
 
-  // ── Negative control: wrong token rejected (auth boundary intact) ──────────
-  it("WebSocket upgrade with wrong token is rejected", async () => {
-    // Use HTTP fetch to inspect the upgrade rejection status — the WebSocket
-    // API doesn't expose HTTP status codes cleanly, but a GET to the same URL
-    // triggers the same auth check and returns the underlying status.
-    const res = await fetch(
-      `${httpBase}/sessions/some-session/stream?token=${encodeURIComponent("wrong-token")}`,
-    );
-    expect(res.status).toBe(401);
+  // ── Negative control: routing intact for unknown sessions ─────────────────
+  // After drop-attach-secret-gate the agent has no auth boundary; the only
+  // remaining rejection mode for /sessions/:id/stream is "no PTY attached",
+  // which surfaces as HTTP 404 on a non-upgrade GET.
+  it("HTTP GET on /sessions/:id/stream for unknown session returns 404", async () => {
+    const res = await fetch(`${httpBase}/sessions/no-such-session-xyz/stream`);
+    expect(res.status).toBe(404);
   });
 
   // ── Ensures the attach path is NOT coupled to the dashboard read path ──────
@@ -163,10 +152,7 @@ describe("E2E [5.3]: Attach via WebSocket when agent is up", () => {
     const pty = new MockPtySource({ intervalMs: 0 });
     streamManager.attach(sessionId, pty);
 
-    const conn = connectBrowserStyle(
-      `/sessions/${sessionId}/stream`,
-      ATTACH_SECRET,
-    );
+    const conn = connectBrowserStyle(`/sessions/${sessionId}/stream`);
     await conn.opened;
 
     pty.emit("no-db-path-ok\n");

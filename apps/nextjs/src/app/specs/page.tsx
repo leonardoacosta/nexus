@@ -12,7 +12,6 @@ async function fetchSpecs(baseUrl: string | null): Promise<AllSpecsResponse> {
 
   try {
     const res = await fetchWithTimeout(`${baseUrl}/specs/all`, {
-      headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
       cache: "no-store",
     });
     if (!res.ok) return { projects: [] };

@@ -18,10 +18,10 @@ describe("AgentClient", () => {
     vi.unstubAllGlobals();
   });
 
-  // ---- updateCommand: includes x-nexus-secret header -----------------------
+  // ---- updateCommand: no auth header sent (drop-attach-secret-gate) -------
 
   describe("updateCommand", () => {
-    test("[3.2] request includes x-nexus-secret header", async () => {
+    test("request does not include the dropped attach-secret header", async () => {
       let capturedHeaders: Record<string, string> | null = null;
 
       vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
@@ -31,18 +31,13 @@ describe("AgentClient", () => {
         return jsonResponse({ updated: true, path: "/home/user/.claude/commands/test.md" });
       });
 
-      const originalSecret = process.env.NEXUS_ATTACH_SECRET;
-      process.env.NEXUS_ATTACH_SECRET = "test-secret";
-
-      try {
-        const client = new AgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
-        await client.updateCommand("dev-1", "test-cmd", "content here");
-      } finally {
-        process.env.NEXUS_ATTACH_SECRET = originalSecret;
-      }
+      const client = new AgentClient([{ name: "dev-1", host: "100.64.0.1", port: 7400 }]);
+      await client.updateCommand("dev-1", "test-cmd", "content here");
 
       expect(capturedHeaders).not.toBeNull();
-      expect(capturedHeaders!["x-nexus-secret"]).toBe("test-secret");
+      // Auth gate dropped — no shared-secret header should reach the agent.
+      const headerKeys = Object.keys(capturedHeaders!).map((k) => k.toLowerCase());
+      expect(headerKeys.some((k) => k.includes("nexus-secret"))).toBe(false);
     });
   });
 

@@ -366,7 +366,7 @@ export function NotificationsClient({
   // ── SSE subscription ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!agentReachable) return;
-    // Same-origin proxy that injects `x-nexus-secret` server-side.
+    // Same-origin proxy to the agent's SSE stream.
     const es = new EventSource("/api/notifications/stream");
 
     const onNotificationFired = (evt: MessageEvent) => {

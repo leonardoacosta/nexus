@@ -17,14 +17,6 @@ describe("scrubSensitiveHeaders (server)", () => {
     expect(result?.request?.headers).toHaveProperty("content-type");
   });
 
-  it("removes x-nexus-secret header", () => {
-    const result = scrubSensitiveHeaders(
-      makeEvent({ "x-nexus-secret": "super-secret", host: "localhost" }),
-    );
-    expect(result?.request?.headers).not.toHaveProperty("x-nexus-secret");
-    expect(result?.request?.headers).toHaveProperty("host");
-  });
-
   it("removes Cookie header (both cases)", () => {
     const result = scrubSensitiveHeaders(
       makeEvent({ Cookie: "session=abc", cookie: "other=xyz", accept: "*/*" }),

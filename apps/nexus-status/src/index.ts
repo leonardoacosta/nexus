@@ -36,7 +36,6 @@
  *   }
  *
  * Environment:
- *   NEXUS_ATTACH_SECRET — Required auth header for agent API
  *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: workspace.project_dir, then cwd)
  */
 
@@ -123,7 +122,6 @@ interface CachedProfile {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const ATTACH_SECRET = process.env.NEXUS_ATTACH_SECRET ?? "";
 const FETCH_TIMEOUT_MS = 2_000;
 const USAGE_CACHE_TTL = 300; // 5 minutes (seconds)
 const PROFILE_CACHE_TTL = 3600; // 1 hour (seconds)
@@ -253,7 +251,6 @@ async function fetchStatusline(agentUrl: string): Promise<StatuslineResponse | n
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const resp = await fetch(`${agentUrl}/statusline`, {
       signal: controller.signal,
-      headers: { "x-nexus-secret": ATTACH_SECRET },
     });
     clearTimeout(timer);
     if (!resp.ok) return null;

@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { ATTACH_SECRET, baseUrl } from "./server.helpers";
+import { baseUrl } from "./server.helpers";
 
 describe("SSE idle timeout (nx-4p8n)", () => {
   it(
@@ -21,7 +21,6 @@ describe("SSE idle timeout (nx-4p8n)", () => {
     async () => {
       const res = await fetch(`${baseUrl}/events/stream`, {
         headers: {
-          "x-nexus-secret": ATTACH_SECRET,
           Accept: "text/event-stream",
         },
       });

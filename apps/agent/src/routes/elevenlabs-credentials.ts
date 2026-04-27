@@ -7,7 +7,7 @@
  * AES-256-GCM (existing helpers from `credentials/encryption.ts`) and the
  * voice metadata (`voice_id`, `voice_name`) plain alongside it.
  *
- * Endpoints (all gated by the global `x-nexus-secret` middleware):
+ * Endpoints (no auth gate; reach bounded at the bind layer):
  *   GET    /elevenlabs/credentials       — masked status (NEVER returns the key)
  *   PATCH  /elevenlabs/credentials       — partial update; encrypts api key
  *   DELETE /elevenlabs/credentials       — drops the row for this agent

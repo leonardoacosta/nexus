@@ -8,7 +8,6 @@ function scrubSensitiveHeaders(
     const scrubbed = { ...event.request.headers };
     delete scrubbed["Authorization"];
     delete scrubbed["authorization"];
-    delete scrubbed["x-nexus-secret"];
     delete scrubbed["Cookie"];
     delete scrubbed["cookie"];
     event.request = { ...event.request, headers: scrubbed };

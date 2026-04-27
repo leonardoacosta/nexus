@@ -5,7 +5,6 @@
  * - WebSocket upgrade delegation
  * - CORS preflight handling
  * - Origin defense-in-depth (403 block for non-Tailscale browser origins)
- * - Global REST auth (x-nexus-secret)
  * - Credential ID pre-validation for path-parameterised credential routes
  * - Route dispatch for every HTTP route served by nexus-agent
  *
@@ -53,7 +52,7 @@ import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import type { WsData } from "./terminal/stream-manager";
 import { ServerState, handleWsUpgrade } from "./server-websocket";
 import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
-import { CREDENTIAL_ID_RE, isAuthExemptPath, requireSecret } from "./server-auth";
+import { CREDENTIAL_ID_RE } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
@@ -172,10 +171,14 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // ── Origin defense-in-depth ───────────────────────────────────────────
     // Browser requests from non-Tailscale origins are rejected with 403 before
     // any real work happens. Non-browser clients (curl, wscat) omit Origin and
-    // are unaffected — the `x-nexus-secret` check below remains the primary
-    // gate for those. Malformed Origin values are treated as absent (we can't
+    // are unaffected. Malformed Origin values are treated as absent (we can't
     // confidently classify a garbage string as "non-Tailscale") and fall
-    // through to the auth gate.
+    // through to dispatch.
+    //
+    // Note: the legacy `x-nexus-secret` header gate was removed by
+    // `drop-attach-secret-gate`. Reach is now constrained at the bind layer
+    // (loopback + Tailscale only) — every connection that reaches dispatch is
+    // already authenticated by WireGuard or local OS identity.
     const origin = request.headers.get("origin");
     if (isDisallowedBrowserOrigin(origin)) {
       return new Response(JSON.stringify({ error: "origin not allowed" }), {
@@ -184,20 +187,7 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       });
     }
 
-    // ── Global REST auth middleware ───────────────────────────────────────
-    // All REST routes require x-nexus-secret. Applied after WebSocket upgrade
-    // checks (which validate inline) and after OPTIONS preflight (browsers must
-    // be able to send a preflight without credentials to discover allowed headers).
-    //
-    // Auth-exempt paths (see AUTH_EXEMPT_PATHS in server-auth.ts) bypass the
-    // secret check entirely — used for diagnostic endpoints like /version that
-    // must be reachable before a valid secret is known.
-    if (!isAuthExemptPath(url.pathname)) {
-      const authErr = requireSecret(request);
-      if (authErr) return authErr;
-    }
-
-    // ── Version (auth-exempt, no DB required) ─────────────────────────────
+    // ── Version (no DB required) ─────────────────────────────────────────
     // Wired directly into the dispatcher because the typed route table in
     // routes.ts is NOT dispatched — see LEGACY_DISPATCH_ROUTES above.
     if (url.pathname === "/version" && request.method === "GET") {

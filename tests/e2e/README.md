@@ -26,15 +26,16 @@ POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test pnpm --filter @nex
 
 # Run all e2e tests
 POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test \
-  NEXUS_ATTACH_SECRET=test \
   bun test tests/e2e/
 ```
 
 Tests **skip** (do not fail) when prerequisites are missing:
 
 - `POSTGRES_URL` pointing at a reachable Postgres
-- `NEXUS_ATTACH_SECRET` set (any non-empty value)
 - `tmux` binary on PATH (only required by future tests — not needed for current ones)
+
+The agent no longer requires an `x-nexus-secret` header (`drop-attach-secret-gate`);
+e2e tests do not need to set `NEXUS_ATTACH_SECRET` in their environment.
 
 ## Test inventory
 

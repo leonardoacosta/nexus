@@ -79,17 +79,6 @@ DUCKING_MODE="${DUCKING_MODE:-full}"
 _SAVED_VOLUME=""
 _SAVED_MUTED=""
 
-_load_secret() {
-  if [ -z "${NEXUS_ATTACH_SECRET:-}" ] && [ -f "$HOME/.env" ]; then
-    # shellcheck disable=SC1091
-    set -a; . "$HOME/.env"; set +a
-  fi
-  if [ -z "${NEXUS_ATTACH_SECRET:-}" ]; then
-    echo "[$(date)] NEXUS_ATTACH_SECRET not set — cannot authenticate" >> "$LOG_FILE"
-    exit 1
-  fi
-}
-
 # Suppression log helper — writes a parallel line into SUPPRESS_LOG so the
 # dashboard table can cross-reference events that were persisted server-side
 # but silenced client-side. Also tee'd into LOG_FILE for unified tailing.
@@ -166,7 +155,6 @@ _gen_uuid() {
 _bootstrap_settings() {
   local response http_code body
   response="$(/usr/bin/curl -sS -m 5 -w '\n%{http_code}' \
-    -H "x-nexus-secret: $NEXUS_ATTACH_SECRET" \
     "$NEXUS_URL/notifications/settings" 2>>"$LOG_FILE")" || response=""
 
   http_code="$(printf '%s' "$response" | /usr/bin/tail -n1)"
@@ -537,14 +525,12 @@ _run_stream() {
     --max-time 1800 \
     --keepalive-time 60 \
     -H "Accept: text/event-stream" \
-    -H "x-nexus-secret: $NEXUS_ATTACH_SECRET" \
     "$NEXUS_URL/events/stream" 2>>"$LOG_FILE")
 }
 
 # ── Mode: listen ────────────────────────────────────────────────────────────
 
 _run_listen() {
-  _load_secret
   _ensure_fifo
   # Normalize seed values from plist (legacy "1"/"0"/"none") before the
   # bootstrap call, so the pre-bootstrap log line shows canonical shape.

@@ -1,14 +1,18 @@
 /**
  * Server CORS tests — CORS headers and preflight handling.
+ *
+ * Auth gate dropped in `drop-attach-secret-gate` — tests no longer set
+ * `x-nexus-secret` and the header is no longer included in
+ * Access-Control-Allow-Headers.
  */
 
 import { describe, expect, it } from "bun:test";
-import { ATTACH_SECRET, baseUrl } from "./server.helpers";
+import { baseUrl } from "./server.helpers";
 
 describe("CORS", () => {
   it("sets CORS headers for Tailscale origins", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://100.64.0.1:3000", "x-nexus-secret": ATTACH_SECRET },
+      headers: { Origin: "http://100.64.0.1:3000" },
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe(
@@ -18,13 +22,13 @@ describe("CORS", () => {
       "GET, POST, PUT, OPTIONS",
     );
     expect(res.headers.get("access-control-allow-headers")).toBe(
-      "Content-Type, x-nexus-secret",
+      "Content-Type",
     );
   });
 
   it("blocks non-Tailscale browser origins with 403 (task 2.3 defense-in-depth)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "http://example.com", "x-nexus-secret": ATTACH_SECRET },
+      headers: { Origin: "http://example.com" },
     });
     expect(res.status).toBe(403);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
@@ -32,19 +36,17 @@ describe("CORS", () => {
     expect(body.error).toBe("origin not allowed");
   });
 
-  it("treats malformed Origin as absent (falls through to auth gate)", async () => {
+  it("treats malformed Origin as absent (falls through to dispatch)", async () => {
     const res = await fetch(`${baseUrl}/health`, {
-      headers: { Origin: "not-a-url", "x-nexus-secret": ATTACH_SECRET },
+      headers: { Origin: "not-a-url" },
     });
-    // Malformed origin → not classified as non-Tailscale → auth gate applies
-    // and passes with valid secret → 200 on /health.
+    // Malformed origin → not classified as non-Tailscale → falls through
+    // to dispatch and returns 200 on /health.
     expect(res.status).toBe(200);
   });
 
   it("passes through requests with no Origin header (curl/wscat)", async () => {
-    const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-nexus-secret": ATTACH_SECRET },
-    });
+    const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
   });
 
@@ -70,10 +72,10 @@ describe("CORS", () => {
   });
 });
 
-// ── Task 3.2: CORS preflight — updated Allow-Headers includes x-nexus-secret ──
+// ── CORS preflight: Allow-Headers post-drop-attach-secret-gate ──────────────
 
-describe("CORS preflight: x-nexus-secret in Allow-Headers (task 3.2)", () => {
-  it("OPTIONS preflight from Tailscale origin receives x-nexus-secret in Allow-Headers", async () => {
+describe("CORS preflight: Allow-Headers no longer advertises x-nexus-secret", () => {
+  it("OPTIONS preflight from Tailscale origin advertises only Content-Type", async () => {
     const res = await fetch(`${baseUrl}/health`, {
       method: "OPTIONS",
       headers: { Origin: "http://100.64.0.1:7401" },
@@ -81,8 +83,8 @@ describe("CORS preflight: x-nexus-secret in Allow-Headers (task 3.2)", () => {
     expect(res.status).toBe(204);
     const allowHeaders = res.headers.get("access-control-allow-headers");
     expect(allowHeaders).toBeDefined();
-    expect(allowHeaders).toContain("x-nexus-secret");
-    expect(allowHeaders).toContain("Content-Type");
+    expect(allowHeaders).toBe("Content-Type");
+    expect(allowHeaders).not.toContain("x-nexus-secret");
   });
 
   it("OPTIONS preflight from Tailscale origin receives correct CORS allow-origin", async () => {

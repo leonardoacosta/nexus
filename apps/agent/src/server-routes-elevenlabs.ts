@@ -2,8 +2,9 @@
  * ElevenLabs route dispatch extracted from server-request-handler.ts.
  *
  * Mirrors the shape of `server-routes-credentials.ts` for the OAuth pool —
- * five DB-backed routes pre-gated by the global `x-nexus-secret` middleware
- * applied upstream in `server-request-handler.ts`.
+ * five DB-backed routes dispatched by `server-request-handler.ts` (the
+ * legacy `x-nexus-secret` middleware was removed by `drop-attach-secret-gate`;
+ * reach is now bounded at the bind layer).
  *
  * Routes:
  *   GET    /elevenlabs/credentials       — masked status

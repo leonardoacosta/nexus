@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { ATTACH_SECRET, baseUrl } from "./server.helpers";
+import { baseUrl } from "./server.helpers";
 
 // ── POST /health/ingest: additional edge cases ───────────────────────────────
 
@@ -19,28 +19,29 @@ describe("POST /health/ingest — edge cases", () => {
   it("returns 405 for GET /health/ingest (wrong method)", async () => {
     const res = await fetch(`${baseUrl}/health/ingest`, {
       method: "GET",
-      headers: { "x-nexus-secret": ATTACH_SECRET },
     });
     // Without DB the route is not registered — falls through to 404
     // But GET on a POST-only route should not return 200
     expect(res.status).not.toBe(200);
   });
 
-  it("returns 401 for PUT /health/ingest without secret", async () => {
+  it("does not return 401 for PUT /health/ingest without secret (header gate removed)", async () => {
     const res = await fetch(`${baseUrl}/health/ingest`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hostname: "x" }),
     });
-    expect(res.status).toBe(401);
+    // Auth gate removed by drop-attach-secret-gate: PUT on a POST-only route
+    // falls through to 404 (not 401). Reach is constrained at the bind layer.
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
   });
 
-  it("returns non-200 for empty JSON body with valid secret", async () => {
+  it("returns non-200 for empty JSON body", async () => {
     const res = await fetch(`${baseUrl}/health/ingest`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-nexus-secret": ATTACH_SECRET,
       },
       body: "{}",
     });

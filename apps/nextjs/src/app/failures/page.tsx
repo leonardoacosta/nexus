@@ -34,7 +34,6 @@ async function fetchFailures(): Promise<FailuresResponse | null> {
     const res = await fetchWithTimeout(
       `http://${agent.host}:7402/failures?days=7`,
       {
-        headers: { "x-nexus-secret": process.env.NEXUS_ATTACH_SECRET ?? "" },
         cache: "no-store",
       },
     );
