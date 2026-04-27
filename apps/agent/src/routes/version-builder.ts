@@ -16,8 +16,44 @@
  * builder does not perform any auth check inside the handler.
  */
 
-import type { Route } from "../router";
 import { BUILD_SHA, BUILT_AT } from "../version.gen";
+
+// ---------------------------------------------------------------------------
+// Route type
+// ---------------------------------------------------------------------------
+//
+// `Route` lives here because the version builder is the only surviving
+// consumer of the typed-route shape — the `router.ts` factory, `routes.ts`
+// orchestrator, and 13 `*-builder.ts` modules were deleted by
+// `apply-4-findings` (tasks 2.5–2.8) once the legacy if/else dispatch in
+// `server-request-handler.ts` became the source of truth.
+//
+// The legacy `requiresAuth` field was removed (the secret gate was retired
+// by `drop-attach-secret-gate`; reach is now constrained at the bind layer).
+// `requiresDb` is kept as an optional documentary field — the legacy
+// dispatcher does not consume it, but it accurately describes which routes
+// the if/else chain skips when `db` is undefined.
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+
+export interface Route {
+  /** HTTP method to match. */
+  method: HttpMethod;
+  /**
+   * Path pattern.
+   *
+   * - Exact string: "/health", "/sessions"
+   * - Parameterised: "/sessions/:id", "/credentials/:id/release"
+   */
+  path: string;
+  /** Route handler. Receives the original request and any captured path params. */
+  handler: (req: Request, params: Record<string, string>) => Response | Promise<Response>;
+  /**
+   * When true, the route is only reachable when a DB connection is available.
+   * @default false
+   */
+  requiresDb?: boolean;
+}
 
 export function buildVersionRoutes(allRoutes: Route[]): Route[] {
   // Compute capabilities ONCE at construction time — captured by closure.

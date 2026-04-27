@@ -12,6 +12,7 @@ RESET='\033[0m'
 
 info()  { printf "${GREEN}nexus-agent: %s${RESET}\n" "$1"; }
 skip()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1"; }
+warn()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1" >&2; }
 fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 
 # ── Check for code changes (skip with --force) ───────────────────
@@ -73,6 +74,15 @@ fi
 
 ELAPSED=$(( $(date +%s) - START ))
 info "rebuilt in ${ELAPSED}s"
+
+# ── Stale-dist guard ──────────────────────────────────────────────
+# bun build --compile produces only the binary; a dist/ directory
+# indicates a leftover from `tsc` or older build tooling. Warn
+# (informational only — do not fail the deploy).
+
+if [[ -d "$REPO_DIR/apps/agent/dist" ]]; then
+    warn "stale dist/ directory detected at apps/agent/dist after build — this is unexpected (bun build --compile produces only the binary). Cleanup recommended: rm -rf apps/agent/dist"
+fi
 
 # ── Install binaries ──────────────────────────────────────────────
 

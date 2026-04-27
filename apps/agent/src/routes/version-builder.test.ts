@@ -11,8 +11,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { Route } from "../router";
-import { buildVersionRoutes } from "./version-builder";
+import { buildVersionRoutes, type Route } from "./version-builder";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 

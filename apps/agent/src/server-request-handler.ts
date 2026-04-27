@@ -28,6 +28,10 @@ import {
   handleMeetingStatus,
 } from "./routes/notifications";
 import {
+  handleGetNotificationSettings,
+  handlePatchNotificationSettings,
+} from "./routes/notification-settings";
+import {
   handleAnalyticsHealth,
   handleAnalyticsSpecs,
   handleAnalyticsCredentials,
@@ -57,8 +61,7 @@ import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
-import type { Route } from "./router";
-import { buildVersionRoutes } from "./routes/version-builder";
+import { buildVersionRoutes, type Route } from "./routes/version-builder";
 
 /**
  * Source-of-truth list of dispatch routes for /version capability reporting.
@@ -91,6 +94,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/projects/discovered" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
+  { method: "GET", path: "/notifications/settings" },
+  { method: "PATCH", path: "/notifications/settings" },
   { method: "POST", path: "/meeting/start" },
   { method: "POST", path: "/meeting/end" },
   { method: "GET", path: "/meeting/status" },
@@ -308,6 +313,20 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/notifications/send" && request.method === "POST") {
         return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/notifications/settings" && request.method === "GET") {
+        return handleGetNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/settings", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/notifications/settings" && request.method === "PATCH") {
+        return handlePatchNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/settings", method: "PATCH", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

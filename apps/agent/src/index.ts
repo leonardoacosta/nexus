@@ -11,6 +11,7 @@ import { scheduleProjectCleanup } from "./db/project-registry";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
 import { startSocketServer, createSocketEventDispatcher, type SocketServer } from "./services/socket-server";
 import { startCronService, type CronService } from "./services/cron";
+import { startPeerConnector, type PeerConnectorService } from "./services/peer-connector";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
 import { stopConfigLoader } from "./services/config-loader";
@@ -167,6 +168,24 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
 }
 
+// ── Peer connector ─────────────────────────────────────────────────────────
+// Reads ~/.config/nexus/agents.toml and connects to peer agents over WebSocket
+// for cross-machine lifecycle event federation. Graceful no-op if config is
+// missing; exponential backoff if peers are unreachable.
+let peerConnector: PeerConnectorService | null = null;
+try {
+  peerConnector = await startPeerConnector();
+  logger.info(
+    { peers: peerConnector.peerNames(), connected: peerConnector.connectedCount() },
+    "peer connector started",
+  );
+} catch (err) {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "peer connector failed to start — continuing without federation",
+  );
+}
+
 /** Max time to wait for PTY streams to report closure during graceful shutdown. */
 const STREAM_SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -203,6 +222,7 @@ async function shutdown() {
   // Stop new services first.
   await tokenStreamLifecycle.stopAll();
   specWatcher?.stop();
+  peerConnector?.stop();
   cronService?.stop();
   socketServer?.stop();
   stopConfigLoader();

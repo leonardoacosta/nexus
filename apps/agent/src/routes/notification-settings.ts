@@ -6,11 +6,11 @@
  * single-row by design (id = 1, bootstrapped by the migration) — both
  * handlers operate on that one row.
  *
- * Auth note: both routes are registered with the default `requiresAuth:
- * true` in `notifications-builder.ts`, so the global router gate
- * (`requireSecret` in `server-auth.ts`) runs before the handler. Handlers
- * therefore do not call `requireSecret` directly — same convention as the
- * sibling `settings.ts` / `notifications.ts` modules.
+ * Auth note: the legacy `requiresAuth` flag and `notifications-builder.ts`
+ * were removed by `apply-4-findings`. Reach is now constrained at the bind
+ * layer (loopback + Tailscale only); handlers therefore do not call
+ * `requireSecret` directly — same convention as the sibling `settings.ts` /
+ * `notifications.ts` modules.
  *
  * On a successful PATCH the post-update row is broadcast via
  * `lifecycleBus.emit("SettingsChanged", …)` so SSE subscribers (the Mac
