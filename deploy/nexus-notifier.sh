@@ -20,7 +20,27 @@
 # listener; the player drains pending FIFO bytes and waits for new ones.
 # `KeepAlive` in both plists handles respawn within seconds.
 #
+# Wave 3 layers (audio dispatch + dashboard control), merged in-place atop
+# the legacy FIFO/say pipeline:
+#
+#   * On-startup GET ${NEXUS_URL}/notifications/settings caches TTS_ENABLED,
+#     BANNER_ENABLED, DUCKING_MODE. SSE `SettingsChanged` frames update the
+#     cache in place — no restart required.
+#   * NotificationFired frames carrying `payload.audioBase64` (pre-synthesized
+#     mp3 bytes) are decoded to /tmp/nexus-notifier-<uuid>.mp3 and played
+#     via /usr/bin/afplay; cleanup runs after afplay exits. When audioBase64
+#     is absent (signal-only — no key, upstream call failed), the dispatch
+#     falls through to the legacy FIFO + `say` pipeline so Leo still hears
+#     every notification.
+#   * Banner dispatch is guarded by BANNER_ENABLED. TTS dispatch (both the
+#     afplay path and the legacy FIFO+say path) is guarded by TTS_ENABLED.
+#   * DUCKING_MODE wraps audio playback in a save/set/restore of the system
+#     output volume (half) or muted state (mute). `full` and the legacy
+#     plist value `none` are no-ops.
+#
 # Spec: openspec/changes/add-tts-playback-queue/
+#       openspec/changes/restore-tts-mac-audio-dispatch/
+#       openspec/changes/add-notification-control-dashboard/
 
 set -uo pipefail
 
@@ -29,11 +49,35 @@ set -uo pipefail
 NEXUS_URL="${NEXUS_URL:-http://homelab:7400}"
 LOG_FILE="${NEXUS_NOTIFIER_LOG:-$HOME/Library/Logs/nexus-notifier.log}"
 DRAIN_LOG="${NEXUS_TTS_PLAYER_LOG:-$HOME/Library/Logs/nexus-tts-player.log}"
+# Suppression cross-reference log — every "TTS-suppressed" / "banner-suppressed"
+# line is mirrored here so `tail -f ~/Library/Logs/nexus-notifier.out.log`
+# (StandardOutPath) shows them alongside launchd output. The dashboard
+# table consults this file to render "listener saw it but suppressed" rows.
+SUPPRESS_LOG="${NEXUS_NOTIFIER_SUPPRESS_LOG:-$HOME/Library/Logs/nexus-notifier.out.log}"
 
 # FIFO path lives alongside the agent's other runtime state under
 # ~/Library/Application Support/nexus/. /tmp was rejected because the FIFO
 # surviving a soft restart helps debugging; ~/.config/nexus is for *config*.
 NEXUS_NOTIFIER_FIFO="${NEXUS_NOTIFIER_FIFO:-$HOME/Library/Application Support/nexus/tts-queue.fifo}"
+
+# ── Cached settings ─────────────────────────────────────────────────────────
+# Seeded from plist EnvironmentVariables, then overwritten by the GET
+# /notifications/settings call in _bootstrap_settings. SSE SettingsChanged
+# frames mutate these in place (see _process_settings_changed).
+#
+# Canonical values are "true" / "false" (matching the JSON wire format).
+# Legacy plist values "1" / "0" are normalized on read. DUCKING_MODE
+# canonical values are "full" | "half" | "mute"; the legacy plist value
+# "none" is normalized to "full" (no-op).
+TTS_ENABLED="${TTS_ENABLED:-true}"
+BANNER_ENABLED="${BANNER_ENABLED:-true}"
+DUCKING_MODE="${DUCKING_MODE:-full}"
+
+# Volume-restoration state used by _apply_ducking / _restore_ducking. The
+# saved values are populated only when DUCKING_MODE != full; restore is a
+# no-op when nothing was saved.
+_SAVED_VOLUME=""
+_SAVED_MUTED=""
 
 _load_secret() {
   if [ -z "${NEXUS_ATTACH_SECRET:-}" ] && [ -f "$HOME/.env" ]; then
@@ -44,6 +88,37 @@ _load_secret() {
     echo "[$(date)] NEXUS_ATTACH_SECRET not set — cannot authenticate" >> "$LOG_FILE"
     exit 1
   fi
+}
+
+# Suppression log helper — writes a parallel line into SUPPRESS_LOG so the
+# dashboard table can cross-reference events that were persisted server-side
+# but silenced client-side. Also tee'd into LOG_FILE for unified tailing.
+_log_suppressed() {
+  local ts msg
+  ts="$(/bin/date '+%Y-%m-%d %H:%M:%S')"
+  msg="$*"
+  printf '[%s] %s\n' "$ts" "$msg" >> "$LOG_FILE"
+  printf '[%s] %s\n' "$ts" "$msg" >> "$SUPPRESS_LOG" 2>/dev/null || true
+}
+
+# ── Settings normalization ─────────────────────────────────────────────────
+# The plist historically used "1"/"0" while the API returns "true"/"false".
+# Normalize to canonical "true"/"false" / "full"|"half"|"mute" so downstream
+# guards have one shape to compare against.
+_normalize_bool() {
+  case "$1" in
+    1|true|TRUE|True|yes|on)    printf 'true' ;;
+    0|false|FALSE|False|no|off) printf 'false' ;;
+    *)                          printf 'true' ;;  # default-true on garbage input — least surprise
+  esac
+}
+
+_normalize_ducking() {
+  case "$1" in
+    full|half|mute) printf '%s' "$1" ;;
+    none|"")        printf 'full' ;;  # legacy plist value -> full (no-op)
+    *)              printf 'full' ;;
+  esac
 }
 
 # Idempotently (re)create the FIFO with mode 0600. Stale FIFOs are purged
@@ -65,6 +140,110 @@ _ensure_fifo() {
 _escape_for_applescript() {
   # Escape double quotes + backslashes for AppleScript string literal.
   printf '%s' "$1" | /usr/bin/sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# ── UUID helper ────────────────────────────────────────────────────────────
+# Uses `uuidgen` when available (every macOS ships it under /usr/bin), with
+# an openssl fallback for hardened systems where uuidgen is suppressed.
+_gen_uuid() {
+  if [ -x /usr/bin/uuidgen ]; then
+    /usr/bin/uuidgen
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+  else
+    # Last-ditch: epoch + pid. Not collision-proof but every dispatch is
+    # serialized through this single process so collisions only happen on
+    # clock skew during a wraparound — vanishingly rare on a Mac.
+    printf '%s-%s' "$(/bin/date +%s)" "$$"
+  fi
+}
+
+# ── Settings bootstrap ─────────────────────────────────────────────────────
+# GET /notifications/settings on startup. Cache into TTS_ENABLED /
+# BANNER_ENABLED / DUCKING_MODE. Tolerate 404 (first-install before the
+# dashboard migration has run) and any HTTP failure by falling back to the
+# spec defaults: tts=true, banner=true, ducking=full.
+_bootstrap_settings() {
+  local response http_code body
+  response="$(/usr/bin/curl -sS -m 5 -w '\n%{http_code}' \
+    -H "x-nexus-secret: $NEXUS_ATTACH_SECRET" \
+    "$NEXUS_URL/notifications/settings" 2>>"$LOG_FILE")" || response=""
+
+  http_code="$(printf '%s' "$response" | /usr/bin/tail -n1)"
+  body="$(printf '%s' "$response" | /usr/bin/sed '$d')"
+
+  if [ "$http_code" = "200" ]; then
+    local tts banner ducking
+    tts=$(printf '%s' "$body" | /usr/bin/jq -r '.tts_enabled // .ttsEnabled // empty' 2>/dev/null)
+    banner=$(printf '%s' "$body" | /usr/bin/jq -r '.banner_enabled // .bannerEnabled // empty' 2>/dev/null)
+    ducking=$(printf '%s' "$body" | /usr/bin/jq -r '.ducking_mode // .duckingMode // empty' 2>/dev/null)
+    TTS_ENABLED="$(_normalize_bool "${tts:-true}")"
+    BANNER_ENABLED="$(_normalize_bool "${banner:-true}")"
+    DUCKING_MODE="$(_normalize_ducking "${ducking:-full}")"
+    echo "[$(date)] settings bootstrapped tts=$TTS_ENABLED banner=$BANNER_ENABLED ducking=$DUCKING_MODE" >> "$LOG_FILE"
+  else
+    # 404 (table not migrated yet) or any non-200 — fall back to spec defaults.
+    TTS_ENABLED="true"
+    BANNER_ENABLED="true"
+    DUCKING_MODE="full"
+    echo "[$(date)] settings GET failed (http=$http_code); using defaults tts=true banner=true ducking=full" >> "$LOG_FILE"
+  fi
+}
+
+# ── SSE SettingsChanged handler ────────────────────────────────────────────
+# In-place update of the cached vars. Triggered from _run_stream when the
+# event_name matches "SettingsChanged".
+_process_settings_changed() {
+  local data="$1" tts banner ducking
+  tts=$(printf '%s' "$data" | /usr/bin/jq -r '.payload.ttsEnabled // .payload.tts_enabled // empty' 2>/dev/null)
+  banner=$(printf '%s' "$data" | /usr/bin/jq -r '.payload.bannerEnabled // .payload.banner_enabled // empty' 2>/dev/null)
+  ducking=$(printf '%s' "$data" | /usr/bin/jq -r '.payload.duckingMode // .payload.ducking_mode // empty' 2>/dev/null)
+  if [ -n "$tts" ];     then TTS_ENABLED="$(_normalize_bool "$tts")"; fi
+  if [ -n "$banner" ];  then BANNER_ENABLED="$(_normalize_bool "$banner")"; fi
+  if [ -n "$ducking" ]; then DUCKING_MODE="$(_normalize_ducking "$ducking")"; fi
+  echo "[$(date)] SettingsChanged applied tts=$TTS_ENABLED banner=$BANNER_ENABLED ducking=$DUCKING_MODE" >> "$LOG_FILE"
+}
+
+# ── Audio ducking ──────────────────────────────────────────────────────────
+# Apply DUCKING_MODE *before* afplay/say; populate _SAVED_* so _restore_ducking
+# can roll the system back to its prior state once playback completes.
+#
+# `osascript -e "output volume of (get volume settings)"` returns an int 0–100.
+# `osascript -e "output muted of (get volume settings)"` returns "true"/"false".
+_apply_ducking() {
+  _SAVED_VOLUME=""
+  _SAVED_MUTED=""
+  case "$DUCKING_MODE" in
+    full)
+      : # no-op
+      ;;
+    half)
+      _SAVED_VOLUME="$(/usr/bin/osascript -e 'output volume of (get volume settings)' 2>/dev/null || printf '')"
+      /usr/bin/osascript -e "set volume output volume 25" >/dev/null 2>&1 || true
+      echo "[$(date)] ducking half — saved_volume=${_SAVED_VOLUME:-?} -> 25" >> "$LOG_FILE"
+      ;;
+    mute)
+      _SAVED_MUTED="$(/usr/bin/osascript -e 'output muted of (get volume settings)' 2>/dev/null || printf '')"
+      /usr/bin/osascript -e "set volume with output muted" >/dev/null 2>&1 || true
+      echo "[$(date)] ducking mute — saved_muted=${_SAVED_MUTED:-?} -> true" >> "$LOG_FILE"
+      ;;
+  esac
+}
+
+_restore_ducking() {
+  if [ -n "$_SAVED_VOLUME" ]; then
+    /usr/bin/osascript -e "set volume output volume ${_SAVED_VOLUME}" >/dev/null 2>&1 || true
+    echo "[$(date)] ducking restored — volume=$_SAVED_VOLUME" >> "$LOG_FILE"
+    _SAVED_VOLUME=""
+  fi
+  if [ "$_SAVED_MUTED" = "false" ]; then
+    /usr/bin/osascript -e "set volume without output muted" >/dev/null 2>&1 || true
+    echo "[$(date)] ducking restored — unmuted" >> "$LOG_FILE"
+    _SAVED_MUTED=""
+  elif [ "$_SAVED_MUTED" = "true" ]; then
+    # Was already muted before we touched it — leave it muted.
+    _SAVED_MUTED=""
+  fi
 }
 
 # ── Emoji → PNG renderer with on-disk cache ─────────────────────────────────
@@ -138,6 +317,14 @@ _nx_leading_emoji() {
 _dispatch_banner() {
   local title="$1" body="$2" project="${3:-}"
 
+  # Banner suppression — short-circuit when the dashboard has flipped the
+  # banner channel off. Keep the cross-reference log line so we can prove
+  # "listener saw it but suppressed" downstream.
+  if [ "$BANNER_ENABLED" = "false" ]; then
+    _log_suppressed "banner suppressed (banner_enabled=false) title=\"$title\""
+    return 0
+  fi
+
   local emoji name
   emoji=$(_nx_leading_emoji "$title")
   if [ -n "$emoji" ] && [ "$emoji" != "$title" ]; then
@@ -185,16 +372,81 @@ _dispatch_banner() {
 # them serially.
 _dispatch_tts() {
   local body="$1"
+
+  # TTS suppression — accept the canonical "false" plus the legacy plist
+  # value "0" so an old plist doesn't suddenly start playing audio. Guard
+  # *both* the FIFO-write path and the afplay path on the same flag so the
+  # dashboard toggle behaves identically regardless of which side the agent
+  # took.
+  if [ "${TTS_ENABLED}" = "false" ] || [ "${TTS_ENABLED}" = "0" ]; then
+    _log_suppressed "tts suppressed (tts_enabled=$TTS_ENABLED) body=\"$body\""
+    return 0
+  fi
+
   printf '%s\n' "$body" >> "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE"
+}
+
+# ── Audio dispatch (audioBase64 path) ──────────────────────────────────────
+#
+# `audio_b64` is the mp3 payload as decoded by jq -r from payload.audioBase64.
+# The empty string means signal-only — fall through to the FIFO+say pipeline
+# (legacy behavior preserved for offline-key / upstream-failure cases).
+_dispatch_audio() {
+  local audio_b64="$1" body="$2"
+
+  # TTS suppression — same rule as _dispatch_tts. Logged once at the top so
+  # the suppression cross-reference covers both paths.
+  if [ "${TTS_ENABLED}" = "false" ] || [ "${TTS_ENABLED}" = "0" ]; then
+    _log_suppressed "tts suppressed (tts_enabled=$TTS_ENABLED) body=\"$body\""
+    return 0
+  fi
+
+  if [ -z "$audio_b64" ]; then
+    # No pre-synthesized audio — defer to the FIFO+say pipeline so the drain
+    # worker plays this serially alongside any queued items. _dispatch_tts
+    # re-checks TTS_ENABLED but that's free; keeping the guard there makes
+    # _dispatch_tts safe for legacy callers too.
+    _dispatch_tts "$body"
+    return 0
+  fi
+
+  # Ducking applies for the afplay path. Save state up-front; the cleanup
+  # subshell restores after afplay exits.
+  _apply_ducking
+
+  local uuid tmp
+  uuid="$(_gen_uuid)"
+  tmp="/tmp/nexus-notifier-${uuid}.mp3"
+
+  # macOS base64 reads stdin; -d decodes, -o writes to a path. We pipe
+  # via printf to avoid a temp .b64 file (and to side-step shells that
+  # mangle large args).
+  if ! printf '%s' "$audio_b64" | /usr/bin/base64 -d -o "$tmp" 2>>"$LOG_FILE"; then
+    echo "[$(date)] base64 decode failed; falling back to FIFO say" >> "$LOG_FILE"
+    # Decode failure → restore ducking now (no afplay will fire), then
+    # defer to the FIFO so the drain worker handles it serially.
+    _restore_ducking
+    _dispatch_tts "$body"
+    return 0
+  fi
+
+  # Background afplay so the SSE loop never blocks on playback. Trail
+  # the cleanup with a subshell that waits for afplay's PID, then unlinks
+  # the temp file *and* restores the pre-ducking volume/mute state.
+  /usr/bin/afplay "$tmp" >>"$LOG_FILE" 2>&1 &
+  local afpid=$!
+  ( wait "$afpid" 2>/dev/null; /bin/rm -f "$tmp" 2>/dev/null; _restore_ducking ) &
+  echo "[$(date)] afplay scheduled pid=$afpid path=$tmp ducking=$DUCKING_MODE" >> "$LOG_FILE"
 }
 
 _process_event() {
   local payload="$1"
-  local channel body title project
+  local channel body title project audio_b64
   channel=$(printf '%s' "$payload" | /usr/bin/jq -r '.payload.channel // empty' 2>/dev/null)
   body=$(printf '%s' "$payload" | /usr/bin/jq -r '.payload.body // .payload.message // empty' 2>/dev/null)
   title=$(printf '%s' "$payload" | /usr/bin/jq -r '.payload.title // .payload.project // "Claude Code"' 2>/dev/null)
   project=$(printf '%s' "$payload" | /usr/bin/jq -r '.payload.project // empty' 2>/dev/null)
+  audio_b64=$(printf '%s' "$payload" | /usr/bin/jq -r '.payload.audioBase64 // empty' 2>/dev/null)
 
   [ -z "$body" ] && return 0
 
@@ -205,12 +457,12 @@ _process_event() {
       ;;
     tts)
       _dispatch_banner "$title" "$body" "$project"
-      _dispatch_tts "$body"
+      _dispatch_audio "$audio_b64" "$body"
       echo "[$(date)] tts+banner: [$title] $body" >> "$LOG_FILE"
       ;;
     desktop,tts|tts,desktop|*desktop*tts*|*tts*desktop*)
       _dispatch_banner "$title" "$body" "$project"
-      _dispatch_tts "$body"
+      _dispatch_audio "$audio_b64" "$body"
       echo "[$(date)] both: [$title] $body" >> "$LOG_FILE"
       ;;
     slack|"")
@@ -248,16 +500,24 @@ _run_stream() {
         event_name="${line#event: }"
         ;;
       "data: "*)
-        if [ "$event_name" = "NotificationFired" ]; then
-          local data="${line#data: }"
-          local id
-          id=$(printf '%s' "$data" | /usr/bin/jq -r '.payload.id // empty' 2>/dev/null)
-          if _should_skip_dup "$id"; then
-            echo "[$(date)] dedup skipped id=$id" >> "$LOG_FILE"
-          else
-            _process_event "$data"
-          fi
-        fi
+        case "$event_name" in
+          NotificationFired)
+            local data="${line#data: }"
+            local id
+            id=$(printf '%s' "$data" | /usr/bin/jq -r '.payload.id // empty' 2>/dev/null)
+            if _should_skip_dup "$id"; then
+              echo "[$(date)] dedup skipped id=$id" >> "$LOG_FILE"
+            else
+              _process_event "$data"
+            fi
+            ;;
+          SettingsChanged)
+            # Apply settings update without restarting the listener. The
+            # cached vars TTS_ENABLED / BANNER_ENABLED / DUCKING_MODE are
+            # mutated in-place inside this process.
+            _process_settings_changed "${line#data: }"
+            ;;
+        esac
         event_name=""
         ;;
       "")
@@ -286,7 +546,13 @@ _run_stream() {
 _run_listen() {
   _load_secret
   _ensure_fifo
-  echo "[$(date)] nexus-notifier (listen) starting — url=$NEXUS_URL fifo=$NEXUS_NOTIFIER_FIFO" >> "$LOG_FILE"
+  # Normalize seed values from plist (legacy "1"/"0"/"none") before the
+  # bootstrap call, so the pre-bootstrap log line shows canonical shape.
+  TTS_ENABLED="$(_normalize_bool "$TTS_ENABLED")"
+  BANNER_ENABLED="$(_normalize_bool "$BANNER_ENABLED")"
+  DUCKING_MODE="$(_normalize_ducking "$DUCKING_MODE")"
+  _bootstrap_settings
+  echo "[$(date)] nexus-notifier (listen) starting — url=$NEXUS_URL fifo=$NEXUS_NOTIFIER_FIFO tts_enabled=$TTS_ENABLED banner_enabled=$BANNER_ENABLED ducking_mode=$DUCKING_MODE" >> "$LOG_FILE"
   while true; do
     _run_stream
     echo "[$(date)] stream disconnected, reconnecting in 5s" >> "$LOG_FILE"
@@ -331,11 +597,34 @@ _resolve_timeout_cmd() {
   fi
 }
 
+# Wrap the `say` invocation in apply/restore-ducking so the legacy say
+# fallback honours DUCKING_MODE the same way the afplay path does. The
+# drain worker is a different process from the listener, so it inherits
+# DUCKING_MODE only via the plist EnvironmentVariables stanza — which is
+# fine for `none|full` (no-op) and for `half|mute` (the per-utterance
+# wrap save/sets/restores).
+_drain_say_one() {
+  local timeout_cmd="$1" line="$2"
+  _apply_ducking
+  if [ -n "$timeout_cmd" ]; then
+    $timeout_cmd /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
+      echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
+  else
+    /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
+      echo "[$(date)] say failed: $line" >> "$DRAIN_LOG"
+  fi
+  _restore_ducking
+}
+
 _run_drain() {
   _ensure_fifo
+  # Normalize ducking mode for the drain process. TTS_ENABLED is already
+  # checked at the producer side (_dispatch_tts), so a "false" flag never
+  # writes a line to the FIFO — the drain reads only allowed bodies.
+  DUCKING_MODE="$(_normalize_ducking "$DUCKING_MODE")"
   local timeout_cmd
   timeout_cmd=$(_resolve_timeout_cmd)
-  echo "[$(date)] nexus-tts-player (drain) starting — fifo=$NEXUS_NOTIFIER_FIFO ${timeout_cmd:+timeout=$timeout_cmd}${timeout_cmd:-(no timeout binary; running say uncapped)}" >> "$DRAIN_LOG"
+  echo "[$(date)] nexus-tts-player (drain) starting — fifo=$NEXUS_NOTIFIER_FIFO ducking=$DUCKING_MODE ${timeout_cmd:+timeout=$timeout_cmd}${timeout_cmd:-(no timeout binary; running say uncapped)}" >> "$DRAIN_LOG"
 
   # Open the FIFO RDWR on FD 3 so we hold a write-end in this process.
   # That keeps the read side from seeing EOF when the listener closes its
@@ -345,13 +634,7 @@ _run_drain() {
 
   while IFS= read -r line <&3; do
     [ -z "$line" ] && continue
-    if [ -n "$timeout_cmd" ]; then
-      $timeout_cmd /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
-        echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
-    else
-      /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
-        echo "[$(date)] say failed: $line" >> "$DRAIN_LOG"
-    fi
+    _drain_say_one "$timeout_cmd" "$line"
   done
 
   # Reaching here means the read FD itself errored — the FIFO was unlinked

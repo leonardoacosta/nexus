@@ -16,6 +16,16 @@
   <dict>
     <key>NEXUS_URL</key>
     <string>http://homelab:7400</string>
+    <!-- Pre-bootstrap defaults — the listener calls GET /notifications/settings
+         on startup and replaces these in-process. Defaults match the spec:
+         tts on, banner on, ducking off (none -> normalized to "full"). Flip
+         a value here to suppress a fresh install before the GET completes. -->
+    <key>TTS_ENABLED</key>
+    <string>1</string>
+    <key>BANNER_ENABLED</key>
+    <string>1</string>
+    <key>DUCKING_MODE</key>
+    <string>none</string>
   </dict>
 
   <key>RunAtLoad</key>

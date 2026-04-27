@@ -10,23 +10,24 @@ scope for this README.)
 
 ```
 deploy/
-├── install.sh                    # entry point — Linux install + --mac shipping
+├── install.sh                    # entry point — Linux install (Linux agent + git hooks)
 ├── nexus-agent.service           # systemd user unit (Linux agent)
 ├── com.nexus.agent.plist         # legacy launchd unit (Mac agent — rarely used)
-├── nexus-notifier.sh             # legacy say(1)+FIFO listener (existing prod)
-├── com.nexus.notifier.plist      # legacy plist for the say(1) listener
-├── com.nexus.tts-player.plist    # legacy drain worker for the FIFO
-├── mac/                          # NEW — restore-tts-mac-audio-dispatch (afplay+audioBase64)
-│   ├── nexus-notifier.sh
-│   └── com.nexus.notifier.plist
+├── nexus-notifier.sh             # Mac listener — FIFO+say + afplay/audioBase64 + dashboard
+├── com.nexus.notifier.plist      # launchd unit for the Mac listener
+├── com.nexus.tts-player.plist    # drain worker for the FIFO (legacy say path)
 ├── traefik/                      # dashboard reverse-proxy config
-└── hooks/                        # git-hook dispatchers for spec-aware automation
+├── hooks/                        # git-hook dispatchers for spec-aware automation
+└── hooks.d/post-merge/02-deploy  # rebuilds + fans out to every Mac in agents.toml
 ```
 
-The `mac/` subdirectory is the canonical Mac listener going forward. The
-legacy `deploy/nexus-notifier.sh` (say + FIFO) stays in-tree until the
-existing host has been migrated; remove only after Leo confirms the
-afplay-based listener has been live for at least one full work day.
+`deploy/nexus-notifier.sh` is the single canonical Mac listener. It carries
+the legacy FIFO+`say` pipeline (with dedup, banner emoji icons, drain
+worker) and the audioBase64+`afplay` path from the audio-dispatch spec, plus
+the bootstrap-from-`/notifications/settings` and SSE `SettingsChanged`
+hooks from the dashboard spec. The audio path takes precedence whenever a
+NotificationFired frame carries `payload.audioBase64`; otherwise dispatch
+falls through to the FIFO so the drain worker plays it serially via `say`.
 
 ## Linux agent install (homelab side)
 
@@ -58,28 +59,19 @@ deploy/install.sh --dashboard
 
 The Mac listener subscribes to the agent's `/events/stream` SSE endpoint
 and pipes ElevenLabs mp3 bytes into `/usr/bin/afplay`. When a frame
-arrives without `audioBase64` (the agent ran in signal-only mode — no
-key, or the upstream call failed), the listener falls back to
-`/usr/bin/say` with the body text.
+arrives without `audioBase64` (signal-only — no key, or the upstream call
+failed), dispatch falls through to the FIFO so the drain worker plays
+the body via `/usr/bin/say` serially.
 
-Ship the listener from the Linux side:
-
-```bash
-# One-shot, with the Mac host as a positional arg:
-deploy/install.sh --mac mac.tail-scale-net.ts.net
-
-# Or set MAC_HOST in your shell:
-MAC_HOST=mac.tail-scale-net.ts.net deploy/install.sh --mac
-```
-
-The `--mac` branch:
-
-1. SSH-preflights `~/bin`, `~/Library/LaunchAgents`, and `~/Library/Logs`.
-2. `scp`s `deploy/mac/nexus-notifier.sh` to `~/bin/nexus-notifier.sh`
-   (chmod +x).
-3. `scp`s `deploy/mac/com.nexus.notifier.plist` to
-   `~/Library/LaunchAgents/com.nexus.notifier.plist`.
-4. Runs `launchctl unload && launchctl load` to bootstrap the listener.
+**Mac install is automatic via the post-merge hook.** When you push to
+`main` (or pull on the Linux host), `deploy/hooks.d/post-merge/02-deploy`
+fans out to every entry in `~/.config/nexus/agents.toml` whose `host` is
+not `localhost`/`127.0.0.1`, runs `git pull --ff-only`, and rebuilds. On
+Darwin targets the same script `cp`s `deploy/nexus-notifier.sh` to
+`~/bin/`, installs `deploy/com.nexus.notifier.plist` and
+`deploy/com.nexus.tts-player.plist` into `~/Library/LaunchAgents/`, and
+runs `launchctl bootout && launchctl load`. There is no separate `--mac`
+shipping flow — the install path is just a `git pull` away.
 
 Verify the listener is healthy:
 
@@ -87,9 +79,6 @@ Verify the listener is healthy:
 ssh mac 'launchctl list | grep com.nexus.notifier'
 ssh mac 'tail -f ~/Library/Logs/nexus-notifier.log'
 ```
-
-Override the Mac SSH user with `MAC_USER` if it differs from your local
-`$USER`.
 
 ## Secret provisioning
 
@@ -137,41 +126,19 @@ Do not put `ELEVENLABS_API_KEY` on the Mac. The Mac never calls
 ElevenLabs directly — every byte of audio comes pre-synthesized over
 the SSE stream as `payload.audioBase64`.
 
-## Wave 2 hooks (suppression UI)
+## Dashboard hooks (suppression UI)
 
-`deploy/mac/nexus-notifier.sh` declares three placeholder env vars that
-the dashboard spec will populate:
+`deploy/com.nexus.notifier.plist` declares three env vars that seed the
+listener's settings cache before the on-startup GET to
+`/notifications/settings` populates real values:
 
 | Var               | Default | Effect                                                       |
 | ----------------- | ------- | ------------------------------------------------------------ |
-| `TTS_ENABLED`     | `1`     | `0` short-circuits both afplay and the say-fallback path.    |
-| `BANNER_ENABLED`  | `1`     | Reserved for the dashboard banner pipeline (no-op today).    |
-| `DUCKING_MODE`    | `none`  | Reserved for the AVAudioSession ducking work in Wave 2.      |
+| `TTS_ENABLED`     | `1`     | `false`/`0` short-circuits both afplay and the say-fallback. |
+| `BANNER_ENABLED`  | `1`     | `false` short-circuits the osascript/terminal-notifier call. |
+| `DUCKING_MODE`    | `none`  | `half` lowers volume to 25, `mute` mutes; restored after.    |
 
-The plist's `<EnvironmentVariables>` stanza is the surface the dashboard
-will mutate — see `restore-tts-mac-audio-dispatch/proposal.md` § Wave 2.
-
-## Migration: legacy say(1) listener → afplay listener
-
-Today's production Mac runs the legacy
-`~/bin/nexus-notifier.sh` (say + FIFO) installed manually. The
-canonical replacement lives in `deploy/mac/`. Migration steps (do these
-on the Mac, not via SSH from the Linux side, so launchctl can attach to
-your GUI session):
-
-```bash
-# 1. Unload the legacy listener + drain worker.
-launchctl unload ~/Library/LaunchAgents/com.nexus.notifier.plist
-launchctl unload ~/Library/LaunchAgents/com.nexus.tts-player.plist 2>/dev/null || true
-
-# 2. Remove the legacy script + plists. (Keep ~/.env.)
-rm ~/bin/nexus-notifier.sh
-rm ~/Library/LaunchAgents/com.nexus.notifier.plist
-rm ~/Library/LaunchAgents/com.nexus.tts-player.plist 2>/dev/null || true
-
-# 3. Run the canonical install from the Linux host:
-ssh homelab 'cd ~/dev/nx && deploy/install.sh --mac mac.tail-scale-net.ts.net'
-
-# 4. Verify the new listener is consuming SSE frames:
-tail -f ~/Library/Logs/nexus-notifier.log
-```
+Live updates flow through the SSE `SettingsChanged` event — the listener
+mutates its cache in place, no restart required. The plist values matter
+only for the brief window between launchctl load and the bootstrap GET
+landing.

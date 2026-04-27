@@ -9,12 +9,15 @@ set -euo pipefail
 #   deploy/install.sh                    # build + install agent (+ nexus-register if present)
 #   deploy/install.sh --dashboard        # also install Next.js dashboard service + Traefik config
 #   deploy/install.sh --no-build         # skip build, install pre-built binaries from apps/*/
-#   deploy/install.sh --mac [host]       # ship Mac listener (script + plist) to a remote Mac via ssh/scp
+#
+# Mac listener install: handled automatically by the post-merge git deploy
+# hook (deploy/hooks.d/post-merge/02-deploy), which fans out to every Mac
+# listed in ~/.config/nexus/agents.toml and installs deploy/nexus-notifier.sh
+# + deploy/com.nexus.notifier.plist over SSH. There is no separate --mac
+# entry point — pulling main on the Linux host is the install path.
 #
 # Environment variables:
 #   TRAEFIK_DYNAMIC_DIR   Directory Traefik watches for dynamic config (default: /etc/traefik/dynamic)
-#   MAC_HOST              Default Mac target for --mac (overridden by positional arg)
-#   MAC_USER              SSH user for the Mac (default: $USER)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -23,110 +26,18 @@ CONFIG_DIR="$HOME/.config/nexus"
 TRAEFIK_DYNAMIC_DIR="${TRAEFIK_DYNAMIC_DIR:-/etc/traefik/dynamic}"
 INSTALL_DASHBOARD=false
 DO_BUILD=true
-INSTALL_MAC=false
-MAC_HOST_ARG=""
 
-# We hand-roll arg parsing because --mac takes an optional positional
-# (the target host) and `case` over $@ collapses positionals into "$arg".
-i=1
-while [[ $i -le $# ]]; do
-    arg="${!i}"
+for arg in "$@"; do
     case "$arg" in
         --dashboard) INSTALL_DASHBOARD=true ;;
         --no-build)  DO_BUILD=false ;;
-        --mac)
-            INSTALL_MAC=true
-            # Peek at the next arg; if it doesn't start with `--` treat it
-            # as the Mac hostname.
-            next_i=$((i + 1))
-            if [[ $next_i -le $# ]]; then
-                next="${!next_i}"
-                if [[ "$next" != --* ]]; then
-                    MAC_HOST_ARG="$next"
-                    i=$next_i
-                fi
-            fi
-            ;;
         *) ;;
     esac
-    i=$((i + 1))
 done
 
 info()  { printf '\033[1;34m==> %s\033[0m\n' "$1"; }
 warn()  { printf '\033[1;33m==> %s\033[0m\n' "$1"; }
 error() { printf '\033[1;31m==> %s\033[0m\n' "$1" >&2; exit 1; }
-
-# ── Mac listener install (--mac) ────────────────────────────────────
-#
-# Ships deploy/mac/nexus-notifier.sh + com.nexus.notifier.plist to a
-# remote Mac and bootstraps launchd. Run this from the Linux host that
-# owns the agent — we don't expect anyone to run install.sh ON the Mac
-# itself.
-#
-# Resolution order for the target host:
-#   1. Positional argument after --mac
-#   2. $MAC_HOST environment variable
-#   3. Hard error
-#
-# Required on the Mac side (caller must have provisioned in advance):
-#   - SSH access via key; this script does not prompt for passwords.
-#   - $HOME/bin on PATH (we install the script there to match Leo's
-#     existing layout — see ~/Library/LaunchAgents/com.nexus.notifier.plist).
-#   - $HOME/.env containing NEXUS_ATTACH_SECRET (the listener fail-closes
-#     when this isn't set; see deploy/mac/nexus-notifier.sh).
-#
-if $INSTALL_MAC; then
-    MAC_HOST="${MAC_HOST_ARG:-${MAC_HOST:-}}"
-    MAC_USER="${MAC_USER:-$USER}"
-    MAC_TARGET=""
-
-    if [[ -z "$MAC_HOST" ]]; then
-        error "--mac requires a target host. Pass as positional arg or set MAC_HOST."
-    fi
-
-    # `user@host` if MAC_USER differs from local $USER, else just host.
-    if [[ "$MAC_USER" != "$USER" ]]; then
-        MAC_TARGET="$MAC_USER@$MAC_HOST"
-    else
-        MAC_TARGET="$MAC_HOST"
-    fi
-
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    MAC_SCRIPT="$SCRIPT_DIR/mac/nexus-notifier.sh"
-    MAC_PLIST="$SCRIPT_DIR/mac/com.nexus.notifier.plist"
-
-    [[ -f "$MAC_SCRIPT" ]] || error "Missing $MAC_SCRIPT — has the spec landed?"
-    [[ -f "$MAC_PLIST"  ]] || error "Missing $MAC_PLIST — has the spec landed?"
-
-    info "Installing Mac listener to $MAC_TARGET"
-
-    # Ensure $HOME/bin and $HOME/Library/LaunchAgents exist before we scp.
-    ssh "$MAC_TARGET" 'mkdir -p "$HOME/bin" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"' \
-        || error "ssh preflight failed against $MAC_TARGET"
-
-    info "scp $MAC_SCRIPT -> $MAC_TARGET:~/bin/nexus-notifier.sh"
-    scp -q "$MAC_SCRIPT" "$MAC_TARGET":'~/bin/nexus-notifier.sh' \
-        || error "scp of nexus-notifier.sh failed"
-    ssh "$MAC_TARGET" 'chmod +x "$HOME/bin/nexus-notifier.sh"' \
-        || error "chmod nexus-notifier.sh failed"
-
-    info "scp $MAC_PLIST -> $MAC_TARGET:~/Library/LaunchAgents/com.nexus.notifier.plist"
-    scp -q "$MAC_PLIST" "$MAC_TARGET":'~/Library/LaunchAgents/com.nexus.notifier.plist' \
-        || error "scp of com.nexus.notifier.plist failed"
-
-    info "Bootstrapping launchctl on $MAC_TARGET"
-    # Unload first to clear any prior version, then load. We tolerate the
-    # unload failing (no prior install) but require load to succeed.
-    ssh "$MAC_TARGET" '
-        launchctl unload "$HOME/Library/LaunchAgents/com.nexus.notifier.plist" 2>/dev/null || true
-        launchctl load "$HOME/Library/LaunchAgents/com.nexus.notifier.plist"
-    ' || error "launchctl load failed on $MAC_TARGET"
-
-    info "Mac listener installed. Verify with:"
-    echo "  ssh $MAC_TARGET 'tail -f ~/Library/Logs/nexus-notifier.log'"
-    echo "  ssh $MAC_TARGET 'launchctl list | grep com.nexus.notifier'"
-    exit 0
-fi
 
 # ── Preflight ────────────────────────────────────────────────────────
 
