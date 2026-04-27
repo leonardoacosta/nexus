@@ -35,7 +35,7 @@ const store = new Map<string, Entry>();
  * resorting to vi.useFakeTimers. Not part of the public API — internal use
  * only. Default is `Date.now`.
  */
-let nowFn: () => number = () => Date.now();
+const nowFn: () => number = () => Date.now();
 
 /**
  * Returns the cached `Reachability` for `key` if present and unexpired.

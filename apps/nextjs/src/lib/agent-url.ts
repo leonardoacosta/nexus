@@ -219,14 +219,14 @@ export async function probeAgentRegistry(
  * Resolve the agent base URL from the DB-backed agent registry.
  *
  * @deprecated Prefer `probeAgents()` (in `agent-reachability.ts`) for
- * failover- and capability-aware resolution. This shim exists so
- * unmigrated callers (e.g. `apps/nextjs/src/app/specs/page.tsx`) keep
- * working — it walks the registry like `probeAgentRegistry()` but
- * collapses every failure mode into `null`, hiding the diagnostic
- * information.
+ * failover- and capability-aware resolution. This shim preserves the
+ * pre-failover synchronous DB→config behavior: returns the first
+ * enabled agent without any network probe. Callers that need
+ * reachability or failover semantics MUST migrate to `probeAgents()`.
  */
 export async function getAgentBaseUrl(): Promise<AgentBaseUrlResolution | null> {
-  const result = await probeAgentRegistry();
-  if (result.ok) return result.active;
-  return null;
+  const configs = await getAgentConfigs();
+  const agent = configs[0];
+  if (!agent) return null;
+  return { baseUrl: `http://${agent.host}:${agent.port}`, agent };
 }
