@@ -53,11 +53,101 @@ import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import type { WsData } from "./terminal/stream-manager";
 import { ServerState, handleWsUpgrade } from "./server-websocket";
 import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
-import { CREDENTIAL_ID_RE, requireSecret } from "./server-auth";
+import { CREDENTIAL_ID_RE, isAuthExemptPath, requireSecret } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
+import type { Route } from "./router";
+import { buildVersionRoutes } from "./routes/version-builder";
+
+/**
+ * Source-of-truth list of dispatch routes for /version capability reporting.
+ *
+ * MUST be kept in sync with the if/else dispatch chain in `handleRequest`
+ * below. Adding a new route to the dispatcher? Add it here too.
+ *
+ * This is a temporary contract until the legacy dispatcher is migrated to
+ * the typed route table in routes.ts. The typed table in routes.ts is built
+ * but NOT dispatched — the actual API surface comes from the if/else chain
+ * in this file. See follow-up bead nx-* for the migration plan.
+ *
+ * Path-parameterised routes use `:id`-style placeholders to mirror how the
+ * typed route table declares them. Where a route group is delegated to a
+ * sub-dispatcher (e.g. /credentials/*, /specs/*), the concrete paths
+ * served are listed here so the capabilities array reflects the real API.
+ */
+const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
+  // Health
+  { method: "GET", path: "/health" },
+  { method: "POST", path: "/health/ingest" },
+  { method: "GET", path: "/health/history" },
+  // Sessions
+  { method: "GET", path: "/sessions" },
+  { method: "GET", path: "/sessions/:id" },
+  { method: "POST", path: "/session/start" },
+  // Projects
+  { method: "GET", path: "/projects" },
+  { method: "PATCH", path: "/projects/:id" },
+  { method: "GET", path: "/projects/discovered" },
+  // Notifications (the route that triggered this whole spec)
+  { method: "POST", path: "/notifications/send" },
+  { method: "POST", path: "/meeting/start" },
+  { method: "POST", path: "/meeting/end" },
+  { method: "GET", path: "/meeting/status" },
+  // Credentials (delegated to server-routes-credentials.ts)
+  { method: "GET", path: "/credentials" },
+  { method: "POST", path: "/credentials" },
+  { method: "GET", path: "/credentials/active" },
+  { method: "POST", path: "/credentials/lease" },
+  { method: "POST", path: "/credentials/:id/release" },
+  { method: "POST", path: "/credentials/:id/report-rate-limit" },
+  { method: "GET", path: "/credentials/:id/health" },
+  { method: "GET", path: "/credentials/status" },
+  // Agents (settings)
+  { method: "GET", path: "/agent/self" },
+  { method: "POST", path: "/agents" },
+  { method: "DELETE", path: "/agents/:id" },
+  // Analytics
+  { method: "GET", path: "/analytics/health" },
+  { method: "GET", path: "/analytics/specs" },
+  { method: "GET", path: "/analytics/credentials" },
+  { method: "GET", path: "/analytics/git" },
+  { method: "GET", path: "/analytics/lifecycle" },
+  { method: "GET", path: "/analytics/cron" },
+  // Operational
+  { method: "GET", path: "/statusline" },
+  { method: "POST", path: "/hooks" },
+  { method: "GET", path: "/recommend" },
+  { method: "GET", path: "/environment" },
+  { method: "GET", path: "/failures" },
+  { method: "GET", path: "/cron" },
+  // Project detail
+  { method: "GET", path: "/project/:code/status" },
+  { method: "GET", path: "/project/:code/beads" },
+  { method: "GET", path: "/project/:code/git" },
+  { method: "GET", path: "/project/:code/specs" },
+  { method: "POST", path: "/project/:code/run" },
+  // Events
+  { method: "GET", path: "/events" },
+  { method: "GET", path: "/events/stream" },
+  // Version (self)
+  { method: "GET", path: "/version" },
+];
+
+/**
+ * Module-level singleton: build the version route ONCE.
+ * The handler closes over the capability list — no per-request work.
+ *
+ * `buildVersionRoutes` only reads method/path off each Route to compute
+ * capability strings — the synthetic 500 handler is never invoked.
+ */
+const versionRoute = buildVersionRoutes(
+  LEGACY_DISPATCH_ROUTES.map((r) => ({
+    ...r,
+    handler: () => new Response(null, { status: 500 }),
+  })),
+)[0]!;
 
 /** Create the route dispatch handler, optionally backed by a database. */
 export function createRequestHandler(state: ServerState, db?: Db) {
@@ -98,8 +188,23 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // All REST routes require x-nexus-secret. Applied after WebSocket upgrade
     // checks (which validate inline) and after OPTIONS preflight (browsers must
     // be able to send a preflight without credentials to discover allowed headers).
-    const authErr = requireSecret(request);
-    if (authErr) return authErr;
+    //
+    // Auth-exempt paths (see AUTH_EXEMPT_PATHS in server-auth.ts) bypass the
+    // secret check entirely — used for diagnostic endpoints like /version that
+    // must be reachable before a valid secret is known.
+    if (!isAuthExemptPath(url.pathname)) {
+      const authErr = requireSecret(request);
+      if (authErr) return authErr;
+    }
+
+    // ── Version (auth-exempt, no DB required) ─────────────────────────────
+    // Wired directly into the dispatcher because the typed route table in
+    // routes.ts is NOT dispatched — see LEGACY_DISPATCH_ROUTES above.
+    if (url.pathname === "/version" && request.method === "GET") {
+      return Promise.resolve(versionRoute.handler(request, {})).then((r) =>
+        withCors(request, r),
+      );
+    }
 
     if (url.pathname === "/health") {
       return handleHealthGet(request, url, state);

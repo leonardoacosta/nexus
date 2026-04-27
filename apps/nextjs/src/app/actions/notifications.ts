@@ -15,6 +15,7 @@
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { notifications, desc } from "@nexus/db";
 import type { Notification } from "@nexus/db";
+import { probeAgent, type Reachability } from "@/lib/agent-reachability";
 import { getAgentBaseUrl } from "@/lib/agent-url";
 import { getReadOnlyDb } from "@/lib/db";
 
@@ -59,6 +60,18 @@ export interface NotificationRow {
 export interface NotificationsPageData {
   settings: NotificationSettingsWire | null;
   rows: NotificationRow[];
+  /**
+   * Full reachability classification from `probeAgent()`. Components can
+   * `switch` on `reachability.reason` to render variant-specific banner copy
+   * (e.g. "Build <sha> missing /notifications/settings — rebuild needed" for
+   * `stale-binary` vs "Agent timed out at <host>:<port>" for `timeout`).
+   */
+  reachability: Reachability;
+  /**
+   * Derived from `reachability.ok`. Preserved for backward compatibility with
+   * components that only need a yes/no signal — new code SHOULD prefer the
+   * `reachability` field above for richer banner copy.
+   */
   agentReachable: boolean;
 }
 
@@ -136,16 +149,24 @@ export async function fetchRecentNotifications(
 /**
  * Bundle the two reads the page needs into one server-side hop. Errors are
  * isolated per-source so a missing settings row doesn't blank the table.
+ *
+ * Order: probe `/version` first (the version handshake — see
+ * `apps/nextjs/src/lib/agent-reachability.ts`). When the probe fails for any
+ * reason, skip the `/notifications/settings` fetch entirely — there's no
+ * point burning a second 5s timeout if we already know the agent is down or
+ * stale. The DB read for recent rows is independent and always runs.
  */
 export async function fetchNotificationsPageData(): Promise<NotificationsPageData> {
+  const reachability = await probeAgent();
   const [settings, rows] = await Promise.all([
-    fetchNotificationSettings(),
+    reachability.ok ? fetchNotificationSettings() : Promise.resolve(null),
     fetchRecentNotifications(50).catch(() => [] as NotificationRow[]),
   ]);
   return {
     settings,
     rows,
-    agentReachable: settings !== null,
+    reachability,
+    agentReachable: reachability.ok,
   };
 }
 

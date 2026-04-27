@@ -31,6 +31,7 @@ import { buildProjectDetailRoutes } from "./routes/project-detail-builder";
 import { buildSpecsRoutes } from "./routes/specs-builder";
 import { buildCommandsRoutes } from "./routes/commands-builder";
 import { buildMiscRoutes } from "./routes/misc-builder";
+import { buildVersionRoutes } from "./routes/version-builder";
 
 // ---------------------------------------------------------------------------
 // Route table factory
@@ -51,7 +52,9 @@ import { buildMiscRoutes } from "./routes/misc-builder";
  * to work identically.
  */
 export function buildRoutes(state: ServerState, db?: Db): Route[] {
-  return [
+  // 1. Construct the base route table (everything BUT /version).
+  //    Order is preserved exactly as before for dispatch-stability.
+  const baseRoutes: Route[] = [
     ...buildHealthRoutes(state, db),
     ...buildSessionsRoutes(db),
     ...buildProjectsRoutes(db),
@@ -69,4 +72,20 @@ export function buildRoutes(state: ServerState, db?: Db): Route[] {
     // ordering of the legacy monolithic builder.
     ...buildEventsStreamRoutes(),
   ];
+
+  // 2. Synthesize a sentinel for /version so the capabilities array
+  //    self-includes "GET /version". buildVersionRoutes only reads
+  //    method/path off each Route to compute capability strings — it
+  //    never invokes the sentinel handler. The real handler comes from
+  //    the buildVersionRoutes return value below.
+  const versionSentinel: Route = {
+    method: "GET",
+    path: "/version",
+    handler: () => new Response(null, { status: 500 }),
+  };
+  const versionRoutes = buildVersionRoutes([...baseRoutes, versionSentinel]);
+
+  // 3. Concatenate base + version routes. The real /version handler
+  //    (from buildVersionRoutes) is what the dispatcher will match.
+  return [...baseRoutes, ...versionRoutes];
 }

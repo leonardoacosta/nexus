@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile nexus-agent",
+    "build": "bun scripts/gen-version.ts && bun build src/index.ts --compile --outfile nexus-agent",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

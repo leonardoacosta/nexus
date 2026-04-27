@@ -5,8 +5,43 @@ import { fetchCredentials } from "../actions/credentials";
 import type { Credential } from "../actions/credentials";
 import { AccountsTable } from "@/components/credentials-table";
 import { getAgentBaseUrl } from "@/lib/agent-url";
+import type { Reachability } from "@/lib/agent-reachability";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { credentialsActiveResponseSchema } from "@nexus/core";
+
+// ---------------------------------------------------------------------------
+// Banner copy helpers — mirror the notifications page so both surfaces show
+// the same accurate diagnostic per failure mode instead of collapsing every
+// failure into a generic "Agent unreachable" string.
+// ---------------------------------------------------------------------------
+
+function bannerTitleForReachability(r: Reachability): string {
+  if (r.ok) return "";
+  switch (r.reason) {
+    case "no-agent":
+      return "No agent registered";
+    case "timeout":
+      return `Agent ${r.agent.name} not responding`;
+    case "stale-binary":
+      return `Agent build ${r.build.sha} missing required capability`;
+    case "http-error":
+      return `Agent ${r.agent.name} returned HTTP ${r.status}`;
+  }
+}
+
+function bannerDetailForReachability(r: Reachability): string {
+  if (r.ok) return "";
+  switch (r.reason) {
+    case "no-agent":
+      return "Add an agent in Settings → Agents to manage credentials.";
+    case "timeout":
+      return `${r.agent.host}:${r.agent.port} did not respond within 5s — check the daemon.`;
+    case "stale-binary":
+      return `Missing: ${r.missing.join(", ")}. Rebuild and restart the agent.`;
+    case "http-error":
+      return `Check the agent logs at ${r.agent.host}:${r.agent.port} for the underlying error.`;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,8 +124,8 @@ export default async function CredentialsPage() {
       totalAccounts,
       agentSource,
       agentReachable,
-      failedAgents,
       activeFingerprint,
+      reachability,
     },
     resolvedPath,
   ] = await Promise.all([fetchCredentials(), fetchActiveResolvedPath()]);
@@ -155,6 +190,7 @@ export default async function CredentialsPage() {
 
       {!agentReachable ? (
         <div
+          data-testid="agent-banner"
           style={{
             padding: "var(--space-4)",
             borderRadius: "var(--radius-md)",
@@ -169,7 +205,7 @@ export default async function CredentialsPage() {
               marginBottom: "var(--space-2)",
             }}
           >
-            Could not reach agent
+            {bannerTitleForReachability(reachability)}
           </p>
           <p
             style={{
@@ -177,7 +213,7 @@ export default async function CredentialsPage() {
               color: "var(--color-fg-muted)",
             }}
           >
-            Failed to connect to: {failedAgents.join(", ")}
+            {bannerDetailForReachability(reachability)}
           </p>
         </div>
       ) : accounts.length === 0 ? (

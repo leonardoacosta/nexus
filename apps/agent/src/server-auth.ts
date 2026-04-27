@@ -21,6 +21,31 @@ export const ATTACH_SECRET: string = _attachSecretRaw;
 // ── Credential ID validation ────────────────────────────────────────────────
 export const CREDENTIAL_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
+// ── Auth-exempt paths ───────────────────────────────────────────────────────
+/**
+ * REST paths that bypass the global `x-nexus-secret` check.
+ *
+ * Membership is path-based (not header-based): a wrong/forged header on these
+ * routes is ignored — the path itself grants access. Keep this list tiny and
+ * limited to endpoints that return only build/diagnostic metadata (no session
+ * data, no credentials, no DB rows).
+ *
+ * - `/version` — returns build SHA, build timestamp, and capability list. The
+ *   dashboard probes `/version` BEFORE it knows whether it has a valid secret,
+ *   so authentication adds no value but blocks the diagnostic.
+ */
+export const AUTH_EXEMPT_PATHS: ReadonlySet<string> = new Set(["/version"]);
+
+/**
+ * Return true when the given pathname is exempt from `x-nexus-secret`.
+ *
+ * Callers SHOULD invoke this immediately before `requireSecret(request)` and
+ * skip the secret check on a match.
+ */
+export function isAuthExemptPath(pathname: string): boolean {
+  return AUTH_EXEMPT_PATHS.has(pathname);
+}
+
 /**
  * Validate the `x-nexus-secret` header using constant-time comparison.
  *

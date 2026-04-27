@@ -2,6 +2,7 @@
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import type { Account, CredentialFile, WireCredentialRow } from "@nexus/core";
+import { probeAgent, type Reachability } from "@/lib/agent-reachability";
 import { getAgentConfigs } from "@/lib/get-client";
 
 // WireCredentialRow is defined in @nexus/core/types/account and re-exported
@@ -77,6 +78,18 @@ export interface CredentialsResult {
   totalAccounts: number;
   totalFiles: number;
   agentSource: string;
+  /**
+   * Full reachability classification from `probeAgent()`. Components can
+   * `switch` on `reachability.reason` to render variant-specific banner copy
+   * (e.g. "Build <sha> missing GET /credentials — rebuild needed" for
+   * `stale-binary` vs "Agent timed out at <host>:<port>" for `timeout`).
+   */
+  reachability: Reachability;
+  /**
+   * Derived from `reachability.ok`. Preserved for backward compatibility with
+   * components that only need a yes/no signal — new code SHOULD prefer the
+   * `reachability` field above for richer banner copy.
+   */
   agentReachable: boolean;
   failedAgents: string[];
   /** Raw fingerprint reported by the agent's active-credential watcher. */
@@ -166,18 +179,49 @@ function toCredentialFile(row: WireCredentialRow): CredentialFile {
  * attach the active-account indicator, and fetch per-account usage for
  * every visible account (with per-account error isolation so a single
  * Anthropic API hiccup does not tank the whole page).
+ *
+ * Order: probe `/version` first (the version handshake — see
+ * `apps/nextjs/src/lib/agent-reachability.ts`). When the probe fails for any
+ * reason — no agent registered, timeout, http-error, or stale-binary missing
+ * `GET /credentials` — skip the per-agent `/credentials` loop entirely. The
+ * `Reachability` value is returned so the page can render banner copy
+ * specific to the failure mode (build sha + missing capabilities for stale,
+ * host:port for timeout, etc.) instead of collapsing to "agent unreachable".
  */
 export async function fetchCredentials(): Promise<CredentialsResult> {
+  const reachability = await probeAgent();
   const configs = await getAgentConfigs();
   const secret = process.env.NEXUS_ATTACH_SECRET ?? "";
 
+  // Probe failed: short-circuit. The page-data return shape mirrors the
+  // existing empty-state below so the UI consumer renders unchanged.
+  if (!reachability.ok) {
+    const agentSource =
+      reachability.reason === "no-agent" ? "unknown" : reachability.agent.name;
+    return {
+      accounts: [],
+      credentials: [],
+      groups: [],
+      totalAccounts: 0,
+      totalFiles: 0,
+      agentSource,
+      reachability,
+      agentReachable: false,
+      failedAgents: [],
+      activeFingerprint: null,
+    };
+  }
+
   let allRows: WireCredentialRow[] = [];
   let activeFingerprint: string | null = null;
-  let agentSource = "unknown";
-  let agentReachable = false;
+  let agentSource = reachability.agent.name;
   const failedAgents: string[] = [];
 
-  // Try each agent until one responds.
+  // Try each agent until one responds. The version probe above already
+  // confirmed the first registered agent is reachable and has the
+  // `GET /credentials` capability, but the existing multi-agent loop is
+  // preserved so a transient `/credentials` failure on the primary still
+  // falls back to the next agent.
   for (const agent of configs) {
     try {
       const res = await fetchWithTimeout(
@@ -196,7 +240,6 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
       allRows = parsed.credentials;
       activeFingerprint = parsed.activeFingerprint;
       agentSource = agent.name;
-      agentReachable = true;
       break;
     } catch {
       failedAgents.push(`${agent.name} (${agent.host}:${agent.port})`);
@@ -211,7 +254,8 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
       totalAccounts: 0,
       totalFiles: 0,
       agentSource,
-      agentReachable,
+      reachability,
+      agentReachable: reachability.ok,
       failedAgents,
       activeFingerprint,
     };
@@ -301,7 +345,8 @@ export async function fetchCredentials(): Promise<CredentialsResult> {
     totalAccounts: accounts.length,
     totalFiles: allRows.length,
     agentSource,
-    agentReachable: true,
+    reachability,
+    agentReachable: reachability.ok,
     failedAgents,
     activeFingerprint,
   };

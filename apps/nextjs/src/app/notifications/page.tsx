@@ -5,7 +5,8 @@ import { fetchNotificationsPageData } from "../actions/notifications";
 import { NotificationsClient } from "./NotificationsClient";
 
 export default async function NotificationsPage() {
-  const { settings, rows, agentReachable } = await fetchNotificationsPageData();
+  const { settings, rows, agentReachable, reachability } =
+    await fetchNotificationsPageData();
 
   return (
     <div>
@@ -43,6 +44,7 @@ export default async function NotificationsPage() {
         initialSettings={settings}
         initialRows={rows}
         agentReachable={agentReachable}
+        reachability={reachability}
       />
     </div>
   );

@@ -10,6 +10,7 @@ import {
   type NotificationSettingsPatch,
   type NotificationSettingsWire,
 } from "@/app/actions/notifications";
+import type { Reachability } from "@/lib/agent-reachability";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,40 @@ const REPLAY_DISABLED_STATUSES = new Set(["expired", "suppressed"]);
 interface NotificationsClientProps {
   initialSettings: NotificationSettingsWire | null;
   initialRows: NotificationRow[];
+  /**
+   * Coarse yes/no flag — kept for the existing logic that uses it to gate
+   * `settingsDisabled`, the SSE subscription, and other yes/no decisions.
+   * Banner copy is driven by `reachability` instead.
+   */
   agentReachable: boolean;
+  /**
+   * Full reachability classification. Drives the banner copy switch — each
+   * failure mode (`no-agent`, `timeout`, `stale-binary`, `http-error`) gets
+   * its own actionable message. See `bannerCopyForReachability` below.
+   */
+  reachability: Reachability;
+}
+
+/**
+ * Map a `Reachability` failure variant to user-facing banner copy.
+ *
+ * Returns "" when the agent is reachable — the caller suppresses the banner
+ * via the existing `!agentReachable` guard, so this branch is unreachable in
+ * practice but kept for exhaustiveness (TypeScript will flag any new variant
+ * added to the union).
+ */
+function bannerCopyForReachability(r: Reachability): string {
+  if (r.ok) return "";
+  switch (r.reason) {
+    case "no-agent":
+      return "No agent registered — add one in Agents settings.";
+    case "timeout":
+      return `Agent ${r.agent.name} at ${r.agent.host}:${r.agent.port} not responding — check the daemon.`;
+    case "stale-binary":
+      return `Agent build ${r.build.sha} is missing ${r.missing.join(", ")} — rebuild the agent.`;
+    case "http-error":
+      return `Agent ${r.agent.name} returned HTTP ${r.status} — check agent logs.`;
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -228,6 +262,7 @@ export function NotificationsClient({
   initialSettings,
   initialRows,
   agentReachable,
+  reachability,
 }: NotificationsClientProps) {
   // Settings state. `null` is the "agent unreachable / no row" case — we
   // still render the controls so the user has visual context, but disable
@@ -543,13 +578,14 @@ export function NotificationsClient({
 
             {!agentReachable && (
               <span
+                data-testid="agent-banner"
                 style={{
                   marginLeft: "auto",
                   fontSize: "var(--font-size-xs)",
                   color: "var(--color-warning)",
                 }}
               >
-                Agent unreachable — controls disabled
+                {bannerCopyForReachability(reachability)}
               </span>
             )}
           </div>
