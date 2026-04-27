@@ -205,4 +205,16 @@ describe("renderStatusline — degraded mode", () => {
     expect(typeof out).toBe("string");
     expect(strip(out)).not.toContain("CTX ");
   });
+
+  it("[4.1b] empty payload {} renders no 'undefined' or 'null' tokens", () => {
+    // Regression guard: the degraded-mode path must never leak literal
+    // "undefined" / "null" strings (template-string interpolation of a missing
+    // optional field). This is the most common shape of a payload-handling
+    // regression — covered here so the contract is asserted alongside the
+    // other empty-payload behaviors.
+    const out = renderStatusline({}, baseDeps);
+    const stripped = strip(out);
+    expect(stripped).not.toContain("undefined");
+    expect(stripped).not.toContain("null");
+  });
 });

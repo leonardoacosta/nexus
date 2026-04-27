@@ -26,9 +26,9 @@
 
 ## Build + Deploy Batch
 
-- [ ] [3.1] [P-1] `cd ~/dev/nx/apps/nexus-status && bun build src/index.ts --compile --outfile nexus-status`. Copy to `~/.local/bin/nexus-status`. No systemd restart required (statusline is invoked per-render). [owner:devops-engineer]
+- [x] [3.1] [P-1] `cd ~/dev/nx/apps/nexus-status && bun build src/index.ts --compile --outfile nexus-status`. Copy to `~/.local/bin/nexus-status`. No systemd restart required (statusline is invoked per-render). [owner:devops-engineer]
 - [ ] [3.2] [P-2] Visual validation: open a CC session and confirm the statusline renders the context bar, any relevant cost/line-delta segments, and the rate-limit countdown. Capture a before/after screenshot for the PR description. [owner:ux-specialist]
 
 ## Regression Batch
 
-- [ ] [4.1] [P-1] Verify behavior in the empty-payload degraded-mode: pipe `{}` to the binary. Current behavior is empty string or minimal rendering. New behavior MUST match (no regression in the degraded path). [owner:e2e-engineer]
+- [x] [4.1] [P-1] Verify behavior in the empty-payload degraded-mode: pipe `{}` to the binary. Current behavior is empty string or minimal rendering. New behavior MUST match (no regression in the degraded path). [owner:e2e-engineer]

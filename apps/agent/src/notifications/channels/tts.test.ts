@@ -253,6 +253,92 @@ describe("sendTtsNotification — ElevenLabs failure fallback", () => {
   });
 });
 
+// ─── restore-tts-mac-audio-dispatch: §2.1 + §2.2 unit assertions ──────────
+//
+// §2.1: With ELEVENLABS_API_KEY set and the HTTP layer returning a 60-byte
+// mp3 payload, the channel MUST return success:true and an audioBase64
+// string that decodes back to 60 bytes. Anything less means the manager
+// can't propagate the audio onto NotificationFired.
+//
+// §2.2: With ELEVENLABS_API_KEY UNSET (and no DB row), the channel MUST
+// return success:true with audioBase64 undefined and MUST NOT call out to
+// the network at all (signal-only mode). Same envelope so downstream
+// listeners still fire — the Mac side falls back to `say`.
+
+describe("sendTtsNotification — §2.1 audioBase64 round-trips a 60-byte mp3", () => {
+  let originalApiKey: string | undefined;
+
+  beforeEach(() => {
+    fetchWithTimeoutMock.mockClear();
+    originalApiKey = process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = originalApiKey;
+    }
+  });
+
+  it("returns audioBase64 whose decoded length equals the upstream mp3 byte count (60)", async () => {
+    const fakeMp3 = new Uint8Array(60);
+    for (let i = 0; i < 60; i++) fakeMp3[i] = (i * 7 + 1) & 0xff;
+    fetchWithTimeoutMock.mockImplementationOnce(
+      async () =>
+        new Response(fakeMp3, {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        }),
+    );
+
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-2.1-60b", body: "build complete" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(typeof result.audioBase64).toBe("string");
+    const decoded = Buffer.from(result.audioBase64 ?? "", "base64");
+    expect(decoded.byteLength).toBe(60);
+    // First/last byte parity to confirm it's the same buffer, not just length.
+    expect(decoded[0]).toBe(fakeMp3[0]);
+    expect(decoded[59]).toBe(fakeMp3[59]);
+  });
+});
+
+describe("sendTtsNotification — §2.2 no key → signal-only, no fetch", () => {
+  let originalApiKey: string | undefined;
+
+  beforeEach(() => {
+    fetchWithTimeoutMock.mockClear();
+    originalApiKey = process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = originalApiKey;
+    }
+  });
+
+  it("returns success:true, audioBase64 undefined, and never calls fetchWithTimeout", async () => {
+    const { sendTtsNotification } = await import("./tts");
+
+    const result = await sendTtsNotification(
+      makeNotification({ id: "tts-2.2-nokey", body: "offline mode" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
+  });
+});
+
 // ─── add-elevenlabs-credential: DB-row wins over env-var ───────────────────
 //
 // The TTS channel MUST prefer the per-agent `elevenlabs_credentials` row

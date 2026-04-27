@@ -20,6 +20,7 @@ mock.module("@nexus/db", () => ({
   and: mock(() => ({})),
   notifications: {},
   credentials: {},
+  elevenlabsCredentials: {},
 }));
 
 // ─── Stub the buffer's DB writers — manager calls these on deliver ─────────

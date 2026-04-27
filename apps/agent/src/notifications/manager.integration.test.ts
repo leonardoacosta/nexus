@@ -22,6 +22,7 @@ mock.module("@nexus/db", () => ({
   and: mock(() => ({})),
   notifications: {},
   credentials: {},
+  elevenlabsCredentials: {},
 }));
 
 mock.module("./buffer", () => ({

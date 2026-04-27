@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.nexus.notifier — Mac launchd agent for the audio-dispatch listener
+  shipped by the `restore-tts-mac-audio-dispatch` spec.
+
+  This loads ~/bin/nexus-notifier.sh which subscribes to the agent's SSE
+  stream and pipes ElevenLabs mp3 bytes into /usr/bin/afplay (or falls back
+  to /usr/bin/say in signal-only mode).
+
+  Logs land in ~/Library/Logs/nexus-notifier.{out,err}.log so Console.app
+  and `tail -f` both work.
+
+  Wave 2 (dashboard spec) will populate TTS_ENABLED / BANNER_ENABLED /
+  DUCKING_MODE through this <EnvironmentVariables> stanza; today they
+  default to "1" / "1" / "none" inside the script itself.
+
+  Install path: ~/Library/LaunchAgents/com.nexus.notifier.plist
+  Bootstrap:    launchctl load ~/Library/LaunchAgents/com.nexus.notifier.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nexus.notifier</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>$HOME/bin/nexus-notifier.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NEXUS_URL</key>
+    <string>http://homelab:7400</string>
+    <!-- Wave 2 placeholders — flip to "0" to suppress without restarting. -->
+    <key>TTS_ENABLED</key>
+    <string>1</string>
+    <key>BANNER_ENABLED</key>
+    <string>1</string>
+    <key>DUCKING_MODE</key>
+    <string>none</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/leonardoacosta/Library/Logs/nexus-notifier.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/leonardoacosta/Library/Logs/nexus-notifier.err.log</string>
+
+  <!-- Cap respawn rate to once every 10s so a misconfigured secret doesn't
+       spin afplay+curl in a tight loop. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

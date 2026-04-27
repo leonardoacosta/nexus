@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "plan_name": "post-audit-hardening",
+  "generated_at": "2026-04-18T15:12:00Z",
+  "generated_by": "/apply:all (orchestrator, autonomous)",
+  "status": "completed",
+  "completed_at": "2026-04-26T17:33:23.428636",
+  "mode": "consolidated",
+  "pre_audit_sha": "6e6e600",
+  "spec_names": [
+    "harden-health-timeseries",
+    "harden-notification-reliability"
+  ],
+  "current_wave": 1,
+  "current_phase": null,
+  "completed_waves": [],
+  "completed_specs": [],
+  "failed_specs": [],
+  "started_at": "2026-04-18T15:12:00Z",
+  "decisions": [
+    {
+      "timestamp": "2026-04-18T15:12:00Z",
+      "text": "Single-wave parallel execution for 2 specs with zero file overlap",
+      "rationale": "harden-health-timeseries touches packages/db/src/schema/healthSnapshots.ts, packages/db/src/migrations/, apps/agent/src/health-collector.ts + 2 test files. harden-notification-reliability touches apps/agent/src/notifications/{buffer,meeting-state,router}.ts + tests. No file overlap \u2192 parallel safe.",
+      "source": "guardrail",
+      "affected_waves": [
+        1
+      ],
+      "affected_specs": [
+        "harden-health-timeseries",
+        "harden-notification-reliability"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "rationale": "Both specs are TS-only hardening with zero file overlap. 15 tasks total well under 40-task cap.",
+      "specs": [
+        {
+          "name": "harden-health-timeseries",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "nx-m8ip",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null,
+          "_warning": "unexpected status 'queued' at completion"
+        },
+        {
+          "name": "harden-notification-reliability",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "nx-uj6t",
+          "phase": null,
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null,
+          "_warning": "unexpected status 'queued' at completion"
+        }
+      ]
+    }
+  ],
+  "mega_batch_state": {
+    "current_wave": 1,
+    "current_phase": null,
+    "phases_completed": [
+      "db",
+      "api",
+      "ui",
+      "e2e"
+    ],
+    "task_results": {
+      "harden-health-timeseries": {},
+      "harden-notification-reliability": {}
+    },
+    "phase_started_at": {
+      "db": "2026-04-26T17:05:11.525888",
+      "api": "2026-04-26T17:08:07.826137",
+      "ui": "2026-04-26T17:19:22.231575",
+      "e2e": "2026-04-26T17:25:08.174717"
+    },
+    "phase_completed_at": {
+      "db": "2026-04-26T17:08:07.797684",
+      "api": "2026-04-26T17:19:22.205742",
+      "ui": "2026-04-26T17:25:08.149504",
+      "e2e": "2026-04-26T17:29:46.531998"
+    }
+  }
+}
