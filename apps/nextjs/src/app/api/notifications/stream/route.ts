@@ -10,23 +10,35 @@
  * The response shape is preserved exactly: the lifecycle bus emits
  * `event: <Name>\ndata: <envelope-json>\n\n` frames; the client filters
  * for `NotificationFired` and `SettingsChanged`.
+ *
+ * Failover — connection-time only. We resolve the active agent via
+ * `probeAgents()` (which walks the DB-ordered registry and skips stale
+ * peers) so a downed primary agent transparently picks the next responder.
+ * Failover INSIDE an open SSE stream is intentionally OUT of scope: if the
+ * upstream agent dies mid-stream, the browser EventSource will auto-retry
+ * and the next probe will pick up whichever agent is now responding.
+ *
+ * Spec: openspec/changes/dashboard-agent-failover/tasks.md [2.6]
  */
 
-import { getAgentBaseUrl } from "@/lib/agent-url";
+import { probeAgents } from "@/lib/agent-reachability";
 
 export const dynamic = "force-dynamic";
 // Force the Node.js runtime — Edge has fetch streaming quirks.
 export const runtime = "nodejs";
 
 export async function GET(request: Request): Promise<Response> {
-  const resolved = await getAgentBaseUrl();
-  if (!resolved) {
+  const reachability = await probeAgents();
+  if (!reachability.ok) {
     return new Response("agent unreachable", { status: 503 });
   }
 
+  const { agent } = reachability;
+  const baseUrl = `http://${agent.host}:${agent.port}`;
+
   // Wire the client's abort signal through to the upstream fetch so a
   // browser-side EventSource close terminates the connection promptly.
-  const upstream = await fetch(`${resolved.baseUrl}/events/stream`, {
+  const upstream = await fetch(`${baseUrl}/events/stream`, {
     headers: {
       Accept: "text/event-stream",
     },

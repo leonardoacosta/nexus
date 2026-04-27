@@ -15,6 +15,7 @@
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { notifications, desc } from "@nexus/db";
 import type { Notification } from "@nexus/db";
+import { AgentFailoverError, withFailover } from "@/lib/agent-failover";
 import { probeAgent, type Reachability } from "@/lib/agent-reachability";
 import { getAgentBaseUrl } from "@/lib/agent-url";
 import { getReadOnlyDb } from "@/lib/db";
@@ -100,21 +101,30 @@ function rowToWire(row: Notification): NotificationRow {
  * Returns null when the agent is unreachable or the row is missing — the
  * client renders defaults in that case (the Mac listener already has a
  * hardcoded fallback so this isn't a hard failure).
+ *
+ * Failover: the fetch is wrapped in `withFailover` so a dead cached agent
+ * transparently fails over to the next peer in DB order. The closure returns
+ * the raw `Response` — JSON parsing happens OUTSIDE so 5xx responses surface
+ * to the wrapper as retriable, while 4xx (semantic refusals) and parse errors
+ * land in this caller's `catch` and yield `null`.
  */
 export async function fetchNotificationSettings(): Promise<NotificationSettingsWire | null> {
-  const resolved = await getAgentBaseUrl();
-  if (!resolved) return null;
   try {
-    const res = await fetchWithTimeout(
-      `${resolved.baseUrl}/notifications/settings`,
-      {
+    const res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/notifications/settings`, {
         timeout: REQUEST_TIMEOUT_MS,
         cache: "no-store",
-      },
-    );
+      });
+    });
     if (!res.ok) return null;
     return (await res.json()) as NotificationSettingsWire;
-  } catch {
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.warn(
+        `[notifications] fetchNotificationSettings: ${err.reason} (${err.message})`,
+      );
+    }
     return null;
   }
 }
@@ -168,24 +178,38 @@ export async function fetchNotificationsPageData(): Promise<NotificationsPageDat
  *
  * Throws on non-2xx so the client can revert the optimistic update and show
  * a toast. Returns the post-update wire shape on success.
+ *
+ * Failover: wrapped in `withFailover`. The closure returns the raw `Response`
+ * so 5xx triggers a peer retry, while 4xx surfaces verbatim with the existing
+ * "PATCH … → <status>: <body>" error shape. `AgentFailoverError` (registry
+ * exhausted or no responder) is rethrown as `Error("agent unreachable")` to
+ * preserve the action's existing failure surface for the optimistic-update
+ * client.
  */
 export async function updateNotificationSettings(
   patch: NotificationSettingsPatch,
 ): Promise<NotificationSettingsWire> {
-  const resolved = await getAgentBaseUrl();
-  if (!resolved) {
-    throw new Error("agent unreachable");
+  let res: Response;
+  try {
+    res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/notifications/settings`, {
+        method: "PATCH",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+        cache: "no-store",
+      });
+    });
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.warn(
+        `[notifications] updateNotificationSettings: ${err.reason} (${err.message})`,
+      );
+      throw new Error("agent unreachable");
+    }
+    throw err;
   }
-  const res = await fetchWithTimeout(
-    `${resolved.baseUrl}/notifications/settings`,
-    {
-      method: "PATCH",
-      timeout: REQUEST_TIMEOUT_MS,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-      cache: "no-store",
-    },
-  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(

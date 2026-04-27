@@ -14,7 +14,15 @@
  * `@nexus/core` so a drift between agent and dashboard surfaces as an
  * actionable parse error rather than a silent type lie.
  *
- * Spec: openspec/changes/add-elevenlabs-credential/
+ * Failover — every fetch against the agent runs inside `withFailover()` so
+ * a downed primary agent transparently fails over to the next peer in the
+ * DB-ordered registry. The closure passed to `withFailover` returns the raw
+ * `Response` so 5xx triggers retry but 4xx surfaces verbatim; the JSON
+ * body is read OUTSIDE the closure (after failover has settled) so a
+ * mid-stream JSON parse failure on a dying peer doesn't masquerade as a
+ * permanent failure.
+ *
+ * Spec: openspec/changes/add-elevenlabs-credential/, dashboard-agent-failover [2.6]
  */
 
 import {
@@ -26,7 +34,7 @@ import {
   type ElevenlabsVoicesResponse,
 } from "@nexus/core";
 import { fetchWithTimeout } from "@nexus/core/fetch";
-import { getAgentBaseUrl } from "@/lib/agent-url";
+import { AgentFailoverError, withFailover } from "@/lib/agent-failover";
 
 const REQUEST_TIMEOUT_MS = 5_000;
 /** Test probe hits ElevenLabs from the agent — give it some headroom. */
@@ -93,12 +101,6 @@ function authHeaders(): Record<string, string> {
   };
 }
 
-async function resolveBaseUrl(): Promise<string> {
-  const resolved = await getAgentBaseUrl();
-  if (!resolved) throw new AgentUnreachableError();
-  return resolved.baseUrl;
-}
-
 /**
  * GET /elevenlabs/credentials.
  *
@@ -107,12 +109,25 @@ async function resolveBaseUrl(): Promise<string> {
  * banner instead of a confusingly empty form.
  */
 export async function fetchCredentials(): Promise<ElevenlabsCredentialsResponse> {
-  const baseUrl = await resolveBaseUrl();
-  const res = await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: authHeaders(),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+    });
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.error(
+        `[elevenlabs-credentials] GET /elevenlabs/credentials: ${err.message}`,
+      );
+      throw new AgentUnreachableError();
+    }
+    throw err;
+  }
   if (!res.ok) {
     throw new Error(`Agent returned ${res.status} for GET /elevenlabs/credentials`);
   }
@@ -131,14 +146,27 @@ export async function saveCredentials(input: {
   voiceId?: string;
   voiceName?: string;
 }): Promise<ElevenlabsCredentialsResponse> {
-  const baseUrl = await resolveBaseUrl();
-  const res = await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
-    method: "PATCH",
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
+        method: "PATCH",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        cache: "no-store",
+      });
+    });
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.error(
+        `[elevenlabs-credentials] PATCH /elevenlabs/credentials: ${err.message}`,
+      );
+      throw new AgentUnreachableError();
+    }
+    throw err;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -154,13 +182,26 @@ export async function saveCredentials(input: {
  * page can surface "last tested" metadata after a refresh.
  */
 export async function testCredentials(): Promise<ElevenlabsTestResponse> {
-  const baseUrl = await resolveBaseUrl();
-  const res = await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials/test`, {
-    method: "POST",
-    timeout: TEST_TIMEOUT_MS,
-    headers: authHeaders(),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials/test`, {
+        method: "POST",
+        timeout: TEST_TIMEOUT_MS,
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+    });
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.error(
+        `[elevenlabs-credentials] POST /elevenlabs/credentials/test: ${err.message}`,
+      );
+      throw new AgentUnreachableError();
+    }
+    throw err;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -175,13 +216,26 @@ export async function testCredentials(): Promise<ElevenlabsTestResponse> {
  * to `process.env.ELEVENLABS_API_KEY` (or signal-only if unset).
  */
 export async function deleteCredentials(): Promise<void> {
-  const baseUrl = await resolveBaseUrl();
-  const res = await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
-    method: "DELETE",
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: authHeaders(),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/elevenlabs/credentials`, {
+        method: "DELETE",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+    });
+  } catch (err) {
+    if (err instanceof AgentFailoverError) {
+      console.error(
+        `[elevenlabs-credentials] DELETE /elevenlabs/credentials: ${err.message}`,
+      );
+      throw new AgentUnreachableError();
+    }
+    throw err;
+  }
   if (!res.ok && res.status !== 404) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -200,11 +254,13 @@ export async function deleteCredentials(): Promise<void> {
  */
 export async function listVoices(): Promise<ElevenlabsVoicesResponse> {
   try {
-    const baseUrl = await resolveBaseUrl();
-    const res = await fetchWithTimeout(`${baseUrl}/elevenlabs/voices`, {
-      timeout: VOICES_TIMEOUT_MS,
-      headers: authHeaders(),
-      cache: "no-store",
+    const res = await withFailover(async (agent) => {
+      const baseUrl = `http://${agent.host}:${agent.port}`;
+      return await fetchWithTimeout(`${baseUrl}/elevenlabs/voices`, {
+        timeout: VOICES_TIMEOUT_MS,
+        headers: authHeaders(),
+        cache: "no-store",
+      });
     });
     if (!res.ok) return { voices: [] };
     return elevenlabsVoicesResponse.parse(await res.json());
