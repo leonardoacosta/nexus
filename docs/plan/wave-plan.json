@@ -4,7 +4,7 @@
   "plan_name": "in-flight-cleanup",
   "generated_at": "2026-04-27T02:50:00Z",
   "generated_by": "/apply:all (orchestrator, autonomous)",
-  "status": "in_progress",
+  "status": "completed",
   "mode": "consolidated",
   "pre_audit_sha": "436fb37",
   "spec_names": [
@@ -12,10 +12,17 @@
     "fix-nexus-status-cc-payload",
     "add-notification-control-dashboard"
   ],
-  "current_wave": 1,
+  "current_wave": 3,
   "current_phase": null,
-  "completed_waves": [],
-  "completed_specs": [],
+  "completed_waves": [
+    1,
+    2
+  ],
+  "completed_specs": [
+    "restore-tts-mac-audio-dispatch",
+    "fix-nexus-status-cc-payload",
+    "add-notification-control-dashboard"
+  ],
   "failed_specs": [],
   "started_at": "2026-04-27T02:50:00Z",
   "decisions": [
@@ -24,7 +31,10 @@
       "text": "Override auto-builder ordering: TTS+status in Wave 1, dashboard in Wave 2",
       "rationale": "add-notification-control-dashboard tasks.md declares hard dependency on restore-tts-mac-audio-dispatch (both touch deploy/mac/nexus-notifier.sh). Auto-builder put dashboard first; reversed to fix dependency direction. fix-nexus-status-cc-payload is independent and pairs with TTS for parallelism.",
       "source": "orchestrator",
-      "affected_waves": [1, 2],
+      "affected_waves": [
+        1,
+        2
+      ],
       "affected_specs": [
         "restore-tts-mac-audio-dispatch",
         "fix-nexus-status-cc-payload",
@@ -35,7 +45,7 @@
   "waves": [
     {
       "wave": 1,
-      "rationale": "TTS+status: zero file overlap. TTS agent batch already done (6/15) — remaining is tests + Mac deploy file creation. status spec is 18/21 — only build + manual screenshot remain.",
+      "rationale": "TTS+status: zero file overlap. TTS agent batch already done (6/15) \u2014 remaining is tests + Mac deploy file creation. status spec is 18/21 \u2014 only build + manual screenshot remain.",
       "specs": [
         {
           "name": "restore-tts-mac-audio-dispatch",
@@ -93,5 +103,6 @@
     },
     "phase_started_at": {},
     "phase_completed_at": {}
-  }
+  },
+  "completed_at": "2026-04-27T03:30:00Z"
 }

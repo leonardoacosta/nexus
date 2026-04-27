@@ -12,6 +12,7 @@ import {
   Warning,
   Plugs,
   SpeakerHigh,
+  Bell,
 } from "@phosphor-icons/react";
 
 const NAV_ITEMS = [
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/health", label: "Health", icon: Heartbeat },
   { href: "/projects", label: "Projects", icon: FolderSimple },
   { href: "/credentials", label: "Credentials", icon: Key },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/specs", label: "Specs", icon: FileText },
   { href: "/failures", label: "Failures", icon: Warning },
   { href: "/settings", label: "Settings", icon: Gear },

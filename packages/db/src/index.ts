@@ -31,6 +31,7 @@ export {
   sessionTokenTurns,
   sessionTokenWatcherState,
   credentialEvents,
+  notificationSettings,
 } from "./schema";
 
 // Relations (used by drizzle's relational query API)
@@ -54,6 +55,8 @@ export type {
   NewProjectLocation,
   ElevenlabsCredential,
   NewElevenlabsCredential,
+  NotificationSettings,
+  NewNotificationSettings,
 } from "./schema";
 
 // Inferred types for tables that don't export their own types yet

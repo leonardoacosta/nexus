@@ -14,6 +14,10 @@ import {
   handleMeetingEnd,
   handleMeetingStatus,
 } from "./notifications";
+import {
+  handleGetNotificationSettings,
+  handlePatchNotificationSettings,
+} from "./notification-settings";
 
 export function buildNotificationsRoutes(db?: Db): Route[] {
   const dbRef = db as Db;
@@ -49,6 +53,23 @@ export function buildNotificationsRoutes(db?: Db): Route[] {
       requiresDb: true,
       handler() {
         return handleMeetingStatus();
+      },
+    },
+    // ── Notification settings (single-row table) ─────────────────────────
+    {
+      method: "GET",
+      path: "/notifications/settings",
+      requiresDb: true,
+      handler(req) {
+        return handleGetNotificationSettings(dbRef, req);
+      },
+    },
+    {
+      method: "PATCH",
+      path: "/notifications/settings",
+      requiresDb: true,
+      handler(req) {
+        return handlePatchNotificationSettings(dbRef, req);
       },
     },
   ];

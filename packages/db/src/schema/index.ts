@@ -15,3 +15,8 @@ export * from "./projectLocations";
 export { sessionTokenTurns } from "./sessionTokenTurns";
 export { sessionTokenWatcherState } from "./sessionTokenWatcherState";
 export { credentialEvents } from "./credentialEvents";
+export {
+  notificationSettings,
+  type NotificationSettings,
+  type NewNotificationSettings,
+} from "./notificationSettings";

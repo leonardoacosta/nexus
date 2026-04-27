@@ -65,6 +65,20 @@ export interface CredentialDecryptFallbackPayload {
   source: string;
 }
 
+/**
+ * Emitted when the user mutates `/notifications/settings` via PATCH.
+ *
+ * Payload carries the *post-update* values so subscribers (Mac listener
+ * via SSE) can swap their cached toggles in one frame without a follow-up
+ * GET. Field naming uses camelCase — DB columns (`tts_enabled`,
+ * `banner_enabled`, `ducking_mode`) are converted at the route boundary.
+ */
+export interface SettingsChangedPayload {
+  ttsEnabled: boolean;
+  bannerEnabled: boolean;
+  duckingMode: "full" | "half" | "mute";
+}
+
 export interface NotificationFiredPayload {
   /** Notification id (idempotency key). */
   id: string;
@@ -104,6 +118,7 @@ export interface LifecycleEventMap {
   CredentialSwap: CredentialSwapPayload;
   CredentialDecryptFallback: CredentialDecryptFallbackPayload;
   NotificationFired: NotificationFiredPayload;
+  SettingsChanged: SettingsChangedPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;
