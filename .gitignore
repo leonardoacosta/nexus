@@ -55,6 +55,10 @@ out/
 # Turborepo
 .turbo/
 
+# Bun transient build artifacts
+*.bun-build
+.*.bun-build
+
 # Compiled binaries
 apps/agent/nexus-agent
 apps/agent/nexus-register
