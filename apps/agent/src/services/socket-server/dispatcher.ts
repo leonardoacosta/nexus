@@ -14,6 +14,7 @@ import type { SocketEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
 import { sendTtsNotification } from "../../notifications/channels/tts";
+import { isUnspeakable } from "../../notifications/speakability";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
 
 const log = createLogger("agent:socket-server");
@@ -103,9 +104,23 @@ export function createSocketEventDispatcher(
       }
 
       case "notification": {
-        const effectiveChannels = event.channels ?? ["tts"];
+        const requestedChannels = event.channels ?? ["tts"];
         const messageType = event.message_type ?? "brief";
         const project = event.project ?? null;
+
+        // Strip TTS for unspeakable bodies (e.g. raw file paths). Other
+        // channels (desktop, slack) still receive the notification — the
+        // user wants to know it happened, just not have it read aloud.
+        const unspeakable = isUnspeakable(event.message);
+        const effectiveChannels = unspeakable
+          ? requestedChannels.filter((c) => c !== "tts")
+          : requestedChannels;
+        if (unspeakable && requestedChannels.includes("tts")) {
+          log.info(
+            { message: event.message, project },
+            "socket: TTS suppressed for unspeakable body",
+          );
+        }
 
         log.info(
           {

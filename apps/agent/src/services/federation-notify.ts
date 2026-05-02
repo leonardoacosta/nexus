@@ -14,6 +14,7 @@ import {
   type LifecycleEnvelope,
 } from "./lifecycle-bus";
 import { routeNotificationParallel } from "../notifications/router";
+import { isUnspeakable } from "../notifications/speakability";
 import type { NotificationRow } from "../notifications/buffer";
 
 const log = createLogger("agent:federation-notify");
@@ -66,12 +67,23 @@ async function handlePeerEvent(envelope: LifecycleEnvelope): Promise<void> {
       return;
   }
 
+  // Bodies that read like raw file paths (cross-machine screenshot paths,
+  // hashes, etc.) get downgraded to desktop so the Mac listener doesn't
+  // read them aloud.
+  const channel = isUnspeakable(body) ? "desktop" : "tts";
+  if (channel === "desktop") {
+    log.info(
+      { origin: envelope.origin, body },
+      "federation-notify: TTS suppressed for unspeakable body — routing to desktop",
+    );
+  }
+
   // Build a stub notification row for the router
   const notification: NotificationRow = {
     id: `fed-${envelope.origin ?? "peer"}-${envelope.seq}-${Date.now()}`,
     title,
     body,
-    channel: "tts",
+    channel,
     priority: "normal",
     status: "queued",
     project,
