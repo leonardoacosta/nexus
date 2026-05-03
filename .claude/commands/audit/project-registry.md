@@ -1,5 +1,5 @@
 ---
-name: audit-project-registry
+name: audit:project-registry
 description: Code audit of the Project Registry domain — nexus-core project_registry.rs, agent registry.rs, Bun routes, Next.js /projects pages.
 ---
 

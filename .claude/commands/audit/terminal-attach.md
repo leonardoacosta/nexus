@@ -1,5 +1,5 @@
 ---
-name: audit-terminal-attach
+name: audit:terminal-attach
 description: Security and reliability audit of the Terminal Attach domain — PTY streaming, WebSocket session management, stream-manager.
 ---
 

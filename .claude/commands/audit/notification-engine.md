@@ -1,5 +1,5 @@
 ---
-name: audit-notification-engine
+name: audit:notification-engine
 description: Reliability and correctness audit of the Notification Engine domain — notification_engine.rs, Bun notifications/, TTS delivery.
 ---
 

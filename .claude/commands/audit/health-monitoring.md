@@ -1,5 +1,5 @@
 ---
-name: audit-health-monitoring
+name: audit:health-monitoring
 description: Correctness and completeness audit of the Health Monitoring domain — Rust health.rs, Bun health-collector, Next.js /health page.
 ---
 

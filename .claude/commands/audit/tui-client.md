@@ -1,5 +1,5 @@
 ---
-name: audit-tui-client
+name: audit:tui-client
 description: Code quality audit of the TUI Client domain — nexus-tui screens, navigation, streaming, keyboard handling.
 ---
 

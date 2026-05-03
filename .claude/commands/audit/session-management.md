@@ -1,5 +1,5 @@
 ---
-name: audit-session-management
+name: audit:session-management
 description: Code quality and API contract audit of the Session Management domain — Rust gRPC handlers, Bun HTTP routes, Next.js session UI.
 ---
 

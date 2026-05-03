@@ -1,5 +1,5 @@
 ---
-name: audit-credential-mgmt
+name: audit:credential-mgmt
 description: Security and correctness audit of the Credential Management domain — OAuth pool, rotation, Anthropic usage API.
 ---
 

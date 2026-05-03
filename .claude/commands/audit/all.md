@@ -1,5 +1,5 @@
 ---
-name: audit-all
+name: audit:all
 description: Full-platform code quality audit for nexus — all 7 domains in parallel. Rust crates, Bun agent, Next.js dashboard.
 ---
 
