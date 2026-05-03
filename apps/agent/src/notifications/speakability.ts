@@ -27,6 +27,13 @@ const HAS_EXTENSION = /\.[a-z0-9]{2,5}$/i;
 const UNSPEAKABLE_EXT = /\.(png|jpg|jpeg|gif|webp|svg|bmp|tiff|heic|mp4|mov|webm|pdf)\b/i;
 
 /**
+ * Keywords that should never be read aloud, anywhere in the body.
+ * Case-insensitive substring match. Add tokens here when a project or tool
+ * name keeps leaking into TTS as noise.
+ */
+const UNSPEAKABLE_KEYWORDS = /\bghosty\b/i;
+
+/**
  * Returns true when `body` should NOT be sent to TTS. The dispatcher uses
  * this to strip the "tts" channel from a `notification` socket event.
  *
@@ -43,6 +50,9 @@ export function isUnspeakable(body: string): boolean {
 
   // (b) Mentions an image/binary asset extension anywhere.
   if (UNSPEAKABLE_EXT.test(trimmed)) return true;
+
+  // (c) Mentions an unspeakable keyword anywhere (e.g. "ghosty").
+  if (UNSPEAKABLE_KEYWORDS.test(trimmed)) return true;
 
   return false;
 }

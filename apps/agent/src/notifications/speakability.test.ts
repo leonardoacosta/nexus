@@ -31,6 +31,17 @@ describe("isUnspeakable", () => {
     expect(isUnspeakable("rendered video.mp4")).toBe(true);
   });
 
+  test("returns true for a body mentioning 'ghosty' (any case)", () => {
+    expect(isUnspeakable("ghosty session started")).toBe(true);
+    expect(isUnspeakable("Ghosty: build done")).toBe(true);
+    expect(isUnspeakable("attached to GHOSTY")).toBe(true);
+  });
+
+  test("returns false for unrelated tokens that share a substring", () => {
+    // Word-boundary guard means we don't false-positive on similar names.
+    expect(isUnspeakable("ghostbuster online")).toBe(false);
+  });
+
   test("returns false for a normal status message", () => {
     expect(isUnspeakable("build done")).toBe(false);
   });
