@@ -11,7 +11,7 @@
           },
           {
             "type": "command",
-            "command": "~/.claude/scripts/hooks/session-telemetry.sh nx",
+            "command": "~/.claude/scripts/hooks/telemetry.sh session_stop",
             "timeout": 5000,
             "continueOnError": true
           }
