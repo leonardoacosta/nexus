@@ -5,6 +5,7 @@ import type { NotificationRow } from "./buffer";
 import { sendDesktopNotification } from "./channels/desktop";
 import { sendTtsNotification } from "./channels/tts";
 import { sendSlackNotification } from "./channels/slack";
+import { isUnspeakable } from "./speakability";
 
 /** Timeout in ms for a single channel handler invocation. */
 const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
@@ -140,7 +141,22 @@ export async function routeNotification(
   const rule = findMatchingRule(notification);
   const results: Array<{ channel: NotificationChannel; success: boolean }> = [];
 
-  for (const channel of rule.channels) {
+  // Strip TTS for unspeakable bodies (e.g. raw file paths, ghosty mentions).
+  // Other channels still receive the notification — the user wants to know it
+  // happened, just not have it read aloud. Mirrors the socket dispatcher and
+  // federation-notify guards so HTTP-path callers cannot bypass suppression.
+  const unspeakable = isUnspeakable(notification.body ?? "");
+  const channels = unspeakable
+    ? rule.channels.filter((c) => c !== "tts")
+    : rule.channels;
+  if (unspeakable && rule.channels.includes("tts")) {
+    log.info(
+      { body: notification.body },
+      "router: TTS suppressed for unspeakable body",
+    );
+  }
+
+  for (const channel of channels) {
     const handler = CHANNEL_HANDLERS[channel];
     if (handler === undefined) {
       log.warn({ channel, notificationId: notification.id }, "No handler for channel");
@@ -178,7 +194,7 @@ export async function routeNotificationParallel(
 ): Promise<{ delivered: DeliveredChannel[]; failed: string[] }> {
   const rule = findMatchingRule(notification);
 
-  const knownChannels = rule.channels.filter((ch) => {
+  let knownChannels = rule.channels.filter((ch) => {
     if (CHANNEL_HANDLERS[ch] === undefined) {
       log.warn({ channel: ch, notificationId: notification.id }, "No handler for channel");
       addBreadcrumb({
@@ -191,6 +207,19 @@ export async function routeNotificationParallel(
     }
     return true;
   }) as NotificationChannel[];
+
+  // Strip TTS for unspeakable bodies (e.g. raw file paths, ghosty mentions).
+  // Mirrors the socket dispatcher and federation-notify guards so HTTP-path
+  // callers cannot bypass suppression.
+  if (isUnspeakable(notification.body ?? "")) {
+    if (knownChannels.includes("tts")) {
+      log.info(
+        { body: notification.body },
+        "router: TTS suppressed for unspeakable body",
+      );
+    }
+    knownChannels = knownChannels.filter((c) => c !== "tts");
+  }
 
   const settled = await Promise.allSettled(
     knownChannels.map((ch) => withChannelTimeout(ch, notification, CHANNEL_HANDLERS[ch]!)),

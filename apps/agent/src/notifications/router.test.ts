@@ -270,3 +270,126 @@ describe("router: unknown channel (task 2.4)", () => {
     expect(mockCalled || structuralVerification).toBe(true);
   });
 });
+
+// ─── TTS suppression for unspeakable bodies (HTTP path) ──────────────────────
+//
+// `isUnspeakable()` blocks TTS for bodies that mention "ghosty" (or read like
+// raw file paths). The socket dispatcher and federation-notify path already
+// honor this guard. These tests verify the HTTP path (router.ts) does too —
+// regression coverage for bodies that previously slipped through to TTS via
+// /notifications/send.
+
+describe("router: TTS suppression for unspeakable bodies", () => {
+  beforeEach(() => {
+    captureExceptionMock.mockReset();
+    addBreadcrumbMock.mockReset();
+    warnLogMock.mockReset();
+  });
+
+  it("strips TTS from a 'ghosty' body — routeNotificationParallel delivers 0 channels", async () => {
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
+
+    setRoutingRules([
+      { project: "tts-supp-1", channels: ["tts"], meeting_behavior: "allow" },
+    ]);
+
+    const notif = makeNotification({
+      project: "tts-supp-1",
+      id: "tts-supp-notif-1",
+      channel: "tts",
+      body: "ghosty session started",
+    });
+
+    const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+    // TTS stripped → no channels remained → 0 delivered, 0 failed
+    expect(delivered).toHaveLength(0);
+    expect(failed).toHaveLength(0);
+  });
+
+  it("strips TTS from a 'ghosty' body — routeNotification returns 0 results", async () => {
+    const { setRoutingRules, routeNotification } = await import("./router");
+
+    setRoutingRules([
+      { project: "tts-supp-2", channels: ["tts"], meeting_behavior: "allow" },
+    ]);
+
+    const notif = makeNotification({
+      project: "tts-supp-2",
+      id: "tts-supp-notif-2",
+      channel: "tts",
+      body: "ghosty stopped responding",
+    });
+
+    const results = await routeNotification(notif as never);
+
+    // TTS stripped → no channels routed
+    expect(results).toHaveLength(0);
+  });
+
+  it("normal 'build done' body still routes to TTS — routeNotificationParallel", async () => {
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
+
+    setRoutingRules([
+      { project: "tts-ok-1", channels: ["tts"], meeting_behavior: "allow" },
+    ]);
+
+    const notif = makeNotification({
+      project: "tts-ok-1",
+      id: "tts-ok-notif-1",
+      channel: "tts",
+      body: "build done",
+    });
+
+    const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+    // TTS not suppressed → exactly one channel attempted (delivered or failed,
+    // depending on which sendTtsNotification mock is bound at module load).
+    // The contract under test is "TTS was attempted" — i.e. it was NOT stripped.
+    expect(delivered.length + failed.length).toBe(1);
+    const attempted = [...delivered.map((d) => d.channel), ...failed];
+    expect(attempted).toContain("tts");
+  });
+
+  it("normal 'build done' body still routes to TTS — routeNotification", async () => {
+    const { setRoutingRules, routeNotification } = await import("./router");
+
+    setRoutingRules([
+      { project: "tts-ok-2", channels: ["tts"], meeting_behavior: "allow" },
+    ]);
+
+    const notif = makeNotification({
+      project: "tts-ok-2",
+      id: "tts-ok-notif-2",
+      channel: "tts",
+      body: "build done",
+    });
+
+    // The contract under test is "TTS was NOT stripped" — i.e. the router
+    // attempted to invoke the tts handler. The serial routeNotification
+    // re-throws timeout errors (unlike the parallel variant). Either outcome
+    // — a result for "tts" or a timeout error mentioning "tts" — proves the
+    // channel was attempted.
+    let results: Array<{ channel: string; success: boolean }> | undefined;
+    let thrownErr: Error | undefined;
+    try {
+      results = (await routeNotification(notif as never)) as Array<{
+        channel: string;
+        success: boolean;
+      }>;
+    } catch (err) {
+      thrownErr = err as Error;
+    }
+
+    if (results !== undefined) {
+      // Handler resolved — must have routed to tts (not stripped).
+      expect(results).toHaveLength(1);
+      expect(results[0]!.channel).toBe("tts");
+    } else {
+      // Handler timed out — the router still tried to call it, so TTS was
+      // NOT suppressed. Verify the error names the tts channel.
+      expect(thrownErr).toBeDefined();
+      expect(thrownErr!.message).toContain("tts");
+    }
+  });
+});
