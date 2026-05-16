@@ -33,7 +33,7 @@
   interval `setIntervalAsync` loop that runs `pgrep -af claude`, diffs against
   open session rows, and applies the reconciliation rules (close dead, open new).
 
-- [ ] 2.6 Wire `process-watcher` into agent startup (`apps/agent/src/server.ts` [beads:nx-yp4om]
+- [x] 2.6 Wire `process-watcher` into agent startup (`apps/agent/src/server.ts` [beads:nx-yp4om]
   or wherever heartbeats start). Stop on graceful shutdown.
 
 - [ ] 2.7 Emit `RemoteSessionStarted` / `RemoteSessionEnded` SSE events from [beads:nx-6mxlo]

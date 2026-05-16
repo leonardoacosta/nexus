@@ -34,6 +34,10 @@ import {
 } from "./credentials/credential-watcher";
 import { initCommandRoutes } from "./routes/commands";
 import { initConfigLoader } from "./services/config-loader";
+import {
+  startProcessWatcher,
+  type ProcessWatcherHandle,
+} from "./services/process-watcher";
 import type { WsData } from "./terminal/stream-manager";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 import type { AppContext } from "./context";
@@ -176,6 +180,9 @@ export function startServer(
   // `streamManager` exports remain valid references to the running server's state.
   const state = _singletonState;
 
+  // Track DB-backed background subsystems so graceful shutdown can stop them.
+  let processWatcher: ProcessWatcherHandle | null = null;
+
   // Initialize subsystems that need the DB.
   // initNotificationRoutes is async (mutex-guarded) — fire-and-forget here
   // since server startup itself is synchronous and the manager will be ready
@@ -202,6 +209,12 @@ export function startServer(
       // Watch ~/.claude/.credentials.json symlink for active-account tracking
       startActiveCredentialWatcher(pool);
     }
+
+    // Process watcher: 30s reconcile loop that keeps the `sessions` table
+    // in sync with live `claude` processes on this machine. First pass
+    // fires immediately, subsequent ticks scheduled internally. Stopped
+    // by `wrapper.stop()` below.
+    processWatcher = startProcessWatcher(db);
   }
 
   // Initialize subsystems that do not need the DB.
@@ -229,7 +242,30 @@ export function startServer(
 
   const bindAddress = readBindAddress();
   const servers = bindServers(bindAddress, serve);
-  const wrapper = combineServers(servers);
+  const baseWrapper = combineServers(servers);
+
+  // Wrap the base wrapper so graceful shutdown also tears down the
+  // process-watcher interval. Without this the loop keeps running after
+  // the server stops, holding the event loop open during integration
+  // tests and dev restarts.
+  const wrapper: NexusServer = processWatcher
+    ? {
+        get port() {
+          return baseWrapper.port;
+        },
+        stop(closeActiveConnections?: boolean) {
+          try {
+            processWatcher?.stop();
+          } catch (err) {
+            logger.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "process-watcher stop threw — continuing shutdown",
+            );
+          }
+          baseWrapper.stop(closeActiveConnections);
+        },
+      }
+    : baseWrapper;
 
   logger.info(
     {
