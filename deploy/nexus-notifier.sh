@@ -60,6 +60,15 @@ SUPPRESS_LOG="${NEXUS_NOTIFIER_SUPPRESS_LOG:-$HOME/Library/Logs/nexus-notifier.o
 # surviving a soft restart helps debugging; ~/.config/nexus is for *config*.
 NEXUS_NOTIFIER_FIFO="${NEXUS_NOTIFIER_FIFO:-$HOME/Library/Application Support/nexus/tts-queue.fifo}"
 
+# Pid file for currently-playing audio child (afplay or say). Read by the
+# listener at banner-dispatch time so terminal-notifier can attach a click
+# action that kills the active utterance. Written atomically by both the
+# afplay path (_dispatch_audio) and the drain path (_drain_say_one).
+# Spec: consolidate-mac-tts-listener — ports cancel-on-click from the
+# decommissioned Bun listener via cross-process pid IPC instead of an
+# in-process pid variable.
+NEXUS_PID_FILE="${NEXUS_PID_FILE:-$HOME/Library/Application Support/nexus/current-utterance.pid}"
+
 # ── Cached settings ─────────────────────────────────────────────────────────
 # Seeded from plist EnvironmentVariables, then overwritten by the GET
 # /notifications/settings call in _bootstrap_settings. SSE SettingsChanged
@@ -124,6 +133,48 @@ _ensure_fifo() {
   /bin/rm -f "$NEXUS_NOTIFIER_FIFO" 2>/dev/null || true
   /usr/bin/mkfifo "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE" || true
   /bin/chmod 0600 "$NEXUS_NOTIFIER_FIFO" 2>>"$LOG_FILE" || true
+}
+
+# Idempotently create the pid file (empty) with mode 0600. Called from
+# _run_listen and _run_drain so both processes see an existing-but-empty
+# file at startup; subsequent atomic mv's replace it in-place.
+_ensure_pid_file() {
+  local pid_dir
+  pid_dir="$(dirname "$NEXUS_PID_FILE")"
+  /bin/mkdir -p "$pid_dir"
+  if [ ! -e "$NEXUS_PID_FILE" ]; then
+    : > "$NEXUS_PID_FILE" 2>>"$LOG_FILE" || true
+    /bin/chmod 0600 "$NEXUS_PID_FILE" 2>>"$LOG_FILE" || true
+  fi
+}
+
+# Atomic pid write — write to .tmp then rename. rename(2) is atomic on the
+# same filesystem per POSIX, so a reader never sees a partial pid value.
+_write_pid() {
+  local pid="$1"
+  printf '%s' "$pid" > "${NEXUS_PID_FILE}.tmp" 2>>"$LOG_FILE" \
+    && /bin/mv "${NEXUS_PID_FILE}.tmp" "$NEXUS_PID_FILE" 2>>"$LOG_FILE" \
+    || true
+}
+
+# Truncate pid file to zero bytes — signals "no audio currently playing".
+# Used in cleanup subshells (afplay path) and post-wait drain (say path).
+_clear_pid() {
+  : > "$NEXUS_PID_FILE" 2>/dev/null || true
+}
+
+# Read the currently-playing pid, validate as numeric, return empty on
+# absent/empty/garbage content. Used by _dispatch_banner to decide whether
+# to attach a kill-on-click action. Tolerant of stale/dead pids — the
+# caller's kill -TERM is harmless against a non-existent process.
+_read_active_pid() {
+  [ -s "$NEXUS_PID_FILE" ] || { printf ''; return 0; }
+  local pid
+  pid=$(/usr/bin/head -c 16 "$NEXUS_PID_FILE" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+  case "$pid" in
+    ''|*[!0-9]*) printf '' ;;
+    *)           printf '%s' "$pid" ;;
+  esac
 }
 
 _escape_for_applescript() {
@@ -337,12 +388,21 @@ _dispatch_banner() {
     icon=$(_nx_ensure_emoji_icon "$emoji" 2>/dev/null) || icon=""
   fi
 
+  # Banner-click cancel: if an audio child is currently playing, attach a
+  # kill action so clicking the banner stops the utterance. Read the pid
+  # from the shared file written by _dispatch_audio / _drain_say_one.
+  # Stale pids are safe — kill -TERM on a dead pid is a silent no-op and
+  # terminal-notifier ignores the -execute exit code.
+  local active_pid
+  active_pid="$(_read_active_pid)"
+
   local tn
   for tn in /opt/homebrew/bin/terminal-notifier /usr/local/bin/terminal-notifier; do
     if [ -x "$tn" ]; then
       local args=(-title "$title" -message "$body")
       [ -n "$bundle_id" ] && args+=(-sender "$bundle_id")
       [ -n "$icon" ] && [ -f "$icon" ] && args+=(-contentImage "$icon")
+      [ -n "$active_pid" ] && args+=(-execute "/bin/kill -TERM $active_pid")
       "$tn" "${args[@]}" 2>>"$LOG_FILE" >/dev/null
       return
     fi
@@ -423,7 +483,11 @@ _dispatch_audio() {
   # the temp file *and* restores the pre-ducking volume/mute state.
   /usr/bin/afplay "$tmp" >>"$LOG_FILE" 2>&1 &
   local afpid=$!
-  ( wait "$afpid" 2>/dev/null; /bin/rm -f "$tmp" 2>/dev/null; _restore_ducking ) &
+  # Publish the pid BEFORE the banner could dispatch (banner cancel reads
+  # this file). The cleanup subshell clears it after afplay exits so a
+  # subsequent banner-click doesn't kill an unrelated recycled pid.
+  _write_pid "$afpid"
+  ( wait "$afpid" 2>/dev/null; _clear_pid; /bin/rm -f "$tmp" 2>/dev/null; _restore_ducking ) &
   echo "[$(date)] afplay scheduled pid=$afpid path=$tmp ducking=$DUCKING_MODE" >> "$LOG_FILE"
 }
 
@@ -532,13 +596,21 @@ _run_stream() {
 
 _run_listen() {
   _ensure_fifo
+  _ensure_pid_file
   # Normalize seed values from plist (legacy "1"/"0"/"none") before the
   # bootstrap call, so the pre-bootstrap log line shows canonical shape.
   TTS_ENABLED="$(_normalize_bool "$TTS_ENABLED")"
   BANNER_ENABLED="$(_normalize_bool "$BANNER_ENABLED")"
   DUCKING_MODE="$(_normalize_ducking "$DUCKING_MODE")"
   _bootstrap_settings
-  echo "[$(date)] nexus-notifier (listen) starting — url=$NEXUS_URL fifo=$NEXUS_NOTIFIER_FIFO tts_enabled=$TTS_ENABLED banner_enabled=$BANNER_ENABLED ducking_mode=$DUCKING_MODE" >> "$LOG_FILE"
+  echo "[$(date)] nexus-notifier (listen) starting — url=$NEXUS_URL fifo=$NEXUS_NOTIFIER_FIFO pidfile=$NEXUS_PID_FILE tts_enabled=$TTS_ENABLED banner_enabled=$BANNER_ENABLED ducking_mode=$DUCKING_MODE" >> "$LOG_FILE"
+  # One-time capability log — if terminal-notifier is absent, banner-click
+  # cancel is unavailable (osascript fallback doesn't support click
+  # handlers). Logged once at startup so operators know the feature gap
+  # rather than wondering why clicks do nothing.
+  if [ ! -x /opt/homebrew/bin/terminal-notifier ] && [ ! -x /usr/local/bin/terminal-notifier ]; then
+    echo "[$(date)] terminal-notifier not found; banner-click cancel disabled (osascript fallback)" >> "$LOG_FILE"
+  fi
   while true; do
     _run_stream
     echo "[$(date)] stream disconnected, reconnecting in 5s" >> "$LOG_FILE"
@@ -592,18 +664,28 @@ _resolve_timeout_cmd() {
 _drain_say_one() {
   local timeout_cmd="$1" line="$2"
   _apply_ducking
+  # Launch say in the background so we can capture its pid for banner-click
+  # cancel. `wait $!` preserves the prior synchronous semantics (drain
+  # advances one utterance at a time). The pid file is cleared after wait
+  # returns regardless of exit reason (natural completion / SIGTERM kill /
+  # gtimeout cap) so a stale pid never lingers into the next dispatch.
   if [ -n "$timeout_cmd" ]; then
-    $timeout_cmd /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
-      echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
+    $timeout_cmd /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" &
   else
-    /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" || \
-      echo "[$(date)] say failed: $line" >> "$DRAIN_LOG"
+    /usr/bin/say -- "$line" 2>>"$DRAIN_LOG" &
   fi
+  local say_pid=$!
+  _write_pid "$say_pid"
+  if ! wait "$say_pid" 2>/dev/null; then
+    echo "[$(date)] say timed out or failed: $line" >> "$DRAIN_LOG"
+  fi
+  _clear_pid
   _restore_ducking
 }
 
 _run_drain() {
   _ensure_fifo
+  _ensure_pid_file
   # Normalize ducking mode for the drain process. TTS_ENABLED is already
   # checked at the producer side (_dispatch_tts), so a "false" flag never
   # writes a line to the FIFO — the drain reads only allowed bodies.
