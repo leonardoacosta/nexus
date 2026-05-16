@@ -1,8 +1,37 @@
 import type { Db } from "@nexus/db";
 import { sessions } from "@nexus/db";
-import { eq, isNull, inArray, gte, desc } from "drizzle-orm";
+import {
+  eq,
+  isNull,
+  isNotNull,
+  inArray,
+  gte,
+  desc,
+  and,
+  or,
+  gt,
+  ne,
+} from "drizzle-orm";
 import type { Session } from "@nexus/core";
 import { narrowSessionStatus, narrowSessionType } from "@nexus/core";
+
+/**
+ * Drizzle predicate matching the "real CC session" fingerprint used by
+ * `GET /sessions?withFingerprint=true` and the process-watcher reconciler.
+ * A row is fingerprinted when ANY of the following holds:
+ *   - `pid > 0`
+ *   - `tmux_target IS NOT NULL AND tmux_target != ''`
+ *   - `cc_session_id IS NOT NULL AND cc_session_id != ''`
+ *   - `cwd IS NOT NULL AND cwd != ''`
+ *
+ * See: openspec/changes/fix-agent-cc-session-tracking/specs/session-persistence/spec.md
+ */
+const withFingerprintPredicate = or(
+  gt(sessions.pid, 0),
+  and(isNotNull(sessions.tmuxTarget), ne(sessions.tmuxTarget, "")),
+  and(isNotNull(sessions.ccSessionId), ne(sessions.ccSessionId, "")),
+  and(isNotNull(sessions.cwd), ne(sessions.cwd, "")),
+);
 
 /** Row shape returned from the `sessions` table. */
 export type SessionRow = typeof sessions.$inferSelect;
@@ -148,11 +177,18 @@ export async function updateSessionStatus(
 }
 
 /** Return all sessions with status 'active' or 'idle'. */
-export async function queryActiveSessions(db: Db): Promise<SessionRow[]> {
+export async function queryActiveSessions(
+  db: Db,
+  opts?: { withFingerprint?: boolean },
+): Promise<SessionRow[]> {
+  const statusPredicate = inArray(sessions.status, ["active", "idle"]);
+  const predicate = opts?.withFingerprint
+    ? and(statusPredicate, withFingerprintPredicate)
+    : statusPredicate;
   return db
     .select()
     .from(sessions)
-    .where(inArray(sessions.status, ["active", "idle"]))
+    .where(predicate)
     .orderBy(desc(sessions.lastActivity));
 }
 
@@ -163,12 +199,17 @@ export async function queryActiveSessions(db: Db): Promise<SessionRow[]> {
 export async function queryRecentSessions(
   db: Db,
   hours: number = 24,
+  opts?: { withFingerprint?: boolean },
 ): Promise<SessionRow[]> {
   const cutoff = new Date(Date.now() - hours * 3600_000);
+  const cutoffPredicate = gte(sessions.lastActivity, cutoff);
+  const predicate = opts?.withFingerprint
+    ? and(cutoffPredicate, withFingerprintPredicate)
+    : cutoffPredicate;
   return db
     .select()
     .from(sessions)
-    .where(gte(sessions.lastActivity, cutoff))
+    .where(predicate)
     .orderBy(desc(sessions.lastActivity));
 }
 

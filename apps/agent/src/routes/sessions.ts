@@ -30,6 +30,13 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+interface SessionsCacheBucket {
+  /** Cache for `withFingerprint=false` (default — all rows). */
+  all: CacheEntry<SessionRow[]> | null;
+  /** Cache for `withFingerprint=true` (filtered rows). */
+  fingerprinted: CacheEntry<SessionRow[]> | null;
+}
+
 const SESSIONS_CACHE_TTL_MS = 1_000; // 1 second
 
 /**
@@ -37,11 +44,12 @@ const SESSIONS_CACHE_TTL_MS = 1_000; // 1 second
  * Tests should call `clearSessionsCache()` in `beforeEach`, or use
  * `createSessionHandlers(db)` for full per-test isolation.
  */
-let _moduleCache: CacheEntry<SessionRow[]> | null = null;
+const _moduleCache: SessionsCacheBucket = { all: null, fingerprinted: null };
 
 /** Clear the module-level sessions cache (useful for testing). */
 export function clearSessionsCache(): void {
-  _moduleCache = null;
+  _moduleCache.all = null;
+  _moduleCache.fingerprinted = null;
 }
 
 /**
@@ -50,22 +58,26 @@ export function clearSessionsCache(): void {
  * ideal for test suites that need per-suite isolation.
  */
 export function createSessionHandlers(db: Db) {
-  let cache: CacheEntry<SessionRow[]> | null = null;
+  const cache: SessionsCacheBucket = { all: null, fingerprinted: null };
 
-  async function getCached(): Promise<SessionRow[]> {
+  async function getCached(withFingerprint: boolean): Promise<SessionRow[]> {
     const now = Date.now();
-    if (cache && now < cache.expiry) {
-      return cache.data;
+    const slot = withFingerprint ? "fingerprinted" : "all";
+    const existing = cache[slot];
+    if (existing && now < existing.expiry) {
+      return existing.data;
     }
-    const active = await queryActiveSessions(db);
-    const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
+    const active = await queryActiveSessions(db, { withFingerprint });
+    const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS, {
+      withFingerprint,
+    });
     const map = new Map<string, SessionRow>();
     for (const row of active) map.set(row.id, row);
     for (const row of recent) {
       if (!map.has(row.id)) map.set(row.id, row);
     }
     const merged = Array.from(map.values());
-    cache = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
+    cache[slot] = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
     return merged;
   }
 
@@ -78,20 +90,28 @@ export function createSessionHandlers(db: Db) {
     },
     /** Reset this instance's cache (useful mid-test). */
     clearCache() {
-      cache = null;
+      cache.all = null;
+      cache.fingerprinted = null;
     },
   };
 }
 
 /** Fetch all displayable sessions (active + recent), using the module-level cache. */
-async function getCachedSessions(db: Db): Promise<SessionRow[]> {
+async function getCachedSessions(
+  db: Db,
+  withFingerprint: boolean,
+): Promise<SessionRow[]> {
   const now = Date.now();
-  if (_moduleCache && now < _moduleCache.expiry) {
-    return _moduleCache.data;
+  const slot = withFingerprint ? "fingerprinted" : "all";
+  const existing = _moduleCache[slot];
+  if (existing && now < existing.expiry) {
+    return existing.data;
   }
 
-  const active = await queryActiveSessions(db);
-  const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
+  const active = await queryActiveSessions(db, { withFingerprint });
+  const recent = await queryRecentSessions(db, QUERY_WINDOW_HOURS, {
+    withFingerprint,
+  });
 
   // Merge, dedup by id (active takes precedence)
   const map = new Map<string, SessionRow>();
@@ -101,18 +121,20 @@ async function getCachedSessions(db: Db): Promise<SessionRow[]> {
   }
 
   const merged = Array.from(map.values());
-  _moduleCache = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
+  _moduleCache[slot] = { data: merged, expiry: now + SESSIONS_CACHE_TTL_MS };
   return merged;
 }
 
 // ── Shared handler logic ───────────────────────────────────────────────────
 
 async function _handleGetSessions(
-  fetchSessions: () => Promise<SessionRow[]>,
+  fetchSessions: (withFingerprint: boolean) => Promise<SessionRow[]>,
   url: URL,
 ): Promise<Response> {
   const projectFilter = url.searchParams.get("project") ?? undefined;
   const statusFilter = url.searchParams.get("status") ?? undefined;
+  const withFingerprint =
+    url.searchParams.get("withFingerprint") === "true";
 
   // Validate status if provided
   if (statusFilter && !VALID_STATUSES.has(statusFilter)) {
@@ -126,7 +148,7 @@ async function _handleGetSessions(
 
   let rows: SessionRow[];
   try {
-    rows = await fetchSessions();
+    rows = await fetchSessions(withFingerprint);
   } catch (err) {
     const detail =
       process.env.NODE_ENV !== "production"
@@ -185,7 +207,10 @@ async function _handleGetSessionById(db: Db, id: string): Promise<Response> {
 
 /** GET /sessions — list sessions, optionally filtered by project and/or status. */
 export async function handleGetSessions(db: Db, url: URL): Promise<Response> {
-  return _handleGetSessions(() => getCachedSessions(db), url);
+  return _handleGetSessions(
+    (withFingerprint) => getCachedSessions(db, withFingerprint),
+    url,
+  );
 }
 
 /** GET /sessions/{id} — single session by ID, 404 if not found. */

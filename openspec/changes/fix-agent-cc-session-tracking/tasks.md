@@ -19,7 +19,7 @@
   handler to capture the spawned PID from `tmux list-windows -t <name>
   -F '#{pane_pid}'` after the `tmux new-window`. Persist on the new row.
 
-- [ ] 2.2 `apps/agent/src/routes/sessions.ts` — add `withFingerprint` query [beads:nx-ksph6]
+- [x] 2.2 `apps/agent/src/routes/sessions.ts` — add `withFingerprint` query [beads:nx-ksph6]
   param to `handleGetSessions`. Push the filter into `queryActiveSessions` /
   `queryRecentSessions` so it executes at the DB level, not in Node.
 
