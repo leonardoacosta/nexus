@@ -26,7 +26,7 @@
 - [x] 2.3 `apps/agent/src/routes/hooks.ts` — replace "insert-on-unknown-session" [beads:nx-9fx3l]
   branch with a `204 No Content` drop. Add the `info`-level orphan log.
 
-- [ ] 2.4 New endpoint `POST /sessions/probe` — triggers an immediate [beads:nx-lps43]
+- [x] 2.4 New endpoint `POST /sessions/probe` — triggers an immediate [beads:nx-lps43]
   process-watcher reconciliation pass instead of waiting for the next loop tick.
 
 - [x] 2.5 New module `apps/agent/src/services/process-watcher.ts` — 30-second [beads:nx-z2x8r]

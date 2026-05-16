@@ -15,7 +15,12 @@
 
 import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
-import { handleGetSessions, handleGetSessionById, handleSessionStart } from "./routes/sessions";
+import {
+  handleGetSessions,
+  handleGetSessionById,
+  handleSessionStart,
+  handleSessionsProbe,
+} from "./routes/sessions";
 import { handleGetProjects, handleUpdateProject } from "./routes/projects";
 import { handleSaveAgent, handleDeleteAgent } from "./routes/settings";
 import { handleGetAgentSelf } from "./routes/agent-self";
@@ -88,6 +93,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/sessions" },
   { method: "GET", path: "/sessions/:id" },
   { method: "POST", path: "/session/start" },
+  { method: "POST", path: "/sessions/probe" },
   // Projects
   { method: "GET", path: "/projects" },
   { method: "PATCH", path: "/projects/:id" },
@@ -235,6 +241,14 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/sessions" && request.method === "GET") {
         return handleGetSessions(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/sessions", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // POST /sessions/probe — force a reconcile pass NOW (process-watcher)
+      if (url.pathname === "/sessions/probe" && request.method === "POST") {
+        return handleSessionsProbe(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/sessions/probe", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

@@ -9,6 +9,7 @@ import {
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { execText, ExecError } from "../utils/exec";
+import { reconcileOnce } from "../services/process-watcher";
 
 const log = createLogger("agent:routes:sessions");
 
@@ -436,4 +437,38 @@ export async function handleGetSessionTokens(
     JSON.stringify({ turns, aggregates }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
+}
+
+// ── POST /sessions/probe ───────────────────────────────────────────────────
+
+/**
+ * POST /sessions/probe — force-trigger an immediate process-watcher
+ * reconciliation pass instead of waiting for the next interval tick.
+ *
+ * Useful from the menu bar / dashboard when the operator wants to refresh
+ * the session list NOW (e.g. just spawned a `claude` in another terminal
+ * and doesn't want to wait 30s). Returns the counts of rows that changed.
+ *
+ * Response: `{ reconciledCreated: number, reconciledClosed: number }`
+ */
+export async function handleSessionsProbe(db: Db): Promise<Response> {
+  try {
+    const result = await reconcileOnce(db);
+    return new Response(
+      JSON.stringify({
+        reconciledCreated: result.created,
+        reconciledClosed: result.closed,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "sessions probe failed",
+    );
+    return new Response(
+      JSON.stringify({ error: "reconciliation failed" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
 }
