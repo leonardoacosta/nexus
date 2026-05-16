@@ -14,7 +14,32 @@ RESET='\033[0m'
 
 info()  { printf "${GREEN}nexus-agent: %s${RESET}\n" "$1"; }
 skip()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1"; }
+warn()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1" >&2; }
 fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
+
+# Bootstrap with retry — handles macOS launchctl `Load failed: 5: I/O error`
+# AND the silent-success failure mode where bootstrap exits 0 but the service
+# never actually starts. The PID check is the only reliable signal; trust no
+# exit code, trust no log line. Mirror of the helper in post-merge/02-deploy.
+bootstrap_with_retry() {
+    local label="$1" plist="$2"
+    local attempt pid_line pid
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    for attempt in 1 2 3; do
+        sleep "$attempt"
+        launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1 || true
+        launchctl kickstart -k "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+        pid_line=$(launchctl list "$label" 2>/dev/null | grep '"PID"' | head -1)
+        pid=$(printf '%s' "$pid_line" | sed -nE 's/.*"PID" = ([0-9]+).*/\1/p')
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            info "$label running (pid=$pid, attempt=$attempt)"
+            return 0
+        fi
+        launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    done
+    warn "$label failed to start after 3 attempts — run: launchctl bootstrap gui/\$(id -u) $plist"
+    return 1
+}
 
 # ── Skip guard ────────────────────────────────────────────────────
 
@@ -109,9 +134,10 @@ case "$OS" in
         PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
         mkdir -p "$LAUNCH_DIR"
         sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
-        launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
-        launchctl load "$PLIST"
-        info "launchd agent loaded and running"
+        # Use bootstrap_with_retry instead of legacy `launchctl load`.
+        # Load returns 0 even when the service fails to actually start
+        # (the silent-success bug); bootstrap_with_retry verifies PID.
+        bootstrap_with_retry "com.nexus.agent" "$PLIST"
         ;;
 esac
 
