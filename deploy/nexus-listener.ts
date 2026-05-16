@@ -143,21 +143,57 @@ function restoreDucking(): void {
 }
 
 // ─── Audio dispatch ─────────────────────────────────────────────────────────
-function dispatchAudio(audioB64: string, body: string): void {
+//
+// In-process serial queue. afplay (ElevenLabs mp3) and say (fallback) both
+// run as children of this Bun process so the pid is captured synchronously
+// — the banner dispatched right after this returns can pass that pid to
+// terminal-notifier's -execute for click-to-cancel. The earlier
+// FIFO-handoff-to-bash-drain pattern had an unfixable cross-process race
+// where the drain hadn't spawned say yet when banner read the pid file.
+//
+// Serial playback: one child at a time, queue while busy. Mirrors the
+// original Bun listener's design. Avoids the N-overlapping-`say`-procs
+// problem the bash FIFO+drain was originally built to solve.
+const audioQueue: string[] = [];
+let audioBusy = false;
+
+function startNextAudio(): number {
+  if (audioBusy || audioQueue.length === 0 || !TTS_ENABLED) return 0;
+  audioBusy = true;
+  const body = audioQueue.shift()!;
+  applyDucking();
+  const child = spawn("/usr/bin/say", ["--", body], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  const pid = child.pid ?? 0;
+  if (pid) writePidAtomic(pid);
+  // 60s cap per utterance — wedged audio device cannot stall queue.
+  const cap = setTimeout(() => child.kill("SIGTERM"), 60_000);
+  child.on("exit", () => {
+    clearTimeout(cap);
+    clearPid();
+    restoreDucking();
+    audioBusy = false;
+    // Pump next queued body if any.
+    if (audioQueue.length > 0) startNextAudio();
+  });
+  return pid;
+}
+
+function dispatchAudio(audioB64: string, body: string): number {
   if (!TTS_ENABLED) {
     log(`tts suppressed (tts_enabled=false) body="${body}"`);
-    return;
+    return 0;
   }
   if (!audioB64) {
-    // Fall through to FIFO+say drain path.
-    try {
-      appendFileSync(FIFO_PATH, body + "\n");
-    } catch (e) {
-      log(`fifo write failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    return;
+    // No pre-synthesized mp3 — use say. Queue + start synchronously so
+    // the banner dispatched right after can grab the active pid.
+    audioQueue.push(body);
+    const pid = startNextAudio();
+    log(`say scheduled pid=${pid} ducking=${DUCKING_MODE}`);
+    return pid;
   }
-  // ElevenLabs mp3 path: decode + afplay.
+  // ElevenLabs mp3 path: decode + afplay (also in-process, queues alongside say).
   applyDucking();
   const tmp = `/tmp/nexus-listener-${crypto.randomUUID()}.mp3`;
   try {
@@ -165,16 +201,18 @@ function dispatchAudio(audioB64: string, body: string): void {
   } catch (e) {
     log(`base64 decode failed: ${e instanceof Error ? e.message : String(e)}`);
     restoreDucking();
-    return;
+    return 0;
   }
   const child = spawn("/usr/bin/afplay", [tmp], { stdio: ["ignore", "ignore", "ignore"] });
-  if (child.pid) writePidAtomic(child.pid);
-  log(`afplay scheduled pid=${child.pid} path=${tmp} ducking=${DUCKING_MODE}`);
+  const pid = child.pid ?? 0;
+  if (pid) writePidAtomic(pid);
+  log(`afplay scheduled pid=${pid} path=${tmp} ducking=${DUCKING_MODE}`);
   child.on("exit", () => {
     clearPid();
     try { require("node:fs").unlinkSync(tmp); } catch { /* gone */ }
     restoreDucking();
   });
+  return pid;
 }
 
 // ─── Banner dispatch ────────────────────────────────────────────────────────
