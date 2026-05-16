@@ -25,17 +25,29 @@ fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 # Observed today: 3 consecutive pushes, 3 silent agent-deaths in 2 hours.
 bootstrap_with_retry() {
     local label="$1" plist="$2"
-    local attempt
+    local attempt pid_line pid
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
     for attempt in 1 2 3; do
         sleep "$attempt"
-        if launchctl bootstrap "gui/$(id -u)" "$plist" 2>&1; then
-            launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
-            info "$label bootstrapped (attempt $attempt)"
+        # Run bootstrap (ignore non-zero exit — bootstrap returns 0 even
+        # after "Load failed: 5" sometimes; the real signal is whether the
+        # service actually has a running pid afterwards).
+        launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1 || true
+        launchctl kickstart -k "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+        # Verify the service has a numeric pid in launchctl list (column 1).
+        # A "-" or empty column means loaded-but-not-running, which has been
+        # observed today: bootstrap silently succeeds, agent never starts.
+        pid_line=$(launchctl list "$label" 2>/dev/null | grep '"PID"' | head -1)
+        pid=$(printf '%s' "$pid_line" | sed -nE 's/.*"PID" = ([0-9]+).*/\1/p')
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            info "$label running (pid=$pid, attempt=$attempt)"
             return 0
         fi
+        # Not running yet — bootout before next attempt so the next
+        # bootstrap starts from a clean slate.
+        launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
     done
-    warn "$label bootstrap failed after 3 attempts — run: launchctl bootstrap gui/\$(id -u) $plist"
+    warn "$label failed to start after 3 attempts — run: launchctl bootstrap gui/\$(id -u) $plist"
     return 1
 }
 
