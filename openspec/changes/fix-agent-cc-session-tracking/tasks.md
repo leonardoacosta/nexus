@@ -46,7 +46,7 @@
   to opt-in via a NSUserDefaults flag (`nx.menubar.fallback.processProbe`).
   Default off once this spec lands.
 
-- [ ] 3.2 `apps/swift/nexus/nexus/NexusClient.swift` — switch the default [beads:nx-ir7wz]
+- [x] 3.2 `apps/swift/nexus/nexus/NexusClient.swift` — switch the default [beads:nx-ir7wz]
   `/sessions` request to `/sessions?withFingerprint=true` so the menu bar
   client doesn't need its own filter pass.
 

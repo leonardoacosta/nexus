@@ -354,10 +354,21 @@ final class NexusViewModel: ObservableObject {
     }
 
     func refreshSessions() async {
+        // Server-side filter (added in `fix-agent-cc-session-tracking` API
+        // Batch 2.2): the agent now drops the telemetry-ping stubs that lack
+        // a CC fingerprint before serializing the response. This avoids
+        // pulling ~4000 stub rows over the wire on every poll. The local
+        // `hasCCFingerprint` check in `homelabSessions()` is kept as a
+        // defensive belt-and-suspenders in case legacy clients/migrations
+        // still leak unfingerprinted rows in.
+        var comps = URLComponents(
+            url: NexusEndpoint.baseURL.appendingPathComponent("sessions"),
+            resolvingAgainstBaseURL: false
+        )
+        comps?.queryItems = [URLQueryItem(name: "withFingerprint", value: "true")]
+        guard let url = comps?.url else { return }
         do {
-            let rows: [NexusSession] = try await Network.getJSON(
-                url: NexusEndpoint.baseURL.appendingPathComponent("sessions")
-            )
+            let rows: [NexusSession] = try await Network.getJSON(url: url)
             await client.setSessions(rows)
         } catch {
             // Swallow — peer-lost detection runs through SSE.
