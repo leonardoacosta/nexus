@@ -63,7 +63,7 @@
   mock `pgrep` output, verify open-row-for-new-pid and close-row-for-dead-pid
   paths.
 
-- [ ] 4.3 Integration test against a real Bun agent + real tmux — spawn a [beads:nx-fa1xy]
+- [x] 4.3 Integration test against a real Bun agent + real tmux — spawn a [beads:nx-fa1xy]
   session via `POST /session/start`, assert the row has non-null `pid`,
   `tmuxTarget`, `cwd`. Kill the tmux window; assert reconciliation closes the
   row within 60 seconds.
