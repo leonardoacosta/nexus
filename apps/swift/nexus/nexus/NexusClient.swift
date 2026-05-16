@@ -191,7 +191,19 @@ actor NexusClient {
     }
 
     private func homelabSessions() -> [NexusSession] {
-        sessions.filter { $0.originAgent.lowercased() == "homelab" || $0.originAgent.lowercased().contains("homelab") }
+        // Agent's `/sessions` is currently full of telemetry-ping stubs —
+        // every hook event creates an ad_hoc row, ~4000 of them outnumber
+        // real Claude Code processes. Discriminate by "has at least one
+        // CC fingerprint": pid > 0, tmuxTarget set, cwd set, model set,
+        // or the agent stamped a ccSessionId. Stubs fail all checks.
+        // Long-term fix tracked in spec `fix-agent-cc-session-tracking`.
+        let cutoff = Date().addingTimeInterval(-300)
+        return sessions.filter {
+            guard $0.status.lowercased() == "active",
+                  $0.endedAt == nil,
+                  $0.lastHeartbeat >= cutoff else { return false }
+            return $0.hasCCFingerprint
+        }
     }
 
     private func publish() {
@@ -269,9 +281,13 @@ final class NexusViewModel: ObservableObject {
     // ── Convenience for views ─────────────────────────────────────────
 
     var homelabSessions: [NexusSession] {
-        sessions.filter {
-            let a = $0.originAgent.lowercased()
-            return a == "homelab" || a.contains("homelab")
+        // Mirror of `NexusClient.homelabSessions()` — see actor-side note.
+        let cutoff = Date().addingTimeInterval(-300)
+        return sessions.filter {
+            guard $0.status.lowercased() == "active",
+                  $0.endedAt == nil,
+                  $0.lastHeartbeat >= cutoff else { return false }
+            return $0.hasCCFingerprint
         }
     }
 
@@ -302,12 +318,34 @@ final class NexusViewModel: ObservableObject {
 
     private func runPolling() async {
         // Initial fetch + 30-second refresh of REST snapshots. SSE handles
-        // live deltas in between.
+        // live deltas in between. A successful poll cycle counts as liveness
+        // for `aggregateState` derivation — the agent doesn't currently emit
+        // a periodic `HomelabHeartbeat` SSE event, so without this the panel
+        // would render UNREACHABLE forever even when the agent is healthy.
+        //
+        // Fallback path **B**: if the agent's `/sessions` returns zero rows
+        // with a CC fingerprint, SSH-probe homelab for real `claude` PIDs
+        // and merge those synthetic rows in. Auto-disables once the agent
+        // path returns real fingerprinted rows.
         while !Task.isCancelled {
             await refreshSessions()
             await refreshHealth()
+            await client.recordHeartbeat()
+            await maybeAugmentWithProbe()
             try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
         }
+    }
+
+    private func maybeAugmentWithProbe() async {
+        let current = await client.snapshot().sessions
+        let hasReal = current.contains { $0.hasCCFingerprint }
+        guard !hasReal else { return }
+        let synthetic = await ProcessProbe.shared.probeHomelab()
+        if synthetic.isEmpty { return }
+        // Replace the telemetry-stub haystack with the synthetic real rows.
+        // Stubs aren't useful anyway; presenting both creates duplicate
+        // chrome and confuses the count badge.
+        await client.setSessions(synthetic)
     }
 
     func refreshSessions() async {

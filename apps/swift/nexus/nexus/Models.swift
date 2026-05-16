@@ -55,7 +55,7 @@ extension AggregateState {
 /// Subset of the agent's `Session` row consumed by the panel. The agent's
 /// canonical type (`packages/core/src/types/session.ts`) carries ~25 fields;
 /// we decode only the ones the UI needs.
-struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
+struct NexusSession: Identifiable, Equatable, Hashable, Decodable, Sendable {
     var id: String
     var project: String?
     var projectId: String?
@@ -69,9 +69,15 @@ struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
     /// `last_activity` in DB, alias `lastHeartbeat` in the agent's domain
     /// type (`packages/core/src/types/session.ts`).
     var lastHeartbeat: Date
+    var endedAt: Date?
     var tmuxTarget: String?
     var tmuxSession: String?
     var branch: String?
+    /// CC fingerprint signals — populated for real Claude Code rows, null on
+    /// telemetry-ping stubs. See `hasCCFingerprint`.
+    var pid: Int?
+    var cwd: String?
+    var ccSessionId: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -83,9 +89,14 @@ struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
         case model
         case startedAt
         case lastHeartbeat
+        case lastActivity        // agent's actual JSON key — alias of lastHeartbeat
+        case endedAt
         case tmuxTarget
         case tmuxSession
         case branch
+        case pid
+        case cwd
+        case ccSessionId
     }
 
     /// Permissive ISO8601 decoder — accepts both fractional and non-fractional
@@ -105,7 +116,20 @@ struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.tmuxSession   = try c.decodeIfPresent(String.self, forKey: .tmuxSession)
         self.branch        = try c.decodeIfPresent(String.self, forKey: .branch)
         self.startedAt     = try Self.decodeFlexibleDate(c, .startedAt)     ?? Date()
-        self.lastHeartbeat = try Self.decodeFlexibleDate(c, .lastHeartbeat) ?? Date()
+        // Agent emits this as `lastActivity` (per apps/agent/src/db/sessions.ts).
+        // Older specs / SSE frames may still use `lastHeartbeat`. Either wins;
+        // fall back to startedAt rather than Date() so stale rows don't look
+        // artificially fresh and pollute the active-window filter.
+        let hb = (try? Self.decodeFlexibleDate(c, .lastHeartbeat))
+            ?? (try? Self.decodeFlexibleDate(c, .lastActivity))
+            ?? nil
+        self.lastHeartbeat = hb ?? self.startedAt
+        self.endedAt       = (try? Self.decodeFlexibleDate(c, .endedAt)) ?? nil
+        self.pid           = try c.decodeIfPresent(Int.self, forKey: .pid)
+        // cwd often arrives as "" — treat empty as nil.
+        let cwdRaw         = try c.decodeIfPresent(String.self, forKey: .cwd)
+        self.cwd           = (cwdRaw?.isEmpty ?? true) ? nil : cwdRaw
+        self.ccSessionId   = try c.decodeIfPresent(String.self, forKey: .ccSessionId)
     }
 
     init(
@@ -118,9 +142,13 @@ struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
         model: String? = nil,
         startedAt: Date = Date(),
         lastHeartbeat: Date = Date(),
+        endedAt: Date? = nil,
         tmuxTarget: String? = nil,
         tmuxSession: String? = nil,
-        branch: String? = nil
+        branch: String? = nil,
+        pid: Int? = nil,
+        cwd: String? = nil,
+        ccSessionId: String? = nil
     ) {
         self.id = id
         self.project = project
@@ -131,9 +159,44 @@ struct NexusSession: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.model = model
         self.startedAt = startedAt
         self.lastHeartbeat = lastHeartbeat
+        self.endedAt = endedAt
         self.tmuxTarget = tmuxTarget
         self.tmuxSession = tmuxSession
         self.branch = branch
+        self.pid = pid
+        self.cwd = cwd
+        self.ccSessionId = ccSessionId
+    }
+}
+
+extension NexusSession {
+    /// Distinguish a real Claude Code session row from telemetry/heartbeat
+    /// stubs. The agent currently creates `ad_hoc` rows for every hook event;
+    /// real CC rows always carry at least one of these signals.
+    var hasCCFingerprint: Bool {
+        (pid ?? 0) > 0
+            || !(tmuxTarget ?? "").isEmpty
+            || !(ccSessionId ?? "").isEmpty
+            || !(cwd ?? "").isEmpty
+            || !(model ?? "").isEmpty
+    }
+
+    /// Construct a synthetic row from a homelab process probe (`pgrep -af`).
+    /// Used as the **B** fallback when `/sessions` has zero rows with a CC
+    /// fingerprint — bypasses the broken agent path until
+    /// `fix-agent-cc-session-tracking` lands.
+    static func fromProbe(pid: Int, command: String, host: String, project: String?) -> NexusSession {
+        let id = "probe-\(host)-\(pid)"
+        return NexusSession(
+            id: id,
+            project: project ?? "?",
+            status: "active",
+            model: "claude",
+            startedAt: Date(),
+            lastHeartbeat: Date(),
+            pid: pid,
+            cwd: command
+        )
     }
 
     private static func decodeFlexibleDate(

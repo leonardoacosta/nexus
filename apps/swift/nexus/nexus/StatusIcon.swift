@@ -14,34 +14,27 @@ struct StatusIcon: View {
     var ttsMuted: Bool
 
     var body: some View {
-        Canvas { ctx, size in
-            let barH = size.height * 0.18
-            let gap  = size.height * 0.10
-            let totalH = barH * 3 + gap * 2
-            let originY = (size.height - totalH) / 2
-            let widths: [CGFloat] = [size.width, size.width * 0.78, size.width * 0.56]
-            let color = barColor(for: state)
-            for i in 0..<3 {
-                let y = originY + CGFloat(i) * (barH + gap)
-                let rect = CGRect(x: 0, y: y, width: widths[i], height: barH)
-                let path = Path(roundedRect: rect, cornerRadius: barH / 2)
-                ctx.fill(path, with: .color(color))
-            }
-        }
-        .frame(width: 18, height: 18)
-        .overlay {
-            if ttsMuted {
-                Canvas { ctx, size in
-                    var p = Path()
-                    p.move(to: CGPoint(x: 0, y: size.height))
-                    p.addLine(to: CGPoint(x: size.width, y: 0))
-                    // Outline for contrast against the dark menu bar.
-                    ctx.stroke(p, with: .color(Color.nx.substrate.opacity(0.9)), lineWidth: 2.5)
-                    ctx.stroke(p, with: .color(Color.nx.critical), lineWidth: 1.5)
+        // SF Symbol "chart.bar.fill" with palette rendering — the 3-bar shape
+        // we want, but driven by Apple's symbol pipeline so macOS doesn't
+        // template-flatten our Canvas into invisibility on the menu bar slot.
+        // Explicit `.foregroundStyle` survives menu bar tinting.
+        Image(systemName: "chart.bar.fill")
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                barColor(for: state),
+                barColor(for: state).opacity(0.78),
+                barColor(for: state).opacity(0.56)
+            )
+            .font(.system(size: 14, weight: .semibold))
+            .overlay(alignment: .center) {
+                if ttsMuted {
+                    Image(systemName: "line.diagonal")
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color.nx.critical)
+                        .rotationEffect(.degrees(-90))
                 }
             }
-        }
-        .accessibilityLabel(state.accessibilityLabel + (ttsMuted ? ", TTS muted" : ""))
+            .accessibilityLabel(state.accessibilityLabel + (ttsMuted ? ", TTS muted" : ""))
     }
 
     private func barColor(for state: AggregateState) -> Color {
