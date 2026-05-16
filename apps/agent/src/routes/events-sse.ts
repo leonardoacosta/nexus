@@ -120,6 +120,11 @@ export function handleEventsStream(): Response {
       // Subscribe to lifecycle bus — push all events as SSE frames.
       // Hook events flow through here too — handleHooks emits HookEventReceived
       // after persistence, see add-hooks-sse-fanout (apply-2026-04-27-001).
+      // Process-watcher reconciliation emits `RemoteSessionStarted` /
+      // `RemoteSessionEnded` after each create/close — those frames carry
+      // the discriminator fields menu bar / dashboard clients need to
+      // update without a follow-up GET. See
+      // openspec/changes/fix-agent-cc-session-tracking task 2.7.
       busHandler = (envelope: LifecycleEnvelope) => {
         try {
           const data = JSON.stringify(envelope);
