@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  index,
   pgTable,
   text,
   integer,
@@ -12,38 +13,53 @@ import {
 import { agents } from "./agents";
 import { projects } from "./projects";
 
-export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey(),
-  projectId: uuid("project_id").references(() => projects.id, {
-    onDelete: "set null",
-  }),
-  machine: text("machine").notNull(),
-  status: text("status").notNull().default("active"),
-  startedAt: timestamp("started_at", { mode: "date" }).notNull(),
-  lastActivity: timestamp("last_activity", { mode: "date" }).notNull(),
-  endedAt: timestamp("ended_at", { mode: "date" }),
-  pid: integer("pid"),
-  cwd: text("cwd"),
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    machine: text("machine").notNull(),
+    status: text("status").notNull().default("active"),
+    startedAt: timestamp("started_at", { mode: "date" }).notNull(),
+    lastActivity: timestamp("last_activity", { mode: "date" }).notNull(),
+    endedAt: timestamp("ended_at", { mode: "date" }),
+    pid: integer("pid"),
+    cwd: text("cwd"),
 
-  // Extended fields — added in migration 0005
-  branch: text("branch"),
-  sessionType: text("session_type"),
-  model: text("model"),
-  rateLimitUtilization: real("rate_limit_utilization"),
-  totalCostUsd: doublePrecision("total_cost_usd"),
-  rateLimitResetAt: timestamp("rate_limit_reset_at", { mode: "date" }),
-  idleSince: timestamp("idle_since", { mode: "date" }),
-  ccSessionId: text("cc_session_id"),
-  tmuxSession: text("tmux_session"),
-  tmuxTarget: text("tmux_target"),
-  spec: text("spec"),
+    // Extended fields — added in migration 0005
+    branch: text("branch"),
+    sessionType: text("session_type"),
+    model: text("model"),
+    rateLimitUtilization: real("rate_limit_utilization"),
+    totalCostUsd: doublePrecision("total_cost_usd"),
+    rateLimitResetAt: timestamp("rate_limit_reset_at", { mode: "date" }),
+    idleSince: timestamp("idle_since", { mode: "date" }),
+    ccSessionId: text("cc_session_id"),
+    tmuxSession: text("tmux_session"),
+    tmuxTarget: text("tmux_target"),
+    spec: text("spec"),
 
-  // Token-stream fields — added in session-token-stream change
-  /** FK to credentials.id (not enforced via Drizzle references to avoid Neon issues) */
-  credentialId: text("credential_id"),
-  /** Denormalized from credentials.fingerprint for aggregation without JOIN */
-  credentialFingerprint: text("credential_fingerprint"),
-});
+    // Token-stream fields — added in session-token-stream change
+    /** FK to credentials.id (not enforced via Drizzle references to avoid Neon issues) */
+    credentialId: text("credential_id"),
+    /** Denormalized from credentials.fingerprint for aggregation without JOIN */
+    credentialFingerprint: text("credential_fingerprint"),
+  },
+  (table) => [
+    // Supports the process-watcher reconciliation query, which selects open
+    // session rows on this machine (status = 'active' AND ended_at IS NULL)
+    // and joins them against running PIDs from `pgrep -af claude`. Without
+    // the composite, the planner falls back to a full scan once the table
+    // grows past a few thousand rows.
+    index("sessions_status_ended_pid_idx").on(
+      table.status,
+      table.endedAt,
+      table.pid,
+    ),
+  ],
+);
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   project: one(projects, {

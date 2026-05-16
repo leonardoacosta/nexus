@@ -5,12 +5,12 @@
 
 ## DB Batch
 
-- [ ] 1.1 One-shot cleanup migration: `UPDATE sessions SET endedAt = NOW(), [beads:nx-esz0i]
+- [x] 1.1 One-shot cleanup migration: `UPDATE sessions SET endedAt = NOW(), [beads:nx-esz0i]
   status = 'ended' WHERE endedAt IS NULL AND pid IS NULL AND
   (tmuxTarget IS NULL OR tmuxTarget = '') AND ccSessionId IS NULL AND
   (cwd IS NULL OR cwd = '')`. Document in `packages/db/drizzle/`.
 
-- [ ] 1.2 Add index on `(status, endedAt, pid)` to support the process-watcher [beads:nx-u1oqs]
+- [x] 1.2 Add index on `(status, endedAt, pid)` to support the process-watcher [beads:nx-u1oqs]
   reconciliation query without scanning all rows.
 
 ## API Batch

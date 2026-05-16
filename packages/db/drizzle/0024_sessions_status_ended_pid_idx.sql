@@ -1,0 +1,1 @@
+CREATE INDEX "sessions_status_ended_pid_idx" ON "sessions" USING btree ("status","ended_at","pid");
