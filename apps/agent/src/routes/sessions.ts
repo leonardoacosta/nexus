@@ -1,12 +1,16 @@
 import type { Db } from "@nexus/db";
 import { sessionTokenTurns, eq, sql } from "@nexus/db";
+import { createLogger } from "@nexus/core/node";
 import {
   queryActiveSessions,
   queryRecentSessions,
   getSessionById,
+  upsertSession,
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { execText, ExecError } from "../utils/exec";
+
+const log = createLogger("agent:routes:sessions");
 
 const QUERY_WINDOW_HOURS = 24; // hours of history to include in session queries
 
@@ -195,9 +199,20 @@ export async function handleGetSessionById(db: Db, id: string): Promise<Response
  * POST /session/start — spawn a new Claude Code session in a tmux window.
  *
  * Request body: { project: string, path: string }
- * Response: { session_name: string, started: boolean }
+ * Response: { session_name: string, started: boolean, session_id?: string, pid?: number }
+ *
+ * Persistence (fix-agent-cc-session-tracking 2.1): after the tmux window is
+ * created, we capture the spawned shell PID via
+ * `tmux list-windows -t <name> -F '#{pane_pid}'` and persist a new session
+ * row carrying `pid`, `tmuxTarget`, `cwd`, and `model = "claude"` so that
+ * `/sessions?withFingerprint=true` immediately surfaces the row. The DB
+ * argument is optional — when omitted (legacy callers / tests) the handler
+ * still returns 200 but skips persistence.
  */
-export async function handleSessionStart(request: Request): Promise<Response> {
+export async function handleSessionStart(
+  request: Request,
+  db?: Db,
+): Promise<Response> {
   let body: { project: string; path: string };
   try {
     body = (await request.json()) as { project: string; path: string };
@@ -256,6 +271,31 @@ export async function handleSessionStart(request: Request): Promise<Response> {
     );
   }
 
+  // 4b. Capture the spawned shell PID for the new window. This is the PID
+  //     that will host the `claude` process once `send-keys` fires. Best
+  //     effort — if pgrep / tmux output parsing fails we still surface the
+  //     tmuxTarget so `withFingerprint` filtering succeeds.
+  let pid: number | null = null;
+  try {
+    const out = await execText("tmux", [
+      "list-windows",
+      "-t",
+      sessionName,
+      "-F",
+      "#{pane_pid}",
+    ]);
+    const first = out.trim().split("\n")[0]?.trim() ?? "";
+    const parsed = parseInt(first, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      pid = parsed;
+    }
+  } catch (err) {
+    log.warn(
+      { sessionName, error: err instanceof Error ? err.message : String(err) },
+      "tmux list-windows failed; persisting row without pid",
+    );
+  }
+
   // 5. Send claude command.
   try {
     await execText("tmux", ["send-keys", "-t", sessionName, "claude", "Enter"]);
@@ -263,8 +303,54 @@ export async function handleSessionStart(request: Request): Promise<Response> {
     // Best effort — the window was already created.
   }
 
+  // 6. Persist the session row so /sessions surfaces it. The row carries
+  //    enough CC-discriminator fields (tmuxTarget, pid, cwd, model) to pass
+  //    the `withFingerprint` filter introduced by task 2.2. Failures are
+  //    logged but not fatal — the tmux window is already live and useful.
+  if (db) {
+    const now = new Date();
+    try {
+      await upsertSession(db, {
+        id: sessionName,
+        pid: pid ?? 0,
+        project: undefined,
+        projectId: null,
+        machine: "local",
+        cwd: body.path,
+        branch: null,
+        startedAt: now,
+        lastHeartbeat: now,
+        endedAt: null,
+        status: "active",
+        spec: null,
+        command: null,
+        agent: null,
+        tmuxSession: null,
+        ccSessionId: null,
+        tmuxTarget: sessionName,
+        rateLimitUtilization: null,
+        rateLimitType: null,
+        totalCostUsd: null,
+        model: "claude",
+        credentialId: null,
+        credentialFingerprint: null,
+        sessionType: "managed",
+      });
+    } catch (err) {
+      log.error(
+        { sessionName, error: err instanceof Error ? err.message : String(err) },
+        "failed to persist /session/start row",
+      );
+    }
+  }
+
   return new Response(
-    JSON.stringify({ session_name: sessionName, started: true }),
+    JSON.stringify({
+      session_name: sessionName,
+      started: true,
+      ...(pid !== null ? { pid } : {}),
+      session_id: sessionName,
+    }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }

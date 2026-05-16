@@ -433,7 +433,7 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Session start (requires DB context) ───────────────────────────
       if (url.pathname === "/session/start" && request.method === "POST") {
-        return handleSessionStart(request).then((r) => withCors(request, r)).catch((err) => {
+        return handleSessionStart(request, db).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/session/start", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });

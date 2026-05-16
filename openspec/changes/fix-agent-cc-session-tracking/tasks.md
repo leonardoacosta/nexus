@@ -15,7 +15,7 @@
 
 ## API Batch
 
-- [ ] 2.1 `apps/agent/src/routes/sessions.ts` — extend `POST /session/start` [beads:nx-gt6yt]
+- [x] 2.1 `apps/agent/src/routes/sessions.ts` — extend `POST /session/start` [beads:nx-gt6yt]
   handler to capture the spawned PID from `tmux list-windows -t <name>
   -F '#{pane_pid}'` after the `tmux new-window`. Persist on the new row.
 
