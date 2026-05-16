@@ -15,6 +15,30 @@ skip()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1"; }
 warn()  { printf "${YELLOW}nexus-agent: %s${RESET}\n" "$1" >&2; }
 fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 
+# Bootstrap with retry — handles macOS launchctl `Load failed: 5: I/O error`
+# that recurs ~50% of the time when bootstrap immediately follows bootout
+# in the same session (launchd hasn't finalized the prior bootout yet).
+# Three attempts with 1s/2s/3s backoff before giving up.
+#
+# Without this retry, every git push has ~50% chance of leaving the agent
+# unloaded — KeepAlive=true can't help because nothing got loaded at all.
+# Observed today: 3 consecutive pushes, 3 silent agent-deaths in 2 hours.
+bootstrap_with_retry() {
+    local label="$1" plist="$2"
+    local attempt
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    for attempt in 1 2 3; do
+        sleep "$attempt"
+        if launchctl bootstrap "gui/$(id -u)" "$plist" 2>&1; then
+            launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
+            info "$label bootstrapped (attempt $attempt)"
+            return 0
+        fi
+    done
+    warn "$label bootstrap failed after 3 attempts — run: launchctl bootstrap gui/\$(id -u) $plist"
+    return 1
+}
+
 # ── Check for code changes (skip with --force) ───────────────────
 
 if [[ "${1:-}" != "--force" ]]; then
@@ -124,15 +148,9 @@ case "$OS" in
         mkdir -p "$LAUNCH_DIR"
         sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
         # Modern launchd: bootout (idempotent) → bootstrap → kickstart.
-        # `launchctl load` is legacy and returns EIO inconsistently after
-        # bootout in the same session.
-        launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>&1; then
-            launchctl kickstart -k "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
-            info "launchd agent bootstrapped and running"
-        else
-            warn "launchctl bootstrap failed for com.nexus.agent"
-        fi
+        # Retry-with-backoff via bootstrap_with_retry() to defeat the
+        # `Load failed: 5: I/O error` race after same-session bootout.
+        bootstrap_with_retry "com.nexus.agent" "$PLIST"
 
         # ── Notifier listener + TTS drain worker ─────────────────────────
         # Install both plists alongside the agent. The notifier script and
@@ -151,25 +169,13 @@ case "$OS" in
         if [[ -f "$DEPLOY_DIR/com.nexus.notifier.plist" ]]; then
             NOTIFIER_PLIST="$LAUNCH_DIR/com.nexus.notifier.plist"
             cp "$DEPLOY_DIR/com.nexus.notifier.plist" "$NOTIFIER_PLIST"
-            launchctl bootout "gui/$(id -u)/com.nexus.notifier" 2>/dev/null || true
-            if launchctl bootstrap "gui/$(id -u)" "$NOTIFIER_PLIST" 2>&1; then
-                launchctl kickstart -k "gui/$(id -u)/com.nexus.notifier" 2>/dev/null || true
-                info "notifier listener plist bootstrapped"
-            else
-                warn "launchctl bootstrap failed for com.nexus.notifier"
-            fi
+            bootstrap_with_retry "com.nexus.notifier" "$NOTIFIER_PLIST"
         fi
 
         if [[ -f "$DEPLOY_DIR/com.nexus.tts-player.plist" ]]; then
             PLAYER_PLIST="$LAUNCH_DIR/com.nexus.tts-player.plist"
             cp "$DEPLOY_DIR/com.nexus.tts-player.plist" "$PLAYER_PLIST"
-            launchctl bootout "gui/$(id -u)/com.nexus.tts-player" 2>/dev/null || true
-            if launchctl bootstrap "gui/$(id -u)" "$PLAYER_PLIST" 2>&1; then
-                launchctl kickstart -k "gui/$(id -u)/com.nexus.tts-player" 2>/dev/null || true
-                info "TTS drain worker plist bootstrapped"
-            else
-                warn "launchctl bootstrap failed for com.nexus.tts-player"
-            fi
+            bootstrap_with_retry "com.nexus.tts-player" "$PLAYER_PLIST"
         fi
         ;;
 esac
