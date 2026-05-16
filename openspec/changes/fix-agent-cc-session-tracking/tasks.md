@@ -23,7 +23,7 @@
   param to `handleGetSessions`. Push the filter into `queryActiveSessions` /
   `queryRecentSessions` so it executes at the DB level, not in Node.
 
-- [ ] 2.3 `apps/agent/src/routes/hooks.ts` — replace "insert-on-unknown-session" [beads:nx-9fx3l]
+- [x] 2.3 `apps/agent/src/routes/hooks.ts` — replace "insert-on-unknown-session" [beads:nx-9fx3l]
   branch with a `204 No Content` drop. Add the `info`-level orphan log.
 
 - [ ] 2.4 New endpoint `POST /sessions/probe` — triggers an immediate [beads:nx-lps43]

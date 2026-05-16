@@ -158,45 +158,18 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 /**
- * Ensure a session row exists for the given id. For non-`session_start`
- * events on unknown ids we INSERT a minimal stub so the FK on
- * `session_events.session_id` is satisfied. Idempotent.
+ * Check whether the session id is known to the agent.
+ *
+ * Prior to fix-agent-cc-session-tracking we used to INSERT a minimal stub
+ * for any non-`session_start` event on an unknown id so the FK on
+ * `session_events.session_id` was satisfied. That path is what produced
+ * the ~4k stub-session backlog. The current contract (per the spec):
+ *   - session_start  → creates the row via `handleSessionStart` (below)
+ *   - anything else  → dropped with 204 if the row doesn't exist
  */
-async function ensureSessionRow(
-  db: Db,
-  sessionId: string,
-  payload: HookEventPayload,
-): Promise<void> {
+async function sessionExists(db: Db, sessionId: string): Promise<boolean> {
   const existing = await getSessionById(db, sessionId);
-  if (existing) return;
-
-  const now = new Date();
-  await upsertSession(db, {
-    id: sessionId,
-    pid: payload.pid ?? 0,
-    project: undefined,
-    projectId: null,
-    machine: payload.machine ?? "local",
-    cwd: payload.cwd ?? "",
-    branch: payload.branch ?? null,
-    startedAt: now,
-    lastHeartbeat: now,
-    endedAt: null,
-    status: "active",
-    spec: null,
-    command: null,
-    agent: null,
-    tmuxSession: null,
-    ccSessionId: payload.cc_session_id ?? null,
-    tmuxTarget: payload.tmux_target ?? null,
-    rateLimitUtilization: null,
-    rateLimitType: null,
-    totalCostUsd: null,
-    model: payload.model ?? null,
-    credentialId: null,
-    credentialFingerprint: null,
-    sessionType: "ad_hoc",
-  });
+  return existing !== null;
 }
 
 async function handleSessionStart(
@@ -309,12 +282,19 @@ export async function handleHooks(
   let insertedEventId: number | null = null;
   try {
     // 1. Ensure parent session row exists. session_start does its own upsert
-    //    with full metadata; everything else gets a stub if missing so the
-    //    FK on session_events.session_id is satisfied.
+    //    with full metadata; everything else REQUIRES a pre-existing row
+    //    (created either by an earlier session_start hook or by the
+    //    process-watcher reconciler). Per fix-agent-cc-session-tracking the
+    //    handler MUST NOT synthesize stub rows from telemetry pings — those
+    //    produced the ~4k empty-row backlog. Orphans are dropped with 204.
     if (eventName === "session_start") {
       await handleSessionStart(db, sessionId, payload);
     } else {
-      await ensureSessionRow(db, sessionId, payload);
+      const exists = await sessionExists(db, sessionId);
+      if (!exists) {
+        log.info({ sessionId }, "hooks: orphan event sessionId=" + sessionId);
+        return new Response(null, { status: 204 });
+      }
     }
 
     // 2. Append the event row (full payload preserved as JSON metadata).
