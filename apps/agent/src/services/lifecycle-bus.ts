@@ -30,6 +30,34 @@ export interface SessionStoppedPayload {
   sessionId: string;
 }
 
+/**
+ * Emitted by the process-watcher reconciler when a new live `claude`
+ * process is discovered and a session row is INSERTED. The payload carries
+ * the discriminator fields the menu bar client needs to render the new
+ * row without a follow-up GET.
+ *
+ * See: fix-agent-cc-session-tracking, task 2.7.
+ */
+export interface RemoteSessionStartedPayload {
+  sessionId: string;
+  pid: number;
+  cwd?: string | null;
+  model?: string | null;
+  tmuxTarget?: string | null;
+  machine?: string | null;
+}
+
+/**
+ * Emitted by the process-watcher reconciler when a row whose PID is no
+ * longer alive is marked `endedAt = NOW()`, `status = "ended"`.
+ *
+ * See: fix-agent-cc-session-tracking, task 2.7.
+ */
+export interface RemoteSessionEndedPayload {
+  sessionId: string;
+  pid: number;
+}
+
 export interface SessionHeartbeatPayload {
   sessionId: string;
   timestamp: string;
@@ -143,6 +171,8 @@ export interface LifecycleEventMap {
   NotificationFired: NotificationFiredPayload;
   SettingsChanged: SettingsChangedPayload;
   HookEventReceived: HookEventReceivedPayload;
+  RemoteSessionStarted: RemoteSessionStartedPayload;
+  RemoteSessionEnded: RemoteSessionEndedPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;

@@ -29,7 +29,7 @@
 - [ ] 2.4 New endpoint `POST /sessions/probe` — triggers an immediate [beads:nx-lps43]
   process-watcher reconciliation pass instead of waiting for the next loop tick.
 
-- [ ] 2.5 New module `apps/agent/src/services/process-watcher.ts` — 30-second [beads:nx-z2x8r]
+- [x] 2.5 New module `apps/agent/src/services/process-watcher.ts` — 30-second [beads:nx-z2x8r]
   interval `setIntervalAsync` loop that runs `pgrep -af claude`, diffs against
   open session rows, and applies the reconciliation rules (close dead, open new).
 
