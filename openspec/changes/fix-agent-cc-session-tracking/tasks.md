@@ -56,7 +56,7 @@
 
 ## E2E Batch
 
-- [ ] 4.1 Unit test `apps/agent/src/routes/hooks.test.ts` — POST a hook event [beads:nx-6nbds]
+- [x] 4.1 Unit test `apps/agent/src/routes/hooks.test.ts` — POST a hook event [beads:nx-6nbds]
   with an unknown sessionId, assert 204 + no DB row created.
 
 - [ ] 4.2 Unit test `apps/agent/src/services/process-watcher.test.ts` — [beads:nx-4c3nk]

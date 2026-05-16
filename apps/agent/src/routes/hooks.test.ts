@@ -385,10 +385,21 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     expect(meta.stop_reason).toBe("api_error");
   });
 
-  // ─── 6. diagnostic_ping smoke test (task 3.2) ───────────────────────────
+  // ─── 6. diagnostic_ping smoke test (task 3.2 / fix-agent 4.1) ───────────
 
-  it("diagnostic_ping persists an event row end-to-end without manual session pre-creation", async () => {
+  it("diagnostic_ping for a pre-seeded session persists an event row (no orphan drop)", async () => {
+    // Per fix-agent-cc-session-tracking task 2.3 / 4.1: the handler MUST
+    // NOT synthesize a stub session row for non-session_start events. We
+    // now pre-seed via session_start so the event row can be appended.
     const sessionId = "sess-ping-1";
+
+    await handleHooks(
+      db,
+      buildHookRequest({
+        hook_event_name: "session_start",
+        session_id: sessionId,
+      }),
+    );
 
     const res = await handleHooks(
       db,
@@ -408,15 +419,129 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       .select()
       .from(sessionEvents)
       .where(eq(sessionEvents.sessionId, sessionId));
-    expect(eventRows).toHaveLength(1);
-    expect(eventRows[0]!.eventType).toBe("diagnostic_ping");
+    const pingRows = eventRows.filter((r) => r.eventType === "diagnostic_ping");
+    expect(pingRows).toHaveLength(1);
 
-    // Stub session row was auto-created so the FK is satisfied.
+    // Parent row exists because session_start created it (NOT auto-stubbed
+    // by the diagnostic_ping handler).
     const sessionRows = await db
       .select()
       .from(sessions)
       .where(eq(sessions.id, sessionId));
     expect(sessionRows).toHaveLength(1);
+  });
+
+  // ─── 6b. Orphan-drop coverage (fix-agent-cc-session-tracking 4.1) ──────
+
+  describe("Orphan-event drop (fix-agent-cc-session-tracking 4.1)", () => {
+    it("hook event for an unknown sessionId returns 204 and writes no rows", async () => {
+      const sessionId = "definitely-not-in-db";
+
+      // Snapshot row counts so we can prove nothing was written.
+      const sessionsBefore = await db.select().from(sessions);
+      const eventsBefore = await db.select().from(sessionEvents);
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "diagnostic_ping",
+          session_id: sessionId,
+        }),
+      );
+
+      // Per spec scenario "Hook event without matching session is dropped":
+      //   - 204 No Content (no body)
+      //   - no new session row inserted
+      //   - no new session_events row inserted
+      expect(res.status).toBe(204);
+
+      const sessionsAfter = await db.select().from(sessions);
+      const eventsAfter = await db.select().from(sessionEvents);
+      expect(sessionsAfter.length).toBe(sessionsBefore.length);
+      expect(eventsAfter.length).toBe(eventsBefore.length);
+
+      // Targeted assertion: no row with the orphan id exists.
+      const orphanSession = sessionsAfter.find((s) => s.id === sessionId);
+      expect(orphanSession).toBeUndefined();
+      const orphanEvents = eventsAfter.filter((e) => e.sessionId === sessionId);
+      expect(orphanEvents).toHaveLength(0);
+    });
+
+    it("hook event for a KNOWN sessionId still records the event (no false orphan)", async () => {
+      const sessionId = "sess-known-after-seed";
+
+      // Seed via session_start.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
+      // Snapshot the event count for THIS session after the seed.
+      const eventsBefore = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+
+      const res = await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "diagnostic_ping",
+          session_id: sessionId,
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const eventsAfter = await db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.sessionId, sessionId));
+      // session_start was the only prior event → +1 row for diagnostic_ping.
+      expect(eventsAfter.length).toBe(eventsBefore.length + 1);
+      expect(
+        eventsAfter.some((r) => r.eventType === "diagnostic_ping"),
+      ).toBe(true);
+    });
+
+    it("returns 204 for orphan events across multiple event types", async () => {
+      const cases = [
+        "post_compact",
+        "heartbeat",
+        "tool_use_end",
+        "agent_telemetry",
+        "command_start",
+        "notification",
+      ];
+
+      for (const eventName of cases) {
+        const sessionId = `orphan-${eventName}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+
+        const res = await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: eventName,
+            session_id: sessionId,
+          }),
+        );
+        expect(res.status).toBe(204);
+
+        const orphan = await db
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+        expect(orphan).toHaveLength(0);
+
+        const events = await db
+          .select()
+          .from(sessionEvents)
+          .where(eq(sessionEvents.sessionId, sessionId));
+        expect(events).toHaveLength(0);
+      }
+    });
   });
 
   // ─── 7. Lifecycle event family (task 3.1) ───────────────────────────────
@@ -467,6 +592,15 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("post_compact persists with compaction_count preserved in metadata", async () => {
       const sessionId = "sess-postcompact-1";
 
+      // Seed the parent row — orphan drops are tested separately.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -481,10 +615,10 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("post_compact");
-      expect(eventRows[0]!.metadata).toBeTruthy();
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const postCompact = eventRows.find((r) => r.eventType === "post_compact");
+      expect(postCompact).toBeDefined();
+      expect(postCompact!.metadata).toBeTruthy();
+      const meta = JSON.parse(postCompact!.metadata!) as {
         compaction_count?: number;
       };
       expect(meta.compaction_count).toBe(3);
@@ -492,6 +626,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("repeated post_compact appends one row per event (no upsert)", async () => {
       const sessionId = "sess-postcompact-2";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       for (const count of [1, 2, 3]) {
         const res = await handleHooks(
@@ -518,6 +660,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("pre_compact persists an event row", async () => {
       const sessionId = "sess-precompact-1";
 
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -531,12 +681,21 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("pre_compact");
+      expect(
+        eventRows.some((r) => r.eventType === "pre_compact"),
+      ).toBe(true);
     });
 
     it("heartbeat (singular) persists despite legacy session_heartbeat name divergence", async () => {
       const sessionId = "sess-heartbeat-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -551,8 +710,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("heartbeat");
+      expect(
+        eventRows.some((r) => r.eventType === "heartbeat"),
+      ).toBe(true);
     });
   });
 
@@ -561,6 +721,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
   describe("Agent-Lifecycle events (extend-hooks-event-taxonomy 3.2)", () => {
     it("agent_spawn persists with full audit fields in metadata", async () => {
       const sessionId = "sess-agentspawn-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -580,9 +748,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("agent_spawn");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const spawnRow = eventRows.find((r) => r.eventType === "agent_spawn");
+      expect(spawnRow).toBeDefined();
+      const meta = JSON.parse(spawnRow!.metadata!) as {
         agent_type?: string;
         agent_name?: string;
         parent_agent?: string;
@@ -599,6 +767,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("agent_complete persists deregistration row", async () => {
       const sessionId = "sess-agentcomplete-1";
 
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -613,12 +789,21 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("agent_complete");
+      expect(
+        eventRows.some((r) => r.eventType === "agent_complete"),
+      ).toBe(true);
     });
 
     it("agent_telemetry persists token + duration + spec/wave/phase metrics", async () => {
       const sessionId = "sess-agenttelem-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -642,9 +827,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("agent_telemetry");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const telemRow = eventRows.find((r) => r.eventType === "agent_telemetry");
+      expect(telemRow).toBeDefined();
+      const meta = JSON.parse(telemRow!.metadata!) as {
         total_tokens?: number;
         tool_uses?: number;
         duration_ms?: number;
@@ -667,6 +852,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("tool_use_end persists with tool name and duration in metadata", async () => {
       const sessionId = "sess-tooluseend-1";
 
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -683,9 +876,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("tool_use_end");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const toolEndRow = eventRows.find((r) => r.eventType === "tool_use_end");
+      expect(toolEndRow).toBeDefined();
+      const meta = JSON.parse(toolEndRow!.metadata!) as {
         tool?: string;
         duration_ms?: number;
       };
@@ -695,6 +888,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("tool_use_fail preserves tool, error, command, duration_ms verbatim", async () => {
       const sessionId = "sess-toolusefail-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -713,9 +914,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("tool_use_fail");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const failRow = eventRows.find((r) => r.eventType === "tool_use_fail");
+      expect(failRow).toBeDefined();
+      const meta = JSON.parse(failRow!.metadata!) as {
         tool?: string;
         error?: string;
         command?: string;
@@ -734,6 +935,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("command_start persists run_id for downstream join", async () => {
       const sessionId = "sess-commandstart-1";
 
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -750,9 +959,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("command_start");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const cmdStart = eventRows.find((r) => r.eventType === "command_start");
+      expect(cmdStart).toBeDefined();
+      const meta = JSON.parse(cmdStart!.metadata!) as {
         run_id?: string;
         command?: string;
       };
@@ -762,6 +971,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("command_end persists status and duration_ms", async () => {
       const sessionId = "sess-commandend-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -782,9 +999,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("command_end");
-      const meta = JSON.parse(eventRows[0]!.metadata!) as {
+      const cmdEnd = eventRows.find((r) => r.eventType === "command_end");
+      expect(cmdEnd).toBeDefined();
+      const meta = JSON.parse(cmdEnd!.metadata!) as {
         status?: string;
         duration_ms?: number;
       };
@@ -794,6 +1011,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("user_prompt persists row with event_type='user_prompt'", async () => {
       const sessionId = "sess-userprompt-1";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -809,8 +1034,9 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         .select()
         .from(sessionEvents)
         .where(eq(sessionEvents.sessionId, sessionId));
-      expect(eventRows).toHaveLength(1);
-      expect(eventRows[0]!.eventType).toBe("user_prompt");
+      expect(
+        eventRows.some((r) => r.eventType === "user_prompt"),
+      ).toBe(true);
     });
   });
 
@@ -895,6 +1121,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     it("permission_request preserves tool name in metadata", async () => {
       const sessionId = "sess-op-permreq-meta";
 
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
       const res = await handleHooks(
         db,
         buildHookRequest({
@@ -917,6 +1151,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("hook_failure preserves handler / exit_code / stderr in metadata", async () => {
       const sessionId = "sess-op-hookfail-meta";
+
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
 
       const res = await handleHooks(
         db,
@@ -1038,6 +1280,19 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
 
     it("notification event emits with project field omitted when payload lacks it", async () => {
       const sessionId = "sess-emit-noproject-1";
+
+      // Seed parent — orphan-drop is tested separately and would suppress
+      // emission since the handler returns 204 without ever broadcasting.
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+      // session_start fires its own emit; drop that so we count just the
+      // notification under test.
+      captured.length = 0;
 
       const res = await handleHooks(
         db,
