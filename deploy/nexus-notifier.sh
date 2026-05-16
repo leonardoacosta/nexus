@@ -46,7 +46,7 @@ set -uo pipefail
 
 # ── Helpers (single source of truth, used by both modes) ────────────────────
 
-NEXUS_URL="${NEXUS_URL:-http://homelab:7400}"
+NEXUS_URL="${NEXUS_URL:-http://localhost:7400}"
 LOG_FILE="${NEXUS_NOTIFIER_LOG:-$HOME/Library/Logs/nexus-notifier.log}"
 DRAIN_LOG="${NEXUS_TTS_PLAYER_LOG:-$HOME/Library/Logs/nexus-tts-player.log}"
 # Suppression cross-reference log — every "TTS-suppressed" / "banner-suppressed"

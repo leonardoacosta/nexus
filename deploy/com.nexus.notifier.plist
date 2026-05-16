@@ -15,7 +15,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>NEXUS_URL</key>
-    <string>http://homelab:7400</string>
+    <string>http://localhost:7400</string>
     <!-- Pre-bootstrap defaults — the listener calls GET /notifications/settings
          on startup and replaces these in-process. Defaults match the spec:
          tts on, banner on, ducking off (none -> normalized to "full"). Flip
