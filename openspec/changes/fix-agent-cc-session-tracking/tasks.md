@@ -42,7 +42,7 @@
 
 ## UI Batch
 
-- [ ] 3.1 `apps/swift/nexus/nexus/ProcessProbe.swift` — keep in place but flip [beads:nx-v553a]
+- [x] 3.1 `apps/swift/nexus/nexus/ProcessProbe.swift` — keep in place but flip [beads:nx-v553a]
   to opt-in via a NSUserDefaults flag (`nx.menubar.fallback.processProbe`).
   Default off once this spec lands.
 

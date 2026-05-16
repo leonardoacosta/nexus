@@ -23,6 +23,7 @@ enum PrefsKey {
     static let muteHotkey       = "nx.menubar.hotkey.mute"
     static let testHotkey       = "nx.menubar.hotkey.test"
     static let themeDensity     = "nx.menubar.themeDensity"
+    static let processProbeFallback = "nx.menubar.fallback.processProbe"
 }
 
 struct PreferencesScene: View {
@@ -35,6 +36,10 @@ struct PreferencesScene: View {
     @AppStorage(PrefsKey.muteHotkey, store: .nx) private var muteHotkey = "⌘M"
     @AppStorage(PrefsKey.testHotkey, store: .nx) private var testHotkey = "⌘T"
     @AppStorage(PrefsKey.themeDensity, store: .nx) private var themeDensity = "regular"
+    // Diagnostics fallback — read by `NexusViewModel.maybeAugmentWithProbe()`
+    // via `UserDefaults.standard.bool(forKey:)`, so this toggle MUST write to
+    // `.standard` (not the `.nx` suite) to be observable from there.
+    @AppStorage(PrefsKey.processProbeFallback) private var processProbeFallback = false
 
     var body: some View {
         TabView {
@@ -44,9 +49,11 @@ struct PreferencesScene: View {
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
             ttsTab
                 .tabItem { Label("TTS", systemImage: "waveform") }
+            diagnosticsTab
+                .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
         }
         .padding(20)
-        .frame(width: 460, height: 320)
+        .frame(width: 460, height: 360)
     }
 
     private var generalTab: some View {
@@ -92,6 +99,17 @@ struct PreferencesScene: View {
             TextField("Default voice ID (ElevenLabs)", text: $ttsVoice)
             Button("Send test phrase") {
                 Task { await vm.testVoice() }
+            }
+        }
+    }
+
+    private var diagnosticsTab: some View {
+        Form {
+            Section("Fallbacks") {
+                Toggle("SSH probe fallback", isOn: $processProbeFallback)
+                Text("Bypass the agent and SSH-probe homelab when the agent returns no real sessions. Off by default; turn on if the agent isn't tracking your processes.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }

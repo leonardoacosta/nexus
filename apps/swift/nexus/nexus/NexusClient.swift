@@ -337,6 +337,11 @@ final class NexusViewModel: ObservableObject {
     }
 
     private func maybeAugmentWithProbe() async {
+        // Opt-in diagnostics fallback. After `fix-agent-cc-session-tracking`
+        // ships, the agent populates real CC-fingerprint rows itself, so the
+        // SSH probe is no longer needed by default. Users can re-enable it
+        // via Preferences → Diagnostics if their agent isn't tracking.
+        guard UserDefaults.standard.bool(forKey: "nx.menubar.fallback.processProbe") else { return }
         let current = await client.snapshot().sessions
         let hasReal = current.contains { $0.hasCCFingerprint }
         guard !hasReal else { return }
