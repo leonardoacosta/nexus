@@ -1,6 +1,6 @@
 # session-persistence
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Session rows reflect real Claude Code processes
 

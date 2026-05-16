@@ -273,3 +273,24 @@ When token aggregation across multiple `session_summary` events is needed (e.g.,
 - **THEN** `SELECT SUM(output_tokens) FROM session_token_aggregates WHERE session_id='abc'` returns the cumulative count
 - **AND** the most recent row reflects the latest summary
 
+### Requirement: GET /sessions supports a fingerprint filter
+
+The `GET /sessions` endpoint SHALL accept an optional `withFingerprint=true`
+query parameter. When present, the response SHALL include only rows where at
+least one of `pid > 0`, `tmuxTarget != ""`, `ccSessionId != ""`, or
+`cwd != ""` holds. Default (parameter absent) returns all rows for backward
+compatibility.
+
+#### Scenario: Filter returns only fingerprinted rows
+
+- **GIVEN** the agent's DB has 10 rows, 3 with `pid > 0` and 7 with all
+  discriminator fields null
+- **WHEN** the client requests `GET /sessions?withFingerprint=true`
+- **THEN** the response array SHALL contain exactly 3 rows
+
+#### Scenario: Default behaviour unchanged
+
+- **WHEN** the client requests `GET /sessions` (no query string)
+- **THEN** the response SHALL include all rows regardless of fingerprint
+- **AND** be byte-identical to the pre-spec behaviour
+
