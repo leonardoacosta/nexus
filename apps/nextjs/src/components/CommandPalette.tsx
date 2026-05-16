@@ -129,7 +129,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     if (!isOpen) return;
 
     let cancelled = false;
-    fetchSessions().then((result) => {
+    // Command palette navigates to sessions — only show fingerprinted rows
+    // so stub-flood doesn't drown the picker. See
+    // openspec/changes/fix-agent-cc-session-tracking/specs/session-persistence/spec.md
+    fetchSessions({ withFingerprint: true }).then((result) => {
       if (!cancelled) {
         setSessions(result.sessions);
       }

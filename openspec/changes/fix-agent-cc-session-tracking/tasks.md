@@ -50,7 +50,7 @@
   `/sessions` request to `/sessions?withFingerprint=true` so the menu bar
   client doesn't need its own filter pass.
 
-- [ ] 3.3 Dashboard (`apps/nextjs/src/app/session/[id]/page.tsx` consumers) — [beads:nx-f4rp1]
+- [x] 3.3 Dashboard (`apps/nextjs/src/app/session/[id]/page.tsx` consumers) — [beads:nx-f4rp1]
   audit any places that assumed `sessionType: "ad_hoc"` is the default and
   update to handle the new fingerprinted row shape.
 

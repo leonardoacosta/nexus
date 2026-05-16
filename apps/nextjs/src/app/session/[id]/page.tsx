@@ -151,6 +151,14 @@ async function SessionDetailContent({ id }: { id: string }) {
               </MetadataRow>
             )}
 
+            {session.tmuxTarget && (
+              <MetadataRow label="tmux">
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>
+                  {session.tmuxTarget}
+                </span>
+              </MetadataRow>
+            )}
+
             {session.model && (
               <MetadataRow label="Model">
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>

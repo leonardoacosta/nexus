@@ -20,15 +20,51 @@ export interface SessionsResult {
   onlineAgentCount: number;
 }
 
+export interface FetchSessionsOptions {
+  /**
+   * When true, only return rows that have at least one CC-fingerprint
+   * discriminator populated: `pid > 0`, `tmuxTarget != ""`, `ccSessionId != ""`,
+   * or `cwd != ""`. Mirrors the agent's `GET /sessions?withFingerprint=true`
+   * contract (see `fix-agent-cc-session-tracking` / session-persistence spec).
+   *
+   * Default `false` for backward compatibility — existing callers see the
+   * pre-spec behaviour (all rows, including telemetry stubs).
+   */
+  withFingerprint?: boolean;
+}
+
 /** Threshold (ms) — agents with a snapshot/lastSeen newer than this are considered online. */
 const ONLINE_THRESHOLD_MS = 90_000;
 
 /**
  * Fetch all sessions from the database.
  * Returns sessions sorted: active first, then by last activity descending.
+ *
+ * Pass `{ withFingerprint: true }` from list/poll views (dashboard root,
+ * project detail) to filter out the ~thousands of telemetry stub rows that
+ * the agent used to synthesize before the session-tracking fix. Detail
+ * pages MAY omit the flag to keep historical stub rows reachable by direct
+ * link.
  */
-export async function fetchSessions(): Promise<SessionsResult> {
+export async function fetchSessions(
+  options: FetchSessionsOptions = {},
+): Promise<SessionsResult> {
+  const { withFingerprint = false } = options;
   const db = getReadOnlyDb();
+
+  // CC-fingerprint filter — pushed to the DB level so the wire payload
+  // doesn't carry stub rows. Matches the spec's "real session" predicate:
+  //   pid > 0 OR tmuxTarget != "" OR ccSessionId != "" OR cwd != ""
+  // In Postgres, NULL comparisons evaluate to NULL (falsy in WHERE), so
+  // `pid > 0` naturally excludes NULL pid rows — same for the != '' clauses.
+  const fingerprintFilter = withFingerprint
+    ? sql`(
+        ${sessionsTable.pid} > 0
+        OR ${sessionsTable.tmuxTarget} != ''
+        OR ${sessionsTable.ccSessionId} != ''
+        OR ${sessionsTable.cwd} != ''
+      )`
+    : undefined;
 
   const [rows, agentRows, snapshotRows] = await Promise.all([
     db
@@ -57,6 +93,7 @@ export async function fetchSessions(): Promise<SessionsResult> {
       })
       .from(sessionsTable)
       .leftJoin(projects, eq(sessionsTable.projectId, projects.id))
+      .where(fingerprintFilter)
       .orderBy(desc(sessionsTable.lastActivity)),
     db
       .select({ id: agents.id, lastSeen: agents.lastSeen })

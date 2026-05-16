@@ -4,7 +4,13 @@ import { fetchSessions } from "./actions/sessions";
 import { SessionListPoller } from "@/components/SessionListPoller";
 
 export default async function Home() {
-  const { sessions, agentCount, onlineAgentCount } = await fetchSessions();
+  // withFingerprint: only return rows backed by a real claude process
+  // (pid/tmuxTarget/ccSessionId/cwd populated). Excludes the legacy
+  // telemetry-stub rows the cleanup migration ended. See
+  // openspec/changes/fix-agent-cc-session-tracking/specs/session-persistence/spec.md
+  const { sessions, agentCount, onlineAgentCount } = await fetchSessions({
+    withFingerprint: true,
+  });
 
   return (
     <div>

@@ -15,7 +15,9 @@ export default async function ProjectDetailPage({
   const { name } = await params;
   const projectName = decodeURIComponent(name);
   const [{ sessions }, canonicalProject] = await Promise.all([
-    fetchSessions(),
+    // withFingerprint: drop legacy telemetry stubs from the per-project list.
+    // See openspec/changes/fix-agent-cc-session-tracking/specs/session-persistence/spec.md
+    fetchSessions({ withFingerprint: true }),
     fetchProject(projectName),
   ]);
 

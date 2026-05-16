@@ -47,7 +47,9 @@ export function SessionListPoller({
 
   const poll = useCallback(async () => {
     try {
-      const result = await fetchSessions();
+      // Match the SSR fetch in app/page.tsx — only fingerprinted rows.
+      // See openspec/changes/fix-agent-cc-session-tracking/specs/session-persistence/spec.md
+      const result = await fetchSessions({ withFingerprint: true });
       setSessions(result.sessions);
       setAgentCount(result.agentCount);
       setOnlineAgentCount(result.onlineAgentCount);
