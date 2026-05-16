@@ -239,23 +239,15 @@ function dispatchBanner(title: string, body: string, project: string): void {
   const activePid = readActivePid();
 
   if (TERMINAL_NOTIFIER) {
+    // NOTE: -sender breaks -execute on macOS 26.3 (and likely earlier).
+    // When -sender is set, the notification is delivered as if from the
+    // bundled app, and the click handler goes to that app instead of
+    // running the -execute command. Per-project bundles (the original
+    // bash listener's `nexus-bundle-manager.sh ensure` flow) are
+    // intentionally NOT used here because cancel-on-click is more
+    // valuable than per-project banner styling. Original Bun listener
+    // also did not use -sender.
     const args = ["-title", title, "-message", body];
-    // Bundle-per-project — call bundle manager if available.
-    const bundleMgr = `${HOME}/bin/nexus-bundle-manager.sh`;
-    if (existsSync(bundleMgr)) {
-      const emoji = leadingEmoji(title);
-      const name = emoji && title.startsWith(emoji + " ") ? title.slice(emoji.length + 1) : "";
-      let bundleId = "";
-      if (project && emoji && name) {
-        const r = spawnSync(bundleMgr, ["ensure", project, emoji, name]);
-        bundleId = r.stdout.toString().trim();
-      }
-      if (!bundleId) {
-        const r = spawnSync(bundleMgr, ["ensure-default"]);
-        bundleId = r.stdout.toString().trim();
-      }
-      if (bundleId) args.push("-sender", bundleId);
-    }
     if (activePid) args.push("-execute", `/bin/kill -TERM ${activePid}`);
     spawn(TERMINAL_NOTIFIER, args, { stdio: ["ignore", "ignore", "ignore"] });
     return;
