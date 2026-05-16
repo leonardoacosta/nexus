@@ -5,27 +5,25 @@
   <key>Label</key>
   <string>com.nexus.notifier</string>
 
+  <!--
+    SSE consumer is now Bun-native (deploy/nexus-listener.ts) — replaces
+    the bash `nexus-notifier.sh listen` mode which suffered from bash 3.2
+    process-substitution lifecycle bugs and pipe-buffering issues.
+    The bash `drain` mode (com.nexus.tts-player) is unchanged.
+    Spec: openspec/changes/restore-bun-listener/ (2026-05-16 reversal of
+    consolidate-mac-tts-listener).
+  -->
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/bash</string>
-    <string>-c</string>
-    <string>/Users/leonardoacosta/bin/nexus-notifier.sh listen</string>
+    <string>/opt/homebrew/bin/bun</string>
+    <string>run</string>
+    <string>/Users/leonardoacosta/bin/nexus-listener.ts</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
     <key>NEXUS_URL</key>
     <string>http://localhost:7400</string>
-    <!-- Pre-bootstrap defaults — the listener calls GET /notifications/settings
-         on startup and replaces these in-process. Defaults match the spec:
-         tts on, banner on, ducking off (none -> normalized to "full"). Flip
-         a value here to suppress a fresh install before the GET completes. -->
-    <key>TTS_ENABLED</key>
-    <string>1</string>
-    <key>BANNER_ENABLED</key>
-    <string>1</string>
-    <key>DUCKING_MODE</key>
-    <string>none</string>
   </dict>
 
   <key>RunAtLoad</key>
