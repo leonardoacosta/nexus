@@ -123,10 +123,16 @@ case "$OS" in
         PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
         mkdir -p "$LAUNCH_DIR"
         sed "s|\${USER}|$USER|g" "$DEPLOY_DIR/com.nexus.agent.plist" > "$PLIST"
-        # Unload first if already loaded (idempotent restart)
+        # Modern launchd: bootout (idempotent) → bootstrap → kickstart.
+        # `launchctl load` is legacy and returns EIO inconsistently after
+        # bootout in the same session.
         launchctl bootout "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
-        launchctl load "$PLIST"
-        info "launchd agent loaded and running"
+        if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>&1; then
+            launchctl kickstart -k "gui/$(id -u)/com.nexus.agent" 2>/dev/null || true
+            info "launchd agent bootstrapped and running"
+        else
+            warn "launchctl bootstrap failed for com.nexus.agent"
+        fi
 
         # ── Notifier listener + TTS drain worker ─────────────────────────
         # Install both plists alongside the agent. The notifier script and
@@ -146,21 +152,40 @@ case "$OS" in
             NOTIFIER_PLIST="$LAUNCH_DIR/com.nexus.notifier.plist"
             cp "$DEPLOY_DIR/com.nexus.notifier.plist" "$NOTIFIER_PLIST"
             launchctl bootout "gui/$(id -u)/com.nexus.notifier" 2>/dev/null || true
-            launchctl load "$NOTIFIER_PLIST"
-            info "notifier listener plist loaded"
+            if launchctl bootstrap "gui/$(id -u)" "$NOTIFIER_PLIST" 2>&1; then
+                launchctl kickstart -k "gui/$(id -u)/com.nexus.notifier" 2>/dev/null || true
+                info "notifier listener plist bootstrapped"
+            else
+                warn "launchctl bootstrap failed for com.nexus.notifier"
+            fi
         fi
 
         if [[ -f "$DEPLOY_DIR/com.nexus.tts-player.plist" ]]; then
             PLAYER_PLIST="$LAUNCH_DIR/com.nexus.tts-player.plist"
             cp "$DEPLOY_DIR/com.nexus.tts-player.plist" "$PLAYER_PLIST"
             launchctl bootout "gui/$(id -u)/com.nexus.tts-player" 2>/dev/null || true
-            launchctl load "$PLAYER_PLIST"
-            info "TTS drain worker plist loaded"
+            if launchctl bootstrap "gui/$(id -u)" "$PLAYER_PLIST" 2>&1; then
+                launchctl kickstart -k "gui/$(id -u)/com.nexus.tts-player" 2>/dev/null || true
+                info "TTS drain worker plist bootstrapped"
+            else
+                warn "launchctl bootstrap failed for com.nexus.tts-player"
+            fi
         fi
         ;;
 esac
 
 # ── Fan out to remote agents ─────────────────────────────────────
+#
+# Short-circuit when invoked with --force: that signal means we're a
+# downstream deploy (an upstream agent SSH'd into us). Re-fanning would
+# create a deploy ping-pong loop between agents. The original fanout
+# already covers all peers.
+
+if [[ "${1:-}" == "--force" ]]; then
+    skip "skipping fanout (--force invocation — downstream deploy)"
+    info "deploy complete"
+    exit 0
+fi
 
 REMOTES=$(get_remote_agents)
 if [[ -n "$REMOTES" ]]; then
