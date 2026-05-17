@@ -69,7 +69,6 @@ mock.module("../services/lifecycle-bus", () => ({
     onAny: mock(() => {}),
     offAny: mock(() => {}),
     setOrigin: mock(() => {}),
-    injectPeerEvent: mock(() => {}),
     removeAllListeners: mock(() => {}),
   },
 }));

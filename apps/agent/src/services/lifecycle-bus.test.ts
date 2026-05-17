@@ -29,7 +29,6 @@ describe("LifecycleBus", () => {
     expect(received[0]!.event).toBe("SessionStarted");
     expect(received[0]!.payload.sessionId).toBe("s1");
     expect(received[0]!.payload.project).toBe("nx");
-    expect(received[0]!.source).toBe("local");
     expect(received[0]!.seq).toBe(1);
     expect(received[0]!.ts).toBeTruthy();
   });
@@ -125,45 +124,6 @@ describe("LifecycleBus", () => {
 
     expect(sessionCount).toBe(2);
     expect(specCount).toBe(1);
-  });
-
-  // ── Peer event injection ──────────────────────────────────────────
-
-  test("injectPeerEvent sets source to peer", () => {
-    const received: LifecycleEnvelope[] = [];
-    bus.on("SessionStarted", (env) => received.push(env));
-
-    bus.injectPeerEvent({
-      event: "SessionStarted",
-      payload: { sessionId: "remote-1", project: "other" },
-      source: "local", // Should be overwritten to "peer"
-      seq: 42,
-      ts: "2026-01-01T00:00:00Z",
-      origin: "macbook",
-    });
-
-    expect(received).toHaveLength(1);
-    expect(received[0]!.source).toBe("peer");
-    expect(received[0]!.origin).toBe("macbook");
-  });
-
-  test("injectPeerEvent fires both typed and wildcard listeners", () => {
-    let typedCount = 0;
-    let wildcardCount = 0;
-
-    bus.on("SpecTransition", () => typedCount++);
-    bus.onAny(() => wildcardCount++);
-
-    bus.injectPeerEvent({
-      event: "SpecTransition",
-      payload: { project: "nx", specName: "s", transition: "new_spec" },
-      source: "peer",
-      seq: 1,
-      ts: new Date().toISOString(),
-    });
-
-    expect(typedCount).toBe(1);
-    expect(wildcardCount).toBe(1);
   });
 
   // ── Origin ─────────────────────────────────────────────────────────

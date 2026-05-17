@@ -274,9 +274,9 @@ describe("router: unknown channel (task 2.4)", () => {
 // ─── TTS suppression for unspeakable bodies (HTTP path) ──────────────────────
 //
 // `isUnspeakable()` blocks TTS for bodies that mention "ghosty" (or read like
-// raw file paths). The socket dispatcher and federation-notify path already
-// honor this guard. These tests verify the HTTP path (router.ts) does too —
-// regression coverage for bodies that previously slipped through to TTS via
+// raw file paths). The socket dispatcher path already honors this guard.
+// These tests verify the HTTP path (router.ts) does too — regression
+// coverage for bodies that previously slipped through to TTS via
 // /notifications/send.
 
 describe("router: TTS suppression for unspeakable bodies", () => {

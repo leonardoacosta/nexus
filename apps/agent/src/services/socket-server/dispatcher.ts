@@ -136,7 +136,7 @@ export function createSocketEventDispatcher(
         // Record in history for the `history` command.
         recordNotification(event.message, messageType, effectiveChannels);
 
-        // Emit to lifecycle bus for federation.
+        // Emit to lifecycle bus for local subscribers (SSE, notification router).
         //
         // Audio policy (2026-04-25): the legacy socket path is text-only.
         // The HTTP `/notifications/send` route is the canonical source for

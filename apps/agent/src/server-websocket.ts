@@ -3,7 +3,7 @@
  *
  * Encapsulates:
  * - ServerState class (connection tracking, ping/pong heartbeat)
- * - WebSocket upgrade routing (stream, interact, federation)
+ * - WebSocket upgrade routing (stream, interact)
  * - WebSocket event handlers (open, message, close, pong)
  * - Connection limit enforcement
  *
@@ -11,16 +11,17 @@
  * was removed by `drop-attach-secret-gate`. Reachability is now bounded at
  * the bind layer (loopback + Tailscale only) — every connection that reaches
  * upgrade is already authenticated by WireGuard or local OS identity.
+ *
+ * Federation note: `/ws/federation` and the peer-connector were removed by
+ * `remove-peer-connector` (spine-migration). The agent is no longer
+ * peer-to-peer at the lifecycle-event layer; cross-machine awareness now
+ * comes from clients reading `agents.toml` and querying each agent directly.
  */
 
 import type { ServerWebSocket } from "bun";
 import { logger } from "@nexus/core/node";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
-import {
-  lifecycleBus,
-  type LifecycleEnvelope,
-} from "./services/lifecycle-bus";
 
 // ── WebSocket keepalive constants ───────────────────────────────────────────
 const PING_INTERVAL_MS = 30_000;
@@ -35,7 +36,6 @@ const SESSION_ID_RE = /^[a-zA-Z0-9_.-]+$/;
 // ── WebSocket route patterns ────────────────────────────────────────────────
 const WS_STREAM_RE = /^\/sessions\/([^/]+)\/stream$/;
 const WS_INTERACT_RE = /^\/sessions\/([^/]+)\/interact$/;
-const WS_FEDERATION_PATH = "/ws/federation";
 
 // ── ServerState: encapsulates all per-server mutable state ─────────────────
 
@@ -51,11 +51,8 @@ export class ServerState {
   readonly streamManager: StreamManager;
 
   readonly allSockets = new Set<ServerWebSocket<WsData>>();
-  readonly federationSockets = new Set<ServerWebSocket<WsData>>();
   readonly pongDeadlines = new Map<ServerWebSocket<WsData>, ReturnType<typeof setTimeout>>();
   pingTimer: ReturnType<typeof setInterval> | null = null;
-  /** Per-federation-socket bus unsubscribe functions. */
-  readonly federationCleanup = new Map<ServerWebSocket<WsData>, () => void>();
 
   private constructor(hc: HealthCollector, sm: StreamManager) {
     this.healthCollector = hc;
@@ -104,8 +101,8 @@ export class ServerState {
 }
 
 /**
- * Handle WebSocket upgrade requests for /sessions/:id/stream,
- * /sessions/:id/interact, and /ws/federation.
+ * Handle WebSocket upgrade requests for /sessions/:id/stream and
+ * /sessions/:id/interact.
  *
  * Returns a Response on auth failure, connection limit, or bad request.
  * Returns `undefined` when the upgrade succeeds (Bun convention).
@@ -173,20 +170,6 @@ export function handleWsUpgrade(
     return undefined;
   }
 
-  // ── /ws/federation ──────────────────────────────────────────────────────
-  if (url.pathname === WS_FEDERATION_PATH) {
-    if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
-      return new Response("Too Many Requests", { status: 429 });
-    }
-    const upgraded = server.upgrade(request, {
-      data: { sessionId: "__federation__", mode: "federation" as const },
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    return undefined;
-  }
-
   // URL did not match any WebSocket route
   return null;
 }
@@ -201,27 +184,6 @@ export function createWsHandlers(state: ServerState) {
     open(ws: ServerWebSocket<WsData>) {
       state.allSockets.add(ws);
       state.startPingTimer();
-
-      // ── Federation mode: subscribe to lifecycle bus ──────────────
-      if (ws.data.mode === "federation") {
-        state.federationSockets.add(ws);
-
-        const handler = (envelope: LifecycleEnvelope) => {
-          // Only forward local events to the peer (prevent echo)
-          if (envelope.source === "peer") return;
-          try {
-            ws.sendText(JSON.stringify(envelope));
-          } catch {
-            // Socket may have closed — ignore
-          }
-        };
-
-        lifecycleBus.onAny(handler);
-        state.federationCleanup.set(ws, () => lifecycleBus.offAny(handler));
-
-        logger.debug("ws: federation peer connected");
-        return;
-      }
 
       if (ws.data.mode === "interact") {
         // Try to claim the writer mutex
@@ -241,21 +203,6 @@ export function createWsHandlers(state: ServerState) {
 
     message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
       const { sessionId, mode } = ws.data;
-
-      // ── Federation: parse peer events and inject into bus ──────────
-      if (mode === "federation") {
-        if (typeof msg === "string") {
-          try {
-            const envelope = JSON.parse(msg) as LifecycleEnvelope;
-            if (envelope.event && envelope.payload) {
-              lifecycleBus.injectPeerEvent(envelope);
-            }
-          } catch {
-            logger.debug("ws: federation received invalid JSON");
-          }
-        }
-        return;
-      }
 
       if (mode !== "interact") {
         // Stream-only clients may send a reconnect frame to replay buffered output.
@@ -328,22 +275,11 @@ export function createWsHandlers(state: ServerState) {
         state.pongDeadlines.delete(ws);
       }
 
-      // ── Federation cleanup ────────────────────────────────────────
-      if (ws.data.mode === "federation") {
-        state.federationSockets.delete(ws);
-        const cleanup = state.federationCleanup.get(ws);
-        if (cleanup) {
-          cleanup();
-          state.federationCleanup.delete(ws);
-        }
-        logger.debug("ws: federation peer disconnected");
-      } else {
-        state.streamManager.removeViewer(ws);
-        // Mirror the pong-timeout path: tear down the PTY session when the
-        // last viewer disconnects normally (task 1.1 — PTY orphan fix).
-        if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
-          state.streamManager.endSession(ws.data.sessionId);
-        }
+      state.streamManager.removeViewer(ws);
+      // Mirror the pong-timeout path: tear down the PTY session when the
+      // last viewer disconnects normally (task 1.1 — PTY orphan fix).
+      if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
+        state.streamManager.endSession(ws.data.sessionId);
       }
 
       logger.debug({ sessionId: ws.data.sessionId, mode: ws.data.mode }, "ws: close");

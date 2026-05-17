@@ -143,8 +143,8 @@ export async function routeNotification(
 
   // Strip TTS for unspeakable bodies (e.g. raw file paths, ghosty mentions).
   // Other channels still receive the notification — the user wants to know it
-  // happened, just not have it read aloud. Mirrors the socket dispatcher and
-  // federation-notify guards so HTTP-path callers cannot bypass suppression.
+  // happened, just not have it read aloud. Mirrors the socket dispatcher
+  // guards so HTTP-path callers cannot bypass suppression.
   const unspeakable = isUnspeakable(notification.body ?? "");
   const channels = unspeakable
     ? rule.channels.filter((c) => c !== "tts")
@@ -209,8 +209,8 @@ export async function routeNotificationParallel(
   }) as NotificationChannel[];
 
   // Strip TTS for unspeakable bodies (e.g. raw file paths, ghosty mentions).
-  // Mirrors the socket dispatcher and federation-notify guards so HTTP-path
-  // callers cannot bypass suppression.
+  // Mirrors the socket dispatcher guards so HTTP-path callers cannot bypass
+  // suppression.
   if (isUnspeakable(notification.body ?? "")) {
     if (knownChannels.includes("tts")) {
       log.info(

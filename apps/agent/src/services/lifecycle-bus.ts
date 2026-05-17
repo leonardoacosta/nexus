@@ -3,11 +3,13 @@
  *
  * Typed EventEmitter that acts as the central nervous system for the agent.
  * All significant state changes (session lifecycle, spec transitions,
- * credential swaps, notifications) are emitted here. The peer connector
- * and SSE endpoint subscribe to this bus to propagate events.
+ * credential swaps, notifications) are emitted here. The SSE endpoint
+ * subscribes to this bus to propagate events to local listeners.
  *
- * Events originating from peer agents carry `source: 'peer'` to prevent
- * re-forwarding (echo suppression).
+ * Federation note: peer agent federation (peer-connector, /ws/federation,
+ * `source: 'peer'`, `injectPeerEvent`) was removed by `remove-peer-connector`
+ * (spine-migration). Cross-machine awareness now comes from clients reading
+ * `agents.toml` and querying each agent directly.
  */
 
 import { EventEmitter } from "node:events";
@@ -184,8 +186,7 @@ export type LifecycleEventName = keyof LifecycleEventMap;
 export interface LifecycleEnvelope<K extends LifecycleEventName = LifecycleEventName> {
   event: K;
   payload: LifecycleEventMap[K];
-  source: "local" | "peer";
-  /** Monotonic sequence number (local only). */
+  /** Monotonic sequence number. */
   seq: number;
   /** ISO-8601 timestamp. */
   ts: string;
@@ -207,7 +208,7 @@ export class LifecycleBus {
   private originName: string | undefined;
 
   constructor() {
-    // Allow many subscribers (SSE, federation, notification router, etc.)
+    // Allow many subscribers (SSE, notification router, etc.)
     this.emitter.setMaxListeners(50);
   }
 
@@ -245,8 +246,7 @@ export class LifecycleBus {
   /**
    * Emit a lifecycle event.
    *
-   * Local events get `source: 'local'` and an incrementing sequence number.
-   * Peer-sourced events should use `injectPeerEvent()` instead.
+   * Each emit gets an incrementing sequence number and an ISO timestamp.
    */
   emit<K extends LifecycleEventName>(
     event: K,
@@ -255,7 +255,6 @@ export class LifecycleBus {
     const envelope: LifecycleEnvelope<K> = {
       event,
       payload,
-      source: "local",
       seq: ++this.seq,
       ts: new Date().toISOString(),
       origin: this.originName,
@@ -265,23 +264,6 @@ export class LifecycleBus {
     this.emitter.emit(event, envelope);
     this.emitter.emit("*", envelope);
     return envelope;
-  }
-
-  /**
-   * Inject an event received from a peer agent.
-   *
-   * Marked with `source: 'peer'` so the peer connector can filter it
-   * out and avoid echo loops.
-   */
-  injectPeerEvent(envelope: LifecycleEnvelope): void {
-    // Overwrite source to ensure peer tag is always set
-    const peerEnvelope: LifecycleEnvelope = { ...envelope, source: "peer" };
-    log.debug(
-      { event: peerEnvelope.event, origin: peerEnvelope.origin },
-      "lifecycle-bus: inject peer event",
-    );
-    this.emitter.emit(peerEnvelope.event, peerEnvelope);
-    this.emitter.emit("*", peerEnvelope);
   }
 
   /** Current sequence number (for testing). */

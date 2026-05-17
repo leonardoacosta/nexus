@@ -6,7 +6,14 @@ import { join } from "node:path";
 import { expandTilde } from "./path";
 import { createLogger } from "./logger";
 
-/** Schema for a single agent entry in agents.toml */
+/**
+ * Schema for a single agent entry in agents.toml.
+ *
+ * agents.toml is **client-discovery only** as of `remove-peer-connector`
+ * (spine-migration). Each entry describes a reachable agent that the TUI /
+ * Mac client can query directly. The agent daemon does NOT use this file to
+ * federate lifecycle events between peers — that surface was removed.
+ */
 export const AgentConfigSchema = z.object({
   name: z.string(),
   host: z.string(),
