@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — From mesh to spine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,200..900,0..100,0..1;1,9..144,200..900,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Newsreader', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+    --ink: #0a0a0b; --ink-2: #131316; --ink-3: #1c1c20; --ink-4: #26262c;
+    --paper: #f4ede1; --paper-dim: #d9d1c2; --paper-faint: rgba(244,237,225,0.55);
+    --paper-trace: rgba(244,237,225,0.08);
+    --amber: #ffb000; --amber-glow: rgba(255,176,0,0.18); --amber-trace: rgba(255,176,0,0.32);
+    --cyan: #26d4ff; --cyan-trace: rgba(38,212,255,0.28);
+    --rust: #d24f2c; --rust-trace: rgba(210,79,44,0.32);
+    --moss: #7cbf6b; --moss-trace: rgba(124,191,107,0.32);
+    --violet: #a685ff;
+    --rule: rgba(244,237,225,0.12); --rule-strong: rgba(244,237,225,0.28);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; background: var(--ink); }
+  body {
+    font-family: var(--font-body); font-weight: 320; font-size: 16px; line-height: 1.6;
+    color: var(--paper); background: var(--ink);
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+      linear-gradient(to right, var(--paper-trace) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--paper-trace) 1px, transparent 1px);
+    background-size: 200px 200px, 32px 32px, 32px 32px;
+    -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; overflow-x: hidden;
+  }
+  ::selection { background: var(--amber); color: var(--ink); }
+
+  .topstrip {
+    position: sticky; top: 0; z-index: 20;
+    background: linear-gradient(to bottom, var(--ink) 60%, rgba(10,10,11,0.85));
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule); padding: 12px 32px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--paper-faint);
+    display: flex; align-items: center; gap: 24px;
+  }
+  .topstrip .dot { width: 6px; height: 6px; background: var(--amber); border-radius: 50%;
+    box-shadow: 0 0 12px var(--amber); animation: pulse 3s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .topstrip .crumb { color: var(--paper); }
+  .topstrip .sep { color: var(--ink-4); }
+  .topstrip .right { margin-left: auto; color: var(--amber); }
+
+  /* ===== HERO ===== */
+  .hero { padding: 88px 32px 100px; position: relative; overflow: hidden; }
+  .hero::before { content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 900px 420px at 20% 30%, var(--amber-glow), transparent 70%),
+                radial-gradient(ellipse 700px 320px at 80% 80%, rgba(38,212,255,0.08), transparent 70%);
+    pointer-events: none; }
+  .hero-inner { max-width: 1480px; margin: 0 auto; position: relative; }
+  .hero-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--amber); margin-bottom: 28px;
+    display: flex; align-items: center; gap: 12px; }
+  .hero-eyebrow::before { content: ""; width: 32px; height: 1px; background: var(--amber); }
+  .hero-title { font-family: var(--font-display); font-style: italic; font-weight: 320;
+    font-size: clamp(64px, 9vw, 144px); line-height: 0.92; letter-spacing: -0.04em;
+    font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 144; color: var(--paper); }
+  .hero-title .accent { color: var(--amber); font-style: italic; }
+  .hero-title .strike { text-decoration: line-through; text-decoration-thickness: 4px;
+    text-decoration-color: var(--rust); }
+  .hero-sub { margin-top: 40px; max-width: 900px; font-family: var(--font-body);
+    font-size: 21px; line-height: 1.45; color: var(--paper-dim); font-weight: 320; }
+  .hero-sub em { font-style: italic; color: var(--paper); font-family: var(--font-display);
+    font-variation-settings: "opsz" 36; }
+
+  /* ===== Pivot summary card ===== */
+  .pivot { max-width: 1480px; margin: 64px auto 0; display: grid;
+    grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--rule); }
+  .pivot > div { padding: 28px 32px; }
+  .pivot > div + div { border-left: 1px solid var(--rule); }
+  .pivot .col-head { font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.32em; text-transform: uppercase; margin-bottom: 10px; }
+  .pivot .col-head.then { color: var(--rust); }
+  .pivot .col-head.now { color: var(--moss); }
+  .pivot .col-title { font-family: var(--font-display); font-style: italic;
+    font-size: 32px; line-height: 1.05; color: var(--paper);
+    font-variation-settings: "SOFT" 50, "opsz" 48; margin-bottom: 16px; }
+  .pivot ul { list-style: none; font-family: var(--font-mono); font-size: 13px;
+    color: var(--paper); line-height: 1.95; }
+  .pivot ul li::before { content: "·"; color: var(--amber); margin-right: 10px; font-weight: 700; }
+  .pivot .col-then ul li::before { color: var(--rust); }
+  .pivot .col-now ul li::before { color: var(--moss); }
+
+  /* ===== TOC ===== */
+  .toc { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 24px 32px; background: var(--ink-2); margin-top: 64px; }
+  .toc-grid { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: repeat(6, 1fr); gap: 16px; }
+  .toc a { text-decoration: none; color: var(--paper-dim); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 8px 0; border-top: 2px solid var(--ink-4); transition: 0.18s ease; display: block; }
+  .toc a:hover { color: var(--amber); border-top-color: var(--amber); }
+  .toc a .n { color: var(--amber); margin-right: 8px; }
+  .toc a .l { display: block; margin-top: 4px; font-family: var(--font-body); font-size: 14px;
+    font-style: italic; text-transform: none; letter-spacing: 0; color: var(--paper); }
+
+  /* ===== Section frame ===== */
+  section.chapter { padding: 96px 32px 64px; border-top: 1px solid var(--rule); }
+  .chap-head { max-width: 1480px; margin: 0 auto 40px; display: grid;
+    grid-template-columns: 200px minmax(0,1fr) minmax(0,380px); gap: 48px; align-items: start; }
+  .chap-num { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--amber); }
+  .chap-num::before { content: "§"; margin-right: 4px; color: var(--paper-faint); }
+  .chap-num .dot { color: var(--paper-faint); margin: 0 6px; }
+  .chap-title { font-family: var(--font-display); font-style: italic; font-weight: 320;
+    font-size: clamp(36px, 4.4vw, 64px); line-height: 0.98; letter-spacing: -0.025em;
+    color: var(--paper); font-variation-settings: "SOFT" 50, "opsz" 96; }
+  .chap-title .strong { font-style: normal; font-weight: 700; font-variation-settings: "SOFT" 0, "opsz" 96; }
+  .chap-deck { font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+    color: var(--paper-dim); border-left: 1px solid var(--rule-strong); padding-left: 24px; }
+  .chap-deck strong { color: var(--paper); font-weight: 600; }
+  .chap-deck code { font-family: var(--font-mono); color: var(--amber); font-size: 13px; }
+
+  /* ===== Evolution table ===== */
+  .evo { max-width: 1480px; margin: 0 auto; border: 1px solid var(--rule); background: var(--ink-2); }
+  .evo-header { display: grid; grid-template-columns: 280px 1fr 1fr; gap: 0;
+    background: var(--ink-3); border-bottom: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.24em;
+    text-transform: uppercase; }
+  .evo-header > div { padding: 14px 24px; }
+  .evo-header > div + div { border-left: 1px solid var(--rule); }
+  .evo-header .h-path { color: var(--amber); }
+  .evo-header .h-now { color: var(--rust); }
+  .evo-header .h-then { color: var(--moss); }
+
+  .evo-row { display: grid; grid-template-columns: 280px 1fr 1fr; gap: 0;
+    border-bottom: 1px solid var(--rule); transition: background 0.2s ease; }
+  .evo-row:last-child { border-bottom: none; }
+  .evo-row:hover { background: rgba(255,176,0,0.025); }
+  .evo-row > div { padding: 24px; border-left: 1px solid var(--rule); }
+  .evo-row > div:first-child { border-left: none; }
+
+  .evo-path { display: flex; flex-direction: column; gap: 8px; }
+  .evo-path .name { font-family: var(--font-display); font-style: italic; font-size: 22px;
+    line-height: 1.1; color: var(--paper); font-variation-settings: "opsz" 36; }
+  .evo-path .file { font-family: var(--font-mono); font-size: 11px;
+    color: var(--paper-faint); word-break: break-all; }
+
+  .evo-cell { font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+    color: var(--paper-dim); display: flex; flex-direction: column; gap: 10px; }
+  .evo-cell em { font-style: italic; color: var(--paper); font-family: var(--font-display);
+    font-variation-settings: "opsz" 24; }
+  .evo-cell code { font-family: var(--font-mono); font-size: 12px; color: var(--cyan);
+    background: var(--ink-3); padding: 1px 5px; border-radius: 1px; }
+  .evo-cell strong { color: var(--paper); font-weight: 600; }
+  .evo-cell .body { color: var(--paper); }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: 3px 10px; font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+    border: 1px solid var(--rule); align-self: flex-start; white-space: nowrap;
+    font-weight: 500; }
+  .badge.keep   { color: var(--paper); border-color: var(--rule-strong); }
+  .badge.modify { color: var(--amber); border-color: var(--amber); }
+  .badge.extend { color: var(--cyan); border-color: var(--cyan); }
+  .badge.add    { color: var(--moss); border-color: var(--moss); }
+  .badge.remove { color: var(--rust); border-color: var(--rust); }
+  .badge.rename { color: var(--violet); border-color: var(--violet); }
+
+  /* migration note */
+  .evo-row .note { grid-column: 1 / -1; padding: 16px 24px; background: var(--ink-3);
+    border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px;
+    color: var(--paper-faint); line-height: 1.6; }
+  .evo-row .note strong { color: var(--amber); font-weight: 500; margin-right: 8px; }
+  .evo-row.has-note { grid-template-columns: 280px 1fr 1fr; grid-template-rows: auto auto; }
+  .evo-row.has-note > .note { grid-column: 1 / 4; }
+
+  /* ===== Marginalia ===== */
+  .marginalia { max-width: 1480px; margin: 48px auto 0; display: grid;
+    grid-template-columns: 120px 1fr; gap: 32px; padding: 32px 0;
+    border-top: 1px solid var(--rule); }
+  .marginalia .note-num { font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--amber); }
+  .marginalia .note-body { font-family: var(--font-body); font-size: 17px;
+    line-height: 1.55; color: var(--paper-dim); max-width: 800px; }
+  .marginalia .note-body em { font-style: italic; color: var(--paper);
+    font-family: var(--font-display); font-variation-settings: "opsz" 36; }
+  .marginalia .note-body code { font-family: var(--font-mono); font-size: 14px;
+    color: var(--amber); background: var(--ink-2); padding: 1px 6px; border-radius: 2px; }
+
+  /* ===== Migration timeline (§05) ===== */
+  .timeline { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: 80px 1fr; gap: 0; }
+  .tl-row { display: contents; }
+  .tl-num { padding: 32px 0; font-family: var(--font-display); font-style: italic;
+    font-size: 64px; font-weight: 700; color: var(--paper-faint); line-height: 1;
+    font-variation-settings: "opsz" 72; border-right: 1px solid var(--rule);
+    text-align: center; padding-right: 24px; }
+  .tl-body { padding: 32px 0 32px 32px; border-bottom: 1px solid var(--rule); }
+  .tl-row:last-child .tl-body { border-bottom: none; }
+  .tl-phase { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.24em;
+    text-transform: uppercase; color: var(--amber); margin-bottom: 6px; }
+  .tl-title { font-family: var(--font-display); font-style: italic; font-size: 32px;
+    line-height: 1.1; color: var(--paper); margin-bottom: 12px;
+    font-variation-settings: "SOFT" 50, "opsz" 48; }
+  .tl-desc { font-family: var(--font-body); font-size: 16px; line-height: 1.55;
+    color: var(--paper-dim); max-width: 780px; margin-bottom: 14px; }
+  .tl-steps { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-steps span { font-family: var(--font-mono); font-size: 11px; color: var(--paper);
+    background: var(--ink-3); border: 1px solid var(--rule); padding: 4px 10px;
+    border-radius: 1px; }
+  .tl-steps span .b { color: var(--amber); }
+
+  /* ===== Footer ===== */
+  footer.colophon { border-top: 1px solid var(--rule); padding: 64px 32px 48px; background: var(--ink-2); margin-top: 64px; }
+  .colo-inner { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: 2fr 1fr 1fr; gap: 64px; align-items: end; }
+  .colo-title { font-family: var(--font-display); font-style: italic;
+    font-size: 32px; line-height: 1; color: var(--paper);
+    font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 72; }
+  .colo-deck { font-family: var(--font-body); font-size: 14px;
+    color: var(--paper-dim); margin-top: 16px; max-width: 540px; }
+  .colo-meta dt { font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--paper-faint); }
+  .colo-meta dd { font-family: var(--font-mono); font-size: 12px;
+    color: var(--paper); margin: 4px 0 14px; }
+
+  @media (max-width: 1080px) {
+    .pivot { grid-template-columns: 1fr; }
+    .pivot > div + div { border-left: none; border-top: 1px solid var(--rule); }
+    .chap-head { grid-template-columns: 1fr; gap: 24px; }
+    .toc-grid { grid-template-columns: repeat(2, 1fr); }
+    .evo-header, .evo-row { grid-template-columns: 1fr; }
+    .evo-row > div { border-left: none; border-top: 1px solid var(--rule); }
+    .evo-row > div:first-child { border-top: none; }
+    .timeline { grid-template-columns: 1fr; }
+    .tl-num { border-right: none; text-align: left; padding-left: 0; }
+    .colo-inner { grid-template-columns: 1fr; gap: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topstrip">
+  <span class="dot"></span>
+  <span class="crumb">Nexus</span>
+  <span class="sep">/</span>
+  <span>Evolution</span>
+  <span class="sep">/</span>
+  <span>Existing &harr; Ideal</span>
+  <span class="right">REV 2026.05.17</span>
+</div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">A spike on the next refactor</div>
+    <h1 class="hero-title">
+      From the <span class="strike">mesh</span> you have,<br>
+      to the <span class="accent">spine</span> you want.
+    </h1>
+    <p class="hero-sub">
+      The current Nexus is a peer-to-peer mesh of equal agents that
+      <em>could have</em> served a small team. The actual user is one
+      developer with one homelab. This document is the difference between
+      those two systems &mdash; a service-by-service spike of what stays,
+      what gets cut, and what fills the gap.
+    </p>
+
+    <div class="pivot">
+      <div class="col-then">
+        <div class="col-head then">Existing &middot; today</div>
+        <div class="col-title">Mesh of equals</div>
+        <ul>
+          <li>nexus-agent on every machine (homelab + macbook)</li>
+          <li>peer-to-peer /ws/federation with echo suppression</li>
+          <li>two ingress paths (HTTP /hooks + AF_UNIX)</li>
+          <li>bash listener + bash player + FIFO IPC on Mac</li>
+          <li>web dashboard (nextjs) as universal client</li>
+          <li>nexus-tui as terminal client</li>
+          <li>elevenlabs key encrypted on homelab</li>
+          <li>"credential pool" service mis-used for ElevenLabs only</li>
+          <li>hook payload truncated to RECOGNIZED_EVENTS allow-list</li>
+          <li>5m idle threshold &mdash; bound to old CC session cache</li>
+        </ul>
+      </div>
+      <div class="col-now">
+        <div class="col-head now">Ideal &middot; north star</div>
+        <div class="col-title">Spine + native clients</div>
+        <ul>
+          <li>One nexus-agent &mdash; homelab only</li>
+          <li>No federation &mdash; clients read over SSE/WS</li>
+          <li>AF_UNIX socket-only ingestion</li>
+          <li>Swift menu bar app owns audio + dashboard + settings</li>
+          <li>Native iOS app (separate target) for mobile</li>
+          <li>Web dashboard deprecated</li>
+          <li>ElevenLabs key in macOS Keychain (Swift-owned)</li>
+          <li>cc-credential-manager: writes ~/.claude/credentials.json directly</li>
+          <li>Full hook payload pass-through + schema-drift detector</li>
+          <li>60m idle threshold &mdash; aligned with current CC cache</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-grid">
+    <a href="#ch-00"><span class="n">00</span>Pivot<span class="l">Summary</span></a>
+    <a href="#ch-01"><span class="n">01</span>apps/agent<span class="l">The daemon</span></a>
+    <a href="#ch-02"><span class="n">02</span>apps/*<span class="l">Clients &amp; tools</span></a>
+    <a href="#ch-03"><span class="n">03</span>packages/*<span class="l">DB + shared</span></a>
+    <a href="#ch-04"><span class="n">04</span>deploy/<span class="l">Install + units</span></a>
+    <a href="#ch-05"><span class="n">05</span>Migration<span class="l">Phases</span></a>
+  </div>
+</nav>
+
+<!-- ============================================================
+     CHAPTER 01 — apps/agent (the daemon, internals)
+     ============================================================ -->
+<section class="chapter" id="ch-01">
+  <div class="chap-head">
+    <div class="chap-num">01 <span class="dot">&middot;</span> apps/agent</div>
+    <h2 class="chap-title">The <span class="strong">daemon's</span><br>internals.</h2>
+    <p class="chap-deck">
+      The nexus-agent is where the bulk of the structural shift lands.
+      Two ingress paths collapse to one. Three notification channels
+      collapse to text-only dispatch. Peer federation goes away
+      entirely. Two new services appear &mdash; a schema-drift detector
+      and a git-project resolver &mdash; that surface telemetry the
+      current pipeline silently drops.
+    </p>
+  </div>
+
+  <div class="evo">
+    <div class="evo-header">
+      <div class="h-path">file / service</div>
+      <div class="h-now">existing &middot; today</div>
+      <div class="h-then">ideal &middot; north star</div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">HTTP /hooks</span>
+        <span class="file">routes/hooks.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Cross-machine HTTP ingress for CC hook payloads. Fire-and-forget, always 200. Exists to handle CC sessions on any Tailnet peer.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Homelab is the only machine running CC. No cross-machine ingress needed. <em>AF_UNIX socket replaces this entirely</em>.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">AF_UNIX dispatcher</span>
+        <span class="file">services/socket-server/dispatcher.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Secondary ingress: <code>~/.nexus/agent.sock</code> + NDJSON. Kernel-uid auth, ~50&times; faster than HTTP.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">PROMOTE</span>
+        Becomes <strong>sole ingress</strong>. Move out of services/ into routes/ alongside other entry points; rename to <code>ingress-socket.ts</code> for clarity.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">GET /events/stream</span>
+        <span class="file">routes/events-sse.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        SSE subscription to lifecycle bus. 30s keepalive. Mac listener's only consumer today.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        <em>Sole client read path</em> in spine model. Swift/iOS/watchOS all subscribe here over Tailnet.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">GET /specs/events</span>
+        <span class="file">routes/specs-events.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Translates <code>SpecTransition</code> bus events into wire-format SSE. Consumer is the nextjs dashboard's specs page.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Consumer shifts from nextjs to Swift dashboard. Wire format stays identical.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">PTY attach endpoints</span>
+        <span class="file">/sessions/$id/stream + /interact</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Two WS endpoints: <code>/stream</code> (read-only tail) and <code>/interact</code> (bidi, one-driver-only). Powered by StreamManager.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">DROP /interact</span>
+        Keep <code>/stream</code> for Swift dashboard's live PTY pane. <em>Drop /interact &mdash; use SSH for typing.</em> Removes a whole class of "who's driving?" race conditions.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">POST /notifications/send</span>
+        <span class="file">routes/notifications.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Caller-driven notification ingress. Accepts <code>channel: [tts, desktop, slack]</code>; routes to appropriate handler.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">MODIFY</span>
+        Strip <code>channel</code> field. Agent emits text-only <code>NotificationFired</code>; Swift app decides locally whether to synthesize audio, show banner, or stay silent. Settings move to Swift's local store.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">POST /commands/*</span>
+        <span class="file">routes/commands.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        kill/restart/attach dispatchers for sessions. Used by TUI.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Swift app needs the same surface. No protocol changes.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">process-watcher</span>
+        <span class="file">services/process-watcher.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        30s pgrep reconcile. Dual purpose: discovers unhooked CC sessions and detects dead PIDs.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">ROLE NARROWS</span>
+        With global hooks installed, every CC session emits telemetry. pgrep becomes <em>watchdog only</em> &mdash; catches dead/crashed PIDs the Stop hook missed.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">spec-watcher</span>
+        <span class="file">services/spec-watcher/</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        60s poll + fs.watch + batch-stagger. Emits SpecTransition events.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Consumer chain stays: bus &rarr; specs-events route &rarr; Swift dashboard.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">peer-connector</span>
+        <span class="file">services/peer-connector.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        WebSocket federation to peer agents. Echo suppression via <code>source: 'peer'</code>. Per-peer 1000-event buffer.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        No peer agents in spine model. Echo suppression unnecessary. <em>~600 LOC deleted</em>.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">session-manager</span>
+        <span class="file">session-manager.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Write-through Map cache + 60s sweep. Idle threshold <strong>5m</strong> (tied to legacy CC cache).
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">MODIFY</span>
+        Bump idle to <strong>60m</strong> (matches CC's current cache). Add <code>parent_session_id</code> + <code>child_role</code> tracking for sub-agent tree from <code>agent_spawn</code> events.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">health-collector + scheduler</span>
+        <span class="file">health-collector.ts &middot; health-scheduler.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        systeminformation collects every 5s; scheduler persists every 30s. Docker probe backoff 30s &rarr; 600s.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        No structural change. Swift dashboard renders this surface natively.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">credentials/ &mdash; whole dir</span>
+        <span class="file">credentials/*.ts (8 files)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        "Credential pool" service. Mostly used for ElevenLabs key encryption + active-credential-watcher for CC token streams. <em>Misnamed for current scope</em>.
+      </div>
+      <div class="evo-cell">
+        <span class="badge rename">RENAME + COLLAPSE</span>
+        Single file <code>cc-credential-manager.ts</code>. <em>Actively manages</em> <code>~/.claude/credentials.json</code> &mdash; tracks profile expiry, refreshes tokens, swaps on rate-limit. ElevenLabs handling removed entirely (moves to Swift Keychain).
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">notifications/ &mdash; whole dir</span>
+        <span class="file">notifications/manager.ts + channels/*</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Manager + three channel handlers: <code>tts.ts</code>, <code>desktop.ts</code>, <code>slack.ts</code>.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">COLLAPSE</span>
+        Single file <code>notifications.ts</code>. Text-only dispatch. All channel logic removed (Swift owns rendering).
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">notifications/channels/tts.ts</span>
+        <span class="file">channels/tts.ts (~254 lines)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Calls ElevenLabs API, base64-encodes mp3, emits NotificationFired with audioBase64.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Swift app owns synthesis end-to-end. Key in macOS Keychain (proper secret storage). Agent never sees ElevenLabs.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">notifications/channels/desktop.ts</span>
+        <span class="file">channels/desktop.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Spawns <code>terminal-notifier</code> for macOS banners (only works when agent runs on Mac).
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Swift app uses <code>UNNotificationCenter</code> natively. Real click handling, proper notification grouping.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">notifications/channels/slack.ts</span>
+        <span class="file">channels/slack.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Webhook POST dispatcher. Channel-acknowledgement tracked in DB.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Per your call &mdash; Slack drops from the dispatch matrix.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">terminal/</span>
+        <span class="file">terminal/stream-manager.ts + pty-source.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Multiplexed PTY source. Powers <code>/sessions/$id/stream</code> (many readers) and <code>/interact</code> (one driver). Used by nextjs xterm.js viewer.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">STREAM-ONLY</span>
+        Keep stream multiplexer. Drop interact codepath. Swift dashboard reads PTY bytes; SSH handles typing.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">Pino logging (formalize)</span>
+        <span class="file">logging/ (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">PARTIAL</span>
+        <code>createLogger</code> from <code>@nexus/core/node</code> exists. Used ad-hoc; no DB sink, no error catch wrapper, no client surface.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">FORMALIZE</span>
+        Enforce Pino everywhere. WARN+ sink to new <code>script_errors</code> table. Error capture wrapper for all script entrypoints. Swift app surfaces recent errors in a dedicated pane.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">schema-drift detector</span>
+        <span class="file">services/schema-drift.ts (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Today: hardcoded <code>RECOGNIZED_EVENTS</code> allow-list. Unknown event types accepted but unknown <em>fields</em> are silently dropped from the dispatcher's parse path.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Store the full raw payload always. Fingerprint per event type (sorted keys hash). On diff, fire <code>HookSchemaDrift</code> event &mdash; rate-limited 1 fire per event_type per hour (per your spec). Surfaced in Swift errors pane.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">git-project-resolver</span>
+        <span class="file">services/git-project.ts (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Session rows store <code>cwd</code>. No derivation of repo identity.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        On session_start, run <code>git remote get-url origin</code> from cwd. Parse to <code>{ provider: 'github' | 'azdo', owner: ..., repo: ... }</code>. Attach to session row. Enables "all sessions in oo this week" queries.
+      </div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 01.1</div>
+    <div class="note-body">
+      The most subtle migration: <em>hooks were always meant to be the single
+      ingress</em>, but pgrep grew up as a redundancy when hook installation
+      was inconsistent. With global hooks (in your <code>~/.claude/settings.json</code>),
+      pgrep stops being a discovery primitive and becomes a watchdog &mdash;
+      same code, different role. Don't delete it; reframe it.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 02 — apps/* (other top-level apps)
+     ============================================================ -->
+<section class="chapter" id="ch-02">
+  <div class="chap-head">
+    <div class="chap-num">02 <span class="dot">&middot;</span> apps/*</div>
+    <h2 class="chap-title">Clients &amp;<br><span class="strong">command-line</span> tools.</h2>
+    <p class="chap-deck">
+      Four client surfaces today (agent, nextjs, nexus-statusline, swift/nexus).
+      Three in the ideal state (agent, statusline, swift/* with three Apple
+      targets). The web dashboard retires once the Swift dashboard reaches
+      feature parity.
+    </p>
+  </div>
+
+  <div class="evo">
+    <div class="evo-header">
+      <div class="h-path">app</div>
+      <div class="h-now">existing &middot; today</div>
+      <div class="h-then">ideal &middot; north star</div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/agent</span>
+        <span class="file">nexus-agent daemon</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Bun-compiled daemon. systemd unit on homelab, also runs on Mac (briefly mentioned in current launchd plist).
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">HOMELAB-ONLY</span>
+        Runs <em>only on homelab</em>. Internal restructure detailed in &sect;01.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/nextjs</span>
+        <span class="file">web dashboard, port 3100</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Full Next.js 15 dashboard. Pages for credentials, failures, health, notifications, projects, sessions, settings, specs. xterm.js terminal viewer. Sentry + PostHog instrumentation.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">DEPRECATE</span>
+        Per your call. Swift dashboard reaches parity before final removal. <em>Native clients only</em>: macOS Swift, iOS, watchOS.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/nexus-statusline</span>
+        <span class="file">CC statusline extension</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">RENAMED TODAY</span>
+        Was <code>apps/nexus-status</code>. Runs on every CC prompt render, reads CC stdin, outputs status line.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Wired in <code>~/.claude/settings.json</code> <code>statusLine.command</code>. Stays as-is.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/nexus-register</span>
+        <span class="file">CC hook write helper</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">RETIRED TODAY</span>
+        Was a thin CLI that CC hook scripts invoked. Wrote JSON files to <code>~/.config/nexus/events/</code> for a Rust watcher that no longer exists. ~491 LOC dead code.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">GONE</span>
+        Directory deleted. Deploy hooks cleaned. CC hook scripts will write directly to AF_UNIX socket via shell helper (<code>nc -U</code> or tiny shim) in Phase 3.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/swift/nexus</span>
+        <span class="file">macOS menu bar app</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">EXISTS</span>
+        Xcode project with 25+ Swift files, full menu bar UI (StatusIcon, NexusPanel, SessionList, PreferencesScene, etc). Active spec at <code>openspec/specs/swift-menubar-client/</code>.
+      </div>
+      <div class="evo-cell">
+        <span class="badge extend">EXTEND</span>
+        Absorb dashboard parity from nextjs (specs, credentials, failures, notifications pages). Own TTS synthesis (ElevenLabs key in Keychain). Settings UI hosted here. <em>Replaces bash notifier + tts-player entirely</em>.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/swift/nexus-ios</span>
+        <span class="file">iOS client (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist yet.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Mobile dashboard. APNS push notifications. <em>Embeds SwiftTerm</em> for in-app PTY attach over SSH (iOS lacks a terminal-app idiom, so we ship the terminal). SwiftUI shares views with macOS via <code>NexusShared</code> framework where reasonable.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/swift/nexus-watch</span>
+        <span class="file">watchOS companion (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist yet.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Long-run notification surface + interactive permission grants via complications/Watch notifications. <em>"can I run this destructive command?"</em> answerable from the wrist.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/swift/NexusShared</span>
+        <span class="file">shared Swift framework (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist yet.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Models, NexusClient (SSE/WS subscriber), telemetry observers, audio synth wrapper, settings store. Targets all three Apple platforms. <em>Single source of truth for "what shape is a Session?"</em>
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">apps/swift/project.yml</span>
+        <span class="file">XcodeGen manifest (new)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        <code>nexus.xcodeproj/project.pbxproj</code> hand-managed by Xcode UI.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD (DONE TODAY)</span>
+        XcodeGen manifest written. Defines all 3 targets + shared framework. Regenerate with <code>cd apps/swift && xcodegen generate</code> after auditing signing settings.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 03 — packages/* (DB + shared code)
+     ============================================================ -->
+<section class="chapter" id="ch-03">
+  <div class="chap-head">
+    <div class="chap-num">03 <span class="dot">&middot;</span> packages/*</div>
+    <h2 class="chap-title">Schema first,<br><span class="strong">truth lives here.</span></h2>
+    <p class="chap-deck">
+      Sub-agent tree visibility, git project identity, and CC profile
+      tracking all need schema. Three new tables, two modifications, one
+      removal. <em>If the schema doesn't model it, the rest of the
+      pipeline can't surface it.</em>
+    </p>
+  </div>
+
+  <div class="evo">
+    <div class="evo-header">
+      <div class="h-path">schema / package</div>
+      <div class="h-now">existing &middot; today</div>
+      <div class="h-then">ideal &middot; north star</div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">sessions</span>
+        <span class="file">packages/db/src/schema/sessions.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Core session row: id, machine, pid, cwd, status, ccSessionId, agent, model, cost, credentialFingerprint, tmuxSession.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">+4 COLUMNS</span>
+        <code>parent_session_id</code>, <code>child_role</code> (sub-agent tree), <code>git_provider</code>, <code>git_owner_repo</code>. Index on parent_session_id for tree queries.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">session_events</span>
+        <span class="file">schema/sessionEvents.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Append-only audit trail. <code>metadata</code> = JSON.stringify of recognized fields.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">FULL PAYLOAD</span>
+        Store the entire raw hook payload. No allow-list. Schema-drift detector references this row to compute fingerprints.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">notifications</span>
+        <span class="file">schema/notifications.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        id (idempotency key), channel, title, body, project, status (queued/sent/failed).
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">SIMPLIFY</span>
+        Drop <code>channel</code> column. Drop any audio-related fields. Text-only dispatch record.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">health_snapshots</span>
+        <span class="file">schema/healthSnapshots.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Periodic rollup, rawJson column for ad-hoc analysis, 24h default retention.
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        No changes.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">credential_events</span>
+        <span class="file">schema/credentialEvents.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Ambiguous: was designed for "credential pool" rotation but currently records ElevenLabs swap events.
+      </div>
+      <div class="evo-cell">
+        <span class="badge rename">RENAME &rarr; cc_profile_events</span>
+        Becomes the audit trail for CC OAuth profile rotation: <code>swap_reason</code>, <code>from_profile</code>, <code>to_profile</code>, <code>cost_billed_usd</code>, <code>rate_limit_remaining</code>.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">elevenlabs_credentials</span>
+        <span class="file">schema/elevenlabsCredentials.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Encrypted ElevenLabs API keys, decrypted on synthesis call.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Key moves to macOS Keychain, owned by Swift app. Removes encryption infra from agent entirely &mdash; one fewer secret to manage.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">cc_profiles  (new)</span>
+        <span class="file">schema/ccProfiles.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist. CC's profile state lives only in <code>~/.claude/credentials.json</code>.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Tracks each Claude OAuth profile: id, type (pro|max|api_key), oauth_refresh_token (encrypted), expiry_ts, last_used_ts, current_cost_usd, rate_limit_status. cc-credential-manager owns this row.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">script_errors  (new)</span>
+        <span class="file">schema/scriptErrors.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist. Script errors land in stderr/log files, never queryable.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Pino WARN+ sink. Columns: ts, script, level, message, error_class, stack, context (JSON). Swift app's errors pane queries this.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">hook_schema_fingerprints  (new)</span>
+        <span class="file">schema/hookSchemaFingerprints.ts</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">N/A</span>
+        Doesn't exist.
+      </div>
+      <div class="evo-cell">
+        <span class="badge add">ADD</span>
+        Drift detector state. Columns: event_type, fingerprint (sha256 of sorted keys), first_seen, last_seen. New (event_type, fingerprint) pair fires a HookSchemaDrift event.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">packages/core</span>
+        <span class="file">shared types, helpers, env</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Shared types, env loader, safe-spawn, logger factory.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">EXTEND</span>
+        Add cc-credential-manager types. Strengthen Pino logger factory. Cross-language type generation for Swift (via OpenAPI or hand-written Swift stubs in NexusShared).
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">packages/ui</span>
+        <span class="file">web component library</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Shared React components used by apps/nextjs (Sentry-instrumented, Phosphor icons).
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Goes with nextjs deprecation. Component patterns survive in spirit via SwiftUI views in <code>NexusShared</code>.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 04 — deploy/ (install + service units)
+     ============================================================ -->
+<section class="chapter" id="ch-04">
+  <div class="chap-head">
+    <div class="chap-num">04 <span class="dot">&middot;</span> deploy/</div>
+    <h2 class="chap-title">Install once,<br><span class="strong">env-aware.</span></h2>
+    <p class="chap-deck">
+      The deploy/ directory currently holds units for Linux systemd AND
+      macOS launchd, plus a decommissioned Bun listener, a Swift stub, a
+      bash bundle manager, and Traefik config. Most of it goes away in
+      the spine model. One env-aware install script remains.
+    </p>
+  </div>
+
+  <div class="evo">
+    <div class="evo-header">
+      <div class="h-path">file</div>
+      <div class="h-now">existing &middot; today</div>
+      <div class="h-then">ideal &middot; north star</div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-agent.service</span>
+        <span class="file">systemd unit (Linux)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Linux systemd unit for the agent daemon. Hardened (NoNewPrivileges, ProtectSystem).
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Only systemd unit needed in spine model.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">com.nexus.agent.plist</span>
+        <span class="file">launchd plist (Mac agent)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Launches the agent on macOS as a launchd agent.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        No Mac-side agent. Swift app connects directly to homelab agent over Tailnet.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-notifier.sh</span>
+        <span class="file">bash SSE listener (~30KB)</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        bash subscriber to SSE, dispatches audio + banners via FIFO/terminal-notifier.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Swift app subsumes all listener + dispatch logic.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">com.nexus.notifier.plist + tts-player.plist</span>
+        <span class="file">two launchd plists</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Two launchd entries supervising the bash listener + player.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Single Swift app replaces both processes.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-listener.ts</span>
+        <span class="file">decommissioned Bun listener</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">DEAD</span>
+        Per project memory: decommissioned 2026-05-16 due to double-audio when both bash + Bun subscribed to SSE. Still in repo.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Formally delete &mdash; dead code cleanup.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-stub.swift</span>
+        <span class="file">early Swift stub</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">EARLY</span>
+        Pre-apps/swift Swift exploration.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Subsumed by <code>apps/swift/</code>. Delete.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">install.sh</span>
+        <span class="file">install entry point</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Detects platform, builds agent + (formerly) nexus-register, installs systemd or launchd. Now updated post-rename.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">ENV-AWARE BUILD</span>
+        macOS: invoke <code>xcodegen generate</code> + <code>xcodebuild</code> for Swift apps; copy .app to /Applications. Linux: build agent + install systemd. <em>Same script, two outcomes</em>.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">hooks.d/{post-merge,pre-push}/</span>
+        <span class="file">git-hook deploy dispatchers</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Build + install agent + (formerly) nexus-register on push/merge. Cleaned today.
+      </div>
+      <div class="evo-cell">
+        <span class="badge modify">+ SWIFT BUILD</span>
+        Add Swift app build step on Mac targets (when fanout reaches a macOS machine). Drop dashboard build steps with nextjs removal.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-dashboard.service</span>
+        <span class="file">systemd for Next.js</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        systemd unit for the Next.js dashboard on port 3100.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        Goes with nextjs deprecation.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">traefik/</span>
+        <span class="file">Traefik dynamic config</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">KEEP</span>
+        Routes the dashboard's port 3100 through Traefik (presumably to a TLS-terminated public URL).
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">REMOVE</span>
+        No web dashboard, no routing layer.
+      </div>
+    </div>
+
+    <div class="evo-row">
+      <div class="evo-path">
+        <span class="name">nexus-bundle-manager.sh</span>
+        <span class="file">bundle helper</span>
+      </div>
+      <div class="evo-cell">
+        <span class="badge keep">VERIFY</span>
+        Purpose unclear without reading; likely manages a frontend bundle.
+      </div>
+      <div class="evo-cell">
+        <span class="badge remove">LIKELY REMOVE</span>
+        If tied to nextjs, removes with web. Audit before delete.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 05 — Migration phases
+     ============================================================ -->
+<section class="chapter" id="ch-05">
+  <div class="chap-head">
+    <div class="chap-num">05 <span class="dot">&middot;</span> migration</div>
+    <h2 class="chap-title">Six phases.<br><span class="strong">Each shippable</span> alone.</h2>
+    <p class="chap-deck">
+      The shift is real but not monolithic. Each phase is independently
+      shippable &mdash; if you pause after any one, the system still
+      works. Roughly ordered by leverage &times; reversibility.
+    </p>
+  </div>
+
+  <div class="timeline">
+    <div class="tl-row">
+      <div class="tl-num">P1</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 1 &middot; consolidation</div>
+        <h3 class="tl-title">Reap the obvious wins.</h3>
+        <p class="tl-desc">
+          Remove dead code and one-off services. None of these change the
+          shape of the system &mdash; they just stop carrying dead weight.
+          Largely reversible by <code>git revert</code>. <em>Two items
+          already landed in this session.</em>
+        </p>
+        <div class="tl-steps">
+          <span><span class="b">DONE</span> retire nexus-register</span>
+          <span><span class="b">DONE</span> rename nexus-status &rarr; nexus-statusline</span>
+          <span>collapse notifications/ to single file</span>
+          <span>collapse credentials/ dir (interim)</span>
+          <span>remove services/peer-connector.ts</span>
+          <span>remove channels/slack.ts</span>
+          <span>bump session-manager idle 5m &rarr; 60m</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-num">P2</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 2 &middot; CC integration</div>
+        <h3 class="tl-title">Surface what's already arriving.</h3>
+        <p class="tl-desc">
+          The hook payload already carries sub-agent fields, schema can
+          drift undetected, every event has a cwd we could resolve to a
+          git repo. This phase upgrades the agent to use what CC is
+          already giving it.
+        </p>
+        <div class="tl-steps">
+          <span>schema-drift detector + hook_schema_fingerprints table</span>
+          <span>git-project-resolver + sessions schema +2 cols</span>
+          <span>parent_session_id + child_role tracking</span>
+          <span>Pino enforced everywhere</span>
+          <span>script_errors table + DB sink</span>
+          <span>drop RECOGNIZED_EVENTS allow-list (accept all)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-num">P3</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 3 &middot; ingress collapse</div>
+        <h3 class="tl-title">One door in.</h3>
+        <p class="tl-desc">
+          HTTP /hooks becomes the legacy path; AF_UNIX socket is sole
+          ingress. Requires updating the CC hook scripts in your global
+          settings to write to the socket instead of POSTing.
+        </p>
+        <div class="tl-steps">
+          <span>AF_UNIX dispatcher gets full feature parity with /hooks</span>
+          <span>tiny shell helper for hooks: <code>nc -U</code> or shim binary</span>
+          <span>update ~/.claude/settings.json hooks to use shell helper</span>
+          <span>delete routes/hooks.ts after one cycle of running both</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-num">P4</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 4 &middot; Apple ecosystem</div>
+        <h3 class="tl-title">Three targets, one codebase.</h3>
+        <p class="tl-desc">
+          XcodeGen manifest is already in place. Build out the iOS and
+          watchOS targets sharing <code>NexusShared</code>. Swift takes
+          ownership of audio synthesis end-to-end. <em>cc-credential-manager
+          ships in parallel</em> &mdash; agent actively manages
+          <code>~/.claude/credentials.json</code>.
+        </p>
+        <div class="tl-steps">
+          <span>xcodegen generate + audit signing settings</span>
+          <span>build NexusShared framework (models, NexusClient, observers)</span>
+          <span>scaffold nexus-ios + nexus-watch entry points</span>
+          <span>Swift owns ElevenLabs synthesis (key in Keychain)</span>
+          <span>cc-credential-manager.ts (writes credentials.json directly)</span>
+          <span>drop notifications/channels/tts.ts + desktop.ts</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-num">P5</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 5 &middot; web deprecation</div>
+        <h3 class="tl-title">Swift reaches parity, web retires.</h3>
+        <p class="tl-desc">
+          Until Swift dashboard has every page the nextjs dashboard has
+          (specs, credentials, failures, notifications, projects, sessions,
+          settings, health), the web stays. The moment parity hits, nextjs +
+          dashboard service + Traefik config all come down in one commit.
+        </p>
+        <div class="tl-steps">
+          <span>Swift dashboard reaches feature parity</span>
+          <span>delete apps/nextjs/</span>
+          <span>delete packages/ui/</span>
+          <span>delete deploy/nexus-dashboard.service</span>
+          <span>delete deploy/traefik/</span>
+          <span>delete deploy/nexus-bundle-manager.sh (if web-only)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-num">P6</div>
+      <div class="tl-body">
+        <div class="tl-phase">Phase 6 &middot; final cleanup</div>
+        <h3 class="tl-title">Mac stops being a server.</h3>
+        <p class="tl-desc">
+          Remove all Mac-side daemon infrastructure. macOS becomes pure
+          Swift app + Tailnet membership. install.sh becomes env-aware
+          (Mac &rarr; build Swift app, Linux &rarr; build agent + systemd).
+        </p>
+        <div class="tl-steps">
+          <span>delete deploy/com.nexus.agent.plist</span>
+          <span>delete deploy/nexus-notifier.sh + notifier.plist + tts-player.plist</span>
+          <span>delete deploy/nexus-listener.ts (decommissioned)</span>
+          <span>delete deploy/nexus-stub.swift</span>
+          <span>install.sh: env-aware Mac/Linux paths</span>
+          <span>document the spine in docs/ for future reference</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 05.1</div>
+    <div class="note-body">
+      The phases are <em>roughly</em> ordered by reversibility &times;
+      leverage. P1 + P2 are cheap and reversible. P3 changes the contract
+      with CC's hook system &mdash; harder to roll back without restoring
+      the HTTP endpoint. P4 is the largest chunk of new code; consider it
+      a multi-week effort. P5 + P6 are pure deletion once parity holds.
+    </div>
+  </div>
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 05.2</div>
+    <div class="note-body">
+      <em>None of this is committed</em>. This document is a spike for
+      your review. The two items marked <code>DONE</code> in P1 actually
+      landed in code (nexus-register retirement + nexus-status rename) and
+      are committable now. Everything else is proposal.
+    </div>
+  </div>
+</section>
+
+<footer class="colophon">
+  <div class="colo-inner">
+    <div>
+      <div class="colo-title">From mesh to spine &mdash; <em style="color:var(--amber);">a spike.</em></div>
+      <p class="colo-deck">
+        This is a spike, not a commitment. Every row is a defensible
+        proposal scored against the current shape; verdicts assume the
+        single-developer, single-homelab use case. If the team grows or
+        the topology changes, several REMOVEs become KEEPs again.
+      </p>
+    </div>
+    <dl class="colo-meta">
+      <dt>Companion to</dt><dd>nexus-topology.html</dd>
+      <dt>Scope</dt><dd>service-by-service diff</dd>
+      <dt>Audience</dt><dd>Leo / future operators</dd>
+    </dl>
+    <dl class="colo-meta">
+      <dt>Set in</dt><dd>Fraunces &middot; Newsreader</dd>
+      <dt>Mono</dt><dd>JetBrains Mono</dd>
+      <dt>Source</dt><dd>docs/nexus-evolution.html</dd>
+    </dl>
+  </div>
+</footer>
+
+</body>
+</html>

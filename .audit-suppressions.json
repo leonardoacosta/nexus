@@ -54,7 +54,7 @@
         "apps/agent/src/services/spec-watcher/**",
         "apps/agent/src/services/command-registry.ts",
         "apps/agent/src/db/agent-registry.ts",
-        "apps/nexus-status/src/**"
+        "apps/nexus-statusline/src/**"
       ],
       "reason": "Boot-phase config loaders and CLI utilities \u2014 sync I/O is idiomatic at module load; finalize-audit-cleanup spec's Scope explicitly preserved sync in these paths. spec-watcher/** added after 2026-04-18 refactor split spec-watcher.ts into a directory."
     },
@@ -62,10 +62,10 @@
       "id": "D4",
       "paths": [
         "packages/core/src/safe-spawn.ts",
-        "apps/nexus-status/src/**",
+        "apps/nexus-statusline/src/**",
         "apps/agent/src/db/agent-registry.ts"
       ],
-      "reason": "Trusted execs: safe-spawn.ts is the wrapper itself (self-reference); nexus-status runs constant-arg git probes with no user input; agent-registry runs `tailscale ip -4` with no interpolation"
+      "reason": "Trusted execs: safe-spawn.ts is the wrapper itself (self-reference); nexus-statusline runs constant-arg git probes with no user input; agent-registry runs `tailscale ip -4` with no interpolation"
     },
     {
       "id": "C15",

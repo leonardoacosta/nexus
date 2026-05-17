@@ -63,7 +63,7 @@ const AUDIT_SCAN_AVAILABLE = existsSync(AUDIT_SCAN_BIN);
  * These are the production spawn callers that the spec deliberately leaves
  * unsuppressed — either because they are the safeSpawn wrapper itself
  * (self-reference is expected) or because they are low-risk infra helpers
- * (tailscale lookup, nexus-status git probe) that haven't been migrated yet
+ * (tailscale lookup, nexus-statusline git probe) that haven't been migrated yet
  * and may never need migration.
  *
  * If a new spawn call appears in production code, it MUST either:
@@ -77,10 +77,10 @@ const EXPECTED_UNSUPPRESSED_D4_FILES = new Set<string>([
   // The safeSpawn wrapper itself calls Bun.spawn — D4 pattern match hits the
   // implementation, which is by definition the sanctioned spawn site.
   "packages/core/src/safe-spawn.ts",
-  // nexus-status is a standalone CLI that reads git state via execSync with
+  // nexus-statuslineline is a standalone CLI that reads git state via execSync with
   // constant command strings. Not routed through safeSpawn because it has no
   // user-supplied input surface.
-  "apps/nexus-status/src/index.ts",
+  "apps/nexus-statuslineline/src/index.ts",
   // Tailscale IP lookup in the agent's DB registry — constant args, boots
   // once at startup. Candidate for future safeSpawn migration.
   "apps/agent/src/db/agent-registry.ts",
@@ -204,7 +204,7 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       // The ceiling protects against regressions: if someone adds a new
       // raw spawn/exec call in production without migrating it to safeSpawn
       // or suppressing it, this assert will fire. Current baseline is 5
-      // (safe-spawn wrapper itself + 3 nexus-status git probes + 1 agent
+      // (safe-spawn wrapper itself + 3 nexus-statusline git probes + 1 agent
       // tailscale lookup). We allow one extra slot to avoid flakiness from
       // minor rg/glob version differences.
       expect(d4.length).toBeLessThanOrEqual(D4_FINDINGS_CEILING);
@@ -785,7 +785,7 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
 //
 // Wave 1 of extend-audit-suppressions shipped 4 new suppression entries in
 // .audit-suppressions.json (A2 CLI-scripts, F2 CLI-scripts, E5 boot-phase
-// loaders, D4 safeSpawn self-ref + nexus-status + tailscale). These tests pin
+// loaders, D4 safeSpawn self-ref + nexus-statusline + tailscale). These tests pin
 // the resulting per-rule baselines so a silent revert of any suppression
 // stanza — or a new real finding in a suppressed category — fails CI.
 //
@@ -816,7 +816,7 @@ describe.skipIf(!AUDIT_SCAN_AVAILABLE)(
       const d4 = findingsWithId(report, "D4");
 
       // D4 fully suppressed: tmux/CC wrappers (pre-existing) + safeSpawn
-      // self-ref + nexus-status + tailscale (extend-audit-suppressions).
+      // self-ref + nexus-statusline + tailscale (extend-audit-suppressions).
       expect(d4.length).toBe(0);
     });
   },

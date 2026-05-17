@@ -6,6 +6,6 @@
     { "path": "packages/ui" },
     { "path": "apps/agent" },
     { "path": "apps/nextjs" },
-    { "path": "apps/nexus-register" }
+    { "path": "apps/nexus-statusline" }
   ]
 }

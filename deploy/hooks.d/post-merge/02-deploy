@@ -104,10 +104,6 @@ if ! (cd "$REPO_DIR/apps/agent" && bun run build); then
     fail "agent build failed"
 fi
 
-if ! (cd "$REPO_DIR/apps/nexus-register" && bun run build); then
-    fail "nexus-register build failed"
-fi
-
 ELAPSED=$(( $(date +%s) - START ))
 info "rebuilt in ${ELAPSED}s"
 
@@ -123,7 +119,6 @@ fi
 # ── Install binaries ──────────────────────────────────────────────
 
 install -m 755 "$REPO_DIR/apps/agent/nexus-agent" "$BIN_DIR/nexus-agent"
-install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register" "$BIN_DIR/nexus-register"
 info "binaries installed to $BIN_DIR/"
 
 # ── Configure agents.toml ─────────────────────────────────────────

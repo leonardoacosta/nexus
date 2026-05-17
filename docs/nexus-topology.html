@@ -1,0 +1,2436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — A Cartography of Telemetry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,200..900,0..100,0..1;1,9..144,200..900,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Newsreader', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+    --ink: #0a0a0b; --ink-2: #131316; --ink-3: #1c1c20; --ink-4: #26262c;
+    --paper: #f4ede1; --paper-dim: #d9d1c2; --paper-faint: rgba(244,237,225,0.55);
+    --paper-ghost: rgba(244,237,225,0.16); --paper-trace: rgba(244,237,225,0.08);
+    --amber: #ffb000; --amber-glow: rgba(255,176,0,0.18); --amber-trace: rgba(255,176,0,0.32);
+    --cyan: #26d4ff; --cyan-trace: rgba(38,212,255,0.28); --rust: #d24f2c; --moss: #7cbf6b;
+    --rule: rgba(244,237,225,0.12); --rule-strong: rgba(244,237,225,0.28);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; background: var(--ink); }
+  body {
+    font-family: var(--font-body); font-weight: 320; font-size: 16px; line-height: 1.6;
+    color: var(--paper); background: var(--ink);
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+      linear-gradient(to right, var(--paper-trace) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--paper-trace) 1px, transparent 1px);
+    background-size: 200px 200px, 32px 32px, 32px 32px;
+    -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; overflow-x: hidden;
+  }
+  ::selection { background: var(--amber); color: var(--ink); }
+
+  .topstrip {
+    position: sticky; top: 0; z-index: 20;
+    background: linear-gradient(to bottom, var(--ink) 60%, rgba(10,10,11,0.85));
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule); padding: 12px 32px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--paper-faint);
+    display: flex; align-items: center; gap: 24px;
+  }
+  .topstrip .dot { width: 6px; height: 6px; background: var(--amber); border-radius: 50%; box-shadow: 0 0 12px var(--amber); animation: pulse 3s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .topstrip .crumb { color: var(--paper); }
+  .topstrip .sep { color: var(--ink-4); }
+  .topstrip .right { margin-left: auto; color: var(--amber); }
+
+  .hero { padding: 88px 32px 120px; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 800px 400px at 75% 30%, var(--amber-glow), transparent 70%),
+                radial-gradient(ellipse 600px 300px at 20% 80%, rgba(38,212,255,0.08), transparent 70%);
+    pointer-events: none;
+  }
+  .hero-inner { max-width: 1480px; margin: 0 auto; position: relative; display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(280px,380px); gap: 64px; align-items: end; }
+  .hero-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--amber); margin-bottom: 28px;
+    display: flex; align-items: center; gap: 12px; }
+  .hero-eyebrow::before { content: ""; width: 32px; height: 1px; background: var(--amber); }
+  .hero-title { font-family: var(--font-display); font-style: italic; font-weight: 320;
+    font-size: clamp(72px, 11vw, 168px); line-height: 0.92; letter-spacing: -0.04em;
+    font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 144; color: var(--paper); }
+  .hero-title .accent { color: var(--amber); font-style: italic; }
+  .hero-title .strike { text-decoration: line-through; text-decoration-thickness: 4px; text-decoration-color: var(--rust); }
+  .hero-meta { border-left: 1px solid var(--rule-strong); padding-left: 28px; padding-bottom: 16px; }
+  .hero-meta dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--paper-faint); margin-top: 16px; }
+  .hero-meta dt:first-child { margin-top: 0; }
+  .hero-meta dd { font-family: var(--font-mono); font-size: 13px; color: var(--paper); margin-top: 4px; }
+  .hero-meta dd .glyph { color: var(--amber); }
+  .hero-sub { margin-top: 48px; max-width: 720px; font-family: var(--font-body);
+    font-size: 21px; line-height: 1.45; color: var(--paper-dim); font-weight: 320; }
+  .hero-sub em { font-style: italic; color: var(--paper); font-family: var(--font-display); font-variation-settings: "opsz" 36; }
+
+  .toc { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 24px 32px; background: var(--ink-2); }
+  .toc-grid { max-width: 1480px; margin: 0 auto; display: grid; grid-template-columns: repeat(8, 1fr); gap: 16px; }
+  .toc a { text-decoration: none; color: var(--paper-dim); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 8px 0; border-top: 2px solid var(--ink-4); transition: 0.18s ease; display: block; }
+  .toc a:hover { color: var(--amber); border-top-color: var(--amber); }
+  .toc a .n { color: var(--amber); margin-right: 8px; }
+  .toc a .l { display: block; margin-top: 4px; font-family: var(--font-body); font-size: 14px;
+    font-style: italic; text-transform: none; letter-spacing: 0; color: var(--paper); }
+
+  section.chapter { padding: 120px 32px 80px; border-top: 1px solid var(--rule); position: relative; }
+  .chap-head { max-width: 1480px; margin: 0 auto 64px; display: grid;
+    grid-template-columns: 200px minmax(0,1fr) minmax(0,380px); gap: 48px; align-items: start; }
+  .chap-num { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--amber); }
+  .chap-num::before { content: "§"; margin-right: 4px; color: var(--paper-faint); }
+  .chap-num .dot { color: var(--paper-faint); margin: 0 6px; }
+  .chap-title { font-family: var(--font-display); font-style: italic; font-weight: 320;
+    font-size: clamp(40px, 5vw, 72px); line-height: 0.96; letter-spacing: -0.025em;
+    color: var(--paper); font-variation-settings: "SOFT" 50, "opsz" 96; }
+  .chap-title .strong { font-style: normal; font-weight: 700; font-variation-settings: "SOFT" 0, "opsz" 96; }
+  .chap-deck { font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+    color: var(--paper-dim); border-left: 1px solid var(--rule-strong); padding-left: 24px; }
+  .chap-deck strong { color: var(--paper); font-weight: 600; }
+  .chap-deck code { font-family: var(--font-mono); color: var(--amber); font-size: 13px; }
+
+  .canvas { max-width: 1480px; margin: 0 auto; background: var(--ink-2);
+    border: 1px solid var(--rule); position: relative; overflow: hidden; }
+  .canvas::before { content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to right, var(--paper-trace) 1px, transparent 1px),
+                      linear-gradient(to bottom, var(--paper-trace) 1px, transparent 1px);
+    background-size: 16px 16px; opacity: 0.4; pointer-events: none; }
+  .canvas-head { display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 24px; border-bottom: 1px solid var(--rule); background: var(--ink-3);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--paper-faint); position: relative; z-index: 1; }
+  .canvas-head .name { color: var(--paper); }
+  .canvas-head .id { color: var(--amber); }
+  .canvas-body { padding: 56px 32px; position: relative; z-index: 1; }
+
+  .schematic { position: relative; width: 100%; height: auto; }
+  .schematic svg { width: 100%; height: auto; display: block; }
+  .wire { fill: none; stroke: var(--paper-ghost); stroke-width: 1; stroke-dasharray: 3 3; }
+  .wire-solid { fill: none; stroke: var(--paper-faint); stroke-width: 1.2; }
+  .wire-amber { fill: none; stroke: var(--amber); stroke-width: 1.4; }
+  .wire-cyan { fill: none; stroke: var(--cyan); stroke-width: 1.4; }
+  .wire-rust { fill: none; stroke: var(--rust); stroke-width: 1.4; stroke-dasharray: 6 3; }
+  .lbl { font-family: var(--font-mono); font-size: 10px; fill: var(--paper-faint);
+    letter-spacing: 0.1em; text-transform: uppercase; }
+  .lbl-strong { fill: var(--paper); }
+  .lbl-amber { fill: var(--amber); }
+  .lbl-cyan { fill: var(--cyan); }
+  .lbl-rust { fill: var(--rust); }
+  .lbl-italic { font-family: var(--font-display); font-style: italic; font-size: 14px;
+    fill: var(--paper); text-transform: none; letter-spacing: 0; font-variation-settings: "opsz" 36; }
+  .node-box { fill: var(--ink-3); stroke: var(--paper-faint); stroke-width: 1; }
+  .node-box-amber { fill: var(--ink-3); stroke: var(--amber); stroke-width: 1.5; }
+  .node-box-cyan { fill: var(--ink-3); stroke: var(--cyan); stroke-width: 1.5; }
+  .node-corner { fill: var(--amber); }
+
+  .two-col { max-width: 1480px; margin: 64px auto 0; display: grid;
+    grid-template-columns: 1fr 1fr; gap: 32px; }
+  .three-col { max-width: 1480px; margin: 64px auto 0; display: grid;
+    grid-template-columns: repeat(3, 1fr); gap: 24px; }
+
+  .src-grid { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: repeat(12, 1fr); gap: 16px; }
+  .src-card { background: var(--ink-2); border: 1px solid var(--rule); padding: 28px;
+    position: relative; display: flex; flex-direction: column; gap: 20px; }
+  .src-card.span-6 { grid-column: span 6; }
+  .src-card.span-4 { grid-column: span 4; }
+  .src-card.span-12 { grid-column: span 12; }
+  .src-card::before { content: ""; position: absolute; top: 0; left: 0;
+    width: 24px; height: 2px; background: var(--amber); }
+  .src-card .src-num { font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--amber); }
+  .src-card .src-name { font-family: var(--font-display); font-style: italic;
+    font-size: 32px; line-height: 1; color: var(--paper);
+    font-variation-settings: "SOFT" 50, "opsz" 48; }
+  .src-card .src-name .lit { font-style: normal; font-family: var(--font-mono);
+    font-size: 18px; color: var(--cyan); letter-spacing: 0; }
+  .src-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    padding: 12px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .src-meta dt { font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--paper-faint); }
+  .src-meta dd { font-family: var(--font-mono); font-size: 12px; color: var(--paper); margin-top: 2px; }
+  .src-meta dd.amber { color: var(--amber); }
+  .src-mini-flow { min-height: 140px; display: flex; align-items: center; justify-content: center; }
+  .src-fields { font-family: var(--font-mono); font-size: 11px; line-height: 1.7; color: var(--paper-dim); }
+  .src-fields .tag { display: inline-block; padding: 1px 6px; background: var(--ink-3);
+    border: 1px solid var(--rule); color: var(--paper); margin: 2px 4px 2px 0; border-radius: 1px; }
+  .src-fields .tag.k { color: var(--amber); border-color: var(--amber-trace); }
+  .src-fields .tag.c { color: var(--cyan); border-color: var(--cyan-trace); }
+  .src-path { font-family: var(--font-mono); font-size: 10px; color: var(--paper-faint); word-break: break-all; }
+  .src-path .file { color: var(--amber); }
+  .src-path .line { color: var(--cyan); }
+
+  .pipe { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: 180px repeat(4, 1fr); gap: 0;
+    border: 1px solid var(--rule); background: var(--ink-2); }
+  .pipe-row { display: contents; }
+  .pipe-label { background: var(--ink-3); border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule); padding: 24px 20px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--amber);
+    display: flex; flex-direction: column; justify-content: center; }
+  .pipe-label .num { color: var(--paper-faint); font-size: 24px; font-family: var(--font-display);
+    font-weight: 700; line-height: 1; margin-bottom: 8px; font-style: italic; }
+  .pipe-cell { padding: 24px 20px; border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule); min-height: 140px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .pipe-cell:last-child { border-right: none; }
+  .pipe-cell .title { font-family: var(--font-display); font-style: italic;
+    font-size: 22px; color: var(--paper); line-height: 1; font-variation-settings: "opsz" 36; }
+  .pipe-cell .sub { font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim); line-height: 1.5; }
+  .pipe-cell .where { font-family: var(--font-mono); font-size: 10px; color: var(--amber); margin-top: auto; }
+  .pipe-row:last-child .pipe-label, .pipe-row:last-child .pipe-cell { border-bottom: none; }
+
+  .ledger { max-width: 1480px; margin: 32px auto 0; width: calc(100% - 0px);
+    border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
+  .ledger thead th { text-align: left; padding: 14px 18px; background: var(--ink-3);
+    color: var(--amber); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; font-weight: 500; border-bottom: 2px solid var(--amber); }
+  .ledger tbody td { padding: 18px; border-bottom: 1px solid var(--rule);
+    vertical-align: top; color: var(--paper); }
+  .ledger tbody tr:hover td { background: var(--ink-2); }
+  .ledger .name { color: var(--amber); font-weight: 500; }
+  .ledger .muted { color: var(--paper-faint); }
+  .ledger code { background: var(--ink-3); padding: 1px 6px; color: var(--cyan); border-radius: 1px; }
+
+  .tts-stage { max-width: 1480px; margin: 0 auto; background: var(--ink-2);
+    border: 1px solid var(--rule); padding: 64px 48px; position: relative; overflow: hidden; }
+  .tts-stage::before { content: ""; position: absolute; top: -40%; right: -10%;
+    width: 60%; height: 180%; background: radial-gradient(ellipse, var(--amber-glow), transparent 60%);
+    pointer-events: none; }
+  .tts-config { max-width: 1480px; margin: 32px auto 0; display: grid;
+    grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .config-card { background: var(--ink-2); border: 1px solid var(--rule);
+    padding: 24px; position: relative; }
+  .config-card .where { font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--amber); margin-bottom: 4px; }
+  .config-card .what { font-family: var(--font-display); font-style: italic;
+    font-size: 24px; line-height: 1.1; color: var(--paper); margin-bottom: 12px; font-variation-settings: "opsz" 36; }
+  .config-card .path { font-family: var(--font-mono); font-size: 11px;
+    color: var(--paper-dim); word-break: break-all; line-height: 1.55; }
+  .config-card .path .glow { color: var(--cyan); }
+
+  .marginalia { max-width: 1480px; margin: 48px auto 0; display: grid;
+    grid-template-columns: 120px 1fr; gap: 32px; padding: 32px 0;
+    border-top: 1px solid var(--rule); }
+  .marginalia .note-num { font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--amber); }
+  .marginalia .note-body { font-family: var(--font-body); font-size: 17px;
+    line-height: 1.55; color: var(--paper-dim); max-width: 760px; }
+  .marginalia .note-body em { font-style: italic; color: var(--paper);
+    font-family: var(--font-display); font-variation-settings: "opsz" 36; }
+  .marginalia .note-body code { font-family: var(--font-mono); font-size: 14px;
+    color: var(--amber); background: var(--ink-2); padding: 1px 6px; border-radius: 2px; }
+
+  footer.colophon { border-top: 1px solid var(--rule); padding: 80px 32px 64px; background: var(--ink-2); }
+  .colo-inner { max-width: 1480px; margin: 0 auto; display: grid;
+    grid-template-columns: 2fr 1fr 1fr; gap: 64px; align-items: end; }
+  .colo-title { font-family: var(--font-display); font-style: italic;
+    font-size: 36px; line-height: 1; color: var(--paper);
+    font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 72; }
+  .colo-deck { font-family: var(--font-body); font-size: 14px;
+    color: var(--paper-dim); margin-top: 16px; max-width: 540px; }
+  .colo-meta dt { font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--paper-faint); }
+  .colo-meta dd { font-family: var(--font-mono); font-size: 12px;
+    color: var(--paper); margin: 4px 0 14px; }
+
+  /* ===== Two-col layout with sticky sidebar diagram ===== */
+  .layout { width: 100%; padding: 0 32px; display: grid;
+    grid-template-columns: 460px minmax(0, 1fr); gap: 56px; align-items: start; }
+  .layout > .content { min-width: 0; }
+  .layout > .sidebar { position: sticky; top: 72px; align-self: start;
+    height: calc(100vh - 96px); overflow-y: auto; overflow-x: hidden;
+    background: var(--ink-2); border: 1px solid var(--rule);
+    padding: 24px 20px; }
+  .layout > .sidebar::-webkit-scrollbar { width: 6px; }
+  .layout > .sidebar::-webkit-scrollbar-thumb { background: var(--ink-4); }
+
+  .sidebar-head { font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--amber);
+    margin-bottom: 4px; }
+  .sidebar-title { font-family: var(--font-display); font-style: italic;
+    font-size: 22px; line-height: 1.05; color: var(--paper); margin-bottom: 14px;
+    font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 36; }
+  .sidebar-legend { font-family: var(--font-mono); font-size: 10px;
+    color: var(--paper-faint); margin-top: 16px; line-height: 1.7; }
+  .sidebar-legend .swatch { display: inline-block; width: 10px; height: 1px;
+    vertical-align: middle; margin-right: 6px; }
+  .sidebar-legend .a { background: var(--amber); }
+  .sidebar-legend .c { background: var(--cyan); }
+  .sidebar-legend .r { background: var(--rust); }
+  .sidebar-legend .p { background: rgba(244,237,225,0.55); }
+
+  /* Region highlighting via body[data-active-region] */
+  .sidebar [data-region] { transition: opacity 0.28s ease, filter 0.28s ease; }
+  body[data-active-region] .sidebar [data-region] { opacity: 0.18; }
+  body[data-active-region="agent"] .sidebar [data-region="agent"],
+  body[data-active-region="hooks"] .sidebar [data-region="hooks"],
+  body[data-active-region="socket"] .sidebar [data-region="socket"],
+  body[data-active-region="pgrep"] .sidebar [data-region="pgrep"],
+  body[data-active-region="cache"] .sidebar [data-region="cache"],
+  body[data-active-region="bus"] .sidebar [data-region="bus"],
+  body[data-active-region="db"] .sidebar [data-region="db"],
+  body[data-active-region="sse"] .sidebar [data-region="sse"],
+  body[data-active-region="federation"] .sidebar [data-region="federation"],
+  body[data-active-region="tts-synth"] .sidebar [data-region="tts-synth"],
+  body[data-active-region="tts-listener"] .sidebar [data-region="tts-listener"],
+  body[data-active-region="tts-player"] .sidebar [data-region="tts-player"],
+  body[data-active-region="fifo"] .sidebar [data-region="fifo"],
+  body[data-active-region="attach"] .sidebar [data-region="attach"],
+  body[data-active-region="tui"] .sidebar [data-region="tui"],
+  body[data-active-region="config"] .sidebar [data-region="config"] {
+    opacity: 1; filter: drop-shadow(0 0 6px var(--amber-glow));
+  }
+
+  /* Section highlight when hovered (left-edge accent) */
+  section.chapter[data-region] { transition: background 0.2s ease; }
+  section.chapter[data-region]:hover {
+    background: linear-gradient(to right, rgba(255,176,0,0.04), transparent 30%);
+  }
+
+  /* Reset chapter inner widths so they fit in left col */
+  .layout .chap-head, .layout .canvas, .layout .src-grid, .layout .pipe,
+  .layout .ledger, .layout .tts-stage, .layout .tts-config, .layout .marginalia,
+  .layout .two-col, .layout .three-col { max-width: 100%; margin-left: 0; margin-right: 0; }
+  .layout section.chapter { padding-left: 0; padding-right: 0; }
+  .layout .chap-head { grid-template-columns: 140px minmax(0,1fr) minmax(0,320px); gap: 32px; }
+
+  /* New section primitives: accordion, sub-headers */
+  .row { width: 100%; margin-top: 24px; }
+  .row:first-child { margin-top: 0; }
+  .accordion { background: var(--ink-2); border: 1px solid var(--rule);
+    position: relative; padding: 28px 32px; }
+  .accordion::before { content: ""; position: absolute; top: 0; left: 0;
+    width: 24px; height: 2px; background: var(--amber); }
+  .acc-head { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,360px);
+    gap: 32px; align-items: start; margin-bottom: 16px; }
+  .acc-title { font-family: var(--font-display); font-style: italic;
+    font-size: 36px; line-height: 1; color: var(--paper);
+    font-variation-settings: "SOFT" 50, "opsz" 48; }
+  .acc-title .lit { font-style: normal; font-family: var(--font-mono);
+    font-size: 18px; color: var(--cyan); letter-spacing: 0; margin-left: 8px; }
+  .acc-num { font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--amber);
+    margin-bottom: 6px; }
+  .acc-device { font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 4px 10px; background: var(--ink-3); border: 1px solid var(--rule);
+    color: var(--amber); display: inline-block; }
+  .acc-device.macbook { color: var(--cyan); border-color: var(--cyan-trace); }
+  .acc-intent { font-family: var(--font-body); font-size: 16px;
+    line-height: 1.55; color: var(--paper-dim); max-width: 720px;
+    margin-top: 8px; }
+  .acc-intent em { font-style: italic; color: var(--paper);
+    font-family: var(--font-display); font-variation-settings: "opsz" 24; }
+  .acc-grid { display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-top: 16px; }
+  .acc-stats { display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
+  .acc-stats dt { font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--paper-faint); }
+  .acc-stats dd { font-family: var(--font-mono); font-size: 12px;
+    color: var(--paper); margin-top: 2px; }
+  .acc-stats dd.amber { color: var(--amber); }
+
+  details.payload { background: var(--ink-3); border: 1px solid var(--rule);
+    margin-top: 10px; }
+  details.payload[open] { border-color: var(--amber-trace); }
+  details.payload summary { padding: 12px 16px; cursor: pointer;
+    font-family: var(--font-mono); font-size: 11px; color: var(--paper);
+    letter-spacing: 0.06em; user-select: none;
+    display: flex; align-items: center; gap: 12px; }
+  details.payload summary::before { content: "+"; color: var(--amber);
+    font-size: 14px; width: 12px; display: inline-block; }
+  details.payload[open] summary::before { content: "-"; }
+  details.payload summary::-webkit-details-marker { display: none; }
+  details.payload summary .field { color: var(--amber); font-weight: 500; }
+  details.payload summary .desc { color: var(--paper-faint); font-weight: 400; flex: 1; }
+  details.payload .body { padding: 0 16px 16px; }
+  details.payload .body p { font-family: var(--font-body); font-size: 14px;
+    color: var(--paper-dim); line-height: 1.55; margin-bottom: 10px; }
+  details.payload .body p em { color: var(--paper); font-style: italic;
+    font-family: var(--font-display); font-variation-settings: "opsz" 24; }
+  details.payload pre { background: var(--ink); border: 1px solid var(--rule);
+    padding: 12px 14px; overflow-x: auto; font-family: var(--font-mono);
+    font-size: 11px; line-height: 1.55; color: var(--paper); margin-top: 8px; }
+  details.payload pre .k { color: var(--amber); }
+  details.payload pre .s { color: var(--cyan); }
+  details.payload pre .c { color: var(--paper-faint); font-style: italic; }
+
+  /* Section subhead for chapter 03 prose layout */
+  .subsection { padding: 32px 0; border-top: 1px solid var(--rule); }
+  .subsection:first-of-type { border-top: none; padding-top: 0; }
+  .sub-num { font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--amber);
+    margin-bottom: 6px; }
+  .sub-head { font-family: var(--font-display); font-style: italic;
+    font-size: 32px; line-height: 1.05; color: var(--paper);
+    font-variation-settings: "SOFT" 50, "opsz" 48; margin-bottom: 8px; }
+  .sub-deck { font-family: var(--font-body); font-size: 16px;
+    color: var(--paper-dim); max-width: 760px; line-height: 1.55; margin-bottom: 18px; }
+  .sub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .sub-card { background: var(--ink-2); border: 1px solid var(--rule); padding: 20px 22px; }
+  .sub-card .name { font-family: var(--font-mono); font-size: 11px;
+    color: var(--amber); letter-spacing: 0.12em; margin-bottom: 4px; }
+  .sub-card .body { font-family: var(--font-body); font-size: 14px;
+    color: var(--paper-dim); line-height: 1.55; }
+  .sub-card .body code { font-family: var(--font-mono); font-size: 12px;
+    color: var(--cyan); background: var(--ink-3); padding: 1px 5px; border-radius: 1px; }
+
+  /* §08 tradeoffs ledger */
+  .trade { width: 100%; border-collapse: collapse; font-family: var(--font-body); margin-top: 24px; }
+  .trade thead th { text-align: left; padding: 16px 14px; background: var(--ink-3);
+    color: var(--amber); font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.22em; text-transform: uppercase; font-weight: 500;
+    border-bottom: 2px solid var(--amber); }
+  .trade tbody td { padding: 18px 14px; border-bottom: 1px solid var(--rule);
+    vertical-align: top; font-size: 14px; line-height: 1.5; color: var(--paper-dim); }
+  .trade tbody td:first-child { color: var(--paper); }
+  .trade tbody td strong { color: var(--paper); font-weight: 600; }
+  .trade .change { font-family: var(--font-display); font-style: italic;
+    font-size: 18px; line-height: 1.2; color: var(--paper);
+    font-variation-settings: "opsz" 24; }
+  .trade .verdict { font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase; padding: 4px 8px;
+    border: 1px solid var(--rule); display: inline-block; white-space: nowrap; }
+  .trade .verdict.do { color: var(--moss); border-color: var(--moss); }
+  .trade .verdict.maybe { color: var(--amber); border-color: var(--amber); }
+  .trade .verdict.skip { color: var(--rust); border-color: var(--rust); }
+
+  @media (max-width: 1280px) {
+    .layout { grid-template-columns: 1fr; }
+    .layout > .sidebar { display: none; }
+    .layout .chap-head { grid-template-columns: 1fr; gap: 24px; }
+  }
+  @media (max-width: 1080px) {
+    .hero-inner { grid-template-columns: 1fr; }
+    .hero-meta { border-left: none; border-top: 1px solid var(--rule-strong); padding-left: 0; padding-top: 24px; }
+    .chap-head { grid-template-columns: 1fr; gap: 24px; }
+    .two-col, .three-col, .sub-grid, .acc-grid { grid-template-columns: 1fr; }
+    .toc-grid { grid-template-columns: repeat(2, 1fr); }
+    .src-card.span-6, .src-card.span-4 { grid-column: span 12; }
+    .pipe { grid-template-columns: 1fr; }
+    .tts-config { grid-template-columns: 1fr 1fr; }
+    .colo-inner { grid-template-columns: 1fr; gap: 32px; }
+    .acc-head { grid-template-columns: 1fr; }
+    .acc-stats { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topstrip">
+  <span class="dot"></span>
+  <span class="crumb">Nexus</span>
+  <span class="sep">/</span>
+  <span>Field Manual</span>
+  <span class="sep">/</span>
+  <span>Topology &amp; Telemetry</span>
+  <span class="right">REV 2026.05.17</span>
+</div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="hero-eyebrow">A cartography in seven plates</div>
+      <h1 class="hero-title">
+        Every <span class="accent">signal,</span><br>
+        every <span class="accent">socket,</span><br>
+        <span class="strike">no</span> hub.
+      </h1>
+      <p class="hero-sub">
+        Nexus is <em>peer-to-peer by construction</em>. There is no central server &mdash;
+        only a small daemon on each machine, a mesh of WireGuard tunnels, and a
+        terminal client that asks each agent the same questions and renders the
+        answers in one place.
+      </p>
+    </div>
+    <dl class="hero-meta">
+      <dt>Subject</dt>
+      <dd>nexus-agent <span class="glyph">+</span> nexus-tui <span class="glyph">+</span> nexus-notifier</dd>
+      <dt>Bind</dt>
+      <dd>127.0.0.1:7400 <span class="glyph">&plus;</span> Tailscale/4</dd>
+      <dt>Transport</dt>
+      <dd>HTTP &middot; SSE &middot; WebSocket &middot; AF_UNIX</dd>
+      <dt>Persistence</dt>
+      <dd>Postgres (Drizzle) <span class="glyph">+</span> in-mem Map</dd>
+      <dt>Auth</dt>
+      <dd>network-layer only</dd>
+    </dl>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-grid" style="grid-template-columns:repeat(9,1fr);">
+    <a href="#ch-00"><span class="n">00</span>Mesh<span class="l">Topology</span></a>
+    <a href="#ch-01"><span class="n">01</span>Registration<span class="l">Sessions</span></a>
+    <a href="#ch-02"><span class="n">02</span>Sources<span class="l">Telemetry</span></a>
+    <a href="#ch-03"><span class="n">03</span>Pipeline<span class="l">Cache &middot; Emit</span></a>
+    <a href="#ch-04"><span class="n">04</span>Reception<span class="l">Clients</span></a>
+    <a href="#ch-05"><span class="n">05</span>Interpretation<span class="l">Read</span></a>
+    <a href="#ch-06"><span class="n">06</span>Attach<span class="l">Interact</span></a>
+    <a href="#ch-07"><span class="n">07</span>TTS<span class="l">The Voice</span></a>
+    <a href="#ch-08"><span class="n">08</span>Tradeoffs<span class="l">Proposals</span></a>
+  </div>
+</nav>
+
+<div class="layout">
+<aside class="sidebar" aria-label="Persistent topology reference">
+  <div class="sidebar-head">Persistent reference</div>
+  <div class="sidebar-title">homelab &harr; macbook</div>
+  <svg viewBox="0 0 420 1140" preserveAspectRatio="xMidYMin meet" style="width:100%;height:auto;">
+    <defs>
+      <marker id="s-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffb000"/></marker>
+      <marker id="s-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#26d4ff"/></marker>
+      <marker id="s-pale" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="rgba(244,237,225,0.55)"/></marker>
+    </defs>
+
+    <!-- HOMELAB -->
+    <g>
+      <rect x="20" y="20" width="380" height="380" class="node-box-amber"/>
+      <rect class="node-corner" x="20" y="20" width="14" height="2"/>
+      <rect class="node-corner" x="20" y="20" width="2" height="14"/>
+      <text x="36" y="44" class="lbl lbl-amber">HOMELAB</text>
+      <text x="36" y="62" class="lbl-italic" style="font-size:11px;">source of truth</text>
+
+      <!-- agent -->
+      <g data-region="agent">
+        <rect x="36" y="76" width="348" height="56" fill="rgba(255,176,0,0.05)" stroke="#ffb000" stroke-width="1"/>
+        <text x="48" y="98" class="lbl lbl-amber">nexus-agent :7400</text>
+        <text x="48" y="114" class="lbl">tokio &middot; drizzle &middot; ipc dispatcher</text>
+      </g>
+
+      <!-- ingestion paths -->
+      <g data-region="hooks">
+        <rect x="36" y="144" width="168" height="60" class="node-box"/>
+        <text x="48" y="166" class="lbl lbl-strong">POST /hooks</text>
+        <text x="48" y="182" class="lbl">remote + local CC</text>
+        <text x="48" y="196" class="lbl lbl-cyan">cross-machine ingress</text>
+      </g>
+      <g data-region="socket">
+        <rect x="216" y="144" width="168" height="60" class="node-box"/>
+        <text x="228" y="166" class="lbl lbl-strong">AF_UNIX</text>
+        <text x="228" y="182" class="lbl">~/.nexus/agent.sock</text>
+        <text x="228" y="196" class="lbl lbl-cyan">local-only NDJSON</text>
+      </g>
+      <g data-region="pgrep">
+        <rect x="36" y="216" width="168" height="60" class="node-box-amber"/>
+        <text x="48" y="238" class="lbl lbl-amber">pgrep watcher</text>
+        <text x="48" y="254" class="lbl">30s reconcile</text>
+        <text x="48" y="268" class="lbl">unmanaged PIDs</text>
+      </g>
+
+      <!-- cache + bus + db -->
+      <g data-region="cache">
+        <rect x="216" y="216" width="168" height="60" class="node-box-amber"/>
+        <text x="228" y="238" class="lbl lbl-amber">sessionManager</text>
+        <text x="228" y="254" class="lbl">Map cache</text>
+        <text x="228" y="268" class="lbl">write-through</text>
+      </g>
+      <g data-region="bus">
+        <rect x="36" y="288" width="168" height="50" class="node-box-amber"/>
+        <text x="48" y="310" class="lbl lbl-amber">lifecycleBus</text>
+        <text x="48" y="326" class="lbl">12+ event types</text>
+      </g>
+      <g data-region="db">
+        <rect x="216" y="288" width="168" height="50" class="node-box-cyan"/>
+        <text x="228" y="310" class="lbl lbl-cyan">postgres</text>
+        <text x="228" y="326" class="lbl">sessions + events</text>
+      </g>
+
+      <!-- managed/unmanaged CC inside homelab -->
+      <g data-region="hooks">
+        <rect x="36" y="350" width="168" height="34" class="node-box"/>
+        <text x="48" y="372" class="lbl">CC managed (tmux)</text>
+      </g>
+      <g data-region="pgrep">
+        <rect x="216" y="350" width="168" height="34" class="node-box"/>
+        <text x="228" y="372" class="lbl">CC unmanaged</text>
+      </g>
+    </g>
+
+    <!-- CHANNEL ZONE -->
+    <g transform="translate(0,420)">
+      <text x="20" y="20" class="lbl lbl-amber">TAILSCALE CHANNEL</text>
+      <text x="20" y="38" class="lbl">peer-to-peer &middot; 7400</text>
+      <line x1="20" y1="50" x2="400" y2="50" stroke="rgba(244,237,225,0.16)"/>
+
+      <g data-region="federation">
+        <path d="M 60 80 L 60 200" class="wire-amber" marker-end="url(#s-amber)"/>
+        <path d="M 75 200 L 75 80" class="wire-amber" marker-end="url(#s-amber)"/>
+        <text x="100" y="100" class="lbl lbl-amber">/ws/federation</text>
+        <text x="100" y="114" class="lbl">envelope { event, source, seq }</text>
+        <text x="100" y="128" class="lbl">bidirectional, 1000-buf</text>
+      </g>
+
+      <g data-region="sse">
+        <path d="M 60 160 L 60 220" class="wire-cyan" marker-end="url(#s-cyan)" stroke-dasharray="2 4" opacity="0"/>
+        <text x="100" y="160" class="lbl lbl-cyan">SSE /events/stream</text>
+        <text x="100" y="174" class="lbl">push to local notifier</text>
+        <text x="100" y="188" class="lbl-italic" style="font-size:11px;">local same-machine</text>
+      </g>
+
+      <g data-region="tui">
+        <path d="M 220 80 L 220 200" class="wire-cyan" marker-end="url(#s-cyan)" stroke-dasharray="2 4"/>
+        <text x="240" y="220" class="lbl lbl-cyan">GET /sessions</text>
+        <text x="240" y="234" class="lbl">+ /health + /projects</text>
+        <text x="240" y="248" class="lbl">TUI fan-out</text>
+      </g>
+
+      <g data-region="attach">
+        <path d="M 360 80 L 360 200" class="wire-rust" marker-end="url(#s-amber)"/>
+        <text x="240" y="100" text-anchor="end" class="lbl lbl-rust">WS over SSH</text>
+        <text x="240" y="114" text-anchor="end" class="lbl">/sessions/$id/stream</text>
+        <text x="240" y="128" text-anchor="end" class="lbl">/sessions/$id/interact</text>
+      </g>
+    </g>
+
+    <!-- MACBOOK -->
+    <g transform="translate(0,720)">
+      <rect x="20" y="20" width="380" height="400" class="node-box-amber"/>
+      <rect class="node-corner" x="20" y="20" width="14" height="2"/>
+      <rect class="node-corner" x="20" y="20" width="2" height="14"/>
+      <text x="36" y="44" class="lbl lbl-cyan">MACBOOK</text>
+      <text x="36" y="62" class="lbl-italic" style="font-size:11px;">the voice &middot; the seat</text>
+
+      <g data-region="agent">
+        <rect x="36" y="76" width="348" height="48" fill="rgba(255,176,0,0.05)" stroke="#ffb000" stroke-width="1"/>
+        <text x="48" y="98" class="lbl lbl-amber">nexus-agent :7400</text>
+        <text x="48" y="114" class="lbl">SSE + settings host</text>
+      </g>
+
+      <g data-region="tts-synth">
+        <rect x="36" y="134" width="348" height="48" class="node-box"/>
+        <text x="48" y="156" class="lbl lbl-strong">ElevenLabs synth (agent-side)</text>
+        <text x="48" y="172" class="lbl">key from DB &rarr; mp3 &rarr; base64</text>
+      </g>
+
+      <g data-region="tts-listener">
+        <rect x="36" y="192" width="348" height="50" class="node-box-cyan"/>
+        <text x="48" y="214" class="lbl lbl-cyan">com.nexus.notifier</text>
+        <text x="48" y="230" class="lbl">SSE subscriber &middot; decode b64</text>
+      </g>
+
+      <g data-region="fifo">
+        <rect x="36" y="252" width="348" height="34" fill="rgba(255,176,0,0.10)" stroke="#ffb000" stroke-width="1.2"/>
+        <text x="48" y="274" class="lbl lbl-amber">FIFO tts-queue.fifo</text>
+      </g>
+
+      <g data-region="tts-player">
+        <rect x="36" y="296" width="348" height="50" class="node-box-cyan"/>
+        <text x="48" y="318" class="lbl lbl-cyan">com.nexus.tts-player</text>
+        <text x="48" y="334" class="lbl">FIFO drain &middot; afplay/say</text>
+      </g>
+
+      <g data-region="tui">
+        <rect x="36" y="356" width="348" height="50" class="node-box"/>
+        <text x="48" y="378" class="lbl lbl-strong">nexus TUI &middot; ratatui</text>
+        <text x="48" y="394" class="lbl">fans HTTP to both agents</text>
+      </g>
+    </g>
+
+    <!-- config callout -->
+    <g data-region="config" transform="translate(0,1060)">
+      <rect x="20" y="0" width="380" height="60" class="node-box"/>
+      <text x="36" y="22" class="lbl lbl-amber">CONFIG locations</text>
+      <text x="36" y="40" class="lbl">~/.nexus/keys/master.key</text>
+      <text x="36" y="52" class="lbl">~/.config/nexus/agents.toml</text>
+    </g>
+  </svg>
+
+  <div class="sidebar-legend">
+    <div><span class="swatch a"></span>amber: side-effect, persisted state</div>
+    <div><span class="swatch c"></span>cyan: streaming / live channel</div>
+    <div><span class="swatch r"></span>rust: WebSocket over SSH (attach)</div>
+    <div><span class="swatch p"></span>pale: in-process / synchronous</div>
+    <div style="margin-top:10px;color:var(--paper-dim);">Hover any section to highlight.</div>
+  </div>
+</aside>
+
+<div class="content">
+
+<!-- =============================================================
+     CHAPTER 00 — MESH TOPOLOGY
+     ============================================================= -->
+<section class="chapter" id="ch-00" data-region="agent">
+  <div class="chap-head">
+    <div class="chap-num">00 <span class="dot">&middot;</span> overview</div>
+    <h2 class="chap-title">A mesh of daemons,<br><span class="strong">no king</span> in the middle.</h2>
+    <p class="chap-deck">
+      Two machines, two daemons. <strong>homelab</strong> runs the long-lived
+      sessions and the Postgres of record; <strong>macbook</strong> runs the
+      developer's TUI and the audio stack. They discover each other through
+      <code>agents.toml</code> and federate over a single WebSocket. There is
+      no hub, no broker, no proxy.
+    </p>
+  </div>
+
+  <div class="canvas">
+    <div class="canvas-head">
+      <span class="name">Plate 00 &middot; <span class="id">TOPOLOGY.MESH</span></span>
+      <span>view &middot; tailscale + loopback</span>
+    </div>
+    <div class="canvas-body">
+      <svg viewBox="0 0 1400 620" class="schematic" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffb000"/></marker>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#26d4ff"/></marker>
+          <marker id="arrow-pale" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="rgba(244,237,225,0.55)"/></marker>
+        </defs>
+        <text x="700" y="36" text-anchor="middle" class="lbl lbl-strong" style="font-size:11px;letter-spacing:0.32em;">TAILSCALE MESH &middot; 100.64.0.0/10</text>
+        <ellipse cx="700" cy="320" rx="640" ry="240" fill="none" stroke="rgba(38,212,255,0.18)" stroke-width="1" stroke-dasharray="2 6"/>
+
+        <!-- HOMELAB: long-running primary, runs both managed (hooks) and unmanaged (pgrep) sessions -->
+        <g transform="translate(120,90)">
+          <rect class="node-box-amber" width="460" height="440" rx="2"/>
+          <rect class="node-corner" x="0" y="0" width="14" height="2"/>
+          <rect class="node-corner" x="0" y="0" width="2" height="14"/>
+          <text x="20" y="28" class="lbl lbl-amber">MACHINE &middot; homelab</text>
+          <text x="20" y="56" class="lbl-italic">long-running primary &middot; the source of truth</text>
+
+          <!-- agent -->
+          <rect x="20" y="80" width="420" height="80" fill="rgba(255,176,0,0.05)" stroke="#ffb000" stroke-width="1"/>
+          <text x="32" y="106" class="lbl lbl-amber">nexus-agent &middot; :7400</text>
+          <text x="32" y="126" class="lbl">axum + bun &middot; tokio &middot; drizzle</text>
+          <text x="32" y="146" class="lbl">process-watcher 30s &middot; spec-watcher 60s &middot; health 5s</text>
+
+          <!-- sessions left -->
+          <rect x="20" y="180" width="200" height="240" class="node-box"/>
+          <text x="32" y="204" class="lbl lbl-strong">claude code &middot; managed</text>
+          <text x="32" y="226" class="lbl">tmux: cc-oo &middot; cc-mv</text>
+          <text x="32" y="240" class="lbl">tmux: cc-xx &middot; cc-tl</text>
+          <text x="32" y="262" class="lbl lbl-cyan">POST /hooks &rarr; agent</text>
+          <text x="32" y="278" class="lbl">SessionStart / Stop / ...</text>
+          <line x1="32" y1="296" x2="208" y2="296" stroke="rgba(244,237,225,0.16)"/>
+          <text x="32" y="318" class="lbl lbl-strong">claude code &middot; unmanaged</text>
+          <text x="32" y="340" class="lbl">no tmux session</text>
+          <text x="32" y="354" class="lbl lbl-amber">discovered via pgrep</text>
+          <text x="32" y="368" class="lbl">/proc/$pid/cwd resolution</text>
+          <text x="32" y="396" class="lbl-italic" style="font-size:11px;">attach mode unavailable</text>
+
+          <!-- postgres right -->
+          <rect x="230" y="180" width="210" height="240" class="node-box"/>
+          <text x="244" y="204" class="lbl lbl-strong">postgres + state</text>
+          <text x="244" y="226" class="lbl">sessions</text>
+          <text x="244" y="240" class="lbl">session_events</text>
+          <text x="244" y="254" class="lbl">health_snapshots</text>
+          <text x="244" y="268" class="lbl">notifications</text>
+          <text x="244" y="282" class="lbl">credential_events</text>
+          <text x="244" y="296" class="lbl">elevenlabs_credentials</text>
+          <line x1="244" y1="312" x2="430" y2="312" stroke="rgba(244,237,225,0.16)"/>
+          <text x="244" y="334" class="lbl lbl-amber">~/.nexus/</text>
+          <text x="244" y="350" class="lbl">  agent.sock  (AF_UNIX)</text>
+          <text x="244" y="364" class="lbl">  keys/master.key</text>
+          <text x="244" y="378" class="lbl">  agents.toml</text>
+          <text x="244" y="396" class="lbl-italic" style="font-size:11px;">network-layer auth only</text>
+        </g>
+
+        <!-- MACBOOK: developer seat, full TTS playback stack -->
+        <g transform="translate(820,90)">
+          <rect class="node-box-amber" width="460" height="440" rx="2"/>
+          <rect class="node-corner" x="0" y="0" width="14" height="2"/>
+          <rect class="node-corner" x="0" y="0" width="2" height="14"/>
+          <text x="20" y="28" class="lbl lbl-amber">MACHINE &middot; macbook (laptop)</text>
+          <text x="20" y="56" class="lbl-italic">developer's seat &middot; the voice</text>
+
+          <!-- agent -->
+          <rect x="20" y="80" width="420" height="80" fill="rgba(255,176,0,0.05)" stroke="#ffb000" stroke-width="1"/>
+          <text x="32" y="106" class="lbl lbl-amber">nexus-agent &middot; :7400</text>
+          <text x="32" y="126" class="lbl">SSE @ /events/stream</text>
+          <text x="32" y="146" class="lbl">PATCH /notifications/settings</text>
+
+          <!-- nexus-notifier listener -->
+          <rect x="20" y="180" width="420" height="70" class="node-box-cyan"/>
+          <text x="32" y="206" class="lbl lbl-cyan">com.nexus.notifier &middot; LAUNCHD</text>
+          <text x="32" y="224" class="lbl">SSE subscriber &middot; mode=listen</text>
+          <text x="32" y="240" class="lbl">decodes audioBase64 &rarr; enqueue tts-queue.fifo</text>
+
+          <!-- FIFO -->
+          <rect x="20" y="262" width="420" height="36" fill="rgba(255,176,0,0.10)" stroke="#ffb000" stroke-width="1.2"/>
+          <text x="32" y="285" class="lbl lbl-amber">FIFO &middot; tts-queue.fifo</text>
+
+          <!-- tts player -->
+          <rect x="20" y="310" width="420" height="70" class="node-box-cyan"/>
+          <text x="32" y="336" class="lbl lbl-cyan">com.nexus.tts-player &middot; LAUNCHD</text>
+          <text x="32" y="354" class="lbl">FIFO drain &middot; mode=drain</text>
+          <text x="32" y="370" class="lbl">afplay $file  /  say "$text"  &middot;  serial</text>
+
+          <!-- TUI -->
+          <rect x="20" y="392" width="420" height="36" class="node-box"/>
+          <text x="32" y="416" class="lbl lbl-strong">nexus &middot; TUI &middot; ratatui &mdash; fans HTTP to both agents</text>
+        </g>
+
+        <!-- federation wire (single bidi between the two) -->
+        <path d="M 580 220 Q 700 180 820 220" class="wire-amber" marker-end="url(#arrow-amber)"/>
+        <path d="M 820 260 Q 700 300 580 260" class="wire-amber" marker-end="url(#arrow-amber)"/>
+        <text x="700" y="180" text-anchor="middle" class="lbl lbl-amber">ws://peer/ws/federation</text>
+        <text x="700" y="302" text-anchor="middle" class="lbl">lifecycle envelope &middot; source: local|peer</text>
+
+        <!-- TUI fan-out (cyan, from macbook TUI to homelab) -->
+        <path d="M 830 410 Q 700 470 580 380" class="wire-cyan" stroke-dasharray="2 4" marker-end="url(#arrow-cyan)"/>
+        <text x="700" y="490" text-anchor="middle" class="lbl lbl-cyan">GET /sessions &middot; /health &middot; /projects (per agent)</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 00.1</div>
+    <div class="note-body">
+      Agents bind to <em>both</em> loopback and the Tailscale interface IP. The
+      effect: an agent is reachable from itself and from any other Tailnet peer,
+      and from nowhere else. No tokens, no JWT, no API key &mdash; the
+      <em>network is the auth</em>. See <code>apps/agent/src/server.ts:149-171</code>.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 01 — SESSION REGISTRATION
+     ============================================================= -->
+<section class="chapter" id="ch-01">
+  <div class="chap-head">
+    <div class="chap-num">01 <span class="dot">&middot;</span> session registration</div>
+    <h2 class="chap-title">Two ingress paths.<br><span class="strong">One Map</span> behind them.</h2>
+    <p class="chap-deck">
+      Sessions enter through one of three doors. <strong>Two are real
+      ingress paths</strong> for session events: HTTP <code>POST /hooks</code>
+      and AF_UNIX <code>agent.sock</code>. <strong>One is a reconciliation
+      sweep</strong> that finds CC processes that never installed hooks. The
+      third (lifecycle bus) isn't really a drain &mdash; it's fan-out. All
+      paths converge on the same write-through cache and produce
+      <em>byte-identical envelopes</em> downstream.
+    </p>
+  </div>
+
+  <div class="row">
+    <div class="canvas" data-region="hooks">
+      <div class="canvas-head">
+        <span class="name">Plate 01a &middot; <span class="id">MANAGED &middot; ingress</span></span>
+        <span>POST /hooks + AF_UNIX &middot; both feed dispatcher</span>
+      </div>
+      <div class="canvas-body">
+        <svg viewBox="0 0 1400 640" class="schematic" preserveAspectRatio="xMidYMid meet">
+
+          <!-- Left lane: HTTP /hooks -->
+          <g>
+            <rect x="40" y="30" width="280" height="92" class="node-box-cyan"/>
+            <text x="56" y="54" class="lbl lbl-cyan">claude code (any machine)</text>
+            <text x="56" y="74" class="lbl">~/.claude/hooks/*.sh</text>
+            <text x="56" y="90" class="lbl">SessionStart, Stop, PreToolUse, ...</text>
+            <text x="56" y="106" class="lbl lbl-amber">primary-agent OR sub-agent</text>
+
+            <path d="M 180 122 L 180 170" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+            <text x="194" y="146" class="lbl lbl-cyan">curl --data @-</text>
+            <text x="194" y="160" class="lbl">~50ms RTT loopback</text>
+
+            <rect x="40" y="170" width="280" height="60" class="node-box"/>
+            <text x="56" y="194" class="lbl lbl-strong">HTTP POST /hooks  :7400</text>
+            <text x="56" y="212" class="lbl">axum &middot; loopback OR tailnet</text>
+            <text x="56" y="226" class="lbl">always returns 200 (fire-and-forget)</text>
+          </g>
+
+          <!-- Right lane: AF_UNIX -->
+          <g>
+            <rect x="380" y="30" width="280" height="92" class="node-box"/>
+            <text x="396" y="54" class="lbl lbl-strong">claude code (same machine only)</text>
+            <text x="396" y="74" class="lbl">socket client (writeline NDJSON)</text>
+            <text x="396" y="90" class="lbl">~10us local write</text>
+            <text x="396" y="106" class="lbl lbl-amber">uid-checked by kernel</text>
+
+            <path d="M 520 122 L 520 170" class="wire-solid" marker-end="url(#arrow-pale)"/>
+            <text x="534" y="146" class="lbl">stream-write</text>
+            <text x="534" y="160" class="lbl">no http parse</text>
+
+            <rect x="380" y="170" width="280" height="60" class="node-box"/>
+            <text x="396" y="194" class="lbl lbl-strong">AF_UNIX ~/.nexus/agent.sock</text>
+            <text x="396" y="212" class="lbl">socket-server/dispatcher.ts</text>
+            <text x="396" y="226" class="lbl">SOCK_STREAM &middot; NDJSON frames</text>
+          </g>
+
+          <!-- shared dispatcher -->
+          <path d="M 180 230 L 180 280" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <path d="M 520 230 L 520 280" class="wire-solid" marker-end="url(#arrow-pale)"/>
+
+          <rect x="40" y="280" width="620" height="80" fill="rgba(255,176,0,0.08)" stroke="#ffb000" stroke-width="1.5"/>
+          <text x="56" y="306" class="lbl lbl-amber">shared dispatcher &middot; handleWatcherEvent(event)</text>
+          <text x="56" y="324" class="lbl">parse payload &rarr; normalize to WatcherEvent shape</text>
+          <text x="56" y="338" class="lbl">classify: lifecycle | tool_use | agent_spawn | notification | diagnostic</text>
+          <text x="56" y="352" class="lbl lbl-cyan">bind credentialFingerprint, agentId, parentAgent, childRole</text>
+
+          <!-- Payload shape callout -->
+          <rect x="700" y="30" width="660" height="330" class="node-box" fill="rgba(38,212,255,0.04)" stroke="#26d4ff"/>
+          <text x="716" y="54" class="lbl lbl-cyan">HookEventPayload shape (40 recognised types)</text>
+          <text x="716" y="76" class="lbl-italic" style="font-size:13px;">the payload distinguishes primary agents from sub-agents</text>
+          <line x1="716" y1="88" x2="1344" y2="88" stroke="rgba(38,212,255,0.32)"/>
+
+          <text x="716" y="112" class="lbl lbl-amber">identity</text>
+          <text x="846" y="112" class="lbl lbl-strong">session_id  cc_session_id  pid  machine  cwd</text>
+
+          <text x="716" y="138" class="lbl lbl-amber">model</text>
+          <text x="846" y="138" class="lbl lbl-strong">model  agent  command  branch  spec</text>
+
+          <text x="716" y="164" class="lbl lbl-amber">cost</text>
+          <text x="846" y="164" class="lbl lbl-strong">input_tokens  output_tokens  cache_read  cost_usd</text>
+
+          <text x="716" y="190" class="lbl lbl-amber">tool</text>
+          <text x="846" y="190" class="lbl lbl-strong">tool  tool_name  error  command  exit_code</text>
+
+          <text x="716" y="216" class="lbl lbl-amber">SUB-AGENT</text>
+          <text x="846" y="216" class="lbl lbl-strong">agent_type  agent_name  parent_agent  child_role</text>
+          <text x="846" y="232" class="lbl lbl-cyan">agent_spawns: number  &middot;  is_subagent: bool</text>
+          <text x="846" y="248" class="lbl-italic" style="font-size:11px;">surfaces tree relationship: top-level CC vs Task() child</text>
+
+          <text x="716" y="278" class="lbl lbl-amber">crash</text>
+          <text x="846" y="278" class="lbl lbl-strong">crash_flag  stop_reason  failure_count  compaction_count</text>
+
+          <text x="716" y="304" class="lbl lbl-amber">monitor</text>
+          <text x="846" y="304" class="lbl lbl-strong">notification.title  notification.body  channel</text>
+          <text x="846" y="320" class="lbl-italic" style="font-size:11px;">CC's own Notification hook routes here</text>
+
+          <text x="716" y="346" class="lbl lbl-amber">shell</text>
+          <text x="846" y="346" class="lbl lbl-strong">command_start  command_end  exit_code  duration_ms</text>
+
+          <!-- Dispatcher to throttle -->
+          <path d="M 350 360 L 350 410" class="wire-amber" marker-end="url(#arrow-amber)"/>
+
+          <!-- throttle -->
+          <rect x="40" y="410" width="620" height="80" class="node-box-amber"/>
+          <text x="56" y="436" class="lbl lbl-amber">throttle layer &middot; hook-event-throttle.ts</text>
+          <text x="56" y="454" class="lbl">tool_use_start + tool_use_end &mdash; 500ms coalesce window per (eventType, sessionId)</text>
+          <text x="56" y="472" class="lbl">flush emits ONE envelope with count of suppressed siblings &middot; all other event types pass through</text>
+
+          <path d="M 350 490 L 350 530" class="wire-amber" marker-end="url(#arrow-amber)"/>
+
+          <!-- onward: bus + cache + db -->
+          <rect x="40" y="530" width="200" height="80" class="node-box-amber"/>
+          <text x="56" y="556" class="lbl lbl-amber">sessionManager (cache)</text>
+          <text x="56" y="574" class="lbl">Map mutate</text>
+          <text x="56" y="588" class="lbl">write-through &rarr; DB</text>
+
+          <rect x="260" y="530" width="200" height="80" class="node-box"/>
+          <text x="276" y="556" class="lbl lbl-strong">postgres (record)</text>
+          <text x="276" y="574" class="lbl">sessions + session_events</text>
+          <text x="276" y="588" class="lbl">full payload as JSON</text>
+
+          <rect x="480" y="530" width="180" height="80" class="node-box-amber"/>
+          <text x="496" y="556" class="lbl lbl-amber">lifecycleBus (fanout)</text>
+          <text x="496" y="574" class="lbl">SSE + peers + rules</text>
+          <text x="496" y="588" class="lbl">NOT a drain &mdash; emitter</text>
+
+          <text x="350" y="630" text-anchor="middle" class="lbl-italic" style="font-size:13px;">
+            three nodes, two roles: cache &amp; DB are sinks; bus is fan-out.
+          </text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="canvas" data-region="pgrep">
+      <div class="canvas-head">
+        <span class="name">Plate 01b &middot; <span class="id">UNMANAGED / UNHOOKED</span></span>
+        <span>pgrep reconcile &middot; the discovery fallback</span>
+      </div>
+      <div class="canvas-body">
+        <svg viewBox="0 0 1400 540" class="schematic" preserveAspectRatio="xMidYMid meet">
+
+          <!-- the two axes callout -->
+          <rect x="800" y="20" width="560" height="240" fill="rgba(255,176,0,0.04)" stroke="#ffb000" stroke-width="1.2" stroke-dasharray="4 4"/>
+          <text x="820" y="44" class="lbl lbl-amber">REFRAMING &middot; managed vs unmanaged is two axes</text>
+          <line x1="820" y1="56" x2="1340" y2="56" stroke="rgba(255,176,0,0.32)"/>
+
+          <text x="820" y="84" class="lbl lbl-strong">Axis 1 &middot; TELEMETRY  (hooks installed?)</text>
+          <text x="820" y="104" class="lbl">yes &rarr; full hook stream (Plate 01a)</text>
+          <text x="820" y="120" class="lbl">no  &rarr; pgrep-discovery only (this plate)</text>
+
+          <text x="820" y="148" class="lbl lbl-strong">Axis 2 &middot; ATTACH  (tmux session?)</text>
+          <text x="820" y="168" class="lbl">yes &rarr; /sessions/$id/interact unlocked</text>
+          <text x="820" y="184" class="lbl">no  &rarr; read TUI panel only, no take-over</text>
+
+          <text x="820" y="216" class="lbl lbl-cyan">if hooks were installed globally in ~/.claude/settings.json,</text>
+          <text x="820" y="232" class="lbl lbl-cyan">EVERY CC session would emit hooks &mdash; pgrep would become</text>
+          <text x="820" y="248" class="lbl lbl-cyan">a corroboration check, not a discovery primitive.</text>
+
+          <!-- left: tick + reconcile -->
+          <circle cx="80" cy="80" r="36" class="node-box-amber"/>
+          <text x="80" y="76" text-anchor="middle" class="lbl lbl-amber">30s</text>
+          <text x="80" y="92" text-anchor="middle" class="lbl">tick</text>
+
+          <path d="M 116 80 L 170 80" class="wire-amber" marker-end="url(#arrow-amber)"/>
+
+          <rect x="170" y="50" width="560" height="60" class="node-box"/>
+          <text x="186" y="76" class="lbl lbl-strong">listClaudeProcesses() &middot; services/process-watcher.ts :67</text>
+          <text x="186" y="96" class="lbl">exec("pgrep -af claude") &rarr; raw cmdlines &rarr; isClaudeCommand() filter</text>
+
+          <path d="M 450 110 L 450 150" class="wire-solid" marker-end="url(#arrow-pale)"/>
+
+          <rect x="40" y="150" width="720" height="200" class="node-box-amber"/>
+          <text x="56" y="178" class="lbl lbl-amber">reconcile(livePids, dbRows) &middot; the two-pass diff</text>
+
+          <g transform="translate(56, 196)">
+            <text x="0" y="20" class="lbl lbl-cyan">PASS A &mdash; livePid &not;&isin; dbRows</text>
+            <text x="0" y="40" class="lbl">  read /proc/$pid/cwd &middot; /proc/$pid/comm</text>
+            <text x="0" y="56" class="lbl">  INSERT sessions { pid, cwd, machine, status: "active" }</text>
+            <text x="0" y="72" class="lbl">  pid is the only join key &mdash; no ccSessionId, no model, no cost</text>
+            <text x="0" y="88" class="lbl lbl-amber">  emit RemoteSessionStarted</text>
+            <text x="0" y="108" class="lbl-italic" style="font-size:11px;">"discovered" cards in TUI are flagged: agent=null, model=null</text>
+
+            <text x="360" y="20" class="lbl lbl-rust">PASS B &mdash; dbRow.pid &not;&isin; livePids</text>
+            <text x="360" y="40" class="lbl">  set endedAt = NOW()</text>
+            <text x="360" y="56" class="lbl">  /proc/$pid present? &rarr; "errored"</text>
+            <text x="360" y="72" class="lbl">  /proc/$pid absent  &rarr; "ended"</text>
+            <text x="360" y="88" class="lbl lbl-rust">  emit RemoteSessionEnded</text>
+            <text x="360" y="108" class="lbl-italic" style="font-size:11px;">macOS lacks /proc &mdash; falls back to lsof or kill -0</text>
+          </g>
+
+          <path d="M 400 350 L 400 400" class="wire-amber" marker-end="url(#arrow-amber)"/>
+
+          <rect x="40" y="400" width="720" height="100" class="node-box-amber"/>
+          <text x="56" y="426" class="lbl lbl-amber">lifecycleBus.emit  &mdash;  byte-identical envelope shape to Plate 01a</text>
+          <text x="56" y="446" class="lbl">{ event: "RemoteSessionStarted", payload, source: "local", seq, ts, origin }</text>
+          <text x="56" y="466" class="lbl lbl-cyan">downstream subscribers cannot distinguish hook-origin from pgrep-origin</text>
+          <text x="56" y="486" class="lbl-italic" style="font-size:11px;">that's the wedding: same envelope, same cache mutation, same fan-out path</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="canvas" data-region="cache">
+      <div class="canvas-head">
+        <span class="name">Plate 01c &middot; <span class="id">CONVERGENCE + TIMING</span></span>
+        <span>session-manager.ts &middot; the Map cache &middot; envelope contract</span>
+      </div>
+      <div class="canvas-body">
+        <svg viewBox="0 0 1400 580" class="schematic" preserveAspectRatio="xMidYMid meet">
+
+          <!-- three sources collapsed -->
+          <rect x="40" y="40" width="220" height="48" class="node-box-cyan"/>
+          <text x="56" y="60" class="lbl lbl-cyan">A &middot; HTTP /hooks</text>
+          <text x="56" y="78" class="lbl">HookEventPayload</text>
+          <rect x="40" y="100" width="220" height="48" class="node-box"/>
+          <text x="56" y="120" class="lbl lbl-strong">B &middot; AF_UNIX socket</text>
+          <text x="56" y="138" class="lbl">NDJSON same shape</text>
+          <rect x="40" y="160" width="220" height="48" class="node-box-amber"/>
+          <text x="56" y="180" class="lbl lbl-amber">C &middot; pgrep reconcile</text>
+          <text x="56" y="198" class="lbl">synthetic envelope</text>
+
+          <path d="M 260 64 L 460 130" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <path d="M 260 124 L 460 130" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <path d="M 260 184 L 460 130" class="wire-amber" marker-end="url(#arrow-amber)"/>
+
+          <!-- sessionManager -->
+          <rect x="460" y="40" width="440" height="200" fill="rgba(255,176,0,0.06)" stroke="#ffb000" stroke-width="1.5"/>
+          <text x="480" y="66" class="lbl lbl-amber">sessionManager &middot; write-through cache</text>
+          <text x="480" y="92" class="lbl-italic" style="font-size:16px;">handleWatcherEvent(event)</text>
+          <text x="480" y="120" class="lbl">Map&lt;sessionId, Session&gt; in-memory authoritative subset</text>
+          <text x="480" y="140" class="lbl">readThroughAsync() on cache miss &rarr; postgres hydrate</text>
+
+          <line x1="480" y1="156" x2="884" y2="156" stroke="rgba(255,176,0,0.32)"/>
+
+          <text x="480" y="178" class="lbl lbl-amber">SWEEP TIMER &middot; every 60s</text>
+          <text x="480" y="198" class="lbl">active &rarr; idle (60m no heartbeat)</text>
+          <text x="480" y="214" class="lbl">idle &rarr; stale (+5m more)</text>
+          <text x="480" y="230" class="lbl">ended row &rarr; evict (60m)</text>
+
+          <!-- callout: timeout origin -->
+          <rect x="920" y="40" width="440" height="200" class="node-box" fill="rgba(38,212,255,0.04)" stroke="#26d4ff"/>
+          <text x="936" y="66" class="lbl lbl-cyan">TIMEOUT ORIGIN</text>
+          <text x="936" y="88" class="lbl-italic" style="font-size:13px;">why 60 minutes, not 5</text>
+          <line x1="936" y1="100" x2="1344" y2="100" stroke="rgba(38,212,255,0.32)"/>
+
+          <text x="936" y="124" class="lbl">previous: 5m idle threshold</text>
+          <text x="936" y="140" class="lbl">tied to legacy CC session cache TTL</text>
+
+          <text x="936" y="166" class="lbl lbl-amber">CC update: session cache &rarr; 60m</text>
+          <text x="936" y="182" class="lbl">old 5m made every coffee break</text>
+          <text x="936" y="198" class="lbl">an "idle" event &mdash; noisy + wrong</text>
+
+          <text x="936" y="222" class="lbl lbl-cyan">new value alignes our sweep with CC</text>
+
+          <!-- ordering: emit vs persist -->
+          <rect x="40" y="280" width="1320" height="100" class="node-box-amber"/>
+          <text x="56" y="306" class="lbl lbl-amber">ORDERING &middot; emit-then-persist (current) vs persist-then-emit (proposed in &sect;08)</text>
+
+          <text x="56" y="330" class="lbl lbl-cyan">CURRENT:</text>
+          <text x="180" y="330" class="lbl">async DB write fires &middot; async bus emit fires &middot; neither awaits the other</text>
+
+          <text x="56" y="350" class="lbl lbl-rust">RISK:</text>
+          <text x="180" y="350" class="lbl">downstream SSE subscriber receives envelope before DB row visible &mdash; reading the DB sees stale</text>
+
+          <text x="56" y="370" class="lbl lbl-amber">MITIGATION (in payload contract):</text>
+          <text x="362" y="370" class="lbl">envelope CARRIES full session shape &rarr; subscribers must not re-query DB</text>
+
+          <!-- envelope contract -->
+          <rect x="40" y="400" width="1320" height="160" fill="rgba(38,212,255,0.05)" stroke="#26d4ff" stroke-width="1.2"/>
+          <text x="56" y="426" class="lbl lbl-cyan">ENVELOPE CONTRACT &middot; identical payload regardless of origin (A / B / C)</text>
+          <text x="56" y="446" class="lbl">{ event, payload, source: 'local' | 'peer', seq: monotonic, ts: ISO8601, origin: machine }</text>
+
+          <text x="56" y="476" class="lbl lbl-amber">WHEN  emitted</text>
+          <text x="240" y="476" class="lbl">on every state mutation (created, status change, ended) &middot; on every event class above</text>
+
+          <text x="56" y="498" class="lbl lbl-amber">WHY   the same shape</text>
+          <text x="240" y="498" class="lbl">downstream code (TUI render, notifier rules, peer federation) is origin-blind by design</text>
+
+          <text x="56" y="520" class="lbl lbl-amber">HOW   transported</text>
+          <text x="240" y="520" class="lbl">in-process EventEmitter on local agent &middot; over /ws/federation to peers &middot; out as SSE frame</text>
+
+          <text x="56" y="546" class="lbl lbl-amber">WHAT  the payload</text>
+          <text x="240" y="546" class="lbl">full session row + classified hook details &middot; sized so subscribers never read-through to DB</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 01.1</div>
+    <div class="note-body">
+      The cache is <em>always a subset of the DB</em>, never a divergent
+      truth &mdash; write-through pattern at <code>session-manager.ts:288</code>.
+      The bigger question (raised by you and addressed in &sect;08) is whether
+      the bus emit should <em>await</em> the DB write before fanning out. The
+      current emit-then-persist racey shape works only because envelopes carry
+      the full payload &mdash; remove that and the race becomes real.
+    </div>
+  </div>
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 01.2</div>
+    <div class="note-body">
+      <em>On the "three drains" framing:</em> there are really <strong>two
+      ingress paths</strong> (HTTP /hooks + AF_UNIX) feeding <strong>one
+      dispatcher</strong>, then <strong>one fan-out bus</strong> distributing
+      to consumers. The dispatcher is the single source of normalisation; the
+      bus is the single source of distribution. The two ingress paths exist
+      for one good reason &mdash; HTTP works across machines (Tailscale), the
+      socket doesn't &mdash; and that asymmetry justifies keeping both. See
+      <a href="#ch-08" style="color:var(--amber);">&sect;08</a> for the
+      collapse analysis.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 02 — TELEMETRY SOURCES (7 cards)
+     ============================================================= -->
+<section class="chapter" id="ch-02">
+  <div class="chap-head">
+    <div class="chap-num">02 <span class="dot">&middot;</span> telemetry sources</div>
+    <h2 class="chap-title">Seven mouths,<br><span class="strong">one bus.</span></h2>
+    <p class="chap-deck">
+      Seven distinct sources push signal into the agent. Each has its own
+      trigger, its own cadence, and its own schema &mdash; but every one of
+      them ends up as an envelope on the same lifecycle bus. Read each plate
+      as a stand-alone subsystem.
+    </p>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="hooks">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.1</div>
+          <div class="acc-title">Hook events <span class="lit">POST /hooks</span></div>
+          <p class="acc-intent">Captures Claude Code's view of its own lifecycle &mdash; sessions starting and stopping, every tool invocation, every sub-agent spawn, every cost-bearing token. <em>This is the highest-fidelity stream we have</em>; everything else is corroboration.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB &middot; MACBOOK</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">runs wherever CC runs; agent receives over Tailnet or loopback</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Trigger</dt><dd>CC hook scripts</dd></div>
+        <div><dt>Cadence</dt><dd class="amber">~1000/min active</dd></div>
+        <div><dt>Path</dt><dd>routes/hooks.ts:251</dd></div>
+        <div><dt>Guarantee</dt><dd>fire-and-forget, always 200</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">session_start</span><span class="desc">primary session boot &mdash; one per CC process</span></summary>
+        <div class="body">
+          <p>Fired by <em>~/.claude/hooks/session-start.sh</em> when CC initialises a new chat. Carries the cc_session_id (CC's UUID), the model in use, and the cwd. Distinguishes primary from sub-agent via <em>is_subagent: false</em>.</p>
+          <pre>{
+  <span class="k">"hook_event_name"</span>: <span class="s">"session_start"</span>,
+  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
+  <span class="k">"cc_session_id"</span>: <span class="s">"01J5K2..."</span>,
+  <span class="k">"pid"</span>:           4421,
+  <span class="k">"machine"</span>:       <span class="s">"homelab"</span>,
+  <span class="k">"cwd"</span>:           <span class="s">"/home/leo/dev/oo"</span>,
+  <span class="k">"model"</span>:         <span class="s">"claude-opus-4-7"</span>,
+  <span class="k">"agent"</span>:         <span class="s">"primary"</span>,
+  <span class="k">"is_subagent"</span>:   false
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">agent_spawn</span><span class="desc">sub-agent dispatched via Task() &mdash; tree relationship tracked</span></summary>
+        <div class="body">
+          <p>Emitted by the parent CC process when it calls the Task tool to launch a sub-agent. <em>parent_agent</em> ties the child back to its caller; <em>child_role</em> names the role (Explore, plan, ui-engineer, etc).</p>
+          <pre>{
+  <span class="k">"hook_event_name"</span>: <span class="s">"agent_spawn"</span>,
+  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a-child-01"</span>,
+  <span class="k">"parent_agent"</span>:  <span class="s">"oo-7f3a"</span>,
+  <span class="k">"child_role"</span>:    <span class="s">"Explore"</span>,
+  <span class="k">"agent_type"</span>:    <span class="s">"subagent"</span>,
+  <span class="k">"agent_name"</span>:    <span class="s">"map nx network topology"</span>,
+  <span class="k">"model"</span>:         <span class="s">"claude-haiku-4-5"</span>,
+  <span class="k">"is_subagent"</span>:   true
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">tool_use_end</span><span class="desc">single tool invocation result &middot; throttled 500ms</span></summary>
+        <div class="body">
+          <p>The highest-volume hook. CC fires one per tool call &mdash; Bash, Read, Edit, Grep, Agent dispatch, MCP call, etc. <em>500ms coalesce window</em> per (eventType, sessionId): the throttle layer emits a single envelope with <em>count</em> indicating suppressed siblings.</p>
+          <pre>{
+  <span class="k">"hook_event_name"</span>: <span class="s">"tool_use_end"</span>,
+  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
+  <span class="k">"tool_name"</span>:     <span class="s">"Bash"</span>,
+  <span class="k">"command"</span>:       <span class="s">"pnpm test --filter @nx/db"</span>,
+  <span class="k">"exit_code"</span>:     0,
+  <span class="k">"duration_ms"</span>:   1834,
+  <span class="k">"input_tokens"</span>:  142,
+  <span class="k">"output_tokens"</span>: 1029,
+  <span class="k">"cost_usd"</span>:      0.0083
+  <span class="c">// throttle envelope adds: count: 4 (suppressed siblings)</span>
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">notification</span><span class="desc">CC's own Notification hook &mdash; the "monitor" channel</span></summary>
+        <div class="body">
+          <p>CC fires this when it wants attention &mdash; permission requests, idle prompts, the orange "do this next" banner. We route the payload's body straight into our notification dispatcher. <em>This is how monitor telemetry from CC enters our system today.</em></p>
+          <pre>{
+  <span class="k">"hook_event_name"</span>: <span class="s">"notification"</span>,
+  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
+  <span class="k">"title"</span>:         <span class="s">"Permission required"</span>,
+  <span class="k">"body"</span>:          <span class="s">"Bash(rm -rf .next/)"</span>,
+  <span class="k">"channel"</span>:       [<span class="s">"tts"</span>, <span class="s">"desktop"</span>]
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">command_end</span><span class="desc">shell-style telemetry &middot; explicit Bash command result</span></summary>
+        <div class="body">
+          <p>A more specific shape of tool_use_end for Bash tool calls. Includes exit code, stderr capture, duration. <em>This is the shell telemetry channel</em> &mdash; if a command run by CC fails non-zero, it lands here with the full stderr buffer.</p>
+          <pre>{
+  <span class="k">"hook_event_name"</span>: <span class="s">"command_end"</span>,
+  <span class="k">"command"</span>:       <span class="s">"git push"</span>,
+  <span class="k">"exit_code"</span>:     128,
+  <span class="k">"duration_ms"</span>:   3120,
+  <span class="k">"stderr_tail"</span>:   <span class="s">"! [rejected] main -&gt; main (non-fast-forward)"</span>
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">+20 more event types</span><span class="desc">user_prompt, pre_compact, post_compact, crash_flag, stop_failure, permission_request, worktree_create, ...</span></summary>
+        <div class="body">
+          <p>The full <em>RECOGNIZED_EVENTS</em> set in routes/hooks.ts:112-147 lists 27 types. Unknown event types are accepted, persisted, and emitted &mdash; the dispatcher is permissive by design so a new CC hook surfaces in the TUI immediately without an agent upgrade.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="pgrep">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.2</div>
+          <div class="acc-title">Process watcher <span class="lit">pgrep claude</span></div>
+          <p class="acc-intent">A reconciliation safety net &mdash; finds CC processes that <em>never installed hooks</em> (or whose hooks broke). Without this, every unhooked session would be invisible to the TUI.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB &middot; MACBOOK</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">runs inside every nexus-agent; scans its own host</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Trigger</dt><dd>internal 30s timer</dd></div>
+        <div><dt>Cadence</dt><dd class="amber">30s, delta-only</dd></div>
+        <div><dt>Path</dt><dd>process-watcher.ts:67-99</dd></div>
+        <div><dt>Cost</dt><dd>one fork(2) per tick</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">RemoteSessionStarted</span><span class="desc">new PID discovered &middot; synthetic envelope from reconcile()</span></summary>
+        <div class="body">
+          <p>When a live PID has no matching DB row, we INSERT one with the data we can extract from /proc and emit a synthetic envelope. <em>cc_session_id is null</em> &mdash; we don't know it without the hook. Model is null. Agent is null. Cost is unmeasured.</p>
+          <pre>{
+  <span class="k">"event"</span>:   <span class="s">"RemoteSessionStarted"</span>,
+  <span class="k">"payload"</span>: {
+    <span class="k">"session_id"</span>: <span class="s">"discovered-pid-7f44a"</span>,
+    <span class="k">"pid"</span>:        7044,
+    <span class="k">"machine"</span>:    <span class="s">"homelab"</span>,
+    <span class="k">"cwd"</span>:        <span class="s">"/home/leo/dev/xx"</span>,
+    <span class="k">"status"</span>:     <span class="s">"active"</span>,
+    <span class="k">"cc_session_id"</span>: null,    <span class="c">// unknown</span>
+    <span class="k">"model"</span>:         null,    <span class="c">// unknown</span>
+    <span class="k">"agent"</span>:         null     <span class="c">// unknown</span>
+  },
+  <span class="k">"source"</span>: <span class="s">"local"</span>, <span class="k">"seq"</span>: 9241
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">RemoteSessionEnded</span><span class="desc">PID disappeared from pgrep output &middot; ends the DB row</span></summary>
+        <div class="body">
+          <p>The other half of the reconcile. Any DB row with status='active' whose pid is no longer in pgrep gets ended. On Linux we cross-check <em>/proc/$pid</em> &mdash; if it's gone we mark "ended", if it's still there but pgrep didn't see it (rare race) we mark "errored".</p>
+          <pre>{
+  <span class="k">"event"</span>:   <span class="s">"RemoteSessionEnded"</span>,
+  <span class="k">"payload"</span>: {
+    <span class="k">"session_id"</span>: <span class="s">"oo-7f3a"</span>,
+    <span class="k">"pid"</span>:        4421,
+    <span class="k">"endedAt"</span>:    <span class="s">"2026-05-17T11:42:13Z"</span>,
+    <span class="k">"status"</span>:     <span class="s">"ended"</span>,
+    <span class="k">"detected_via"</span>: <span class="s">"pgrep_missing"</span>
+  }
+}</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="agent">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.3</div>
+          <div class="acc-title">System health <span class="lit">HealthCollector</span></div>
+          <p class="acc-intent">The "is the machine ok?" channel &mdash; CPU/RAM/disk/Docker every 5 seconds, persisted every 30. <em>Decoupled from CC entirely</em>; runs even when no sessions exist.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB &middot; MACBOOK</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">each agent reports its own host</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Collect</dt><dd class="amber">5s</dd></div>
+        <div><dt>Persist</dt><dd>30s</dd></div>
+        <div><dt>Volume</dt><dd>~2 KB / snapshot</dd></div>
+        <div><dt>Retention</dt><dd>24h</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">HealthMetrics snapshot</span><span class="desc">full host telemetry &middot; uses npm "systeminformation"</span></summary>
+        <div class="body">
+          <p>The collector wraps systeminformation calls and merges into a single object. Docker probe has exponential backoff (30s → 600s) when the socket is unreachable so a docker-less Mac doesn't spam errors.</p>
+          <pre>{
+  <span class="k">"hostname"</span>:        <span class="s">"homelab"</span>,
+  <span class="k">"uptime_seconds"</span>:  843921,
+  <span class="k">"collectedAt"</span>:     <span class="s">"2026-05-17T11:42:00Z"</span>,
+  <span class="k">"cpu"</span>: {
+    <span class="k">"overall_percent"</span>: 34.2,
+    <span class="k">"per_core_percent"</span>: [42, 31, 28, 38, 30, 35, 29, 41],
+    <span class="k">"load_average"</span>:    [1.84, 1.62, 1.48]
+  },
+  <span class="k">"ram"</span>:  { <span class="k">"total_bytes"</span>: 67108864000, <span class="k">"used_bytes"</span>: 41129472000, <span class="k">"percent"</span>: 61.3 },
+  <span class="k">"disk"</span>: [{ <span class="k">"mount"</span>: <span class="s">"/"</span>, <span class="k">"percent"</span>: 73.1 }, ...],
+  <span class="k">"docker"</span>: { <span class="k">"containers"</span>: 17, <span class="k">"running"</span>: 12 },
+  <span class="k">"processes"</span>: { <span class="k">"top_cpu"</span>: [...], <span class="k">"top_ram"</span>: [...] }
+}</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="bus">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.4</div>
+          <div class="acc-title">Spec watcher <span class="lit">openspec/*</span></div>
+          <p class="acc-intent">Watches every registered project for spec lifecycle events &mdash; new specs, completed specs, tasks ticking off. <em>This is the channel that fires "session done" TTS</em> when a spec's last checkbox flips.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">runs only where projects live (mostly homelab)</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Poll</dt><dd class="amber">60s scan</dd></div>
+        <div><dt>FS watch</dt><dd>~300ms</dd></div>
+        <div><dt>Batch</dt><dd>4 projects/200ms stagger</dd></div>
+        <div><dt>Coalesce</dt><dd>100ms</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">SpecTransition</span><span class="desc">five sub-types: new_spec, removed, progress, all_complete, hash_changed</span></summary>
+        <div class="body">
+          <p>Each transition triggers a TTS announcement after a 100ms coalesce window (so flipping three checkboxes at once produces one announcement, not three).</p>
+          <pre>{
+  <span class="k">"event"</span>: <span class="s">"SpecTransition"</span>,
+  <span class="k">"payload"</span>: {
+    <span class="k">"project"</span>:    <span class="s">"oo"</span>,
+    <span class="k">"spec_slug"</span>:  <span class="s">"fix-agent-cc-session-tracking"</span>,
+    <span class="k">"kind"</span>:       <span class="s">"all_complete"</span>,
+    <span class="k">"task_count"</span>: 12,
+    <span class="k">"completed"</span>:  12,
+    <span class="k">"prev_hash"</span>:  <span class="s">"7a3f..."</span>,
+    <span class="k">"new_hash"</span>:   <span class="s">"9b4c..."</span>
+  }
+}</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="db">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.5</div>
+          <div class="acc-title">Credential events <span class="lit">CredentialSwap</span></div>
+          <p class="acc-intent">Tracks <em>which credential paid for which token</em> &mdash; binds cost to the OAuth/API key in use, surfaces decrypt failures, fires on credential rotation.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">keys live in ~/.nexus/keys/, encrypted</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Trigger</dt><dd>token use, rotation, decrypt</dd></div>
+        <div><dt>Cadence</dt><dd class="amber">on-event</dd></div>
+        <div><dt>Sink</dt><dd>credential_events</dd></div>
+        <div><dt>Volume</dt><dd>~1 row per minute</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">CredentialSwap</span><span class="desc">a different credential was selected mid-session</span></summary>
+        <div class="body">
+          <p>If a session's credential expires or hits a rate-limit, the pool swaps to the next eligible one. The session's <em>credentialFingerprint</em> column is updated and a CredentialSwap event records the old → new transition.</p>
+          <pre>{
+  <span class="k">"event"</span>: <span class="s">"CredentialSwap"</span>,
+  <span class="k">"payload"</span>: {
+    <span class="k">"session_id"</span>:  <span class="s">"oo-7f3a"</span>,
+    <span class="k">"from_fp"</span>:     <span class="s">"sha256:9a4b..."</span>,
+    <span class="k">"to_fp"</span>:       <span class="s">"sha256:c711..."</span>,
+    <span class="k">"reason"</span>:      <span class="s">"rate_limit"</span>,
+    <span class="k">"cost_billed_usd"</span>: 12.43
+  }
+}</pre>
+        </div>
+      </details>
+
+      <details class="payload">
+        <summary><span class="field">CredentialDecryptFallback</span><span class="desc">master.key changed or row is corrupt &middot; agent falls back</span></summary>
+        <div class="body">
+          <p>If the encrypted credential row can't be decrypted (key rotation, file corruption, wrong key), the agent emits this and falls through to <em>$ELEVENLABS_API_KEY</em> env or signal-only mode.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="tts-listener">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.6</div>
+          <div class="acc-title">Notifications in <span class="lit">POST /notifications/send</span></div>
+          <p class="acc-intent">The explicit "tell the user something" API. Anything &mdash; a cron job, a CI watcher, a shell script &mdash; can POST here and reach the user via TTS, banner, or Slack.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">HOMELAB</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">routed cross-machine over Tailnet</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Trigger</dt><dd>caller-driven</dd></div>
+        <div><dt>Channels</dt><dd class="amber">tts &middot; desktop &middot; slack</dd></div>
+        <div><dt>Idempotency</dt><dd>id is the key</dd></div>
+        <div><dt>Path</dt><dd>routes/notifications.ts</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">NotificationRequest</span><span class="desc">incoming POST body &middot; what callers send</span></summary>
+        <div class="body">
+          <pre>POST /notifications/send
+{
+  <span class="k">"id"</span>:       <span class="s">"deploy-2026-05-17-11-32"</span>,  <span class="c">// idempotency</span>
+  <span class="k">"title"</span>:    <span class="s">"oo deploy green"</span>,
+  <span class="k">"body"</span>:     <span class="s">"main is live &middot; 2m18s build &middot; all gates passed"</span>,
+  <span class="k">"channel"</span>:  [<span class="s">"tts"</span>, <span class="s">"desktop"</span>],
+  <span class="k">"priority"</span>: <span class="s">"normal"</span>,
+  <span class="k">"project"</span>:  <span class="s">"oo"</span>
+}</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="accordion" data-region="tts-synth">
+      <div class="acc-head">
+        <div>
+          <div class="acc-num">Source 02.7</div>
+          <div class="acc-title">TTS lifecycle <span class="lit">NotificationFired</span></div>
+          <p class="acc-intent">Emits after the agent has synthesised audio (or failed and decided to signal text only). <em>This is what the Mac listener subscribes to</em> &mdash; the only telemetry that carries binary payload.</p>
+        </div>
+        <div style="text-align:right;">
+          <span class="acc-device">MACBOOK</span>
+          <div class="acc-intent" style="margin-top:8px;text-align:right;">subscribed by com.nexus.notifier over SSE</div>
+        </div>
+      </div>
+      <dl class="acc-stats">
+        <div><dt>Trigger</dt><dd>after synth attempt</dd></div>
+        <div><dt>Cadence</dt><dd class="amber">per dispatch</dd></div>
+        <div><dt>Fallback</dt><dd>say(1) if no audio</dd></div>
+        <div><dt>Path</dt><dd>tts.ts:182-253</dd></div>
+      </dl>
+
+      <details class="payload">
+        <summary><span class="field">NotificationFired</span><span class="desc">post-synthesis envelope &middot; carries audio bytes if present</span></summary>
+        <div class="body">
+          <p>audioBase64 is absent when synthesis failed or no ElevenLabs credential is configured &mdash; the listener interprets absence as "fall back to say(1)". The presence/absence flag is the entire failure-handling protocol.</p>
+          <pre>{
+  <span class="k">"event"</span>: <span class="s">"NotificationFired"</span>,
+  <span class="k">"payload"</span>: {
+    <span class="k">"id"</span>:           <span class="s">"deploy-2026-05-17-11-32"</span>,
+    <span class="k">"title"</span>:        <span class="s">"oo deploy green"</span>,
+    <span class="k">"body"</span>:         <span class="s">"main is live..."</span>,
+    <span class="k">"channel"</span>:      <span class="s">"tts"</span>,
+    <span class="k">"project"</span>:      <span class="s">"oo"</span>,
+    <span class="k">"audioBase64"</span>:  <span class="s">"//uQxAAB..."</span>,    <span class="c">// 24kB mp3</span>
+    <span class="k">"credentialId"</span>: <span class="s">"el-default"</span>,
+    <span class="k">"duration_ms"</span>:  3204
+  }
+}</pre>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 02.1</div>
+    <div class="note-body">
+      The high-frequency hook events &mdash; <code>tool_use_start</code> and
+      <code>tool_use_end</code> &mdash; pass through a 500ms throttle window
+      before reaching the bus. When the window closes, a single envelope is
+      emitted with a <em>count</em> field representing the suppressed siblings.
+      Other event types are not throttled.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 03 — PIPELINE
+     ============================================================= -->
+<section class="chapter" id="ch-03">
+  <div class="chap-head">
+    <div class="chap-num">03 <span class="dot">&middot;</span> the pipeline</div>
+    <h2 class="chap-title">Cached &middot; recorded<br><span class="strong">&middot; transmitted &middot; emitted</span></h2>
+    <p class="chap-deck">
+      Telemetry takes one of four exits. Hot state lives in-memory and is
+      cheap to query. Durable state lands in Postgres. Live updates fan out
+      over SSE and WebSocket. Side-effects (audio, banners, slack) emerge
+      at the edges of the graph.
+    </p>
+  </div>
+
+  <div class="subsection" data-region="cache">
+    <div class="sub-num">03.1 &middot; CACHED  (volatile, in-process)</div>
+    <h3 class="sub-head">What lives in RAM and dies with the process</h3>
+    <p class="sub-deck">
+      Four caches sit inside the agent process. Each one trades durability
+      for latency &mdash; a query that hits the cache returns in
+      microseconds, a query that misses falls through to Postgres in
+      milliseconds. <strong>Where:</strong> nexus-agent heap. <strong>When
+      written:</strong> on every relevant envelope. <strong>How read:</strong>
+      synchronous in-process lookup. <strong>Why volatile:</strong> a restart
+      always reseeds from Postgres via <code>readThroughAsync()</code>.
+    </p>
+    <div class="sub-grid">
+      <div class="sub-card">
+        <div class="name">Session Map</div>
+        <div class="body"><code>Map&lt;sessionId, Session&gt;</code> mutated on every <em>WatcherEvent</em>. Sweep runs every 60s and walks the map: <code>active</code> rows older than the heartbeat threshold flip to <code>idle</code>, then <code>stale</code>, then evict. <em>Sweep thresholds now align with CC's 60-minute session cache</em> &mdash; the old 5-minute idle was an artefact of an earlier CC build.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Health snapshot</div>
+        <div class="body">A single <em>latest-only</em> object held in the collector. Refreshed every 5s by <em>systeminformation</em>; the scheduler persists every 6th tick (30s). Docker probe failures back off exponentially 30s → 600s to keep docker-less hosts quiet.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Spec state</div>
+        <div class="body">One entry per registered project keyed by absolute path. Stores the last-seen content hash and checkbox tally. Mutations come from either the 60s poll or the <em>fs.watch</em> debounce (300ms). The diff is what produces a <em>SpecTransition</em>.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Throttle buffer</div>
+        <div class="body">A per-key sliding window of 500ms keyed on <em>(eventType, sessionId)</em>. <em>tool_use_start</em> and <em>tool_use_end</em> coalesce; all other event types pass through unbuffered. The flush emits one envelope with a <em>count</em> field for the suppressed siblings.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection" data-region="db">
+    <div class="sub-num">03.2 &middot; RECORDED  (durable, postgres)</div>
+    <h3 class="sub-head">What survives a restart, a crash, a redeploy</h3>
+    <p class="sub-deck">
+      Four tables form the durable record. <strong>Where:</strong>
+      Postgres on homelab. <strong>When written:</strong> write-through
+      from the cache on every state mutation; full payload preserved as
+      JSON for replay. <strong>How read:</strong> Drizzle queries from
+      HTTP routes, never directly from clients. <strong>Why durable:</strong>
+      the cache is volatile so the DB is the only source of truth across
+      restarts and across peers.
+    </p>
+    <div class="sub-grid">
+      <div class="sub-card">
+        <div class="name">sessions</div>
+        <div class="body">One row per Claude Code session ever observed. Foreign keys to <code>projects</code> and <code>agents</code>. <em>credentialFingerprint</em> binds every cost-bearing event to the API key that paid for it. Indexed on <em>(machine, status)</em> for the TUI's "show me everything active" query.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">session_events</div>
+        <div class="body">Append-only audit trail. The full hook payload lands in <em>metadata</em> as JSON.stringify &mdash; nothing is dropped. This is the source of truth for any replay; if the bus loses an event the row is still here. <em>Read pattern</em>: tail-by-sessionId for the TUI detail view.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">health_snapshots</div>
+        <div class="body">Periodic rollup, one row every 30s per agent. <em>rawJson</em> column carries the entire collector output so ad-hoc analysis doesn't need a schema migration. Default retention 24h, pruned by the nightly cleanup job.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">notifications</div>
+        <div class="body">One row per dispatch. The caller's <em>id</em> doubles as the idempotency key &mdash; sending the same notification twice within the dedupe window updates the existing row instead of inserting. Status tracks the full lifecycle: <code>queued → sent → acknowledged | failed</code>.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection" data-region="sse">
+    <div class="sub-num">03.3 &middot; TRANSMITTED  (live, streaming)</div>
+    <h3 class="sub-head">What goes out on the wire while clients are watching</h3>
+    <p class="sub-deck">
+      Four live streams leave the agent. <strong>Where:</strong> bound to
+      the agent's HTTP server on 7400. <strong>When:</strong> push-only;
+      each envelope is sent the moment the bus emits. <strong>How:</strong>
+      long-lived HTTP/1.1 connections (SSE) or WebSocket upgrades.
+      <strong>Why streaming:</strong> the alternative &mdash; clients
+      polling &mdash; would either be slow or expensive. SSE is cheaper
+      than WebSocket for one-way push; WebSocket is mandatory for the
+      bidirectional cases.
+    </p>
+    <div class="sub-grid">
+      <div class="sub-card">
+        <div class="name">GET /events/stream  &middot; SSE</div>
+        <div class="body">Server-Sent Events. Subscribes to the lifecycle bus with a wildcard listener; every envelope becomes a <em>data:</em> frame. 30-second comment keepalives so reverse proxies don't drop the connection. <em>The mac notifier is the primary consumer.</em></div>
+      </div>
+      <div class="sub-card">
+        <div class="name">/ws/federation  &middot; WS bidi</div>
+        <div class="body">Peer-to-peer WebSocket. Forwards every <code>source: 'local'</code> envelope; ingests peer envelopes tagged <code>source: 'peer'</code> &mdash; the source tag is the entire echo-suppression protocol. Per-peer buffer of 1000 events absorbs short disconnects.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">/sessions/$id/stream  &middot; WS read</div>
+        <div class="body">Tail-only PTY bytes from the underlying tmux pane. Many viewers can stream the same session in parallel. The StreamManager multiplexes a single PTY source across all subscribers; closing a subscriber leaves the source alive.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">/sessions/$id/interact  &middot; WS bidi</div>
+        <div class="body">Full duplex over WebSocket. stdin from the client pumps into the PTY; stdout streams back. <em>Only one driver at a time</em> &mdash; the manager rejects a second interact connection while one is held. Loopback/Tailscale-bound only.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection" data-region="tts-listener">
+    <div class="sub-num">03.4 &middot; EMITTED  (side-effects at the edges)</div>
+    <h3 class="sub-head">What leaves the system entirely</h3>
+    <p class="sub-deck">
+      The terminal side-effects: audio, banners, webhooks, peer forwards.
+      <strong>Where:</strong> the edge of the graph &mdash; CoreAudio,
+      Notification Center, Slack, peer machines. <strong>When:</strong>
+      after a NotificationFired event is dispatched, or after a peer
+      announces interest. <strong>How:</strong> via OS-native APIs
+      (afplay, terminal-notifier, osascript), HTTP POST (Slack), or
+      WebSocket forward (peers). <strong>Why these are the exits:</strong>
+      everything before this point lives inside the Nexus boundary;
+      everything here crosses out.
+    </p>
+    <div class="sub-grid">
+      <div class="sub-card">
+        <div class="name">Audio bytes</div>
+        <div class="body">Base64 mp3 from ElevenLabs synthesized by the agent, decoded by the listener to <code>/tmp/nexus-notifier-$uuid.mp3</code>, played by <em>afplay</em> with a 60s timeout. Volume ducking is applied via osascript before playback and restored after.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Desktop banner</div>
+        <div class="body"><em>terminal-notifier</em> on macOS &mdash; title + body + project tag. Banner click writes the active utterance PID to <code>current-utterance.pid</code> which the player polls each cycle to short-circuit playback.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Slack webhook</div>
+        <div class="body">HTTP POST to a configured incoming-webhook URL. The shared secret lives in the credential pool, decrypted at send time. Per-channel acknowledgement is tracked in the <em>notifications</em> table.</div>
+      </div>
+      <div class="sub-card">
+        <div class="name">Peer fan-out</div>
+        <div class="body">Every <code>source: 'local'</code> envelope is mirrored to every connected peer over <em>/ws/federation</em>. The 1000-event ring buffer protects against short network drops; longer disconnects rely on the DB as the ultimate replay source.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 03.1</div>
+    <div class="note-body">
+      Hooks are <em>fire-and-forget by contract</em> (<code>routes/hooks.ts:327-335</code>).
+      Whatever happens downstream &mdash; DB write failure, bus saturation, peer
+      unreachable &mdash; the HTTP response is <em>always</em> 200. CC must
+      never block on a broken agent.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 04 — CLIENT RECEPTION
+     ============================================================= -->
+<section class="chapter" id="ch-04" data-region="tui">
+  <div class="chap-head">
+    <div class="chap-num">04 <span class="dot">&middot;</span> client reception</div>
+    <h2 class="chap-title">Three readers,<br><span class="strong">three protocols.</span></h2>
+    <p class="chap-deck">
+      Each client picks the protocol that matches its job. The TUI fans out
+      <strong>HTTP queries</strong> for snapshots. The Mac listener holds an
+      <strong>SSE stream</strong> for push. Peer agents speak
+      <strong>WebSocket</strong> for bidirectional federation.
+    </p>
+  </div>
+
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th style="width:18%;">Client</th>
+        <th style="width:18%;">Transport</th>
+        <th style="width:22%;">What it asks</th>
+        <th>How it discovers + behaves</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="name">nexus (TUI)</span><br><span class="muted">apps/nexus-status &middot; ratatui</span></td>
+        <td>HTTP &middot; fan-out</td>
+        <td><code>GET /sessions</code><br><code>GET /health</code><br><code>GET /projects</code></td>
+        <td>Reads <code>~/.config/nexus/agents.toml</code> on launch, holds a HTTP client per peer, polls in parallel, dedupes by <em>session.id</em>. No streams &mdash; refresh on user keystroke.</td>
+      </tr>
+      <tr>
+        <td><span class="name">com.nexus.notifier</span><br><span class="muted">deploy/nexus-notifier.sh</span></td>
+        <td>SSE &middot; long-lived</td>
+        <td><code>GET /events/stream</code><br><code>PATCH /notifications/settings</code></td>
+        <td>launchd-supervised on macOS. Subscribes to local <code>http://localhost:7400</code> for envelope frames. Caches settings in-process; mutates on <code>SettingsChanged</code> without restart.</td>
+      </tr>
+      <tr>
+        <td><span class="name">peer agents</span><br><span class="muted">peer-connector.ts</span></td>
+        <td>WebSocket &middot; bidi</td>
+        <td><code>/ws/federation</code></td>
+        <td>Exponential backoff 1s &rarr; 30s on connect failure. Forward every <code>source: 'local'</code> envelope, ingest every peer envelope with <code>source: 'peer'</code> to prevent echo. 1000-event buffer per peer.</td>
+      </tr>
+      <tr>
+        <td><span class="name">attach client</span><br><span class="muted">TUI or external CLI</span></td>
+        <td>WS over SSH &middot; PTY</td>
+        <td><code>/sessions/$id/stream</code><br><code>/sessions/$id/interact</code></td>
+        <td>Initiates SSH to peer's machine using <em>user</em> from <code>agents.toml</code>. SSH forwards to loopback:7400. Bun upgrades to WebSocket. Stream is read-only; interact is full duplex.</td>
+      </tr>
+      <tr>
+        <td><span class="name">com.nexus.tts-player</span><br><span class="muted">deploy/nexus-notifier.sh drain</span></td>
+        <td>FIFO &middot; local pipe</td>
+        <td><code>tts-queue.fifo</code></td>
+        <td>Sibling launchd process. Blocks on FIFO read, plays each line via <code>afplay</code> (decoded mp3) or <code>say</code> (fallback) with <code>timeout 60</code>. Serial &mdash; never overlapping audio.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- =============================================================
+     CHAPTER 05 — INTERPRETATION
+     ============================================================= -->
+<section class="chapter" id="ch-05" data-region="bus">
+  <div class="chap-head">
+    <div class="chap-num">05 <span class="dot">&middot;</span> interpretation</div>
+    <h2 class="chap-title">From envelope<br><span class="strong">to meaning.</span></h2>
+    <p class="chap-deck">
+      Each client transforms the same wire format into a different artifact.
+      The TUI builds a grid of cards. The listener decides whether to ring
+      the bell. A peer simply re-publishes the envelope to <em>its own</em>
+      subscribers.
+    </p>
+  </div>
+
+  <div class="three-col">
+
+    <div class="canvas">
+      <div class="canvas-head">
+        <span class="name">TUI &middot; <span class="id">DASHBOARD</span></span>
+        <span>read &middot; aggregate</span>
+      </div>
+      <div class="canvas-body" style="padding:40px 28px;min-height:380px;">
+        <svg viewBox="0 0 360 280" class="schematic" preserveAspectRatio="xMidYMid meet">
+          <text x="0" y="20" class="lbl lbl-amber">VIEW</text>
+          <text x="0" y="40" class="lbl-italic">Dashboard</text>
+          <line x1="0" y1="56" x2="360" y2="56" stroke="rgba(244,237,225,0.16)"/>
+          <text x="0" y="80" class="lbl">group by</text>
+          <text x="120" y="80" class="lbl lbl-strong">project &rarr; machine</text>
+          <text x="0" y="106" class="lbl">card body</text>
+          <text x="120" y="106" class="lbl lbl-strong">id, model, branch</text>
+          <text x="120" y="122" class="lbl">cwd, agent, command</text>
+          <text x="120" y="138" class="lbl">cost, idle time</text>
+          <text x="0" y="170" class="lbl lbl-amber">VIEW</text>
+          <text x="0" y="190" class="lbl-italic">Detail</text>
+          <line x1="0" y1="206" x2="360" y2="206" stroke="rgba(244,237,225,0.16)"/>
+          <text x="0" y="226" class="lbl">timeline</text>
+          <text x="120" y="226" class="lbl">session_events tail</text>
+          <text x="0" y="244" class="lbl">cost graph</text>
+          <text x="120" y="244" class="lbl">credential_events</text>
+          <text x="0" y="262" class="lbl">attach</text>
+          <text x="120" y="262" class="lbl lbl-cyan">stream | interact</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="canvas">
+      <div class="canvas-head">
+        <span class="name">Listener &middot; <span class="id">DISPATCH</span></span>
+        <span>react &middot; route</span>
+      </div>
+      <div class="canvas-body" style="padding:40px 28px;min-height:380px;">
+        <svg viewBox="0 0 360 280" class="schematic" preserveAspectRatio="xMidYMid meet">
+          <text x="0" y="20" class="lbl lbl-amber">ON NotificationFired</text>
+          <text x="0" y="44" class="lbl-italic">switch on channel[]</text>
+          <rect x="0" y="60" width="160" height="36" class="node-box-cyan"/>
+          <text x="10" y="82" class="lbl lbl-cyan">"desktop"</text>
+          <rect x="0" y="106" width="160" height="36" class="node-box-amber"/>
+          <text x="10" y="128" class="lbl lbl-amber">"tts"</text>
+          <rect x="0" y="152" width="160" height="36" class="node-box"/>
+          <text x="10" y="174" class="lbl lbl-strong">"slack"</text>
+          <path d="M 160 78 L 220 78" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <text x="225" y="82" class="lbl">terminal-notifier</text>
+          <path d="M 160 124 L 220 124" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <text x="225" y="120" class="lbl">decode b64</text>
+          <text x="225" y="132" class="lbl">enqueue FIFO</text>
+          <path d="M 160 170 L 220 170" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <text x="225" y="172" class="lbl">webhook POST</text>
+          <text x="0" y="220" class="lbl lbl-amber">ON SettingsChanged</text>
+          <text x="0" y="240" class="lbl">TTS_ENABLED, BANNER_ENABLED,</text>
+          <text x="0" y="254" class="lbl">DUCKING_MODE &mdash; cache in place</text>
+          <text x="0" y="272" class="lbl-italic" style="font-size:11px;">no restart needed</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="canvas">
+      <div class="canvas-head">
+        <span class="name">Peer &middot; <span class="id">FEDERATE</span></span>
+        <span>read &middot; rebroadcast</span>
+      </div>
+      <div class="canvas-body" style="padding:40px 28px;min-height:380px;">
+        <svg viewBox="0 0 360 280" class="schematic" preserveAspectRatio="xMidYMid meet">
+          <text x="0" y="20" class="lbl lbl-amber">ON envelope</text>
+          <text x="0" y="44" class="lbl-italic">{ event, source, seq }</text>
+          <rect x="0" y="64" width="360" height="56" class="node-box-amber"/>
+          <text x="14" y="86" class="lbl lbl-amber">if source === "local"</text>
+          <text x="14" y="104" class="lbl">forward to all connected peers</text>
+          <rect x="0" y="132" width="360" height="56" class="node-box-cyan"/>
+          <text x="14" y="154" class="lbl lbl-cyan">if source === "peer"</text>
+          <text x="14" y="172" class="lbl">inject into own bus &middot; do not forward</text>
+          <text x="0" y="220" class="lbl">echo suppression</text>
+          <text x="0" y="240" class="lbl-italic" style="font-size:11px;">prevents the loop:</text>
+          <text x="0" y="256" class="lbl">A &rarr; B &rarr; A &rarr; B &rarr; ...</text>
+          <text x="0" y="280" class="lbl lbl-amber">buffer 1000 events on disconnect</text>
+        </svg>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 06 — CLIENT <-> SESSION
+     ============================================================= -->
+<section class="chapter" id="ch-06" data-region="attach">
+  <div class="chap-head">
+    <div class="chap-num">06 <span class="dot">&middot;</span> client &harr; session</div>
+    <h2 class="chap-title">Look &middot; or<br><span class="strong">take the wheel.</span></h2>
+    <p class="chap-deck">
+      Clients can <strong>read</strong> a session's TTY (Plate 06a), or
+      <strong>take it over</strong> entirely (Plate 06b). Unmanaged sessions
+      offer neither &mdash; without a tmux target, there is no socket to
+      attach to.
+    </p>
+  </div>
+
+  <div class="canvas">
+    <div class="canvas-head">
+      <span class="name">Plate 06 &middot; <span class="id">ATTACH MODES</span></span>
+      <span>two ladders, one PTY source</span>
+    </div>
+    <div class="canvas-body">
+      <svg viewBox="0 0 1400 380" class="schematic" preserveAspectRatio="xMidYMid meet">
+
+        <g transform="translate(40,20)">
+          <text x="0" y="20" class="lbl lbl-cyan">A &middot; READ-ONLY STREAM</text>
+          <text x="0" y="44" class="lbl-italic">"I want to watch."</text>
+          <rect x="0" y="60" width="220" height="44" class="node-box"/>
+          <text x="12" y="86" class="lbl lbl-strong">TUI &middot; selects session</text>
+          <path d="M 110 104 L 110 130" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <text x="120" y="122" class="lbl lbl-cyan">SSH (if remote)</text>
+          <rect x="0" y="130" width="220" height="44" class="node-box-cyan"/>
+          <text x="12" y="156" class="lbl lbl-cyan">WS upgrade</text>
+          <path d="M 110 174 L 110 200" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <text x="120" y="194" class="lbl">/sessions/$id/stream</text>
+          <rect x="0" y="200" width="220" height="60" class="node-box"/>
+          <text x="12" y="222" class="lbl lbl-strong">StreamManager</text>
+          <text x="12" y="240" class="lbl">tail-only PTY source</text>
+          <text x="12" y="254" class="lbl">N viewers per session</text>
+          <path d="M 110 260 L 110 296" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <rect x="0" y="296" width="220" height="44" class="node-box-amber"/>
+          <text x="12" y="322" class="lbl lbl-amber">render to TUI panel</text>
+        </g>
+
+        <g transform="translate(540,40)">
+          <rect x="0" y="40" width="320" height="280" fill="rgba(255,176,0,0.06)" stroke="#ffb000" stroke-width="1.5"/>
+          <text x="16" y="68" class="lbl lbl-amber">SHARED PTY SOURCE</text>
+          <text x="16" y="92" class="lbl-italic">terminal/pty-source.ts</text>
+          <line x1="16" y1="110" x2="304" y2="110" stroke="rgba(255,176,0,0.32)"/>
+          <text x="16" y="136" class="lbl">node-pty or Bun.spawn</text>
+          <text x="16" y="156" class="lbl">attached to tmuxTarget</text>
+          <text x="16" y="176" class="lbl">e.g. cc-oo:0.0</text>
+          <line x1="16" y1="196" x2="304" y2="196" stroke="rgba(244,237,225,0.16)"/>
+          <text x="16" y="218" class="lbl lbl-cyan">multiplexed:</text>
+          <text x="16" y="238" class="lbl">  read &rarr; many viewers</text>
+          <text x="16" y="258" class="lbl">  write &rarr; one driver</text>
+          <line x1="16" y1="278" x2="304" y2="278" stroke="rgba(244,237,225,0.16)"/>
+          <text x="16" y="304" class="lbl-italic" style="font-size:11px;">unmanaged sessions: no tmuxTarget &rarr; greyed out</text>
+        </g>
+
+        <g transform="translate(1080,20)">
+          <text x="0" y="20" class="lbl lbl-amber">B &middot; FULL INTERACT</text>
+          <text x="0" y="44" class="lbl-italic">"I want to type."</text>
+          <rect x="0" y="60" width="220" height="44" class="node-box-amber"/>
+          <text x="12" y="86" class="lbl lbl-amber">TUI &middot; attach key</text>
+          <path d="M 110 104 L 110 130" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <text x="120" y="122" class="lbl lbl-amber">SSH to peer (user from toml)</text>
+          <rect x="0" y="130" width="220" height="44" class="node-box-amber"/>
+          <text x="12" y="156" class="lbl lbl-amber">WS upgrade &middot; bidi</text>
+          <path d="M 110 174 L 110 200" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <text x="120" y="194" class="lbl">/sessions/$id/interact</text>
+          <rect x="0" y="200" width="220" height="60" class="node-box"/>
+          <text x="12" y="222" class="lbl lbl-strong">StreamManager (driver)</text>
+          <text x="12" y="240" class="lbl">stdin pumps into PTY</text>
+          <text x="12" y="254" class="lbl">stdout streams back</text>
+          <path d="M 110 260 L 110 296" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <rect x="0" y="296" width="220" height="44" class="node-box-amber"/>
+          <text x="12" y="322" class="lbl lbl-amber">terminal &mdash; full duplex</text>
+        </g>
+
+        <path d="M 260 250 L 580 200" class="wire" marker-end="url(#arrow-pale)"/>
+        <path d="M 1080 250 L 860 200" class="wire-amber" marker-end="url(#arrow-amber)"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 06.1</div>
+    <div class="note-body">
+      The TUI can also issue <em>control commands</em> &mdash; <code>kill</code>,
+      <code>restart</code> &mdash; via <code>POST /commands/*</code>. These do
+      not bypass the session model: the kill goes to the OS, the resulting
+      process death is detected on the next 30s watcher tick, and the
+      lifecycle bus emits a normal <code>RemoteSessionEnded</code>. The TUI
+      sees the empty card on its next refresh.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 07 — TTS: THE VOICE
+     ============================================================= -->
+<section class="chapter" id="ch-07" data-region="tts-synth">
+  <div class="chap-head">
+    <div class="chap-num">07 <span class="dot">&middot;</span> the voice</div>
+    <h2 class="chap-title">Two processes,<br><span class="strong">one FIFO</span> between them.</h2>
+    <p class="chap-deck">
+      TTS originates inside the agent &mdash; not in the listener. The agent
+      synthesises the mp3 from ElevenLabs, base64-encodes it onto the
+      lifecycle bus, and the Mac-side listener becomes a thin courier. A
+      second process (the player) drains a FIFO so two notifications never
+      overlap.
+    </p>
+  </div>
+
+  <div class="tts-stage">
+    <svg viewBox="0 0 1380 680" class="schematic" preserveAspectRatio="xMidYMin meet" style="overflow:visible;">
+
+      <g transform="translate(20,40)">
+        <text x="0" y="20" class="lbl lbl-amber">AGENT &middot; SYNTHESIS SIDE</text>
+        <line x1="0" y1="32" x2="620" y2="32" stroke="rgba(255,176,0,0.32)"/>
+
+        <rect x="0" y="60" width="280" height="56" class="node-box-cyan"/>
+        <text x="12" y="82" class="lbl lbl-cyan">trigger</text>
+        <text x="12" y="100" class="lbl">notification rule fires</text>
+        <text x="12" y="112" class="lbl">manager.send() &middot; channel includes "tts"</text>
+
+        <path d="M 280 88 L 340 88" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+        <rect x="340" y="60" width="280" height="56" class="node-box-amber"/>
+        <text x="352" y="82" class="lbl lbl-amber">channels/tts.ts :134-180</text>
+        <text x="352" y="100" class="lbl">resolveTtsCredential()</text>
+
+        <g transform="translate(0,140)">
+          <text x="0" y="14" class="lbl lbl-amber">credential resolution ladder</text>
+          <rect x="0" y="26" width="200" height="60" class="node-box"/>
+          <text x="10" y="46" class="lbl lbl-strong">priority 1</text>
+          <text x="10" y="62" class="lbl lbl-cyan">elevenlabs_credentials</text>
+          <text x="10" y="78" class="lbl">DB row per agentId</text>
+          <path d="M 200 56 L 230 56" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <rect x="230" y="26" width="200" height="60" class="node-box"/>
+          <text x="240" y="46" class="lbl lbl-strong">priority 2</text>
+          <text x="240" y="62" class="lbl lbl-cyan">$ELEVENLABS_API_KEY</text>
+          <text x="240" y="78" class="lbl">process env fallback</text>
+          <path d="M 430 56 L 460 56" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <rect x="460" y="26" width="160" height="60" class="node-box-amber"/>
+          <text x="470" y="46" class="lbl lbl-amber">priority 3</text>
+          <text x="470" y="62" class="lbl">signal-only</text>
+          <text x="470" y="78" class="lbl-italic" style="font-size:11px;">listener falls back to say(1)</text>
+        </g>
+
+        <g transform="translate(0,260)">
+          <text x="0" y="14" class="lbl lbl-amber">decrypt on the wire (no cache)</text>
+          <rect x="0" y="26" width="280" height="50" class="node-box"/>
+          <text x="10" y="46" class="lbl lbl-strong">~/.nexus/keys/master.key</text>
+          <text x="10" y="64" class="lbl">loadEncryptionKey() &middot; decrypt(row.value)</text>
+          <path d="M 280 50 L 340 50" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <text x="350" y="44" class="lbl">on failure:</text>
+          <text x="350" y="58" class="lbl lbl-cyan">emit CredentialDecryptFallback</text>
+        </g>
+
+        <g transform="translate(0,360)">
+          <rect x="0" y="0" width="620" height="100" fill="rgba(38,212,255,0.05)" stroke="#26d4ff" stroke-width="1"/>
+          <text x="12" y="22" class="lbl lbl-cyan">POST api.elevenlabs.io/v1/text-to-speech/{voiceId}</text>
+          <text x="12" y="42" class="lbl">  xi-api-key: {credential.apiKey}</text>
+          <text x="12" y="56" class="lbl">  body: { text, model_id: "eleven_monolingual_v1" }</text>
+          <text x="12" y="74" class="lbl">  timeout: 5s &middot; 4xx/5xx scrubbed before logging</text>
+          <text x="12" y="90" class="lbl lbl-amber">  response: mp3 bytes &rarr; arrayBuffer &rarr; base64</text>
+        </g>
+
+        <g transform="translate(0,500)">
+          <rect x="0" y="0" width="620" height="70" class="node-box-amber"/>
+          <text x="12" y="22" class="lbl lbl-amber">lifecycleBus.emit("NotificationFired")</text>
+          <text x="12" y="42" class="lbl">{ id, title, body, channel, project, audioBase64? }</text>
+          <text x="12" y="58" class="lbl-italic" style="font-size:11px;">audioBase64 absent &rarr; listener will say(1)</text>
+        </g>
+      </g>
+
+      <path d="M 660 540 L 760 540" class="wire-amber" marker-end="url(#arrow-amber)"/>
+      <text x="710" y="528" text-anchor="middle" class="lbl lbl-amber">SSE</text>
+
+      <g transform="translate(760,40)">
+        <text x="0" y="20" class="lbl lbl-cyan">MAC &middot; PLAYBACK SIDE</text>
+        <line x1="0" y1="32" x2="600" y2="32" stroke="rgba(38,212,255,0.32)"/>
+
+        <g transform="translate(0,60)">
+          <rect x="0" y="0" width="600" height="160" class="node-box-cyan"/>
+          <text x="12" y="22" class="lbl lbl-cyan">com.nexus.notifier &middot; LAUNCHD</text>
+          <text x="12" y="40" class="lbl-italic" style="font-size:12px;">deploy/nexus-notifier.sh &middot; mode=listen</text>
+          <text x="12" y="68" class="lbl lbl-strong">1. GET /notifications/settings &mdash; cache TTS_ENABLED, BANNER, DUCKING</text>
+          <text x="12" y="86" class="lbl lbl-strong">2. SSE: GET /events/stream</text>
+          <text x="12" y="104" class="lbl lbl-strong">3. on NotificationFired:</text>
+          <text x="32" y="120" class="lbl">  if audioBase64 &rarr; decode &rarr; /tmp/nexus-notifier-$uuid.mp3</text>
+          <text x="32" y="134" class="lbl">  enqueue file path to FIFO  (or text fallback if no audio)</text>
+          <text x="12" y="152" class="lbl lbl-strong">4. on SettingsChanged &rarr; update cache in place (no restart)</text>
+        </g>
+
+        <g transform="translate(0,240)">
+          <rect x="60" y="0" width="480" height="50" fill="rgba(255,176,0,0.08)" stroke="#ffb000" stroke-width="1.5"/>
+          <text x="74" y="22" class="lbl lbl-amber">FIFO</text>
+          <text x="74" y="40" class="lbl">~/Library/Application Support/nexus/tts-queue.fifo</text>
+          <text x="540" y="22" text-anchor="end" class="lbl-italic" style="font-size:11px;">serial</text>
+          <path d="M 300 -16 L 300 0" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <path d="M 300 50 L 300 70" class="wire-amber" marker-end="url(#arrow-amber)"/>
+        </g>
+
+        <g transform="translate(0,330)">
+          <rect x="0" y="0" width="600" height="140" class="node-box-cyan"/>
+          <text x="12" y="22" class="lbl lbl-cyan">com.nexus.tts-player &middot; LAUNCHD</text>
+          <text x="12" y="40" class="lbl-italic" style="font-size:12px;">deploy/nexus-notifier.sh &middot; mode=drain</text>
+          <text x="12" y="68" class="lbl lbl-strong">loop: read line from FIFO</text>
+          <text x="32" y="84" class="lbl">if mp3 path &rarr; afplay $file (timeout 60s)</text>
+          <text x="32" y="98" class="lbl">else &rarr; say "$text" (timeout 60s)</text>
+          <text x="12" y="118" class="lbl lbl-strong">ducking_mode = full | half | mute  (osascript)</text>
+          <text x="12" y="134" class="lbl">write PID &rarr; current-utterance.pid &middot; click-to-cancel</text>
+        </g>
+
+        <g transform="translate(0,490)">
+          <rect x="0" y="0" width="600" height="80" class="node-box-amber"/>
+          <text x="12" y="22" class="lbl lbl-amber">SPEAKER &middot; CoreAudio</text>
+          <text x="12" y="42" class="lbl">never overlapping &middot; previous afplay blocks next FIFO read</text>
+          <text x="12" y="60" class="lbl-italic" style="font-size:11px;">cleanup: rm /tmp/nexus-notifier-$uuid.mp3 on completion</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <div class="tts-config">
+    <div class="config-card">
+      <div class="where">config &middot; A</div>
+      <div class="what">Voice &amp; key</div>
+      <div class="path">DB table <span class="glow">elevenlabs_credentials</span><br>encrypted-at-rest &middot; decrypted with <span class="glow">~/.nexus/keys/master.key</span></div>
+    </div>
+    <div class="config-card">
+      <div class="where">config &middot; B</div>
+      <div class="what">Per-channel toggles</div>
+      <div class="path">DB table <span class="glow">notification_settings</span><br>tts_enabled, banner_enabled, ducking_mode &middot; PATCH /notifications/settings</div>
+    </div>
+    <div class="config-card">
+      <div class="where">config &middot; C</div>
+      <div class="what">Launchd env</div>
+      <div class="path">~/Library/LaunchAgents/<span class="glow">com.nexus.notifier.plist</span><br>NEXUS_URL &middot; default values seed first run</div>
+    </div>
+    <div class="config-card">
+      <div class="where">config &middot; D</div>
+      <div class="what">Runtime files</div>
+      <div class="path">~/Library/Application Support/nexus/<br><span class="glow">tts-queue.fifo</span> &middot; <span class="glow">current-utterance.pid</span></div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 07.1</div>
+    <div class="note-body">
+      The decommissioned <code>com.leonardoacosta.nexus-listener</code> (Bun)
+      used to subscribe to the same SSE stream &mdash; this caused
+      <em>double audio</em> on May 16th. <code>com.nexus.notifier</code> (bash)
+      is the canonical listener now. The cancel-on-banner-click feature is
+      being ported in through the <code>current-utterance.pid</code> IPC file
+      so a tapped banner kills the in-flight <code>afplay</code>.
+    </div>
+  </div>
+  <div class="marginalia">
+    <div class="note-num">Note &middot; 07.2</div>
+    <div class="note-body">
+      <em>Where TTS originates</em> matters: it is the <strong>agent</strong>
+      that holds the ElevenLabs key and calls the API. The Mac listener never
+      sees the key, never speaks to ElevenLabs &mdash; it only sees finished
+      mp3 bytes. The agent is therefore the single point at which
+      <code>xi-api-key</code> can leak; every error path scrubs the header
+      before logging.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================
+     CHAPTER 08 — TRADEOFFS  (pros / cons of proposed changes)
+     ============================================================= -->
+<section class="chapter" id="ch-08" data-region="bus">
+  <div class="chap-head">
+    <div class="chap-num">08 <span class="dot">&middot;</span> tradeoffs</div>
+    <h2 class="chap-title">Seven proposals,<br><span class="strong">scored.</span></h2>
+    <p class="chap-deck">
+      The questions you raised in the last review aren't cosmetic. Each one
+      is a real architectural fork. This chapter scores the seven proposed
+      changes against today's shape &mdash; what gets better, what gets
+      worse, and whether the trade is worth taking.
+    </p>
+  </div>
+
+  <!-- 08.1 — collapse ingress -->
+  <div class="subsection" data-region="hooks">
+    <div class="sub-num">08.1 &middot; collapse HTTP /hooks + AF_UNIX into one drain</div>
+    <h3 class="sub-head">Do we really need two ingress paths?</h3>
+    <p class="sub-deck">
+      Today both <strong>POST /hooks</strong> and <strong>~/.nexus/agent.sock</strong>
+      flow into the same dispatcher. The HTTP path exists so a CC session
+      on a peer machine can reach a local agent. The socket exists for
+      same-machine latency and kernel-level uid auth. <em>Could one
+      handle both?</em>
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Keep both (today)</span><br><span class="verdict do">KEEP</span></td>
+          <td>HTTP works across the Tailnet for remote CC; socket is ~50&times; faster for local; either can fail and the other still works; debugging via <em>curl</em> is trivial.</td>
+          <td>Two code paths to throttle, validate, and instrument. Slight risk of divergence if either evolves independently.</td>
+        </tr>
+        <tr>
+          <td><span class="change">HTTP-only</span><br><span class="verdict skip">SKIP</span></td>
+          <td>One code path. One throttle. One auth model.</td>
+          <td>Adds ~5-10ms per local hook event. CC's hook scripts must shell out to <em>curl</em> instead of writing a socket &mdash; thousands of forks per session.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Socket-only</span><br><span class="verdict skip">SKIP</span></td>
+          <td>Lowest latency. Kernel uid auth is free.</td>
+          <td>Peer CC sessions become invisible &mdash; no Tailnet-reachable socket. Would need a per-peer SSH tunnel just to deliver events. Federation has to carry hook payloads, which is a different contract from envelope fan-out.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Keep both. The asymmetry is justified: HTTP is the only Tailnet-reachable ingress, the socket is the only local-fast ingress, and they share 100% of the dispatcher code after the first parse. <em>The "three drains" framing was actually a misread &mdash; the lifecycle bus is fan-out, not ingress.</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.2 — wed managed + unmanaged -->
+  <div class="subsection" data-region="pgrep">
+    <div class="sub-num">08.2 &middot; wed managed + unmanaged via global hooks</div>
+    <h3 class="sub-head">Should every CC session emit hooks, eliminating pgrep as a discovery primitive?</h3>
+    <p class="sub-deck">
+      Today, "managed" means hooks installed + tmux session. "Unmanaged"
+      means pgrep discovery + no attach. If hooks were <strong>globally
+      installed</strong> in <code>~/.claude/settings.json</code>, every CC
+      session would emit telemetry &mdash; the managed/unmanaged
+      distinction would collapse to <em>just the tmux attach axis</em>.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Global hooks + keep pgrep</span><br><span class="verdict do">DO</span></td>
+          <td>Every session emits full telemetry. pgrep becomes a <em>corroboration check</em> (catches the rare hook-script-broke case). TUI shows the same fidelity for every card. Sub-agent telemetry available for every session.</td>
+          <td>Requires installing hooks in user's global CC config &mdash; one-time bootstrap step. If a user runs CC with <code>--no-hooks</code> we still need pgrep.</td>
+        </tr>
+        <tr>
+          <td><span class="change">pgrep-only (drop hooks)</span><br><span class="verdict skip">SKIP</span></td>
+          <td>Zero CC-side dependency.</td>
+          <td>Lose cost, model, ccSessionId, tool telemetry, sub-agent tree, crash signal, monitor channel. The TUI becomes a process viewer instead of a session viewer.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Hooks-only (drop pgrep)</span><br><span class="verdict maybe">MAYBE</span></td>
+          <td>One discovery path. No /proc parsing. No reconcile loop. Cleaner code.</td>
+          <td>A CC session whose hooks break is now invisible. The reconcile loop is also how we detect dead PIDs &mdash; without it, a crashed CC leaves an "active" row forever.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Install hooks globally, keep pgrep as the safety net. The framing changes from "two ingestion strategies" to <em>"one telemetry path with a liveness watchdog"</em>. The tmux/no-tmux distinction stays as the only remaining axis &mdash; and it's about attach, not telemetry.
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.3 — idle 5m -> 60m -->
+  <div class="subsection" data-region="cache">
+    <div class="sub-num">08.3 &middot; raise idle threshold 5m &rarr; 60m</div>
+    <h3 class="sub-head">Align our sweep with CC's new session cache TTL.</h3>
+    <p class="sub-deck">
+      The 5-minute idle threshold was tied to the legacy CC session cache.
+      A recent CC update extended that TTL to 60 minutes; our sweep still
+      flips sessions to <code>idle</code> after 5. The result is noisy
+      "idle" events every coffee break that don't actually reflect a
+      stalled session.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Raise to 60m</span><br><span class="verdict do">DO</span></td>
+          <td>Aligns with CC reality. Eliminates false idle transitions. Reduces SSE noise. TUI "idle" badge becomes meaningful.</td>
+          <td>An actual abandoned session takes longer to mark stale &mdash; but that's exactly what we want, because CC's own cache treats it as still alive.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Make it configurable</span><br><span class="verdict maybe">MAYBE</span></td>
+          <td>Per-deployment tuning. CC updates won't bit-rot us again.</td>
+          <td>One more config knob. The right value almost always matches CC's; locking to that is simpler.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        One-line change in session-manager.ts: <code>IDLE_THRESHOLD_MS = 60 * 60 * 1000</code>. The stale + evict thresholds shift proportionally. Update the sidebar diagram and Plate 01c to reflect the new value.
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.4 — sequential persist-then-emit -->
+  <div class="subsection" data-region="bus">
+    <div class="sub-num">08.4 &middot; sequential persist-then-emit</div>
+    <h3 class="sub-head">Should the bus emit only after the DB write commits?</h3>
+    <p class="sub-deck">
+      Today both fire async, neither awaits the other. A subscriber that
+      receives an envelope and immediately queries the DB can see a
+      stale row. The current shape is safe only because envelopes carry
+      the full payload &mdash; if a future consumer reads-through to the
+      DB on receipt, the race becomes real.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Keep concurrent (today)</span><br><span class="verdict maybe">MAYBE</span></td>
+          <td>Lowest perceived latency on the bus. Subscribers don't wait on DB.</td>
+          <td>Implicit contract: subscribers must never read-through. Hard to enforce. One careless TUI dev introduces a race nobody can reproduce.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Persist-then-emit (proposed)</span><br><span class="verdict do">DO</span></td>
+          <td>Eliminates the race entirely. Subscribers can safely read-through. Easier to reason about &mdash; the bus envelope is a "this is true now" notification.</td>
+          <td>Adds DB-roundtrip latency to bus emits &mdash; ~5-20ms on healthy Postgres. SSE delivery to mac listener slows by the same amount.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Persist-then-emit + retain payload</span><br><span class="verdict do">DO</span></td>
+          <td>Best of both. Race is gone <em>and</em> subscribers still don't have to read-through because the payload is already enough.</td>
+          <td>Same latency penalty as above. No additional cost.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Make it sequential. The latency cost is below the human-perceptible threshold for everything we use the bus for (TTS, banners, TUI refresh). The race elimination removes an entire class of "looks intermittent" bugs.
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.5 — sub-agent distinction visibility -->
+  <div class="subsection" data-region="hooks">
+    <div class="sub-num">08.5 &middot; surface sub-agent distinction explicitly</div>
+    <h3 class="sub-head">The fields already exist &mdash; the UI doesn't read them.</h3>
+    <p class="sub-deck">
+      Hook payloads already carry <code>agent_type</code>,
+      <code>agent_name</code>, <code>parent_agent</code>, and
+      <code>child_role</code> for every <code>agent_spawn</code> event.
+      The DB stores them. The TUI ignores them. Surfacing the tree
+      relationship makes monitor + shell telemetry interpretable
+      (<em>"this Bash failure happened inside an Explore subagent of
+      session oo-7f3a"</em>) instead of just a flat event stream.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Add parentage column + TUI tree view</span><br><span class="verdict do">DO</span></td>
+          <td>"This session spawned 12 Explore agents and 3 plan agents" becomes a queryable fact. Cost attribution improves &mdash; aggregate sub-agent token spend per parent. TTS announcements can suppress sub-agent noise ("session done" means the parent, not its 12 children).</td>
+          <td>Schema migration on <em>sessions</em>: add <em>parent_session_id, child_role</em> columns + index. TUI work to render the tree.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Cheap, high-leverage. The data is already arriving on every <em>agent_spawn</em>; we're just throwing it away. Add the columns, backfill from <em>session_events.metadata</em>, then teach the TUI to indent children under parents.
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.6 — Swift menu bar app -->
+  <div class="subsection" data-region="tts-listener">
+    <div class="sub-num">08.6 &middot; collapse notifier + tts-player into a Swift menu bar app</div>
+    <h3 class="sub-head">Two launchd processes + a FIFO &rarr; one signed app.</h3>
+    <p class="sub-deck">
+      Today: <code>com.nexus.notifier</code> (bash, SSE subscriber) +
+      <code>tts-queue.fifo</code> + <code>com.nexus.tts-player</code>
+      (bash, FIFO drain). Three moving parts on the Mac side, each
+      installed via launchd plist, debuggable only via tail-log. A Swift
+      menu bar app could host all three.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">Keep bash + FIFO (today)</span><br><span class="verdict maybe">MAYBE</span></td>
+          <td>Zero compile step. Editable with any text editor. <em>terminal-notifier</em> + <em>afplay</em> + <em>say</em> ship with macOS.</td>
+          <td>Two launchd processes to keep alive. FIFO IPC is hard to debug &mdash; lost messages disappear. No UI, only logs. Cancel-on-click feature requires PID-file IPC dance.</td>
+        </tr>
+        <tr>
+          <td><span class="change">Swift menu bar app</span><br><span class="verdict do">DO</span></td>
+          <td>One process. Native menu bar icon with state. UNNotificationCenter for click actions (no PID-file dance). AVAudioPlayer for serial playback with native interruption. Settings UI live in the menu. Properly signed &amp; notarized for distribution.</td>
+          <td>Compile step. Requires Apple developer setup for signing. Adds Swift to the project's language footprint. Migration: ship both, deprecate bash over a release.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Do it. The current bash stack is an MVP that's earned its replacement. A Swift app gets us a real cancel-on-click, real settings UI, a menu bar icon that reflects connection state, and one process instead of three. The migration path is clean &mdash; ship both, default to Swift on fresh installs, deprecate bash after a release cycle.
+      </div>
+    </div>
+  </div>
+
+  <!-- 08.7 — sticky sidebar diagram (this very page) -->
+  <div class="subsection" data-region="agent">
+    <div class="sub-num">08.7 &middot; full-width 2-col with sticky sidebar diagram (this page)</div>
+    <h3 class="sub-head">The pattern you just asked for, evaluated honestly.</h3>
+    <p class="sub-deck">
+      A persistent sidebar diagram that highlights the region under
+      discussion as the reader scrolls is the format you requested. Worth
+      noting what it costs.
+    </p>
+    <table class="trade">
+      <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="change">2-col + sticky sidebar (now)</span><br><span class="verdict do">DO</span></td>
+          <td>Reader never loses spatial context. Cross-references resolve visually instead of by name. Hover bridges section &harr; system region. Scanning a long document with persistent reference is faster than scrolling between diagrams.</td>
+          <td>Sidebar collapses below 1280px &mdash; mobile loses it entirely. Adds maintenance: every new section needs a <em>data-region</em>; every new region needs a sidebar group with matching id.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="marginalia">
+      <div class="note-num">verdict</div>
+      <div class="note-body">
+        Live with the maintenance cost &mdash; the comprehension win is large. Codify the region vocabulary (the ~15 names listed in the legend above) so new sections pick from a known set instead of inventing.
+      </div>
+    </div>
+  </div>
+
+  <div class="marginalia">
+    <div class="note-num">summary</div>
+    <div class="note-body">
+      Five DO, two MAYBE, three SKIP. The DOs cluster around <em>"information already exists, surface it"</em> (sub-agent tree, sequential emit, 60m idle, global hooks). The MAYBEs are durability investments (configurable timeouts, persist-then-emit-with-payload). The SKIPs are premature unifications that would lose real properties &mdash; HTTP-only or socket-only ingestion both fail the smell test for the same reason: <em>they discard an asymmetry that exists for a reason.</em>
+    </div>
+  </div>
+</section>
+
+</div><!-- /.content -->
+</div><!-- /.layout -->
+
+<script>
+  // Region highlight bridge — section[data-region] hover paints body[data-active-region]
+  (function(){
+    var sections = document.querySelectorAll('section.chapter[data-region], .accordion[data-region], .subsection[data-region]');
+    sections.forEach(function(s){
+      s.addEventListener('mouseenter', function(){
+        document.body.setAttribute('data-active-region', s.getAttribute('data-region'));
+      });
+      s.addEventListener('mouseleave', function(){
+        document.body.removeAttribute('data-active-region');
+      });
+    });
+  })();
+</script>
+
+<footer class="colophon">
+  <div class="colo-inner">
+    <div>
+      <div class="colo-title">A Cartography of Telemetry &mdash; <em style="color:var(--amber);">end.</em></div>
+      <p class="colo-deck">
+        Seven plates, three protocols, two processes, one bus. The shape of
+        Nexus is governed by a single insistence: <em>no machine should depend
+        on a machine that isn't on the user's Tailnet.</em> Everything that
+        follows from that &mdash; peer federation, network-layer auth, the
+        write-through cache, the FIFO between listener and player &mdash; is
+        a consequence, not a choice.
+      </p>
+    </div>
+    <dl class="colo-meta">
+      <dt>Subject</dt><dd>nx infra topology</dd>
+      <dt>Audience</dt><dd>Leo / future operators</dd>
+      <dt>Style</dt><dd>field manual &middot; phosphor amber</dd>
+    </dl>
+    <dl class="colo-meta">
+      <dt>Set in</dt><dd>Fraunces &middot; Newsreader</dd>
+      <dt>Mono</dt><dd>JetBrains Mono</dd>
+      <dt>Source</dt><dd>docs/nexus-topology.html</dd>
+    </dl>
+  </div>
+</footer>
+
+</body>
+</html>

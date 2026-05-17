@@ -1,9 +1,9 @@
 /**
- * Unit tests for nexus-status renderer.
+ * Unit tests for nexus-statusline renderer.
  *
  * These exercise the pure renderStatusline() function with synthetic CC
  * payloads + dep stubs. The binary entry-point (main) is not exercised here;
- * it's covered by the section-3 smoke test (`echo '{}' | nexus-status`).
+ * it's covered by the section-3 smoke test (`echo '{}' | nexus-statusline`).
  */
 
 import { describe, expect, it } from "bun:test";

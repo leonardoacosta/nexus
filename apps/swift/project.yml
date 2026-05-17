@@ -1,0 +1,134 @@
+name: nexus
+
+# ──────────────────────────────────────────────────────────────────────
+# XcodeGen manifest for the Nexus Apple ecosystem.
+#
+# Three app targets + one shared framework. Source dirs:
+#   nexus/nexus/         macOS menu bar app (EXISTING — pre-XcodeGen)
+#   nexus-ios/           iOS client (TO CREATE)
+#   nexus-watch/         watchOS companion (TO CREATE)
+#   NexusShared/         shared models, networking, observers (TO CREATE)
+#
+# Regenerate the .xcodeproj:
+#   cd apps/swift && xcodegen generate
+#
+# WARNING: regeneration overwrites nexus.xcodeproj/project.pbxproj.
+# Before first regen, audit this manifest against current Xcode settings
+# (signing team, custom build phases, asset catalogs, capabilities). The
+# Info.plist + .entitlements files referenced below stay outside the
+# project file and survive regeneration.
+# ──────────────────────────────────────────────────────────────────────
+
+options:
+  bundleIdPrefix: dev.leonardoacosta.nexus
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+    watchOS: "10.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # DEVELOPMENT_TEAM: set per-machine in xcconfig or via Xcode UI
+
+# ──────────────────────────────────────────────────────────────────────
+# Shared framework — models, NexusClient, SSE/WS subscribers,
+# TTS synthesis, audio playback, settings store.
+# Targets all three Apple platforms.
+# ──────────────────────────────────────────────────────────────────────
+targets:
+
+  NexusShared:
+    type: framework
+    platform: [macOS, iOS, watchOS]
+    sources:
+      - path: NexusShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.shared
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+
+  # ────────────────── macOS — menu bar app (existing) ──────────────────
+  nexus-mac:
+    type: application
+    platform: macOS
+    sources:
+      - path: nexus/nexus
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+    dependencies:
+      - target: NexusShared
+    info:
+      path: nexus/nexus/Info.plist
+    entitlements:
+      path: nexus/nexus/nexus.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.mac
+        PRODUCT_NAME: nexus
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Nexus menu bar client."
+        ENABLE_HARDENED_RUNTIME: YES
+
+  nexus-mac-Tests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: nexus/nexusTests
+    dependencies:
+      - target: nexus-mac
+
+  nexus-mac-UITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: nexus/nexusUITests
+    dependencies:
+      - target: nexus-mac
+
+  # ────────────────── iOS — mobile client (new) ────────────────────────
+  nexus-ios:
+    type: application
+    platform: iOS
+    sources:
+      - path: nexus-ios
+    dependencies:
+      - target: NexusShared
+    info:
+      path: nexus-ios/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleDisplayName: Nexus
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios
+        PRODUCT_NAME: Nexus
+        TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
+        SUPPORTS_MACCATALYST: NO
+
+  # ────────────────── watchOS — long-run companion (new) ───────────────
+  nexus-watch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: nexus-watch
+    dependencies:
+      - target: NexusShared
+    info:
+      path: nexus-watch/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.watch
+        PRODUCT_NAME: Nexus
+        WATCHOS_DEPLOYMENT_TARGET: "10.0"

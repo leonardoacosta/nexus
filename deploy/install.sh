@@ -6,7 +6,7 @@ set -euo pipefail
 # and git-hook dispatchers.
 #
 # Usage:
-#   deploy/install.sh                    # build + install agent (+ nexus-register if present)
+#   deploy/install.sh                    # build + install agent (+ nexus-statusline if present)
 #   deploy/install.sh --dashboard        # also install Next.js dashboard service + Traefik config
 #   deploy/install.sh --no-build         # skip build, install pre-built binaries from apps/*/
 #
@@ -64,9 +64,9 @@ if $DO_BUILD; then
     info "Building @nexus/agent (bun build --compile)"
     (cd "$REPO_DIR/apps/agent" && bun run build) || error "apps/agent build failed"
 
-    if [[ -d "$REPO_DIR/apps/nexus-register" ]]; then
-        info "Building @nexus/register"
-        (cd "$REPO_DIR/apps/nexus-register" && bun run build) || error "apps/nexus-register build failed"
+    if [[ -d "$REPO_DIR/apps/nexus-statusline" ]]; then
+        info "Building @nexus/statusline"
+        (cd "$REPO_DIR/apps/nexus-statusline" && bun run build) || error "apps/nexus-statusline build failed"
     fi
 fi
 
@@ -92,9 +92,9 @@ mkdir -p "$BIN_DIR"
 info "Installing nexus-agent to $BIN_DIR/"
 install -m 755 "$AGENT_BIN" "$BIN_DIR/nexus-agent"
 
-if [[ -f "$REPO_DIR/apps/nexus-register/nexus-register" ]]; then
-    info "Installing nexus-register to $BIN_DIR/"
-    install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register" "$BIN_DIR/nexus-register"
+if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
+    info "Installing nexus-statusline to $BIN_DIR/"
+    install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"
 fi
 
 # ── Create config directory ─────────────────────────────────────────

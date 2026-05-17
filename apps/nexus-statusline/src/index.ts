@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * nexus-status — Claude Code statusline extension (Bun replacement).
+ * nexus-statusline — Claude Code statusline extension (Bun replacement).
  *
  * Runs on every prompt render. Outputs a compact one-line status to stdout.
  * On any error, outputs empty string — statusline must never crash.

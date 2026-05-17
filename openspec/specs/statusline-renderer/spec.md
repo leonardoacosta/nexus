@@ -5,11 +5,11 @@ TBD - created by archiving change fix-nexus-status-cc-payload. Update Purpose af
 ## Requirements
 ### Requirement: Statusline MUST consume the canonical CC payload
 
-The `nexus-status` statusline binary (`apps/nexus-status/src/index.ts`) MUST declare a TypeScript input type matching the canonical CC statusline payload documented at [code.claude.com/docs/en/statusline](https://code.claude.com/docs/en/statusline). At minimum the type MUST include optional fields for `hook_event_name`, `session_id`, `transcript_path`, `cwd`, `model` (with `id` and `display_name`), `workspace` (with `current_dir` and `project_dir`), `version`, `output_style`, `cost` (with `total_cost_usd`, `total_duration_ms`, `total_api_duration_ms`, `total_lines_added`, `total_lines_removed`), `context_window` (with `used_percentage`, `used_tokens`, `max_tokens`), and `rate_limits.five_hour.resets_at`.
+The `nexus-statusline` statusline binary (`apps/nexus-statusline/src/index.ts`) MUST declare a TypeScript input type matching the canonical CC statusline payload documented at [code.claude.com/docs/en/statusline](https://code.claude.com/docs/en/statusline). At minimum the type MUST include optional fields for `hook_event_name`, `session_id`, `transcript_path`, `cwd`, `model` (with `id` and `display_name`), `workspace` (with `current_dir` and `project_dir`), `version`, `output_style`, `cost` (with `total_cost_usd`, `total_duration_ms`, `total_api_duration_ms`, `total_lines_added`, `total_lines_removed`), `context_window` (with `used_percentage`, `used_tokens`, `max_tokens`), and `rate_limits.five_hour.resets_at`.
 
 #### Scenario: Full payload accepted without error
 
-- **GIVEN** the canonical 2026-04-24 CC payload is piped to `nexus-status` via stdin
+- **GIVEN** the canonical 2026-04-24 CC payload is piped to `nexus-statusline` via stdin
 - **WHEN** the binary parses the input
 - **THEN** the parse MUST succeed without throwing
 - **AND** all rendered segments that depend on payload fields MUST populate correctly

@@ -5,7 +5,7 @@ set -euo pipefail
 # Builds release on pushes to main, installs, and enables service.
 # Aborts push on build failure. Skip with: SKIP_DEPLOY=1 git push
 #
-# v4 stack: Bun (nexus-agent + nexus-register)
+# v4 stack: Bun (nexus-agent)
 
 GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
@@ -79,11 +79,6 @@ START=$(date +%s)
 info "building Bun nexus-agent..."
 (cd "$REPO_DIR/apps/agent" && bun run build) || fail "apps/agent build failed"
 
-# ── Build Bun nexus-register ─────────────────────────────────────
-
-info "building Bun nexus-register..."
-(cd "$REPO_DIR/apps/nexus-register" && bun run build) || fail "apps/nexus-register build failed"
-
 ELAPSED=$(( $(date +%s) - START ))
 info "built in ${ELAPSED}s"
 
@@ -93,7 +88,6 @@ info "built in ${ELAPSED}s"
 systemctl --user stop nexus-agent 2>/dev/null || true
 
 install -m 755 "$REPO_DIR/apps/agent/nexus-agent"              "$BIN_DIR/nexus-agent"
-install -m 755 "$REPO_DIR/apps/nexus-register/nexus-register"  "$BIN_DIR/nexus-register"
 info "binaries installed to $BIN_DIR/"
 
 # ── Install and enable service ────────────────────────────────────

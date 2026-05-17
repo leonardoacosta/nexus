@@ -1,14 +1,14 @@
 {
-  "name": "@nexus/status",
+  "name": "@nexus/statusline",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "nexus-status": "src/index.ts"
+    "nexus-statusline": "src/index.ts"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile nexus-status",
+    "build": "bun build src/index.ts --compile --outfile nexus-statusline",
     "lint": "eslint .",
     "test": "echo 'no tests yet'",
     "typecheck": "tsc --noEmit"

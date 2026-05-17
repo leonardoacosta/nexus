@@ -68,8 +68,7 @@ Release binaries (linux-x86_64, `cargo build --release`):
 | Binary | Size | Purpose |
 |--------|------|---------|
 | `nexus-agent` | 6.3 MB | Per-machine daemon |
-| `nexus` (TUI) | 5.9 MB | Terminal UI client |
-| `nexus-register` | 4.0 MB | CC hook helper |
+| `nexus-statusline` | 3.4 MB | CC statusline extension |
 
 ## Install as Service
 
