@@ -1,71 +1,150 @@
 {
   "version": 1,
-  "plan_id": "in-flight-cleanup-2026-04-27",
-  "plan_name": "in-flight-cleanup",
-  "generated_at": "2026-04-27T02:50:00Z",
-  "generated_by": "/apply:all (orchestrator, autonomous)",
-  "status": "completed",
+  "plan_id": "spine-migration-2026-05-17",
+  "plan_name": "spine-migration",
+  "generated_at": "2026-05-17T20:27:59Z",
+  "generated_by": "/plan:advance + /apply:all bootstrap (manual)",
+  "status": "queued",
   "mode": "consolidated",
-  "pre_audit_sha": "436fb37",
+  "pre_audit_sha": "d68e5188de5e13844ae9baafccb7267c16167e3d",
   "spec_names": [
-    "restore-tts-mac-audio-dispatch",
-    "fix-nexus-status-cc-payload",
-    "add-notification-control-dashboard"
+    "collapse-credentials-dir",
+    "remove-peer-connector",
+    "remove-slack-channel",
+    "bump-session-idle-threshold",
+    "collapse-notifications-dir",
+    "add-schema-drift-detector",
+    "add-git-project-resolver",
+    "add-subagent-tree-columns",
+    "enforce-pino-script-errors",
+    "drop-recognized-events-allowlist",
+    "socket-dispatcher-parity",
+    "add-socket-hook-helper",
+    "migrate-cc-hooks-to-socket",
+    "delete-http-hooks-endpoint",
+    "xcodegen-initial-generate",
+    "add-nexus-shared-framework",
+    "scaffold-nexus-ios-target",
+    "scaffold-nexus-watch-target",
+    "swift-owns-elevenlabs-synth",
+    "add-cc-credential-manager",
+    "remove-notification-channels",
+    "supersede-mac-tts-listener-spec",
+    "swift-dashboard-feature-parity",
+    "retire-web-dashboard-infra",
+    "remove-mac-deploy-artifacts",
+    "env-aware-install-script",
+    "document-spine-architecture"
   ],
-  "current_wave": 3,
+  "current_wave": 1,
   "current_phase": null,
-  "completed_waves": [
-    1,
-    2
-  ],
-  "completed_specs": [
-    "restore-tts-mac-audio-dispatch",
-    "fix-nexus-status-cc-payload",
-    "add-notification-control-dashboard"
-  ],
+  "completed_waves": [],
+  "completed_specs": [],
   "failed_specs": [],
-  "started_at": "2026-04-27T02:50:00Z",
+  "started_at": null,
   "decisions": [
     {
-      "timestamp": "2026-04-27T02:50:00Z",
-      "text": "Override auto-builder ordering: TTS+status in Wave 1, dashboard in Wave 2",
-      "rationale": "add-notification-control-dashboard tasks.md declares hard dependency on restore-tts-mac-audio-dispatch (both touch deploy/mac/nexus-notifier.sh). Auto-builder put dashboard first; reversed to fix dependency direction. fix-nexus-status-cc-payload is independent and pairs with TTS for parallelism.",
-      "source": "orchestrator",
+      "timestamp": "2026-05-17T20:27:59Z",
+      "text": "Initial wave plan generated from spine-migration roadmap (docs/plan/spine-migration/context.md) + beads dep graph",
+      "rationale": "16 waves chosen for conflict-safety: each wave's specs touch distinct files. Phase-level grouping (one wave per phase) was too coarse \u2014 P3 and P4 have strict within-phase ordering (P3.1->P3.2->P3.3->P3.4; P4.1->P4.2->P4.3-6->P4.7->P4.8) that requires sub-waves.",
+      "source": "manual",
       "affected_waves": [
         1,
-        2
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
       ],
       "affected_specs": [
-        "restore-tts-mac-audio-dispatch",
-        "fix-nexus-status-cc-payload",
-        "add-notification-control-dashboard"
+        "collapse-credentials-dir",
+        "remove-peer-connector",
+        "remove-slack-channel",
+        "bump-session-idle-threshold",
+        "collapse-notifications-dir",
+        "add-schema-drift-detector",
+        "add-git-project-resolver",
+        "add-subagent-tree-columns",
+        "enforce-pino-script-errors",
+        "drop-recognized-events-allowlist",
+        "socket-dispatcher-parity",
+        "add-socket-hook-helper",
+        "migrate-cc-hooks-to-socket",
+        "delete-http-hooks-endpoint",
+        "xcodegen-initial-generate",
+        "add-nexus-shared-framework",
+        "scaffold-nexus-ios-target",
+        "scaffold-nexus-watch-target",
+        "swift-owns-elevenlabs-synth",
+        "add-cc-credential-manager",
+        "remove-notification-channels",
+        "supersede-mac-tts-listener-spec",
+        "swift-dashboard-feature-parity",
+        "retire-web-dashboard-infra",
+        "remove-mac-deploy-artifacts",
+        "env-aware-install-script",
+        "document-spine-architecture"
       ]
     }
   ],
   "waves": [
     {
       "wave": 1,
-      "rationale": "TTS+status: zero file overlap. TTS agent batch already done (6/15) \u2014 remaining is tests + Mac deploy file creation. status spec is 18/21 \u2014 only build + manual screenshot remain.",
+      "rationale": "P1 parallel-safe: collapse-credentials-dir / remove-peer-connector / remove-slack-channel / bump-session-idle-threshold touch distinct files (credentials/, services/peer-connector.ts, notifications/channels/slack.ts, session-manager.ts).",
       "specs": [
         {
-          "name": "restore-tts-mac-audio-dispatch",
+          "name": "collapse-credentials-dir",
           "status": "queued",
-          "task_count": 9,
-          "epic": "",
+          "task_count": 6,
+          "epic": "spine-migration",
           "feature": "",
-          "phase": null,
+          "phase": "P1",
           "gates_passed": [],
           "gates_failed": [],
           "dispatched_at": null,
           "merged_at": null
         },
         {
-          "name": "fix-nexus-status-cc-payload",
+          "name": "remove-peer-connector",
           "status": "queued",
-          "task_count": 3,
-          "epic": "",
+          "task_count": 7,
+          "epic": "spine-migration",
           "feature": "",
-          "phase": null,
+          "phase": "P1",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "remove-slack-channel",
+          "status": "queued",
+          "task_count": 5,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P1",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "bump-session-idle-threshold",
+          "status": "queued",
+          "task_count": 5,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P1",
           "gates_passed": [],
           "gates_failed": [],
           "dispatched_at": null,
@@ -75,15 +154,363 @@
     },
     {
       "wave": 2,
-      "rationale": "add-notification-control-dashboard: extends Mac listener created in Wave 1. Full DB+API+UI build (24 tasks).",
+      "rationale": "P1.1 collapse-notifications-dir depends on P1.4 (slack channel removed) + P4.7 (tts/desktop removed). Splitting here because P1.4 lands first; P1.1 fully runs only after P4.7 ships in Wave 11. Listing in Wave 2 as a checkpoint; orchestrator will defer if P4.7 not yet done.",
       "specs": [
         {
-          "name": "add-notification-control-dashboard",
+          "name": "collapse-notifications-dir",
           "status": "queued",
-          "task_count": 24,
-          "epic": "",
+          "task_count": 6,
+          "epic": "spine-migration",
           "feature": "",
-          "phase": null,
+          "phase": "P1",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 3,
+      "rationale": "P2 parallel: add-schema-drift-detector (new table) + add-git-project-resolver (sessions +2 cols) + add-subagent-tree-columns (sessions +2 cols) + enforce-pino-script-errors (new table). Schema adds on sessions are additive, can merge in one Drizzle migration step.",
+      "specs": [
+        {
+          "name": "add-schema-drift-detector",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P2",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "add-git-project-resolver",
+          "status": "queued",
+          "task_count": 5,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P2",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "add-subagent-tree-columns",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P2",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "enforce-pino-script-errors",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P2",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 4,
+      "rationale": "P2.5 drop-recognized-events-allowlist depends on P2.1 schema-drift detector being live (replacement for silent-drop behavior).",
+      "specs": [
+        {
+          "name": "drop-recognized-events-allowlist",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P2",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 5,
+      "rationale": "P3.1 socket-dispatcher-parity + P3.2 add-socket-hook-helper: distinct files, parallel-safe.",
+      "specs": [
+        {
+          "name": "socket-dispatcher-parity",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P3",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "add-socket-hook-helper",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P3",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 6,
+      "rationale": "P3.3 migrate-cc-hooks-to-socket depends on P3.2 helper existing + installed.",
+      "specs": [
+        {
+          "name": "migrate-cc-hooks-to-socket",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P3",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 7,
+      "rationale": "P3.4 delete-http-hooks-endpoint requires all of P3.1+P3.2+P3.3 to have shipped with ~7 days production runtime.",
+      "specs": [
+        {
+          "name": "delete-http-hooks-endpoint",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P3",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 8,
+      "rationale": "P4.1 xcodegen-initial-generate: user action (open Xcode, audit settings, run xcodegen). Gates all subsequent P4 work.",
+      "specs": [
+        {
+          "name": "xcodegen-initial-generate",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 9,
+      "rationale": "P4.2 add-nexus-shared-framework: NexusShared framework gates iOS+watchOS targets.",
+      "specs": [
+        {
+          "name": "add-nexus-shared-framework",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 10,
+      "rationale": "P4 parallel: iOS scaffold + watchOS scaffold + Swift owns ElevenLabs + cc-credential-manager. Four distinct work areas, no file overlap.",
+      "specs": [
+        {
+          "name": "scaffold-nexus-ios-target",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "scaffold-nexus-watch-target",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "swift-owns-elevenlabs-synth",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "add-cc-credential-manager",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 11,
+      "rationale": "P4.7 remove-notification-channels depends on P4.5 (Swift owns synthesis verified end-to-end).",
+      "specs": [
+        {
+          "name": "remove-notification-channels",
+          "status": "queued",
+          "task_count": 6,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 12,
+      "rationale": "P4.8 supersede-mac-tts-listener-spec depends on P4.5 + P4.7 fully verified in Swift app.",
+      "specs": [
+        {
+          "name": "supersede-mac-tts-listener-spec",
+          "status": "queued",
+          "task_count": 5,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P4",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 13,
+      "rationale": "P5.1 swift-dashboard-feature-parity: Swift app reaches feature parity with web. Gates P5.2.",
+      "specs": [
+        {
+          "name": "swift-dashboard-feature-parity",
+          "status": "queued",
+          "task_count": 12,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P5",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 14,
+      "rationale": "P5.2 retire-web-dashboard-infra: atomic delete of apps/nextjs + packages/ui + dashboard.service + traefik.",
+      "specs": [
+        {
+          "name": "retire-web-dashboard-infra",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P5",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 15,
+      "rationale": "P6.1 remove-mac-deploy-artifacts depends on P4 (Swift owns Mac surface) + P5 (no web dashboard service to fan to).",
+      "specs": [
+        {
+          "name": "remove-mac-deploy-artifacts",
+          "status": "queued",
+          "task_count": 9,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P6",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        }
+      ]
+    },
+    {
+      "wave": 16,
+      "rationale": "P6 parallel: install.sh env-aware rewrite + spine architecture documentation. Distinct files.",
+      "specs": [
+        {
+          "name": "env-aware-install-script",
+          "status": "queued",
+          "task_count": 7,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P6",
+          "gates_passed": [],
+          "gates_failed": [],
+          "dispatched_at": null,
+          "merged_at": null
+        },
+        {
+          "name": "document-spine-architecture",
+          "status": "queued",
+          "task_count": 4,
+          "epic": "spine-migration",
+          "feature": "",
+          "phase": "P6",
           "gates_passed": [],
           "gates_failed": [],
           "dispatched_at": null,
@@ -97,12 +524,35 @@
     "current_phase": null,
     "phases_completed": [],
     "task_results": {
-      "restore-tts-mac-audio-dispatch": {},
-      "fix-nexus-status-cc-payload": {},
-      "add-notification-control-dashboard": {}
+      "collapse-credentials-dir": {},
+      "remove-peer-connector": {},
+      "remove-slack-channel": {},
+      "bump-session-idle-threshold": {},
+      "collapse-notifications-dir": {},
+      "add-schema-drift-detector": {},
+      "add-git-project-resolver": {},
+      "add-subagent-tree-columns": {},
+      "enforce-pino-script-errors": {},
+      "drop-recognized-events-allowlist": {},
+      "socket-dispatcher-parity": {},
+      "add-socket-hook-helper": {},
+      "migrate-cc-hooks-to-socket": {},
+      "delete-http-hooks-endpoint": {},
+      "xcodegen-initial-generate": {},
+      "add-nexus-shared-framework": {},
+      "scaffold-nexus-ios-target": {},
+      "scaffold-nexus-watch-target": {},
+      "swift-owns-elevenlabs-synth": {},
+      "add-cc-credential-manager": {},
+      "remove-notification-channels": {},
+      "supersede-mac-tts-listener-spec": {},
+      "swift-dashboard-feature-parity": {},
+      "retire-web-dashboard-infra": {},
+      "remove-mac-deploy-artifacts": {},
+      "env-aware-install-script": {},
+      "document-spine-architecture": {}
     },
     "phase_started_at": {},
     "phase_completed_at": {}
-  },
-  "completed_at": "2026-04-27T03:30:00Z"
+  }
 }

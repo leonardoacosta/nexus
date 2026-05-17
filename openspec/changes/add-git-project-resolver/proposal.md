@@ -1,3 +1,9 @@
+---
+status: approved
+approved-by: leo@leonardoacosta.dev
+approved-at: 2026-05-17T20:26:38Z
+---
+
 # Proposal: Add git project resolver to session_start enrichment
 
 ## Change ID

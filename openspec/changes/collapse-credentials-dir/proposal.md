@@ -1,3 +1,9 @@
+---
+status: approved
+approved-by: leo@leonardoacosta.dev
+approved-at: 2026-05-17T20:26:38Z
+---
+
 # Proposal: Collapse credentials/ directory (interim)
 
 ## Change ID
