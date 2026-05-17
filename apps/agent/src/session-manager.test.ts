@@ -34,7 +34,7 @@ describe("session-manager", () => {
     expect(manager.getActive()).toHaveLength(1);
   });
 
-  test("sweepIdle marks session as idle when last_activity > 5 min ago", () => {
+  test("sweepIdle marks session as idle when last_activity > 60 min ago", () => {
     manager = createSessionManager();
 
     // Create a session
@@ -45,10 +45,10 @@ describe("session-manager", () => {
       path: "/tmp",
     });
 
-    // Manually backdate lastHeartbeat to 6 minutes ago
+    // Manually backdate lastHeartbeat to 61 minutes ago (past the 60-minute idle threshold).
     const session = manager.getById("sess-idle")!;
-    const sixMinutesAgo = new Date(Date.now() - 6 * 60 * 1000);
-    session.lastHeartbeat = sixMinutesAgo;
+    const sixtyOneMinutesAgo = new Date(Date.now() - 61 * 60 * 1000);
+    session.lastHeartbeat = sixtyOneMinutesAgo;
 
     manager.sweepIdle();
 
@@ -94,9 +94,9 @@ describe("session-manager", () => {
       path: "/tmp",
     });
 
-    // Backdate and mark idle
+    // Backdate past the 60-minute idle threshold and mark idle
     const session = manager.getById("sess-update")!;
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
+    session.lastHeartbeat = new Date(Date.now() - 65 * 60 * 1000);
     manager.sweepIdle();
     expect(session.status).toBe("idle");
 
@@ -160,8 +160,9 @@ describe("session-manager", () => {
     });
 
     const session = manager.getById("sess-stale")!;
-    // Backdate heartbeat so it's past both idle and stale thresholds.
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
+    // Backdate heartbeat past the 60-minute idle threshold; the 1ms staleThresholdMs
+    // override makes the idle→stale promotion fire immediately.
+    session.lastHeartbeat = new Date(Date.now() - 65 * 60 * 1000);
     // Manually set to idle (simulating a previous sweep).
     session.status = "idle";
 
@@ -182,8 +183,9 @@ describe("session-manager", () => {
     });
 
     const session = manager.getById("sess-fresh-idle")!;
-    // Backdate heartbeat past idle threshold but the session was active before this sweep.
-    session.lastHeartbeat = new Date(Date.now() - 10 * 60 * 1000);
+    // Backdate heartbeat past the 60-minute idle threshold but the session was active
+    // before this sweep.
+    session.lastHeartbeat = new Date(Date.now() - 65 * 60 * 1000);
     // Status is still "active" — sweep should transition active→idle but NOT idle→stale.
     expect(session.status).toBe("active");
 

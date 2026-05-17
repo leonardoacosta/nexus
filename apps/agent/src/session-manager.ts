@@ -5,10 +5,10 @@ import type { Session, WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { loadActiveSessions, upsertSession } from "./db/sessions";
 
-const IDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-const DEFAULT_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes (same as idle → stale)
+const IDLE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes (bumped from 5m by bump-session-idle-threshold)
+const DEFAULT_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes (same as idle → stale)
 const SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
-const DEFAULT_ENDED_SESSION_TTL_MS = 3_600_000; // 1 hour
+const DEFAULT_ENDED_SESSION_TTL_MS = 3_600_000; // 1 hour (eviction of ended rows; independent of idle/stale window)
 
 /** Options for configuring a session manager instance. */
 export interface SessionManagerOptions {
@@ -20,7 +20,7 @@ export interface SessionManagerOptions {
 
   /**
    * How long (in ms) an idle session must remain idle before being promoted to
-   * `stale`. Defaults to 5 minutes (300_000 ms).
+   * `stale`. Defaults to 60 minutes (3_600_000 ms) per `bump-session-idle-threshold`.
    */
   staleThresholdMs?: number;
 
