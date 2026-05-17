@@ -3,13 +3,16 @@
  * `~/.claude/scripts/hooks/telemetry.sh` (see "Event destination routing"
  * section, curated 2026-04-24). Five v1 rules:
  *
- *   tool_use_fail      → desktop + slack       (level 50, error)
- *   permission_request → desktop + tts         (level 40, friction signal)
- *   hook_failure       → desktop + slack       (level 50, error)
- *   session_stop crash → desktop + slack       (when crash_flag === true OR
- *                                               stop_reason ∈ {error,api_error,
- *                                               crash,timeout,oom})
- *   session_summary    → desktop digest        (when cost_usd >= 0.50)
+ *   tool_use_fail      → desktop                (level 50, error)
+ *   permission_request → desktop + tts          (level 40, friction signal)
+ *   hook_failure       → desktop                (level 50, error)
+ *   session_stop crash → desktop                (when crash_flag === true OR
+ *                                                stop_reason ∈ {error,api_error,
+ *                                                crash,timeout,oom})
+ *   session_summary    → desktop digest         (when cost_usd >= 0.50)
+ *
+ * Slack channel was removed by `remove-slack-channel` (spine-migration); the
+ * desktop channel carries the same error signal via UNNotificationCenter.
  *
  * Rules are pure functions: they take the hook event payload and return a
  * `NotificationDraft[]` (one entry per channel) or `null` when the predicate
@@ -60,9 +63,8 @@ export interface NotificationDraft {
 }
 
 /**
- * A rule is a pure function: given a payload, return one draft per channel
- * (e.g. tool_use_fail → 2 drafts: desktop + slack), or `null` when the
- * predicate fails (e.g. session_summary below threshold).
+ * A rule is a pure function: given a payload, return one draft per channel,
+ * or `null` when the predicate fails (e.g. session_summary below threshold).
  */
 export type HookRule = (payload: HookEventPayload) => NotificationDraft[] | null;
 
@@ -114,7 +116,6 @@ const toolUseFailRule: HookRule = (payload) => {
 
   return [
     { channel: "desktop", title, body, project, priority: "high" },
-    { channel: "slack", title, body, project, priority: "high" },
   ];
 };
 
@@ -142,7 +143,6 @@ const hookFailureRule: HookRule = (payload) => {
 
   return [
     { channel: "desktop", title, body, project, priority: "high" },
-    { channel: "slack", title, body, project, priority: "high" },
   ];
 };
 
@@ -156,7 +156,6 @@ const sessionStopRule: HookRule = (payload) => {
 
   return [
     { channel: "desktop", title, body, project, priority: "high" },
-    { channel: "slack", title, body, project, priority: "high" },
   ];
 };
 

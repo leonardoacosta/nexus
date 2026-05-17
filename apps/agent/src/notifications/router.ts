@@ -4,7 +4,6 @@ import { captureException, addBreadcrumb } from "@sentry/node";
 import type { NotificationRow } from "./buffer";
 import { sendDesktopNotification } from "./channels/desktop";
 import { sendTtsNotification } from "./channels/tts";
-import { sendSlackNotification } from "./channels/slack";
 import { isUnspeakable } from "./speakability";
 
 /** Timeout in ms for a single channel handler invocation. */
@@ -94,9 +93,9 @@ export function getRoutingRules(): NotificationRule[] {
  *   4. DEFAULT_RULES (hardcoded fallback — desktop only)
  *
  * Fix 2026-04-24: Previously fell through to DEFAULT_RULES['desktop']
- * unconditionally, which meant every /notifications/send with
- * channel='tts' or channel='slack' dispatched to the desktop handler.
- * Now the notification's own channel is honored when no rule matches.
+ * unconditionally, which meant every /notifications/send with a non-default
+ * channel (tts, etc.) dispatched to the desktop handler. Now the
+ * notification's own channel is honored when no rule matches.
  */
 export function findMatchingRule(notification: NotificationRow): NotificationRule {
   // Try project-specific rule first
@@ -121,14 +120,20 @@ export function findMatchingRule(notification: NotificationRow): NotificationRul
   return DEFAULT_RULES[0]!;
 }
 
-/** Channel dispatch map. */
+/**
+ * Channel dispatch map.
+ *
+ * Slack was removed by `remove-slack-channel` (spine-migration). Any caller
+ * that still passes `channel: 'slack'` will be silently dropped by the
+ * "No handler for channel" warn path below — see scenarios in
+ * `openspec/changes/remove-slack-channel/specs/notification-store/spec.md`.
+ */
 const CHANNEL_HANDLERS: Record<
   NotificationChannel,
   (notification: NotificationRow) => Promise<ChannelHandlerReturn>
 > = {
   desktop: sendDesktopNotification,
   tts: sendTtsNotification,
-  slack: sendSlackNotification,
 };
 
 /**

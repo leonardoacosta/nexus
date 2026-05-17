@@ -39,11 +39,11 @@ describe("hook-rules registry", () => {
 });
 
 describe("tool_use_fail rule", () => {
-  it("fires desktop + slack with project-prefixed body", () => {
+  it("fires desktop with project-prefixed body", () => {
     const drafts = hookRules.tool_use_fail!(
       payload({ tool_name: "Bash", error_message: "permission denied" }),
     );
-    expect(channels(drafts)).toEqual(["desktop", "slack"]);
+    expect(channels(drafts)).toEqual(["desktop"]);
     expect(drafts).not.toBeNull();
     for (const d of drafts!) {
       expect(d.title).toContain("Bash");
@@ -86,11 +86,11 @@ describe("permission_request rule", () => {
 });
 
 describe("hook_failure rule", () => {
-  it("fires desktop + slack", () => {
+  it("fires desktop", () => {
     const drafts = hookRules.hook_failure!(
       payload({ hook_name: "post_compact", error_message: "jq write failed" }),
     );
-    expect(channels(drafts)).toEqual(["desktop", "slack"]);
+    expect(channels(drafts)).toEqual(["desktop"]);
     expect(drafts![0]!.title).toContain("post_compact");
     expect(drafts![0]!.body).toContain("jq write failed");
   });
@@ -105,14 +105,14 @@ describe("hook_failure rule", () => {
 });
 
 describe("session_stop rule", () => {
-  it("fires desktop + slack when crash_flag === true", () => {
+  it("fires desktop when crash_flag === true", () => {
     const drafts = hookRules.session_stop!(payload({ crash_flag: true }));
-    expect(channels(drafts)).toEqual(["desktop", "slack"]);
+    expect(channels(drafts)).toEqual(["desktop"]);
   });
 
-  it("fires desktop + slack when stop_reason indicates a crash", () => {
+  it("fires desktop when stop_reason indicates a crash", () => {
     const drafts = hookRules.session_stop!(payload({ stop_reason: "oom" }));
-    expect(channels(drafts)).toEqual(["desktop", "slack"]);
+    expect(channels(drafts)).toEqual(["desktop"]);
     expect(drafts![0]!.body).toContain("oom");
   });
 

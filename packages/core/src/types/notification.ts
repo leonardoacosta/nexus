@@ -1,5 +1,11 @@
-/** Notification delivery channels. */
-export type NotificationChannel = "desktop" | "tts" | "slack";
+/**
+ * Notification delivery channels.
+ *
+ * `slack` was removed by `remove-slack-channel` (spine-migration). Macros /
+ * persisted rules referencing it are silently dropped by the router's
+ * "No handler for channel" path.
+ */
+export type NotificationChannel = "desktop" | "tts";
 
 /** Notification priority levels. */
 export type NotificationPriority = "low" | "normal" | "high";

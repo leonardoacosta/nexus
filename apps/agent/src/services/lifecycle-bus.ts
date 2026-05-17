@@ -139,7 +139,7 @@ export interface NotificationFiredPayload {
   title: string;
   /** Full message body — used as TTS text and banner subtitle. */
   body: string;
-  /** Delivery channel: "desktop" | "tts" | "slack". */
+  /** Delivery channel: "desktop" | "tts" (slack removed by remove-slack-channel). */
   channel: string;
   /** Optional project scope. */
   project?: string;

@@ -96,8 +96,8 @@ describe("suppression cache", () => {
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "y" }));
 
-    // First call: 2 sends (desktop + slack). Second call: suppressed.
-    expect(sends).toHaveLength(2);
+    // First call: 1 send (desktop). Second call: suppressed.
+    expect(sends).toHaveLength(1);
   });
 
   it("does not suppress different suppression keys", async () => {
@@ -107,7 +107,7 @@ describe("suppression cache", () => {
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Edit", error_message: "y" }));
 
-    expect(sends).toHaveLength(4); // 2 channels × 2 distinct tools
+    expect(sends).toHaveLength(2); // 1 channel × 2 distinct tools
   });
 
   it("fires again after the window expires", async () => {
@@ -129,7 +129,7 @@ describe("suppression cache", () => {
       expect(Date.now()).toBeGreaterThan(realNow() - 1_000);
     }
 
-    expect(sends).toHaveLength(4); // both calls fired desktop + slack
+    expect(sends).toHaveLength(2); // both calls fired desktop
   });
 
   it("never suppresses permission_request", async () => {
@@ -150,7 +150,7 @@ describe("suppression cache", () => {
     await evaluateAndDispatch(db, manager, "session_stop", payload({ crash_flag: true, session_id: "sess-1" }));
     await evaluateAndDispatch(db, manager, "session_stop", payload({ crash_flag: true, session_id: "sess-1" }));
 
-    expect(sends).toHaveLength(2); // first call only
+    expect(sends).toHaveLength(1); // first call only
   });
 });
 
@@ -172,15 +172,15 @@ describe("settings filter", () => {
 
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
 
-    // tool_use_fail has desktop + slack — desktop gets stripped, slack stays.
-    expect(sends.map((s) => s.channel)).toEqual(["slack"]);
+    // tool_use_fail has desktop only — desktop gets stripped, nothing fires.
+    expect(sends).toHaveLength(0);
   });
 
-  it("collapses to no-op when both desktop and tts are off and rule has no slack", async () => {
+  it("collapses to no-op when both desktop and tts are off", async () => {
     const db = makeFakeDb({ ttsEnabled: false, bannerEnabled: false });
     const { manager, sends } = makeFakeManager();
 
-    // permission_request channels = [desktop, tts] — both stripped, no slack.
+    // permission_request channels = [desktop, tts] — both stripped.
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
 
     expect(sends).toHaveLength(0);
@@ -192,7 +192,7 @@ describe("settings filter", () => {
 
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
 
-    expect(sends).toHaveLength(2); // desktop + slack
+    expect(sends).toHaveLength(1); // desktop only (slack removed)
   });
 
   it("fails open when settings read throws", async () => {
@@ -201,7 +201,7 @@ describe("settings filter", () => {
 
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
 
-    expect(sends).toHaveLength(2);
+    expect(sends).toHaveLength(1);
   });
 });
 
@@ -221,13 +221,13 @@ describe("resilience", () => {
 
   it("does not throw when a single channel send rejects", async () => {
     const db = makeFakeDb(ALL_ENABLED);
-    const { manager, sends } = makeFakeManager({ throwOn: "slack" });
+    const { manager, sends } = makeFakeManager({ throwOn: "tts" });
 
     await expect(
-      evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" })),
+      evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" })),
     ).resolves.toBeUndefined();
 
-    // desktop still landed even though slack rejected.
+    // desktop still landed even though tts rejected.
     expect(sends.map((s) => s.channel)).toEqual(["desktop"]);
   });
 

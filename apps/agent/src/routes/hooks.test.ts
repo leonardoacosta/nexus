@@ -1449,9 +1449,10 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       expect(desktop!.body.startsWith("nx: ")).toBe(true);
       expect(desktop!.project).toBe("nx");
 
-      // Slack row also lands (rule = desktop + slack).
+      // Slack row no longer lands — remove-slack-channel dropped it from
+      // the rule registry; the rule is now desktop-only.
       const slack = notifs.find((n) => n.channel === "slack");
-      expect(slack).toBeDefined();
+      expect(slack).toBeUndefined();
     });
   });
 });

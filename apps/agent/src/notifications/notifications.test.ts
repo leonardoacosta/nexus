@@ -135,12 +135,6 @@ describe("delivery channels", () => {
     }
   });
 
-  it("slack channel succeeds (stub mode without webhook URL)", async () => {
-    const { sendSlackNotification } = await import("./channels/slack");
-    const notif = makeNotification();
-    const result = await sendSlackNotification(notif as never);
-    expect(result).toBe(true);
-  });
 });
 
 // ─── Project-aware routing (pure logic) ─────────────────────────────────────
@@ -159,7 +153,7 @@ describe("project-aware routing", () => {
 
   it("matches project-specific rule", () => {
     setRoutingRules([
-      { project: "co", channels: ["desktop", "slack"], meeting_behavior: "buffer" },
+      { project: "co", channels: ["desktop"], meeting_behavior: "buffer" },
       { project: "nx", channels: ["tts"], meeting_behavior: "allow" },
     ]);
 
@@ -171,7 +165,7 @@ describe("project-aware routing", () => {
 
   it("falls back to wildcard rule when no project match", () => {
     setRoutingRules([
-      { project: "co", channels: ["desktop", "slack"], meeting_behavior: "buffer" },
+      { project: "co", channels: ["desktop"], meeting_behavior: "buffer" },
       { channels: ["desktop"], meeting_behavior: "drop" },
     ]);
 
@@ -189,14 +183,14 @@ describe("project-aware routing", () => {
     delete process.env.ELEVENLABS_API_KEY;
     try {
       setRoutingRules([
-        { project: "co", channels: ["desktop", "tts", "slack"], meeting_behavior: "buffer" },
+        { project: "co", channels: ["desktop", "tts"], meeting_behavior: "buffer" },
       ]);
 
       const notif = makeNotification({ project: "co" });
       const results = await routeNotification(notif as never);
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(2);
       expect(results.every((r) => r.success)).toBe(true);
-      expect(results.map((r) => r.channel)).toEqual(["desktop", "tts", "slack"]);
+      expect(results.map((r) => r.channel)).toEqual(["desktop", "tts"]);
     } finally {
       if (originalKey !== undefined) process.env.ELEVENLABS_API_KEY = originalKey;
     }

@@ -181,7 +181,6 @@ describe("NotificationManager.deliverNotification — audio attachment", () => {
       delivered: [
         { channel: "desktop" },
         { channel: "tts", audioBase64: audio },
-        { channel: "slack" },
       ],
       failed: [],
     }));
@@ -191,16 +190,16 @@ describe("NotificationManager.deliverNotification — audio attachment", () => {
 
     await manager.send(notif as never);
 
-    expect(lifecycleEmitMock).toHaveBeenCalledTimes(3);
+    expect(lifecycleEmitMock).toHaveBeenCalledTimes(2);
 
     const channels = lifecycleEmitMock.mock.calls.map(
       (call) => (call[1] as { channel: string }).channel,
     );
-    expect(channels).toEqual(["desktop", "tts", "slack"]);
+    expect(channels).toEqual(["desktop", "tts"]);
 
     const audios = lifecycleEmitMock.mock.calls.map(
       (call) => (call[1] as { audioBase64?: string }).audioBase64,
     );
-    expect(audios).toEqual([undefined, audio, undefined]);
+    expect(audios).toEqual([undefined, audio]);
   });
 });

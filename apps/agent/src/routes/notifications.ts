@@ -7,6 +7,16 @@ import { MeetingState } from "../notifications/meeting-state";
 
 const log = createLogger("agent:routes:notifications");
 
+/**
+ * Channels accepted at the HTTP boundary.
+ *
+ * `slack` is accepted for backward compatibility — the dispatcher
+ * (`notifications/router.ts`) was emptied by `remove-slack-channel`
+ * (spine-migration), so any caller still passing `slack` receives a 200
+ * with an empty `dispatched` array and a warn-level log entry. Removing
+ * `slack` from this set would 400 every legacy caller; the dispatch-side
+ * drop is the intended migration path.
+ */
 const VALID_CHANNELS = new Set<string>(["desktop", "tts", "slack"]);
 const VALID_PRIORITIES = new Set<string>(["low", "normal", "high"]);
 
