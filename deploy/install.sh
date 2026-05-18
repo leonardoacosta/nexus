@@ -196,7 +196,37 @@ See bd:nx-jmqyk for the canonical NexusShared multi-platform issue."
     local PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
     mkdir -p "$LAUNCH_DIR"
 
+    # Source NEXUS_* env vars from ~/.config/nexus/secrets.env so the
+    # launchd plist embeds them. Without this, nexus-agent fails fast
+    # on 'Encryption key validation failed' and launchd thrashes
+    # (KeepAlive=true causes infinite restart). Filed under nx-rui8k.
+    local SECRETS_FILE="$CONFIG_DIR/secrets.env"
+    if [[ -f "$SECRETS_FILE" ]]; then
+        # shellcheck disable=SC1090
+        set -a; . "$SECRETS_FILE"; set +a
+    else
+        warn "$SECRETS_FILE not found — agent will fail to start without NEXUS_ENCRYPTION_KEY."
+        warn "See deploy/secrets.env.example for the required contract."
+    fi
+
     info "Generating launchd user agent at $PLIST"
+    # Build the EnvironmentVariables block from any NEXUS_* / POSTGRES_* /
+    # APNS_* / ELEVENLABS_* keys present in the current shell environment.
+    # Only embed values that are non-empty — missing keys produce empty
+    # entries that break plist parsing.
+    local ENV_BLOCK=""
+    for key in NEXUS_ENCRYPTION_KEY NEXUS_ATTACH_SECRET POSTGRES_URL APNS_KEY_ID APNS_TEAM_ID APNS_KEY_PATH APNS_BUNDLE_IOS APNS_BUNDLE_WATCH ELEVENLABS_API_KEY; do
+        # Indirect expansion: ${!key} returns the value of the var named in $key.
+        local val="${!key:-}"
+        if [[ -n "$val" ]]; then
+            # XML-escape (& < > only — values shouldn't contain quotes in this context).
+            val="${val//&/&amp;}"
+            val="${val//</&lt;}"
+            val="${val//>/&gt;}"
+            ENV_BLOCK+="        <key>$key</key>"$'\n'"        <string>$val</string>"$'\n'
+        fi
+    done
+
     cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -222,7 +252,7 @@ See bd:nx-jmqyk for the canonical NexusShared multi-platform issue."
         <string>info</string>
         <key>PATH</key>
         <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-    </dict>
+$ENV_BLOCK    </dict>
 </dict>
 </plist>
 PLIST
