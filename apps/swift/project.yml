@@ -50,7 +50,7 @@ targets:
 
   NexusShared:
     type: framework
-    platform: [macOS, iOS]
+    platform: [macOS, iOS, watchOS]
     sources:
       - path: NexusShared
     settings:

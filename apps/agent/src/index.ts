@@ -13,6 +13,7 @@ import { startSocketServer, createSocketEventDispatcher, type SocketServer } fro
 import { startCronService, type CronService } from "./services/cron";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
+import { initSendTextRoute } from "./routes/commands-send-text";
 import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
@@ -41,6 +42,10 @@ try {
 }
 
 const sessionManager = createSessionManager({ db });
+
+// Wire SessionManager into the POST /commands/send-text route used by the
+// watchOS notification action handlers (scaffold-nexus-watch-target task 1.2).
+initSendTextRoute(sessionManager);
 
 // Startup recovery: load active sessions from DB, validate PIDs
 sessionManager.init().catch((err) => {
