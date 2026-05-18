@@ -17,6 +17,7 @@ import {
   type ScriptErrorRecord,
   type ScriptErrorSink,
 } from "./pino-db-transport";
+import { withErrorCapture } from "./with-error-capture";
 
 function makeSink(): { sink: ScriptErrorSink; received: ScriptErrorRecord[] } {
   const received: ScriptErrorRecord[] = [];
@@ -118,5 +119,63 @@ describe("pushScriptError + flushNow", () => {
     // Must not throw.
     await flushNow();
     expect(true).toBe(true);
+  });
+});
+
+describe("withErrorCapture", () => {
+  it("runs the body to completion on the happy path", async () => {
+    const { sink, received } = makeSink();
+    attachScriptErrorSink(sink);
+
+    let ran = false;
+    await withErrorCapture("happy-script", async () => {
+      ran = true;
+    });
+
+    expect(ran).toBe(true);
+    expect(received.length).toBe(0); // no errors captured
+  });
+
+  it("captures uncaught errors with stack + scriptName then exits 1", async () => {
+    const { sink, received } = makeSink();
+    attachScriptErrorSink(sink);
+
+    // Intercept process.exit so the test runner survives.
+    const originalExit = process.exit;
+    let exitCode: number | undefined;
+    (process as unknown as { exit: (code?: number) => never }).exit = ((
+      code?: number,
+    ) => {
+      exitCode = code;
+      // Throw to short-circuit out of withErrorCapture rather than terminating bun.
+      throw new Error("__exit_intercepted__");
+    }) as never;
+
+    // Suppress the stderr noise withErrorCapture emits before exiting.
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: (s: string) => boolean }).write =
+      () => true;
+
+    try {
+      await withErrorCapture("boom-script", async () => {
+        throw new Error("boom");
+      });
+    } catch (err) {
+      // The intercepted exit throws; anything else is a real failure.
+      expect((err as Error).message).toBe("__exit_intercepted__");
+    } finally {
+      (process as unknown as { exit: typeof originalExit }).exit = originalExit;
+      (process.stderr as unknown as { write: typeof originalStderrWrite }).write =
+        originalStderrWrite;
+    }
+
+    expect(exitCode).toBe(1);
+    expect(received.length).toBe(1);
+    const captured = received[0];
+    expect(captured?.scriptName).toBe("boom-script");
+    expect(captured?.level).toBe("fatal");
+    expect(captured?.message).toBe("boom");
+    expect(captured?.stack).toContain("Error: boom");
+    expect(captured?.exitCode).toBe(1);
   });
 });

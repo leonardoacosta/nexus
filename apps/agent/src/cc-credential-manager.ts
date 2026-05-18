@@ -505,13 +505,3 @@ export class CcCredentialManager {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Back-compat exports — the placeholder module used to re-export the active-
-// credential watcher snapshot from credentials/. Keep those available so the
-// placeholder consumers (Mac settings, statusline) keep working.
-// ---------------------------------------------------------------------------
-
-export {
-  getActiveCredentialSnapshot,
-  type ActiveCredentialSnapshot,
-} from "./credentials/active-credential-watcher";
