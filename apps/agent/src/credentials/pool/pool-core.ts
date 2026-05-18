@@ -86,9 +86,11 @@ export class CredentialPool {
     metadata?: Record<string, unknown> | null,
   ): Promise<void> {
     try {
+      // Column was renamed credential_id -> profile_id in migration 0025
+      // (rename `credential_events` -> `cc_profile_events`).
       await this.db.insert(credentialEvents).values({
         id: randomUUID(),
-        credentialId,
+        profileId: credentialId,
         eventType,
         sessionId: sessionId ?? null,
         metadata: metadata ?? null,
