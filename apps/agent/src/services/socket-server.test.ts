@@ -8,9 +8,11 @@ import type { WatcherEvent } from "@nexus/core";
 // Module-level mocks for dispatch tests
 // ---------------------------------------------------------------------------
 
-mock.module("../notifications/channels/tts", () => ({
-  sendTtsNotification: mock(() => Promise.resolve(true)),
-}));
+// Note: previously this test mocked `../notifications/channels/tts` so the
+// dispatcher's fire-and-forget TTS call wouldn't reach a real synth client.
+// After `remove-notification-channels` (P4) the dispatcher no longer calls
+// `sendTtsNotification` at all — the channel is signal-only via lifecycleBus.
+// Mock removed; no replacement needed.
 
 const mockRecordNotification = mock(() => {});
 mock.module("./command-handler", () => ({

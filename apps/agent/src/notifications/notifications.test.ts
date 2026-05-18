@@ -111,31 +111,13 @@ describe.skip("notification manager — buffer/flush lifecycle (requires live PG
   });
 });
 
-// ─── Delivery channels (mocked) ────────────────────────────────────────────
-
-describe("delivery channels", () => {
-  it("desktop channel succeeds", async () => {
-    const { sendDesktopNotification } = await import("./channels/desktop");
-    const notif = makeNotification();
-    const result = await sendDesktopNotification(notif as never);
-    expect(result).toBe(true);
-  });
-
-  it("tts channel succeeds (stub mode without API key)", async () => {
-    const originalKey = process.env.ELEVENLABS_API_KEY;
-    delete process.env.ELEVENLABS_API_KEY;
-    try {
-      const { sendTtsNotification } = await import("./channels/tts");
-      const notif = makeNotification();
-      const result = await sendTtsNotification(notif as never);
-      expect(result.success).toBe(true);
-      expect(result.audioBase64).toBeUndefined();
-    } finally {
-      if (originalKey !== undefined) process.env.ELEVENLABS_API_KEY = originalKey;
-    }
-  });
-
-});
+// ─── Delivery channels ────────────────────────────────────────────
+//
+// After `remove-notification-channels` (P4) both `desktop` and `tts`
+// channels are pure signal handlers — the agent emits NotificationFired and
+// the Mac listener does the actual rendering / synthesis. The old per-channel
+// tests (which exercised the ElevenLabs HTTP path + terminal-notifier) are
+// retired here; the router contract is covered by router.test.ts.
 
 // ─── Project-aware routing (pure logic) ─────────────────────────────────────
 

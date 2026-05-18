@@ -2,9 +2,27 @@ import type { NotificationChannel, NotificationRule } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { captureException, addBreadcrumb } from "@sentry/node";
 import type { NotificationRow } from "./buffer";
-import { sendDesktopNotification } from "./channels/desktop";
-import { sendTtsNotification } from "./channels/tts";
 import { isUnspeakable } from "./speakability";
+
+/**
+ * Signal-only channel handler.
+ *
+ * After `remove-notification-channels` (P4) the agent owns NO synthesis or
+ * desktop-banner duties. Both "tts" and "desktop" channels are now pure
+ * lifecycle signals — the manager emits a `NotificationFired` event and the
+ * Mac listener (nexus-mac via NexusShared) does the actual rendering /
+ * synthesis / playback. The agent's role is to decide that the notification
+ * fired and to persist the row; everything else is the listener's job.
+ *
+ * Kept here (rather than in a separate file) because there is nothing to
+ * implement — a one-liner is dead code by itself.
+ */
+async function signalOnlyChannel(_notification: NotificationRow): Promise<boolean> {
+  return true;
+}
+
+const sendDesktopNotification = signalOnlyChannel;
+const sendTtsNotification = signalOnlyChannel;
 
 /** Timeout in ms for a single channel handler invocation. */
 const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
