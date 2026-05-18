@@ -35,6 +35,7 @@ export const ALLOWED_BINARIES = [
   "nexus", // self-invocation (CLI tests, register)
   "openspec", // spec list/show for spec-watcher + specs route
   "which", // binary discovery for environment route + tmux availability check
+  "pgrep", // process-watcher reconciliation — discover live `claude` PIDs
   "gh", // GitHub CLI auth status for environment route
   "bd", // beads issue tracker queries for recommend + project-detail
   "nexus-watcher", // sibling Bun-compiled binary — file system event watcher relayed by watcher-bridge
