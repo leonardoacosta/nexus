@@ -114,7 +114,7 @@ function makeNotification(
 }
 
 // Minimal stand-in for the Db type — manager only stores it for buffer calls.
-const stubDb = {} as unknown as Parameters<typeof NotificationManager>[0];
+const stubDb = {} as unknown as ConstructorParameters<typeof NotificationManager>[0];
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 

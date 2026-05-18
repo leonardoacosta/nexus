@@ -170,12 +170,14 @@ describe("LifecycleBus", () => {
     bus.on("NotificationFired", (env) => received.push(env));
 
     bus.emit("NotificationFired", {
-      message: "Build complete",
+      id: "notif-1",
+      title: "Build",
+      body: "Build complete",
       channel: "tts",
       project: "nx",
     });
 
-    expect(received[0]!.payload.message).toBe("Build complete");
+    expect(received[0]!.payload.body).toBe("Build complete");
     expect(received[0]!.payload.channel).toBe("tts");
     expect(received[0]!.payload.project).toBe("nx");
   });

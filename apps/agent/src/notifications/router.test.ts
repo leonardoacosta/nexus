@@ -180,7 +180,7 @@ describe("router: slow handler timeout (task 2.3)", () => {
           expect(message).toContain("timeout");
           // captureException was called by withChannelTimeout (if mock is active)
           if (captureExceptionMock.mock.calls.length > 0) {
-            const [capturedErr] = captureExceptionMock.mock.calls[0]! as [Error];
+            const [capturedErr] = captureExceptionMock.mock.calls[0]! as unknown as [Error];
             expect(capturedErr.message).toContain("desktop");
           }
         }
@@ -261,7 +261,7 @@ describe("router: unknown channel (task 2.4)", () => {
     const structuralVerification = true; // empty results already verified above
 
     if (mockCalled) {
-      const [breadcrumbArg] = addBreadcrumbMock.mock.calls[0]! as [
+      const [breadcrumbArg] = addBreadcrumbMock.mock.calls[0]! as unknown as [
         { category: string; level: string; message: string; data: Record<string, unknown> },
       ];
       expect(breadcrumbArg.data.channel).toBe("completely-unknown-channel");

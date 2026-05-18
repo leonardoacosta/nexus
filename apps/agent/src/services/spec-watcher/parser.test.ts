@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { parseSpecList, processProjectSpecs } from "./parser";
+import { parseSpecList, processProjectSpecs, type TrackedSpec } from "./parser";
 
 // ---------------------------------------------------------------------------
 // parseSpecList
@@ -75,7 +75,7 @@ describe("parseSpecList", () => {
 
 describe("processProjectSpecs", () => {
   // Each test owns its own projectState — no shared module state.
-  let state: Map<string, Map<string, unknown>>;
+  let state: Map<string, Map<string, TrackedSpec>>;
   const PROJECT = "purity-proj";
   // Non-existent path so readProposalHash always returns null (no fs fixture needed).
   const CWD = "/tmp/nexus-parser-test-nonexistent";

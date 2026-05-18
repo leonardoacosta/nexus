@@ -29,7 +29,7 @@ export type SpecEvent =
   | { type: "all_complete"; project: string; name: string }
   | { type: "hash_changed"; project: string; name: string };
 
-interface TrackedSpec {
+export interface TrackedSpec {
   name: string;
   completedTasks: number;
   totalTasks: number;

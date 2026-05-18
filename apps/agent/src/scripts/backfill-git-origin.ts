@@ -32,7 +32,7 @@ await withErrorCapture("backfill-git-origin", async () => {
     throw new Error("POSTGRES_URL is required");
   }
 
-  const db = createDb(dbUrl);
+  const { db } = createDb(dbUrl);
   attachScriptErrorSink({
     async insert(records) {
       await db.insert(scriptErrors).values(

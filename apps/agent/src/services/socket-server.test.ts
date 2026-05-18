@@ -363,7 +363,8 @@ describe("socket-server event dispatcher", () => {
       cwd: "/home/user/dev/nx",
       model: "opus",
     });
-    expect(sessionEvents[0]!.source).toBe("local");
+    // Note: `source` was removed when peer-connector was deleted (see lifecycle-bus.ts
+    // doc-comment). All events now originate locally; no peer/local distinction exists.
   });
 
   test("session_stop routes to sessionManager.handleWatcherEvent", () => {

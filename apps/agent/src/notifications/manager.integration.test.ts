@@ -74,7 +74,7 @@ const { lifecycleBus } = await import("../services/lifecycle-bus");
 const { NotificationManager } = await import("./manager");
 const { setRoutingRules } = await import("./router");
 
-const stubDb = {} as unknown as Parameters<typeof NotificationManager>[0];
+const stubDb = {} as unknown as ConstructorParameters<typeof NotificationManager>[0];
 
 describe("integration — POST → manager → lifecycleBus carries audioBase64", () => {
   let originalKey: string | undefined;
@@ -110,13 +110,13 @@ describe("integration — POST → manager → lifecycleBus carries audioBase64"
         () => reject(new Error("timed out waiting for NotificationFired")),
         5_000,
       );
-      const handler = (envelope: {
-        payload: Record<string, unknown>;
-      }): void => {
-        if ((envelope.payload as { id: string }).id !== "integ-1") return;
+      const handler: import("../services/lifecycle-bus").LifecycleHandler<"NotificationFired"> = (
+        envelope,
+      ) => {
+        if (envelope.payload.id !== "integ-1") return;
         clearTimeout(timer);
         lifecycleBus.off("NotificationFired", handler);
-        resolve({ payload: envelope.payload });
+        resolve({ payload: envelope.payload as unknown as Record<string, unknown> });
       };
       lifecycleBus.on("NotificationFired", handler);
     });

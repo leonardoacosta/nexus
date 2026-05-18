@@ -39,7 +39,7 @@ await withErrorCapture("backfill-hook-schema-fingerprints", async () => {
   const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
   const since = new Date(sinceMs);
 
-  const db = createDb(dbUrl);
+  const { db } = createDb(dbUrl);
   attachScriptErrorSink({
     async insert(records) {
       await db.insert(scriptErrors).values(
