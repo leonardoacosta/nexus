@@ -112,7 +112,11 @@ const DDL = `
     "tmux_target" text,
     "spec" text,
     "credential_id" text,
-    "credential_fingerprint" text
+    "credential_fingerprint" text,
+    "git_provider" text,
+    "git_owner_repo" text,
+    "parent_session_id" text,
+    "child_role" text
   );
 `;
 
@@ -329,6 +333,60 @@ describe.skipIf(!hasPg)(
         .where(eq(sessions.id, "row-legacy"));
       expect(rows[0]!.status).toBe("active");
       expect(rows[0]!.endedAt).toBeNull();
+    });
+
+    test("Live managed PID → last_activity refreshed to now, status/endedAt unchanged", async () => {
+      // Seed an open, active row whose last_activity is ~10 minutes stale —
+      // the exact failure mode: a long-running session between CC hook events.
+      const stale = new Date(Date.now() - 10 * 60 * 1000);
+      await db.insert(sessions).values({
+        id: "row-stale-live",
+        machine: "local",
+        status: "active",
+        startedAt: stale,
+        lastActivity: stale,
+        endedAt: null,
+        pid: 7777,
+        cwd: null,
+        branch: null,
+        sessionType: "managed",
+        model: "claude",
+        tmuxTarget: null,
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+        projectId: null,
+        ccSessionId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+      });
+
+      // Same PID is reported alive by pgrep.
+      setPgrepOutput([pgrepLine(7777, "claude --resume")]);
+
+      const before = Date.now();
+      const result = await reconcileOnce(db);
+      // No new rows, nothing closed — only a heartbeat refresh.
+      expect(result).toEqual({ created: 0, closed: 0 });
+
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-stale-live"));
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+
+      // last_activity must have advanced to ~now (well past the stale value).
+      const lastActivityMs = new Date(row.lastActivity).getTime();
+      expect(lastActivityMs).toBeGreaterThan(stale.getTime());
+      expect(Math.abs(lastActivityMs - before)).toBeLessThan(10_000);
+
+      // The row is otherwise untouched.
+      expect(row.status).toBe("active");
+      expect(row.endedAt).toBeNull();
     });
 
     test("Idempotent — second pass with same pgrep output returns {0,0}", async () => {

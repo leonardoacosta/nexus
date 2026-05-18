@@ -216,6 +216,34 @@ export async function updateSessionStatus(
     .where(eq(sessions.id, id));
 }
 
+/**
+ * Refresh `last_activity = now` for every open, active session whose `pid`
+ * is in `pids`. This is a liveness heartbeat sourced from process-aliveness
+ * (the process-watcher reconcile tick), NOT from inbound CC hook traffic — a
+ * long-running session between hook events would otherwise go stale and the
+ * Swift dashboard's 300s freshness window would drop it.
+ *
+ * Single batched UPDATE (one query for the whole pid set). No-op when `pids`
+ * is empty. Only touches rows that are still `status = 'active'` with
+ * `ended_at IS NULL` so a dead/closed row is never resurrected.
+ */
+export async function touchHeartbeatByPids(
+  db: Db,
+  pids: number[],
+): Promise<void> {
+  if (pids.length === 0) return;
+  await db
+    .update(sessions)
+    .set({ lastActivity: new Date() })
+    .where(
+      and(
+        inArray(sessions.pid, pids),
+        eq(sessions.status, "active"),
+        isNull(sessions.endedAt),
+      ),
+    );
+}
+
 /** Return all sessions with status 'active' or 'idle'. */
 export async function queryActiveSessions(
   db: Db,

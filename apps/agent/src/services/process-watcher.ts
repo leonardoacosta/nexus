@@ -29,7 +29,7 @@ import { sessions, eq } from "@nexus/db";
 import { and, isNull, isNotNull, gt } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { execText } from "../utils/exec";
-import { upsertSession } from "../db/sessions";
+import { upsertSession, touchHeartbeatByPids } from "../db/sessions";
 import { lifecycleBus } from "./lifecycle-bus";
 
 const log = createLogger("agent:process-watcher");
@@ -143,6 +143,10 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     );
 
   const managedPids = new Set<number>();
+  // PIDs that already have an open row AND are still alive — these get a
+  // liveness heartbeat so a long-running session between CC hook events does
+  // not go stale and fall out of the dashboard's freshness window.
+  const liveManagedPids: number[] = [];
   let closed = 0;
   const now = new Date();
 
@@ -150,6 +154,9 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     const pid = row.pid;
     if (pid === null || pid <= 0) continue;
     managedPids.add(pid);
+    if (livePids.has(pid)) {
+      liveManagedPids.push(pid);
+    }
     if (!livePids.has(pid)) {
       try {
         await db
@@ -168,6 +175,21 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         );
       }
     }
+  }
+
+  // Step 1b: refresh last_activity for live, already-managed PIDs (single
+  // batched UPDATE). Process-aliveness is a valid liveness signal even when
+  // no CC hook fired this interval.
+  try {
+    await touchHeartbeatByPids(db, liveManagedPids);
+  } catch (err) {
+    log.warn(
+      {
+        count: liveManagedPids.length,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "failed to refresh last_activity for live managed PIDs",
+    );
   }
 
   // Step 2: open rows for live PIDs we haven't seen yet.
