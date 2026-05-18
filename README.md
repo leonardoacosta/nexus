@@ -73,15 +73,28 @@ Release binaries (linux-x86_64, `cargo build --release`):
 ## Install as Service
 
 ```bash
-# Automated install (detects platform, installs service + binaries)
+# Automated install — detects platform and branches:
+#   Linux  -> bun build, install to ~/.local/bin, systemd user unit
+#   macOS  -> bun build for the agent + xcodegen/xcodebuild for the
+#             Swift dashboard, copy Nexus.app to /Applications,
+#             generate launchd plist for the agent
 ./deploy/install.sh
 
-# Linux (systemd)
-systemctl --user enable --now nexus-agent
+# Linux post-install
+systemctl --user start nexus-agent
+journalctl --user -u nexus-agent -f
 
-# macOS (launchd)
-launchctl load ~/Library/LaunchAgents/com.nexus.agent.plist
+# macOS post-install (paths printed by the installer)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nexus.agent.plist
+open /Applications/Nexus.app
 ```
+
+Flags:
+
+| Flag | Effect |
+| ---- | ------ |
+| `--no-build` | Skip Bun + Xcode build steps. Installs pre-built binaries from `apps/*/`. |
+| `--dashboard` | Linux-only — install the legacy Next.js dashboard service + Traefik proxy. New installs should use the Swift dashboard. |
 
 ## Configuration
 
