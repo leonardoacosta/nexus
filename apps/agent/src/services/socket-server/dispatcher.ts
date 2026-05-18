@@ -14,6 +14,7 @@ import type { SocketEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
 import { isUnspeakable } from "../../notifications/speakability";
+import { processHookEvent } from "../process-hook-event";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
 
 const log = createLogger("agent:socket-server");
@@ -55,6 +56,25 @@ export function createSocketEventDispatcher(
             );
           });
         }
+
+        // Shared spine: schema-drift + git origin resolver. Fire-and-forget
+        // (the dispatcher is sync; the helper handles its own errors).
+        // Wires add-schema-drift-detector 1.3 + add-git-project-resolver 1.3.
+        processHookEvent(
+          {
+            eventType: "session_start",
+            sessionId: event.session_id,
+            payload: event as unknown as Record<string, unknown>,
+            source: "socket",
+            cwd: event.cwd ?? null,
+          },
+          { sessionManager, db: db ?? null },
+        ).catch((err: unknown) => {
+          log.warn(
+            { err, sessionId: event.session_id },
+            "socket: processHookEvent(session_start) rejected unexpectedly",
+          );
+        });
 
         lifecycleBus.emit("SessionStarted", {
           sessionId: event.session_id,
@@ -183,9 +203,30 @@ export function createSocketEventDispatcher(
             sessionId: event.session_id,
             agentType: event.agent_type,
             model: event.model,
+            parentSessionId: event.parent_session_id ?? event.parent_agent ?? null,
+            childRole: event.child_role ?? null,
           },
           "socket: agent_spawn",
         );
+        // Shared spine: schema-drift + sub-agent tree linkage. Closes
+        // add-subagent-tree-columns 1.3 — populates parent_session_id +
+        // child_role on the in-memory session and DB row.
+        if (event.session_id) {
+          processHookEvent(
+            {
+              eventType: "agent_spawn",
+              sessionId: event.session_id,
+              payload: event as unknown as Record<string, unknown>,
+              source: "socket",
+            },
+            { sessionManager, db: db ?? null },
+          ).catch((err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: processHookEvent(agent_spawn) rejected unexpectedly",
+            );
+          });
+        }
         break;
       }
 

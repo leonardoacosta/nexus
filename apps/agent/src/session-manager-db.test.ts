@@ -257,6 +257,8 @@ describe("session-manager write-through (with mock DB)", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      parentSessionId: null,
+      childRole: null,
     };
     mockStore.set("recovered-sess", existingSession);
 
@@ -303,6 +305,8 @@ describe("session-manager PID validation", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      parentSessionId: null,
+      childRole: null,
     };
     mockStore.set("dead-pid-sess", deadPidSession);
 
@@ -356,6 +360,8 @@ describe("session-manager PID validation", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      parentSessionId: null,
+      childRole: null,
     };
     mockStore.set("live-pid-sess", livePidSession);
 

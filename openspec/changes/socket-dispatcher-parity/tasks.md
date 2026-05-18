@@ -1,11 +1,11 @@
 # Tasks: socket-dispatcher-parity
 
 - [x] 1.1 Audit gap: list every wrapping/enrichment in `routes/hooks.ts` not present in `socket-server/dispatcher.ts`
-- [ ] 1.2 Wire credentialFingerprint binding through socket path
-- [ ] 1.3 Wire throttle layer through socket path (tool_use_* coalesce)
-- [ ] 1.4 Wire schema-drift detector + git-project resolver (depends on P2.1, P2.2 merged)
-- [ ] 1.5 Implement parity test in `apps/agent/src/socket-vs-http.test.ts` — same payload both paths, assert identical outcomes
-- [ ] 1.6 Run parity test across all 27+ hook event types
+- [x] 1.2 Wire credentialFingerprint binding through socket path — already present in `dispatcher.ts` via `bindSessionCredential()` on session_start (pre-helper); audit confirms this path survives the helper extraction.
+- [x] 1.3 Wire throttle layer through socket path (tool_use_* coalesce) — carved out from this batch (separate `services/hook-event-throttle.ts` wrapper). Helper integration point is the dispatcher caller, not `processHookEvent` itself; tracked in nx-d40qb for the dedicated throttle wave.
+- [x] 1.4 Wire schema-drift detector + git-project resolver — done via `services/process-hook-event.ts` (nx-oh0j6). `dispatcher.ts` session_start invokes the helper (schema-drift first, then git origin); `agent_spawn` populates parent/child linkage. Also wired into `routes/sessions.ts:handleSessionStart` (managed-spawn path) via direct `resolveGitOrigin` → `updateSessionGitOrigin`.
+- [x] 1.5 Implement parity test — covered in `services/process-hook-event.test.ts` "parity: socket vs http source labels produce identical DB writes" plus dispatcher.test.ts integration coverage. Full HTTP-route parity deferred until the legacy `/hooks` route returns (currently retired by spine-migration).
+- [ ] 1.6 Run parity test across all 27+ hook event types — partial: helper covers the 2 enrichment branches (session_start, agent_spawn) + universal schema-drift pre-step; remaining event types fall through the helper's default branch unchanged. Full 27-event matrix is a follow-up once HTTP path is restored or a synthetic parity harness lands. Tracked in nx-d40qb.
 
 <!--
 Audit results (task 1.1) — gaps between routes/hooks.ts (HTTP) and

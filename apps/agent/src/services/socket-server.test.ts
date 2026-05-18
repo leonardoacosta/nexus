@@ -24,13 +24,22 @@ mock.module("./command-handler", () => ({
 // Mock SessionManager
 // ---------------------------------------------------------------------------
 
+interface RecordedLinkage {
+  sessionId: string;
+  parentSessionId?: string | null;
+  childRole?: string | null;
+}
+
 function createMockSessionManager(): SessionManager & {
   receivedEvents: WatcherEvent[];
+  linkageUpdates: RecordedLinkage[];
 } {
   const receivedEvents: WatcherEvent[] = [];
+  const linkageUpdates: RecordedLinkage[] = [];
 
   return {
     receivedEvents,
+    linkageUpdates,
     handleWatcherEvent(event: WatcherEvent) {
       receivedEvents.push(event);
     },
@@ -40,6 +49,10 @@ function createMockSessionManager(): SessionManager & {
     sweepIdle: () => {},
     stop: () => {},
     init: async () => {},
+    updateLinkage: (sessionId, linkage) => {
+      linkageUpdates.push({ sessionId, ...linkage });
+    },
+    patch: () => {},
   };
 }
 
@@ -471,15 +484,54 @@ describe("socket-server event dispatcher", () => {
     expect(mockRecordNotification).not.toHaveBeenCalled();
   });
 
-  test("agent_spawn does not crash (log-only event)", () => {
+  test("agent_spawn does not crash when linkage is absent (log-only payload)", () => {
     dispatch({
       event: "agent_spawn",
-      session_id: "sess-spawn",
+      session_id: "sess-spawn-bare",
       agent_type: "engineer",
       model: "sonnet",
     });
 
+    // No watcher event (agent_spawn does not flow through session-manager
+    // lifecycle) and no linkage update (no parent_session_id / child_role).
     expect(sessionManager.receivedEvents).toHaveLength(0);
+    expect(sessionManager.linkageUpdates).toHaveLength(0);
+  });
+
+  test("agent_spawn populates parent_session_id and child_role via processHookEvent", async () => {
+    dispatch({
+      event: "agent_spawn",
+      session_id: "child-123",
+      agent_type: "engineer",
+      model: "sonnet",
+      parent_session_id: "parent-456",
+      child_role: "explore",
+    });
+
+    // processHookEvent is fire-and-forget; let the microtask queue drain.
+    await Bun.sleep(20);
+
+    expect(sessionManager.linkageUpdates).toHaveLength(1);
+    const linkage = sessionManager.linkageUpdates[0]!;
+    expect(linkage.sessionId).toBe("child-123");
+    expect(linkage.parentSessionId).toBe("parent-456");
+    expect(linkage.childRole).toBe("explore");
+  });
+
+  test("agent_spawn accepts back-compat parent_agent payload field", async () => {
+    dispatch({
+      event: "agent_spawn",
+      session_id: "child-789",
+      agent_type: "reviewer",
+      parent_agent: "parent-legacy",
+      child_role: "review",
+    } as unknown as SocketEvent);
+
+    await Bun.sleep(20);
+
+    expect(sessionManager.linkageUpdates).toHaveLength(1);
+    expect(sessionManager.linkageUpdates[0]!.parentSessionId).toBe("parent-legacy");
+    expect(sessionManager.linkageUpdates[0]!.childRole).toBe("review");
   });
 
   test("agent_complete does not crash (log-only event)", () => {

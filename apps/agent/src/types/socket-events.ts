@@ -83,6 +83,20 @@ export interface AgentSpawnEvent {
   session_id?: string;
   agent_type?: string;
   model?: string;
+  /**
+   * Parent session id when this spawn was initiated by another agent.
+   * Wired into `sessions.parent_session_id` via
+   * `services/process-hook-event.ts` (add-subagent-tree-columns 1.3).
+   * Also accepts `parent_agent` for back-compat with CC hook payloads
+   * (see `scripts/backfill-subagent-tree.ts`).
+   */
+  parent_session_id?: string;
+  parent_agent?: string;
+  /**
+   * Free-form role label from CC `agent_spawn` events (e.g. "explore",
+   * "verify"). Persisted to `sessions.child_role`.
+   */
+  child_role?: string;
 }
 
 export interface AgentCompleteEvent {

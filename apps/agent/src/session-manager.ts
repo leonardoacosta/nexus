@@ -46,6 +46,29 @@ export interface SessionManager {
    * Returns a promise so callers can await startup recovery.
    */
   init(): Promise<void>;
+  /**
+   * Update sub-agent tree linkage for a child session (parent_session_id +
+   * child_role). Wired via `process-hook-event.ts` from the `agent_spawn`
+   * dispatch path.
+   *
+   * Spec: openspec/changes/add-subagent-tree-columns (1.3).
+   *
+   * Idempotent: a session with linkage already set is overwritten with the
+   * new values. Returns silently if the session id is not present in the
+   * cache (matches existing `session_update`/`session_end` "unknown session"
+   * behaviour — the wire-in is best-effort).
+   */
+  updateLinkage(
+    sessionId: string,
+    linkage: { parentSessionId?: string | null; childRole?: string | null },
+  ): void;
+  /**
+   * Patch arbitrary mutable fields on the in-memory session row and trigger
+   * write-through. Used by helpers (e.g. `processHookEvent`) that need to
+   * persist enriched fields (git_provider/git_owner_repo) without breaking
+   * encapsulation of the Map. No-op when the session id is unknown.
+   */
+  patch(sessionId: string, patch: Partial<Session>): void;
 }
 
 export function createSessionManager(
@@ -125,6 +148,8 @@ export function createSessionManager(
           credentialId: null,
           credentialFingerprint: null,
           sessionType: "ad_hoc",
+          parentSessionId: null,
+          childRole: null,
         };
         // Write-through: DB first, then Map
         writeThroughSafe(session);
@@ -263,6 +288,48 @@ export function createSessionManager(
     clearInterval(sweepTimer);
   }
 
+  function updateLinkage(
+    sessionId: string,
+    linkage: { parentSessionId?: string | null; childRole?: string | null },
+  ): void {
+    const existing = sessions.get(sessionId);
+    if (!existing) {
+      logger.warn(
+        { id: sessionId },
+        "session-manager: updateLinkage for unknown session (best-effort skip)",
+      );
+      return;
+    }
+    if (linkage.parentSessionId !== undefined) {
+      existing.parentSessionId = linkage.parentSessionId;
+    }
+    if (linkage.childRole !== undefined) {
+      existing.childRole = linkage.childRole;
+    }
+    writeThroughSafe(existing);
+    logger.info(
+      {
+        id: sessionId,
+        parentSessionId: existing.parentSessionId,
+        childRole: existing.childRole,
+      },
+      "session-manager: sub-agent linkage updated",
+    );
+  }
+
+  function patch(sessionId: string, patchObj: Partial<Session>): void {
+    const existing = sessions.get(sessionId);
+    if (!existing) {
+      logger.warn(
+        { id: sessionId },
+        "session-manager: patch for unknown session (best-effort skip)",
+      );
+      return;
+    }
+    Object.assign(existing, patchObj);
+    writeThroughSafe(existing);
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   /** Check if a PID is alive. */
@@ -344,6 +411,8 @@ export function createSessionManager(
             credentialId: row.credentialId ?? null,
             credentialFingerprint: row.credentialFingerprint ?? null,
             sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+            parentSessionId: row.parentSessionId ?? null,
+            childRole: row.childRole ?? null,
           };
           sessions.set(id, session);
           logger.debug({ id }, "session-manager: read-through populated cache from DB");
@@ -365,5 +434,7 @@ export function createSessionManager(
     sweepIdle,
     stop,
     init,
+    updateLinkage,
+    patch,
   };
 }

@@ -6,10 +6,12 @@ import {
   queryRecentSessions,
   getSessionById,
   upsertSession,
+  updateSessionGitOrigin,
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { execText, ExecError } from "../utils/exec";
 import { reconcileOnce } from "../services/process-watcher";
+import { resolveGitOrigin } from "../services/git-project";
 
 const log = createLogger("agent:routes:sessions");
 
@@ -361,7 +363,26 @@ export async function handleSessionStart(
         credentialId: null,
         credentialFingerprint: null,
         sessionType: "managed",
+        parentSessionId: null,
+        childRole: null,
       });
+
+      // Fire-and-forget git origin resolution. /session/start does not flow
+      // through `processHookEvent` (it's a managed-spawn route, not a hook
+      // ingress) — but the same enrichment applies: a managed session
+      // should carry git_provider/git_owner_repo so dashboards can group
+      // by repo. add-git-project-resolver 1.3 wire-in alt-path.
+      resolveGitOrigin(body.path)
+        .then((origin) => {
+          if (!origin) return;
+          return updateSessionGitOrigin(db, sessionName, origin);
+        })
+        .catch((err: unknown) => {
+          log.warn(
+            { sessionName, error: err instanceof Error ? err.message : String(err) },
+            "git origin enrichment failed for /session/start (non-fatal)",
+          );
+        });
     } catch (err) {
       log.error(
         { sessionName, error: err instanceof Error ? err.message : String(err) },

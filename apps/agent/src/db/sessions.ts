@@ -87,6 +87,10 @@ export async function upsertSession(db: Db, session: Session): Promise<void> {
         spec: row.spec,
         credentialId: row.credentialId,
         credentialFingerprint: row.credentialFingerprint,
+        gitProvider: row.gitProvider,
+        gitOwnerRepo: row.gitOwnerRepo,
+        parentSessionId: row.parentSessionId,
+        childRole: row.childRole,
       },
     });
 }
@@ -122,6 +126,8 @@ function rowToSession(row: SessionRow): Session {
     credentialId: row.credentialId ?? null,
     credentialFingerprint: row.credentialFingerprint ?? null,
     sessionType: narrowSessionType(row.sessionType),
+    parentSessionId: row.parentSessionId ?? null,
+    childRole: row.childRole ?? null,
   };
 }
 
@@ -150,7 +156,41 @@ function sessionToRow(session: Session): SessionRow {
     spec: session.spec ?? null,
     credentialId: session.credentialId ?? null,
     credentialFingerprint: session.credentialFingerprint ?? null,
+    // Git origin fields (add-git-project-resolver). Not surfaced on the
+    // domain Session type; persisted directly via `updateSessionGitOrigin`
+    // from `services/process-hook-event.ts`. Falling through as null here
+    // is correct — the writer path that owns these fields is the helper.
+    gitProvider: null,
+    gitOwnerRepo: null,
+    // Sub-agent tree fields (add-subagent-tree-columns). Populated from
+    // the in-memory Session, which is patched by `updateLinkage`.
+    parentSessionId: session.parentSessionId ?? null,
+    childRole: session.childRole ?? null,
   };
+}
+
+/**
+ * Persist git origin metadata for a session.
+ *
+ * Used by `services/process-hook-event.ts` on `session_start` after
+ * `resolveGitOrigin(cwd)` returns a non-null result. Bypasses the in-memory
+ * Session type (which does not surface git fields per its `Pick<>` derivation)
+ * and writes directly to the DB row.
+ *
+ * Spec: openspec/changes/add-git-project-resolver 1.3.
+ */
+export async function updateSessionGitOrigin(
+  db: Db,
+  sessionId: string,
+  origin: { provider: string; ownerRepo: string },
+): Promise<void> {
+  await db
+    .update(sessions)
+    .set({
+      gitProvider: origin.provider,
+      gitOwnerRepo: origin.ownerRepo,
+    })
+    .where(eq(sessions.id, sessionId));
 }
 
 /**

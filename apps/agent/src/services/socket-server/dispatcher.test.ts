@@ -32,6 +32,8 @@ function createMockSessionManager(): SessionManager {
     sweepIdle: () => {},
     stop: () => {},
     init: async () => {},
+    updateLinkage: () => {},
+    patch: () => {},
   } as unknown as SessionManager;
 }
 

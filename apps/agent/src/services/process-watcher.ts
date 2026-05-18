@@ -202,6 +202,8 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         credentialId: null,
         credentialFingerprint: null,
         sessionType: "managed",
+        parentSessionId: null,
+        childRole: null,
       });
       created += 1;
       lifecycleBus.emit("RemoteSessionStarted", {

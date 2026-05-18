@@ -33,6 +33,12 @@ export {
   ccProfiles,
   ccProfileEvents,
   notificationSettings,
+  hookSchemaFingerprints,
+} from "./schema";
+
+export type {
+  HookSchemaFingerprint,
+  NewHookSchemaFingerprint,
 } from "./schema";
 
 // Back-compat alias: credentialEvents -> ccProfileEvents

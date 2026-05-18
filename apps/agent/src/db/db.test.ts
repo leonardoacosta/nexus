@@ -179,6 +179,10 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
       spec: null,
       credentialId: null,
       credentialFingerprint: null,
+      gitProvider: null,
+      gitOwnerRepo: null,
+      parentSessionId: null,
+      childRole: null,
     };
 
     await insertSession(db, row);
