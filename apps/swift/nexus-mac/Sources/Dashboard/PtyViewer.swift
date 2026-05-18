@@ -89,9 +89,9 @@ struct PtyViewer: View {
             .frame(width: 8, height: 8)
     }
 
-    private var statusColor: Color {
+    private var statusColor: SwiftUI.Color {
         switch model.status {
-        case .idle:        return .secondary
+        case .idle:        return .gray
         case .connecting:  return .yellow
         case .streaming:   return .green
         case .disconnected: return .red
@@ -206,7 +206,7 @@ struct PtyTerminalRepresentable: NSViewRepresentable {
     }
 }
 
-final class PtyTerminalCoordinator: NSObject, TerminalViewDelegate {
+final class PtyTerminalCoordinator: NSObject, @preconcurrency TerminalViewDelegate {
     // Read-only viewer — input bytes are intentionally discarded.
     func send(source: TerminalView, data: ArraySlice<UInt8>) {}
     func scrolled(source: TerminalView, position: Double) {}
@@ -216,6 +216,7 @@ final class PtyTerminalCoordinator: NSObject, TerminalViewDelegate {
     func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {}
     func clipboardCopy(source: TerminalView, content: Data) {}
     func bell(source: TerminalView) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
 #endif
