@@ -30,15 +30,14 @@ const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS
 /**
  * Per-channel structured result.
  *
- * Channels that produce additional metadata (e.g. TTS returns base64 mp3
- * bytes alongside the success flag) widen this with optional fields. The
- * manager threads these fields onto the `NotificationFired` lifecycle event
- * so SSE listeners can act on them.
+ * After `swift-owns-elevenlabs-synth`, channels are signal-only: the agent
+ * no longer produces audio bytes (the Mac listener synthesizes via
+ * NexusShared.ElevenLabsClient + Keychain). The result is reduced to a
+ * boolean success flag, but kept as an object so future channels can widen
+ * it without churn at the call sites.
  */
 export interface ChannelResult {
   success: boolean;
-  /** Base64-encoded mp3 bytes when the TTS channel synthesized audio. */
-  audioBase64?: string;
 }
 
 /** Channel handlers may return a bare boolean (legacy) or a structured result. */
@@ -201,8 +200,6 @@ export async function routeNotification(
 /** Per-channel delivery outcome surfaced to the manager. */
 export interface DeliveredChannel {
   channel: NotificationChannel;
-  /** Audio bytes (base64) when the channel produced them — TTS only. */
-  audioBase64?: string;
 }
 
 /**
@@ -256,7 +253,7 @@ export async function routeNotificationParallel(
     if (result.status === "fulfilled") {
       const value = result.value;
       if (value.success) {
-        delivered.push({ channel: channelName, audioBase64: value.audioBase64 });
+        delivered.push({ channel: channelName });
       } else {
         // Handler returned `success: false` — treat as a soft failure.
         failed.push(channelName);

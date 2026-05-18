@@ -22,10 +22,6 @@ export class NotificationManager {
   constructor(db: Db, meetingState?: MeetingState) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
-    // The TTS channel reads its db handle via `getElevenlabsDb()` from the
-    // shared runtime module. `startServer()` installs that handle once at
-    // boot; the manager no longer threads it through. See
-    // apps/agent/src/credentials/elevenlabs-runtime.ts.
   }
 
   /** Get the meeting state instance. */
@@ -116,9 +112,9 @@ export class NotificationManager {
 
       // Emit NotificationFired on the lifecycle bus once per delivered
       // channel. SSE subscribers (e.g. Mac-side `nexus-mac` listener)
-      // dispatch on the channel name. The audioBase64 field was removed
-      // by swift-owns-elevenlabs-synth — the Mac listener now performs
-      // the ElevenLabs HTTP call locally using a Keychain-stored key.
+      // dispatch on the channel name. The event is signal-only — the Mac
+      // listener performs synthesis locally via NexusShared.ElevenLabsClient
+      // + Keychain (swift-owns-elevenlabs-synth).
       for (const { channel } of delivered) {
         lifecycleBus.emit("NotificationFired", {
           id: notification.id,

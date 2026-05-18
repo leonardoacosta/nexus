@@ -3,12 +3,6 @@ export { healthSnapshots, healthSnapshotsRelations } from "./healthSnapshots";
 export { sessionEvents } from "./sessionEvents";
 export { notifications, notificationsRelations } from "./notifications";
 export { credentials, credentialsRelations } from "./credentials";
-export {
-  elevenlabsCredentials,
-  elevenlabsCredentialsRelations,
-  type ElevenlabsCredential,
-  type NewElevenlabsCredential,
-} from "./elevenlabsCredentials";
 export { agents, agentsRelations, type Agent, type NewAgent } from "./agents";
 export * from "./projects";
 export * from "./projectLocations";

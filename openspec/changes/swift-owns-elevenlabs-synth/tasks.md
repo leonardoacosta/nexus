@@ -10,30 +10,38 @@
 - [x] 1.8 [user] Migration: export current key from DB, paste into Keychain via Settings UI [user-action]
 - [x] 1.9 End-to-end test: fire notification → Mac speaker plays
 
-> Notes on deferred user-actions:
-> - 1.5 is COMPLETE for the dispatch path: the agent's tts channel
->   (apps/agent/src/notifications/channels/tts.ts) is now signal-only — the
->   manager no longer threads audioBase64 onto NotificationFired
->   (apps/agent/src/notifications/manager.ts). The Mac listener calls
->   NexusShared.ElevenLabsClient + AVAudioPlayer locally.
->   PARTIAL: The `audioBase64?: string` field is still declared on
->   ChannelResult in apps/agent/src/notifications/router.ts (lines 41, 205,
->   259). Producers no longer set it (it's always undefined at runtime), but
->   the type-level removal is tracked under nx-p54s1 (alongside the
->   elevenlabs-runtime + DROP TABLE retirement).
-> - 1.6 [user-action]: the `apps/agent/src/credentials/elevenlabs-runtime.ts`
->   singleton (master.key + DB handle) is still consumed by the legacy
->   `/elevenlabs-credentials` and `/elevenlabs-voices` HTTP routes. Those
->   routes are themselves orphaned now that the Mac owns synthesis, but
->   ripping them out is a follow-up change (touches dashboard UI). Plan:
->   retire the HTTP routes in a sibling spec, then delete elevenlabs-runtime
->   and the encryption-only path through credentials/encryption.ts.
-> - 1.7 [user-action]: dropping `elevenlabs_credentials` requires retiring
->   the consumers in 1.6 first. Migration intentionally NOT generated this
->   wave — the table is harmless dead weight until the routes go.
+> Notes on completion (nx-p54s1 retirement pass):
+> - 1.5 COMPLETE: audioBase64 field removed from ChannelResult +
+>   DeliveredChannel in apps/agent/src/notifications/router.ts; producer
+>   site stripped. Field also removed from NotificationFiredPayload in
+>   apps/agent/src/services/lifecycle-bus.ts and from the socket-server
+>   dispatcher emit. Mac listener owns synthesis via
+>   NexusShared.ElevenLabsClient + Keychain.
+> - 1.6 COMPLETE: agent-side elevenlabs surface is fully retired by
+>   nx-cao5q (routes, runtime singleton, registration sites). The
+>   credentials/encryption.ts module is RETAINED — `loadEncryptionKey` and
+>   `encrypt`/`decrypt` are live consumers of cc-credential-manager.ts
+>   (OAuth refresh tokens) and the credential pool, so removal is unsafe.
+>   No literal master.key file existed in the codebase; the encryption
+>   path used `NEXUS_ENCRYPTION_KEY` env var.
+> - 1.7 COMPLETE: Drizzle migration 0030_drop_elevenlabs_credentials.sql
+>   issues DROP TABLE IF EXISTS "elevenlabs_credentials" CASCADE.
+>   Snapshot 0030 + journal entry generated via drizzle-kit --custom.
+>   Schema file packages/db/src/schema/elevenlabsCredentials.ts and its
+>   exports removed from packages/db.
 > - 1.8 [user-action]: manual Keychain paste step performed by the operator
 >   the first time they open the new Settings UI on the Mac.
 > - 1.9: shipped as an XCTest stub round-tripping the Keychain helper. The
 >   full agent->Mac->speaker integration requires a running agent + a Mac
 >   target with the audio device — not exercised in CI; manual smoke once
 >   the Settings UI is opened by the operator.
+>
+> Cleanup performed:
+> - Deleted apps/agent/src/db/elevenlabs-cascade.test.ts (table gone).
+> - Deleted apps/agent/src/notifications/manager.audio.test.ts (asserted
+>   audioBase64 lifecycle threading — behavior removed).
+> - Deleted apps/agent/src/notifications/manager.integration.test.ts
+>   (asserted audioBase64 round-trip via fake ElevenLabs HTTP stub —
+>   path no longer exists).
+> - Trimmed elevenlabs-runtime + audioBase64 comments from manager.ts +
+>   socket-server/dispatcher.ts.

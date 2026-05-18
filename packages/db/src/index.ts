@@ -24,7 +24,6 @@ export {
   sessionEvents,
   notifications,
   credentials,
-  elevenlabsCredentials,
   agents,
   projects,
   projectLocations,
@@ -56,7 +55,6 @@ export {
   healthSnapshotsRelations,
   notificationsRelations,
   credentialsRelations,
-  elevenlabsCredentialsRelations,
   agentsRelations,
   projectsRelations,
 } from "./schema";
@@ -69,8 +67,6 @@ export type {
   NewProject,
   ProjectLocation,
   NewProjectLocation,
-  ElevenlabsCredential,
-  NewElevenlabsCredential,
   NotificationSettings,
   NewNotificationSettings,
 } from "./schema";

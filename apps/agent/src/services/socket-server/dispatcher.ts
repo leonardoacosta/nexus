@@ -155,26 +155,17 @@ export function createSocketEventDispatcher(
         // Record in history for the `history` command.
         recordNotification(event.message, messageType, effectiveChannels);
 
-        // Emit to lifecycle bus for local subscribers (SSE, notification router).
-        //
-        // Audio policy (2026-04-25): the legacy socket path is text-only.
-        // The HTTP `/notifications/send` route is the canonical source for
-        // audio-attached `NotificationFired` events — that path runs through
-        // `NotificationManager.deliverNotification`, which calls
-        // `sendTtsNotification` synchronously and threads the resulting
-        // `audioBase64` onto the lifecycle event. The fire-and-forget
-        // `sendTtsNotification(stubRow)` call below cannot feed back into
-        // this emission without re-architecting, so we explicitly omit
-        // `audioBase64` here and let the listener fall through silently.
-        // See `restore-tts-mac-audio-dispatch` spec (2026-04-25) §
-        // "Socket-server path remains consistent with audio-optionality".
+        // Emit to lifecycle bus for local subscribers (SSE, notification
+        // router). After `swift-owns-elevenlabs-synth`, NotificationFired is
+        // signal-only — the Mac listener performs synthesis locally via
+        // NexusShared.ElevenLabsClient + Keychain. No audio bytes flow over
+        // the bus.
         lifecycleBus.emit("NotificationFired", {
           id: `socket-notif-${Date.now()}`,
           title: "Notification",
           body: event.message,
           channel: effectiveChannels.join(","),
           project: project ?? undefined,
-          // audioBase64 explicitly omitted — see comment above.
           message: event.message, // back-compat alias
         });
 

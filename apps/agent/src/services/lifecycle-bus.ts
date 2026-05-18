@@ -163,17 +163,6 @@ export interface NotificationFiredPayload {
   channel: string;
   /** Optional project scope. */
   project?: string;
-  /**
-   * Base64-encoded mp3 bytes from ElevenLabs.
-   *
-   * Present only when the TTS channel synthesized audio (i.e. the agent
-   * had `ELEVENLABS_API_KEY` set). Absent on text-only channels (desktop,
-   * slack) and on TTS events emitted from listeners that don't own the
-   * ElevenLabs contract (e.g. the legacy socket-server dispatcher).
-   *
-   * Subscribers MUST tolerate this field being undefined.
-   */
-  audioBase64?: string;
   /** @deprecated Use `body` instead. Kept for subscribers on the old schema. */
   message?: string;
 }
