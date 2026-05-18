@@ -25,6 +25,7 @@ import { appendSessionEvent } from "../db/events";
 import { computeCostUsd } from "../services/cost-calculator";
 import { lifecycleBus } from "../services/lifecycle-bus";
 import { hookEventThrottle } from "../services/hook-event-throttle";
+import { inspectAndEmitDrift } from "../services/schema-drift";
 import { evaluateAndDispatch } from "../notifications/hook-trigger";
 import { getNotificationManager } from "./notifications";
 
@@ -280,6 +281,11 @@ export async function handleHooks(
   const sessionId = payload.session_id;
 
   log.info({ event: eventName, sessionId }, "hook event received");
+
+  // Schema-drift detector — fire-and-forget, runs BEFORE the
+  // RECOGNIZED_EVENTS gate so unknown events still emit drift telemetry.
+  // Errors are swallowed by the detector itself.
+  void inspectAndEmitDrift(db, eventName, payload);
 
   if (!RECOGNIZED_EVENTS.has(eventName)) {
     return jsonResponse(200, {

@@ -132,6 +132,26 @@ export interface HookEventReceivedPayload {
   count?: number;
 }
 
+/**
+ * Emitted when the schema-drift detector observes a *new*
+ * `(event_type, fingerprint)` pair in an incoming hook payload.
+ *
+ * Spec: openspec/changes/add-schema-drift-detector
+ *
+ * Rate-limited at the emitter to one fire per `event_type` per hour — see
+ * `services/schema-drift.ts` (`DRIFT_RATE_LIMIT_MS`). Subscribers MAY
+ * trigger telemetry, alerts, or dashboards on this event; they MUST be
+ * idempotent because rate-limit state is per-process and resets on restart.
+ */
+export interface HookSchemaDriftPayload {
+  /** Event type whose payload shape changed (e.g. "PreToolUse"). */
+  eventType: string;
+  /** SHA-256 of the sorted top-level key set for the new payload shape. */
+  fingerprint: string;
+  /** ISO-8601 timestamp of the first observation of this fingerprint. */
+  firstSeen: string;
+}
+
 export interface NotificationFiredPayload {
   /** Notification id (idempotency key). */
   id: string;
@@ -173,6 +193,7 @@ export interface LifecycleEventMap {
   NotificationFired: NotificationFiredPayload;
   SettingsChanged: SettingsChangedPayload;
   HookEventReceived: HookEventReceivedPayload;
+  HookSchemaDrift: HookSchemaDriftPayload;
   RemoteSessionStarted: RemoteSessionStartedPayload;
   RemoteSessionEnded: RemoteSessionEndedPayload;
 }

@@ -197,6 +197,13 @@
       "when": 1779062823847,
       "tag": "0027_add_script_errors",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1779063628528,
+      "tag": "0028_add_hook_schema_fingerprints",
+      "breakpoints": true
     }
   ]
 }

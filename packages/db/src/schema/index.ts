@@ -44,6 +44,11 @@ export {
   type NewScriptError,
 } from "./scriptErrors";
 export {
+  hookSchemaFingerprints,
+  type HookSchemaFingerprint,
+  type NewHookSchemaFingerprint,
+} from "./hookSchemaFingerprints";
+export {
   notificationSettings,
   type NotificationSettings,
   type NewNotificationSettings,
