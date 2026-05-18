@@ -26,10 +26,10 @@
  * cc-side names (`tool`, `error`, `handler`). The notification spec uses the
  * names `tool_name`, `error_message`, `hook_name`. Rules read both via the
  * `??` fallback so either upstream wire shape works. The aliases are also
- * declared as optional fields on `HookEventPayload` (see `routes/hooks.ts`).
+ * declared as optional fields on `HookEventPayload` (see `routes/hooks-types.ts`).
  */
 
-import type { HookEventPayload } from "../routes/hooks";
+import type { HookEventPayload } from "../routes/hooks-types";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
 
 /**

@@ -18,70 +18,96 @@ Each dev server runs a lightweight agent daemon. The TUI aggregates sessions fro
 ## Architecture
 
 ```
-┌─────────────┐     gRPC/7400     ┌──────────────┐
-│  nexus (TUI) │◄────────────────►│ nexus-agent   │  (homelab)
-│              │                  │  watches      │
-│  aggregates  │     gRPC/7400    │  sessions.json│
-│  all agents  │◄────────────────►├──────────────┤
-└─────────────┘                  │ nexus-agent   │  (macbook)
-                                 └──────────────┘
+┌─────────────────────┐                ┌───────────────────────┐
+│  Swift dashboards   │   HTTP/7400    │  nexus-agent (Bun)    │  (homelab)
+│  Nexus.app / iOS /  │◄──────────────►│   socket spine        │
+│  watchOS — share    │                │   dispatcher          │
+│  NexusShared        │   HTTP/7400    │   sessions.json watch │
+└─────────────────────┘◄──────────────►├───────────────────────┤
+                                       │  nexus-agent (Bun)    │  (macbook)
+                                       └───────────────────────┘
          Connected via Tailscale MagicDNS
 ```
 
-Three crates in a Cargo workspace:
+Monorepo layout — pnpm workspace with Bun runtime + Swift dashboard suite:
 
-| Crate         | Binary        | Purpose                                       |
-| ------------- | ------------- | --------------------------------------------- |
-| `nexus-core`  | (lib)         | Shared types, protobuf codegen, session model |
-| `nexus-agent` | `nexus-agent` | Per-machine daemon (gRPC + HTTP health)       |
-| `nexus-tui`   | `nexus`       | Terminal UI client (ratatui)                  |
+| Package / App                    | Purpose                                                                |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `apps/agent`                     | Per-machine daemon — socket spine, hook ingest, dispatcher, drift     |
+| `apps/nexus-emit`                | Hook helper — `nexus emit` socket client used by git hooks            |
+| `apps/nexus-statusline`          | CC statusline extension                                                |
+| `apps/swift/nexus-mac`           | macOS menu bar dashboard                                               |
+| `apps/swift/nexus-ios`           | iOS client                                                             |
+| `apps/swift/nexus-watch`         | watchOS companion                                                      |
+| `apps/swift/NexusShared`         | Shared Swift framework (Models, Networking, Observers, Synthesis)     |
+| `packages/core`                  | Shared TS types, session model, protocol contracts                    |
+| `packages/db`                    | SQLite schema + drift detector                                         |
+
+Inbound hook flow (CC -> socket only — HTTP `/hooks` endpoint is retired):
+
+```
+CC PreToolUse/Stop  →  nexus-emit  →  agent socket-server  →  dispatcher
+                                                                  ↓
+                              NotificationFired / SpecTransition / SubagentStarted bus
+                                                                  ↓
+                              NexusShared observers → Swift dashboards + statusline
+```
+
+See [docs/nexus-topology.html](docs/nexus-topology.html) and
+[docs/nexus-evolution.html](docs/nexus-evolution.html) for the full topology
+diagram and migration history.
 
 ## Prerequisites
 
-- Rust stable toolchain
-- `protoc` (Protocol Buffer compiler)
+- [Bun](https://bun.sh) ≥ 1.1 (agent runtime + build)
+- `pnpm` (workspace install)
 - `tmux` (for session attach and managed sessions)
 - [Tailscale](https://tailscale.com) (for cross-machine connectivity)
+- macOS only: [XcodeGen](https://github.com/yonaskolb/XcodeGen) + Xcode CLT (for Swift dashboards)
 
 ## Quick Start
 
 ```bash
-# Build
-cargo build --release
+# Install workspace deps
+pnpm install
 
 # Configure agents
 mkdir -p ~/.config/nexus
 cp config/agents.example.toml ~/.config/nexus/agents.toml
 # Edit agents.toml with your machine hostnames
 
-# Run the agent (on each machine)
-RUST_LOG=info ./target/release/nexus-agent
+# Build + install for this machine (Linux systemd or macOS launchd + Nexus.app)
+./deploy/install.sh
 
-# Run the TUI (from any machine)
-./target/release/nexus
+# Or run the agent in dev mode without installing
+bun run --filter @nexus/agent dev
 ```
-
-## Binary Sizes
-
-Release binaries (linux-x86_64, `cargo build --release`):
-
-| Binary | Size | Purpose |
-|--------|------|---------|
-| `nexus-agent` | 6.3 MB | Per-machine daemon |
-| `nexus-statusline` | 3.4 MB | CC statusline extension |
 
 ## Install as Service
 
 ```bash
-# Automated install (detects platform, installs service + binaries)
+# Automated install — detects platform and branches:
+#   Linux  -> bun build, install to ~/.local/bin, systemd user unit
+#   macOS  -> bun build for the agent + xcodegen/xcodebuild for the
+#             Swift dashboard, copy Nexus.app to /Applications,
+#             generate launchd plist for the agent
 ./deploy/install.sh
 
-# Linux (systemd)
-systemctl --user enable --now nexus-agent
+# Linux post-install
+systemctl --user start nexus-agent
+journalctl --user -u nexus-agent -f
 
-# macOS (launchd)
-launchctl load ~/Library/LaunchAgents/com.nexus.agent.plist
+# macOS post-install (paths printed by the installer)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nexus.agent.plist
+open /Applications/Nexus.app
 ```
+
+Flags:
+
+| Flag | Effect |
+| ---- | ------ |
+| `--no-build` | Skip Bun + Xcode build steps. Installs pre-built binaries from `apps/*/`. |
+| `--dashboard` | Linux-only — install the legacy Next.js dashboard service + Traefik proxy. New installs should use the Swift dashboard. |
 
 ## Configuration
 
@@ -111,10 +137,11 @@ user = "nyaptor"      # SSH user for full attach
 
 ## Ports
 
-| Port | Protocol | Purpose                                 |
-| ---- | -------- | --------------------------------------- |
-| 7400 | gRPC     | Agent API (sessions, events, lifecycle) |
-| 7401 | HTTP     | Health check (`GET /health`)            |
+| Port | Protocol | Purpose                                                              |
+| ---- | -------- | -------------------------------------------------------------------- |
+| 7400 | HTTP     | Agent API (sessions, events, lifecycle) — Tailscale-only             |
+| 7401 | HTTP     | Health check (`GET /health`)                                         |
+| sock | UNIX     | Local hook ingest at `~/.config/nexus/agent.sock` (no network)       |
 
 ## License
 

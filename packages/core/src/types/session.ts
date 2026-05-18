@@ -44,6 +44,10 @@ type SessionDbBase = Pick<
   | "model"
   | "credentialId"
   | "credentialFingerprint"
+  // Sub-agent tree fields — add-subagent-tree-columns. Both nullable in DB
+  // (top-level sessions have no parent), no narrowing needed.
+  | "parentSessionId"
+  | "childRole"
 >;
 
 // ---------------------------------------------------------------------------

@@ -3,9 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/db" },
-    { "path": "packages/ui" },
     { "path": "apps/agent" },
-    { "path": "apps/nextjs" },
     { "path": "apps/nexus-statusline" }
   ]
 }

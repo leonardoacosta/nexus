@@ -52,7 +52,6 @@ import {
   handleRunCommand,
 } from "./routes/project-detail";
 import { handleStatusline } from "./routes/statusline";
-import { handleHooks } from "./routes/hooks";
 import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleFailures } from "./routes/failures-route";
@@ -419,13 +418,6 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/statusline" && request.method === "GET") {
         return handleStatusline(db).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/statusline", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
-      }
-
-      if (url.pathname === "/hooks" && request.method === "POST") {
-        return handleHooks(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/hooks", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

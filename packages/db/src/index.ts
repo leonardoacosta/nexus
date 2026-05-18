@@ -30,9 +30,19 @@ export {
   projectLocations,
   sessionTokenTurns,
   sessionTokenWatcherState,
-  credentialEvents,
+  ccProfiles,
+  ccProfileEvents,
   notificationSettings,
 } from "./schema";
+
+// Back-compat alias: credentialEvents -> ccProfileEvents
+// The rename happens in migration 0025; this alias preserves a single import
+// site for the half-dozen callers that still spell it the old way and lets
+// them migrate incrementally.
+export { ccProfileEvents as credentialEvents } from "./schema";
+
+// script_errors — durable error capture for one-off scripts.
+export { scriptErrors, type ScriptError, type NewScriptError } from "./schema";
 
 // Relations (used by drizzle's relational query API)
 export {
@@ -68,7 +78,7 @@ import type {
   credentials as credentialsTable,
   sessionTokenTurns as sessionTokenTurnsTable,
   sessionTokenWatcherState as sessionTokenWatcherStateTable,
-  credentialEvents as credentialEventsTable,
+  ccProfileEvents as credentialEventsTable,
 } from "./schema";
 
 export type Session = typeof sessionsTable.$inferSelect;

@@ -13,7 +13,6 @@ import { credentials, eq } from "@nexus/db";
 import type { SocketEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
-import { sendTtsNotification } from "../../notifications/channels/tts";
 import { isUnspeakable } from "../../notifications/speakability";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
 
@@ -159,26 +158,11 @@ export function createSocketEventDispatcher(
           message: event.message, // back-compat alias
         });
 
-        // Route to TTS if TTS is in the channels list. Fire-and-forget —
-        // the response audio is intentionally discarded on this path.
-        if (effectiveChannels.includes("tts")) {
-          const stubRow = {
-            id: `socket-notif-${Date.now()}`,
-            title: "Notification",
-            body: event.message,
-            channel: "tts" as const,
-            priority: "normal" as const,
-            status: "queued" as const,
-            project,
-            // Socket event router has no agent context; pass null (global).
-            agentId: null,
-            createdAt: new Date(),
-            sentAt: null,
-          };
-          sendTtsNotification(stubRow).catch((err: unknown) => {
-            log.warn({ error: err }, "socket: TTS notification failed");
-          });
-        }
+        // TTS routing: after remove-notification-channels (P4), the agent
+        // no longer owns synthesis. The lifecycleBus.emit above is the
+        // signal the Mac listener consumes — there is no separate
+        // `sendTtsNotification` call any more, the channel is a pure
+        // signal (see notifications/router.ts → signalOnlyChannel).
         break;
       }
 

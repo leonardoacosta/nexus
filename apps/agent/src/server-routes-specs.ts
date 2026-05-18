@@ -21,6 +21,7 @@ import {
   handleListCommandsByNamespace,
   handleUpdateCommand,
 } from "./routes/commands";
+import { handleSendText } from "./routes/commands-send-text";
 import { withCors } from "./server-origin";
 
 /**
@@ -113,6 +114,16 @@ export function tryHandleCommandRoute(
 ): Response | Promise<Response> | null {
   if (url.pathname === "/commands" && request.method === "GET") {
     return withCors(request, handleListCommands(url));
+  }
+
+  // POST /commands/send-text — forward text to a session's tmux pane.
+  // Used by the watchOS notification action handlers + future iOS quick-reply.
+  // Matched before /commands/:name so "send-text" is not treated as a namespace.
+  if (url.pathname === "/commands/send-text" && request.method === "POST") {
+    return handleSendText(request).then((r) => withCors(request, r)).catch((err) => {
+      logger.error({ route: "/commands/send-text", method: "POST", err }, "route handler failed");
+      return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    });
   }
 
   const commandNameMatch = url.pathname.match(/^\/commands\/([^/]+)$/);

@@ -176,6 +176,41 @@
       "when": 1778965169968,
       "tag": "0024_sessions_status_ended_pid_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1779062249237,
+      "tag": "0025_add_cc_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1779062544421,
+      "tag": "0026_add_session_git_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1779062823847,
+      "tag": "0027_add_script_errors",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1779063628528,
+      "tag": "0028_add_hook_schema_fingerprints",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779063824109,
+      "tag": "0029_add_subagent_tree_columns",
+      "breakpoints": true
     }
   ]
 }

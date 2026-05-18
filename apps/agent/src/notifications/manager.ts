@@ -115,17 +115,17 @@ export class NotificationManager {
       notification.status = "delivered";
 
       // Emit NotificationFired on the lifecycle bus once per delivered
-      // channel. SSE subscribers (e.g. Mac-side `nexus-notifier` daemon)
-      // dispatch on the channel name and use audioBase64 (TTS only) to
-      // pipe the mp3 bytes into a local audio sink.
-      for (const { channel, audioBase64 } of delivered) {
+      // channel. SSE subscribers (e.g. Mac-side `nexus-mac` listener)
+      // dispatch on the channel name. The audioBase64 field was removed
+      // by swift-owns-elevenlabs-synth — the Mac listener now performs
+      // the ElevenLabs HTTP call locally using a Keychain-stored key.
+      for (const { channel } of delivered) {
         lifecycleBus.emit("NotificationFired", {
           id: notification.id,
           title: notification.title,
           body: notification.body,
           channel,
           project: notification.project ?? undefined,
-          audioBase64,
           message: notification.body, // back-compat alias
         });
       }

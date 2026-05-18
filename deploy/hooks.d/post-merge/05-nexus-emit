@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# post-merge: emit a deploy_status event to the local agent's socket so
+# dashboards (Mac menu bar, statusline, web) can render "merged + deploying"
+# without polling. Fire-and-forget — never blocks the merge if the agent
+# isn't running.
+#
+# Spec: openspec/changes/add-socket-hook-helper (task 1.3)
+
+EMIT_BIN="${NEXUS_EMIT_BIN:-$HOME/.local/bin/nexus-emit}"
+
+if [ ! -x "$EMIT_BIN" ]; then
+    # Helper not yet installed (first deploy, or CI). Skip silently.
+    exit 0
+fi
+
+REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+SHA="$(git rev-parse --short HEAD 2>/dev/null || echo "")"
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+
+"$EMIT_BIN" \
+    --event deploy_status \
+    --status merged \
+    --service "${NEXUS_SERVICE_NAME:-agent}" \
+    --repo "$REPO_DIR" \
+    --branch "$BRANCH" \
+    --sha "$SHA" >/dev/null 2>&1 || true

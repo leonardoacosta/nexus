@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Nexus — installation script (Bun v4)
-# Builds the Bun binaries, installs them, and installs the service files
-# and git-hook dispatchers.
+# Nexus — environment-aware installer.
+#
+# Detects host platform via `uname -s` and branches:
+#   Darwin  -> build Swift dashboard (xcodegen + xcodebuild) + install agent
+#             binary + launchd plist for nexus-agent
+#   Linux   -> build agent binary (bun --compile), install to ~/.local/bin,
+#             write systemd user unit, daemon-reload + enable
 #
 # Usage:
-#   deploy/install.sh                    # build + install agent (+ nexus-statusline if present)
-#   deploy/install.sh --dashboard        # also install Next.js dashboard service + Traefik config
-#   deploy/install.sh --no-build         # skip build, install pre-built binaries from apps/*/
+#   deploy/install.sh                # build + install for current platform
+#   deploy/install.sh --no-build     # skip build; install pre-built binaries
+#   deploy/install.sh --dashboard    # (Linux only) also install Traefik proxy
+#                                    # for the legacy dashboard service. Kept
+#                                    # for hosts still serving the Next.js
+#                                    # admin; new installs should rely on the
+#                                    # Swift dashboard instead.
 #
-# Mac listener install: handled automatically by the post-merge git deploy
-# hook (deploy/hooks.d/post-merge/02-deploy), which fans out to every Mac
-# listed in ~/.config/nexus/agents.toml and installs deploy/nexus-notifier.sh
-# + deploy/com.nexus.notifier.plist over SSH. There is no separate --mac
-# entry point — pulling main on the Linux host is the install path.
-#
-# Environment variables:
-#   TRAEFIK_DYNAMIC_DIR   Directory Traefik watches for dynamic config (default: /etc/traefik/dynamic)
+# This script is the single entry point. The post-merge git hook
+# (deploy/hooks.d/post-merge/02-deploy) calls into it for managed deploys.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -45,10 +47,6 @@ if ! command -v tmux &>/dev/null; then
     error "tmux is required but not found on PATH. Install it first (e.g. apt install tmux / brew install tmux)."
 fi
 
-if $DO_BUILD && ! command -v bun &>/dev/null; then
-    error "bun is required for building. Install from https://bun.sh or pass --no-build."
-fi
-
 OS="$(uname -s)"
 case "$OS" in
     Linux)  PLATFORM="linux" ;;
@@ -58,9 +56,16 @@ esac
 
 info "Detected platform: $PLATFORM"
 
-# ── Build binaries ──────────────────────────────────────────────────
+# ── Shared: build + install nexus-agent binary ──────────────────────
+#
+# The agent (apps/agent) is the only Bun binary required on both
+# platforms — it watches sessions.json and exposes the socket API.
 
 if $DO_BUILD; then
+    if ! command -v bun &>/dev/null; then
+        error "bun is required for building. Install from https://bun.sh or pass --no-build."
+    fi
+
     info "Building @nexus/agent (bun build --compile)"
     (cd "$REPO_DIR/apps/agent" && bun run build) || error "apps/agent build failed"
 
@@ -68,9 +73,12 @@ if $DO_BUILD; then
         info "Building @nexus/statusline"
         (cd "$REPO_DIR/apps/nexus-statusline" && bun run build) || error "apps/nexus-statusline build failed"
     fi
-fi
 
-# ── Locate binaries ─────────────────────────────────────────────────
+    if [[ -d "$REPO_DIR/apps/nexus-emit" ]]; then
+        info "Building @nexus/emit (deploy/hook socket helper)"
+        (cd "$REPO_DIR/apps/nexus-emit" && bun run build) || error "apps/nexus-emit build failed"
+    fi
+fi
 
 find_binary() {
     local name="$1"
@@ -85,10 +93,7 @@ find_binary() {
 
 AGENT_BIN="$(find_binary nexus-agent agent)"
 
-# ── Install binaries ────────────────────────────────────────────────
-
 mkdir -p "$BIN_DIR"
-
 info "Installing nexus-agent to $BIN_DIR/"
 install -m 755 "$AGENT_BIN" "$BIN_DIR/nexus-agent"
 
@@ -97,41 +102,137 @@ if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
     install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"
 fi
 
-# ── Create config directory ─────────────────────────────────────────
-
-if [[ ! -d "$CONFIG_DIR" ]]; then
-    info "Creating config directory: $CONFIG_DIR"
-    mkdir -p "$CONFIG_DIR"
+if [[ -f "$REPO_DIR/apps/nexus-emit/nexus-emit" ]]; then
+    info "Installing nexus-emit to $BIN_DIR/"
+    install -m 755 "$REPO_DIR/apps/nexus-emit/nexus-emit" "$BIN_DIR/nexus-emit"
 fi
 
-# ── Install service file ────────────────────────────────────────────
+mkdir -p "$CONFIG_DIR"
 
-if [[ "$PLATFORM" == "linux" ]]; then
-    SYSTEMD_DIR="$HOME/.config/systemd/user"
+# ── Platform branches ───────────────────────────────────────────────
+
+install_linux() {
+    local SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SYSTEMD_DIR"
 
     info "Installing systemd user service"
     install -m 644 "$SCRIPT_DIR/nexus-agent.service" "$SYSTEMD_DIR/nexus-agent.service"
 
-    echo ""
-    info "Installation complete. Next steps:"
-    echo "  systemctl --user daemon-reload"
-    echo "  systemctl --user enable --now nexus-agent"
-    echo "  journalctl --user -u nexus-agent -f     # view logs"
+    systemctl --user daemon-reload || warn "systemctl daemon-reload failed (run manually)"
+    systemctl --user enable nexus-agent || warn "systemctl enable failed (run manually)"
 
-elif [[ "$PLATFORM" == "macos" ]]; then
-    LAUNCH_DIR="$HOME/Library/LaunchAgents"
+    echo ""
+    info "Linux install complete. Next steps:"
+    echo "  systemctl --user start nexus-agent"
+    echo "  journalctl --user -u nexus-agent -f     # view logs"
+}
+
+install_macos() {
+    # Swift dashboard build — xcodegen generates the .xcodeproj from
+    # apps/swift/project.yml, then xcodebuild produces nexus.app.
+    if $DO_BUILD; then
+        if ! command -v xcodegen &>/dev/null; then
+            warn "xcodegen not found — skipping Swift dashboard build."
+            warn "Install: brew install xcodegen"
+        elif ! command -v xcodebuild &>/dev/null; then
+            warn "xcodebuild not found — Xcode CLT required for Swift build."
+        else
+            info "Regenerating Xcode project (xcodegen)"
+            (cd "$REPO_DIR/apps/swift" && xcodegen generate) \
+                || warn "xcodegen generate failed — continuing without Swift build"
+
+            info "Building Nexus.app (Release scheme: nexus-mac)"
+            local BUILD_DIR
+            BUILD_DIR="$(mktemp -d)"
+            if (cd "$REPO_DIR/apps/swift" && xcodebuild \
+                    -project nexus.xcodeproj \
+                    -scheme nexus-mac \
+                    -configuration Release \
+                    -derivedDataPath "$BUILD_DIR" \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO \
+                    build 2>&1 | tail -20); then
+                local APP_PATH
+                APP_PATH="$(find "$BUILD_DIR" -name 'Nexus.app' -type d -print -quit 2>/dev/null || true)"
+                if [[ -n "$APP_PATH" && -d "$APP_PATH" ]]; then
+                    if [[ -w /Applications ]] || [[ -w /Applications/Nexus.app ]] 2>/dev/null; then
+                        info "Installing Nexus.app to /Applications"
+                        rm -rf /Applications/Nexus.app
+                        cp -R "$APP_PATH" /Applications/Nexus.app
+                    else
+                        warn "/Applications is not writable. Copy manually:"
+                        warn "  sudo cp -R $APP_PATH /Applications/Nexus.app"
+                    fi
+                else
+                    warn "xcodebuild succeeded but Nexus.app not found in $BUILD_DIR"
+                fi
+                rm -rf "$BUILD_DIR"
+            else
+                warn "xcodebuild failed — Swift dashboard not installed. Continuing with agent install."
+                rm -rf "$BUILD_DIR"
+            fi
+        fi
+    fi
+
+    # Agent launchd plist — generate inline. The plist file used to live
+    # at deploy/com.nexus.agent.plist; it was removed by
+    # remove-mac-deploy-artifacts so installs no longer depend on a
+    # checked-in plist that drifts from $USER / $HOME.
+    local LAUNCH_DIR="$HOME/Library/LaunchAgents"
+    local PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
     mkdir -p "$LAUNCH_DIR"
 
-    info "Installing launchd user agent"
-    sed "s|\${USER}|$USER|g" "$SCRIPT_DIR/com.nexus.agent.plist" > "$LAUNCH_DIR/com.nexus.agent.plist"
+    info "Generating launchd user agent at $PLIST"
+    cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nexus.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$BIN_DIR/nexus-agent</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$HOME/Library/Logs/nexus-agent.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>$HOME/Library/Logs/nexus-agent.stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info</string>
+        <key>PATH</key>
+        <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+    # TODO: optional login item registration for Nexus.app via
+    # `osascript -e 'tell application "System Events" to make login item ...'`.
+    # Skipped for now — manual via System Settings -> Login Items. See nx-eop6z
+    # for the related Mac TTS / launchd cleanup work.
 
     echo ""
-    info "Installation complete. Next steps:"
+    info "macOS install complete. Next steps:"
     echo "  launchctl bootout gui/\$(id -u)/com.nexus.agent 2>/dev/null || true"
-    echo "  launchctl load ~/Library/LaunchAgents/com.nexus.agent.plist"
+    echo "  launchctl bootstrap gui/\$(id -u) $PLIST"
     echo "  tail -f ~/Library/Logs/nexus-agent.stdout.log   # view logs"
-fi
+    if [[ -d /Applications/Nexus.app ]]; then
+        echo "  open /Applications/Nexus.app                    # launch dashboard"
+    fi
+}
+
+case "$PLATFORM" in
+    linux)  install_linux ;;
+    macos)  install_macos ;;
+esac
 
 # ── Install git hook dispatchers ───────────────────────────────────
 
@@ -146,44 +247,33 @@ fi
 echo ""
 info "Config directory: $CONFIG_DIR"
 
-# ── Dashboard install (--dashboard flag) ───────────────────────────
+# ── Dashboard install (--dashboard flag, Linux only) ───────────────
+#
+# Kept for legacy Next.js dashboard hosts. The Swift dashboard is the
+# canonical UI going forward; this branch is for hosts that still serve
+# the web admin over Traefik.
 
 if $INSTALL_DASHBOARD; then
-    echo ""
-    info "Installing Nexus Dashboard"
+    if [[ "$PLATFORM" != "linux" ]]; then
+        warn "--dashboard is Linux-only. Skipping on $PLATFORM."
+    else
+        echo ""
+        info "Installing legacy Nexus Dashboard (Linux + Traefik)"
 
-    if [[ "$PLATFORM" == "linux" ]]; then
         SYSTEMD_DIR="$HOME/.config/systemd/user"
         mkdir -p "$SYSTEMD_DIR"
-        install -m 644 "$SCRIPT_DIR/nexus-dashboard.service" "$SYSTEMD_DIR/nexus-dashboard.service"
-        info "Installed nexus-dashboard.service to $SYSTEMD_DIR/"
-    else
-        warn "Dashboard systemd service is Linux-only. Skipping service install on $PLATFORM."
-    fi
+        if [[ -f "$SCRIPT_DIR/nexus-dashboard.service" ]]; then
+            install -m 644 "$SCRIPT_DIR/nexus-dashboard.service" "$SYSTEMD_DIR/nexus-dashboard.service"
+            info "Installed nexus-dashboard.service to $SYSTEMD_DIR/"
+        else
+            warn "nexus-dashboard.service not present — legacy dashboard retired."
+        fi
 
-    if [[ -d "$TRAEFIK_DYNAMIC_DIR" ]]; then
-        install -m 644 "$SCRIPT_DIR/traefik/nexus-dashboard.yml" "$TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
-        info "Installed Traefik config to $TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
-    else
-        warn "Traefik dynamic dir not found: $TRAEFIK_DYNAMIC_DIR"
-        warn "Create it or set TRAEFIK_DYNAMIC_DIR and re-run, then copy manually:"
-        warn "  cp $SCRIPT_DIR/traefik/nexus-dashboard.yml $TRAEFIK_DYNAMIC_DIR/"
+        if [[ -d "$TRAEFIK_DYNAMIC_DIR" && -f "$SCRIPT_DIR/traefik/nexus-dashboard.yml" ]]; then
+            install -m 644 "$SCRIPT_DIR/traefik/nexus-dashboard.yml" "$TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
+            info "Installed Traefik config to $TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
+        else
+            warn "Traefik dynamic dir or config not found — skipping reverse proxy install."
+        fi
     fi
-
-    echo ""
-    printf '\033[1;33m━━━ Dashboard Pre-flight ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n'
-    printf '\033[1;33m  REQUIRED: build the Next.js app before enabling the service\033[0m\n'
-    printf '\033[1;33m\033[0m\n'
-    printf '\033[1;33m  cd ~/dev/nx && git pull\033[0m\n'
-    printf '\033[1;33m  cd apps/nextjs && pnpm build\033[0m\n'
-    printf '\033[1;33m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n'
-    echo ""
-    info "Dashboard next steps:"
-    echo "  systemctl --user daemon-reload"
-    echo "  systemctl --user enable --now nexus-dashboard"
-    echo "  journalctl --user -u nexus-dashboard -f    # view logs"
-    echo "  curl http://localhost:3100                  # verify running"
-    echo ""
-    echo "  Set NEXUS_AGENTS in ~/.env to connect to your agents:"
-    echo '  NEXUS_AGENTS="homelab:homelab:7400,macbook:macbook:7400"'
 fi

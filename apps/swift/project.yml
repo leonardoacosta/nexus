@@ -41,7 +41,10 @@ settings:
 # ──────────────────────────────────────────────────────────────────────
 # Shared framework — models, NexusClient, SSE/WS subscribers,
 # TTS synthesis, audio playback, settings store.
-# Targets all three Apple platforms.
+#
+# Initial scope: macOS only. iOS + watchOS variants are added by the
+# `scaffold-nexus-ios-target` / `scaffold-nexus-watch-target` specs when
+# those source trees land. Today only `nexus-mac` consumes NexusShared.
 # ──────────────────────────────────────────────────────────────────────
 targets:
 
@@ -56,7 +59,24 @@ targets:
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
 
+  NexusSharedTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: NexusSharedTests
+    dependencies:
+      - target: NexusShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.shared.tests
+
   # ────────────────── macOS — menu bar app (existing) ──────────────────
+  #
+  # Sources span two trees:
+  #   nexus/nexus/           — pre-XcodeGen menu bar app (views, AppDelegate)
+  #   nexus-mac/Sources/     — new files shipped by P4.5+P4.6 (AudioPlayer,
+  #                            ElevenLabsSettingsView) that depend on
+  #                            NexusShared.ElevenLabsClient + Keychain.
   nexus-mac:
     type: application
     platform: macOS
@@ -65,8 +85,10 @@ targets:
         excludes:
           - "Info.plist"
           - "*.entitlements"
+      - path: nexus-mac/Sources
     dependencies:
       - target: NexusShared
+      - package: SwiftTerm
     info:
       path: nexus/nexus/Info.plist
     entitlements:
@@ -84,8 +106,10 @@ targets:
     platform: macOS
     sources:
       - path: nexus/nexusTests
+      - path: nexus-mac/Tests
     dependencies:
       - target: nexus-mac
+      - target: NexusShared
 
   nexus-mac-UITests:
     type: bundle.ui-testing
@@ -95,40 +119,59 @@ targets:
     dependencies:
       - target: nexus-mac
 
-  # ────────────────── iOS — mobile client (new) ────────────────────────
+  # ─────────────────────── iOS — scaffolded ────────────────────────────
+  #
+  # Source: apps/swift/nexus-ios/Sources (scaffolded by
+  # scaffold-nexus-ios-target). The push entitlement + provisioning
+  # profile land via bd:nx-gsgvk; until then the .entitlements file is
+  # intentionally minimal.
   nexus-ios:
     type: application
     platform: iOS
     sources:
-      - path: nexus-ios
+      - path: nexus-ios/Sources
     dependencies:
       - target: NexusShared
+      - package: SwiftTerm
     info:
-      path: nexus-ios/Info.plist
-      properties:
-        UILaunchScreen: {}
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
-        CFBundleDisplayName: Nexus
+      path: nexus-ios/Resources/Info.plist
+    entitlements:
+      path: nexus-ios/Resources/nexus-ios.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios
-        PRODUCT_NAME: Nexus
-        TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
-        SUPPORTS_MACCATALYST: NO
+        PRODUCT_NAME: nexus
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.10"
+        ENABLE_HARDENED_RUNTIME: NO
 
-  # ────────────────── watchOS — long-run companion (new) ───────────────
+  # ─────────────────────── watchOS — scaffolded ────────────────────────
+  #
+  # Source: apps/swift/nexus-watch/Sources (scaffolded by
+  # scaffold-nexus-watch-target). Pairing + provisioning land via
+  # bd:nx-gsgvk.
   nexus-watch:
     type: application
     platform: watchOS
     sources:
-      - path: nexus-watch
+      - path: nexus-watch/Sources
     dependencies:
       - target: NexusShared
     info:
-      path: nexus-watch/Info.plist
+      path: nexus-watch/Resources/Info.plist
+    entitlements:
+      path: nexus-watch/Resources/nexus-watch.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.watch
-        PRODUCT_NAME: Nexus
+        PRODUCT_NAME: nexus-watch
+        SWIFT_VERSION: "5.10"
         WATCHOS_DEPLOYMENT_TARGET: "10.0"
+
+# ──────────────────────────────────────────────────────────────────────
+# Swift Package Manager dependencies — resolved by Xcode on first build.
+# ──────────────────────────────────────────────────────────────────────
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.2.0

@@ -1,23 +1,19 @@
 /**
- * Socket dispatcher tests — NotificationRow.project preservation (task 2.5).
+ * Socket dispatcher tests — NotificationFired event project preservation.
  *
- * Verifies that the `project` field on a socket `notification` event is
- * forwarded to the `NotificationRow` passed into `sendTtsNotification`,
- * and that omitting the field produces `project === null` (no default
- * substitution — see fix-tts-announce-project-prefix spec).
+ * After `remove-notification-channels` (P4) the dispatcher no longer calls
+ * `sendTtsNotification` — the agent emits a `NotificationFired` lifecycle
+ * event with the text payload and the Mac listener does the synthesis. We
+ * verify here that the `project` field flows through to the bus envelope.
  */
 
 import { describe, expect, test, mock, beforeEach } from "bun:test";
 import type { SocketEvent } from "../../types/socket-events";
 import type { WatcherEvent } from "@nexus/core";
 import type { SessionManager } from "../../session-manager";
+import type { LifecycleEnvelope } from "../lifecycle-bus";
 
 // ─── Module mocks (must register before importing dispatcher) ────────────────
-
-const sendTtsNotificationMock = mock((_row: unknown) => Promise.resolve(true));
-mock.module("../../notifications/channels/tts", () => ({
-  sendTtsNotification: sendTtsNotificationMock,
-}));
 
 const recordNotificationMock = mock(() => {});
 mock.module("../command-handler", () => ({
@@ -41,21 +37,24 @@ function createMockSessionManager(): SessionManager {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe("socket-server dispatcher: NotificationRow.project preservation (task 2.5)", () => {
+describe("socket-server dispatcher: NotificationFired event project preservation", () => {
   let dispatch: (event: SocketEvent) => void;
+  let received: LifecycleEnvelope<"NotificationFired">[];
 
   beforeEach(async () => {
     const { createSocketEventDispatcher } = await import("./dispatcher");
     const { LifecycleBus } = await import("../lifecycle-bus");
+    const bus = new LifecycleBus();
+    received = [];
+    bus.on("NotificationFired", (env) => received.push(env));
     dispatch = createSocketEventDispatcher({
       sessionManager: createMockSessionManager(),
-      lifecycleBus: new LifecycleBus(),
+      lifecycleBus: bus,
     });
-    sendTtsNotificationMock.mockClear();
     recordNotificationMock.mockClear();
   });
 
-  test("forwards project field from socket event to NotificationRow", () => {
+  test("forwards project field from socket event to NotificationFired payload", () => {
     const event: SocketEvent = {
       event: "notification",
       message: "build complete",
@@ -64,15 +63,12 @@ describe("socket-server dispatcher: NotificationRow.project preservation (task 2
 
     dispatch(event);
 
-    expect(sendTtsNotificationMock).toHaveBeenCalledTimes(1);
-    const [row] = sendTtsNotificationMock.mock.calls[0]! as [
-      { project: string | null; body: string },
-    ];
-    expect(row.project).toBe("nova");
-    expect(row.body).toBe("build complete");
+    expect(received).toHaveLength(1);
+    expect(received[0]!.payload.project).toBe("nova");
+    expect(received[0]!.payload.body).toBe("build complete");
   });
 
-  test("sets NotificationRow.project to null when socket event omits the field", () => {
+  test("sets NotificationFired.project to undefined when socket event omits the field", () => {
     const event: SocketEvent = {
       event: "notification",
       message: "build complete",
@@ -80,10 +76,7 @@ describe("socket-server dispatcher: NotificationRow.project preservation (task 2
 
     dispatch(event);
 
-    expect(sendTtsNotificationMock).toHaveBeenCalledTimes(1);
-    const [row] = sendTtsNotificationMock.mock.calls[0]! as [
-      { project: string | null; body: string },
-    ];
-    expect(row.project).toBeNull();
+    expect(received).toHaveLength(1);
+    expect(received[0]!.payload.project).toBeUndefined();
   });
 });

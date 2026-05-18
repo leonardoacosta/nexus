@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# pre-push: emit a deploy_status event so dashboards can render "pushing".
+# Fire-and-forget — never blocks the push.
+#
+# Spec: openspec/changes/add-socket-hook-helper (task 1.3)
+
+EMIT_BIN="${NEXUS_EMIT_BIN:-$HOME/.local/bin/nexus-emit}"
+
+if [ ! -x "$EMIT_BIN" ]; then
+    exit 0
+fi
+
+REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+
+"$EMIT_BIN" \
+    --event deploy_status \
+    --status pushing \
+    --service "${NEXUS_SERVICE_NAME:-agent}" \
+    --repo "$REPO_DIR" \
+    --branch "$BRANCH" >/dev/null 2>&1 || true
