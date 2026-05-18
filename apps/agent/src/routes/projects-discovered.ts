@@ -1,13 +1,72 @@
 import type { Db } from "@nexus/db";
 import { agents } from "@nexus/db";
 import { eq } from "drizzle-orm";
-import fs from "node:fs";
+import nodeFs from "node:fs";
 import path from "node:path";
 import { createLogger, expandTilde, getAgentId, safeSpawn } from "@nexus/core/node";
-import { queryRecentSessions } from "../db/sessions";
-import { upsertProjectLocations } from "../db/project-registry";
+import * as sessionsModule from "../db/sessions";
+import * as projectRegistryModule from "../db/project-registry";
 import type { ProjectToUpsert } from "../db/project-registry";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
+
+// ── Injectable accessors (fs + db) ─────────────────────────────────────────
+//
+// We do NOT use `mock.module(...)` because Bun's module mocks are process-
+// global and irreversible — they leak across test files and corrupt unrelated
+// code. Instead, expose a thin shim layer per-module that tests override via
+// __setFsForTesting / __setDepsForTesting. This keeps test scope local to
+// projects-discovered.ts.
+
+interface FsShim {
+  readdirSync: typeof nodeFs.readdirSync;
+  existsSync: typeof nodeFs.existsSync;
+  realpathSync: typeof nodeFs.realpathSync;
+}
+
+let fs: FsShim = {
+  readdirSync: nodeFs.readdirSync,
+  existsSync: nodeFs.existsSync,
+  realpathSync: nodeFs.realpathSync,
+};
+
+interface DepsShim {
+  queryRecentSessions: typeof sessionsModule.queryRecentSessions;
+  upsertProjectLocations: typeof projectRegistryModule.upsertProjectLocations;
+}
+
+let deps: DepsShim = {
+  queryRecentSessions: (...args) => sessionsModule.queryRecentSessions(...args),
+  upsertProjectLocations: (...args) =>
+    projectRegistryModule.upsertProjectLocations(...args),
+};
+
+/** Test-only: replace fs accessors. */
+export function __setFsForTesting(overrides: Partial<FsShim>): void {
+  fs = { ...fs, ...overrides };
+}
+
+/** Test-only: restore real node:fs accessors. */
+export function __resetFsForTesting(): void {
+  fs = {
+    readdirSync: nodeFs.readdirSync,
+    existsSync: nodeFs.existsSync,
+    realpathSync: nodeFs.realpathSync,
+  };
+}
+
+/** Test-only: replace db dependency accessors. */
+export function __setDepsForTesting(overrides: Partial<DepsShim>): void {
+  deps = { ...deps, ...overrides };
+}
+
+/** Test-only: restore real db dependency accessors. */
+export function __resetDepsForTesting(): void {
+  deps = {
+    queryRecentSessions: (...args) => sessionsModule.queryRecentSessions(...args),
+    upsertProjectLocations: (...args) =>
+      projectRegistryModule.upsertProjectLocations(...args),
+  };
+}
 
 // ── Logger ─────────────────────────────────────────────────────────────────
 
@@ -159,9 +218,9 @@ async function scanProjects(
   | { ok: false; error: string }
 > {
   // Fetch recent sessions to cross-reference
-  const recentSessions = await queryRecentSessions(db, QUERY_WINDOW_HOURS);
+  const recentSessions = await deps.queryRecentSessions(db, QUERY_WINDOW_HOURS);
 
-  let entries: fs.Dirent[] = [];
+  let entries: nodeFs.Dirent[] = [];
   try {
     entries = fs.readdirSync(projectsDir, { withFileTypes: true });
   } catch (err) {
@@ -430,7 +489,7 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
       gitRemoteUrl: p.gitRemoteUrl,
     }));
     try {
-      await upsertProjectLocations(db, agent.id, toUpsert);
+      await deps.upsertProjectLocations(db, agent.id, toUpsert);
     } catch (err) {
       log.warn(
         { error: err instanceof Error ? err.message : String(err) },
@@ -512,7 +571,7 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
         gitRemoteUrl: p.gitRemoteUrl,
       }));
       try {
-        await upsertProjectLocations(db, agent.id, toUpsert);
+        await deps.upsertProjectLocations(db, agent.id, toUpsert);
       } catch (err) {
         log.warn(
           { error: err instanceof Error ? err.message : String(err) },

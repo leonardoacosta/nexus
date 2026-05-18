@@ -10,7 +10,9 @@ const loggerMock = {
   child: mock(() => loggerMock),
 };
 
-mock.module("@nexus/core", () => ({
+// The unit under test imports from "@nexus/core/node" (Node subpath), so we
+// mock that specifier — not the root "@nexus/core" entry.
+mock.module("@nexus/core/node", () => ({
   logger: loggerMock,
   createLogger: () => loggerMock,
 }));

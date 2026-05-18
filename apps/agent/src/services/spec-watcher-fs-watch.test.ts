@@ -83,15 +83,20 @@ const progressState = {
 };
 
 // ─── Module mocks (BEFORE importing the subject) ────────────────────────────
+//
+// We use an injectable seam (__setGetProjectsForTesting) rather than
+// mock.module("./config-loader") because Bun's module mocks are
+// process-global and irreversible — they leaked into config-loader.test.ts
+// and caused spurious failures there.
 
-mock.module("./config-loader", () => ({
-  getProjects: () => [
-    { code: PROJECT_CODE, name: PROJECT_CODE, path: PROJECT_CWD },
-  ],
-  getSettings: () => ({}),
-  initConfigLoader: () => {},
-  stopConfigLoader: () => {},
-}));
+import {
+  __setGetProjectsForTesting,
+  __resetGetProjectsForTesting,
+} from "./spec-watcher/poller";
+
+__setGetProjectsForTesting(() => [
+  { code: PROJECT_CODE, name: PROJECT_CODE, path: PROJECT_CWD },
+]);
 
 // Mock execText so `openspec show/list` reads our in-memory fixture state
 // instead of spawning a real subprocess. Return JSON that matches the
@@ -212,6 +217,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  __resetGetProjectsForTesting();
   try {
     stopWatchers?.();
   } catch {

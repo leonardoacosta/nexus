@@ -2,39 +2,45 @@
  * Shared test helpers for projects-discovered test files.
  *
  * Provides mock setup and the Dirent builder used across all split files.
+ *
+ * NOTE: We DO NOT use `mock.module("node:fs", ...)` because Bun's module mocks
+ * are process-global and irreversible — they leak into unrelated test files
+ * (command-registry, line-count, config-loader, etc.) and corrupt their
+ * `readdirSync` calls. Instead, projects-discovered.ts exposes an injectable
+ * fs shim via __setFsForTesting / __resetFsForTesting which is scoped to the
+ * module under test.
  */
 
-import { beforeEach, mock } from "bun:test";
+import { mock } from "bun:test";
 import type { Db } from "@nexus/db";
+import {
+  __setFsForTesting,
+  __setDepsForTesting,
+} from "./projects-discovered";
 
-// ── Module mocks (must be declared before importing the unit under test) ──────
+// ── Mocks for the injectable fs shim and db deps ──────────────────────────────
 
 export const mockReaddirSync = mock(() => [] as ReturnType<typeof import("node:fs").readdirSync>);
 export const mockExistsSync = mock((_p: string) => false);
 export const mockRealpathSync = mock((p: string) => p);
 
-mock.module("node:fs", () => ({
-  readdirSync: mockReaddirSync,
-  existsSync: mockExistsSync,
-  realpathSync: mockRealpathSync,
-  default: {
-    readdirSync: mockReaddirSync,
-    existsSync: mockExistsSync,
-    realpathSync: mockRealpathSync,
-  },
-}));
+// Install the fs shim. This is scoped to projects-discovered.ts only.
+__setFsForTesting({
+  readdirSync: mockReaddirSync as unknown as typeof import("node:fs").readdirSync,
+  existsSync: mockExistsSync as unknown as typeof import("node:fs").existsSync,
+  realpathSync: mockRealpathSync as unknown as typeof import("node:fs").realpathSync,
+});
 
 export const mockQueryRecentSessions = mock((): Promise<{ id: string; project: string; machine: string; status: string; startedAt: Date; lastActivity: Date; endedAt: Date | null; pid: number | null; cwd: string | null }[]> => Promise.resolve([]));
 
-mock.module("../db/sessions", () => ({
-  queryRecentSessions: mockQueryRecentSessions,
-}));
-
 export const mockUpsertProjectLocations = mock((): Promise<void> => Promise.resolve());
 
-mock.module("../db/project-registry", () => ({
-  upsertProjectLocations: mockUpsertProjectLocations,
-}));
+// Install db deps shim. Scoped to projects-discovered.ts only.
+__setDepsForTesting({
+  queryRecentSessions: mockQueryRecentSessions as unknown as typeof import("../db/sessions").queryRecentSessions,
+  upsertProjectLocations: mockUpsertProjectLocations as unknown as typeof import("../db/project-registry").upsertProjectLocations,
+});
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

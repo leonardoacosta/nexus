@@ -134,6 +134,10 @@ describe("GET /events/stream — SSE round-trip", () => {
     expect(hook).toBeDefined();
     expect(hook!.data).toBeTruthy();
 
+    // NOTE: `source: 'local' | 'peer'` was removed by remove-peer-connector
+    // (commit d2e965e). LifecycleEnvelope no longer carries a source tag;
+    // cross-machine awareness comes from clients reading agents.toml and
+    // querying each agent directly.
     const envelope = JSON.parse(hook!.data!) as {
       event: string;
       payload: {
@@ -142,10 +146,8 @@ describe("GET /events/stream — SSE round-trip", () => {
         eventId: number;
         count?: number;
       };
-      source: string;
     };
     expect(envelope.event).toBe("HookEventReceived");
-    expect(envelope.source).toBe("local");
     expect(envelope.payload.eventType).toBe("tool_use_end");
     expect(envelope.payload.sessionId).toBe("sse-roundtrip-1");
     expect(envelope.payload.eventId).toBe(99);
