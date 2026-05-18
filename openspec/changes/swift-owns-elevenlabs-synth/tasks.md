@@ -11,10 +11,16 @@
 - [x] 1.9 End-to-end test: fire notification → Mac speaker plays
 
 > Notes on deferred user-actions:
-> - 1.5 is COMPLETE: the agent's tts channel (apps/agent/src/notifications/channels/tts.ts)
->   is now signal-only — the manager no longer threads audioBase64 onto
->   NotificationFired (apps/agent/src/notifications/manager.ts). The Mac
->   listener calls NexusShared.ElevenLabsClient + AVAudioPlayer locally.
+> - 1.5 is COMPLETE for the dispatch path: the agent's tts channel
+>   (apps/agent/src/notifications/channels/tts.ts) is now signal-only — the
+>   manager no longer threads audioBase64 onto NotificationFired
+>   (apps/agent/src/notifications/manager.ts). The Mac listener calls
+>   NexusShared.ElevenLabsClient + AVAudioPlayer locally.
+>   PARTIAL: The `audioBase64?: string` field is still declared on
+>   ChannelResult in apps/agent/src/notifications/router.ts (lines 41, 205,
+>   259). Producers no longer set it (it's always undefined at runtime), but
+>   the type-level removal is tracked under nx-p54s1 (alongside the
+>   elevenlabs-runtime + DROP TABLE retirement).
 > - 1.6 [user-action]: the `apps/agent/src/credentials/elevenlabs-runtime.ts`
 >   singleton (master.key + DB handle) is still consumed by the legacy
 >   `/elevenlabs-credentials` and `/elevenlabs-voices` HTTP routes. Those

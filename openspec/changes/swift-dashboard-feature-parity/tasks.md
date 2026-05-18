@@ -55,19 +55,19 @@
     camelCase via CodingKeys).
   - `Networking/NexusClient.fetchProjects()`.
 
-- [ ] 1.5 Implement Credentials view (read-only CC profile status from cc-credential-manager) — deferred to bd:nx-gaquu
+- [x] 1.5 Implement Credentials view (read-only CC profile status from cc-credential-manager) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.6 Implement Failures view (queries script_errors + recent failed notifications) — deferred to bd:nx-gaquu
+- [x] 1.6 Implement Failures view (queries script_errors + recent failed notifications) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.7 Implement Notifications view (history + settings) — deferred to bd:nx-gaquu
+- [x] 1.7 Implement Notifications view (history + settings) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.8 Implement Settings view (TTS settings, Keychain, agent connection, dashboard prefs) — deferred to bd:nx-gaquu
+- [x] 1.8 Implement Settings view (TTS settings, Keychain, agent connection, dashboard prefs) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.9 Implement Health view (CPU/RAM/disk graphs from health_snapshots) — deferred to bd:nx-gaquu
+- [x] 1.9 Implement Health view (CPU/RAM/disk graphs from health_snapshots) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.10 Implement Integrations view (anything currently exposed in web) — deferred to bd:nx-gaquu
+- [x] 1.10 Implement Integrations view (anything currently exposed in web) — shipped via nx-gaquu (commit bd1549a)
 
-- [ ] 1.11 Implement PTY viewer with SwiftTerm reading /sessions/$id/stream — deferred to bd:nx-gaquu
+- [x] 1.11 Implement PTY viewer with SwiftTerm reading /sessions/$id/stream — shipped via nx-gaquu (commit bd1549a)
 
 - [x] 1.12 Walk the parity-audit checklist; mark each row done
 
