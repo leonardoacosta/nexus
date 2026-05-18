@@ -169,17 +169,14 @@ final class HealthViewModel: ObservableObject {
     @Published private(set) var points: [HealthSnapshot] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
         let since = Date().addingTimeInterval(-Double(windowMinutes) * 60)
-        do {
-            let rows = try await client.fetchHealthSeries(since: since)
-            points = rows.sorted { $0.timestamp < $1.timestamp }
-        } catch {
-            // Non-fatal — leave prior series; user can hit refresh.
-        }
+        // Merged + sorted across all reachable agents; partial failure OK.
+        let rows = await client.fetchHealthSeries(since: since)
+        points = rows.sorted { $0.timestamp < $1.timestamp }
     }
 }

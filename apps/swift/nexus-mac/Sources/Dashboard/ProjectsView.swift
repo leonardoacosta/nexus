@@ -117,21 +117,18 @@ final class ProjectsViewModel: ObservableObject {
     @Published private(set) var projects: [ProjectAggregate] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let rows = try await client.fetchProjects()
-            projects = rows.sorted { lhs, rhs in
-                if lhs.activeSessions != rhs.activeSessions {
-                    return lhs.activeSessions > rhs.activeSessions
-                }
-                return lhs.name < rhs.name
+        // Merged across all reachable agents; partial failure tolerated.
+        let rows = await client.fetchProjects()
+        projects = rows.sorted { lhs, rhs in
+            if lhs.activeSessions != rhs.activeSessions {
+                return lhs.activeSessions > rhs.activeSessions
             }
-        } catch {
-            // Silent — non-fatal; refresh hint visible in toolbar.
+            return lhs.name < rhs.name
         }
     }
 }

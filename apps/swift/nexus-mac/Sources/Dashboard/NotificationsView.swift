@@ -164,7 +164,7 @@ final class NotificationsViewModel: ObservableObject {
     @Published var ducking: DuckingMode = .mix
     @Published private(set) var persistStatus: String?
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
 
     private enum Keys {
@@ -189,18 +189,9 @@ final class NotificationsViewModel: ObservableObject {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
             guard let self else { return }
-            var backoff: UInt64 = 1_000_000_000
-            while !Task.isCancelled {
-                do {
-                    try await self.client.consumeNotifications { [weak self] ev in
-                        await self?.prepend(ev)
-                    }
-                    backoff = 1_000_000_000
-                } catch {
-                    if Task.isCancelled { return }
-                    try? await Task.sleep(nanoseconds: backoff)
-                    backoff = min(30_000_000_000, backoff * 2)
-                }
+            // Aggregate owns per-agent retry; this returns on cancel only.
+            await self.client.consumeNotifications { [weak self] ev in
+                await self?.prepend(ev)
             }
         }
     }

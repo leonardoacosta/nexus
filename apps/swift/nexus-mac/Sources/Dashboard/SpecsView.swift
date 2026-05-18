@@ -134,7 +134,7 @@ final class SpecsViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var latestTransition: String?
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
 
     struct Group: Equatable {
@@ -152,29 +152,17 @@ final class SpecsViewModel: ObservableObject {
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            specs = try await client.fetchSpecs()
-        } catch {
-            // Silent — SSE keeps the list fresh; HTTP error is non-fatal.
-        }
+        // Merged across reachable agents; partial failure tolerated.
+        specs = await client.fetchSpecs()
     }
 
     func subscribe() async {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
             guard let self else { return }
-            var backoff: UInt64 = 1_000_000_000
-            while !Task.isCancelled {
-                do {
-                    try await self.client.consumeSpecEvents { [weak self] event in
-                        await self?.handle(event: event)
-                    }
-                    backoff = 1_000_000_000
-                } catch {
-                    if Task.isCancelled { return }
-                    try? await Task.sleep(nanoseconds: backoff)
-                    backoff = min(30_000_000_000, backoff * 2)
-                }
+            // Aggregate owns per-agent retry; this returns on cancel only.
+            await self.client.consumeSpecEvents { [weak self] event in
+                await self?.handle(event: event)
             }
         }
     }

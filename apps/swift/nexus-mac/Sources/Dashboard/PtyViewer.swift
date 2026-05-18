@@ -115,7 +115,7 @@ final class PtyViewerModel: ObservableObject {
     /// Drained on `attach(view:)`.
     private var preAttachBuffer: [UInt8] = []
     private var sseTask: Task<Void, Never>?
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     #if canImport(SwiftTerm)
     private weak var terminal: TerminalView?
@@ -140,22 +140,15 @@ final class PtyViewerModel: ObservableObject {
         status = .connecting
         sseTask = Task { [weak self] in
             guard let self else { return }
-            var backoff: UInt64 = 1_000_000_000
-            while !Task.isCancelled {
-                do {
-                    try await self.client.consumePtyStream(sessionId: self.sessionId) { [weak self] data in
-                        await self?.feed(data: data)
-                    }
-                    backoff = 1_000_000_000
-                    self.status = .disconnected
-                } catch {
-                    if Task.isCancelled { return }
-                    self.status = .disconnected
-                    try? await Task.sleep(nanoseconds: backoff)
-                    backoff = min(30_000_000_000, backoff * 2)
-                    self.status = .connecting
-                }
+            // Aggregate fans out to every agent (only the session owner
+            // streams; others 404/retry harmlessly) and owns retry. The
+            // status pulse is approximate under fan-out — connecting until
+            // first byte, then we let the stream run.
+            self.status = .connecting
+            await self.client.consumePtyStream(sessionId: self.sessionId) { [weak self] data in
+                await self?.feed(data: data)
             }
+            self.status = .disconnected
         }
     }
 

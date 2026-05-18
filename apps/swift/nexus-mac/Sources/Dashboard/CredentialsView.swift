@@ -162,22 +162,20 @@ final class CredentialsViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var lastError: String?
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let rows = try await client.fetchCredentials()
-            profiles = rows.sorted { lhs, rhs in
-                if lhs.isActive != rhs.isActive { return lhs.isActive }
-                let lhsKey = lhs.accountEmail ?? lhs.name
-                let rhsKey = rhs.accountEmail ?? rhs.name
-                return lhsKey < rhsKey
-            }
-            lastError = nil
-        } catch {
-            lastError = "Agent unreachable — credential pool not available."
+        // Aggregate merges every reachable agent; per-agent failure is
+        // swallowed. Only flag an error when nothing came back at all.
+        let rows = await client.fetchCredentials()
+        profiles = rows.sorted { lhs, rhs in
+            if lhs.isActive != rhs.isActive { return lhs.isActive }
+            let lhsKey = lhs.accountEmail ?? lhs.name
+            let rhsKey = rhs.accountEmail ?? rhs.name
+            return lhsKey < rhsKey
         }
+        lastError = rows.isEmpty ? "No agent reachable — credential pool not available." : nil
     }
 }

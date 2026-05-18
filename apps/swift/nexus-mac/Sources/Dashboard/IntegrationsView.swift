@@ -135,17 +135,13 @@ final class IntegrationsViewModel: ObservableObject {
     @Published private(set) var integrations: [IntegrationStatus] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let rows = try await client.fetchIntegrations()
-            integrations = rows.sorted { $0.name < $1.name }
-        } catch {
-            // Non-fatal — empty list + refresh affordance.
-            integrations = []
-        }
+        // Aggregate is partial-failure tolerant — merged survivors only.
+        let rows = await client.fetchIntegrations()
+        integrations = rows.sorted { $0.name < $1.name }
     }
 }

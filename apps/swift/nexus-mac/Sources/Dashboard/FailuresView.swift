@@ -162,15 +162,12 @@ final class FailuresViewModel: ObservableObject {
     @Published private(set) var errors: [ScriptError] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
+    private let client = NexusShared.NexusAggregateClient()
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            errors = try await client.fetchScriptErrors(limit: 100, days: windowDays)
-        } catch {
-            // Non-fatal — leave the prior list and let the user refresh.
-        }
+        // Merged + sorted across all reachable agents; partial failure OK.
+        errors = await client.fetchScriptErrors(limit: 100, days: windowDays)
     }
 }

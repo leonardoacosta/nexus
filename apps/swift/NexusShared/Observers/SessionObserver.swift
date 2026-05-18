@@ -23,16 +23,24 @@ public final class SessionObserver: ObservableObject {
     @Published public private(set) var peerReachable: Bool = false
     @Published public private(set) var connectionStatus: String = "connecting"
 
-    public let client: NexusClient
+    /// Multi-agent fan-out (agents.toml). Replaces the single-endpoint
+    /// `NexusClient` field — partial-failure tolerant per nx-4ohfs.
+    public let client: NexusAggregateClient
 
     private var sseTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var peerLost: Bool = false
     private let notificationCap: Int
 
-    public init(client: NexusClient = NexusClient(), notificationCap: Int = 50) {
-        self.client = client
+    public init(aggregate: NexusAggregateClient = NexusAggregateClient(), notificationCap: Int = 50) {
+        self.client = aggregate
         self.notificationCap = notificationCap
+    }
+
+    /// Back-compat / tests: wrap a single transport client in a trivial
+    /// one-agent aggregate so existing call sites keep working.
+    public convenience init(client: NexusClient, notificationCap: Int = 50) {
+        self.init(aggregate: NexusAggregateClient(client: client), notificationCap: notificationCap)
     }
 
     // MARK: - Lifecycle
@@ -63,43 +71,28 @@ public final class SessionObserver: ObservableObject {
     }
 
     public func refreshSessions() async {
-        do {
-            let rows = try await client.fetchSessions(withFingerprint: true)
-            self.sessions = rows
-            recompute()
-        } catch {
-            // SSE detects peer loss; HTTP failure is non-fatal.
-        }
+        // Aggregate swallows per-agent failures and returns the merged
+        // survivors — one agent down no longer empties the dashboard.
+        let rows = await client.fetchSessions(withFingerprint: true)
+        self.sessions = rows
+        recompute()
     }
 
     public func refreshHealth() async {
-        do {
-            let pts = try await client.fetchHealthHistory(hours: 0.167)
-            self.metrics = pts
-            recompute()
-        } catch {
-            // Non-fatal.
-        }
+        let pts = await client.fetchHealthHistory(hours: 0.167)
+        self.metrics = pts
+        recompute()
     }
 
     // MARK: - SSE loop
 
     private func runSSE() async {
-        var backoff: UInt64 = 1_000_000_000
-        let maxBackoff: UInt64 = 30 * 1_000_000_000
-        while !Task.isCancelled {
-            do {
-                self.connectionStatus = "connecting"
-                try await client.consumeEvents { [weak self] event in
-                    await self?.handle(event: event)
-                }
-                backoff = 1_000_000_000
-            } catch {
-                if Task.isCancelled { return }
-                self.connectionStatus = "reconnecting"
-                try? await Task.sleep(nanoseconds: backoff)
-                backoff = min(maxBackoff, backoff * 2)
-            }
+        // The aggregate owns per-agent retry loops internally; this call
+        // returns only on cancellation. We don't see individual agent drops
+        // here (polling + `connected` frames keep aggregateState fresh).
+        self.connectionStatus = "connecting"
+        await client.consumeEvents { [weak self] event in
+            await self?.handle(event: event)
         }
     }
 
