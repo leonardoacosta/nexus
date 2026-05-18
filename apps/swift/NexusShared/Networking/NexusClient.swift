@@ -25,6 +25,25 @@ public struct NexusEndpoint: Sendable {
     public static let localhost = NexusEndpoint(
         baseURL: URL(string: "http://localhost:7400")!
     )
+
+    /// Endpoint actually used by clients. INTERIM (nx-4ohfs): reads a
+    /// single-endpoint override from `SettingsStore.dashboardEndpoint`
+    /// (UserDefaults key `nexus.dashboard.endpoint`). When the local Mac
+    /// agent is down, this lets the dashboard talk to a healthy peer
+    /// (e.g. homelab over Tailscale) without per-view edits. Falls back to
+    /// `.localhost` when unset or unparseable.
+    /// TODO(nx-4ohfs): replace with agents.toml-driven multi-agent
+    /// aggregation (the Swift-side replacement for the deleted
+    /// peer-connector federation). This static collapses to the
+    /// "primary agent" once that lands.
+    public static var resolved: NexusEndpoint {
+        if let raw = SettingsStore.shared.dashboardEndpoint,
+           !raw.isEmpty,
+           let url = URL(string: raw) {
+            return NexusEndpoint(baseURL: url)
+        }
+        return .localhost
+    }
 }
 
 public enum NexusClientError: Error {
@@ -40,7 +59,11 @@ public actor NexusClient {
     private let streamingSession: URLSession
     private let decoder: JSONDecoder
 
-    public init(endpoint: NexusEndpoint = .localhost) {
+    // INTERIM (nx-4ohfs): default flipped .localhost -> .resolved so all
+    // dashboard views + SessionObserver honor the endpoint override
+    // transparently. Explicit `init(endpoint:)` callers (iOS/watch) are
+    // unaffected.
+    public init(endpoint: NexusEndpoint = .resolved) {
         self.endpoint = endpoint
 
         let cfg = URLSessionConfiguration.default

@@ -8,10 +8,24 @@
 //
 
 import SwiftUI
+import NexusShared
 
 @main
 struct nexusApp: App {
     @StateObject private var viewModel = NexusViewModel.shared
+
+    // INTERIM (nx-4ohfs): seed the dashboard endpoint override to the
+    // homelab agent on first launch if unset. The local Mac agent is
+    // frequently down (launchctl I/O wedge); homelab over Tailscale holds
+    // the live CC sessions. Reproducible + survives `defaults delete`.
+    // TODO(nx-4ohfs): drop this seed once the agents.toml multi-agent
+    // aggregation + Settings-UI editor land — endpoint becomes
+    // user-configured, not hardcoded.
+    init() {
+        if SettingsStore.shared.dashboardEndpoint == nil {
+            SettingsStore.shared.dashboardEndpoint = "http://100.73.182.4:7400"
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {

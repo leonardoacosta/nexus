@@ -14,10 +14,16 @@ import NexusShared
 // MARK: - Configuration
 
 struct NexusEndpoint {
-    /// Default local-agent URL. Per add-swift-menubar/design.md and
+    /// Agent URL. Per add-swift-menubar/design.md and
     /// `apps/agent/src/server.ts`, the agent listens on 7400 with no auth on
     /// loopback (post drop-attach-secret-gate).
-    static let baseURL = URL(string: "http://localhost:7400")!
+    ///
+    /// INTERIM (nx-4ohfs): delegates to the shared
+    /// `NexusShared.NexusEndpoint.resolved` so the menubar honors the same
+    /// single-endpoint override (`nexus.dashboard.endpoint`) as the
+    /// dashboard views. Falls back to localhost:7400 when unset.
+    /// TODO(nx-4ohfs): collapses into agents.toml-driven aggregation.
+    static var baseURL: URL { NexusShared.NexusEndpoint.resolved.baseURL }
 }
 
 // MARK: - Updates published to view models

@@ -46,6 +46,19 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.processProbeFallback) }
     }
 
+    // MARK: - Dashboard endpoint
+
+    // INTERIM (nx-4ohfs): single-endpoint override so the dashboard can be
+    // pointed at a healthy peer agent (e.g. homelab over Tailscale) instead
+    // of the hardcoded localhost agent. Replaced by proper agents.toml
+    // multi-agent aggregation later.
+    // TODO(nx-4ohfs): surface this in PreferencesScene as an editable field,
+    // and extend to a list of endpoints once aggregation lands.
+    public var dashboardEndpoint: String? {
+        get { defaults.string(forKey: Keys.dashboardEndpoint) }
+        set { defaults.set(newValue, forKey: Keys.dashboardEndpoint) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -53,5 +66,6 @@ public final class SettingsStore: @unchecked Sendable {
         static let ttsProvider           = "nx.tts.provider"
         static let elevenLabsVoiceId     = "nx.tts.elevenlabs.voiceId"
         static let processProbeFallback  = "nx.menubar.fallback.processProbe"
+        static let dashboardEndpoint     = "nexus.dashboard.endpoint"
     }
 }
