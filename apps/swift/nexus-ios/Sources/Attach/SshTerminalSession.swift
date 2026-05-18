@@ -9,6 +9,7 @@
 // the wiring is exercised end-to-end without a live SSH stack.
 
 import Foundation
+import SwiftUI
 import NexusShared
 #if canImport(UIKit)
 import UIKit
