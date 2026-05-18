@@ -50,7 +50,7 @@ targets:
 
   NexusShared:
     type: framework
-    platform: macOS
+    platform: [macOS, iOS]
     sources:
       - path: NexusShared
     settings:
@@ -118,9 +118,59 @@ targets:
     dependencies:
       - target: nexus-mac
 
-  # ────────────────── iOS / watchOS — deferred ─────────────────────────
+  # ─────────────────────── iOS — scaffolded ────────────────────────────
   #
-  # The iOS + watchOS targets are added by `scaffold-nexus-ios-target` and
-  # `scaffold-nexus-watch-target` when those source trees land. Until then
-  # the manifest is macOS-only so xcodegen generate succeeds without those
-  # directories existing on disk.
+  # Source: apps/swift/nexus-ios/Sources (scaffolded by
+  # scaffold-nexus-ios-target). The push entitlement + provisioning
+  # profile land via bd:nx-gsgvk; until then the .entitlements file is
+  # intentionally minimal.
+  nexus-ios:
+    type: application
+    platform: iOS
+    sources:
+      - path: nexus-ios/Sources
+    dependencies:
+      - target: NexusShared
+      - package: SwiftTerm
+    info:
+      path: nexus-ios/Resources/Info.plist
+    entitlements:
+      path: nexus-ios/Resources/nexus-ios.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios
+        PRODUCT_NAME: nexus
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.10"
+        ENABLE_HARDENED_RUNTIME: NO
+
+  # ─────────────────────── watchOS — scaffolded ────────────────────────
+  #
+  # Source: apps/swift/nexus-watch/Sources (scaffolded by
+  # scaffold-nexus-watch-target). Pairing + provisioning land via
+  # bd:nx-gsgvk.
+  nexus-watch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: nexus-watch/Sources
+    dependencies:
+      - target: NexusShared
+    info:
+      path: nexus-watch/Resources/Info.plist
+    entitlements:
+      path: nexus-watch/Resources/nexus-watch.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.watch
+        PRODUCT_NAME: nexus-watch
+        SWIFT_VERSION: "5.10"
+        WATCHOS_DEPLOYMENT_TARGET: "10.0"
+
+# ──────────────────────────────────────────────────────────────────────
+# Swift Package Manager dependencies — resolved by Xcode on first build.
+# ──────────────────────────────────────────────────────────────────────
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.2.0
