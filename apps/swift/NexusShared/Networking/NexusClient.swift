@@ -117,6 +117,42 @@ public actor NexusClient {
         )
     }
 
+    /// `GET /projects` — aggregated projects across known machines.
+    /// Without pagination params this returns a bare `[ProjectAggregate]`.
+    public func fetchProjects() async throws -> [ProjectAggregate] {
+        let url = endpoint.baseURL.appendingPathComponent("projects")
+        return try await getJSON(url: url)
+    }
+
+    /// `GET /specs[?status=…&project=…]` — list specs across all projects.
+    public func fetchSpecs(
+        status: String? = nil,
+        project: String? = nil
+    ) async throws -> [SpecSummary] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("specs"),
+            resolvingAgainstBaseURL: false
+        )!
+        var items: [URLQueryItem] = []
+        if let status { items.append(URLQueryItem(name: "status", value: status)) }
+        if let project { items.append(URLQueryItem(name: "project", value: project)) }
+        if !items.isEmpty { comps.queryItems = items }
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        return try await getJSON(url: url)
+    }
+
+    /// Consume `GET /specs/events`, invoking `handler` per SpecTransition.
+    public func consumeSpecEvents(
+        handler: @Sendable @escaping (SSEEvent) async -> Void
+    ) async throws {
+        let url = endpoint.baseURL.appendingPathComponent("specs/events")
+        try await SSEDecoder.consume(
+            url: url,
+            session: streamingSession,
+            handler: handler
+        )
+    }
+
     // MARK: - Helpers
 
     private func getJSON<T: Decodable>(url: URL) async throws -> T {
