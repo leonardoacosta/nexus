@@ -2,13 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Push entitlement enabled once provisioning lands.
-         Bundle dev.leonardoacosta.nexus.watch is NOT YET REGISTERED on
-         Apple side — blocked on bd:nx-jr9z4 (ASC API key needs App Manager
-         role to permit BundleId.create). After bundle + profile land, uncomment:
-
-         <key>aps-environment</key>
-         <string>development</string>
-    -->
+    <!-- Push entitlement enabled 2026-05-18 (nx-5eqal). Bundle
+         dev.leonardoacosta.nexus.watch registered + PUSH_NOTIFICATIONS
+         capability enabled; dev provisioning profile at
+         apps/swift/fastlane/profiles/nexus_watch_development.mobileprovision.
+         'development' covers sandbox + dev devices. -->
+    <key>aps-environment</key>
+    <string>development</string>
 </dict>
 </plist>

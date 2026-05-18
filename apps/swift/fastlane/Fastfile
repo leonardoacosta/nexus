@@ -6,9 +6,9 @@ default_platform(:ios)
 # or, as a last-resort dev fallback, the literals committed below.
 def load_asc_api_key
   app_store_connect_api_key(
-    key_id: ENV["ASC_KEY_ID"] || "VRQXZ3WH58",
+    key_id: ENV["ASC_KEY_ID"] || "BRQ7ZBN78B",
     issuer_id: ENV["ASC_ISSUER_ID"] || "31dc9929-98e0-4093-9c76-5bc3359809b5",
-    key_filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_VRQXZ3WH58.p8"),
+    key_filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_BRQ7ZBN78B.p8"),
     in_house: false
   )
 end
@@ -21,9 +21,9 @@ end
 def ensure_bundle_id(bundle_id, name)
   require "spaceship"
   Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
-    key_id: ENV["ASC_KEY_ID"] || "VRQXZ3WH58",
+    key_id: ENV["ASC_KEY_ID"] || "BRQ7ZBN78B",
     issuer_id: ENV["ASC_ISSUER_ID"] || "31dc9929-98e0-4093-9c76-5bc3359809b5",
-    filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_VRQXZ3WH58.p8")
+    filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_BRQ7ZBN78B.p8")
   )
 
   bundle = Spaceship::ConnectAPI::BundleId.find(bundle_id)
