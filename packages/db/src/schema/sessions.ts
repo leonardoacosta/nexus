@@ -52,6 +52,21 @@ export const sessions = pgTable(
     gitProvider: text("git_provider"),
     /** Owner/repo path (e.g. "leonardoacosta/nexus") extracted from origin. */
     gitOwnerRepo: text("git_owner_repo"),
+
+    // Sub-agent tree fields — added by add-subagent-tree-columns.
+    /**
+     * Parent session id when this session was spawned by another agent
+     * (CC `agent_spawn` event with `parent_agent` set). Self-referential FK;
+     * NULL for top-level sessions. ON DELETE SET NULL preserves child rows
+     * if the parent is purged.
+     */
+    parentSessionId: text("parent_session_id"),
+    /**
+     * Free-form role label from CC `agent_spawn` events (e.g. "explore",
+     * "verify"). Indexed only via the tree-rendering query plan; analytics
+     * may also group by this column.
+     */
+    childRole: text("child_role"),
   },
   (table) => [
     // Supports the process-watcher reconciliation query, which selects open
@@ -64,6 +79,9 @@ export const sessions = pgTable(
       table.endedAt,
       table.pid,
     ),
+    // Supports the tree-query "list all children of session X". Without
+    // this index, the planner full-scans `sessions` once the table grows.
+    index("sessions_parent_session_id_idx").on(table.parentSessionId),
   ],
 );
 

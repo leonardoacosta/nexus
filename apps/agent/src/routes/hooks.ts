@@ -254,6 +254,37 @@ async function handleSessionSummary(
     .where(eq(sessions.id, sessionId));
 }
 
+/**
+ * Persist sub-agent tree fields from `agent_spawn` events.
+ *
+ * CC emits `agent_spawn` with `parent_agent` (the parent session id) and
+ * optional `child_role` (a free-form role label). When both are present we
+ * UPDATE the spawning session row so dashboards can render the tree
+ * without scanning `session_events.metadata`.
+ *
+ * Spec: openspec/changes/add-subagent-tree-columns
+ *
+ * No-ops gracefully when parent_agent is missing — older CC builds didn't
+ * emit it. We never DELETE; rows that drift out of the tree just keep
+ * their existing parent_session_id.
+ */
+async function handleAgentSpawn(
+  db: Db,
+  sessionId: string,
+  payload: HookEventPayload,
+): Promise<void> {
+  const parent = payload.parent_agent;
+  const role = payload.child_role;
+  if (!parent && !role) return;
+
+  const update: { parentSessionId?: string; childRole?: string } = {};
+  if (parent) update.parentSessionId = parent;
+  if (role) update.childRole = role;
+  if (Object.keys(update).length === 0) return;
+
+  await db.update(sessions).set(update).where(eq(sessions.id, sessionId));
+}
+
 async function handleStopFailure(db: Db, sessionId: string): Promise<void> {
   const now = new Date();
   await db
@@ -340,6 +371,12 @@ export async function handleHooks(
         break;
       case "stop_failure":
         await handleStopFailure(db, sessionId);
+        break;
+      case "agent_spawn":
+        // Tree-rendering metadata: write parent_session_id + child_role
+        // straight onto the sessions row so dashboards don't need to
+        // scan session_events.metadata.
+        await handleAgentSpawn(db, sessionId, payload);
         break;
       // session_start: handled above; session_heartbeat / diagnostic_ping:
       // no further sessions-table mutation beyond the ensure step.

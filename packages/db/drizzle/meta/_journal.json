@@ -204,6 +204,13 @@
       "when": 1779063628528,
       "tag": "0028_add_hook_schema_fingerprints",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779063824109,
+      "tag": "0029_add_subagent_tree_columns",
+      "breakpoints": true
     }
   ]
 }
