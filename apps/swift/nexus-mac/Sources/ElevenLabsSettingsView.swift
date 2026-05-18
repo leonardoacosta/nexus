@@ -5,6 +5,7 @@
 // Spec: openspec/changes/swift-owns-elevenlabs-synth (task 1.4)
 
 import SwiftUI
+import NexusShared
 
 struct ElevenLabsSettingsView: View {
     @State private var apiKey: String = ""

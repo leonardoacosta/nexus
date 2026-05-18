@@ -77,7 +77,7 @@ struct CredentialsView: View {
 }
 
 private struct CredentialRow: View {
-    let profile: CcProfile
+    let profile: NexusShared.CcProfile
 
     var body: some View {
         HStack(alignment: .center) {
@@ -158,7 +158,7 @@ private struct CredentialRow: View {
 
 @MainActor
 final class CredentialsViewModel: ObservableObject {
-    @Published private(set) var profiles: [CcProfile] = []
+    @Published private(set) var profiles: [NexusShared.CcProfile] = []
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var lastError: String?
 

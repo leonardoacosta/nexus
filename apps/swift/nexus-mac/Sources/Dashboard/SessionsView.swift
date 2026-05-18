@@ -12,10 +12,15 @@
 import SwiftUI
 import NexusShared
 
+@MainActor
 struct SessionsView: View {
     @StateObject private var observer: SessionObserver
 
-    public init(observer: SessionObserver = SessionObserver()) {
+    public init() {
+        _observer = StateObject(wrappedValue: SessionObserver())
+    }
+
+    public init(observer: SessionObserver) {
         _observer = StateObject(wrappedValue: observer)
     }
 
