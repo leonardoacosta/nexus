@@ -64,7 +64,6 @@ import { CREDENTIAL_ID_RE } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
-import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
 
 /**
@@ -362,14 +361,6 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // ── Credential routes (delegated) ────────────────────────────────
       const credResult = tryHandleCredentialRoute(request, url);
       if (credResult !== null) return credResult;
-
-      // ── ElevenLabs credential + voices routes (delegated) ────────────
-      // Mounted after the OAuth credential group because they share the
-      // same /credentials suffix at the second segment (no overlap, but
-      // grouping the two credential families together keeps the
-      // dispatcher easy to scan).
-      const elevenlabsResult = tryHandleElevenlabsRoute(request, url, db);
-      if (elevenlabsResult !== null) return elevenlabsResult;
 
       // ── Analytics routes ──────────────────────────────────────────────
       if (url.pathname === "/analytics/health" && request.method === "GET") {
