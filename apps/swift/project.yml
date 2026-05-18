@@ -41,13 +41,16 @@ settings:
 # ──────────────────────────────────────────────────────────────────────
 # Shared framework — models, NexusClient, SSE/WS subscribers,
 # TTS synthesis, audio playback, settings store.
-# Targets all three Apple platforms.
+#
+# Initial scope: macOS only. iOS + watchOS variants are added by the
+# `scaffold-nexus-ios-target` / `scaffold-nexus-watch-target` specs when
+# those source trees land. Today only `nexus-mac` consumes NexusShared.
 # ──────────────────────────────────────────────────────────────────────
 targets:
 
   NexusShared:
     type: framework
-    platform: [macOS, iOS, watchOS]
+    platform: macOS
     sources:
       - path: NexusShared
     settings:
@@ -57,6 +60,12 @@ targets:
         SKIP_INSTALL: YES
 
   # ────────────────── macOS — menu bar app (existing) ──────────────────
+  #
+  # Sources span two trees:
+  #   nexus/nexus/           — pre-XcodeGen menu bar app (views, AppDelegate)
+  #   nexus-mac/Sources/     — new files shipped by P4.5+P4.6 (AudioPlayer,
+  #                            ElevenLabsSettingsView) that depend on
+  #                            NexusShared.ElevenLabsClient + Keychain.
   nexus-mac:
     type: application
     platform: macOS
@@ -65,6 +74,7 @@ targets:
         excludes:
           - "Info.plist"
           - "*.entitlements"
+      - path: nexus-mac/Sources
     dependencies:
       - target: NexusShared
     info:
@@ -84,8 +94,10 @@ targets:
     platform: macOS
     sources:
       - path: nexus/nexusTests
+      - path: nexus-mac/Tests
     dependencies:
       - target: nexus-mac
+      - target: NexusShared
 
   nexus-mac-UITests:
     type: bundle.ui-testing
@@ -95,40 +107,9 @@ targets:
     dependencies:
       - target: nexus-mac
 
-  # ────────────────── iOS — mobile client (new) ────────────────────────
-  nexus-ios:
-    type: application
-    platform: iOS
-    sources:
-      - path: nexus-ios
-    dependencies:
-      - target: NexusShared
-    info:
-      path: nexus-ios/Info.plist
-      properties:
-        UILaunchScreen: {}
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
-        CFBundleDisplayName: Nexus
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios
-        PRODUCT_NAME: Nexus
-        TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
-        SUPPORTS_MACCATALYST: NO
-
-  # ────────────────── watchOS — long-run companion (new) ───────────────
-  nexus-watch:
-    type: application
-    platform: watchOS
-    sources:
-      - path: nexus-watch
-    dependencies:
-      - target: NexusShared
-    info:
-      path: nexus-watch/Info.plist
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.watch
-        PRODUCT_NAME: Nexus
-        WATCHOS_DEPLOYMENT_TARGET: "10.0"
+  # ────────────────── iOS / watchOS — deferred ─────────────────────────
+  #
+  # The iOS + watchOS targets are added by `scaffold-nexus-ios-target` and
+  # `scaffold-nexus-watch-target` when those source trees land. Until then
+  # the manifest is macOS-only so xcodegen generate succeeds without those
+  # directories existing on disk.
