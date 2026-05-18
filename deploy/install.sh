@@ -138,13 +138,24 @@ install_macos() {
             warn "xcodebuild not found — Xcode CLT required for Swift build."
         else
             info "Regenerating Xcode project (xcodegen)"
-            (cd "$REPO_DIR/apps/swift" && xcodegen generate) \
-                || warn "xcodegen generate failed — continuing without Swift build"
+            # Capture xcodegen output. xcodegen exits 0 even on spec-validation
+            # errors — detect the silent-fail by grepping its output explicitly.
+            local XCODEGEN_OUT
+            XCODEGEN_OUT="$(cd "$REPO_DIR/apps/swift" && xcodegen generate 2>&1)"
+            if echo "$XCODEGEN_OUT" | grep -qE "Spec validation|invalid dependency|errors"; then
+                error "xcodegen reported spec validation errors — aborting Swift build:
+$XCODEGEN_OUT
+See bd:nx-jmqyk for the canonical NexusShared multi-platform issue."
+            fi
 
             info "Building Nexus.app (Release scheme: nexus-mac)"
             local BUILD_DIR
             BUILD_DIR="$(mktemp -d)"
-            if (cd "$REPO_DIR/apps/swift" && xcodebuild \
+            # Note: `cmd 2>&1 | tail -20` masks the exit code of cmd via the
+            # pipe. Use PIPESTATUS to recover the real status. Without this,
+            # silent Swift compile failures (like nx-jmqyk, 2026-05-18) ship
+            # to /Applications as missing-app + warn-only output.
+            (cd "$REPO_DIR/apps/swift" && xcodebuild \
                     -project nexus.xcodeproj \
                     -scheme nexus-mac \
                     -configuration Release \
@@ -152,7 +163,9 @@ install_macos() {
                     CODE_SIGN_IDENTITY="" \
                     CODE_SIGNING_REQUIRED=NO \
                     CODE_SIGNING_ALLOWED=NO \
-                    build 2>&1 | tail -20); then
+                    build 2>&1 | tail -20)
+            local XCODEBUILD_RC="${PIPESTATUS[0]:-1}"
+            if [[ "$XCODEBUILD_RC" -eq 0 ]]; then
                 local APP_PATH
                 APP_PATH="$(find "$BUILD_DIR" -name 'Nexus.app' -type d -print -quit 2>/dev/null || true)"
                 if [[ -n "$APP_PATH" && -d "$APP_PATH" ]]; then
