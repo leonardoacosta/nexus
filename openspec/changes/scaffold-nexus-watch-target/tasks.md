@@ -28,16 +28,16 @@
   Error envelope: 400 (bad body), 404 (session not found), 409 (no
   tmuxTarget), 500 (tmux send-keys non-zero), 503 (route not initialised).
 
-  **Sim-verified (bd:nx-0t3n0, 2026-05-18)**: `curl -X POST
-  http://localhost:7400/commands/send-text -d
-  '{"sessionId":"sim-watch-001","text":"hello"}'` returns
-  `404 {"error":"session not found: sim-watch-001"}` against the
-  running nexus-agent — confirms the route is wired, body validation
-  passes, session lookup engages. JSON contract matches the body shape
-  emitted by `SendTextDispatcher.swift` (sessionId, text, appendNewline).
-  Full end-to-end (action-tap → tmux receipt) gated by hardware
-  (bd:nx-gm1tl) — watch sim build blocked on watchOS 26.4 SDK vs 26.1
-  sim-runtime mismatch (bd:nx-0jz3x).
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18, post-blocker SHA ba7a702)**:
+  `curl -X POST http://localhost:7400/commands/send-text -d
+  '{"sessionId":"sim-watch-001","text":"watch-action-smoke","appendNewline":true}'`
+  returns `HTTP/1.1 404 Not Found` +
+  `{"error":"session not found: sim-watch-001"}` against the running
+  nexus-agent (launchd, pid 51498) — confirms route registered, JSON
+  validation passes, session lookup engages. JSON contract matches the
+  body shape emitted by `SendTextDispatcher.swift` (sessionId, text,
+  appendNewline). Full end-to-end (action-tap → tmux receipt) gated by
+  hardware (bd:nx-gm1tl).
 
 - [x] 1.3 Implement watchOS App + ContentView (session count + last alert)
 
@@ -47,6 +47,17 @@
   - Most-recent NotificationEvent (title + body, 3-line clamp).
   - Aggregate state badge (active/idle/stale/unreachable) with colour
     derived from `NexusShared.AggregateState`.
+
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18, post-blocker SHA ba7a702)**:
+  watchOS sim build clean (`xcodebuild -scheme nexus-watch -destination
+  'platform=watchOS Simulator,id=F3CE7800-7986-4842-AEB0-E900927E03C8'
+  build` → `** BUILD SUCCEEDED **` on Apple Watch Series 11 (46mm)
+  running watchOS 26.4). One inline plist correction was required to
+  enable sim install: Info.plist `WKWatchOnly` flipped `false`→`true`
+  (the registered bundle IDs are siblings —
+  `dev.leonardoacosta.nexus.ios` + `dev.leonardoacosta.nexus.watch` —
+  not parent/child, so `WKCompanionAppBundleIdentifier` rejected the
+  bundle-prefix check). Watch app installed + launched on sim (pid 80756).
 
 - [x] 1.4 Implement UNNotificationCategory with action buttons
 
@@ -60,6 +71,12 @@
   set `categoryIdentifier = "nexus.permission"` on permission-request
   pushes so the buttons appear. Wiring on the agent side is part of the
   notification-channel surface (already shipped via earlier waves).
+
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18)**: `xcrun simctl push
+  F3CE7800-7986-4842-AEB0-E900927E03C8 dev.leonardoacosta.nexus.watch
+  /tmp/watch-push.json` (payload includes `category: "nexus.permission"`)
+  → `Notification sent`. Category registration code path runs on launch
+  via `NexusWatchApp.onAppear`.
 
 - [x] 1.5 Implement notification action handler that POSTs to /commands/send-text
 
@@ -75,6 +92,13 @@
   `${NEXUS_ENDPOINT}/commands/send-text` with `{ sessionId, text,
   appendNewline: true }`. The endpoint URL comes from Info.plist
   `NEXUS_ENDPOINT` (default `http://homelab:7400`).
+
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18)**: agent-side route
+  contract validated by curl smoke (see task 1.2 sim-verify note). The
+  watch sim does not provide a primitive for tapping a notification
+  action button, so the action-tap → POST step is exercised via the
+  curl probe at the same JSON contract. Visual tap exercise stays
+  with bd:nx-gm1tl.
 
 - [x] 1.6 [user-action] Provision watchOS app; pair with phone
 

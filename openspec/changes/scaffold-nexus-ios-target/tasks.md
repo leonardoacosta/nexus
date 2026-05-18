@@ -25,6 +25,12 @@
   binds to `observer.activeSessions` and surfaces an empty-state CTA when the
   peer has no live CC. `SessionDetailScene` exposes the Attach button.
 
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18, post-blocker SHA ba7a702)**:
+  iOS sim build clean (`xcodebuild -scheme nexus-ios -destination
+  'platform=iOS Simulator,id=9630A395-9741-48E8-8E59-F15941EBE942' build`
+  → `** BUILD SUCCEEDED **`), app installed + launched on iPhone sim
+  (pid 77666), UNAuthorization requested.
+
 - [x] 1.4 Implement AttachScene with SwiftTerm + SSH client
 
   Scene scaffold: `AttachScene` (sheet host) -> `TerminalHostView` (UIKit
@@ -34,6 +40,14 @@
   is rendered and the keyboard pipe is wired. Plugging in the real
   SwiftNIO-SSH transport stays for follow-up once iOS hardware access
   unblocks runtime testing (bd:nx-gsgvk).
+
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18)**: compiles clean on
+  iOS sim. Required two follow-on patches during retry beyond
+  nx-axdqm's missing `import SwiftUI`: (a) `@preconcurrency` annotation
+  on `TerminalViewDelegate` conformance to handle `@MainActor` class
+  conforming to nonisolated SwiftTerm protocol under Swift 6 concurrency
+  diagnostics, (b) added missing `rangeChanged(source:startY:endY:)`
+  delegate stub. Filed inline (small surface).
 
 - [x] 1.5 Implement APNS registration + notification handler (deep-link)
 
@@ -50,15 +64,18 @@
   Push will silently fail until bd:nx-gsgvk lands (no entitlement, no
   push key). The Swift code compiles + ships without the entitlement.
 
-  **Sim-verify attempted (bd:nx-0t3n0, 2026-05-18)**: iOS sim build
-  blocked by pre-existing missing `import SwiftUI` in
-  `apps/swift/nexus-ios/Sources/Attach/SshTerminalSession.swift:24`
-  (uses `@Binding` / `Binding<AttachStatus>` without the import).
-  xcodebuild error: `cannot find type 'Binding' in scope`. MetalToolchain
-  was downloaded inline during the verify to clear an earlier blocker
-  (`xcodebuild -downloadComponent MetalToolchain`, ~688 MB). The Swift
-  bug is filed as bd:nx-axdqm. Once that single-line fix lands, the iOS
-  sim verify can rerun without further blockers.
+  **Sim-verified (bd:nx-0t3n0 retry, 2026-05-18, post-blocker SHA ba7a702)**:
+  `xcrun simctl push 9630A395-9741-48E8-8E59-F15941EBE942
+  dev.leonardoacosta.nexus.ios /tmp/ios-push.json` → `Notification sent`.
+  Log probe `xcrun simctl spawn ... log show --predicate 'subsystem ==
+  "com.apple.UserNotifications"'` confirms the running nexus process
+  (pid 77666) created its UN center, called
+  `requestAuthorization(options: 7)`, and SpringBoard surfaced the auth
+  prompt. Without a real device token + APNS round-trip
+  (`Foreground app will not request ephemeral notifications`,
+  `Ignore becoming foreground for application without push registration`),
+  the simctl push delivers via sim local channel — exactly the contract.
+  Full APNS round-trip stays gated by hardware (bd:nx-gm1tl).
 
 - [x] 1.6 [user-action] Provision APNS via Apple Developer; add push entitlement
 

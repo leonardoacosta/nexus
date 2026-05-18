@@ -21,7 +21,7 @@ import SwiftTerm
 #if canImport(SwiftTerm)
 
 @MainActor
-final class SshTerminalSession: NSObject, TerminalViewDelegate {
+final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     @Binding var status: AttachStatus
 
     init(statusBinding: Binding<AttachStatus>) {
@@ -66,6 +66,7 @@ final class SshTerminalSession: NSObject, TerminalViewDelegate {
     func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {}
     func clipboardCopy(source: TerminalView, content: Data) {}
     func bell(source: TerminalView) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
 #endif

@@ -70,18 +70,35 @@ agents return 404, view degrades gracefully).
 ## iOS / watchOS sim-verify residue (bd:nx-0t3n0, 2026-05-18)
 
 Sim verification of the scaffold-nexus-{ios,watch}-target push chains
-was partially completed:
+was completed end-to-end after the three blockers (nx-axdqm, nx-rui8k,
+nx-0jz3x) shipped:
 
-- **Agent side: verified** — fixed missing `NEXUS_ENCRYPTION_KEY` in
-  the launchd plist (gap filed as bd:nx-rui8k); nexus-agent now running.
-  `/commands/send-text` smoke-tested via curl: returns the expected 404
-  envelope for an unknown session, validating the route is wired and
-  body validation matches the JSON shape `SendTextDispatcher.swift`
-  emits.
-- **iOS sim build: blocked** — pre-existing missing `import SwiftUI`
-  in `nexus-ios/Sources/Attach/SshTerminalSession.swift`. Filed as
-  bd:nx-axdqm.
-- **watchOS sim build: blocked** — Xcode ships watchOS 26.4 SDK;
-  installed sim runtimes are 26.1 / 26.2 / 11.5. Filed as bd:nx-0jz3x.
+- **Agent side: verified** — nexus-agent running under launchd
+  (`launchctl list | grep com.nexus.agent` → pid 51498).
+  `/commands/send-text` smoke-tested via curl: returns the expected
+  `HTTP/1.1 404 Not Found` + `{"error":"session not found:
+  sim-watch-001"}` for an unknown session, validating the route is
+  wired and body validation matches the JSON shape
+  `SendTextDispatcher.swift` emits.
+- **iOS sim build: done** — clean build against
+  `platform=iOS Simulator,id=9630A395-9741-48E8-8E59-F15941EBE942`.
+  Required two follow-on fixes beyond nx-axdqm's missing
+  `import SwiftUI`: `@preconcurrency` annotation on
+  `TerminalViewDelegate` conformance (Swift 6 actor isolation), plus
+  added missing `rangeChanged(source:startY:endY:)` delegate stub.
+  Install + launch on sim succeeded (pid 77666);
+  `xcrun simctl push` delivered the iOS test push and UN authorization
+  flow surfaced in the sim log.
+- **watchOS sim build: done** — clean build against
+  `platform=watchOS Simulator,id=F3CE7800-7986-4842-AEB0-E900927E03C8`
+  (Apple Watch Series 11, 46mm, watchOS 26.4). Required one inline
+  Info.plist correction: flipped `WKWatchOnly` from `false` to `true`
+  because the registered bundle IDs (`dev.leonardoacosta.nexus.ios` +
+  `dev.leonardoacosta.nexus.watch`) are sibling ids, not parent/child,
+  so `WKCompanionAppBundleIdentifier` rejected the bundle-prefix
+  check; switching to `WKWatchOnly=true` unblocks standalone sim
+  install. Install + launch (pid 80756) + `simctl push` delivered the
+  watch test push.
 - **Hardware end-to-end** remains the gate (bd:nx-gm1tl); the sim
-  surface only covers the agent-side HTTP contract.
+  surface covered the build chain, install path, push delivery, and
+  agent-side HTTP contract.
