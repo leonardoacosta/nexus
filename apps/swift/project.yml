@@ -59,6 +59,17 @@ targets:
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
 
+  NexusSharedTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: NexusSharedTests
+    dependencies:
+      - target: NexusShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.shared.tests
+
   # ────────────────── macOS — menu bar app (existing) ──────────────────
   #
   # Sources span two trees:
