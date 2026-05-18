@@ -183,6 +183,13 @@
       "when": 1779062249237,
       "tag": "0025_add_cc_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1779062544421,
+      "tag": "0026_add_session_git_origin",
+      "breakpoints": true
     }
   ]
 }

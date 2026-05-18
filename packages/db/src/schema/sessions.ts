@@ -46,6 +46,12 @@ export const sessions = pgTable(
     credentialId: text("credential_id"),
     /** Denormalized from credentials.fingerprint for aggregation without JOIN */
     credentialFingerprint: text("credential_fingerprint"),
+
+    // Git origin fields — added by add-git-project-resolver.
+    /** Provider host extracted from `git remote get-url origin`. */
+    gitProvider: text("git_provider"),
+    /** Owner/repo path (e.g. "leonardoacosta/nexus") extracted from origin. */
+    gitOwnerRepo: text("git_owner_repo"),
   },
   (table) => [
     // Supports the process-watcher reconciliation query, which selects open

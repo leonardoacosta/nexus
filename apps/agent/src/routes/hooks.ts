@@ -20,6 +20,7 @@ import {
   updateSessionStatus,
   getSessionById,
 } from "../db/sessions";
+import { resolveGitOrigin } from "../services/git-project";
 import { appendSessionEvent } from "../db/events";
 import { computeCostUsd } from "../services/cost-calculator";
 import { lifecycleBus } from "../services/lifecycle-bus";
@@ -204,6 +205,22 @@ async function handleSessionStart(
     credentialFingerprint: null,
     sessionType: "ad_hoc",
   });
+
+  // Resolve git origin from cwd. Fire-and-forget: never block session start
+  // on a slow `git` exec, and never fail when the cwd isn't a git checkout.
+  const cwd = payload.cwd;
+  if (cwd) {
+    const origin = await resolveGitOrigin(cwd);
+    if (origin) {
+      await db
+        .update(sessions)
+        .set({
+          gitProvider: origin.provider,
+          gitOwnerRepo: origin.ownerRepo,
+        })
+        .where(eq(sessions.id, sessionId));
+    }
+  }
 }
 
 async function handleSessionSummary(
