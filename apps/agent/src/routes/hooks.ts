@@ -111,42 +111,12 @@ export interface HookEventPayload {
   crash_flag?: boolean;
 }
 
-const RECOGNIZED_EVENTS = new Set([
-  // Legacy lifecycle (pre-existing)
-  "session_start",
-  "session_stop",
-  "stop_failure",
-  "stop_success",
-  "session_summary",
-  "session_heartbeat",
-  "diagnostic_ping",
-  // Lifecycle expansion
-  "session_terminate",
-  "post_compact",
-  "pre_compact",
-  "heartbeat",
-  // Agents
-  "agent_spawn",
-  "agent_telemetry",
-  "agent_complete",
-  // Tools
-  "tool_use_end",
-  "tool_use_fail",
-  // Commands
-  "command_start",
-  "command_end",
-  "user_prompt",
-  // Operational
-  "permission_request",
-  "teammate_idle",
-  "task_completed",
-  "instructions_loaded",
-  "config_change",
-  "worktree_create",
-  "worktree_remove",
-  "notification",
-  "hook_failure",
-]);
+// Lifecycle event names that trigger sessions-table side effects below.
+// Replaces the previous RECOGNIZED_EVENTS allowlist (dropped per spec
+// drop-recognized-events-allowlist). Unknown event types now persist to
+// session_events.metadata + fire schema-drift telemetry instead of being
+// rejected — the schema-drift detector (services/schema-drift.ts) is the
+// source of truth for "is this event one we know about".
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -313,17 +283,11 @@ export async function handleHooks(
 
   log.info({ event: eventName, sessionId }, "hook event received");
 
-  // Schema-drift detector — fire-and-forget, runs BEFORE the
-  // RECOGNIZED_EVENTS gate so unknown events still emit drift telemetry.
-  // Errors are swallowed by the detector itself.
+  // Schema-drift detector — fire-and-forget. Unknown event types are no
+  // longer rejected (allowlist dropped per drop-recognized-events-allowlist);
+  // drift fires on every event so emerging types surface in telemetry while
+  // still persisting to session_events. Errors swallowed by the detector.
   void inspectAndEmitDrift(db, eventName, payload);
-
-  if (!RECOGNIZED_EVENTS.has(eventName)) {
-    return jsonResponse(200, {
-      status: "ok",
-      message: `unknown event: ${eventName}`,
-    });
-  }
 
   if (!sessionId) {
     log.warn({ event: eventName }, "event missing session_id — skipping persistence");

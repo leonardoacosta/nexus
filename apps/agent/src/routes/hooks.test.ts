@@ -1190,15 +1190,14 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
     });
   });
 
-  // ─── 12. Backward-compat: unknown future event (task 3.6) ───────────────
+  // ─── 12. Forward-compat: unknown future event persists + fires drift ────
 
-  describe("Backward-compat — unrecognized future event (extend-hooks-event-taxonomy 3.6)", () => {
-    it("unknown event_type returns HTTP 200 with 'unknown event:' message and writes NO session_events row", async () => {
+  describe("Forward-compat — unknown future event (drop-recognized-events-allowlist)", () => {
+    it("unknown event_type returns HTTP 200, persists to session_events, and the body acknowledges the type", async () => {
       const sessionId = "sess-future-1";
 
-      // Pre-seed parent row so a missing session_events row can't be
-      // explained by FK protection — we want to prove the handler chose
-      // not to write, not that it couldn't.
+      // Pre-seed parent row so the unknown event isn't dropped as an orphan
+      // (orphan-drop is tested separately; here we want the persistence path).
       await handleHooks(
         db,
         buildHookRequest({
@@ -1217,9 +1216,12 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { status: string; message: string };
       expect(body.status).toBe("ok");
-      expect(body.message).toContain("unknown event:");
       expect(body.message).toContain("future_event_type_not_yet_invented");
 
+      // Allowlist is gone — unknown events now persist with the full
+      // payload preserved in metadata. The schema-drift detector
+      // (services/schema-drift.ts) is responsible for surfacing them
+      // to telemetry.
       const eventRows = await db
         .select()
         .from(sessionEvents)
@@ -1227,7 +1229,53 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       const futureRows = eventRows.filter(
         (r) => r.eventType === "future_event_type_not_yet_invented",
       );
-      expect(futureRows).toHaveLength(0);
+      expect(futureRows).toHaveLength(1);
+    });
+
+    it("unknown event fires HookSchemaDrift on the lifecycle bus", async () => {
+      const { _resetSchemaDriftRateLimitForTest } = await import(
+        "../services/schema-drift"
+      );
+      _resetSchemaDriftRateLimitForTest();
+
+      const sessionId = "sess-drift-unknown-1";
+      await handleHooks(
+        db,
+        buildHookRequest({
+          hook_event_name: "session_start",
+          session_id: sessionId,
+        }),
+      );
+
+      const driftCaptured: Array<{ eventType: string }> = [];
+      const onDrift = (env: LifecycleEnvelope<"HookSchemaDrift">) => {
+        driftCaptured.push({ eventType: env.payload.eventType });
+      };
+      lifecycleBus.on("HookSchemaDrift", onDrift);
+
+      try {
+        await handleHooks(
+          db,
+          buildHookRequest({
+            hook_event_name: "brand_new_unknown_event_xyz",
+            session_id: sessionId,
+            // Include a novel field so the fingerprint is fresh per run.
+            // (rate limit is per-event_type so the type alone is enough,
+            // but the fingerprint changes signal real shape drift.)
+            cwd: "/tmp/test",
+          }),
+        );
+
+        // The drift detector runs fire-and-forget via `void`; give it a
+        // tick to settle (schema-drift writes to DB then emits).
+        await new Promise((r) => setTimeout(r, 50));
+
+        expect(
+          driftCaptured.find((d) => d.eventType === "brand_new_unknown_event_xyz"),
+        ).toBeDefined();
+      } finally {
+        lifecycleBus.off("HookSchemaDrift", onDrift);
+      }
     });
   });
 
@@ -1307,10 +1355,10 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
       expect(captured[0]!.payload.project).toBeUndefined();
     });
 
-    it("unknown (unrecognized) event suppresses emit (no persistence, no broadcast)", async () => {
+    it("unknown event persists AND broadcasts via lifecycle bus (allowlist dropped)", async () => {
       const sessionId = "sess-emit-unknown-1";
 
-      // Pre-seed parent row so FK isn't the reason for missing event row.
+      // Pre-seed parent row so FK isn't the reason for any missing data.
       await handleHooks(
         db,
         buildHookRequest({
@@ -1328,7 +1376,12 @@ describe.skipIf(!hasPg)("POST /hooks — persistence (requires live PG)", () => 
         }),
       );
       expect(res.status).toBe(200);
-      expect(captured).toHaveLength(0);
+      // After drop-recognized-events-allowlist, unknown events flow through
+      // the same persistence + emit path as known ones; only the schema-drift
+      // detector treats them differently. Lifecycle subscribers see the
+      // event so dashboards can surface emerging types in near real time.
+      expect(captured).toHaveLength(1);
+      expect(captured[0]!.payload.eventType).toBe("future_unknown_thing");
     });
 
     it("burst of tool_use_end events coalesces to ≤1 emit within the throttle window", async () => {
