@@ -153,6 +153,114 @@ public actor NexusClient {
         )
     }
 
+    /// `GET /credentials` — list every CC profile the agent currently manages.
+    /// Returns the flat profile array; callers needing the active fingerprint
+    /// hit `fetchCredentialsEnvelope()` instead.
+    public func fetchCredentials() async throws -> [CcProfile] {
+        let envelope: CredentialListResponse = try await getJSON(
+            url: endpoint.baseURL.appendingPathComponent("credentials")
+        )
+        // Stamp `isActive` so the UI doesn't need to thread the fingerprint.
+        let active = envelope.activeFingerprint
+        return envelope.credentials.map { profile in
+            var p = profile
+            if let active, profile.fingerprint == active { p = p.markActive() }
+            return p
+        }
+    }
+
+    /// `GET /credentials` — full envelope including `activeFingerprint`.
+    public func fetchCredentialsEnvelope() async throws -> CredentialListResponse {
+        try await getJSON(url: endpoint.baseURL.appendingPathComponent("credentials"))
+    }
+
+    /// `GET /failures?days=N` — recent script + notification failures.
+    /// `limit` constrains the rendered top-N (server may return more).
+    public func fetchScriptErrors(limit: Int = 50, days: Int = 7) async throws -> [ScriptError] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("failures"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "days", value: String(days))]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        let envelope: FailuresResponse = try await getJSON(url: url)
+        let sorted = envelope.topErrors.sorted { $0.capturedAt > $1.capturedAt }
+        return Array(sorted.prefix(limit))
+    }
+
+    /// `GET /health/history?hours=N&machine=…` — per-machine sparkline rows.
+    /// `since` is converted to an `hours` window the agent already understands;
+    /// `machine` is reserved for the multi-machine endpoint shipping under
+    /// retire-web-dashboard-infra.
+    public func fetchHealthSeries(machine: String = "", since: Date) async throws -> [HealthSnapshot] {
+        let elapsed = max(0.01, Date().timeIntervalSince(since) / 3600.0)
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("health/history"),
+            resolvingAgainstBaseURL: false
+        )!
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "hours", value: String(elapsed))
+        ]
+        if !machine.isEmpty {
+            items.append(URLQueryItem(name: "machine", value: machine))
+        }
+        comps.queryItems = items
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        return try await getJSON(url: url)
+    }
+
+    /// `GET /integrations` — read-only status of every wired integration.
+    /// Returns `[]` on 404 so older agents (which only ship per-integration
+    /// sub-routes) don't break the dashboard.
+    public func fetchIntegrations() async throws -> [IntegrationStatus] {
+        let url = endpoint.baseURL.appendingPathComponent("integrations")
+        do {
+            return try await getJSON(url: url)
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
+    /// Consume `GET /notifications/stream` (or fallback to `/events/stream`
+    /// filtered to `NotificationFired`). Invokes `handler` per decoded
+    /// NotificationEvent.
+    public func consumeNotifications(
+        handler: @Sendable @escaping (NotificationEvent) async -> Void
+    ) async throws {
+        let url = endpoint.baseURL.appendingPathComponent("notifications/stream")
+        try await SSEDecoder.consume(
+            url: url,
+            session: streamingSession
+        ) { event in
+            // Server may emit a typed envelope (event: NotificationFired) or
+            // raw `message`-style frames; decodeNotification() handles both.
+            if let n = event.decodeNotification() {
+                await handler(n)
+            }
+        }
+    }
+
+    /// Consume `GET /sessions/{id}/stream` — agent PTY byte stream. The
+    /// handler receives raw bytes (post-SSE-frame, pre-ANSI). Callers feed
+    /// the bytes into a terminal emulator (SwiftTerm) for rendering.
+    public func consumePtyStream(
+        sessionId: String,
+        handler: @Sendable @escaping (Data) async -> Void
+    ) async throws {
+        let url = endpoint.baseURL
+            .appendingPathComponent("sessions")
+            .appendingPathComponent(sessionId)
+            .appendingPathComponent("stream")
+        try await SSEDecoder.consume(
+            url: url,
+            session: streamingSession
+        ) { event in
+            if let data = event.data.data(using: .utf8) {
+                await handler(data)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func getJSON<T: Decodable>(url: URL) async throws -> T {

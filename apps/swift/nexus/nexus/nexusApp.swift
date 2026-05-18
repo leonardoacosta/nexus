@@ -22,6 +22,16 @@ struct nexusApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        // Full-window dashboard parity scene — bd:nx-gaquu. Opened via
+        // ⌘N / Window menu; mirrors the web `/sessions`, `/specs`,
+        // `/projects`, `/credentials`, `/failures`, `/notifications`,
+        // `/settings`, `/health`, `/integrations`, and PTY routes.
+        WindowGroup("Nexus Dashboard", id: "dashboard") {
+            AppNavigation()
+                .environmentObject(viewModel)
+        }
+        .windowResizability(.contentMinSize)
+
         Settings {
             PreferencesScene()
                 .environmentObject(viewModel)

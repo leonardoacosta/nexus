@@ -88,6 +88,7 @@ targets:
       - path: nexus-mac/Sources
     dependencies:
       - target: NexusShared
+      - package: SwiftTerm
     info:
       path: nexus/nexus/Info.plist
     entitlements:
