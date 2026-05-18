@@ -34,7 +34,7 @@ import { eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import type { NotificationChannel } from "@nexus/core";
 
-import type { HookEventPayload } from "../routes/hooks";
+import type { HookEventPayload } from "../routes/hooks-types";
 import { hookRules, type NotificationDraft } from "./hook-rules";
 import type { NotificationManager } from "./manager";
 

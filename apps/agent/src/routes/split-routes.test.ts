@@ -52,11 +52,6 @@ describe("split route files — handler exports", () => {
     expect(typeof mod.handleStatusline).toBe("function");
   });
 
-  test("hooks.ts exports handleHooks", async () => {
-    const mod = await import("./hooks");
-    expect(typeof mod.handleHooks).toBe("function");
-  });
-
   test("recommend.ts exports handleRecommend", async () => {
     const mod = await import("./recommend");
     expect(typeof mod.handleRecommend).toBe("function");
@@ -124,32 +119,4 @@ describe("split route files — response shape", () => {
     expect(body.jobs.drift.schedule).toBe("weekly @ Sun 09:00");
   });
 
-  test("handleHooks rejects invalid JSON", async () => {
-    const { handleHooks } = await import("./hooks");
-    const request = new Request("http://localhost:7400/hooks", {
-      method: "POST",
-      body: "not json",
-      headers: { "Content-Type": "text/plain" },
-    });
-
-    const response = await handleHooks({} as any, request);
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { status: string };
-    expect(body.status).toBe("error");
-  });
-
-  test("handleHooks acknowledges known events", async () => {
-    const { handleHooks } = await import("./hooks");
-    const request = new Request("http://localhost:7400/hooks", {
-      method: "POST",
-      body: JSON.stringify({ hook_event_name: "session_start", session_id: "test-123" }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    const response = await handleHooks({} as any, request);
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { status: string; message: string };
-    expect(body.status).toBe("ok");
-    expect(body.message).toContain("session_start");
-  });
 });

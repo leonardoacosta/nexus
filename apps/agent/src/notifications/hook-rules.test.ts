@@ -11,7 +11,7 @@ import {
   COST_DIGEST_THRESHOLD_USD,
   type NotificationDraft,
 } from "./hook-rules";
-import type { HookEventPayload } from "../routes/hooks";
+import type { HookEventPayload } from "../routes/hooks-types";
 
 function payload(overrides: Partial<HookEventPayload> = {}): HookEventPayload {
   return {

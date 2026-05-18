@@ -20,7 +20,7 @@ import {
 } from "./hook-trigger";
 import type { NotificationManager } from "./manager";
 import type { Db } from "@nexus/db";
-import type { HookEventPayload } from "../routes/hooks";
+import type { HookEventPayload } from "../routes/hooks-types";
 
 // ─── Fakes ───────────────────────────────────────────────────────────────────
 
