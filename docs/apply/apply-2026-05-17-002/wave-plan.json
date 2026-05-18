@@ -1,0 +1,645 @@
+{
+  "generated_at": "2026-05-17T18:53:24.336205",
+  "generated_by": "wave-state init",
+  "spec_names": [
+    "collapse-notifications-dir",
+    "collapse-credentials-dir",
+    "add-schema-drift-detector",
+    "add-git-project-resolver",
+    "add-subagent-tree-columns",
+    "enforce-pino-script-errors",
+    "drop-recognized-events-allowlist",
+    "socket-dispatcher-parity",
+    "add-socket-hook-helper",
+    "migrate-cc-hooks-to-socket",
+    "delete-http-hooks-endpoint",
+    "xcodegen-initial-generate",
+    "add-nexus-shared-framework",
+    "scaffold-nexus-ios-target",
+    "scaffold-nexus-watch-target",
+    "swift-owns-elevenlabs-synth",
+    "add-cc-credential-manager",
+    "remove-notification-channels",
+    "supersede-mac-tts-listener-spec",
+    "swift-dashboard-feature-parity",
+    "retire-web-dashboard-infra",
+    "remove-mac-deploy-artifacts",
+    "env-aware-install-script",
+    "document-spine-architecture"
+  ],
+  "status": "completed",
+  "current_wave": 7,
+  "current_phase": null,
+  "completed_waves": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "completed_specs": [],
+  "failed_specs": [
+    {
+      "name": "collapse-notifications-dir",
+      "wave": 3,
+      "error": "Preconditions stale: dir has 7 source files + 9 tests, not just manager.ts. Filed nx-29gtx for scope refactor."
+    }
+  ],
+  "decisions": [],
+  "runtime": {},
+  "waves": [
+    {
+      "wave_number": 1,
+      "rationale": "Parallel-safe (no semantic deps, no file conflicts): add-cc-credential-manager, add-git-project-resolver, add-socket-hook-helper, enforce-pino-script-errors, swift-owns-elevenlabs-synth.",
+      "specs": [
+        {
+          "name": "add-cc-credential-manager",
+          "file_paths": [
+            "apps/agent/src/cc-credential-manager.ts",
+            "packages/db/src/schema/ccProfiles.ts"
+          ],
+          "task_count": 9,
+          "phase_classification": "P4",
+          "ddl_tables": [
+            "ccProfiles"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "4.6",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T18:53:24.442492",
+          "merged_at": "2026-05-17T19:16:35.605172"
+        },
+        {
+          "name": "add-git-project-resolver",
+          "file_paths": [
+            "apps/agent/src/services/git-project.ts",
+            "packages/db/src/schema/sessions.ts",
+            "apps/agent/src/routes/hooks.ts"
+          ],
+          "task_count": 5,
+          "phase_classification": "P2",
+          "ddl_tables": [
+            "sessions"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "2.2",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T18:53:24.485714",
+          "merged_at": "2026-05-17T19:16:35.650310"
+        },
+        {
+          "name": "add-socket-hook-helper",
+          "file_paths": [
+            "apps/agent/src/scripts/nexus-emit"
+          ],
+          "task_count": 6,
+          "phase_classification": "P3",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "3.2",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T18:53:24.530672",
+          "merged_at": "2026-05-17T19:16:35.695877"
+        },
+        {
+          "name": "enforce-pino-script-errors",
+          "file_paths": [
+            "packages/db/src/schema/scriptErrors.ts",
+            "packages/core/src/node/pino-db-transport.ts",
+            "packages/core/src/node/logger.ts"
+          ],
+          "task_count": 7,
+          "phase_classification": "P2",
+          "ddl_tables": [
+            "scriptErrors"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "2.4",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T18:53:24.577303",
+          "merged_at": "2026-05-17T19:16:35.741657"
+        },
+        {
+          "name": "swift-owns-elevenlabs-synth",
+          "file_paths": [
+            "apps/agent/src/notifications.ts",
+            "packages/db/src/schema/elevenlabsCredentials.ts"
+          ],
+          "task_count": 9,
+          "phase_classification": "P4",
+          "ddl_tables": [
+            "elevenlabsCredentials"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "4.5",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T18:53:24.622212",
+          "merged_at": "2026-05-17T19:16:35.787105"
+        }
+      ]
+    },
+    {
+      "wave_number": 2,
+      "rationale": "Specs eligible (deps satisfied): add-schema-drift-detector, add-subagent-tree-columns, collapse-credentials-dir, remove-notification-channels, xcodegen-initial-generate. Dep gates: collapse-credentials-dir after swift-owns-elevenlabs-synth (W1); collapse-credentials-dir after add-cc-credential-manager (W1); remove-notification-channels after swift-owns-elevenlabs-synth (W1).",
+      "specs": [
+        {
+          "name": "add-schema-drift-detector",
+          "file_paths": [
+            "apps/agent/src/services/schema-drift.ts",
+            "packages/db/src/schema/hookSchemaFingerprints.ts",
+            "apps/agent/src/routes/hooks.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P2",
+          "ddl_tables": [
+            "hookSchemaFingerprints"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "2.1",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:16:35.878661",
+          "merged_at": "2026-05-17T19:34:25.299408"
+        },
+        {
+          "name": "add-subagent-tree-columns",
+          "file_paths": [
+            "packages/db/src/schema/sessions.ts",
+            "apps/agent/src/session-manager.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P2",
+          "ddl_tables": [
+            "sessions"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "2.3",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:16:35.922605",
+          "merged_at": "2026-05-17T19:34:25.347733"
+        },
+        {
+          "name": "collapse-credentials-dir",
+          "file_paths": [
+            "apps/agent/src/credentials/",
+            "apps/agent/src/cc-credential-manager.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P1",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "swift-owns-elevenlabs-synth",
+            "add-cc-credential-manager"
+          ],
+          "phase_plate": "1.2",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:16:35.967284",
+          "merged_at": "2026-05-17T19:34:25.395708"
+        },
+        {
+          "name": "remove-notification-channels",
+          "file_paths": [
+            "apps/agent/src/notifications/channels/tts.ts",
+            "apps/agent/src/notifications/channels/desktop.ts",
+            "apps/agent/src/notifications.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "swift-owns-elevenlabs-synth"
+          ],
+          "phase_plate": "4.7",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:16:36.012984",
+          "merged_at": "2026-05-17T19:34:25.444163"
+        },
+        {
+          "name": "xcodegen-initial-generate",
+          "file_paths": [
+            "apps/swift/nexus.xcodeproj/project.pbxproj"
+          ],
+          "task_count": 7,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [],
+          "phase_plate": "4.1",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:16:36.057524",
+          "merged_at": "2026-05-17T19:34:25.492613"
+        }
+      ]
+    },
+    {
+      "wave_number": 3,
+      "rationale": "Specs eligible (deps satisfied): add-nexus-shared-framework, collapse-notifications-dir, drop-recognized-events-allowlist, socket-dispatcher-parity, supersede-mac-tts-listener-spec. Dep gates: add-nexus-shared-framework after xcodegen-initial-generate (W2); collapse-notifications-dir after remove-notification-channels (W2); drop-recognized-events-allowlist after add-schema-drift-detector (W2); socket-dispatcher-parity after add-schema-drift-detector (W2)....",
+      "specs": [
+        {
+          "name": "add-nexus-shared-framework",
+          "file_paths": [
+            "apps/swift/NexusShared/"
+          ],
+          "task_count": 7,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "xcodegen-initial-generate"
+          ],
+          "phase_plate": "4.2",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:59:13.514582",
+          "merged_at": "2026-05-17T20:13:35.281809"
+        },
+        {
+          "name": "collapse-notifications-dir",
+          "file_paths": [
+            "apps/agent/src/notifications/",
+            "apps/agent/src/notifications.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P1",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "remove-notification-channels"
+          ],
+          "phase_plate": "1.1",
+          "status": "failed",
+          "dispatched_at": "2026-05-17T19:59:13.559855"
+        },
+        {
+          "name": "drop-recognized-events-allowlist",
+          "file_paths": [
+            "apps/agent/src/routes/hooks.ts",
+            "packages/db/src/schema/sessionEvents.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P2",
+          "ddl_tables": [
+            "sessionEvents"
+          ],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "add-schema-drift-detector"
+          ],
+          "phase_plate": "2.5",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:59:13.603348",
+          "merged_at": "2026-05-17T20:13:35.328446"
+        },
+        {
+          "name": "socket-dispatcher-parity",
+          "file_paths": [
+            "apps/agent/src/services/socket-server/dispatcher.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P3",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "add-schema-drift-detector",
+            "add-git-project-resolver"
+          ],
+          "phase_plate": "3.1",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:59:13.647327",
+          "merged_at": "2026-05-17T20:13:35.374359"
+        },
+        {
+          "name": "supersede-mac-tts-listener-spec",
+          "file_paths": [
+            "openspec/changes/consolidate-mac-tts-listener/"
+          ],
+          "task_count": 5,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "swift-owns-elevenlabs-synth",
+            "remove-notification-channels"
+          ],
+          "phase_plate": "4.8",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T19:59:13.692607",
+          "merged_at": "2026-05-17T20:13:35.425064"
+        }
+      ]
+    },
+    {
+      "wave_number": 4,
+      "rationale": "Specs eligible (deps satisfied): migrate-cc-hooks-to-socket, scaffold-nexus-ios-target, scaffold-nexus-watch-target, swift-dashboard-feature-parity. Dep gates: migrate-cc-hooks-to-socket after socket-dispatcher-parity (W3); migrate-cc-hooks-to-socket after add-socket-hook-helper (W1); scaffold-nexus-ios-target after xcodegen-initial-generate (W2); scaffold-nexus-ios-target after add-nexus-shared-framework (W3)....",
+      "specs": [
+        {
+          "name": "migrate-cc-hooks-to-socket",
+          "file_paths": [
+            "~/.claude/settings.json"
+          ],
+          "task_count": 6,
+          "phase_classification": "P3",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "socket-dispatcher-parity",
+            "add-socket-hook-helper"
+          ],
+          "phase_plate": "3.3",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T20:46:41.641524",
+          "merged_at": "2026-05-17T21:07:49.155305"
+        },
+        {
+          "name": "scaffold-nexus-ios-target",
+          "file_paths": [
+            "apps/swift/nexus-ios/"
+          ],
+          "task_count": 7,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "xcodegen-initial-generate",
+            "add-nexus-shared-framework"
+          ],
+          "phase_plate": "4.3",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T20:46:41.686160",
+          "merged_at": "2026-05-17T21:07:49.200231"
+        },
+        {
+          "name": "scaffold-nexus-watch-target",
+          "file_paths": [
+            "apps/swift/nexus-watch/"
+          ],
+          "task_count": 7,
+          "phase_classification": "P4",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "add-nexus-shared-framework"
+          ],
+          "phase_plate": "4.4",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T20:46:41.729817",
+          "merged_at": "2026-05-17T21:07:49.243664"
+        },
+        {
+          "name": "swift-dashboard-feature-parity",
+          "file_paths": [
+            "apps/swift/nexus/nexus/"
+          ],
+          "task_count": 12,
+          "phase_classification": "P5",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "add-nexus-shared-framework"
+          ],
+          "phase_plate": "5.1",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T20:46:41.775303",
+          "merged_at": "2026-05-17T21:07:49.287853"
+        }
+      ]
+    },
+    {
+      "wave_number": 5,
+      "rationale": "Specs eligible (deps satisfied): delete-http-hooks-endpoint, retire-web-dashboard-infra. Dep gates: delete-http-hooks-endpoint after migrate-cc-hooks-to-socket (W4); retire-web-dashboard-infra after swift-dashboard-feature-parity (W4).",
+      "specs": [
+        {
+          "name": "delete-http-hooks-endpoint",
+          "file_paths": [
+            "apps/agent/src/routes/hooks.ts",
+            "apps/agent/src/server.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": "P3",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "migrate-cc-hooks-to-socket"
+          ],
+          "phase_plate": "3.4",
+          "status": "merged",
+          "merged_at": "2026-05-17T21:57:59.792587"
+        },
+        {
+          "name": "retire-web-dashboard-infra",
+          "file_paths": [
+            "apps/nextjs/",
+            "packages/ui/",
+            "deploy/nexus-dashboard.service",
+            "deploy/traefik/"
+          ],
+          "task_count": 9,
+          "phase_classification": "P5",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "swift-dashboard-feature-parity"
+          ],
+          "phase_plate": "5.2",
+          "status": "merged",
+          "merged_at": "2026-05-17T21:57:59.838098"
+        }
+      ]
+    },
+    {
+      "wave_number": 6,
+      "rationale": "Specs eligible (deps satisfied): remove-mac-deploy-artifacts. Dep gates: remove-mac-deploy-artifacts after remove-notification-channels (W2); remove-mac-deploy-artifacts after supersede-mac-tts-listener-spec (W3); remove-mac-deploy-artifacts after retire-web-dashboard-infra (W5).",
+      "specs": [
+        {
+          "name": "remove-mac-deploy-artifacts",
+          "file_paths": [
+            "deploy/com.nexus.agent.plist",
+            "deploy/nexus-notifier.sh",
+            "deploy/com.nexus.notifier.plist",
+            "deploy/com.nexus.tts-player.plist",
+            "deploy/nexus-listener.ts",
+            "deploy/nexus-stub.swift"
+          ],
+          "task_count": 9,
+          "phase_classification": "P6",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "remove-notification-channels",
+            "supersede-mac-tts-listener-spec",
+            "retire-web-dashboard-infra"
+          ],
+          "phase_plate": "6.1",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T21:59:01.366919",
+          "merged_at": "2026-05-17T22:08:29.763475"
+        }
+      ]
+    },
+    {
+      "wave_number": 7,
+      "rationale": "Specs eligible (deps satisfied): env-aware-install-script. Dep gates: env-aware-install-script after remove-mac-deploy-artifacts (W6).",
+      "specs": [
+        {
+          "name": "env-aware-install-script",
+          "file_paths": [
+            "install.sh"
+          ],
+          "task_count": 7,
+          "phase_classification": "P6",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "remove-mac-deploy-artifacts"
+          ],
+          "phase_plate": "6.2",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T21:59:01.414312",
+          "merged_at": "2026-05-17T22:08:29.807330"
+        }
+      ]
+    },
+    {
+      "wave_number": 8,
+      "rationale": "Specs eligible (deps satisfied): document-spine-architecture. Dep gates: document-spine-architecture after env-aware-install-script (W7); document-spine-architecture after remove-mac-deploy-artifacts (W6).",
+      "specs": [
+        {
+          "name": "document-spine-architecture",
+          "file_paths": [
+            "CLAUDE.md",
+            "README.md",
+            "docs/plan/spine-migration/COMPLETION.md"
+          ],
+          "task_count": 4,
+          "phase_classification": "P6",
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "spine-migration",
+          "priority": 2,
+          "explicit_deps": [
+            "env-aware-install-script",
+            "remove-mac-deploy-artifacts"
+          ],
+          "phase_plate": "6.3",
+          "status": "merged",
+          "dispatched_at": "2026-05-17T21:59:01.459286",
+          "merged_at": "2026-05-17T22:08:29.850205"
+        }
+      ]
+    }
+  ],
+  "run_id": "apply-2026-05-17-002",
+  "plan_id": "spine-migration-2026-05-17-v2",
+  "explicit_deps": {
+    "collapse-notifications-dir": [
+      "remove-notification-channels"
+    ],
+    "collapse-credentials-dir": [
+      "swift-owns-elevenlabs-synth",
+      "add-cc-credential-manager"
+    ],
+    "drop-recognized-events-allowlist": [
+      "add-schema-drift-detector"
+    ],
+    "socket-dispatcher-parity": [
+      "add-schema-drift-detector",
+      "add-git-project-resolver"
+    ],
+    "migrate-cc-hooks-to-socket": [
+      "socket-dispatcher-parity",
+      "add-socket-hook-helper"
+    ],
+    "delete-http-hooks-endpoint": [
+      "migrate-cc-hooks-to-socket"
+    ],
+    "add-nexus-shared-framework": [
+      "xcodegen-initial-generate"
+    ],
+    "scaffold-nexus-ios-target": [
+      "xcodegen-initial-generate",
+      "add-nexus-shared-framework"
+    ],
+    "scaffold-nexus-watch-target": [
+      "add-nexus-shared-framework"
+    ],
+    "remove-notification-channels": [
+      "swift-owns-elevenlabs-synth"
+    ],
+    "supersede-mac-tts-listener-spec": [
+      "swift-owns-elevenlabs-synth",
+      "remove-notification-channels"
+    ],
+    "swift-dashboard-feature-parity": [
+      "add-nexus-shared-framework"
+    ],
+    "retire-web-dashboard-infra": [
+      "swift-dashboard-feature-parity"
+    ],
+    "remove-mac-deploy-artifacts": [
+      "remove-notification-channels",
+      "supersede-mac-tts-listener-spec",
+      "retire-web-dashboard-infra"
+    ],
+    "env-aware-install-script": [
+      "remove-mac-deploy-artifacts"
+    ],
+    "document-spine-architecture": [
+      "env-aware-install-script",
+      "remove-mac-deploy-artifacts"
+    ]
+  }
+}
