@@ -28,6 +28,17 @@
   Error envelope: 400 (bad body), 404 (session not found), 409 (no
   tmuxTarget), 500 (tmux send-keys non-zero), 503 (route not initialised).
 
+  **Sim-verified (bd:nx-0t3n0, 2026-05-18)**: `curl -X POST
+  http://localhost:7400/commands/send-text -d
+  '{"sessionId":"sim-watch-001","text":"hello"}'` returns
+  `404 {"error":"session not found: sim-watch-001"}` against the
+  running nexus-agent — confirms the route is wired, body validation
+  passes, session lookup engages. JSON contract matches the body shape
+  emitted by `SendTextDispatcher.swift` (sessionId, text, appendNewline).
+  Full end-to-end (action-tap → tmux receipt) gated by hardware
+  (bd:nx-gm1tl) — watch sim build blocked on watchOS 26.4 SDK vs 26.1
+  sim-runtime mismatch (bd:nx-0jz3x).
+
 - [x] 1.3 Implement watchOS App + ContentView (session count + last alert)
 
   `NexusWatchApp` instantiates `NexusShared.SessionObserver` and renders

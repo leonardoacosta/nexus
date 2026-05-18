@@ -66,3 +66,22 @@ Supporting changes:
 retire-web-dashboard-infra is now unblocked from the parity-audit side;
 remaining gate is the agent-side `GET /integrations` endpoint (older
 agents return 404, view degrades gracefully).
+
+## iOS / watchOS sim-verify residue (bd:nx-0t3n0, 2026-05-18)
+
+Sim verification of the scaffold-nexus-{ios,watch}-target push chains
+was partially completed:
+
+- **Agent side: verified** — fixed missing `NEXUS_ENCRYPTION_KEY` in
+  the launchd plist (gap filed as bd:nx-rui8k); nexus-agent now running.
+  `/commands/send-text` smoke-tested via curl: returns the expected 404
+  envelope for an unknown session, validating the route is wired and
+  body validation matches the JSON shape `SendTextDispatcher.swift`
+  emits.
+- **iOS sim build: blocked** — pre-existing missing `import SwiftUI`
+  in `nexus-ios/Sources/Attach/SshTerminalSession.swift`. Filed as
+  bd:nx-axdqm.
+- **watchOS sim build: blocked** — Xcode ships watchOS 26.4 SDK;
+  installed sim runtimes are 26.1 / 26.2 / 11.5. Filed as bd:nx-0jz3x.
+- **Hardware end-to-end** remains the gate (bd:nx-gm1tl); the sim
+  surface only covers the agent-side HTTP contract.

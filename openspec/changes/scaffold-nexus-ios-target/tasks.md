@@ -50,6 +50,16 @@
   Push will silently fail until bd:nx-gsgvk lands (no entitlement, no
   push key). The Swift code compiles + ships without the entitlement.
 
+  **Sim-verify attempted (bd:nx-0t3n0, 2026-05-18)**: iOS sim build
+  blocked by pre-existing missing `import SwiftUI` in
+  `apps/swift/nexus-ios/Sources/Attach/SshTerminalSession.swift:24`
+  (uses `@Binding` / `Binding<AttachStatus>` without the import).
+  xcodebuild error: `cannot find type 'Binding' in scope`. MetalToolchain
+  was downloaded inline during the verify to clear an earlier blocker
+  (`xcodebuild -downloadComponent MetalToolchain`, ~688 MB). The Swift
+  bug is filed as bd:nx-axdqm. Once that single-line fix lands, the iOS
+  sim verify can rerun without further blockers.
+
 - [x] 1.6 [user-action] Provision APNS via Apple Developer; add push entitlement
 
   Escalated to **bd:nx-gsgvk** ("Apple ecosystem provisioning: APNS (iOS) +
