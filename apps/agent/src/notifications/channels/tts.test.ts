@@ -1,418 +1,82 @@
 /**
- * TTS notification channel tests — project prefix behavior.
+ * Unit tests for the signal-only TTS channel.
  *
- * Verifies that sendTtsNotification prepends `<project>: ` to the body when
- * notification.project is a non-empty string, and sends the raw body otherwise.
+ * Post swift-owns-elevenlabs-synth, the channel no longer issues any HTTP
+ * call to ElevenLabs and no longer returns audioBase64 bytes. Synthesis is
+ * the Mac listener's responsibility (NexusShared.ElevenLabsClient +
+ * AVAudioPlayer). The previous test suite — which exercised the ElevenLabs
+ * fetch, fallback paths, and audioBase64 result shape — is intentionally
+ * replaced by this narrower contract.
  *
- * Parallel task ownership (spec: fix-tts-announce-project-prefix):
- *   [2.1] non-empty project prepends prefix
- *   [2.2] null project → no prefix
- *   [2.3] empty-string project → no prefix
- *   [2.4] stub branch (no API key) parity
- *
- * Each it(...) block is owned by one task; do not modify siblings.
+ * Coverage:
+ *   - returns { success: true } unconditionally for any notification
+ *   - never calls fetch (i.e. the agent stays signal-only)
+ *   - scrubFetchError continues to redact xi-api-key headers
  */
 
-import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
+
+import { sendTtsNotification, scrubFetchError } from "./tts";
 import type { NotificationRow } from "../buffer";
 
-// ─── Shared mocks ───────────────────────────────────────────────────────────
-
-const fetchWithTimeoutMock = mock(async (_url: string, _init: unknown) => {
-  return new Response(null, { status: 200 });
-});
-
-mock.module("@nexus/core/fetch", () => ({
-  fetchWithTimeout: fetchWithTimeoutMock,
-}));
-
-const loggerInfoMock = mock((..._args: unknown[]) => {});
-
-mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: loggerInfoMock,
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
-  getAgentId: mock(() => "test-agent"),
-}));
-
-mock.module("@sentry/node", () => ({
-  captureException: mock(() => {}),
-  addBreadcrumb: mock(() => {}),
-  init: mock(() => {}),
-}));
-
-// ─── Fixture helper ─────────────────────────────────────────────────────────
-
-function makeNotification(overrides: Partial<NotificationRow> = {}): NotificationRow {
+function makeRow(overrides: Partial<NotificationRow> = {}): NotificationRow {
   return {
-    id: "tts-test-1",
-    title: "Test",
-    body: "build complete",
+    id: "n-1",
     channel: "tts",
-    priority: "normal",
-    status: "queued",
+    title: "title",
+    body: "hello world",
     project: null,
     agentId: null,
-    createdAt: new Date(),
+    priority: "normal",
+    status: "queued",
     sentAt: null,
+    createdAt: new Date(),
     ...overrides,
   } as NotificationRow;
 }
 
-// ─── sendTtsNotification ────────────────────────────────────────────────────
-
-describe("sendTtsNotification", () => {
-  let originalApiKey: string | undefined;
-
-  beforeEach(() => {
-    fetchWithTimeoutMock.mockClear();
-    loggerInfoMock.mockClear();
-    originalApiKey = process.env.ELEVENLABS_API_KEY;
-    process.env.ELEVENLABS_API_KEY = "test-key";
+describe("sendTtsNotification (signal-only)", () => {
+  it("returns success regardless of input", async () => {
+    const result = await sendTtsNotification(makeRow());
+    expect(result.success).toBe(true);
   });
 
-  afterEach(() => {
-    if (originalApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = originalApiKey;
+  it("never issues a fetch call", async () => {
+    const fetchSpy = mock();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchSpy as never;
+    try {
+      await sendTtsNotification(makeRow({ project: "tc" }));
+      expect(fetchSpy).toHaveBeenCalledTimes(0);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 
-  // ─── Task 2.1 ─────────────────────────────────────────────────────────────
-  it('prepends "<project>:" prefix when project is non-empty string', async () => {
-    const { sendTtsNotification } = await import("./tts");
-
-    const notif = makeNotification({
-      id: "tts-2.1",
-      project: "nova",
-      body: "build complete",
-    });
-
-    await sendTtsNotification(notif);
-
-    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchWithTimeoutMock.mock.calls[0] as [
-      string,
-      { body: string },
-    ];
-    expect(url).toContain("https://api.elevenlabs.io/v1/text-to-speech/");
-    const parsed = JSON.parse(init.body) as { text: string };
-    expect(parsed.text).toBe("nova: build complete");
-  });
-
-  // ─── Task 2.2 ─────────────────────────────────────────────────────────────
-  it("emits bare body with no prefix when project is null", async () => {
-    const { sendTtsNotification } = await import("./tts");
-
-    const notif = makeNotification({
-      id: "t-null",
-      project: null,
-      body: "deploy succeeded",
-    });
-
-    await sendTtsNotification(notif);
-
-    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchWithTimeoutMock.mock.calls[0] as [
-      string,
-      { body: string },
-    ];
-    const parsed = JSON.parse(init.body) as { text: string };
-    expect(parsed.text).toBe("deploy succeeded");
-    expect(parsed.text).not.toContain("nexus");
-    expect(parsed.text).not.toContain("unknown");
-    expect(parsed.text).not.toContain("null");
-    expect(parsed.text).not.toContain(":");
-  });
-
-  // ─── Task 2.3 ─────────────────────────────────────────────────────────────
-  it("treats empty string project as absent (no prefix, no colon artifact)", async () => {
-    const { sendTtsNotification } = await import("./tts");
-
-    const notif = makeNotification({
-      id: "tts-2.3",
-      project: "",
-      body: "something happened",
-    });
-
-    await sendTtsNotification(notif);
-
-    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchWithTimeoutMock.mock.calls[0] as [
-      string,
-      { body: string },
-    ];
-    const parsed = JSON.parse(init.body) as { text: string };
-    expect(parsed.text).toBe("something happened");
-    expect(parsed.text).not.toContain(": ");
-  });
-
-  // ─── Task 2.4 ─────────────────────────────────────────────────────────────
-  it("stub branch logs composed text when ELEVENLABS_API_KEY is unset", async () => {
-    delete process.env.ELEVENLABS_API_KEY;
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const notif = makeNotification({
-      id: "tts-2.4",
-      project: "nx",
-      body: "tests green",
-    });
-
-    const result = await sendTtsNotification(notif);
-
-    expect(result).toEqual({ success: true });
-    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
-    expect(loggerInfoMock).toHaveBeenCalled();
-    const [firstArg] = loggerInfoMock.mock.calls[0] as [
-      { id: string; body: string },
-    ];
-    expect(firstArg).toEqual({ id: "tts-2.4", body: "nx: tests green" });
-  });
-});
-
-// ─── Graceful fallback (nx-4p8n follow-up: ElevenLabs failure → local TTS) ──
-//
-// When ELEVENLABS_API_KEY is set but the API rejects the call (401, 429,
-// network error, etc.) the channel must NOT throw. It must return
-// `{ success: true }` with no audioBase64 so `NotificationFired` still
-// fires and the Mac `nexus-notifier` can fall back to `say`.
-
-describe("sendTtsNotification — ElevenLabs failure fallback", () => {
-  let originalApiKey: string | undefined;
-
-  beforeEach(() => {
-    fetchWithTimeoutMock.mockClear();
-    loggerInfoMock.mockClear();
-    originalApiKey = process.env.ELEVENLABS_API_KEY;
-    process.env.ELEVENLABS_API_KEY = "test-key";
-  });
-
-  afterEach(() => {
-    if (originalApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = originalApiKey;
-    }
-  });
-
-  it("returns signal-only success on HTTP 401 (invalid/expired API key)", async () => {
-    fetchWithTimeoutMock.mockImplementationOnce(
-      async () => new Response(null, { status: 401 }),
-    );
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-fb-401", body: "ship it" }),
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.audioBase64).toBeUndefined();
-    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns signal-only success on HTTP 429 (quota exhausted)", async () => {
-    fetchWithTimeoutMock.mockImplementationOnce(
-      async () => new Response(null, { status: 429 }),
-    );
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-fb-429", body: "throttled" }),
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.audioBase64).toBeUndefined();
-  });
-
-  it("returns signal-only success when fetch throws (network/timeout)", async () => {
-    fetchWithTimeoutMock.mockImplementationOnce(async () => {
-      throw new Error("ETIMEDOUT");
-    });
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-fb-timeout", body: "offline" }),
-    );
-
-    expect(result.success).toBe(true);
+  it("does not return audioBase64 (deleted by spec)", async () => {
+    const result = (await sendTtsNotification(makeRow())) as Record<string, unknown>;
     expect(result.audioBase64).toBeUndefined();
   });
 });
 
-// ─── restore-tts-mac-audio-dispatch: §2.1 + §2.2 unit assertions ──────────
-//
-// §2.1: With ELEVENLABS_API_KEY set and the HTTP layer returning a 60-byte
-// mp3 payload, the channel MUST return success:true and an audioBase64
-// string that decodes back to 60 bytes. Anything less means the manager
-// can't propagate the audio onto NotificationFired.
-//
-// §2.2: With ELEVENLABS_API_KEY UNSET (and no DB row), the channel MUST
-// return success:true with audioBase64 undefined and MUST NOT call out to
-// the network at all (signal-only mode). Same envelope so downstream
-// listeners still fire — the Mac side falls back to `say`.
-
-describe("sendTtsNotification — §2.1 audioBase64 round-trips a 60-byte mp3", () => {
-  let originalApiKey: string | undefined;
-
-  beforeEach(() => {
-    fetchWithTimeoutMock.mockClear();
-    originalApiKey = process.env.ELEVENLABS_API_KEY;
-    process.env.ELEVENLABS_API_KEY = "test-key";
-  });
-
-  afterEach(() => {
-    if (originalApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = originalApiKey;
-    }
-  });
-
-  it("returns audioBase64 whose decoded length equals the upstream mp3 byte count (60)", async () => {
-    const fakeMp3 = new Uint8Array(60);
-    for (let i = 0; i < 60; i++) fakeMp3[i] = (i * 7 + 1) & 0xff;
-    fetchWithTimeoutMock.mockImplementationOnce(
-      async () =>
-        new Response(fakeMp3, {
-          status: 200,
-          headers: { "Content-Type": "audio/mpeg" },
-        }),
+describe("scrubFetchError", () => {
+  it("strips xi-api-key from error objects", () => {
+    const err = Object.assign(new Error("boom"), {
+      headers: { "xi-api-key": "SECRET", "content-type": "application/json" },
+    });
+    const scrubbed = scrubFetchError(err) as { headers?: Record<string, unknown> };
+    expect(scrubbed.headers).toBeDefined();
+    expect((scrubbed.headers as Record<string, unknown>)?.["xi-api-key"]).toBeUndefined();
+    expect((scrubbed.headers as Record<string, unknown>)?.["content-type"]).toBe(
+      "application/json",
     );
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-2.1-60b", body: "build complete" }),
-    );
-
-    expect(result.success).toBe(true);
-    expect(typeof result.audioBase64).toBe("string");
-    const decoded = Buffer.from(result.audioBase64 ?? "", "base64");
-    expect(decoded.byteLength).toBe(60);
-    // First/last byte parity to confirm it's the same buffer, not just length.
-    expect(decoded[0]).toBe(fakeMp3[0]);
-    expect(decoded[59]).toBe(fakeMp3[59]);
-  });
-});
-
-describe("sendTtsNotification — §2.2 no key → signal-only, no fetch", () => {
-  let originalApiKey: string | undefined;
-
-  beforeEach(() => {
-    fetchWithTimeoutMock.mockClear();
-    originalApiKey = process.env.ELEVENLABS_API_KEY;
-    delete process.env.ELEVENLABS_API_KEY;
   });
 
-  afterEach(() => {
-    if (originalApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = originalApiKey;
-    }
-  });
-
-  it("returns success:true, audioBase64 undefined, and never calls fetchWithTimeout", async () => {
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-2.2-nokey", body: "offline mode" }),
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.audioBase64).toBeUndefined();
-    expect(fetchWithTimeoutMock).not.toHaveBeenCalled();
-  });
-});
-
-// ─── add-elevenlabs-credential: DB-row wins over env-var ───────────────────
-//
-// The TTS channel MUST prefer the per-agent `elevenlabs_credentials` row
-// (decrypted on the fly) over `process.env.ELEVENLABS_API_KEY`. Both are
-// allowed; precedence is DB-then-env. This guarantees a dashboard PATCH
-// rotates the key without an agent restart.
-
-describe("sendTtsNotification — DB row wins over env var", () => {
-  let originalApiKey: string | undefined;
-
-  beforeEach(() => {
-    fetchWithTimeoutMock.mockClear();
-    originalApiKey = process.env.ELEVENLABS_API_KEY;
-  });
-
-  afterEach(() => {
-    if (originalApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = originalApiKey;
-    }
-  });
-
-  it("uses DB-row api key when both DB row and ELEVENLABS_API_KEY env are set", async () => {
-    process.env.ELEVENLABS_API_KEY = "ENV_KEY";
-
-    // Install a stub encryption key into the shared elevenlabs runtime
-    // module so the channel's decrypt path resolves the same key the test
-    // uses to encrypt. encrypt() lives in the agent's credentials helpers.
-    const { encrypt } = await import("../../credentials/encryption");
-    const {
-      setElevenlabsRuntime,
-      resetElevenlabsRuntime,
-    } = await import("../../credentials/elevenlabs-runtime");
-    const STUB_KEY = Buffer.alloc(32, 9);
-    resetElevenlabsRuntime();
-    setElevenlabsRuntime({ encryptionKey: STUB_KEY });
-
-    const ciphertext = encrypt("DB_KEY", STUB_KEY);
-
-    // Fake DB whose query API yields a row with our encrypted value.
-    const fakeDb = {
-      query: {
-        elevenlabsCredentials: {
-          findFirst: mock(async () => ({
-            id: "row-1",
-            agentId: "test-agent",
-            valueEncrypted: ciphertext,
-            encryptionKeyId: "v1",
-            voiceId: null,
-            voiceName: null,
-            lastTestOkAt: null,
-            lastTestStatusCode: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })),
-        },
-      },
-    } as unknown as import("@nexus/db").Db;
-
-    const { sendTtsNotification } = await import("./tts");
-
-    const result = await sendTtsNotification(
-      makeNotification({ id: "tts-db-wins", body: "rotate me" }),
-      { db: fakeDb },
-    );
-
-    expect(result.success).toBe(true);
-    expect(fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchWithTimeoutMock.mock.calls[0] as [
-      string,
-      { headers: Record<string, string> },
-    ];
-    expect(init.headers["xi-api-key"]).toBe("DB_KEY");
-    expect(init.headers["xi-api-key"]).not.toBe("ENV_KEY");
+  it("handles cycle-safe traversal", () => {
+    const obj: Record<string, unknown> = { name: "outer" };
+    obj.self = obj;
+    const result = scrubFetchError(obj) as Record<string, unknown>;
+    expect(result.name).toBe("outer");
+    expect(result.self).toBe("[Circular]");
   });
 });
