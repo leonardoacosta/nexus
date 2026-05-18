@@ -12,22 +12,16 @@ scope for this README.)
 deploy/
 ├── install.sh                    # entry point — Linux install (Linux agent + git hooks)
 ├── nexus-agent.service           # systemd user unit (Linux agent)
-├── com.nexus.agent.plist         # legacy launchd unit (Mac agent — rarely used)
-├── nexus-notifier.sh             # Mac listener — FIFO+say + afplay/audioBase64 + dashboard
-├── com.nexus.notifier.plist      # launchd unit for the Mac listener
-├── com.nexus.tts-player.plist    # drain worker for the FIFO (legacy say path)
 ├── traefik/                      # dashboard reverse-proxy config
 ├── hooks/                        # git-hook dispatchers for spec-aware automation
 └── hooks.d/post-merge/02-deploy  # rebuilds + fans out to every Mac in agents.toml
 ```
 
-`deploy/nexus-notifier.sh` is the single canonical Mac listener. It carries
-the legacy FIFO+`say` pipeline (with dedup, banner emoji icons, drain
-worker) and the audioBase64+`afplay` path from the audio-dispatch spec, plus
-the bootstrap-from-`/notifications/settings` and SSE `SettingsChanged`
-hooks from the dashboard spec. The audio path takes precedence whenever a
-NotificationFired frame carries `payload.audioBase64`; otherwise dispatch
-falls through to the FIFO so the drain worker plays it serially via `say`.
+The Mac side is now owned by the Swift app at `/Applications/Nexus.app`
+(`com.nexus.menubar`) — it subscribes to the agent's SSE stream and owns
+TTS dispatch + banner-click cancel natively. The previous bash listener
+(`deploy/nexus-notifier.sh`) and its launchd plists were retired in
+spine-migration wave 6.
 
 ## Linux agent install (homelab side)
 
@@ -57,28 +51,16 @@ deploy/install.sh --dashboard
 
 ## Mac listener install (audio dispatch side)
 
-The Mac listener subscribes to the agent's `/events/stream` SSE endpoint
-and pipes ElevenLabs mp3 bytes into `/usr/bin/afplay`. When a frame
-arrives without `audioBase64` (signal-only — no key, or the upstream call
-failed), dispatch falls through to the FIFO so the drain worker plays
-the body via `/usr/bin/say` serially.
+The Mac listener is the Swift app at `/Applications/Nexus.app`
+(`com.nexus.menubar`). It subscribes to the agent's `/events/stream` SSE
+endpoint and owns TTS dispatch (ElevenLabs synthesis + playback) and
+banner-click cancel natively — no bash scripts, no FIFOs, no drain workers.
 
 **Mac install is automatic via the post-merge hook.** When you push to
 `main` (or pull on the Linux host), `deploy/hooks.d/post-merge/02-deploy`
 fans out to every entry in `~/.config/nexus/agents.toml` whose `host` is
-not `localhost`/`127.0.0.1`, runs `git pull --ff-only`, and rebuilds. On
-Darwin targets the same script `cp`s `deploy/nexus-notifier.sh` to
-`~/bin/`, installs `deploy/com.nexus.notifier.plist` and
-`deploy/com.nexus.tts-player.plist` into `~/Library/LaunchAgents/`, and
-runs `launchctl bootout && launchctl load`. There is no separate `--mac`
-shipping flow — the install path is just a `git pull` away.
-
-Verify the listener is healthy:
-
-```bash
-ssh mac 'launchctl list | grep com.nexus.notifier'
-ssh mac 'tail -f ~/Library/Logs/nexus-notifier.log'
-```
+not `localhost`/`127.0.0.1`, runs `git pull --ff-only`, and rebuilds the
+agent. The Swift dashboard ships separately via the Xcode archive flow.
 
 ## Secret provisioning
 
@@ -120,17 +102,8 @@ the SSE stream as `payload.audioBase64`.
 
 ## Dashboard hooks (suppression UI)
 
-`deploy/com.nexus.notifier.plist` declares three env vars that seed the
-listener's settings cache before the on-startup GET to
-`/notifications/settings` populates real values:
-
-| Var               | Default | Effect                                                       |
-| ----------------- | ------- | ------------------------------------------------------------ |
-| `TTS_ENABLED`     | `1`     | `false`/`0` short-circuits both afplay and the say-fallback. |
-| `BANNER_ENABLED`  | `1`     | `false` short-circuits the osascript/terminal-notifier call. |
-| `DUCKING_MODE`    | `none`  | `half` lowers volume to 25, `mute` mutes; restored after.    |
-
-Live updates flow through the SSE `SettingsChanged` event — the listener
-mutates its cache in place, no restart required. The plist values matter
-only for the brief window between launchctl load and the bootstrap GET
-landing.
+Notification settings (`TTS_ENABLED`, `BANNER_ENABLED`, `DUCKING_MODE`) are
+read by the Swift dashboard from the agent's `/notifications/settings`
+endpoint on startup, then kept live via the SSE `SettingsChanged` event.
+There are no longer any plist-level env-var seeds — the Swift app holds
+defaults internally and overlays remote settings as they arrive.

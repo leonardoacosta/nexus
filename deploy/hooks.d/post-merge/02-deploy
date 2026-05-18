@@ -158,32 +158,9 @@ case "$OS" in
         # Retry-with-backoff via bootstrap_with_retry() to defeat the
         # `Load failed: 5: I/O error` race after same-session bootout.
         bootstrap_with_retry "com.nexus.agent" "$PLIST"
-
-        # ── Notifier listener + TTS drain worker ─────────────────────────
-        # Install both plists alongside the agent. The notifier script and
-        # the status helper deploy to ~/bin so the plist's absolute path
-        # resolves consistently across machines.
-        mkdir -p "$HOME/bin"
-        if [[ -f "$DEPLOY_DIR/nexus-notifier.sh" ]]; then
-            install -m 755 "$DEPLOY_DIR/nexus-notifier.sh" "$HOME/bin/nexus-notifier.sh"
-            info "nexus-notifier.sh installed to ~/bin"
-        fi
-        if [[ -f "$DEPLOY_DIR/nexus-notifier-status.sh" ]]; then
-            install -m 755 "$DEPLOY_DIR/nexus-notifier-status.sh" "$HOME/bin/nexus-notifier-status.sh"
-            info "nexus-notifier-status.sh installed to ~/bin"
-        fi
-
-        if [[ -f "$DEPLOY_DIR/com.nexus.notifier.plist" ]]; then
-            NOTIFIER_PLIST="$LAUNCH_DIR/com.nexus.notifier.plist"
-            cp "$DEPLOY_DIR/com.nexus.notifier.plist" "$NOTIFIER_PLIST"
-            bootstrap_with_retry "com.nexus.notifier" "$NOTIFIER_PLIST"
-        fi
-
-        if [[ -f "$DEPLOY_DIR/com.nexus.tts-player.plist" ]]; then
-            PLAYER_PLIST="$LAUNCH_DIR/com.nexus.tts-player.plist"
-            cp "$DEPLOY_DIR/com.nexus.tts-player.plist" "$PLAYER_PLIST"
-            bootstrap_with_retry "com.nexus.tts-player" "$PLAYER_PLIST"
-        fi
+        # Notifier listener + TTS drain worker removed in spine-migration
+        # wave 6 — Swift app at /Applications/Nexus.app (com.nexus.menubar)
+        # owns TTS dispatch + banner-click cancel natively.
         ;;
 esac
 
