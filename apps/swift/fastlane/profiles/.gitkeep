@@ -1,0 +1,3 @@
+# Provisioning profiles downloaded by `fastlane sigh_ios` / `fastlane sigh_watch`
+# land here. *.mobileprovision is gitignored (see top-level .gitignore).
+# Empty directory committed via .gitkeep so first sigh run has a target path.

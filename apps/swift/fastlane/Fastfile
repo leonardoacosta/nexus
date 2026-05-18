@@ -1,0 +1,97 @@
+default_platform(:ios)
+
+# App Store Connect API key — set globally via app_store_connect_api_key so
+# that downstream actions (produce, sigh, cert) pick it up via lane_context.
+# Credentials supplied through env vars (ASC_KEY_ID + ASC_ISSUER_ID + ASC_KEY_PATH)
+# or, as a last-resort dev fallback, the literals committed below.
+def load_asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"] || "VRQXZ3WH58",
+    issuer_id: ENV["ASC_ISSUER_ID"] || "31dc9929-98e0-4093-9c76-5bc3359809b5",
+    key_filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_VRQXZ3WH58.p8"),
+    in_house: false
+  )
+end
+
+# Spaceship-backed bundle ID + push-capability provisioner.
+# fastlane's `produce` action does NOT support App Store Connect API key auth
+# (only Apple ID + 2FA), so we drive Spaceship::ConnectAPI directly with the
+# .p8 credentials. This is idempotent — if the bundle ID already exists,
+# we just ensure the push capability is enabled.
+def ensure_bundle_id(bundle_id, name)
+  require "spaceship"
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+    key_id: ENV["ASC_KEY_ID"] || "VRQXZ3WH58",
+    issuer_id: ENV["ASC_ISSUER_ID"] || "31dc9929-98e0-4093-9c76-5bc3359809b5",
+    filepath: ENV["ASC_KEY_PATH"] || File.expand_path("~/.appstoreconnect/private_keys/AuthKey_VRQXZ3WH58.p8")
+  )
+
+  bundle = Spaceship::ConnectAPI::BundleId.find(bundle_id)
+  if bundle.nil?
+    UI.message("Creating bundle ID '#{bundle_id}'…")
+    bundle = Spaceship::ConnectAPI::BundleId.create(
+      name: name,
+      identifier: bundle_id,
+      platform: Spaceship::ConnectAPI::BundleIdPlatform::IOS
+    )
+    UI.success("Bundle ID '#{bundle_id}' created.")
+  else
+    UI.success("Bundle ID '#{bundle_id}' already exists — idempotent OK.")
+  end
+
+  # Enable Push Notifications capability (idempotent — Apple ignores duplicate enables)
+  begin
+    Spaceship::ConnectAPI::BundleIdCapability.create(
+      bundle_id_id: bundle.id,
+      capability_type: Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS
+    )
+    UI.success("Enabled PUSH_NOTIFICATIONS capability on '#{bundle_id}'.")
+  rescue => e
+    if e.message.include?("already exists") || e.message.include?("ENTITY_ERROR") || e.message.include?("already enabled")
+      UI.success("PUSH_NOTIFICATIONS capability already on '#{bundle_id}' — idempotent OK.")
+    else
+      UI.important("Capability enable returned: #{e.message}")
+    end
+  end
+
+  bundle
+end
+
+platform :ios do
+  desc "Create iOS bundle ID + enable push capability"
+  lane :provision_ios do
+    load_asc_api_key
+    ensure_bundle_id("dev.leonardoacosta.nexus.ios", "Nexus iOS")
+  end
+
+  desc "Download iOS provisioning profile (development)"
+  lane :sigh_ios do
+    load_asc_api_key
+    sigh(
+      app_identifier: "dev.leonardoacosta.nexus.ios",
+      development: true,
+      output_path: "fastlane/profiles/",
+      filename: "nexus_ios_development.mobileprovision",
+      force: true
+    )
+  end
+end
+
+# watchOS provisioning piggy-backs on iOS Bundle ID convention
+# (watchOS apps must share parent iOS Bundle ID prefix)
+lane :provision_watch do
+  load_asc_api_key
+  ensure_bundle_id("dev.leonardoacosta.nexus.watch", "Nexus Watch")
+end
+
+lane :sigh_watch do
+  load_asc_api_key
+  sigh(
+    app_identifier: "dev.leonardoacosta.nexus.watch",
+    platform: "ios",
+    development: true,
+    output_path: "fastlane/profiles/",
+    filename: "nexus_watch_development.mobileprovision",
+    force: true
+  )
+end

@@ -71,3 +71,7 @@ infra/.secrets.env
 infra/.tf-outputs.env
 infra/**/.terraform/
 apps/nexus-status/nexus-status
+
+# Fastlane — provisioning profiles + report
+apps/swift/fastlane/profiles/*.mobileprovision
+apps/swift/fastlane/report.xml

@@ -2,8 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Push entitlement is added by the Apple Developer provisioning
-         pass tracked in bd:nx-gsgvk. Leave this entitlements file
-         minimal until provisioning lands. -->
+    <!-- Push entitlement enabled once provisioning lands.
+         Bundle dev.leonardoacosta.nexus.ios ALREADY has PUSH_NOTIFICATIONS
+         capability enabled on Apple side (verified via Spaceship 2026-05-18).
+         Adding <aps-environment> here is gated on a matching dev provisioning
+         profile being available — tracked in bd:nx-jr9z4. After that lands,
+         uncomment:
+
+         <key>aps-environment</key>
+         <string>development</string>
+    -->
 </dict>
 </plist>

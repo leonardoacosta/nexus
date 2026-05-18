@@ -1,0 +1,5 @@
+# Apple Developer Team
+team_id "DX3Y367L2A"
+
+# App Store Connect API auth via .p8
+# (fastlane reads ASC_KEY_ID + ASC_ISSUER_ID + ASC_KEY_PATH env vars)
