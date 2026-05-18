@@ -56,7 +56,7 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.status         = try c.decode(String.self, forKey: .status)
         self.completedTasks = try c.decodeIfPresent(Int.self, forKey: .completedTasks) ?? 0
         self.totalTasks     = try c.decodeIfPresent(Int.self, forKey: .totalTasks) ?? 0
-        if let s = try? c.decodeIfPresent(String.self, forKey: .lastModified), let s {
+        if let s = try c.decodeIfPresent(String.self, forKey: .lastModified) {
             let f1 = ISO8601DateFormatter()
             f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let f2 = ISO8601DateFormatter()

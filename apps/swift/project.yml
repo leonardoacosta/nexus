@@ -50,7 +50,7 @@ targets:
 
   NexusShared:
     type: framework
-    platform: [macOS, iOS, watchOS]
+    supportedDestinations: [macOS, iOS, watchOS]
     sources:
       - path: NexusShared
     settings:
@@ -58,6 +58,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.shared
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: YES
 
   NexusSharedTests:
     type: bundle.unit-test
@@ -89,14 +90,12 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
-    info:
-      path: nexus/nexus/Info.plist
-    entitlements:
-      path: nexus/nexus/nexus.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.mac
         PRODUCT_NAME: nexus
+        INFOPLIST_FILE: nexus/nexus/Info.plist
+        CODE_SIGN_ENTITLEMENTS: nexus/nexus/nexus.entitlements
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: "Nexus menu bar client."
         ENABLE_HARDENED_RUNTIME: YES
@@ -133,14 +132,12 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
-    info:
-      path: nexus-ios/Resources/Info.plist
-    entitlements:
-      path: nexus-ios/Resources/nexus-ios.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios
         PRODUCT_NAME: nexus
+        INFOPLIST_FILE: nexus-ios/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: nexus-ios/Resources/nexus-ios.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.10"
         ENABLE_HARDENED_RUNTIME: NO
@@ -157,14 +154,12 @@ targets:
       - path: nexus-watch/Sources
     dependencies:
       - target: NexusShared
-    info:
-      path: nexus-watch/Resources/Info.plist
-    entitlements:
-      path: nexus-watch/Resources/nexus-watch.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.watch
         PRODUCT_NAME: nexus-watch
+        INFOPLIST_FILE: nexus-watch/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: nexus-watch/Resources/nexus-watch.entitlements
         SWIFT_VERSION: "5.10"
         WATCHOS_DEPLOYMENT_TARGET: "10.0"
 
