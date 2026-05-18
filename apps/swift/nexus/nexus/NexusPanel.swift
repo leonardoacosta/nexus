@@ -59,8 +59,17 @@ struct HudBackdrop: NSViewRepresentable {
 
 private struct PanelKeyboardShortcuts: ViewModifier {
     @ObservedObject var viewModel: NexusViewModel
+    @Environment(\.openWindow) private var openWindow
     func body(content: Content) -> some View {
         content
+            // ⌘D open full dashboard window.
+            .background(
+                Button("") {
+                    openWindow(id: "dashboard")
+                }
+                .keyboardShortcut("d", modifiers: .command)
+                .hidden()
+            )
             // ⌘M mute toggle.
             .background(
                 Button("") {
