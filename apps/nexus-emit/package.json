@@ -1,0 +1,19 @@
+{
+  "name": "@nexus/emit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nexus-emit": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --compile --outfile nexus-emit",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.7.0"
+  }
+}

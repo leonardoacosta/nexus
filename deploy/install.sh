@@ -68,6 +68,11 @@ if $DO_BUILD; then
         info "Building @nexus/statusline"
         (cd "$REPO_DIR/apps/nexus-statusline" && bun run build) || error "apps/nexus-statusline build failed"
     fi
+
+    if [[ -d "$REPO_DIR/apps/nexus-emit" ]]; then
+        info "Building @nexus/emit (deploy/hook socket helper)"
+        (cd "$REPO_DIR/apps/nexus-emit" && bun run build) || error "apps/nexus-emit build failed"
+    fi
 fi
 
 # ── Locate binaries ─────────────────────────────────────────────────
@@ -95,6 +100,11 @@ install -m 755 "$AGENT_BIN" "$BIN_DIR/nexus-agent"
 if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
     info "Installing nexus-statusline to $BIN_DIR/"
     install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"
+fi
+
+if [[ -f "$REPO_DIR/apps/nexus-emit/nexus-emit" ]]; then
+    info "Installing nexus-emit to $BIN_DIR/"
+    install -m 755 "$REPO_DIR/apps/nexus-emit/nexus-emit" "$BIN_DIR/nexus-emit"
 fi
 
 # ── Create config directory ─────────────────────────────────────────
