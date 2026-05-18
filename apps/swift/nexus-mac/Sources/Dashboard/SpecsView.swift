@@ -134,7 +134,7 @@ final class SpecsViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var latestTransition: String?
 
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
     private var sseTask: Task<Void, Never>?
 
     struct Group: Equatable {

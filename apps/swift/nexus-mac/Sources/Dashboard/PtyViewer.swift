@@ -115,7 +115,7 @@ final class PtyViewerModel: ObservableObject {
     /// Drained on `attach(view:)`.
     private var preAttachBuffer: [UInt8] = []
     private var sseTask: Task<Void, Never>?
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
 
     #if canImport(SwiftTerm)
     private weak var terminal: TerminalView?

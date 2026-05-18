@@ -164,7 +164,7 @@ final class NotificationsViewModel: ObservableObject {
     @Published var ducking: DuckingMode = .mix
     @Published private(set) var persistStatus: String?
 
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
     private var sseTask: Task<Void, Never>?
 
     private enum Keys {

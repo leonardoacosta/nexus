@@ -135,7 +135,7 @@ final class IntegrationsViewModel: ObservableObject {
     @Published private(set) var integrations: [IntegrationStatus] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
 
     func load() async {
         isLoading = true

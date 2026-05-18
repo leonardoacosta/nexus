@@ -162,7 +162,7 @@ final class CredentialsViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var lastError: String?
 
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
 
     func load() async {
         isLoading = true

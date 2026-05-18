@@ -117,7 +117,7 @@ final class ProjectsViewModel: ObservableObject {
     @Published private(set) var projects: [ProjectAggregate] = []
     @Published private(set) var isLoading: Bool = false
 
-    private let client: NexusClient = NexusClient()
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
 
     func load() async {
         isLoading = true
