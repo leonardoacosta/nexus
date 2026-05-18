@@ -41,6 +41,9 @@ export {
 // them migrate incrementally.
 export { ccProfileEvents as credentialEvents } from "./schema";
 
+// script_errors — durable error capture for one-off scripts.
+export { scriptErrors, type ScriptError, type NewScriptError } from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

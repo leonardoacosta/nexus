@@ -1,5 +1,7 @@
 import pino from "pino";
 
+import { scriptErrorLogHook } from "./node/pino-db-transport";
+
 const level = process.env.LOG_LEVEL ?? "info";
 const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
@@ -62,12 +64,34 @@ const root = pino({
  * Create a named child logger for a specific module or component.
  * Each child inherits the root level and transport config.
  *
+ * When `attachScriptErrorSink()` has been called by the script entry point,
+ * warn/error/fatal records are also persisted to the `script_errors` table
+ * via `pino-db-transport`. Info/debug/trace remain stdout-only.
+ *
  * @example
  *   const log = createLogger("agent:health");
  *   log.info({ cpu: 42 }, "health snapshot written");
  */
 export function createLogger(name: string): pino.Logger {
-  return root.child({ name });
+  const child = root.child({ name });
+  // Patch the child's level methods to invoke the DB hook. We do this here
+  // rather than in pino's `hooks.logMethod` factory option so the hook only
+  // applies to loggers created through this API — third-party pino instances
+  // are untouched.
+  // Pino logger methods are properties on the instance; we wrap warn/error/fatal.
+  const original = {
+    warn: child.warn.bind(child),
+    error: child.error.bind(child),
+    fatal: child.fatal.bind(child),
+  };
+  const hook = scriptErrorLogHook(name);
+  child.warn = ((...args: unknown[]) =>
+    hook.call(child as never, args, original.warn, 40)) as typeof child.warn;
+  child.error = ((...args: unknown[]) =>
+    hook.call(child as never, args, original.error, 50)) as typeof child.error;
+  child.fatal = ((...args: unknown[]) =>
+    hook.call(child as never, args, original.fatal, 60)) as typeof child.fatal;
+  return child;
 }
 
 /**

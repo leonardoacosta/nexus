@@ -11,6 +11,18 @@
 export { logger, createLogger } from "./logger";
 export type { Logger } from "./logger";
 
+// Script error capture — enforce-pino-script-errors.
+export {
+  attachScriptErrorSink,
+  detachScriptErrorSink,
+  flushNow,
+  pushScriptError,
+  scriptErrorLogHook,
+  type ScriptErrorRecord,
+  type ScriptErrorSink,
+} from "./node/pino-db-transport";
+export { withErrorCapture } from "./node/with-error-capture";
+
 export {
   parseConfig,
   AgentConfigSchema,

@@ -14,19 +14,43 @@
  * Spec: openspec/changes/add-git-project-resolver (task 1.5)
  */
 
-import { createDb, sessions } from "@nexus/db";
+import { createDb, scriptErrors, sessions } from "@nexus/db";
 import { and, eq, isNull, ne } from "drizzle-orm";
+import {
+  attachScriptErrorSink,
+  createLogger,
+  withErrorCapture,
+} from "@nexus/core/node";
 
 import { resolveGitOrigin } from "../services/git-project";
 
-async function main(): Promise<void> {
+const log = createLogger("backfill-git-origin");
+
+await withErrorCapture("backfill-git-origin", async () => {
   const dbUrl = process.env.POSTGRES_URL;
   if (!dbUrl) {
-    console.error("POSTGRES_URL is required");
-    process.exit(1);
+    throw new Error("POSTGRES_URL is required");
   }
 
   const db = createDb(dbUrl);
+  attachScriptErrorSink({
+    async insert(records) {
+      await db.insert(scriptErrors).values(
+        records.map((r) => ({
+          id: r.id,
+          scriptName: r.scriptName,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          context: r.context,
+          machine: r.machine,
+          exitCode: r.exitCode,
+          createdAt: r.createdAt,
+        })),
+      );
+    },
+  });
+
   const rows = await db
     .select({
       id: sessions.id,
@@ -62,12 +86,5 @@ async function main(): Promise<void> {
     updated++;
   }
 
-  console.log(
-    JSON.stringify({ scanned: rows.length, updated, skipped }, null, 2),
-  );
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  log.info({ scanned: rows.length, updated, skipped }, "backfill complete");
 });

@@ -39,6 +39,11 @@ export {
   type NewCcProfileEvent,
 } from "./ccProfileEvents";
 export {
+  scriptErrors,
+  type ScriptError,
+  type NewScriptError,
+} from "./scriptErrors";
+export {
   notificationSettings,
   type NotificationSettings,
   type NewNotificationSettings,
