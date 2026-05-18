@@ -7,8 +7,17 @@
 //  health-history,events-sse}.ts). Decoders are forgiving — unknown keys are
 //  ignored so server-side extensions don't break the client.
 //
+//  NexusShared migration (nx-4roof): `NexusSession` and `NotificationEvent`
+//  are now typealiases to the canonical types in `apps/swift/NexusShared/`.
+//  `AggregateState` stays local because its accessibility text uses
+//  menu-bar-specific "homelab" wording (NexusShared uses generic "peer").
+//  Mac-specific extension methods on the session row (`fromProbe`,
+//  `resolvedTmuxWindow`) live in the extension on `NexusShared.Session`
+//  below.
+//
 
 import Foundation
+import NexusShared
 
 // MARK: - Aggregate state
 
@@ -52,142 +61,20 @@ extension AggregateState {
 
 // MARK: - Session
 
-/// Subset of the agent's `Session` row consumed by the panel. The agent's
-/// canonical type (`packages/core/src/types/session.ts`) carries ~25 fields;
-/// we decode only the ones the UI needs.
-struct NexusSession: Identifiable, Equatable, Hashable, Decodable, Sendable {
-    var id: String
-    var project: String?
-    var projectId: String?
-    var machine: String?
-    /// Computed agent name per the agent's runtime field — usually mirrors
-    /// `machine`. Used to filter the SessionList to homelab-origin sessions.
-    var agent: String?
-    var status: String
-    var model: String?
-    var startedAt: Date
-    /// `last_activity` in DB, alias `lastHeartbeat` in the agent's domain
-    /// type (`packages/core/src/types/session.ts`).
-    var lastHeartbeat: Date
-    var endedAt: Date?
-    var tmuxTarget: String?
-    var tmuxSession: String?
-    var branch: String?
-    /// CC fingerprint signals — populated for real Claude Code rows, null on
-    /// telemetry-ping stubs. See `hasCCFingerprint`.
-    var pid: Int?
-    var cwd: String?
-    var ccSessionId: String?
+/// Legacy menu-bar type name. Now an alias for the cross-platform
+/// `NexusShared.Session`. `originAgent` and `hasCCFingerprint` ship on the
+/// canonical type; menu-bar-specific helpers (`fromProbe`,
+/// `resolvedTmuxWindow`) live in the extension below.
+typealias NexusSession = NexusShared.Session
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case project
-        case projectId
-        case machine
-        case agent
-        case status
-        case model
-        case startedAt
-        case lastHeartbeat
-        case lastActivity        // agent's actual JSON key — alias of lastHeartbeat
-        case endedAt
-        case tmuxTarget
-        case tmuxSession
-        case branch
-        case pid
-        case cwd
-        case ccSessionId
-    }
-
-    /// Permissive ISO8601 decoder — accepts both fractional and non-fractional
-    /// forms, plus epoch-millis numbers. Necessary because the agent emits
-    /// JSON dates with `.toISOString()` (fractional) while certain rows from
-    /// SQLite arrive as numbers.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id            = try c.decode(String.self, forKey: .id)
-        self.project       = try c.decodeIfPresent(String.self, forKey: .project)
-        self.projectId     = try c.decodeIfPresent(String.self, forKey: .projectId)
-        self.machine       = try c.decodeIfPresent(String.self, forKey: .machine)
-        self.agent         = try c.decodeIfPresent(String.self, forKey: .agent)
-        self.status        = try c.decodeIfPresent(String.self, forKey: .status) ?? "idle"
-        self.model         = try c.decodeIfPresent(String.self, forKey: .model)
-        self.tmuxTarget    = try c.decodeIfPresent(String.self, forKey: .tmuxTarget)
-        self.tmuxSession   = try c.decodeIfPresent(String.self, forKey: .tmuxSession)
-        self.branch        = try c.decodeIfPresent(String.self, forKey: .branch)
-        self.startedAt     = try Self.decodeFlexibleDate(c, .startedAt)     ?? Date()
-        // Agent emits this as `lastActivity` (per apps/agent/src/db/sessions.ts).
-        // Older specs / SSE frames may still use `lastHeartbeat`. Either wins;
-        // fall back to startedAt rather than Date() so stale rows don't look
-        // artificially fresh and pollute the active-window filter.
-        let hb = (try? Self.decodeFlexibleDate(c, .lastHeartbeat))
-            ?? (try? Self.decodeFlexibleDate(c, .lastActivity))
-            ?? nil
-        self.lastHeartbeat = hb ?? self.startedAt
-        self.endedAt       = (try? Self.decodeFlexibleDate(c, .endedAt)) ?? nil
-        self.pid           = try c.decodeIfPresent(Int.self, forKey: .pid)
-        // cwd often arrives as "" — treat empty as nil.
-        let cwdRaw         = try c.decodeIfPresent(String.self, forKey: .cwd)
-        self.cwd           = (cwdRaw?.isEmpty ?? true) ? nil : cwdRaw
-        self.ccSessionId   = try c.decodeIfPresent(String.self, forKey: .ccSessionId)
-    }
-
-    init(
-        id: String,
-        project: String? = nil,
-        projectId: String? = nil,
-        machine: String? = nil,
-        agent: String? = nil,
-        status: String = "active",
-        model: String? = nil,
-        startedAt: Date = Date(),
-        lastHeartbeat: Date = Date(),
-        endedAt: Date? = nil,
-        tmuxTarget: String? = nil,
-        tmuxSession: String? = nil,
-        branch: String? = nil,
-        pid: Int? = nil,
-        cwd: String? = nil,
-        ccSessionId: String? = nil
-    ) {
-        self.id = id
-        self.project = project
-        self.projectId = projectId
-        self.machine = machine
-        self.agent = agent
-        self.status = status
-        self.model = model
-        self.startedAt = startedAt
-        self.lastHeartbeat = lastHeartbeat
-        self.endedAt = endedAt
-        self.tmuxTarget = tmuxTarget
-        self.tmuxSession = tmuxSession
-        self.branch = branch
-        self.pid = pid
-        self.cwd = cwd
-        self.ccSessionId = ccSessionId
-    }
-}
-
-extension NexusSession {
-    /// Distinguish a real Claude Code session row from telemetry/heartbeat
-    /// stubs. The agent currently creates `ad_hoc` rows for every hook event;
-    /// real CC rows always carry at least one of these signals.
-    var hasCCFingerprint: Bool {
-        (pid ?? 0) > 0
-            || !(tmuxTarget ?? "").isEmpty
-            || !(ccSessionId ?? "").isEmpty
-            || !(cwd ?? "").isEmpty
-            || !(model ?? "").isEmpty
-    }
-
+extension Session {
     /// Construct a synthetic row from a homelab process probe (`pgrep -af`).
     /// Used as the **B** fallback when `/sessions` has zero rows with a CC
     /// fingerprint — bypasses the broken agent path until
     /// `fix-agent-cc-session-tracking` lands.
-    static func fromProbe(pid: Int, command: String, host: String, project: String?) -> NexusSession {
+    static func fromProbe(pid: Int, command: String, host: String, project: String?) -> Session {
         let id = "probe-\(host)-\(pid)"
-        return NexusSession(
+        return Session(
             id: id,
             project: project ?? "?",
             status: "active",
@@ -197,43 +84,6 @@ extension NexusSession {
             pid: pid,
             cwd: command
         )
-    }
-
-    private static func decodeFlexibleDate(
-        _ c: KeyedDecodingContainer<CodingKeys>,
-        _ key: CodingKeys
-    ) throws -> Date? {
-        if let s = try? c.decodeIfPresent(String.self, forKey: key) {
-            return Self.iso8601.date(from: s)
-                ?? Self.iso8601NoFraction.date(from: s)
-        }
-        if let n = try? c.decodeIfPresent(Double.self, forKey: key) {
-            // Heuristic: > 10^12 means milliseconds, else seconds.
-            return n > 1_000_000_000_000 ? Date(timeIntervalSince1970: n / 1000)
-                                          : Date(timeIntervalSince1970: n)
-        }
-        return nil
-    }
-
-    private static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static let iso8601NoFraction: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-}
-
-extension NexusSession {
-    /// "agent" semantics in the spec mean "machine of origin". The agent's
-    /// `agent` runtime field usually mirrors `machine`. Either is fine for the
-    /// homelab filter.
-    nonisolated var originAgent: String {
-        agent ?? machine ?? "unknown"
     }
 
     /// Per design.md §A2: client reconstructs `<project>-<timestamp>` from
@@ -295,30 +145,10 @@ struct HealthPoint: Equatable, Hashable, Codable, Sendable {
 
 // MARK: - Notification event (NotificationFired SSE payload)
 
-struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sendable {
-    var id: UUID
-    var body: String
-    var channel: String?
-    var title: String?
-    var emoji: String?
-    var receivedAt: Date
-
-    init(
-        id: UUID = UUID(),
-        body: String,
-        channel: String? = nil,
-        title: String? = nil,
-        emoji: String? = nil,
-        receivedAt: Date = Date()
-    ) {
-        self.id = id
-        self.body = body
-        self.channel = channel
-        self.title = title
-        self.emoji = emoji
-        self.receivedAt = receivedAt
-    }
-}
+/// Legacy menu-bar type name. The canonical type now lives in NexusShared so
+/// iOS / watchOS targets share the wire format. Local alias retained so
+/// existing menu-bar call sites don't churn.
+typealias NotificationEvent = NexusShared.NotificationEvent
 
 // MARK: - In-app alert (rendered by AlertStrip)
 
