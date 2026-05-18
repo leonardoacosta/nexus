@@ -9,6 +9,7 @@
 
 import Foundation
 import Combine
+import NexusShared
 
 // MARK: - Configuration
 
@@ -395,7 +396,10 @@ final class NexusViewModel: ObservableObject {
         while !Task.isCancelled {
             do {
                 await client.setConnectionStatus("connecting")
-                try await SSE.consume(url: url) { event in
+                try await SSEDecoder.consume(
+                    url: url,
+                    session: Network.streamingSession
+                ) { event in
                     await self.handle(sseEvent: event)
                 }
                 // consume returned normally — treat as graceful end, reconnect.

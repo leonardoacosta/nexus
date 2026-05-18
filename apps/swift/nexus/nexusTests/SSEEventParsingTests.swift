@@ -3,11 +3,13 @@
 //  nexusTests
 //
 //  Feeds fixture SSE byte streams for all 5 event types and asserts the
-//  decoder produces the expected payloads. The decoder is `SSEEvent.decode*`;
-//  the stream consumer (`SSE.consume`) is exercised indirectly here.
+//  decoder produces the expected payloads. The decoder is `SSEEvent.decode*`
+//  on `NexusShared.SSEEvent` (post nx-4roof migration); the stream consumer
+//  (`SSEDecoder.consume`) is exercised indirectly here.
 //
 
 import XCTest
+import NexusShared
 @testable import nexus
 
 final class SSEEventParsingTests: XCTestCase {
