@@ -1295,7 +1295,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.leonardoacosta.nexus.nexus-mac-Tests";
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus-mac.app/Contents/MacOS/nexus-mac";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus.app/Contents/MacOS/nexus";
 			};
 			name = Debug;
 		};
@@ -1353,7 +1353,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.leonardoacosta.nexus.nexus-mac-Tests";
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus-mac.app/Contents/MacOS/nexus-mac";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus.app/Contents/MacOS/nexus";
 			};
 			name = Release;
 		};

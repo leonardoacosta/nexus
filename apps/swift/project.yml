@@ -90,6 +90,19 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
+    # The nexus-mac scheme is the canonical Swift test entry point for the
+    # integration gate (deploy/hooks.d/pre-push/01-deploy runs
+    # `xcodebuild test -scheme nexus-mac -only-testing:<bundle>`). XcodeGen
+    # only auto-attaches test targets that depend on nexus-mac, so
+    # NexusSharedTests (it depends on NexusShared, not the app) would be
+    # invisible to the gate. Listing all three explicitly makes
+    # `-only-testing:NexusSharedTests` / `:nexus-mac-UITests` runnable from
+    # the one gated scheme. Spec: add-fullstack-integration-test-gate 2.x.
+    scheme:
+      testTargets:
+        - nexus-mac-Tests
+        - NexusSharedTests
+        - nexus-mac-UITests
     # Info.plist is XcodeGen-generated. The nested NSAppTransportSecurity
     # dict cannot be expressed via flat INFOPLIST_KEY_* build settings, so
     # it lives in `info:` properties. (The static nexus/nexus/Info.plist is
@@ -129,6 +142,16 @@ targets:
     dependencies:
       - target: nexus-mac
       - target: NexusShared
+    settings:
+      base:
+        # nexus-mac's PRODUCT_NAME is `nexus`, so the host bundle is
+        # `nexus.app/Contents/MacOS/nexus` — NOT the target-name-derived
+        # `nexus-mac.app/.../nexus-mac` XcodeGen defaults to. Without this
+        # the whole nexus-mac scheme fails to build ("Could not find test
+        # host"), which would also break the pre-push integration gate
+        # (it runs `xcodebuild test -scheme nexus-mac`).
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/nexus.app/Contents/MacOS/nexus"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 
   nexus-mac-UITests:
     type: bundle.ui-testing

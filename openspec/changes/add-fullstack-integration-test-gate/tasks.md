@@ -42,20 +42,29 @@
 
 ## UI Batch
 
-- [ ] 2.1 Extend `apps/swift/NexusSharedTests/SessionDecodingTests.swift` to
+- [x] 2.1 Extend `apps/swift/NexusSharedTests/SessionDecodingTests.swift` to
   decode the full current `/sessions` wire shape AND the multi-agent
   aggregate envelope (payload-drift guard); fixtures shared with task 1.4. [beads:nx-3ltm0]
-- [ ] 2.2 New XCUITest in the `nexus-mac-UITests` target: launch the built
-  app, open the dashboard window, iterate every `DashboardSection` case and
-  assert each detail view renders; assert the Sessions section triggers a
-  session fetch (catches the SessionsView-never-mounts class, fault #4). Wire
-  the target/path in `apps/swift/project.yml` if needed. [beads:nx-u17ua]
-- [ ] 2.3 XCUITest commands-available check: assert the menu-bar surface and
-  key commands (attach, Cmd+D open-dashboard) are reachable from the built app. [beads:nx-ri6go]
-- [ ] 2.4 Client transport round-trip XCUITest: drive the built `.app` against
-  the task-1.4 non-loopback stub; assert the fetch completes with no ATS
-  `-1022`, the payload decodes, and the dashboard renders the fixture sessions
-  deterministically (catches ATS fault #5-runtime + transport). [beads:nx-9kuwm]
+- [ ] 2.2 BLOCKED (nx-68ulr) New XCUITest in the `nexus-mac-UITests` target:
+  launch the built app, open the dashboard window, iterate every
+  `DashboardSection` case and assert each detail view renders; assert the
+  Sessions section triggers a session fetch (catches the
+  SessionsView-never-mounts class, fault #4). Blocked: no deterministic way
+  to open the LSUIElement dashboard `WindowGroup` under XCUITest
+  (`.defaultLaunchBehavior(.presented)` is non-deterministic across the
+  harness's repeated launches; `.onAppear` seam never fires). Harness
+  otherwise proven working — see nx-68ulr. [beads:nx-u17ua]
+- [ ] 2.3 BLOCKED (nx-68ulr) XCUITest commands-available check: assert the
+  menu-bar surface and key commands (attach, Cmd+D open-dashboard) are
+  reachable from the built app. Logic validated (passed 2/runs) but flaky
+  on the same window-open seam as 2.2 — not a reliable gate. [beads:nx-ri6go]
+- [ ] 2.4 BLOCKED (nx-68ulr) Client transport round-trip XCUITest: drive the
+  built `.app` against the task-1.4 non-loopback stub; assert the fetch
+  completes with no ATS `-1022`, the payload decodes, and the dashboard
+  renders the fixture sessions deterministically (catches ATS fault
+  #5-runtime + transport). Stub substrate proven (non-loopback bind +
+  loopback-guard verified); blocked on the same window-open seam plus a
+  stale-fixture sub-issue (see nx-68ulr). [beads:nx-9kuwm]
 
 ## E2E Batch
 
