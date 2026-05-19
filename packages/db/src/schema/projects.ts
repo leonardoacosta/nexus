@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, unique } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, timestamp, uuid, unique } from "drizzle-orm/pg-core";
 
 import { projectLocations } from "./projectLocations";
 import { sessions } from "./sessions";
@@ -15,6 +15,12 @@ export const projects = pgTable(
     description: text("description"),
     tags: text("tags").array(),
     status: text("status").default("active").notNull(),
+    /**
+     * Removable-reference flag. Distinct from `status` (archival lifecycle):
+     * a hidden project is excluded from `/projects` and the auto-discovery
+     * scanner MUST preserve `hidden=true` on re-scan (sticky exclude).
+     */
+    hidden: boolean("hidden").default(false).notNull(),
     discoveredAt: timestamp("discovered_at", { mode: "date" }).defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
   },

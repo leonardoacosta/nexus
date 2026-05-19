@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, integer, unique } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, timestamp, uuid, integer, unique } from "drizzle-orm/pg-core";
 
 export const projectLocations = pgTable(
   "project_locations",
@@ -10,6 +10,12 @@ export const projectLocations = pgTable(
     /** Git remote URL captured at discovery time for cross-agent dedup. */
     gitRemoteUrl: text("git_remote_url"),
     status: text("status").default("active").notNull(),
+    /**
+     * Removable-reference flag. Distinct from `status` (archival lifecycle):
+     * a hidden location is excluded from `/projects` and the auto-discovery
+     * scanner MUST preserve `hidden=true` on re-scan (sticky exclude).
+     */
+    hidden: boolean("hidden").default(false).notNull(),
     activeSessions: integer("active_sessions").default(0).notNull(),
     totalSessions: integer("total_sessions").default(0).notNull(),
     lastDiscoveredAt: timestamp("last_discovered_at", { mode: "date" }),

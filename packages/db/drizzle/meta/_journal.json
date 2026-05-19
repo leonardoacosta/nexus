@@ -218,6 +218,13 @@
       "when": 1779083245803,
       "tag": "0030_drop_elevenlabs_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1779222285971,
+      "tag": "0031_add_hidden_to_projects",
+      "breakpoints": true
     }
   ]
 }

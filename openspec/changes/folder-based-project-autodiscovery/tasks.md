@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] 1.1 Add a dedicated `hidden` boolean (default false) to the
+- [x] 1.1 Add a dedicated `hidden` boolean (default false) to the
   `projects` and `projectLocations` tables in `packages/db/src/schema/projects.ts`
   (do NOT overload the existing archival `status` field). Generate the
   migration via drizzle-kit. [beads:nx-qdbxb]
