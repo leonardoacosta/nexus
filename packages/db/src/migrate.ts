@@ -31,7 +31,13 @@ async function recoverTrackingIfNeeded(client: postgres.Sql) {
     `[migrate] tracking empty but ${appTables[0]!.n} public tables exist — back-filling __drizzle_migrations`,
   );
   const migrations = readMigrationFiles({ migrationsFolder: "./drizzle" });
-  await client.begin(async (tx) => {
+  // postgres.js types `TransactionSql` as `Omit<Sql, ...>`; TS `Omit` is a
+  // mapped type that drops call signatures, so the tagged-template form on
+  // `tx` is lost at the type level (TS2349) even though the runtime object is
+  // a fully-callable tx-scoped sql tag. Re-narrow to the callable `Sql` shape
+  // — this is a pure type-level fix, the parameterized query is unchanged.
+  await client.begin(async (txRaw) => {
+    const tx = txRaw as unknown as postgres.Sql;
     for (const m of migrations) {
       await tx`INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
                VALUES (${m.hash}, ${m.folderMillis})`;
@@ -46,7 +52,10 @@ async function main() {
     throw new Error("POSTGRES_URL is required to run migrations");
   }
 
-  const client = postgres(url, { max: 1 });
+  // connect_timeout (seconds): a misconfigured/unreachable POSTGRES_URL must
+  // fail fast and loud rather than hang the deploy hook indefinitely inside
+  // the first query of recoverTrackingIfNeeded (root cause of nx-sbmjj).
+  const client = postgres(url, { max: 1, connect_timeout: 10 });
   const db = drizzle(client);
 
   await recoverTrackingIfNeeded(client);

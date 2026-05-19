@@ -25,13 +25,35 @@ fi
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 
-# ── Source POSTGRES_URL from Terraform outputs (if available) ───
+# ── Resolve POSTGRES_URL from the agent's canonical secrets source ──
+#
+# Single source of truth: the running nexus-agent reads POSTGRES_URL from
+# ~/.env via its systemd `EnvironmentFile=-%h/.env` directive (see
+# deploy/nexus-agent.service). The deploy hook MUST use the same source so
+# the migration always targets the DB the agent actually connects to.
+#
+# Historical bug (nx-sbmjj): this hook sourced infra/.tf-outputs.env, which
+# can hold a stale Terraform output (wrong user, stale Tailscale IP). That
+# value overrode the correct URL and sent db:migrate to a dead host, hanging
+# recoverTrackingIfNeeded. tf-outputs is NOT a deploy-time secrets source —
+# do not source it here.
 
-TF_ENV="$REPO_DIR/infra/.tf-outputs.env"
-if [[ -f "$TF_ENV" ]]; then
-    # shellcheck source=/dev/null
-    source "$TF_ENV"
-    info "sourced POSTGRES_URL from infra/.tf-outputs.env"
+AGENT_ENV="$HOME/.env"
+if [[ -f "$AGENT_ENV" ]]; then
+    # Export only POSTGRES_URL — avoid leaking unrelated keys into the
+    # migrate subprocess. Mirrors how systemd EnvironmentFile= scopes it.
+    _pg_line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_URL=' "$AGENT_ENV" | tail -n1)"
+    if [[ -n "$_pg_line" ]]; then
+        POSTGRES_URL="${_pg_line#*POSTGRES_URL=}"
+        POSTGRES_URL="${POSTGRES_URL%\"}"
+        POSTGRES_URL="${POSTGRES_URL#\"}"
+        export POSTGRES_URL
+        info "resolved POSTGRES_URL from agent canonical source ($AGENT_ENV)"
+    else
+        warn "no POSTGRES_URL in $AGENT_ENV — relying on inherited environment"
+    fi
+else
+    warn "$AGENT_ENV not found — relying on inherited environment for POSTGRES_URL"
 fi
 
 # ── Run migration (fail-soft) ───────────────────────────────────
