@@ -50,6 +50,92 @@ mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
 START=$(date +%s)
 
+# ── Integration gate (runs BEFORE build) ──────────────────────────
+#
+# add-fullstack-integration-test-gate task 1.1.
+#
+# Tier A (headless) ALWAYS runs and aborts the push on any failure via
+# the hook's existing fail() contract — same "abort push on failure"
+# guarantee the build step below already relies on. Tier A covers:
+#   - the agent + package test suite (turbo test), which now includes
+#     the un-stubbed PG integration tests, the non-loopback stub-agent
+#     harness, and the homelab transport check;
+#   - the bundle-integrity check (xcodebuild a real nexus.app, assert
+#     NSAppTransportSecurity + LSUIElement + product name);
+#   - xcodebuild test of the Swift unit bundles.
+#
+# Tier B (XCUITest / built-bundle transport) is GUI-only. It runs solely
+# when this host is macOS with a usable GUI session; over plain SSH /
+# headless it logs an explicit, non-failing `SKIP Tier B (headless)`
+# marker. The UI batch wires the actual XCUITests at the guarded
+# invocation point below.
+#
+# Escape hatch (consistent with SKIP_DEPLOY above):
+#   SKIP_INTEGRATION_GATE=1 git push   # bypass the gate, still deploy
+
+if [[ "${SKIP_INTEGRATION_GATE:-0}" == "1" ]]; then
+    skip "SKIP_INTEGRATION_GATE set, bypassing integration gate"
+else
+    GATE_START=$(date +%s)
+
+    # ── Tier A: headless, always-run, push-blocking ───────────────
+    info "integration gate Tier A: running suite (turbo test)..."
+    (cd "$REPO_DIR" && pnpm test) \
+        || fail "Tier A: turbo test failed — aborting push"
+
+    info "integration gate Tier A: bundle-integrity check..."
+    "$DEPLOY_DIR/check-bundle-integrity.sh" \
+        || fail "Tier A: bundle-integrity check failed — aborting push"
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        info "integration gate Tier A: xcodebuild test (Swift unit bundles)..."
+        ( xcodebuild test \
+            -project "$REPO_DIR/apps/swift/nexus.xcodeproj" \
+            -scheme nexus-mac \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:nexus-mac-Tests \
+            -derivedDataPath /tmp/nx-cap/itg-build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            >/tmp/nx-itg-xcodebuild-test.log 2>&1 ) \
+            || { tail -40 /tmp/nx-itg-xcodebuild-test.log >&2; fail "Tier A: xcodebuild test failed — aborting push"; }
+    else
+        skip "Tier A: not macOS — skipping xcodebuild Swift unit tests"
+    fi
+
+    # ── Tier B: macOS + usable GUI only; SKIP (non-failing) otherwise
+    #
+    # GUI probe: a usable Aqua session must exist. `launchctl print
+    # gui/<uid>` succeeds only with a real GUI session and fails over
+    # plain SSH / headless. SSH_CONNECTION being set is treated as
+    # headless even on macOS (remote fanout pushes run over SSH).
+    GUI_OK=0
+    if [[ "$(uname -s)" == "Darwin" ]] \
+        && [[ -z "${SSH_CONNECTION:-}" ]] \
+        && launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+        GUI_OK=1
+    fi
+
+    if [[ "$GUI_OK" -eq 1 ]]; then
+        info "integration gate Tier B: GUI session detected — running XCUITest tier"
+        # Tier B invocation point. The UI batch (tasks 2.2-2.4) wires the
+        # actual XCUITest targets here; a failure here MUST abort the push
+        # (same fail() contract as Tier A) once those are landed.
+        if [[ -x "$DEPLOY_DIR/run-tier-b-xcuitests.sh" ]]; then
+            "$DEPLOY_DIR/run-tier-b-xcuitests.sh" \
+                || fail "Tier B: XCUITest tier failed — aborting push"
+        else
+            skip "Tier B: XCUITest runner not yet wired (UI batch) — placeholder no-op"
+        fi
+    else
+        # Explicit, visible, NON-failing skip marker. A headless host must
+        # never fail the push for lacking a GUI.
+        skip "SKIP Tier B (headless) — no usable macOS GUI session; not a failure"
+    fi
+
+    info "integration gate passed in $(( $(date +%s) - GATE_START ))s"
+fi
+
 # ── Build Bun nexus-agent ─────────────────────────────────────────
 
 info "building Bun nexus-agent..."

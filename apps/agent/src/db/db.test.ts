@@ -21,20 +21,27 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { createDb, agents as agentsTable, eq as eqOp } from "@nexus/db";
 import type { Db } from "@nexus/db";
-import { getSessionById, insertSession } from "./sessions";
+import {
+  getSessionById,
+  insertSession,
+  updateSessionStatus,
+  queryActiveSessions,
+  queryRecentSessions,
+} from "./sessions";
 import type { SessionRow } from "./sessions";
+import { appendSessionEvent, querySessionEvents } from "./events";
+import { runRetentionCleanup } from "./retention";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
 const hasPg = !!process.env.POSTGRES_URL;
 
 // ─── 7.1 Migration runner ────────────────────────────────────────────────────
-
-describe.skip("migration runner (requires live PG)", () => {
-  it("placeholder — drizzle-kit manages migrations now", () => {
-    expect(true).toBe(true);
-  });
-});
+//
+// Intentionally absent: there is no in-repo migration runner to integration-
+// test. Schema lifecycle is owned by `drizzle-kit generate` / `db:migrate`
+// (see the file header). Migration *content* is exercised by
+// migration-0010-orphans.test.ts. No stub here — nothing to assert.
 
 // ─── 7.2 Session CRUD ───────────────────────────────────────────────────────
 
@@ -45,10 +52,13 @@ const SESSION_CRUD_SCHEMA = `nx_dbtest_${Date.now()}_${Math.floor(
   Math.random() * 1e6,
 )}`;
 
-// Minimal DDL reproducing the current production shape (as of migration
-// 0018) for the three tables session-CRUD touches: sessions, projects,
-// agents. Column types and nullability match
-// `packages/db/drizzle/meta/0018_snapshot.json`.
+// Minimal DDL reproducing the CURRENT production shape for the three tables
+// session-CRUD touches: sessions, projects, agents. Column set + nullability
+// mirror `packages/db/src/schema/sessions.ts` exactly. The sessions block
+// previously drifted (missing git_provider / git_owner_repo /
+// parent_session_id / child_role) which false-failed `getSessionById`'s
+// full-column SELECT — that drift is the mock-divergence class this spec
+// guards. Keep this in lockstep with the Drizzle schema.
 const SESSION_CRUD_DDL = `
   CREATE TABLE "agents" (
     "id" text PRIMARY KEY NOT NULL,
@@ -96,7 +106,19 @@ const SESSION_CRUD_DDL = `
     "tmux_target" text,
     "spec" text,
     "credential_id" text,
-    "credential_fingerprint" text
+    "credential_fingerprint" text,
+    "git_provider" text,
+    "git_owner_repo" text,
+    "parent_session_id" text,
+    "child_role" text
+  );
+
+  CREATE TABLE "session_events" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "session_id" text NOT NULL REFERENCES "sessions"("id"),
+    "event_type" text NOT NULL,
+    "timestamp" timestamp NOT NULL,
+    "metadata" text
   );
 `;
 
@@ -209,23 +231,156 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
   });
 });
 
-// ─── 7.2b Session CRUD (remaining — still gated) ────────────────────────────
+// ─── 7.2b Session CRUD (remaining) ──────────────────────────────────────────
+//
+// Previously a `describe.skip` placeholder. Un-stubbed (nx-qsj1) with real
+// assertions against live PG using the same scratch-schema isolation as the
+// 7.2 suite above.
 
-describe.skip("session CRUD — remaining (requires live PG)", () => {
-  it("updates session status", () => {
-    expect(true).toBe(true);
+const SESSION_CRUD2_SCHEMA = `nx_dbtest2_${Date.now()}_${Math.floor(
+  Math.random() * 1e6,
+)}`;
+
+/** Build a fully-populated SessionRow with overridable fields. */
+function makeSessionRow(over: Partial<SessionRow> & { id: string }): SessionRow {
+  const now = new Date();
+  return {
+    projectId: null,
+    machine: "omarchy",
+    status: "active",
+    startedAt: now,
+    lastActivity: now,
+    endedAt: null,
+    pid: null,
+    cwd: "/tmp/x",
+    branch: null,
+    sessionType: "ad_hoc",
+    model: "claude",
+    rateLimitUtilization: null,
+    totalCostUsd: null,
+    rateLimitResetAt: null,
+    idleSince: null,
+    ccSessionId: null,
+    tmuxSession: null,
+    tmuxTarget: null,
+    spec: null,
+    credentialId: null,
+    credentialFingerprint: null,
+    gitProvider: null,
+    gitOwnerRepo: null,
+    parentSessionId: null,
+    childRole: null,
+    ...over,
+  };
+}
+
+describe.skipIf(!hasPg)("session CRUD — remaining (requires live PG)", () => {
+  let adminSql: Sql;
+  let adminClient: Sql;
+  let scopedClient: Sql;
+  let db: Db;
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+    const adminHandle = createDb(url);
+    adminClient = adminHandle.client;
+    adminSql = adminClient;
+
+    await adminSql.unsafe(`CREATE SCHEMA "${SESSION_CRUD2_SCHEMA}"`);
+    await adminSql.unsafe(
+      `SET search_path TO "${SESSION_CRUD2_SCHEMA}", public`,
+    );
+    await adminSql.unsafe(SESSION_CRUD_DDL);
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${SESSION_CRUD2_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    db = scopedHandle.db;
   });
 
-  it("sets ended_at when status is 'ended'", () => {
-    expect(true).toBe(true);
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminSql.unsafe(
+          `DROP SCHEMA IF EXISTS "${SESSION_CRUD2_SCHEMA}" CASCADE`,
+        );
+      } finally {
+        await adminClient.end({ timeout: 5 });
+      }
+    }
   });
 
-  it("queries active sessions (active + idle)", () => {
-    expect(true).toBe(true);
+  it("updates session status", async () => {
+    await insertSession(db, makeSessionRow({ id: "crud2-status-1" }));
+    await updateSessionStatus(db, "crud2-status-1", "idle");
+
+    const fetched = await getSessionById(db, "crud2-status-1");
+    expect(fetched).not.toBeNull();
+    expect(fetched!.status).toBe("idle");
+    // last_activity refreshed; ended_at untouched for a non-ended status.
+    expect(fetched!.endedAt).toBeNull();
   });
 
-  it("queries recent sessions within the time window", () => {
-    expect(true).toBe(true);
+  it("sets ended_at when status is 'ended'", async () => {
+    await insertSession(db, makeSessionRow({ id: "crud2-ended-1" }));
+    expect((await getSessionById(db, "crud2-ended-1"))!.endedAt).toBeNull();
+
+    await updateSessionStatus(db, "crud2-ended-1", "ended");
+
+    const fetched = await getSessionById(db, "crud2-ended-1");
+    expect(fetched!.status).toBe("ended");
+    expect(fetched!.endedAt).toBeInstanceOf(Date);
+  });
+
+  it("queries active sessions (active + idle)", async () => {
+    await insertSession(
+      db,
+      makeSessionRow({ id: "crud2-active-1", status: "active" }),
+    );
+    await insertSession(
+      db,
+      makeSessionRow({ id: "crud2-idle-1", status: "idle" }),
+    );
+    await insertSession(
+      db,
+      makeSessionRow({
+        id: "crud2-ended-2",
+        status: "ended",
+        endedAt: new Date(),
+      }),
+    );
+
+    const rows = await queryActiveSessions(db);
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain("crud2-active-1");
+    expect(ids).toContain("crud2-idle-1");
+    expect(ids).not.toContain("crud2-ended-2");
+  });
+
+  it("queries recent sessions within the time window", async () => {
+    const now = new Date();
+    await insertSession(
+      db,
+      makeSessionRow({ id: "crud2-recent-1", lastActivity: now }),
+    );
+    // 48h-old activity is outside the 24h window.
+    await insertSession(
+      db,
+      makeSessionRow({
+        id: "crud2-stale-1",
+        status: "ended",
+        endedAt: new Date(now.getTime() - 48 * 3600_000),
+        lastActivity: new Date(now.getTime() - 48 * 3600_000),
+      }),
+    );
+
+    const rows = await queryRecentSessions(db, 24);
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain("crud2-recent-1");
+    expect(ids).not.toContain("crud2-stale-1");
   });
 });
 
@@ -378,42 +533,297 @@ describe.skipIf(!hasPg)("health snapshots (requires live PG)", () => {
 });
 
 // ─── 7.4 Session events ─────────────────────────────────────────────────────
+//
+// Un-stubbed (nx-it4u). Exercises appendSessionEvent / querySessionEvents
+// against live PG with the scratch-schema isolation pattern.
 
-describe.skip("session events (requires live PG)", () => {
-  it("appends an event and queries it back", () => {
-    expect(true).toBe(true);
+const EVENTS_SCHEMA = `nx_events_test_${Date.now()}_${Math.floor(
+  Math.random() * 1e6,
+)}`;
+
+const EVENTS_DDL = `
+  CREATE TABLE "sessions" (
+    "id" text PRIMARY KEY NOT NULL,
+    "machine" text NOT NULL,
+    "status" text DEFAULT 'active' NOT NULL,
+    "started_at" timestamp NOT NULL,
+    "last_activity" timestamp NOT NULL,
+    "ended_at" timestamp
+  );
+
+  CREATE TABLE "session_events" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "session_id" text NOT NULL REFERENCES "sessions"("id"),
+    "event_type" text NOT NULL,
+    "timestamp" timestamp NOT NULL,
+    "metadata" text
+  );
+`;
+
+describe.skipIf(!hasPg)("session events (requires live PG)", () => {
+  let adminSql: Sql;
+  let adminClient: Sql;
+  let scopedClient: Sql;
+  let db: Db;
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+    const adminHandle = createDb(url);
+    adminClient = adminHandle.client;
+    adminSql = adminClient;
+
+    await adminSql.unsafe(`CREATE SCHEMA "${EVENTS_SCHEMA}"`);
+    await adminSql.unsafe(`SET search_path TO "${EVENTS_SCHEMA}", public`);
+    await adminSql.unsafe(EVENTS_DDL);
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${EVENTS_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    db = scopedHandle.db;
+
+    // Seed parent sessions so the session_id FK resolves.
+    const now = new Date();
+    for (const id of ["evt-sess-a", "evt-sess-b"]) {
+      await adminSql.unsafe(
+        `INSERT INTO "${EVENTS_SCHEMA}".sessions
+           ("id", "machine", "status", "started_at", "last_activity")
+         VALUES ('${id}', 'test', 'active', '${now.toISOString()}', '${now.toISOString()}')`,
+      );
+    }
   });
 
-  it("handles null metadata", () => {
-    expect(true).toBe(true);
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminSql.unsafe(
+          `DROP SCHEMA IF EXISTS "${EVENTS_SCHEMA}" CASCADE`,
+        );
+      } finally {
+        await adminClient.end({ timeout: 5 });
+      }
+    }
   });
 
-  it("returns events ordered by timestamp ascending", () => {
-    expect(true).toBe(true);
+  it("appends an event and queries it back", async () => {
+    const id = await appendSessionEvent(db, {
+      sessionId: "evt-sess-a",
+      eventType: "PreToolUse",
+      timestamp: new Date(),
+      metadata: JSON.stringify({ tool: "Bash" }),
+    });
+    expect(typeof id).toBe("number");
+    expect(id).toBeGreaterThan(0);
+
+    const rows = await querySessionEvents(db, "evt-sess-a");
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const row = rows.find((r) => r.id === id)!;
+    expect(row.eventType).toBe("PreToolUse");
+    expect(row.metadata).toBe(JSON.stringify({ tool: "Bash" }));
   });
 
-  it("filters events by session_id", () => {
-    expect(true).toBe(true);
+  it("handles null metadata", async () => {
+    const id = await appendSessionEvent(db, {
+      sessionId: "evt-sess-a",
+      eventType: "Stop",
+      timestamp: new Date(),
+      metadata: null,
+    });
+    const rows = await querySessionEvents(db, "evt-sess-a");
+    expect(rows.find((r) => r.id === id)!.metadata).toBeNull();
+  });
+
+  it("returns events ordered by timestamp ascending", async () => {
+    const base = Date.now();
+    // Insert out of chronological order.
+    await appendSessionEvent(db, {
+      sessionId: "evt-sess-b",
+      eventType: "third",
+      timestamp: new Date(base + 3000),
+      metadata: null,
+    });
+    await appendSessionEvent(db, {
+      sessionId: "evt-sess-b",
+      eventType: "first",
+      timestamp: new Date(base + 1000),
+      metadata: null,
+    });
+    await appendSessionEvent(db, {
+      sessionId: "evt-sess-b",
+      eventType: "second",
+      timestamp: new Date(base + 2000),
+      metadata: null,
+    });
+
+    const rows = await querySessionEvents(db, "evt-sess-b");
+    expect(rows.map((r) => r.eventType)).toEqual(["first", "second", "third"]);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i]!.timestamp.getTime()).toBeGreaterThanOrEqual(
+        rows[i - 1]!.timestamp.getTime(),
+      );
+    }
+  });
+
+  it("filters events by session_id", async () => {
+    // evt-sess-a has PreToolUse + Stop; evt-sess-b has first/second/third.
+    const aRows = await querySessionEvents(db, "evt-sess-a");
+    const bRows = await querySessionEvents(db, "evt-sess-b");
+    expect(aRows.every((r) => r.sessionId === "evt-sess-a")).toBe(true);
+    expect(bRows.every((r) => r.sessionId === "evt-sess-b")).toBe(true);
+    expect(aRows.some((r) => r.eventType === "first")).toBe(false);
   });
 });
 
 // ─── 7.5 Retention cleanup ──────────────────────────────────────────────────
+//
+// Un-stubbed (nx-3awz). Exercises runRetentionCleanup against live PG: rows
+// older than the retention window are deleted; in-window rows survive.
 
-describe.skip("retention cleanup (requires live PG)", () => {
-  it("deletes health_snapshots older than 30 days", () => {
-    expect(true).toBe(true);
+const RETENTION_SCHEMA = `nx_retention_test_${Date.now()}_${Math.floor(
+  Math.random() * 1e6,
+)}`;
+
+const RETENTION_DDL = `
+  CREATE TABLE "agents" (
+    "id" text PRIMARY KEY NOT NULL,
+    "host" text NOT NULL,
+    "name" text DEFAULT '',
+    "port" integer DEFAULT 7400
+  );
+
+  CREATE TABLE "sessions" (
+    "id" text PRIMARY KEY NOT NULL,
+    "machine" text NOT NULL,
+    "status" text DEFAULT 'active' NOT NULL,
+    "started_at" timestamp NOT NULL,
+    "last_activity" timestamp NOT NULL,
+    "ended_at" timestamp
+  );
+
+  CREATE TABLE "health_snapshots" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "timestamp" timestamp NOT NULL,
+    "agent_id" text NOT NULL REFERENCES "agents"("id") ON DELETE CASCADE,
+    "cpu_percent" real,
+    "ram_percent" real,
+    "disk_percent" real,
+    "docker_containers" integer,
+    "raw_json" text
+  );
+
+  CREATE TABLE "session_events" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "session_id" text NOT NULL REFERENCES "sessions"("id"),
+    "event_type" text NOT NULL,
+    "timestamp" timestamp NOT NULL,
+    "metadata" text
+  );
+
+  CREATE TABLE "cc_profile_events" (
+    "id" text PRIMARY KEY NOT NULL,
+    "profile_id" text NOT NULL,
+    "event_type" text NOT NULL,
+    "session_id" text,
+    "metadata" jsonb,
+    "created_at" timestamp NOT NULL DEFAULT now()
+  );
+`;
+
+describe.skipIf(!hasPg)("retention cleanup (requires live PG)", () => {
+  let adminSql: Sql;
+  let adminClient: Sql;
+  let scopedClient: Sql;
+  let db: Db;
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+    const adminHandle = createDb(url);
+    adminClient = adminHandle.client;
+    adminSql = adminClient;
+
+    await adminSql.unsafe(`CREATE SCHEMA "${RETENTION_SCHEMA}"`);
+    await adminSql.unsafe(`SET search_path TO "${RETENTION_SCHEMA}", public`);
+    await adminSql.unsafe(RETENTION_DDL);
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".agents ("id", "host")
+       VALUES ('ret-agent', 'localhost')`,
+    );
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".sessions
+         ("id", "machine", "status", "started_at", "last_activity")
+       VALUES ('ret-sess', 'test', 'active', now(), now())`,
+    );
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${RETENTION_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    db = scopedHandle.db;
   });
 
-  it("deletes session_events older than 90 days", () => {
-    expect(true).toBe(true);
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminSql.unsafe(
+          `DROP SCHEMA IF EXISTS "${RETENTION_SCHEMA}" CASCADE`,
+        );
+      } finally {
+        await adminClient.end({ timeout: 5 });
+      }
+    }
   });
 
-  it("keeps records within retention windows", () => {
-    expect(true).toBe(true);
+  it("deletes health_snapshots older than 30 days and keeps fresh ones", async () => {
+    const old = new Date(Date.now() - 45 * 86_400_000).toISOString();
+    const fresh = new Date().toISOString();
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".health_snapshots
+         ("timestamp", "agent_id", "cpu_percent")
+       VALUES ('${old}', 'ret-agent', 1), ('${fresh}', 'ret-agent', 2)`,
+    );
+
+    await runRetentionCleanup(db);
+
+    const rows = (await adminSql.unsafe(
+      `SELECT cpu_percent FROM "${RETENTION_SCHEMA}".health_snapshots`,
+    )) as Array<Record<string, unknown>>;
+    const cpus = rows.map((r) => Number(r.cpu_percent));
+    expect(cpus).toContain(2); // fresh survives
+    expect(cpus).not.toContain(1); // 45-day-old purged
   });
 
-  it("handles cleanup on empty tables without error", () => {
-    expect(true).toBe(true);
+  it("deletes session_events older than 90 days and keeps in-window", async () => {
+    const old = new Date(Date.now() - 120 * 86_400_000).toISOString();
+    const fresh = new Date().toISOString();
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".session_events
+         ("session_id", "event_type", "timestamp")
+       VALUES ('ret-sess', 'old-evt', '${old}'),
+              ('ret-sess', 'fresh-evt', '${fresh}')`,
+    );
+
+    await runRetentionCleanup(db);
+
+    const rows = (await adminSql.unsafe(
+      `SELECT event_type FROM "${RETENTION_SCHEMA}".session_events`,
+    )) as Array<Record<string, unknown>>;
+    const types = rows.map((r) => r.event_type);
+    expect(types).toContain("fresh-evt");
+    expect(types).not.toContain("old-evt");
+  });
+
+  it("handles cleanup on empty tables without error", async () => {
+    await adminSql.unsafe(
+      `TRUNCATE "${RETENTION_SCHEMA}".health_snapshots,
+                "${RETENTION_SCHEMA}".session_events,
+                "${RETENTION_SCHEMA}".cc_profile_events`,
+    );
+    // Must not throw on empty tables.
+    await expect(runRetentionCleanup(db)).resolves.toBeUndefined();
   });
 });
 
