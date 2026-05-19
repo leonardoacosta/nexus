@@ -66,10 +66,10 @@
 
 ## E2E Batch
 
-- [ ] 3.1 Non-gating cross-host smoke: a real macbook→homelab Tailscale
+- [x] 3.1 Non-gating cross-host smoke: a real macbook→homelab Tailscale
   `/sessions` round-trip wired into the pre-push hook as report-only — its
   failure is logged but MUST NOT abort the push or fail the gating suite. [beads:nx-qm3be]
-- [ ] 3.2 Gate self-validation: prove the pre-push hook (a) aborts the push
+- [x] 3.2 Gate self-validation: prove the pre-push hook (a) aborts the push
   when a Tier A test is seeded to fail, and (b) emits `SKIP Tier B` without
   failing when invoked with a forced-headless/non-GUI environment. Automate
   via a temporary failing fixture + a forced-headless env var; revert after. [beads:nx-eneff]

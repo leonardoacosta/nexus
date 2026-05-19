@@ -30,6 +30,18 @@
 
 set -euo pipefail
 
+# Escape hatch (matches the pre-push hook's SKIP_* convention, e.g.
+# SKIP_DEPLOY / SKIP_INTEGRATION_GATE / SKIP_BUNDLE_INTEGRITY). When set,
+# the runner logs an explicit, NON-failing skip and exits 0. Used by
+# deploy/selftest-pre-push-gate.sh case (c) to validate the GUI-present
+# clean path of the gate orchestration without spending minutes on the
+# full XCUITest suite (which is runtime-verified by tasks 2.2-2.4). A
+# skip is not a failure, so the dispatcher stays exit 0.
+if [[ "${SKIP_TIER_B_RUN:-0}" == "1" ]]; then
+    echo "Tier B: SKIP_TIER_B_RUN set — skipping XCUITest run (non-failing)"
+    exit 0
+fi
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT_DIR="$REPO_DIR/apps/swift"
 STUB_TS="$REPO_DIR/apps/agent/src/testing/stub-agent.ts"

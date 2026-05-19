@@ -138,6 +138,43 @@ else
     info "integration gate passed in $(( $(date +%s) - GATE_START ))s"
 fi
 
+# ── Non-gating cross-host smoke (report-only) ─────────────────────
+#
+# add-fullstack-integration-test-gate task 3.1 (nx-qm3be).
+#
+# A real macbook→homelab Tailscale round-trip against the homelab
+# agent's `/sessions` endpoint. This is the fleet-liveness canary.
+#
+# CONTRACT: report-only. Its result is logged (success/failure +
+# one-line reason) but it MUST NOT influence the hook's exit code:
+#   - it is structurally placed AFTER the Tier A gate block closes,
+#     so it can never reach a Tier A `fail()`;
+#   - it never uses `|| fail` / `set -e` propagation — the curl runs
+#     in an `if` test (set -e is suppressed inside `if` conditions)
+#     and every branch only calls the non-fatal info()/warn() helpers;
+#   - a homelab outage / Tailscale partition is expected and tolerated.
+# Skip explicitly with: SKIP_CROSSHOST_SMOKE=1 git push
+
+if [[ "${SKIP_CROSSHOST_SMOKE:-0}" == "1" ]]; then
+    skip "SKIP_CROSSHOST_SMOKE set, skipping cross-host fleet canary (non-gating)"
+else
+    SMOKE_HOST="${NX_SMOKE_HOST:-100.73.182.4}"
+    SMOKE_PORT="${NX_SMOKE_PORT:-7400}"
+    SMOKE_URL="http://${SMOKE_HOST}:${SMOKE_PORT}/sessions"
+    SMOKE_START=$(date +%s)
+    # --max-time keeps it fast; --connect-timeout bounds an unreachable
+    # host quickly. -o /dev/null -w writes only the HTTP status code.
+    if smoke_code="$(curl -fsS \
+            --connect-timeout 3 --max-time 6 \
+            -o /dev/null -w '%{http_code}' \
+            "$SMOKE_URL" 2>/dev/null)"; then
+        info "cross-host smoke (non-gating): OK — ${SMOKE_URL} returned HTTP ${smoke_code} in $(( $(date +%s) - SMOKE_START ))s"
+    else
+        smoke_rc=$?
+        warn "cross-host smoke (non-gating): FAILED — ${SMOKE_URL} unreachable (curl rc=${smoke_rc}) after $(( $(date +%s) - SMOKE_START ))s; homelab/Tailscale canary down, push NOT affected"
+    fi
+fi
+
 # ── Build Bun nexus-agent ─────────────────────────────────────────
 
 info "building Bun nexus-agent..."
