@@ -44,6 +44,14 @@ struct SessionsView: View {
             }
         }
         .padding(.vertical, 8)
+        // XCUITest guard hooks (spec 2.2 + 2.4):
+        //  - "sessions-view" present  ⇒ SessionsView actually mounted ⇒
+        //    its .task ran ⇒ a fetch was triggered (fault #4 /
+        //    bd:nx-t9wrj regression assertion).
+        //  - "sessions-count:<n>" lets the transport round-trip test
+        //    (2.4) observe the stub fixture rendering (0 → 1).
+        .accessibilityIdentifier("sessions-view")
+        .accessibilityValue("sessions-count:\(observer.activeSessions.count)")
         .task {
             // Idempotent: startStreams() guards on existing tasks, so this
             // is a harmless second call when the scene root already started
@@ -106,6 +114,10 @@ struct SessionsView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(observer.activeSessions) { session in
                     SessionsRowView(session: session)
+                        // Per-row hook so the 2.4 client-transport test
+                        // can assert the EXACT deterministic stub fixture
+                        // row (id "stub-sess-1") rendered.
+                        .accessibilityIdentifier("session-row-\(session.id)")
                     Divider().padding(.leading, 14)
                 }
             }

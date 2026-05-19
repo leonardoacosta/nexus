@@ -70,6 +70,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.shared.tests
+        # Test bundles need a generated Info.plist to be code-signable.
+        # The integration-gate Tier B build signs (ad-hoc) so the
+        # XCUITest runner can attach; without this the whole scheme
+        # fails: "Cannot code sign because the target does not have an
+        # Info.plist file" (bd:nx-68ulr).
+        GENERATE_INFOPLIST_FILE: YES
 
   # ────────────────── macOS — menu bar app (existing) ──────────────────
   #
@@ -152,6 +158,8 @@ targets:
         # (it runs `xcodebuild test -scheme nexus-mac`).
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/nexus.app/Contents/MacOS/nexus"
         BUNDLE_LOADER: "$(TEST_HOST)"
+        # Signable test bundle (see NexusSharedTests note, bd:nx-68ulr).
+        GENERATE_INFOPLIST_FILE: YES
 
   nexus-mac-UITests:
     type: bundle.ui-testing
@@ -160,6 +168,12 @@ targets:
       - path: nexus/nexusUITests
     dependencies:
       - target: nexus-mac
+    settings:
+      base:
+        # Signable UITest bundle (see NexusSharedTests note,
+        # bd:nx-68ulr). The XCUITest runner is killed before it can
+        # attach unless app + runner + xctest are signed.
+        GENERATE_INFOPLIST_FILE: YES
 
   # ─────────────────────── iOS — scaffolded ────────────────────────────
   #

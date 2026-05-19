@@ -234,9 +234,32 @@ export function startStubAgent(opts: StubAgentOptions = {}): StubAgentHandle {
     hostname: host,
     port: opts.port ?? 0,
     fetch(req: Request): Response {
-      const { pathname } = new URL(req.url);
+      const url = new URL(req.url);
+      const { pathname } = url;
       switch (pathname) {
         case "/sessions":
+          // The REAL client transport (NexusClient.fetchSessions) always
+          // requests `/sessions?withFingerprint=true`. For that path we
+          // advance startedAt/lastActivity to "now" (every other field
+          // byte-identical to SESSIONS_FIXTURE — still typed
+          // SessionRow[], NOT a divergent fixture). A plain `/sessions`
+          // with no query returns the exact snapshot, so the API-batch
+          // stub-agent.test.ts deep-equal assertion stays green. Fresh
+          // timestamps are required because SessionObserver.activeSessions
+          // filters rows whose lastActivity is older than 300s — a
+          // hardcoded FIXED_NOW goes stale within minutes and would paint
+          // an empty dashboard even on a *successful* round-trip
+          // (false-red for the transport guard, bd:nx-68ulr).
+          if (url.searchParams.get("withFingerprint") === "true") {
+            const now = new Date();
+            return json(
+              SESSIONS_FIXTURE.map((row) => ({
+                ...row,
+                startedAt: now,
+                lastActivity: now,
+              })),
+            );
+          }
           return json(SESSIONS_FIXTURE);
         case "/health":
           return json(HEALTH_FIXTURE);
@@ -260,4 +283,26 @@ export function startStubAgent(opts: StubAgentOptions = {}): StubAgentHandle {
       server.stop(true);
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// CLI entrypoint — for the XCUITest client-transport round-trip (spec 2.4)
+// ---------------------------------------------------------------------------
+//
+// `bun apps/agent/src/testing/stub-agent.ts` starts the stub on an
+// auto-discovered NON-loopback IPv4 (the loopback guard still applies) and
+// prints a single `STUB_BASE_URL=http://<ip>:<port>` line to stdout so the
+// XCUITest harness can read it and point the app's
+// `nexus.dashboard.endpoint` UserDefault at it. Runs until killed
+// (SIGTERM/SIGINT) — the test owns lifecycle. `import.meta.main` guards
+// this so importing the module (the API-batch unit tests) stays inert.
+if (import.meta.main) {
+  const handle = startStubAgent();
+  process.stdout.write(`STUB_BASE_URL=${handle.baseUrl}\n`);
+  const shutdown = () => {
+    handle.stop();
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }

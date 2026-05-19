@@ -80,6 +80,7 @@
 		BC8C1A1198CB98D090FB5493 /* NexusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62182CA602E791DB6BDBE3EB /* NexusPanel.swift */; };
 		BDE7D0FBD98D061FB22F3919 /* NexusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E53AD8EA6F5A9C4F0025ECD /* NexusClient.swift */; };
 		BEAF5B94C31DBA512408DAA5 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = BD684782E301B381CB87943C /* SwiftTerm */; };
+		C2CF24DAC38AE12072B534BF /* IntegrationGateUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */; };
 		C6C368A31E5F4E9723C35430 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C6CE1B60ED5791BB565E1F7D /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */; };
 		D1B25E27984FCD6A9442A0C2 /* HealthSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */; };
@@ -261,6 +262,7 @@
 		561095874ED05EE3F7DBEE0E /* PtyViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtyViewer.swift; sourceTree = "<group>"; };
 		593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyLauncherTests.swift; sourceTree = "<group>"; };
 		62182CA602E791DB6BDBE3EB /* NexusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusPanel.swift; sourceTree = "<group>"; };
+		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
 		6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertStrip.swift; sourceTree = "<group>"; };
 		6E0EE128D4680A02B87E3651 /* ActionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionRow.swift; sourceTree = "<group>"; };
 		6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
@@ -404,6 +406,7 @@
 		4E238D53DDAEEC93081DD32F /* nexusUITests */ = {
 			isa = PBXGroup;
 			children = (
+				63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */,
 				9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */,
 				53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */,
 			);
@@ -967,6 +970,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C2CF24DAC38AE12072B534BF /* IntegrationGateUITests.swift in Sources */,
 				DA9A124444C0790484593933 /* PanelSummonTests.swift in Sources */,
 				DB29584B3E3C2EA47F562D39 /* nexusUITests.swift in Sources */,
 			);
@@ -1093,6 +1097,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1172,6 +1177,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1254,6 +1260,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1288,6 +1295,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1331,6 +1339,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1346,6 +1355,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Test-only entitlements for the XCUITest integration tier
+  (spec add-fullstack-integration-test-gate 2.2-2.4, bd:nx-68ulr).
+
+  The production nexus.entitlements declares App Sandbox + APNs
+  (aps-environment) + iCloud (CloudKit) entitlements. Those require a
+  provisioned development signing certificate that the unsigned XCUITest
+  dev environment does not have, so the XCUITest runner is killed before
+  it can attach ("Test crashed with signal kill before establishing
+  connection").
+
+  None of sandbox / aps / icloud is exercised by the dashboard's
+  HTTP-to-Tailnet behavior under test. This stripped set keeps ONLY
+  network.client (the dashboard must reach the agent) so an ad-hoc /
+  unsigned test build can attach. It is wired ONLY via the xcodebuild
+  test invocation's CODE_SIGN_ENTITLEMENTS override — production /
+  release builds keep nexus.entitlements unchanged.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

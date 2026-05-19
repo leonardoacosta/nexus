@@ -81,12 +81,23 @@ struct AppNavigation: View {
                 NavigationLink(value: section) {
                     Label(section.label, systemImage: section.systemImage)
                 }
+                // Stable hook for the render-all-pages XCUITest guard
+                // (spec 2.2, bd:nx-u17ua) — fault #4 (SessionsView never
+                // mounts) regression surface.
+                .accessibilityIdentifier("sidebar-\(section.rawValue)")
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
             detailView
                 .frame(minWidth: 480, minHeight: 360)
+                // Identifies which detail destination actually mounted so
+                // the guard test asserts the pane rendered (not just that
+                // the sidebar row exists). `.contain` exposes this as a
+                // single queryable container even when the section view
+                // nests its own ScrollView/Stack.
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("detail-\(selection.rawValue)")
         }
         .navigationTitle("Nexus")
         .task {
