@@ -71,6 +71,13 @@ describe("handleGetDiscoveredProjects", () => {
 
   // ── Test 4: 101 entries → truncated: true (Spec 1, task 3.2) ─────────────
 
+  // The >100-repo scan (101 mocked dirents → 100 git-repo lookups) is the
+  // slowest case in this file. It is CPU/event-loop bound, not real disk I/O
+  // (fs is fully mocked), so under heavy concurrent suite load it can far
+  // exceed Bun's default 5s per-test timeout (observed up to ~97s on a loaded
+  // machine, vs <1s in isolation — see nx-b7fm5). The >100 boundary coverage
+  // (asserting truncated:true at exactly 101 entries) is load-bearing and is
+  // kept intact; only the timeout is widened, scoped to this test.
   it("sets truncated: true when more than 100 git repos exist", async () => {
     const db = makeDb([makeAgentRow({ projectsDir: "/home/user/many-projects" })]);
 
@@ -89,7 +96,7 @@ describe("handleGetDiscoveredProjects", () => {
     const body = await res.json() as { projects: unknown[]; truncated: boolean };
     expect(body.projects.length).toBe(100);
     expect(body.truncated).toBe(true);
-  });
+  }, { timeout: 120_000 });
 
   // ── Test 5: filters non-git dirs ─────────────────────────────────────────
 

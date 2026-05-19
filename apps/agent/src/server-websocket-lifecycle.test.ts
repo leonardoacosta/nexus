@@ -55,6 +55,12 @@ describe("WebSocket security: connection limit", () => {
 // ── Security: resize validation ───────────────────────────────────────────────
 
 describe("WebSocket security: resize validation", () => {
+  // This WS roundtrip (upgrade → open → send resize → await error frame)
+  // is the slowest resize case. The handshake + delay() barriers starve when
+  // the full agent suite runs concurrently on a loaded machine: observed up to
+  // ~27s vs <1s in isolation, blowing Bun's default 5s per-test timeout (see
+  // nx-b7fm5). The validation assertion is unchanged; only the timeout is
+  // widened, scoped to this test.
   it("[2.4] resize with cols=0 (below min 1) returns JSON error frame", async () => {
     const sid = "resize-cols-zero-session";
     const pty = new MockPtySource({ intervalMs: 0 });
@@ -74,7 +80,7 @@ describe("WebSocket security: resize validation", () => {
     ws.close();
     await delay(20);
     streamManager.endSession(sid);
-  });
+  }, { timeout: 60_000 });
 
   it("[2.4] resize with cols=1000 (above max 500) returns JSON error frame", async () => {
     const sid = "resize-cols-max-session";
