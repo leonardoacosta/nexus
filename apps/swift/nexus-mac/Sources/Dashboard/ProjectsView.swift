@@ -60,10 +60,16 @@ struct ProjectsView: View {
                 ForEach(model.projects) { project in
                     ProjectRow(project: project)
                         .contextMenu {
-                            Button(role: .destructive) {
-                                Task { await model.remove(project) }
-                            } label: {
-                                Label("Remove project", systemImage: "eye.slash")
+                            // Remove affordance only composes when the row
+                            // carries a registry UUID — `PATCH /projects/:id`
+                            // validates a strict UUID. Session-only buckets
+                            // (id == nil) have nothing to hide server-side.
+                            if project.projectID != nil {
+                                Button(role: .destructive) {
+                                    Task { await model.remove(project) }
+                                } label: {
+                                    Label("Remove project", systemImage: "eye.slash")
+                                }
                             }
                         }
                         .accessibilityIdentifier("project-row-\(project.id)")
@@ -141,12 +147,16 @@ final class ProjectsViewModel: ObservableObject {
     }
 
     /// Remove (hide) a discovered project: optimistically drop the row, fire
-    /// `PATCH /projects/:id { hidden: true }`, then refresh so the server's
-    /// hidden-filtered list is authoritative (and the row reappears if the
-    /// patch was rejected upstream — see `NexusClient.patchProject` note).
+    /// `PATCH /projects/:id { hidden: true }` with the row's registry UUID,
+    /// then refresh so the server's hidden-filtered list is authoritative (and
+    /// the row reappears if the patch was rejected upstream).
+    ///
+    /// No-op when the row has no registry id (session-only bucket) — the UI
+    /// already hides the affordance for those, this is the defensive guard.
     func remove(_ project: ProjectAggregate) async {
+        guard let projectID = project.projectID else { return }
         projects.removeAll { $0.id == project.id }
-        await client.patchProject(id: project.id, hidden: true)
+        await client.patchProject(id: projectID, hidden: true)
         await load()
     }
 }

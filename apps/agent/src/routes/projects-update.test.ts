@@ -8,7 +8,8 @@
  */
 
 import { describe, expect, it, beforeAll, afterAll, mock } from "bun:test";
-import { handleUpdateProject } from "./projects";
+import { handleUpdateProject, aggregateProjects } from "./projects";
+import type { SessionRow } from "../db/sessions";
 import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
 import { projects } from "@nexus/db";
@@ -231,5 +232,69 @@ describe("PATCH /projects/:id — hidden flag (mock Db, no PG)", () => {
     );
     expect(res.status).toBe(200);
     expect(updateSets[0]).toEqual({ hidden: true, tags: ["web"] });
+  });
+});
+
+// ── /projects aggregate exposes registry id (id-exposure gap, no PG) ────────
+//
+// Closes the cross-batch composition gap (tasks 2.4/2.5/3.1): the aggregated
+// `/projects` row must carry the registry `id` (the `projects.id` UUID that
+// `PATCH /projects/:id` validates) so the Swift remove affordance can compose.
+// Pure-function test of `aggregateProjects` — no DB / PG required.
+
+describe("aggregateProjects — registry id exposure (no PG)", () => {
+  const REG_ID = "11111111-1111-1111-1111-111111111111";
+
+  function session(over: Partial<SessionRow>): SessionRow {
+    return {
+      projectId: null,
+      status: "active",
+      machine: "host-a",
+      ...over,
+    } as unknown as SessionRow;
+  }
+
+  it("emits the registry UUID as `id` for a registry-backed project", () => {
+    const rows = aggregateProjects(
+      [session({ projectId: REG_ID, machine: "host-a" })],
+      [{ projectId: REG_ID, name: "alpha" }],
+    );
+    const alpha = rows.find((r) => r.name === "alpha");
+    expect(alpha).toBeDefined();
+    expect(alpha!.id).toBe(REG_ID);
+    // Session-count overlay must not regress.
+    expect(alpha!.active_sessions).toBe(1);
+    expect(alpha!.total_sessions).toBe(1);
+    expect(alpha!.machines).toEqual(["host-a"]);
+  });
+
+  it("emits a registry row with id even when it has zero sessions", () => {
+    const rows = aggregateProjects([], [{ projectId: REG_ID, name: "alpha" }]);
+    const alpha = rows.find((r) => r.name === "alpha");
+    expect(alpha!.id).toBe(REG_ID);
+    expect(alpha!.active_sessions).toBe(0);
+  });
+
+  it("emits `id: null` for a session-only fallback bucket (never fabricated)", () => {
+    const rows = aggregateProjects(
+      [session({ projectId: null, machine: "host-b" })],
+      [],
+    );
+    const unreg = rows.find((r) => r.name === "(unregistered)");
+    expect(unreg).toBeDefined();
+    expect(unreg!.id).toBeNull();
+    expect(unreg!.total_sessions).toBe(1);
+  });
+
+  it("threads id for registry rows alongside an id-less session-only bucket", () => {
+    const rows = aggregateProjects(
+      [
+        session({ projectId: REG_ID, machine: "host-a" }),
+        session({ projectId: null, machine: "host-b" }),
+      ],
+      [{ projectId: REG_ID, name: "alpha" }],
+    );
+    expect(rows.find((r) => r.name === "alpha")!.id).toBe(REG_ID);
+    expect(rows.find((r) => r.name === "(unregistered)")!.id).toBeNull();
   });
 });

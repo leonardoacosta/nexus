@@ -69,8 +69,15 @@ function bucketSessions(sessions: SessionRow[]): Map<string, SessionAgg> {
  * (fixes the "all (unregistered)" symptom). Session-only buckets with no
  * matching registry id (e.g. `(unregistered)`, or a project not yet scanned)
  * are still emitted so the legacy session-derived behaviour never regresses.
+ *
+ * Registry rows carry their `id` (the `projects.id` UUID that
+ * `PATCH /projects/:id` validates against) so the Swift remove affordance can
+ * compose. Session-only fallback buckets have no registry row → `id: null`
+ * (the UI hides the remove action on id-less rows; ids are never fabricated).
+ *
+ * Exported for unit testing the registry-id threading without a live DB.
  */
-function aggregateProjects(
+export function aggregateProjects(
   sessions: SessionRow[],
   registered: { projectId: string; name: string }[],
 ): Project[] {
@@ -83,6 +90,7 @@ function aggregateProjects(
     const agg = sessionBuckets.get(reg.projectId);
     if (agg) consumedKeys.add(reg.projectId);
     projects.push({
+      id: reg.projectId,
       name: reg.name,
       active_sessions: agg?.active ?? 0,
       total_sessions: agg?.total ?? 0,
@@ -91,9 +99,11 @@ function aggregateProjects(
   }
 
   // 2. Session-only buckets with no registry row (fallback — never regress).
+  //    No registry id exists for these — emit `id: null` (never fabricate).
   for (const [key, agg] of sessionBuckets) {
     if (consumedKeys.has(key)) continue;
     projects.push({
+      id: null,
       name: key,
       active_sessions: agg.active,
       total_sessions: agg.total,

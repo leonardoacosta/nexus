@@ -129,15 +129,12 @@ public actor NexusClient {
     /// project so the user can prune a discovered project (the auto-discovery
     /// scanner keeps `hidden=true` sticky across re-scans).
     ///
-    /// `id` is the project's path-param identifier. NOTE: the agent route
-    /// (`apps/agent/src/routes/projects.ts` `handleUpdateProject`) currently
-    /// validates `:id` as a UUID matching `projects.id`, but `GET /projects`
-    /// (the `ProjectAggregate` row) only exposes the project `name` — there is
-    /// no UUID on the aggregated row shape. Until the `GET /projects` contract
-    /// surfaces the project UUID, callers pass the project name and the agent
-    /// will 400 a non-UUID. This is a tracked cross-batch dependency (E2E
-    /// task 4.2 / nx-3ynb9) — the transport + UI affordance are correct; the
-    /// id-source gap is upstream of this client.
+    /// `id` is the project's registry UUID (`projects.id`). `GET /projects`
+    /// now surfaces this as `ProjectAggregate.projectID` (registry-backed rows
+    /// only; session-only buckets carry `nil` and the UI hides the affordance),
+    /// so callers pass the real UUID and the agent route
+    /// (`apps/agent/src/routes/projects.ts` `handleUpdateProject`) accepts it.
+    /// The id-exposure gap (E2E task 4.2 / nx-3ynb9) is closed end-to-end.
     ///
     /// Returns the raw response body (best-effort; nil on transport failure).
     @discardableResult

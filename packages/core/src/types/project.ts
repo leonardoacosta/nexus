@@ -1,4 +1,12 @@
 export interface Project {
+  /**
+   * Registry project UUID (matches `projects.id`, the path-param
+   * `PATCH /projects/:id` validates against). `null` for session-only
+   * fallback buckets (e.g. `(unregistered)`) that have no registry row —
+   * the UI hides the remove affordance on id-less rows. Optional so older
+   * agents that omit the field still decode.
+   */
+  id?: string | null;
   name: string;
   active_sessions: number;
   total_sessions: number;
