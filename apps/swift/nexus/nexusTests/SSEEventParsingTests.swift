@@ -65,9 +65,17 @@ final class SSEEventParsingTests: XCTestCase {
         store.reset()
         let client = NexusClient(store: store)
 
-        // 1. RemoteSessionStarted — adds a session
+        // 1. RemoteSessionStarted — adds a *real* Claude Code session.
+        // `homelabSessions()` (the session-count input to AggregateState
+        // .derive) deliberately excludes telemetry-ping stubs that lack a CC
+        // fingerprint (pid/tmuxTarget/cwd/ccSessionId/model) — see
+        // NexusClient.homelabSessions() and the fix-agent-cc-session-tracking
+        // spec. A fingerprint-less row would yield .idle, not .active. Stamp a
+        // pid so the row represents an actual running CC process, which is the
+        // precise condition `.active` encodes ("reachable AND >= 1 real
+        // session running").
         let s = NexusSession(id: "x", project: "nx", machine: "homelab",
-                             agent: "homelab", status: "active")
+                             agent: "homelab", status: "active", pid: 4242)
         await client.upsertSession(s)
 
         // 2. NotificationFired — prepends one
