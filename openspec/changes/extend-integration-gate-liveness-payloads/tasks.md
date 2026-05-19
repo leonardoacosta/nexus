@@ -8,7 +8,7 @@
 - [x] [1.1] Extend `HealthMetrics` interface in `packages/core/src/types/health.ts` with `db_ok: boolean`, `last_watcher_tick_ms: number`, `socket_server_listening: boolean` [owner:types-engineer] [type:types] [beads:nx-4ne17]
 - [x] [1.2] [P-1] Add `lastTickMs(): number` getter to `processWatcher` in `apps/agent/src/services/process-watcher.ts`, updated at the end of `reconcileOnce` [owner:api-engineer] [type:feature] [beads:nx-e603d]
 - [x] [1.3] [P-1] Add `isListening(): boolean` getter to `socketServer` in `apps/agent/src/services/socket-server.ts` [owner:api-engineer] [type:feature] [beads:nx-fyp31]
-- [ ] [1.4] Add `pingDb(db: Db): Promise<boolean>` helper that runs `select 1` with 1s timeout and returns false on failure [owner:api-engineer] [type:feature] [beads:nx-nesr1]
+- [x] [1.4] Add `pingDb(db: Db): Promise<boolean>` helper that runs `select 1` with 1s timeout and returns false on failure [owner:api-engineer] [type:feature] [beads:nx-nesr1]
 - [ ] [1.5] Extend `handleHealthGet` in `apps/agent/src/server-health-handler.ts` to compose the three new fields with per-field try blocks and documented fallbacks (-1 / false) [owner:api-engineer] [type:feature] [beads:nx-42swg]
 - [ ] [1.6] Extend `stubbedHealthPayload()` to include the three new fields with reasonable defaults so tests using the stub don't break [owner:api-engineer] [type:test] [beads:nx-rrtx1]
 - [ ] [1.7] Add `homelab-transport.test.ts` block: liveness assertions on /health response (db_ok true, last_watcher_tick_ms in [0, 5*60_000), socket_server_listening true) [owner:api-engineer] [type:test] [beads:nx-sw9tr]
