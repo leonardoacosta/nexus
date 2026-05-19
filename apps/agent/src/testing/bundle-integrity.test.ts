@@ -25,8 +25,16 @@ const DERIVED =
 const APP_PATH = join(DERIVED, "Build/Products/Release/nexus.app");
 const PLIST = join(APP_PATH, "Contents/Info.plist");
 
+// Heavyweight/capability gate. The bare per-push `turbo test` MUST stay fast
+// and deterministic — it never sets NEXUS_HEAVY_TESTS, so this whole file
+// skips cleanly there regardless of whether a stale derivedData bundle
+// happens to linger from a prior pre-push gate run. The gate's
+// resource-bearing Tier A path (which has just run the real xcodebuild via
+// deploy/check-bundle-integrity.sh) sets NEXUS_HEAVY_TESTS=1 so this
+// asserts the freshly-produced bundle.
+const heavyEnabled = process.env.NEXUS_HEAVY_TESTS === "1";
 const isMac = process.platform === "darwin";
-const bundleBuilt = isMac && existsSync(PLIST);
+const bundleBuilt = heavyEnabled && isMac && existsSync(PLIST);
 
 /** Read a top-level Info.plist key via PlistBuddy; null if absent. */
 async function plistKey(key: string): Promise<string | null> {

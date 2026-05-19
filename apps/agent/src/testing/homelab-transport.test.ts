@@ -35,9 +35,19 @@ import type { Db } from "@nexus/db";
 
 const hasPg = !!process.env.POSTGRES_URL;
 
+// Heavyweight/capability gate. This check is the "runs ON the agent host"
+// transport leg — it stands up real servers and (for the HTTP contract leg)
+// needs a live agent/PG. The bare per-push `turbo test` MUST stay fast and
+// not depend on agent-host capabilities, so it never sets NEXUS_HEAVY_TESTS
+// and this whole file skips cleanly there. The gate's resource-bearing
+// Tier A path sets NEXUS_HEAVY_TESTS=1 to exercise the transport seam; the
+// HTTP-contract leg additionally keeps its own hasPg guard so it still skips
+// cleanly when PG is absent even under the heavy flag.
+const heavyEnabled = process.env.NEXUS_HEAVY_TESTS === "1";
+
 // ── 1. Bind shape — non-loopback interface, not loopback-only ──────────────
 
-describe("homelab transport — agent binds the non-loopback interface", () => {
+describe.skipIf(!heavyEnabled)("homelab transport — agent binds the non-loopback interface", () => {
   it("default routing is NOT loopback-only when Tailscale is discoverable", () => {
     const calls: string[] = [];
     const fakeFactory = (hostname: string) => {
@@ -71,7 +81,7 @@ describe("homelab transport — agent binds the non-loopback interface", () => {
 
 // ── 2. Contract shape — /sessions + /health match the core contract ───────
 
-describe.skipIf(!hasPg)(
+describe.skipIf(!heavyEnabled || !hasPg)(
   "homelab transport — HTTP contract shape (requires live PG)",
   () => {
     let server: NexusServer;
@@ -148,7 +158,7 @@ describe.skipIf(!hasPg)(
 
 // ── 3. Socket spine — nexus-emit NDJSON round-trips to the dispatcher ─────
 
-describe("homelab transport — socket spine round-trip", () => {
+describe.skipIf(!heavyEnabled)("homelab transport — socket spine round-trip", () => {
   let socketServer: SocketServer;
   const socketPath = `/tmp/nx-itg-spine-${Date.now()}.sock`;
   const observed: SocketEvent[] = [];
