@@ -33,6 +33,12 @@
   install.sh), then assert the produced bundle `Info.plist` contains
   `NSAppTransportSecurity` and `LSUIElement`, and the product is `nexus.app`.
   Guards the nx-5ws74 silent-no-op + ATS-config regression classes. [beads:nx-xin4t]
+- [x] 1.6 `deploy/hooks/pre-push-dispatcher` (+ synced `.git/hooks/pre-push`) —
+  add a per-hook blocking opt-in: dispatcher stays lenient by default but a
+  hook marked blocking, on non-zero exit, makes the dispatcher exit non-zero
+  (aborts the push). Mark `deploy/hooks.d/pre-push/01-deploy` as blocking.
+  All other pre-push hooks keep current advisory behavior. Resolves nx-2br1i;
+  makes the spec's "MUST abort the push" requirement satisfiable. [beads:nx-diidh]
 
 ## UI Batch
 

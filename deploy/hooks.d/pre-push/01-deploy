@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# nexus:blocking
+
 # Nexus Agent — pre-push deploy hook
 # Builds release on pushes to main, installs, and enables service.
 # Aborts push on build failure. Skip with: SKIP_DEPLOY=1 git push

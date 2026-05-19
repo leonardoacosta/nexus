@@ -2,7 +2,17 @@
 #
 # pre-push dispatcher
 # Runs all executable scripts in deploy/hooks.d/pre-push/ in sorted order.
-# A failing hook logs a warning but does NOT block subsequent hooks.
+#
+# Per-hook blocking opt-in (nx-diidh):
+#   By default a failing hook logs an advisory warning and does NOT block the
+#   push (exit 0 preserved). A hook may opt in to being push-blocking by
+#   including the sentinel line
+#
+#       # nexus:blocking
+#
+#   anywhere in its file. If a blocking hook exits non-zero, the dispatcher
+#   still runs the remaining hooks, then exits non-zero so `git push` aborts.
+#   Non-blocking hooks' behavior is byte-unchanged.
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 HOOKS_DIR="$REPO_DIR/deploy/hooks.d/pre-push"
@@ -11,10 +21,19 @@ if [ ! -d "$HOOKS_DIR" ]; then
     exit 0
 fi
 
+rc=0
+
 for hook in "$HOOKS_DIR"/*; do
     [ -x "$hook" ] || continue
     name="$(basename "$hook")"
     if ! "$hook" "$@"; then
-        echo "Warning: pre-push hook '$name' failed (continuing)" >&2
+        if grep -q '^# nexus:blocking$' "$hook" 2>/dev/null; then
+            echo "Error: pre-push hook '$name' failed (blocking — push will abort)" >&2
+            rc=1
+        else
+            echo "Warning: pre-push hook '$name' failed (continuing)" >&2
+        fi
     fi
 done
+
+exit "$rc"
