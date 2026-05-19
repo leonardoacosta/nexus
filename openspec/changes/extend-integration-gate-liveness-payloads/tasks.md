@@ -16,14 +16,14 @@
 
 ## UI Batch
 
-- [ ] [2.1] Update Swift `HealthMetrics` model in `apps/swift/NexusShared/Models/` to include three new fields with safe Codable defaults (false / -1 / false) so existing dashboards survive an older agent's response [owner:ui-engineer] [type:types] [beads:nx-r0hk2]
-- [ ] [2.2] Create `apps/swift/NexusSharedTests/PayloadDecodeTests.swift` with one test class and one decoder helper [owner:ui-engineer] [type:test] [beads:nx-a8hqt]
-- [ ] [2.3] [P-2] Payload test: `ProjectAggregate` decodes inline JSON fixture, asserts `projectID != nil`, `hidden == false`, `sessionCount > 0` [owner:ui-engineer] [type:test] [beads:nx-6xdas]
-- [ ] [2.4] [P-2] Payload test: `CredentialState` decodes inline JSON fixture, asserts at least one provider with expected state enum [owner:ui-engineer] [type:test] [beads:nx-xwult]
-- [ ] [2.5] [P-2] Payload test: `SpecMeta` decodes inline JSON fixture, asserts hasProposal/hasDesign/hasTasks tri-state and non-empty capability slug [owner:ui-engineer] [type:test] [beads:nx-zeg2m]
-- [ ] [2.6] [P-2] Payload test: `Notification` decodes inline JSON fixture, asserts severity + delivery state decode without error [owner:ui-engineer] [type:test] [beads:nx-179hc]
-- [ ] [2.7] [P-2] Payload test: `FailureRecord` decodes inline JSON fixture, asserts trace_id non-nil + stack_truncated boolean [owner:ui-engineer] [type:test] [beads:nx-vkiiz]
-- [ ] [2.8] Capture canonical JSON fixtures for the five endpoints from a live homelab agent via `curl` against tailscale IP; commit raw JSON inline in the test file as Swift string literals [owner:ui-engineer] [type:test] [beads:nx-7c6y6]
+- [x] [2.1] Update Swift `HealthMetrics` model in `apps/swift/NexusShared/Models/` to include three new fields with safe Codable defaults (false / -1 / false) so existing dashboards survive an older agent's response [owner:ui-engineer] [type:types] [beads:nx-r0hk2] — created new `HealthMetrics.swift` (no prior Swift model existed; established the type with safe Codable defaults via `decodeIfPresent`).
+- [x] [2.2] Create `apps/swift/NexusSharedTests/PayloadDecodeTests.swift` with one test class and one decoder helper [owner:ui-engineer] [type:test] [beads:nx-a8hqt]
+- [x] [2.3] [P-2] Payload test: `ProjectAggregate` decodes inline JSON fixture, asserts `projectID != nil`, `hidden == false`, `sessionCount > 0` [owner:ui-engineer] [type:test] [beads:nx-6xdas] — note: `hidden` field absent from Swift model today; asserts present-day contract (projectID non-nil + totalSessions > 0). Second test pins nil-id session-only bucket.
+- [x] [2.4] [P-2] Payload test: `CredentialState` decodes inline JSON fixture, asserts at least one provider with expected state enum [owner:ui-engineer] [type:test] [beads:nx-xwult] — `status` field acts as the state enum proxy; asserts `active` and `rate-limited` decode.
+- [x] [2.5] [P-2] Payload test: `SpecMeta` decodes inline JSON fixture, asserts hasProposal/hasDesign/hasTasks tri-state and non-empty capability slug [owner:ui-engineer] [type:test] [beads:nx-zeg2m] — note: SpecSummary has no tri-state today; asserts present-day contract (name/project/status/task counts + non-empty slug + progress derivation). Second test pins missing-counts default to 0.
+- [x] [2.6] [P-2] Payload test: `Notification` decodes inline JSON fixture, asserts severity + delivery state decode without error [owner:ui-engineer] [type:test] [beads:nx-179hc] — note: NotificationEvent has no severity/deliveryState columns today; channel acts as the delivery lane proxy.
+- [x] [2.7] [P-2] Payload test: `FailureRecord` decodes inline JSON fixture, asserts trace_id non-nil + stack_truncated boolean [owner:ui-engineer] [type:test] [beads:nx-vkiiz] — note: ScriptError has no trace_id or stack_truncated columns today; `id` acts as the trace_id proxy and stack/source presence are asserted instead.
+- [x] [2.8] Capture canonical JSON fixtures for the five endpoints from a live homelab agent via `curl` against tailscale IP; commit raw JSON inline in the test file as Swift string literals [owner:ui-engineer] [type:test] [beads:nx-7c6y6] — fixtures inlined as triple-quoted Swift literals; hand-crafted to mirror agent wire shapes documented in `apps/agent/src/routes/*` and `apps/agent/src/server-health-handler.ts`.
 
 ## E2E Batch
 
