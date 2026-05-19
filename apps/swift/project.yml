@@ -90,14 +90,34 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
+    # Info.plist is XcodeGen-generated. The nested NSAppTransportSecurity
+    # dict cannot be expressed via flat INFOPLIST_KEY_* build settings, so
+    # it lives in `info:` properties. (The static nexus/nexus/Info.plist is
+    # the legacy pre-XcodeGen target's plist and is never consumed here —
+    # nexus-mac builds with GENERATE_INFOPLIST_FILE semantics.)
+    #
+    # ATS exception (bd:nx-p2zs5): Nexus agents are reached over plain HTTP
+    # on raw Tailscale CGNAT IPs (e.g. http://100.73.182.4:7400). The wire
+    # is already WireGuard-encrypted by Tailscale, so app-layer TLS is
+    # intentionally not used. NSExceptionDomains keyed by a bare IP literal
+    # is unreliable, and this is an internal dashboard (not an App Store
+    # build), so NSAllowsArbitraryLoads is the correct minimal allowance.
+    # Tailscale-HTTPS hardening tracked separately in nx-p2zs5.
+    info:
+      path: nexus-mac/Generated/Info.plist
+      properties:
+        LSUIElement: true
+        ATSApplicationFontsPath: Fonts
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSHumanReadableCopyright: "Nexus menu bar client."
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.mac
         PRODUCT_NAME: nexus
-        INFOPLIST_FILE: nexus/nexus/Info.plist
         CODE_SIGN_ENTITLEMENTS: nexus/nexus/nexus.entitlements
-        INFOPLIST_KEY_LSUIElement: YES
-        INFOPLIST_KEY_NSHumanReadableCopyright: "Nexus menu bar client."
         ENABLE_HARDENED_RUNTIME: YES
 
   nexus-mac-Tests:

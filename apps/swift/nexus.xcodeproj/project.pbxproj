@@ -1272,9 +1272,7 @@
 				CODE_SIGN_ENTITLEMENTS = nexus/nexus/nexus.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = nexus/nexus/Info.plist;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Nexus menu bar client.";
+				INFOPLIST_FILE = "nexus-mac/Generated/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1426,9 +1424,7 @@
 				CODE_SIGN_ENTITLEMENTS = nexus/nexus/nexus.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = nexus/nexus/Info.plist;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Nexus menu bar client.";
+				INFOPLIST_FILE = "nexus-mac/Generated/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
