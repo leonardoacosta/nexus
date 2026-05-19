@@ -179,6 +179,11 @@ export const HEALTH_FIXTURE: HealthMetrics = {
       { pid: 4242, name: "claude", cpu_percent: 12.5, ram_percent: 1.6 },
     ],
   },
+  // Liveness fields — stub fixture defaults to "healthy" so dashboards
+  // exercising the stub agent see a green liveness signal.
+  db_ok: true,
+  last_watcher_tick_ms: 0,
+  socket_server_listening: true,
 };
 
 // ---------------------------------------------------------------------------

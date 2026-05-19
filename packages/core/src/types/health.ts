@@ -37,6 +37,23 @@ export interface HealthMetrics {
     top_cpu: ProcessInfo[];
     top_ram: ProcessInfo[];
   };
+  /**
+   * Liveness — Drizzle pool can issue a trivial `select 1`. False on a dead
+   * pool / timeout / refused connection. Endpoint stays 200 either way.
+   */
+  db_ok: boolean;
+  /**
+   * Liveness — monotonic ms since the process-watcher's `reconcileOnce()`
+   * last completed. Sentinel `-1` means the watcher has not ticked yet
+   * (e.g. agent just booted, or watcher disabled because PG is absent).
+   */
+  last_watcher_tick_ms: number;
+  /**
+   * Liveness — UNIX socket spine is bound and accepting. False when the
+   * server failed to bind (path conflict, permission denied) or has been
+   * stopped.
+   */
+  socket_server_listening: boolean;
 }
 
 /** A single process entry for the top-N CPU/RAM lists. */

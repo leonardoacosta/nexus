@@ -87,6 +87,13 @@ export class HealthCollector {
         top_cpu: topN(procs.list, "cpu", 10),
         top_ram: topN(procs.list, "mem", 10),
       },
+      // Liveness fields are populated by handleHealthGet from the
+      // server-scoped liveness providers; the collector itself has no
+      // visibility into the watcher / socket / DB. Defaults here are safe
+      // sentinels and will be overwritten before the response is sent.
+      db_ok: false,
+      last_watcher_tick_ms: -1,
+      socket_server_listening: false,
     };
 
     return metrics;
