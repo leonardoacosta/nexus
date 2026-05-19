@@ -4,8 +4,8 @@ set -euo pipefail
 # Nexus — environment-aware installer.
 #
 # Detects host platform via `uname -s` and branches:
-#   Darwin  -> build Swift dashboard (xcodegen + xcodebuild) + install agent
-#             binary + launchd plist for nexus-agent
+#   Darwin  -> build Swift dashboard (xcodegen + xcodebuild); no agent
+#             daemon (spine model: Mac is Swift app + Tailnet only)
 #   Linux   -> build agent binary (bun --compile), install to ~/.local/bin,
 #             write systemd user unit, daemon-reload + enable
 #
@@ -188,85 +188,12 @@ See bd:nx-jmqyk for the canonical NexusShared multi-platform issue."
         fi
     fi
 
-    # Agent launchd plist — generate inline. The plist file used to live
-    # at deploy/com.nexus.agent.plist; it was removed by
-    # remove-mac-deploy-artifacts so installs no longer depend on a
-    # checked-in plist that drifts from $USER / $HOME.
-    local LAUNCH_DIR="$HOME/Library/LaunchAgents"
-    local PLIST="$LAUNCH_DIR/com.nexus.agent.plist"
-    mkdir -p "$LAUNCH_DIR"
-
-    # Source NEXUS_* env vars from ~/.config/nexus/secrets.env so the
-    # launchd plist embeds them. Without this, nexus-agent fails fast
-    # on 'Encryption key validation failed' and launchd thrashes
-    # (KeepAlive=true causes infinite restart). Filed under nx-rui8k.
-    local SECRETS_FILE="$CONFIG_DIR/secrets.env"
-    if [[ -f "$SECRETS_FILE" ]]; then
-        # shellcheck disable=SC1090
-        set -a; . "$SECRETS_FILE"; set +a
-    else
-        warn "$SECRETS_FILE not found — agent will fail to start without NEXUS_ENCRYPTION_KEY."
-        warn "See deploy/secrets.env.example for the required contract."
-    fi
-
-    info "Generating launchd user agent at $PLIST"
-    # Build the EnvironmentVariables block from any NEXUS_* / POSTGRES_* /
-    # APNS_* / ELEVENLABS_* keys present in the current shell environment.
-    # Only embed values that are non-empty — missing keys produce empty
-    # entries that break plist parsing.
-    local ENV_BLOCK=""
-    for key in NEXUS_ENCRYPTION_KEY NEXUS_ATTACH_SECRET POSTGRES_URL APNS_KEY_ID APNS_TEAM_ID APNS_KEY_PATH APNS_BUNDLE_IOS APNS_BUNDLE_WATCH ELEVENLABS_API_KEY; do
-        # Indirect expansion: ${!key} returns the value of the var named in $key.
-        local val="${!key:-}"
-        if [[ -n "$val" ]]; then
-            # XML-escape (& < > only — values shouldn't contain quotes in this context).
-            val="${val//&/&amp;}"
-            val="${val//</&lt;}"
-            val="${val//>/&gt;}"
-            ENV_BLOCK+="        <key>$key</key>"$'\n'"        <string>$val</string>"$'\n'
-        fi
-    done
-
-    cat > "$PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.nexus.agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$BIN_DIR/nexus-agent</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$HOME/Library/Logs/nexus-agent.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>$HOME/Library/Logs/nexus-agent.stderr.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>RUST_LOG</key>
-        <string>info</string>
-        <key>PATH</key>
-        <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-$ENV_BLOCK    </dict>
-</dict>
-</plist>
-PLIST
-
-    # TODO: optional login item registration for Nexus.app via
-    # `osascript -e 'tell application "System Events" to make login item ...'`.
-    # Skipped for now — manual via System Settings -> Login Items. See nx-eop6z
-    # for the related Mac TTS / launchd cleanup work.
+    # macOS runs NO nexus-agent daemon under the spine model — it is a pure
+    # Swift app + Tailnet member. The dashboard reads remote agents over the
+    # Tailnet. No launchd plist, no ~/Library/LaunchAgents, no launchctl.
 
     echo ""
-    info "macOS install complete. Next steps:"
-    echo "  launchctl bootout gui/\$(id -u)/com.nexus.agent 2>/dev/null || true"
-    echo "  launchctl bootstrap gui/\$(id -u) $PLIST"
-    echo "  tail -f ~/Library/Logs/nexus-agent.stdout.log   # view logs"
+    info "macOS install complete."
     if [[ -d /Applications/Nexus.app ]]; then
         echo "  open /Applications/Nexus.app                    # launch dashboard"
     fi
