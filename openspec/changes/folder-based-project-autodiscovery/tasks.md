@@ -12,20 +12,20 @@
 
 ## API Batch
 
-- [ ] 2.1 Extend the discovery scanner (`apps/agent/src/routes/projects-discovered.ts`
+- [x] 2.1 Extend the discovery scanner (`apps/agent/src/routes/projects-discovered.ts`
   `scanProjects()`) to match a directory containing `.git` **OR** `openspec/`
   (currently `.git`-only). [beads:nx-wcao8]
-- [ ] 2.2 Add a startup + periodic-interval trigger that runs the scanner over
+- [x] 2.2 Add a startup + periodic-interval trigger that runs the scanner over
   configured dev-roots and writes through `db/project-registry`
   `upsertProjectLocations`. The upsert MUST preserve an existing
   `hidden=true` (sticky — re-discovery never clears it). [beads:nx-d71ob]
-- [ ] 2.3 `apps/agent/src/services/spec-watcher/poller.ts` — enumerate projects
+- [x] 2.3 `apps/agent/src/services/spec-watcher/poller.ts` — enumerate projects
   from `db/project-registry` (registry-first), not solely the static
   `~/.claude/scripts/config/projects.json`, so `/specs` reflects discovered
   repos' openspec changes. [beads:nx-59cnu]
-- [ ] 2.4 `apps/agent/src/routes/projects.ts` — aggregate from the registry and
+- [x] 2.4 `apps/agent/src/routes/projects.ts` — aggregate from the registry and
   exclude rows where `hidden` is set. [beads:nx-jbrmz]
-- [ ] 2.5 `PATCH /projects/:id` route — set/clear the persisted `hidden` flag. [beads:nx-zcv7d]
+- [x] 2.5 `PATCH /projects/:id` route — set/clear the persisted `hidden` flag. [beads:nx-zcv7d]
 
 ## UI Batch
 

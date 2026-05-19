@@ -8,6 +8,7 @@ import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
 import { scheduleProjectCleanup } from "./db/project-registry";
+import { scheduleProjectDiscovery } from "./routes/projects-discovered";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
 import { startSocketServer, createSocketEventDispatcher, type SocketServer } from "./services/socket-server";
 import { startCronService, type CronService } from "./services/cron";
@@ -79,6 +80,11 @@ const stopRetention = scheduleRetention(db);
 
 // Project registry cleanup — archives stale missing locations every 24h
 const stopProjectCleanup = scheduleProjectCleanup(db);
+
+// Folder-based project auto-discovery — scans the agent's projectsDir for
+// repos (.git OR openspec/) at startup and every 60s, upserting into the
+// project registry (hidden=true is preserved across re-scans).
+const stopProjectDiscovery = scheduleProjectDiscovery(db);
 
 let watcherBridge: ReturnType<typeof createWatcherBridge> | null = null;
 
@@ -166,7 +172,7 @@ try {
 // Polls openspec status across registered projects and fires TTS notifications.
 let specWatcher: SpecWatcherService | null = null;
 try {
-  specWatcher = startSpecWatcher();
+  specWatcher = startSpecWatcher(db);
   logger.info("spec watcher started");
 } catch (err) {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
@@ -215,6 +221,7 @@ async function shutdown() {
   healthScheduler.stop();
   stopRetention();
   stopProjectCleanup();
+  stopProjectDiscovery();
   sessionManager.stop();
   watcherBridge?.shutdown();
   server.stop();

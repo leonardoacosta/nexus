@@ -5,10 +5,12 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import { execText } from "../../utils/exec";
 import * as configLoader from "../config-loader";
+import { listRegisteredProjects } from "../../db/project-registry";
 import { parseSpecList, type SpecSnapshot } from "./parser";
 import { SUBPROCESS_TIMEOUT_MS } from "./constants";
 
@@ -47,7 +49,7 @@ export interface ProjectPath {
 // Project discovery
 // ---------------------------------------------------------------------------
 
-/** Load project registry from config-loader cache. */
+/** Load project registry from config-loader cache (static projects.json). */
 export function loadProjectRegistry(): ProjectPath[] {
   try {
     return getProjects()
@@ -60,6 +62,41 @@ export function loadProjectRegistry(): ProjectPath[] {
   } catch (err) {
     log.debug({ error: err }, "spec-watcher: failed to load project registry");
     return [];
+  }
+}
+
+/**
+ * Registry-first project enumeration: read the auto-discovered
+ * `db/project-registry` (non-hidden, active locations) so `/specs` reflects
+ * every discovered repo with an `openspec/` directory — not just the static
+ * `~/.claude/scripts/config/projects.json`.
+ *
+ * Falls back to the static `loadProjectRegistry()` when the registry is empty
+ * (fresh agent, scan not yet run) so existing behaviour never regresses.
+ */
+export async function loadProjectRegistryFromDb(db: Db): Promise<ProjectPath[]> {
+  try {
+    const registered = await listRegisteredProjects(db);
+    const projects = registered
+      .map((r) => ({
+        // The registry has no short `code`; derive a stable one from the
+        // directory name (used only as the spec-watcher state-map key).
+        code: basename(r.path),
+        name: r.name,
+        cwd: r.path,
+      }))
+      .filter((p) => existsSync(join(p.cwd, "openspec")));
+
+    if (projects.length > 0) return projects;
+
+    log.debug("spec-watcher: registry empty — falling back to static projects.json");
+    return loadProjectRegistry();
+  } catch (err) {
+    log.debug(
+      { error: err },
+      "spec-watcher: registry load failed — falling back to static projects.json",
+    );
+    return loadProjectRegistry();
   }
 }
 

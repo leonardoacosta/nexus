@@ -282,6 +282,47 @@ describe("upsertProjectLocations", () => {
   });
 });
 
+// ── Sticky hidden invariant (folder-based-project-autodiscovery task 2.2) ────
+//
+// Re-discovery MUST NOT un-hide a removed project. The invariant is enforced
+// structurally: `hidden` is absent from BOTH the projectLocations insert
+// .values() AND the onConflictDoUpdate set-clause (a hidden=true row keeps its
+// value because the conflict path never overwrites it), and the mark-missing
+// sweep only touches `status`. This test locks that structure so a future
+// edit can't silently regress the sticky behaviour.
+
+describe("upsertProjectLocations — sticky hidden invariant (task 2.2)", () => {
+  it("never writes the hidden column on insert, conflict-update, or mark-missing", async () => {
+    const { db, insertCalls, onConflictDoUpdateCalls, updateCalls } = makeMockDb([
+      [{ id: FAKE_PROJECT_ID }],
+      [{ primaryAgentId: "homelab" }],
+      [{ id: FAKE_PROJECT_ID }],
+    ]);
+
+    await upsertProjectLocations(db, "homelab", [makeProject()]);
+
+    // 1. projects insert values must not carry `hidden` (new rows take the
+    //    column default; existing rows are untouched by onConflictDoNothing).
+    const projectInsert = insertCalls[0]!;
+    expect(projectInsert.values).not.toHaveProperty("hidden");
+
+    // 2. projectLocations insert values must not carry `hidden`.
+    const locationInsert = insertCalls[1]!;
+    expect(locationInsert.values).not.toHaveProperty("hidden");
+
+    // 3. The onConflictDoUpdate set-clause must NOT include `hidden` — this is
+    //    the load-bearing assertion: an existing hidden=true row survives a
+    //    re-scan precisely because the conflict path never overwrites it.
+    const conflictSet = onConflictDoUpdateCalls[0]!.set;
+    expect(conflictSet).not.toHaveProperty("hidden");
+
+    // 4. The mark-missing sweep only mutates `status`, never `hidden`.
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]!.set).toEqual({ status: "missing" });
+    expect(updateCalls[0]!.set).not.toHaveProperty("hidden");
+  });
+});
+
 // ── Retry select after concurrent upsert (task 4.3) ──────────────────────────
 
 describe("upsertProjectLocations — retry select after concurrent insert", () => {

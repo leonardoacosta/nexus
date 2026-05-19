@@ -4,6 +4,7 @@ import { createLogger } from "@nexus/core/node";
 import { projects as projectsTable, eq } from "@nexus/db";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
+import { listRegisteredProjects } from "../db/project-registry";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
 
 const log = createLogger("agent:routes:projects");
@@ -28,23 +29,28 @@ export function clearProjectsCache(): void {
   projectsCache = null;
 }
 
-/** Aggregate sessions into project summaries. */
-function aggregateProjects(sessions: SessionRow[]): Project[] {
-  const projectMap = new Map<
-    string,
-    { active: number; total: number; machines: Set<string> }
-  >();
+interface SessionAgg {
+  active: number;
+  total: number;
+  machines: Set<string>;
+}
 
+/**
+ * Bucket sessions by `projectId` (null → the `(unregistered)` sentinel key).
+ *
+ * Kept as a map so the registry merge can overlay session counts onto a
+ * registered project by id, and any session-only bucket with no registry row
+ * still surfaces (preserves the legacy session-derived behaviour).
+ */
+function bucketSessions(sessions: SessionRow[]): Map<string, SessionAgg> {
+  const UNREGISTERED = "(unregistered)";
+  const map = new Map<string, SessionAgg>();
   for (const session of sessions) {
-    // NOTE: schema evolution dropped `sessions.project` (text name) in favor of
-    // `sessions.projectId` (uuid FK). For now we key by projectId — the proper
-    // join to resolve project names lives in the dashboard collapse work.
-    // Sessions without a registered project are grouped under "(unregistered)".
-    const name = session.projectId ?? "(unregistered)";
-    let entry = projectMap.get(name);
+    const key = session.projectId ?? UNREGISTERED;
+    let entry = map.get(key);
     if (!entry) {
       entry = { active: 0, total: 0, machines: new Set() };
-      projectMap.set(name, entry);
+      map.set(key, entry);
     }
     entry.total++;
     if (session.status === "active" || session.status === "idle") {
@@ -52,14 +58,46 @@ function aggregateProjects(sessions: SessionRow[]): Project[] {
     }
     entry.machines.add(session.machine);
   }
+  return map;
+}
 
+/**
+ * Aggregate the project list from the registry (hidden already excluded by
+ * `listRegisteredProjects`), overlaying live session counts by projectId.
+ *
+ * Registry rows give friendly names + always appear even with zero sessions
+ * (fixes the "all (unregistered)" symptom). Session-only buckets with no
+ * matching registry id (e.g. `(unregistered)`, or a project not yet scanned)
+ * are still emitted so the legacy session-derived behaviour never regresses.
+ */
+function aggregateProjects(
+  sessions: SessionRow[],
+  registered: { projectId: string; name: string }[],
+): Project[] {
+  const sessionBuckets = bucketSessions(sessions);
   const projects: Project[] = [];
-  for (const [name, entry] of projectMap) {
+  const consumedKeys = new Set<string>();
+
+  // 1. Registry-driven rows — named, hidden-filtered, zero-session-safe.
+  for (const reg of registered) {
+    const agg = sessionBuckets.get(reg.projectId);
+    if (agg) consumedKeys.add(reg.projectId);
     projects.push({
-      name,
-      active_sessions: entry.active,
-      total_sessions: entry.total,
-      machines: Array.from(entry.machines).sort(),
+      name: reg.name,
+      active_sessions: agg?.active ?? 0,
+      total_sessions: agg?.total ?? 0,
+      machines: agg ? Array.from(agg.machines).sort() : [],
+    });
+  }
+
+  // 2. Session-only buckets with no registry row (fallback — never regress).
+  for (const [key, agg] of sessionBuckets) {
+    if (consumedKeys.has(key)) continue;
+    projects.push({
+      name: key,
+      active_sessions: agg.active,
+      total_sessions: agg.total,
+      machines: Array.from(agg.machines).sort(),
     });
   }
 
@@ -140,7 +178,9 @@ export async function handleGetProjects(db: Db, url?: URL): Promise<Response> {
   } else {
     // Use a broad window so we include recently ended sessions too
     const sessions = await queryRecentSessions(db, 24 * 30); // 30 days
-    projects = aggregateProjects(sessions);
+    // listRegisteredProjects already excludes hidden projects/locations.
+    const registered = await listRegisteredProjects(db);
+    projects = aggregateProjects(sessions, registered);
     projectsCache = { data: projects, expiry: now + PROJECTS_CACHE_TTL_MS };
     log.info(
       { route, count: projects.length, fromCache: false, paginated },
@@ -190,8 +230,10 @@ export async function handleGetProjects(db: Db, url?: URL): Promise<Response> {
 /**
  * PATCH /projects/:id — update mutable metadata on a project.
  *
- * Allowed fields: `tags` (string[]), `description` (string).
- * Tags are normalized to trimmed lowercase before writing.
+ * Allowed fields: `tags` (string[]), `description` (string), `hidden` (boolean).
+ * Tags are normalized to trimmed lowercase before writing. Setting
+ * `hidden=true` removes the project from `GET /projects`; the auto-discovery
+ * scanner preserves it (sticky exclude) so a re-scan won't resurrect it.
  *
  * Returns 200 `{ updated: true }` on success, 400 on bad input, 404 if not found.
  */
@@ -209,9 +251,13 @@ export async function handleUpdateProject(
     );
   }
 
-  let body: { tags?: unknown; description?: unknown };
+  let body: { tags?: unknown; description?: unknown; hidden?: unknown };
   try {
-    body = (await request.json()) as { tags?: unknown; description?: unknown };
+    body = (await request.json()) as {
+      tags?: unknown;
+      description?: unknown;
+      hidden?: unknown;
+    };
   } catch {
     return new Response(
       JSON.stringify({ error: "invalid JSON body" }),
@@ -219,7 +265,7 @@ export async function handleUpdateProject(
     );
   }
 
-  const patch: { tags?: string[]; description?: string } = {};
+  const patch: { tags?: string[]; description?: string; hidden?: boolean } = {};
 
   if (body.tags !== undefined) {
     if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
@@ -239,6 +285,16 @@ export async function handleUpdateProject(
       );
     }
     patch.description = body.description;
+  }
+
+  if (body.hidden !== undefined) {
+    if (typeof body.hidden !== "boolean") {
+      return new Response(
+        JSON.stringify({ error: "hidden must be a boolean" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    patch.hidden = body.hidden;
   }
 
   if (Object.keys(patch).length === 0) {
@@ -263,6 +319,13 @@ export async function handleUpdateProject(
   }
 
   await db.update(projectsTable).set(patch).where(eq(projectsTable.id, id));
+
+  log.info(
+    { route: "/projects/:id", projectId: id, fields: Object.keys(patch) },
+    body.hidden !== undefined
+      ? `project ${id} hidden flag set to ${String(patch.hidden)}`
+      : `project ${id} metadata updated`,
+  );
 
   return new Response(
     JSON.stringify({ updated: true }),

@@ -252,8 +252,13 @@ async function scanProjects(
     // Skip entries that resolve to an already-seen canonical path
     if (seenCanonicalPaths.has(canonicalPath)) continue;
 
-    // Only include directories that contain a .git subdirectory
-    if (!fs.existsSync(path.join(canonicalPath, ".git"))) continue;
+    // Include directories that look like a project: a git repo (.git) OR an
+    // openspec-only repo (openspec/). Spec-only repos matter because the
+    // spec-watcher consumes this registry — a repo with openspec/ but no .git
+    // (e.g. a docs/governance tree) still has changes worth polling.
+    const isGitRepo = fs.existsSync(path.join(canonicalPath, ".git"));
+    const isOpenspecRepo = fs.existsSync(path.join(canonicalPath, "openspec"));
+    if (!isGitRepo && !isOpenspecRepo) continue;
 
     seenCanonicalPaths.add(canonicalPath);
 
@@ -362,6 +367,96 @@ async function resolveAgentProjectsDir(
   }
 
   return { kind: "ok", agent, projectsDir };
+}
+
+// ── Startup / periodic discovery scan ──────────────────────────────────────
+
+/**
+ * Run one discovery scan over this agent's configured projectsDir and persist
+ * the result through the project registry. This is the non-HTTP entry point
+ * used by the startup + periodic trigger (`scheduleProjectDiscovery`).
+ *
+ * Reuses `resolveAgentProjectsDir` (validation) and `scanProjects` (the
+ * `.git` OR `openspec/` matcher) so the scheduled path and the
+ * `GET /projects/discovered` path stay behaviourally identical.
+ *
+ * The registry upsert preserves an existing `hidden=true` (sticky exclude):
+ * `upsertProjectLocations` never writes the `hidden` column on
+ * insert-conflict, so re-discovery cannot un-hide a removed project.
+ *
+ * Non-throwing: all failures are logged and swallowed so the scheduler loop
+ * is never broken by a bad projectsDir or a transient DB error.
+ */
+export async function runDiscoveryScan(db: Db): Promise<void> {
+  const resolved = await resolveAgentProjectsDir(db);
+  if (resolved.kind === "response") {
+    log.warn("discovery scan skipped — agent projectsDir invalid or agent not registered");
+    return;
+  }
+  if (resolved.kind === "unconfigured") {
+    log.info(
+      { agentId: resolved.agent.id },
+      "discovery scan skipped — projectsDir not configured for this agent",
+    );
+    return;
+  }
+
+  const { agent, projectsDir } = resolved;
+  const scan = await scanProjects(projectsDir, db, PAGINATED_SCAN_CAP);
+  if (!scan.ok) {
+    log.warn({ projectsDir, error: scan.error }, "discovery scan failed — readdir error");
+    return;
+  }
+
+  const toUpsert: ProjectToUpsert[] = scan.projects.map((p) => ({
+    name: p.name,
+    path: p.path,
+    activeSessions: p.activeSessions,
+    totalSessions: p.totalSessions,
+    gitRemoteUrl: p.gitRemoteUrl,
+  }));
+
+  try {
+    await deps.upsertProjectLocations(db, agent.id, toUpsert);
+    log.info(
+      { projectsDir, count: toUpsert.length },
+      "discovery scan complete — registry upserted",
+    );
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "discovery scan registry upsert failed — non-fatal",
+    );
+  }
+}
+
+/**
+ * Schedule the folder-based discovery scan.
+ * Runs once at boot, then every `DISCOVERY_INTERVAL_MS`.
+ * Returns a stop function. Mirrors `scheduleProjectCleanup`'s shape.
+ */
+export function scheduleProjectDiscovery(db: Db): () => void {
+  // Mirror the spec-watcher poll cadence (60s) so the registry the watcher
+  // reads is never more than one watcher cycle stale.
+  const DISCOVERY_INTERVAL_MS = 60_000;
+
+  runDiscoveryScan(db).catch((err) => {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "discovery scan failed (startup)",
+    );
+  });
+
+  const handle = setInterval(() => {
+    runDiscoveryScan(db).catch((err) => {
+      log.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "discovery scan failed (scheduled)",
+      );
+    });
+  }, DISCOVERY_INTERVAL_MS);
+
+  return () => clearInterval(handle);
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────

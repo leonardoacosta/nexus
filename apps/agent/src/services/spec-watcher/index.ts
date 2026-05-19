@@ -21,11 +21,12 @@
  * of "./services/spec-watcher".
  */
 
+import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import { lifecycleBus } from "../lifecycle-bus";
 import { POLL_INTERVAL_MS, BATCH_SIZE, BATCH_DELAY_MS, COALESCE_DELAY_MS } from "./constants";
 import { parseSpecList as _parseSpecList, processProjectSpecs as _processProjectSpecs, eventToMessage, type SpecSnapshot, type SpecEvent } from "./parser";
-import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry } from "./poller";
+import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry, loadProjectRegistryFromDb as _loadProjectRegistryFromDb } from "./poller";
 import { startChangesFsWatchers as _startChangesFsWatchers } from "./watcher";
 import { sendSpecTtsNotification } from "./tts";
 
@@ -71,7 +72,7 @@ export function startChangesFsWatchers(): () => void {
 
 export { parseSpecList } from "./parser";
 export type { SpecSnapshot } from "./parser";
-export { loadProjectRegistry, pollProjectSpecs } from "./poller";
+export { loadProjectRegistry, loadProjectRegistryFromDb, pollProjectSpecs } from "./poller";
 export { _getWatchDegradedForTest } from "./watcher";
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ function delay(ms: number): Promise<void> {
  * edits to proposals/tasks update the in-memory state within ~300ms
  * without waiting for the next poll cycle.
  */
-export function startSpecWatcher(): SpecWatcherService {
+export function startSpecWatcher(db?: Db): SpecWatcherService {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let firstTick = true;
@@ -106,7 +107,13 @@ export function startSpecWatcher(): SpecWatcherService {
   async function tick(): Promise<void> {
     if (stopped) return;
 
-    const projects = _loadProjectRegistry();
+    // Registry-first when a Db is wired (production path); the registry-backed
+    // loader falls back to the static projects.json internally when the
+    // registry is empty. Without a Db (tests / legacy callers) use the static
+    // loader directly so behaviour is unchanged.
+    const projects = db
+      ? await _loadProjectRegistryFromDb(db)
+      : _loadProjectRegistry();
     if (projects.length === 0) {
       log.debug("No projects with openspec/ directory found, skipping poll");
       return;

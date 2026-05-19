@@ -14,6 +14,58 @@ export interface ProjectToUpsert {
   gitRemoteUrl: string | null;
 }
 
+/** A discovered project as stored in the registry, joined to its location. */
+export interface RegisteredProject {
+  projectId: string;
+  name: string;
+  /** Absolute filesystem path on the queried agent. */
+  path: string;
+  agentId: string;
+  activeSessions: number;
+  totalSessions: number;
+}
+
+/**
+ * List non-hidden, non-archived projects from the registry.
+ *
+ * Joins `projects` to `project_locations` and filters out:
+ *   - rows where the project OR its location is `hidden=true` (sticky exclude)
+ *   - locations whose `status` is not `active` (missing/archived are stale)
+ *
+ * Used by the spec-watcher (registry-first project enumeration) and by
+ * `GET /projects` (registry aggregation with hidden filter). Returns `[]` on
+ * any error so callers can fall back to their static source.
+ */
+export async function listRegisteredProjects(db: Db): Promise<RegisteredProject[]> {
+  try {
+    const rows = await db
+      .select({
+        projectId: projects.id,
+        name: projects.name,
+        path: projectLocations.path,
+        agentId: projectLocations.agentId,
+        activeSessions: projectLocations.activeSessions,
+        totalSessions: projectLocations.totalSessions,
+      })
+      .from(projectLocations)
+      .innerJoin(projects, eq(projectLocations.projectId, projects.id))
+      .where(
+        and(
+          eq(projectLocations.status, "active"),
+          eq(projectLocations.hidden, false),
+          eq(projects.hidden, false),
+        ),
+      );
+    return rows;
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "listRegisteredProjects query failed — returning empty",
+    );
+    return [];
+  }
+}
+
 export async function upsertProjectLocations(
   db: Db,
   agentId: string,
@@ -63,6 +115,13 @@ export async function upsertProjectLocations(
     const priority = existing?.primaryAgentId === agentId ? 1 : 999;
 
     // 4. Upsert location for this agent — persist git_remote_url.
+    //
+    // STICKY-HIDDEN INVARIANT (folder-based-project-autodiscovery, design.md):
+    // `hidden` is intentionally absent from BOTH the insert .values() and the
+    // onConflictDoUpdate set-clause. New rows take the column default (false);
+    // an existing hidden=true row keeps its value because the set-clause never
+    // overwrites it. Re-discovery MUST NOT un-hide a removed project — do NOT
+    // add `hidden` here.
     await db
       .insert(projectLocations)
       .values({
