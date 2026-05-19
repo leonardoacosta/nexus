@@ -59,6 +59,14 @@ struct ProjectsView: View {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(model.projects) { project in
                     ProjectRow(project: project)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Task { await model.remove(project) }
+                            } label: {
+                                Label("Remove project", systemImage: "eye.slash")
+                            }
+                        }
+                        .accessibilityIdentifier("project-row-\(project.id)")
                     Divider().padding(.leading, 14)
                 }
             }
@@ -130,5 +138,15 @@ final class ProjectsViewModel: ObservableObject {
             }
             return lhs.name < rhs.name
         }
+    }
+
+    /// Remove (hide) a discovered project: optimistically drop the row, fire
+    /// `PATCH /projects/:id { hidden: true }`, then refresh so the server's
+    /// hidden-filtered list is authoritative (and the row reappears if the
+    /// patch was rejected upstream — see `NexusClient.patchProject` note).
+    func remove(_ project: ProjectAggregate) async {
+        projects.removeAll { $0.id == project.id }
+        await client.patchProject(id: project.id, hidden: true)
+        await load()
     }
 }

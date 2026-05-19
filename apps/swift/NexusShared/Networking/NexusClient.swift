@@ -125,6 +125,35 @@ public actor NexusClient {
                    body: body)
     }
 
+    /// `PATCH /projects/:id` — set/clear the persisted `hidden` flag on a
+    /// project so the user can prune a discovered project (the auto-discovery
+    /// scanner keeps `hidden=true` sticky across re-scans).
+    ///
+    /// `id` is the project's path-param identifier. NOTE: the agent route
+    /// (`apps/agent/src/routes/projects.ts` `handleUpdateProject`) currently
+    /// validates `:id` as a UUID matching `projects.id`, but `GET /projects`
+    /// (the `ProjectAggregate` row) only exposes the project `name` — there is
+    /// no UUID on the aggregated row shape. Until the `GET /projects` contract
+    /// surfaces the project UUID, callers pass the project name and the agent
+    /// will 400 a non-UUID. This is a tracked cross-batch dependency (E2E
+    /// task 4.2 / nx-3ynb9) — the transport + UI affordance are correct; the
+    /// id-source gap is upstream of this client.
+    ///
+    /// Returns the raw response body (best-effort; nil on transport failure).
+    @discardableResult
+    public func patchProject(id: String, hidden: Bool) async -> Data? {
+        let escaped = id.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? id
+        return await send(
+            method: "PATCH",
+            url: endpoint.baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(escaped),
+            body: ["hidden": hidden]
+        )
+    }
+
     // MARK: - SSE stream
 
     /// Consume `GET /events/stream`, invoking `handler` per decoded frame.

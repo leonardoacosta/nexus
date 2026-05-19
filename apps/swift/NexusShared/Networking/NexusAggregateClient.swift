@@ -221,6 +221,18 @@ public actor NexusAggregateClient {
         }
     }
 
+    /// Set/clear a project's persisted `hidden` flag. A project lives on
+    /// exactly one agent; fan out to all — the owner applies it, the rest
+    /// 404 harmlessly (same idiom as the PTY stream fan-out). Best-effort,
+    /// fire-and-forget; the UI does an optimistic removal + refresh.
+    public func patchProject(id: String, hidden: Bool) async {
+        await withTaskGroup(of: Void.self) { group in
+            for client in clients {
+                group.addTask { await client.patchProject(id: id, hidden: hidden) }
+            }
+        }
+    }
+
     // MARK: - SSE multiplexing
 
     /// Subscribe to `/events/stream` on EVERY agent concurrently and

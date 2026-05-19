@@ -29,7 +29,7 @@
 
 ## UI Batch
 
-- [ ] 3.1 `apps/swift/nexus-mac/Sources/Dashboard/ProjectsView.swift` — add a
+- [x] 3.1 `apps/swift/nexus-mac/Sources/Dashboard/ProjectsView.swift` — add a
   per-row remove affordance (button/context menu) that calls `PATCH
   /projects/:id` with `hidden=true` and drops the row from the list. [beads:nx-m4474]
 
