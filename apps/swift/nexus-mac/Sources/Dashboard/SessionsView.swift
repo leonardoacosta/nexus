@@ -16,12 +16,22 @@ import NexusShared
 struct SessionsView: View {
     @StateObject private var observer: SessionObserver
 
+    /// True when this view owns the observer's lifecycle (standalone /
+    /// iOS use). False when an outer scene injected a shared observer
+    /// (nexus-mac dashboard) — then the scene root drives start/stop and
+    /// this view must NOT stop streams on disappear, or navigating away
+    /// from the Sessions tab would silently kill the shared poll/SSE
+    /// for every other tab (bd:nx-t9wrj).
+    private let ownsLifecycle: Bool
+
     public init() {
         _observer = StateObject(wrappedValue: SessionObserver())
+        ownsLifecycle = true
     }
 
     public init(observer: SessionObserver) {
         _observer = StateObject(wrappedValue: observer)
+        ownsLifecycle = false
     }
 
     var body: some View {
@@ -35,11 +45,16 @@ struct SessionsView: View {
         }
         .padding(.vertical, 8)
         .task {
+            // Idempotent: startStreams() guards on existing tasks, so this
+            // is a harmless second call when the scene root already started
+            // the shared observer.
             observer.startStreams()
             await observer.refreshSessions()
         }
         .onDisappear {
-            observer.stopStreams()
+            if ownsLifecycle {
+                observer.stopStreams()
+            }
         }
     }
 

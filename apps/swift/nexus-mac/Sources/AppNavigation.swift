@@ -64,6 +64,17 @@ struct AppNavigation: View {
     @State private var selection: DashboardSection = defaultSection()
     @State private var ptySessionId: String = ""
 
+    // One shared observer owned by the always-rendering scene root. The
+    // detail-pane `SessionsView` is mounted lazily by NavigationSplitView
+    // and — on macOS, with an initial *programmatic* List selection — is
+    // NOT instantiated until a sidebar row is physically clicked. Starting
+    // streams only inside SessionsView.task therefore never fires on
+    // launch (zero fetch, empty dashboard — bd:nx-t9wrj). Hoisting the
+    // observer here and starting it from a modifier on the split view
+    // itself makes the fetch fire on window appear regardless of the
+    // selection-commit timing.
+    @StateObject private var observer = SessionObserver()
+
     var body: some View {
         NavigationSplitView {
             List(DashboardSection.allCases, selection: $selection) { section in
@@ -78,12 +89,16 @@ struct AppNavigation: View {
                 .frame(minWidth: 480, minHeight: 360)
         }
         .navigationTitle("Nexus")
+        .task {
+            observer.startStreams()
+            await observer.refreshSessions()
+        }
     }
 
     @ViewBuilder
     private var detailView: some View {
         switch selection {
-        case .sessions:      SessionsView()
+        case .sessions:      SessionsView(observer: observer)
         case .specs:         SpecsView()
         case .projects:      ProjectsView()
         case .credentials:   CredentialsView()
