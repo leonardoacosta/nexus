@@ -16,6 +16,7 @@ export type {
 export { createSocketEventDispatcher } from "./dispatcher";
 export {
   cleanupStaleSocket,
+  isSocketServerListening,
   resolveSocketPath,
   startSocketServer,
 } from "./server";

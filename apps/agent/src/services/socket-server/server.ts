@@ -23,6 +23,26 @@ const log = createLogger("agent:socket-server");
 const DEFAULT_SOCKET_PATH = "/tmp/nexus-agent.sock";
 
 // ---------------------------------------------------------------------------
+// Liveness — module-level mirror of the latest server's listening state.
+// ---------------------------------------------------------------------------
+//
+// Mirrors `processWatcher.lastTickMs()`'s module-level pattern so the
+// `GET /health` handler can read socket liveness without holding a handle
+// (the production socket server is started in `index.ts` AFTER the HTTP
+// server starts, so the handle isn't in scope when `createRequestHandler`
+// closes over its dependencies).
+//
+// In tests that start multiple socket servers, the LAST `startSocketServer`
+// call wins. This matches the production assumption that there is exactly
+// one socket server per agent process.
+let latestSocketListening = false;
+
+/** Module-level accessor for the most-recently-started socket server's listening state. */
+export function isSocketServerListening(): boolean {
+  return latestSocketListening;
+}
+
+// ---------------------------------------------------------------------------
 // Socket connection data
 // ---------------------------------------------------------------------------
 
@@ -176,10 +196,12 @@ export async function startSocketServer(
   // new connections; flipped false by `stop()`. Read by
   // `GET /health.socket_server_listening`.
   let listening = true;
+  latestSocketListening = true;
 
   function stop(): void {
     log.info("socket service shutting down");
     listening = false;
+    latestSocketListening = false;
     server.stop();
     // Remove the socket file so nothing tries to connect to a dead socket.
     if (existsSync(socketPath)) {

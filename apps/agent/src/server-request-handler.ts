@@ -206,7 +206,7 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     }
 
     if (url.pathname === "/health") {
-      return handleHealthGet(request, url, state);
+      return handleHealthGet(request, url, state, db);
     }
 
     // ── Credential ID pre-validation (before DB guard) ──────────────────

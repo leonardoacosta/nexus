@@ -139,6 +139,9 @@ const baseMetrics: HealthMetrics = {
   ram: { total_bytes: 1000, used_bytes: 500, percent: 50 },
   disk: [{ mount: "/", total_bytes: 1000, used_bytes: 500, percent: 50 }],
   docker: null,
+  db_ok: true,
+  last_watcher_tick_ms: 0,
+  socket_server_listening: true,
 };
 
 describe("HealthScheduler.tick() — uses getLatest() (task 1.3)", () => {

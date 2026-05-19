@@ -11,11 +11,20 @@ import os from "node:os";
 import type { Db } from "@nexus/db";
 import { getAgentId, logger } from "@nexus/core/node";
 import type { HealthMetrics } from "@nexus/core";
-import { insertHealthSnapshot } from "./db/health";
+import { insertHealthSnapshot, pingDb } from "./db/health";
+import { lastWatcherTickMs } from "./services/process-watcher";
+import { isSocketServerListening } from "./services/socket-server";
 import { withCors } from "./server-origin";
 import type { ServerState } from "./server-websocket";
 
-/** Stubbed health payload used while the collector is warming up. */
+/**
+ * Stubbed health payload used while the collector is warming up.
+ *
+ * Liveness defaults are "healthy" because the only reason this payload is
+ * returned is that the agent itself is up and serving requests — the
+ * collector just hasn't ticked yet. The live path below overrides these
+ * with the real subsystem signals as soon as they're available.
+ */
 export function stubbedHealthPayload(): HealthMetrics {
   return {
     hostname: os.hostname(),
@@ -24,6 +33,9 @@ export function stubbedHealthPayload(): HealthMetrics {
     ram: { total_bytes: 0, used_bytes: 0, percent: 0 },
     disk: [],
     docker: null,
+    db_ok: true,
+    last_watcher_tick_ms: 0,
+    socket_server_listening: true,
   };
 }
 
@@ -32,12 +44,20 @@ export function stubbedHealthPayload(): HealthMetrics {
  *
  * Respects `?detail=true` to include optional network + processes fields.
  * Always wraps the response with CORS headers for Tailscale origins.
+ *
+ * Liveness composition: `db_ok`, `last_watcher_tick_ms`, and
+ * `socket_server_listening` are computed under per-field try blocks. Each
+ * field falls back to a documented sentinel on failure (false / -1 / false)
+ * and the HTTP response stays 200 — the endpoint MUST NOT throw on
+ * subsystem failure (see test-infrastructure spec § Health Endpoint
+ * Liveness Fields).
  */
-export function handleHealthGet(
+export async function handleHealthGet(
   request: Request,
   url: URL,
   state: ServerState,
-): Response {
+  db?: Db,
+): Promise<Response> {
   const detail = url.searchParams.get("detail") === "true";
   const latest = state.healthCollector.getLatest();
 
@@ -49,6 +69,41 @@ export function handleHealthGet(
   } else {
     payload = stubbedHealthPayload();
     warmingUp = true;
+  }
+
+  // ── Liveness — per-field try blocks with documented fallbacks ───────────
+
+  // db_ok: false on any failure (timeout, dead pool, refused, no Db).
+  try {
+    payload.db_ok = db ? await pingDb(db) : false;
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "health: db_ok probe threw — falling back to false",
+    );
+    payload.db_ok = false;
+  }
+
+  // last_watcher_tick_ms: -1 sentinel means watcher hasn't ticked yet.
+  try {
+    payload.last_watcher_tick_ms = lastWatcherTickMs();
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "health: last_watcher_tick_ms probe threw — falling back to -1",
+    );
+    payload.last_watcher_tick_ms = -1;
+  }
+
+  // socket_server_listening: false when no server has started yet or after stop.
+  try {
+    payload.socket_server_listening = isSocketServerListening();
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "health: socket_server_listening probe threw — falling back to false",
+    );
+    payload.socket_server_listening = false;
   }
 
   // Strip optional detail fields when detail is not requested
