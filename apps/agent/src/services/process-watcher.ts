@@ -118,6 +118,24 @@ export interface ReconcileResult {
   closed: number;
 }
 
+// ---------------------------------------------------------------------------
+// Watcher tick liveness — exposed via `processWatcherHandle.lastTickMs()`.
+// ---------------------------------------------------------------------------
+//
+// `lastReconcileMs` is a monotonic `performance.now()` reading captured at
+// the END of every `reconcileOnce()` call (whether the pass mutated rows or
+// not). Readers compute `performance.now() - lastReconcileMs` to get the
+// staleness in ms. The sentinel `-1` means "no reconcile has completed yet"
+// — the watcher hasn't ticked since process start.
+//
+// Module-level rather than instance-level because:
+//   1. `reconcileOnce()` is exported standalone and called outside the
+//      interval loop (e.g. `POST /sessions/probe`). Updating a closure inside
+//      `startProcessWatcher` would miss those direct calls.
+//   2. There is only one watcher per agent process — no multi-instance
+//      isolation requirement to satisfy.
+let lastReconcileMs = -1;
+
 /**
  * Single reconciliation pass. Exposed standalone so the
  * `POST /sessions/probe` route handler can trigger it on demand.
@@ -248,12 +266,30 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     log.info({ created, closed, live: live.length }, "reconciliation pass complete");
   }
 
+  // Stamp the watcher heartbeat — read by `processWatcherHandle.lastTickMs()`
+  // and surfaced on `GET /health.last_watcher_tick_ms`.
+  lastReconcileMs = performance.now();
+
   return { created, closed };
 }
 
 export interface ProcessWatcherHandle {
   /** Stop the interval loop. Safe to call multiple times. */
   stop(): void;
+  /**
+   * Monotonic ms since the watcher's `reconcileOnce()` last completed.
+   * Returns `-1` when the watcher has not ticked yet since process start.
+   */
+  lastTickMs(): number;
+}
+
+/**
+ * Standalone accessor for the watcher tick liveness, useful when the caller
+ * doesn't hold a handle (e.g. tests, `reconcileOnce()` ad-hoc invocations).
+ */
+export function lastWatcherTickMs(): number {
+  if (lastReconcileMs < 0) return -1;
+  return Math.max(0, performance.now() - lastReconcileMs);
 }
 
 /**
@@ -305,6 +341,9 @@ export function startProcessWatcher(
         clearTimeout(timer);
         timer = null;
       }
+    },
+    lastTickMs() {
+      return lastWatcherTickMs();
     },
   };
 }
