@@ -36,10 +36,10 @@
 
 ## E2E Batch
 
-- [ ] 4.1 On the homelab agent (has `/home/nyaptor/dev/nx/openspec/changes`,
+- [ ] 4.1 [POST-DEPLOY] On the homelab agent (has `/home/nyaptor/dev/nx/openspec/changes`,
   27 changes): redeploy, confirm the scanner auto-discovers the repo →
   `GET /projects` lists it (not just "(unregistered)") AND `GET /specs` is
   no longer `[]`. Paste curl/JSON proof. [beads:nx-exbta]
-- [ ] 4.2 Hide a discovered project via `PATCH /projects/:id`, confirm it
+- [ ] 4.2 [POST-DEPLOY] Hide a discovered project via `PATCH /projects/:id`, confirm it
   disappears from `GET /projects`, then trigger a rescan and confirm it
   STAYS hidden (sticky exclude). Paste proof. [beads:nx-3ynb9]
