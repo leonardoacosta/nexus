@@ -81,8 +81,16 @@ else
     GATE_START=$(date +%s)
 
     # ── Tier A: headless, always-run, push-blocking ───────────────
-    info "integration gate Tier A: running suite (turbo test)..."
-    (cd "$REPO_DIR" && pnpm test) \
+    #
+    # NEXUS_HEAVY_TESTS=1 opts the homelab-transport.test.ts file (and its
+    # liveness + socket-spine roundtrip blocks) into the gate — without it
+    # the whole file describe.skipIf's out. POSTGRES_URL is intentionally
+    # NOT required here: the HTTP-contract / live-session legs gate on
+    # `hasPg` and skip cleanly when PG is absent, so the gate stays
+    # resource-tolerant while still exercising the in-process legs.
+    # Spec: extend-integration-gate-liveness-payloads § Gate Wiring.
+    info "integration gate Tier A: running suite (turbo test, NEXUS_HEAVY_TESTS=1)..."
+    (cd "$REPO_DIR" && NEXUS_HEAVY_TESTS=1 pnpm test) \
         || fail "Tier A: turbo test failed — aborting push"
 
     info "integration gate Tier A: bundle-integrity check..."
@@ -90,13 +98,20 @@ else
         || fail "Tier A: bundle-integrity check failed — aborting push"
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        info "integration gate Tier A: xcodebuild test (Swift unit bundles)..."
+        # Two -only-testing flags scope the run to BOTH unit-test bundles
+        # bound to the nexus-mac scheme. NexusSharedTests (PayloadDecodeTests
+        # etc.) does not depend on the nexus-mac app target, so it's NOT
+        # auto-included by -only-testing:nexus-mac-Tests alone — listing it
+        # explicitly is what wires the payload-decode coverage into the
+        # gate. Spec: extend-integration-gate-liveness-payloads § Gate Wiring.
+        info "integration gate Tier A: xcodebuild test (nexus-mac-Tests + NexusSharedTests)..."
         ( xcodebuild test \
             -project "$REPO_DIR/apps/swift/nexus.xcodeproj" \
             -scheme nexus-mac \
             -configuration Debug \
             -destination 'platform=macOS' \
             -only-testing:nexus-mac-Tests \
+            -only-testing:NexusSharedTests \
             -derivedDataPath /tmp/nx-cap/itg-build \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             >/tmp/nx-itg-xcodebuild-test.log 2>&1 ) \
