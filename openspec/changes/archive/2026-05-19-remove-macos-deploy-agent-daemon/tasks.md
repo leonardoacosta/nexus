@@ -29,14 +29,14 @@
 
 ## E2E Batch
 
-- [ ] 2.1 Run the pre-push hook path on macOS (`SKIP_DEPLOY=0 git push` dry, or
+- [x] 2.1 Run the pre-push hook path on macOS (`SKIP_DEPLOY=0 git push` dry, or
   invoke the hook directly): assert exit 0, no `sed: … No such file or
   directory`, and that `~/Library/LaunchAgents/com.nexus.agent.plist` is **not**
   created (remove any pre-existing empty one first to prove non-creation). [beads:nx-0xndu]
-- [ ] 2.2 Trigger a homelab→macbook remote fanout (homelab post-merge deploy):
+- [x] 2.2 Trigger a homelab→macbook remote fanout (homelab post-merge deploy):
   assert the downstream macbook deploy logs no `sed`/plist error and reports
   `deploy complete`. [beads:nx-8tcq5]
-- [ ] 2.3 Assert post-state on the macbook: `launchctl list | grep
+- [x] 2.3 Assert post-state on the macbook: `launchctl list | grep
   com.nexus.agent` returns nothing, and `find deploy -name '*.plist'` is empty. [beads:nx-8x1yd]
 - [ ] 2.4 [user] Confirm the macbook still has no nexus-agent process (expected —
   Mac is Swift-app + Tailnet only) and the dashboard (reading homelab) is
