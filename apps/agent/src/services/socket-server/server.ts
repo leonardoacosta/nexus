@@ -172,8 +172,14 @@ export async function startSocketServer(
 
   log.info({ path: socketPath }, "socket listener bound");
 
+  // Liveness flag — true once `Bun.listen` has returned (above) and accepting
+  // new connections; flipped false by `stop()`. Read by
+  // `GET /health.socket_server_listening`.
+  let listening = true;
+
   function stop(): void {
     log.info("socket service shutting down");
+    listening = false;
     server.stop();
     // Remove the socket file so nothing tries to connect to a dead socket.
     if (existsSync(socketPath)) {
@@ -186,7 +192,13 @@ export async function startSocketServer(
     }
   }
 
-  return { stop, path: socketPath };
+  return {
+    stop,
+    path: socketPath,
+    isListening() {
+      return listening;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

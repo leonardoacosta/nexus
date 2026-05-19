@@ -26,6 +26,12 @@ export interface SocketServer {
   stop(): void;
   /** The resolved socket path. */
   readonly path: string;
+  /**
+   * Liveness — true while the underlying `Bun.listen` is bound and accepting
+   * new connections. False after `stop()` has been called, or when the
+   * initial bind failed. Read by `GET /health.socket_server_listening`.
+   */
+  isListening(): boolean;
 }
 
 export interface SocketServerOptions {
