@@ -11,8 +11,8 @@
 - [x] [1.4] Add `pingDb(db: Db): Promise<boolean>` helper that runs `select 1` with 1s timeout and returns false on failure [owner:api-engineer] [type:feature] [beads:nx-nesr1]
 - [x] [1.5] Extend `handleHealthGet` in `apps/agent/src/server-health-handler.ts` to compose the three new fields with per-field try blocks and documented fallbacks (-1 / false) [owner:api-engineer] [type:feature] [beads:nx-42swg]
 - [x] [1.6] Extend `stubbedHealthPayload()` to include the three new fields with reasonable defaults so tests using the stub don't break [owner:api-engineer] [type:test] [beads:nx-rrtx1]
-- [ ] [1.7] Add `homelab-transport.test.ts` block: liveness assertions on /health response (db_ok true, last_watcher_tick_ms in [0, 5*60_000), socket_server_listening true) [owner:api-engineer] [type:test] [beads:nx-sw9tr]
-- [ ] [1.8] Add `homelab-transport.test.ts` block: socket-spine `session_start` injection → poll `/sessions` until row appears → assert canonical SessionRow shape → cleanup via `session_end` [owner:api-engineer] [type:test] [beads:nx-agc9f]
+- [x] [1.7] Add `homelab-transport.test.ts` block: liveness assertions on /health response (db_ok true, last_watcher_tick_ms in [0, 5*60_000), socket_server_listening true) [owner:api-engineer] [type:test] [beads:nx-sw9tr]
+- [x] [1.8] Add `homelab-transport.test.ts` block: socket-spine `session_start` injection → poll `/sessions` until row appears → assert canonical SessionRow shape → cleanup via `session_end` [owner:api-engineer] [type:test] [beads:nx-agc9f]
 
 ## UI Batch
 

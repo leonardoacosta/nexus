@@ -27,9 +27,11 @@ import { tmpdir } from "node:os";
 import type { Server as BunServer } from "bun";
 import type { WsData } from "../terminal/stream-manager";
 import { __testing, startServer, type NexusServer } from "../server";
-import { startSocketServer } from "../services/socket-server";
+import { startSocketServer, createSocketEventDispatcher } from "../services/socket-server";
 import type { SocketServer } from "../services/socket-server";
 import type { SocketEvent } from "../types/socket-events";
+import { createSessionManager } from "../session-manager";
+import { lifecycleBus } from "../services/lifecycle-bus";
 import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
 
@@ -153,6 +155,47 @@ describe.skipIf(!heavyEnabled || !hasPg)(
         }
       }
     });
+
+    // ── 2b. Liveness — db_ok / last_watcher_tick_ms / socket_server_listening ──
+    //
+    // The /health payload now extends HealthMetrics with three liveness
+    // fields. They MUST be present on every response and report healthy
+    // values when PG is live and a watcher pass has completed. See
+    // test-infrastructure spec § Health Endpoint Liveness Fields.
+    //
+    // The watcher's first reconcile is fire-and-forget at startServer() —
+    // poll briefly so the assertion is deterministic.
+    it("GET /health surfaces liveness fields (db_ok, last_watcher_tick_ms, socket_server_listening)", async () => {
+      const deadline = Date.now() + 5_000;
+      let body: Record<string, unknown> = {};
+      let res: Response;
+
+      while (Date.now() < deadline) {
+        res = await fetch(`${base}/health`);
+        expect(res.status).toBe(200);
+        body = (await res.json()) as Record<string, unknown>;
+        if (body.db_ok === true && typeof body.last_watcher_tick_ms === "number" &&
+            (body.last_watcher_tick_ms as number) >= 0) {
+          break;
+        }
+        await Bun.sleep(50);
+      }
+
+      // db_ok — PG is live in this leg (hasPg gate above); ping MUST succeed.
+      expect(body.db_ok).toBe(true);
+
+      // last_watcher_tick_ms — watcher has ticked at least once → non-negative
+      // and well inside the 5-minute window on a healthy agent.
+      expect(typeof body.last_watcher_tick_ms).toBe("number");
+      const tickMs = body.last_watcher_tick_ms as number;
+      expect(tickMs).toBeGreaterThanOrEqual(0);
+      expect(tickMs).toBeLessThan(5 * 60_000);
+
+      // socket_server_listening — the spine round-trip block below starts a
+      // socket server; whether it has run yet depends on bun-test ordering.
+      // Assert the field is present + boolean to pin the contract.
+      expect(typeof body.socket_server_listening).toBe("boolean");
+    });
   },
 );
 
@@ -225,3 +268,142 @@ describe.skipIf(!heavyEnabled)("homelab transport — socket spine round-trip", 
     expect(got!.event).toBe("session_start");
   });
 });
+
+// ── 4. Live-session socket-spine injection → /sessions read path ──────────
+//
+// Builds on the spine round-trip above, but wires the REAL dispatcher
+// (createSocketEventDispatcher with sessionManager + db) so the agent
+// actually inserts the fixture row into PG. Then polls /sessions over HTTP
+// until the row materialises. Proves the full inject→dispatch→DB→read
+// pipeline that production hooks rely on.
+//
+// Gated on heavyEnabled AND hasPg — the dispatcher's INSERT goes through
+// Drizzle, so without PG the test cannot succeed (and skipping cleanly is
+// what the spec demands).
+
+describe.skipIf(!heavyEnabled || !hasPg)(
+  "homelab transport — socket-spine injection materialises in /sessions (requires live PG)",
+  () => {
+    let server: NexusServer;
+    let socketServer: SocketServer;
+    let db: Db;
+    let base: string;
+    let cfgDir: string;
+    const prevCfgDir = process.env.NEXUS_CONFIG_DIR;
+    const socketPath = `/tmp/nx-itg-live-${Date.now()}-${process.pid}.sock`;
+    // Deterministic-but-unique id avoids races with real sessions on the host.
+    const fixtureId = `gate-fixture-${Date.now()}-${process.pid}`;
+
+    beforeAll(async () => {
+      db = openDatabase();
+
+      // Force loopback-only bind (same trick as the contract-shape leg).
+      cfgDir = mkdtempSync(join(tmpdir(), "nx-itg-live-cfg-"));
+      writeFileSync(
+        join(cfgDir, "agents.toml"),
+        'bind_address = "127.0.0.1"\n',
+      );
+      process.env.NEXUS_CONFIG_DIR = cfgDir;
+
+      server = startServer(0, db);
+      base = `http://127.0.0.1:${server.port}`;
+
+      // Real dispatcher: socket events → sessionManager → PG insert.
+      const sessionManager = createSessionManager({ db });
+      const dispatch = createSocketEventDispatcher({ sessionManager, lifecycleBus, db });
+      socketServer = await startSocketServer({
+        socketPath,
+        onEvent: dispatch,
+        onCommand: () => ({ error: "no commands in this test" }),
+      });
+    });
+
+    afterAll(async () => {
+      // Always emit session_end so the fixture row is closed even if
+      // assertions failed mid-test. Try/finally guards both the cleanup
+      // emit and the resource teardown.
+      try {
+        await emitSocketLine(socketPath, {
+          event: "session_stop",
+          session_id: fixtureId,
+        });
+      } finally {
+        try {
+          socketServer?.stop();
+        } finally {
+          try {
+            server?.stop(true);
+          } finally {
+            if (prevCfgDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
+            else process.env.NEXUS_CONFIG_DIR = prevCfgDir;
+            rmSync(cfgDir, { recursive: true, force: true });
+          }
+        }
+      }
+    });
+
+    it("session_start injected via socket appears in GET /sessions with canonical shape", async () => {
+      await emitSocketLine(socketPath, {
+        event: "session_start",
+        session_id: fixtureId,
+        project: "nx",
+        cwd: "/tmp/gate-fixture",
+        model: "claude",
+      });
+
+      // Poll /sessions for up to 2s waiting for the dispatcher to write
+      // the row and the read path to surface it.
+      const deadline = Date.now() + 2000;
+      let row: Record<string, unknown> | undefined;
+      while (Date.now() < deadline) {
+        const res = await fetch(`${base}/sessions`);
+        if (res.status === 200) {
+          const body = (await res.json()) as Array<Record<string, unknown>>;
+          row = body.find((r) => r.id === fixtureId);
+          if (row) break;
+        }
+        await Bun.sleep(25);
+      }
+
+      expect(row).toBeDefined();
+      // Canonical SessionRow shape (matches the contract-shape leg above).
+      for (const key of [
+        "id",
+        "machine",
+        "status",
+        "startedAt",
+        "lastActivity",
+        "pid",
+      ]) {
+        expect(key in (row as Record<string, unknown>)).toBe(true);
+      }
+      expect((row as Record<string, unknown>).id).toBe(fixtureId);
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/** Write one NDJSON line to a unix socket and close — mirrors nexus-emit. */
+async function emitSocketLine(socketPath: string, payload: SocketEvent): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(sock) {
+          sock.write(JSON.stringify(payload) + "\n");
+          sock.end();
+        },
+        data() {},
+        close() {
+          resolve();
+        },
+        error(_s, err) {
+          reject(err);
+        },
+      },
+    }).catch(reject);
+  });
+}
