@@ -8,6 +8,8 @@
 
 import { CredentialDeleteError } from "../../credentials/pool";
 import { getActiveCredentialSnapshot } from "../../credentials/credential-watcher";
+import { readCredentials } from "../../services/credential-pool/reader";
+import { createLogger } from "@nexus/core/node";
 import {
   checkTlsEnforcement,
   emitAudit,
@@ -15,6 +17,8 @@ import {
   jsonResponse,
   poolRef,
 } from "./shared";
+
+const log = createLogger("agent:routes:credentials:crud");
 
 /** POST /credentials — add a new credential. */
 export async function handleAddCredential(request: Request): Promise<Response> {
@@ -77,24 +81,53 @@ export async function handleAddCredential(request: Request): Promise<Response> {
  *
  * `activeFingerprint` mirrors `GET /credentials/active` and is merged in here
  * so the dashboard can render the active-account indicator on first load
- * without a second round trip. The value comes from the in-memory snapshot
- * maintained by `startActiveCredentialWatcher()`.
+ * without a second round trip.
+ *
+ * Resolution cascade (homelab-emits-specs-credentials task 1.8):
+ *   1. DB-backed pool (`pool.list()` + `getActiveCredentialSnapshot()`).
+ *      This is the canonical path once credentials have been imported into
+ *      the agent's nexus.db.
+ *   2. Filesystem reader (`readCredentials()`) — falls back when the pool
+ *      is uninitialized OR returns zero rows. This surfaces the homelab's
+ *      `~/.config/nexus/credentials/acct-*.json` pool entries without
+ *      waiting for the credential-watcher to populate the DB.
+ *
+ * The fallback exists because deploys with an unseeded DB and no
+ * credential-watcher pass yet would otherwise show "no credentials" even
+ * though the operator has acct-*.json files on disk.
  */
 export async function handleListCredentials(): Promise<Response> {
   const pool = poolRef.current;
-  if (!pool) {
-    return jsonResponse({ error: "credential system not initialized" }, 500);
+
+  // Pool path: try the DB-backed listing first.
+  if (pool) {
+    try {
+      const [credentials, snap] = await Promise.all([
+        pool.list(),
+        Promise.resolve(getActiveCredentialSnapshot()),
+      ]);
+
+      if (credentials.length > 0) {
+        return jsonResponse({
+          credentials,
+          activeFingerprint: snap.fingerprint,
+        });
+      }
+      // Empty pool — fall through to filesystem reader.
+      log.debug("pool.list() empty — falling back to filesystem reader");
+    } catch (err) {
+      log.warn({ error: err }, "pool.list() failed — falling back to filesystem reader");
+    }
   }
 
-  const [credentials, snap] = await Promise.all([
-    pool.list(),
-    Promise.resolve(getActiveCredentialSnapshot()),
-  ]);
-
-  return jsonResponse({
-    credentials,
-    activeFingerprint: snap.fingerprint,
-  });
+  // Filesystem-fallback path.
+  try {
+    const result = await readCredentials();
+    return jsonResponse(result);
+  } catch (err) {
+    log.warn({ error: err }, "filesystem credential reader failed");
+    return jsonResponse({ credentials: [], activeFingerprint: null });
+  }
 }
 
 /**
