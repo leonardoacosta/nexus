@@ -61,6 +61,16 @@ get_remote_agents() {
 
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
+# ── Sync dependencies if lockfile or package.json changed ─────
+if git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(package\.json|bun\.lock|pnpm-lock\.yaml|apps/[^/]+/package\.json|packages/[^/]+/package\.json)$'; then
+    info "package.json or lockfile changed; running bun install"
+    if ! (cd "$REPO_DIR" && bun install --frozen-lockfile); then
+        fail "bun install failed; manual recovery required"
+    fi
+else
+    skip "no dependency changes; skipping bun install"
+fi
+
 info "rebuilding..."
 START=$(date +%s)
 
