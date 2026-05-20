@@ -9,6 +9,8 @@
 import { CredentialDeleteError } from "../../credentials/pool";
 import { getActiveCredentialSnapshot } from "../../credentials/credential-watcher";
 import { readCredentials } from "../../services/credential-pool/reader";
+import { count24h } from "../../services/credential-pool/rate-limit-tracker";
+import { lastSwapAt as swapTrackerLastSwapAt } from "../../services/credential-pool/swap-tracker";
 import { createLogger } from "@nexus/core/node";
 import {
   checkTlsEnforcement,
@@ -108,9 +110,26 @@ export async function handleListCredentials(): Promise<Response> {
       ]);
 
       if (credentials.length > 0) {
+        // Enrich each DB-backed row with the runtime-only signals the Swift
+        // CcProfile struct requires: rateLimit429Count (Int), isActive (Bool),
+        // lastSwapAt (Date?). The DB row already carries id/name/fingerprint/
+        // subscriptionType/rateLimitTier/expiresAt/accountEmail/accountName/
+        // orgName/status — those pass through untouched so existing callers
+        // (CLI/curl) keep the legacy fields.
+        const activeFp = snap.fingerprint;
+        const enriched = credentials.map((row) => {
+          const fp = row.fingerprint ?? "";
+          const swapAt = fp ? swapTrackerLastSwapAt(fp) : null;
+          return {
+            ...row,
+            rateLimit429Count: fp ? count24h(fp) : 0,
+            isActive: fp.length > 0 && fp === activeFp,
+            lastSwapAt: swapAt ? swapAt.toISOString() : null,
+          };
+        });
         return jsonResponse({
-          credentials,
-          activeFingerprint: snap.fingerprint,
+          credentials: enriched,
+          activeFingerprint: activeFp,
         });
       }
       // Empty pool — fall through to filesystem reader.
