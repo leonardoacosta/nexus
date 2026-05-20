@@ -13,8 +13,8 @@
 - [x] [1.6] Add `apps/agent/src/services/credential-pool/reader.ts` — `readCredentials(dir: string): { credentials: CredentialEntry[], activeFingerprint: string | null }`. Resolve dir from `$HOME/.claude/.credentials/`. For each file, parse + project to wire shape (fingerprint, account, created_at, status) [owner:api-engineer] [type:feature] [beads:nx-1xv6w]
 - [x] [1.7] Investigate CC's active-credential convention on disk (symlink? marker file? env var?). Document the actual mechanism in a comment block in reader.ts. Use the discovered mechanism for activeFingerprint detection [owner:api-engineer] [type:feature] [beads:nx-mfqra]
 - [x] [1.8] [P-3] Update `apps/agent/src/routes/credentials.ts` handleListCredentials to invoke the new reader (the current handler returns the empty default — confirmed via curl 2026-05-20) [owner:api-engineer] [type:feature] [beads:nx-8wja6]
-- [ ] [1.9] Add contract tests `apps/agent/src/routes/specs.test.ts` (extend existing) asserting /specs returns non-empty when workspace contains a known spec dir. Use fixture tmpdirs to avoid relying on $HOME [owner:api-engineer] [type:test] [beads:nx-h50k5]
-- [ ] [1.10] Add `apps/agent/src/routes/credentials.test.ts` (extend existing) asserting /credentials returns the right shape against a fixture credentials dir [owner:api-engineer] [type:test] [beads:nx-kkabi]
+- [x] [1.9] Add contract tests `apps/agent/src/routes/specs.test.ts` (extend existing) asserting /specs returns non-empty when workspace contains a known spec dir. Use fixture tmpdirs to avoid relying on $HOME [owner:api-engineer] [type:test] [beads:nx-h50k5]
+- [x] [1.10] Add `apps/agent/src/routes/credentials.test.ts` (extend existing) asserting /credentials returns the right shape against a fixture credentials dir [owner:api-engineer] [type:test] [beads:nx-kkabi]
 
 ## UI Batch
 

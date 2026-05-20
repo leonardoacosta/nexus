@@ -6,9 +6,15 @@
  * - Audit logger (audit.credential) is created via createLogger
  * - Handler signatures accept the request parameter for IP extraction
  * - Error paths (pool not initialized, missing fields) propagate correctly
+ * - Filesystem reader (readCredentials) projects acct-*.json files into the
+ *   wire shape against a tmpdir fixture (homelab-emits-specs-credentials task 1.10)
  */
 
 import { describe, expect, it, beforeEach, spyOn } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import {
   resetCredentialRoutes,
   handleLeaseCredential,
@@ -17,6 +23,10 @@ import {
   handleSwapCredential,
   getCredentialPool,
 } from "./credentials";
+import {
+  readCredentials,
+  type CredentialReadResult,
+} from "../services/credential-pool/reader";
 
 // ── Request helpers ───────────────────────────────────────────────────────────
 
@@ -379,5 +389,174 @@ describe("POST /credentials/swap", () => {
 
     // valueEncrypted must NOT appear even in no-op response
     expect(body.activated).not.toHaveProperty("valueEncrypted");
+  });
+});
+
+// ── readCredentials — tmpdir fixture (homelab-emits-specs-credentials task 1.10) ──
+
+/**
+ * Build a valid OAuth credential JSON payload with a deterministic
+ * refresh token so the fingerprint is reproducible across runs.
+ */
+function makeOAuthBlob(opts: {
+  refreshToken: string;
+  email?: string;
+  expiresAt?: number;
+}): string {
+  return JSON.stringify({
+    claudeAiOauth: {
+      refreshToken: opts.refreshToken,
+      accessToken: "at-" + randomBytes(8).toString("hex"),
+      email: opts.email,
+      expiresAt: opts.expiresAt,
+    },
+  });
+}
+
+describe("readCredentials — filesystem reader (task 1.10)", () => {
+  it("[1.10] missing directory returns {credentials: [], activeFingerprint: null}", async () => {
+    const dir = join(tmpdir(), "nx-cred-missing-" + Date.now());
+    const result = await readCredentials(dir);
+    expect(result).toEqual<CredentialReadResult>({
+      credentials: [],
+      activeFingerprint: null,
+    });
+  });
+
+  it("[1.10] empty directory returns empty wire shape", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-empty-"));
+    try {
+      const result = await readCredentials(dir);
+      expect(result.credentials).toEqual([]);
+      expect(result.activeFingerprint).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] projects acct-*.json files into wire shape", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-files-"));
+    try {
+      writeFileSync(
+        join(dir, "acct-personal.json"),
+        makeOAuthBlob({ refreshToken: "rt-personal", email: "leo@home.com" }),
+      );
+      writeFileSync(
+        join(dir, "acct-work.json"),
+        makeOAuthBlob({ refreshToken: "rt-work", email: "leo@work.com" }),
+      );
+
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(2);
+
+      for (const row of result.credentials) {
+        expect(typeof row.fingerprint).toBe("string");
+        expect(row.fingerprint.length).toBe(64); // sha256 hex
+        expect(typeof row.created_at).toBe("string");
+        // ISO-8601 sanity check
+        expect(() => new Date(row.created_at).toISOString()).not.toThrow();
+        expect(["active", "available", "expired"]).toContain(row.status);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] symlink-based active marker sets matching row to status=active", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-active-"));
+    try {
+      const personalPath = join(dir, "acct-personal.json");
+      const workPath = join(dir, "acct-work.json");
+      writeFileSync(
+        personalPath,
+        makeOAuthBlob({ refreshToken: "rt-personal" }),
+      );
+      writeFileSync(workPath, makeOAuthBlob({ refreshToken: "rt-work" }));
+
+      // Symlink "active" -> personal credential. The reader's cascade
+      // step 1 resolves this and hashes the target.
+      symlinkSync(personalPath, join(dir, "active"));
+
+      const result = await readCredentials(dir);
+      expect(result.activeFingerprint).toBeTruthy();
+      const activeRows = result.credentials.filter((c) => c.status === "active");
+      expect(activeRows.length).toBe(1);
+      // The fingerprint of the active row must equal the envelope's
+      // activeFingerprint.
+      expect(activeRows[0]?.fingerprint).toBe(result.activeFingerprint);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] malformed JSON files are skipped, valid files surface", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-mixed-"));
+    try {
+      writeFileSync(
+        join(dir, "acct-good.json"),
+        makeOAuthBlob({ refreshToken: "rt-good" }),
+      );
+      writeFileSync(join(dir, "acct-broken.json"), "{not valid json");
+      writeFileSync(join(dir, "acct-shape-wrong.json"), '{"some":"other"}');
+
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+      expect(result.credentials[0]?.account).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] expired credential reports status=expired", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-expired-"));
+    try {
+      // 1 hour in the past
+      const past = Date.now() - 3600_000;
+      writeFileSync(
+        join(dir, "acct-old.json"),
+        makeOAuthBlob({ refreshToken: "rt-old", expiresAt: past }),
+      );
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+      expect(result.credentials[0]?.status).toBe("expired");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] response row shape includes fingerprint, account, created_at, status", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-shape-"));
+    try {
+      writeFileSync(
+        join(dir, "acct-x.json"),
+        makeOAuthBlob({ refreshToken: "rt-x", email: "leo@test.com" }),
+      );
+      const result = await readCredentials(dir);
+      const row = result.credentials[0]!;
+      expect(row).toHaveProperty("fingerprint");
+      expect(row).toHaveProperty("account");
+      expect(row).toHaveProperty("created_at");
+      expect(row).toHaveProperty("status");
+      expect(row.account).toBe("leo@test.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[1.10] non-acct prefix files are ignored", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-ignore-"));
+    try {
+      writeFileSync(join(dir, "README.md"), "# notes\n");
+      writeFileSync(join(dir, "other.json"), '{"unrelated": true}');
+      writeFileSync(
+        join(dir, "acct-only.json"),
+        makeOAuthBlob({ refreshToken: "rt-only" }),
+      );
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+      expect(result.credentials[0]?.account).toBe("acct-only");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
