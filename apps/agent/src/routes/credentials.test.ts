@@ -560,3 +560,195 @@ describe("readCredentials — filesystem reader (task 1.10)", () => {
     }
   });
 });
+
+// ── credentials-rich-emission task 1.7 ────────────────────────────────────────
+//
+// Four scenarios cover the enriched CcProfile-compatible wire shape:
+//   (a) full-shape decode against a "real-looking" homelab-style fixture
+//   (b) minimal credential file falls back to fingerprint-derived id + short
+//       name without losing the row
+//   (c) rate-limit counter integration — record 429s via the tracker, then
+//       confirm the reader projects count24h into rateLimit429Count
+//   (d) isActive flag matches the envelope's activeFingerprint
+
+import {
+  __resetForTests as __resetRateLimitTracker,
+  recordFailure,
+} from "../services/credential-pool/rate-limit-tracker";
+import { __resetForTests as __resetSwapTracker } from "../services/credential-pool/swap-tracker";
+
+/** Build a homelab-shaped OAuth blob (matches actual `~/.claude/.credentials.json`). */
+function makeHomelabBlob(opts: {
+  refreshToken: string;
+  expiresAt?: number;
+  subscriptionType?: string;
+  rateLimitTier?: string;
+}): string {
+  return JSON.stringify({
+    claudeAiOauth: {
+      accessToken: "sk-ant-oat01-" + randomBytes(16).toString("hex"),
+      refreshToken: opts.refreshToken,
+      expiresAt: opts.expiresAt ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+      scopes: [
+        "user:file_upload",
+        "user:inference",
+        "user:mcp_servers",
+        "user:profile",
+        "user:sessions:claude_code",
+      ],
+      subscriptionType: opts.subscriptionType ?? "max",
+      rateLimitTier: opts.rateLimitTier ?? "default_claude_max_20x",
+    },
+    mcpOAuth: {},
+  });
+}
+
+/** Fingerprint helper — must match reader's logic. */
+import { createHash as __testHash } from "node:crypto";
+function fp(refreshToken: string): string {
+  return __testHash("sha256").update(refreshToken).digest("hex");
+}
+
+describe("readCredentials — enriched CcProfile shape (task 1.7)", () => {
+  beforeEach(() => {
+    __resetRateLimitTracker();
+    __resetSwapTracker();
+  });
+
+  it("(a) full-shape decode — homelab-style blob projects every CcProfile field", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-rich-full-"));
+    try {
+      const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+      writeFileSync(
+        join(dir, "acct-rich.json"),
+        makeHomelabBlob({
+          refreshToken: "rt-rich-decode",
+          expiresAt: expiry,
+          subscriptionType: "max",
+          rateLimitTier: "default_claude_max_20x",
+        }),
+      );
+
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+
+      const row = result.credentials[0]!;
+      // Required-by-Swift fields.
+      expect(typeof row.id).toBe("string");
+      expect(row.id.length).toBeGreaterThan(0);
+      expect(typeof row.name).toBe("string");
+      expect(row.name.length).toBeGreaterThan(0);
+      expect(typeof row.fingerprint).toBe("string");
+      expect(row.fingerprint.length).toBe(64); // sha256 hex
+      expect(typeof row.rateLimit429Count).toBe("number");
+      expect(row.rateLimit429Count).toBe(0); // no 429s recorded
+      expect(typeof row.isActive).toBe("boolean");
+
+      // Enriched optional fields.
+      expect(row.subscriptionType).toBe("max");
+      expect(row.rateLimitTier).toBe("default_claude_max_20x");
+      expect(row.accountEmail).toBeNull(); // homelab blobs do not expose email
+      expect(row.accountName).toBeNull();
+      expect(row.orgName).toBeNull();
+      expect(row.expiresAt).toBe(new Date(expiry).toISOString());
+      expect(row.lastSwapAt).toBeNull();
+
+      // Legacy back-compat fields.
+      expect(typeof row.created_at).toBe("string");
+      expect(row.account).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("(b) minimal-credential-file fallback — fingerprint-only blob still decodes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-rich-min-"));
+    try {
+      // Bare minimum: just a refreshToken. No subscriptionType, no expiry,
+      // no email. Must still produce a valid row.
+      writeFileSync(
+        join(dir, "acct-min.json"),
+        JSON.stringify({
+          claudeAiOauth: { refreshToken: "rt-bare-minimum" },
+        }),
+      );
+
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+      const row = result.credentials[0]!;
+
+      // id is UUID-shaped (8-4-4-4-12 = 36 chars with dashes).
+      expect(row.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/);
+      // name falls back to filename label since no email/accountName exists.
+      expect(row.name.length).toBeGreaterThan(0);
+      // Nullable fields are explicit null (NOT omitted) for Swift decode.
+      expect(row.subscriptionType).toBeNull();
+      expect(row.rateLimitTier).toBeNull();
+      expect(row.accountEmail).toBeNull();
+      expect(row.accountName).toBeNull();
+      expect(row.orgName).toBeNull();
+      expect(row.expiresAt).toBeNull();
+      expect(row.lastSwapAt).toBeNull();
+      expect(row.rateLimit429Count).toBe(0);
+      expect(row.isActive).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("(c) rate-limit counter integration — 429 increments project into rateLimit429Count", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-rich-429-"));
+    try {
+      writeFileSync(
+        join(dir, "acct-rl.json"),
+        makeHomelabBlob({ refreshToken: "rt-rate-limited" }),
+      );
+
+      const fingerprint = fp("rt-rate-limited");
+
+      // Pre-record three 429s via the tracker. The reader should pick up
+      // the count24h projection on the next read.
+      recordFailure(fingerprint, 429);
+      recordFailure(fingerprint, 429);
+      recordFailure(fingerprint, 429);
+      // Mix in a non-429 — it should be ignored.
+      recordFailure(fingerprint, 500);
+
+      const result = await readCredentials(dir);
+      expect(result.credentials.length).toBe(1);
+      expect(result.credentials[0]?.fingerprint).toBe(fingerprint);
+      expect(result.credentials[0]?.rateLimit429Count).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("(d) isActive matches activeFingerprint — exactly one row marked active", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-cred-rich-active-"));
+    try {
+      const activePath = join(dir, "acct-active.json");
+      const otherPath = join(dir, "acct-other.json");
+      writeFileSync(activePath, makeHomelabBlob({ refreshToken: "rt-active" }));
+      writeFileSync(otherPath, makeHomelabBlob({ refreshToken: "rt-other" }));
+
+      // Symlink "active" → the row we expect to be flagged.
+      symlinkSync(activePath, join(dir, "active"));
+
+      const result = await readCredentials(dir);
+      expect(result.activeFingerprint).toBe(fp("rt-active"));
+
+      const activeRows = result.credentials.filter((c) => c.isActive);
+      expect(activeRows.length).toBe(1);
+      expect(activeRows[0]?.fingerprint).toBe(result.activeFingerprint!);
+      expect(activeRows[0]?.status).toBe("active");
+
+      const inactiveRows = result.credentials.filter((c) => !c.isActive);
+      expect(inactiveRows.length).toBe(1);
+      expect(inactiveRows[0]?.fingerprint).toBe(fp("rt-other"));
+      // Non-active rows are status=available (not "active").
+      expect(inactiveRows[0]?.status).toBe("available");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
