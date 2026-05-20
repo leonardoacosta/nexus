@@ -13,7 +13,7 @@
 
 ## UI Batch
 
-- [ ] [2.1] Modify `apps/swift/nexus-mac/Sources/nexusApp.swift` to instantiate TTSObserver as `@StateObject` in `init()`, request UNUserNotificationCenter authorization with `[.alert, .sound]` options [owner:ui-engineer] [type:feature] [beads:nx-vwo75]
+- [x] [2.1] Modify `apps/swift/nexus-mac/Sources/nexusApp.swift` to instantiate TTSObserver as `@StateObject` in `init()`, request UNUserNotificationCenter authorization with `[.alert, .sound]` options [owner:ui-engineer] [type:feature] [beads:nx-vwo75]
 - [ ] [2.2] Start TTSObserver subscription in `init()` via `Task { @MainActor in await observer.start() }` so subscription runs window-independently [owner:ui-engineer] [type:feature] [beads:nx-2c55p]
 - [ ] [2.3] [P-2] Update `apps/swift/project.yml` to ensure `UserNotifications.framework` is linked to the `nexus-mac` target (verify with `xcodebuild -showBuildSettings`) [owner:ui-engineer] [type:feature] [beads:nx-asibz]
 - [ ] [2.4] [P-2] Verify Nexus.app entitlements include the notification capability via `codesign -d --entitlements - /Applications/Nexus.app` after `04-swift-deploy --force` rebuild [owner:devops-engineer] [type:test] [beads:nx-pmai9]
