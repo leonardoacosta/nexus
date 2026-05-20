@@ -148,7 +148,19 @@ export async function handleListSpecs(url: URL): Promise<Response> {
     filtered = allSpecs.filter((s) => statuses.includes(s.status));
   }
 
-  return new Response(JSON.stringify(filtered), {
+  // Normalize the tri-state markers (agent-payload-completeness): the
+  // SpecSnapshot type leaves them optional for legacy in-memory
+  // constructors, but the wire contract pins them non-optional. Default
+  // any absent value to `false` so the Swift `SpecSummary` decoder always
+  // sees a boolean.
+  const wireRows = filtered.map((s) => ({
+    ...s,
+    has_proposal: s.has_proposal ?? false,
+    has_design: s.has_design ?? false,
+    has_tasks: s.has_tasks ?? false,
+  }));
+
+  return new Response(JSON.stringify(wireRows), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
