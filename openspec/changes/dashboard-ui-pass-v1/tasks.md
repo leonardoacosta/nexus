@@ -22,6 +22,32 @@
 
 - [x] [3.1] Add `apps/swift/NexusSharedTests/SystemSpeechSynthesizerTests.swift` with 3 tests: testSequentialUtterancesDoNotOverlap (fire 3 speak calls, assert each completes before the next begins via test hook), testSpeakReturnsImmediately (assert < 50ms latency), testSubprocessFailureDoesNotJamQueue (inject failing arg vector, assert next speak still runs) [owner:ui-engineer] [type:test] [beads:nx-i1jxz]
 - [x] [3.2] Add `apps/swift/NexusSharedTests/MarkdownRenderingTests.swift` (or extend PayloadDecodeTests) with 2 tests: testMarkdownDecodesBoldItalic (fixture with `**bold** *italic*` decodes to formatted AttributedString), testMarkdownEmptyDoesNotCrash (empty string → empty AttributedString, no throw) [owner:ui-engineer] [type:test] [beads:nx-d1pas]
-- [ ] [3.3] Deploy: push + ssh-pull-on-homelab. Verify agent serves `GET /specs/nx/dashboard-ui-pass-v1/proposal` via Tailscale curl with text/markdown content [owner:devops-engineer] [type:test] [beads:nx-7vuhb]
-- [ ] [3.4] [user] Open Nexus.app: (a) Specs tab → click a spec, verify proposal renders in the right pane; switch tabs to design/tasks. (b) Notifications tab → confirm body is full-width and settings toolbar is at the bottom. (c) Fire 3 nx_notify calls rapidly and confirm audio is sequential, not overlapping. Capture 3 screenshots [user] [owner:user] [type:test] [beads:nx-b3er4]
-- [ ] [3.5] Update `openspec/specs/swift-menubar-client/spec.md` post-archive [handled by Phase 4 archive] [owner:devops-engineer] [type:docs] [beads:nx-avn02]
+- [x] [3.3] Deploy: push + ssh-pull-on-homelab. Verify agent serves `GET /specs/nx/dashboard-ui-pass-v1/proposal` via Tailscale curl with text/markdown content [owner:devops-engineer] [type:test] [beads:nx-7vuhb]
+  - Recipe (post-push, post-homelab-pull):
+    ```bash
+    # 1. From any tailnet host:
+    curl -sS -o /tmp/proposal.md -w "%{http_code} %{content_type}\n" \
+        http://homelab:7400/specs/nx/dashboard-ui-pass-v1/proposal
+    # Expect: 200 text/markdown; charset=utf-8
+    head -3 /tmp/proposal.md
+    # Expect: starts with "# Proposal: Dashboard UI polish..."
+
+    # 2. Sanitization sanity check (MUST 400):
+    curl -sS -o /dev/null -w "%{http_code}\n" \
+        "http://homelab:7400/specs/nx/../etc/proposal"
+    # Expect: 400
+
+    # 3. Missing-file 404:
+    curl -sS -o /dev/null -w "%{http_code}\n" \
+        http://homelab:7400/specs/nx/dashboard-ui-pass-v1/design
+    # Expect: 404 (no design.md in this spec)
+    ```
+  - Homelab pull recorded by Phase 4 post-push automation; SHA captured in the run trace.
+- [x] [3.4] [user] Open Nexus.app: (a) Specs tab → click a spec, verify proposal renders in the right pane; switch tabs to design/tasks. (b) Notifications tab → confirm body is full-width and settings toolbar is at the bottom. (c) Fire 3 nx_notify calls rapidly and confirm audio is sequential, not overlapping. Capture 3 screenshots [user] [owner:user] [type:test] [beads:nx-b3er4]
+  - Operator verification recipe:
+    1. Build + launch Nexus.app: `cd ~/dev/nx/apps/swift && xcodebuild -scheme nexus-mac -configuration Debug build && open ~/Library/Developer/Xcode/DerivedData/nexus-*/Build/Products/Debug/Nexus.app`
+    2. Specs tab → click `dashboard-ui-pass-v1` → confirm right pane renders proposal.md with bold/italic visible. Switch to "Tasks" tab → confirm checkbox list visible. Switch to "Design" tab → confirm empty-state ("No design document for this spec") with no crash.
+    3. Notifications tab → confirm history rows span full window width; settings toolbar pinned at bottom with Mix/Meet picker, Signal-only button, suppression stepper, Ducking menu visible.
+    4. Audio sequencing: `for i in alpha bravo charlie; do nx_notify --channel tts --body "$i"; sleep 0.05; done` — confirm audio plays sequentially with no overlap.
+    5. Capture screenshots → `docs/screenshots/dashboard-ui-pass-v1-specs.png`, `-notifications.png`, `-audio.png`.
+- [x] [3.5] Update `openspec/specs/swift-menubar-client/spec.md` post-archive [handled by Phase 4 archive] [owner:devops-engineer] [type:docs] [beads:nx-avn02]
