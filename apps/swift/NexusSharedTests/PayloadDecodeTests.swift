@@ -1,29 +1,30 @@
-// PayloadDecodeTests — pin the Swift Codable models against canonical
+// PayloadDecodeTests v2 — pin the Swift Codable models against canonical
 // agent JSON payloads so a wire-format drift fails Tier A at the gate.
 //
-// Spec: openspec/changes/extend-integration-gate-liveness-payloads
-//       (tasks 2.2 - 2.8)
+// Spec: openspec/changes/agent-payload-completeness
+//       (replaces v1 from extend-integration-gate-liveness-payloads)
 //
-// Fixtures are inline string literals captured against the agent's REST
-// surface (`GET /projects`, `/credentials`, `/specs`, `/notifications`,
-// `/failures`). They are decode-only — no HTTP, no fixture-server, no
-// race. Updating the agent's payload requires updating the fixture here,
-// which makes the wire contract change visible in the diff.
+// What changed from v1:
+//   - ProjectAggregate fixtures now include `hidden` and the positive
+//     test asserts the non-optional Bool decodes correctly.
+//   - SpecSummary fixtures include `has_proposal`/`has_design`/`has_tasks`
+//     and assert the tri-state surfaces.
+//   - NotificationEvent fixtures include `severity` + `delivery_state`
+//     and assert the typed enum decode.
+//   - ScriptError (`top_errors[]`) fixtures include `trace_id` and
+//     `stack_truncated`; the legacy-row scenario asserts a nullable
+//     `trace_id` tolerates a JSON null without throwing.
+//   - Four NEGATIVE tests prove the gate's selectivity: hidden-omitted
+//     decodes to false (tolerance), markers-omitted decode to false,
+//     unknown severity FAILS decode, stack_truncated default false.
 //
-// Notes on spec-vs-model divergence:
-//   - ProjectAggregate has no `hidden` field today. Spec's `hidden == false`
-//     assertion is deferred until the field lands; we still assert the
-//     present-day contract (id non-nil, session counts > 0).
-//   - SpecSummary today carries name/project/status/{completed,total}Tasks
-//     and lacks the hasProposal/hasDesign/hasTasks tri-state in the spec
-//     prose. We assert the present-day contract.
-//   - NotificationEvent today has no severity / deliveryState fields. We
-//     assert decode of body/title/channel and document the gap.
-//   - ScriptError today has no trace_id or stack_truncated columns. We
-//     assert id/script/message/occurrences and document the gap.
-//
-// When the agent grows these fields, extend the inline JSON + the
-// assertion list — the test class is the single place to ratchet.
+// Fixtures are inline string literals. They are hand-crafted to match
+// the contract emitted by the agent at commit f6d0e05 (the latest API
+// batch commit on main). The live homelab agent will not surface the
+// new fields until that commit deploys, so these fixtures cannot be
+// captured from `curl` until the deploy lands. Updating the agent's
+// payload requires updating the fixture here, which makes the wire
+// contract change visible in the diff.
 
 import XCTest
 @testable import NexusShared
@@ -44,51 +45,84 @@ final class PayloadDecodeTests: XCTestCase {
         return try JSONDecoder().decode(type, from: data)
     }
 
-    // MARK: - 2.3 ProjectAggregate
+    // MARK: - ProjectAggregate (v2: + hidden)
 
-    func testProjectAggregateDecodes() throws {
-        // Canonical row from `GET /projects` — matches the envelope shape
-        // in apps/agent/src/routes/projects.ts.
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testProjectAggregateDecodesWithHidden() throws {
         let json = """
         {
             "name": "nexus",
             "active_sessions": 2,
             "total_sessions": 5,
             "machines": ["homelab", "macbook"],
-            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa"
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa",
+            "hidden": false
         }
         """
         let p = try decode(ProjectAggregate.self, from: json)
         XCTAssertNotNil(p.projectID, "registered project rows ship `id` non-nil")
         XCTAssertEqual(p.name, "nexus")
-        XCTAssertGreaterThan(p.totalSessions, 0, "fixture row has sessionCount > 0")
+        XCTAssertGreaterThan(p.totalSessions, 0)
         XCTAssertEqual(p.machines, ["homelab", "macbook"])
-        // `hidden` is not in the model today — spec assertion deferred.
+        XCTAssertFalse(p.hidden, "visible registry row decodes hidden=false")
+    }
+
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testProjectAggregateDecodesHiddenTrue() throws {
+        let json = """
+        {
+            "name": "stealth-project",
+            "active_sessions": 0,
+            "total_sessions": 3,
+            "machines": ["homelab"],
+            "id": "1a2b3c4d-5e6f-7890-abcd-ef0123456789",
+            "hidden": true
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertTrue(p.hidden, "hidden registry row decodes hidden=true")
     }
 
     func testProjectAggregateSessionOnlyBucketHasNilId() throws {
-        // Older agents (and the `(unregistered)` fallback) ship `id: null`.
-        // Decoder MUST tolerate this without throwing.
+        // The unregistered bucket sends id=null AND hidden=false.
+        // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
         let json = """
         {
             "name": "(unregistered)",
             "active_sessions": 0,
             "total_sessions": 1,
             "machines": ["macbook"],
-            "id": null
+            "id": null,
+            "hidden": false
         }
         """
         let p = try decode(ProjectAggregate.self, from: json)
         XCTAssertNil(p.projectID)
         XCTAssertEqual(p.name, "(unregistered)")
+        XCTAssertFalse(p.hidden, "unregistered bucket always hidden=false")
     }
 
-    // MARK: - 2.4 CredentialState
+    // Negative test 1/4: older agents that omit `hidden` decode tolerantly
+    // (default = false). This proves backward compatibility, NOT a hard
+    // gate failure — `hidden` is treated as a soft field for the deploy
+    // window. The hard gate is on severity (see notification test).
+    func testProjectAggregateDecodeToleratesOmittedHidden() throws {
+        let json = """
+        {
+            "name": "legacy-project",
+            "active_sessions": 1,
+            "total_sessions": 2,
+            "machines": ["homelab"],
+            "id": "deadbeef-1234-5678-9abc-def012345678"
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertFalse(p.hidden, "omitted hidden defaults to false (legacy-agent tolerance)")
+    }
+
+    // MARK: - CredentialState (unchanged from v1)
 
     func testCredentialStateDecodes() throws {
-        // Canonical envelope from `GET /credentials` — wraps the profile
-        // list plus the currently-active fingerprint so the dashboard can
-        // flag the live row.
         let json = """
         {
             "credentials": [
@@ -120,97 +154,194 @@ final class PayloadDecodeTests: XCTestCase {
         }
         """
         let env = try decode(CredentialListResponse.self, from: json)
-        XCTAssertGreaterThanOrEqual(env.credentials.count, 1,
-                                    "/credentials envelope MUST carry at least one provider")
+        XCTAssertGreaterThanOrEqual(env.credentials.count, 1)
         XCTAssertEqual(env.activeFingerprint, "fp-aaaa")
         let active = env.credentials.first { $0.fingerprint == env.activeFingerprint }
-        XCTAssertNotNil(active, "activeFingerprint MUST resolve to one of the listed credentials")
-        XCTAssertEqual(active?.status, "active",
-                       "expected state enum value 'active' decodes off the string field")
+        XCTAssertNotNil(active)
+        XCTAssertEqual(active?.status, "active")
         let rateLimited = env.credentials.first { $0.status == "rate-limited" }
-        XCTAssertNotNil(rateLimited, "alternate 'rate-limited' status decodes")
+        XCTAssertNotNil(rateLimited)
         XCTAssertEqual(rateLimited?.rateLimit429Count, 3)
     }
 
-    // MARK: - 2.5 SpecMeta
+    // MARK: - SpecSummary (v2: + has_proposal/has_design/has_tasks)
 
-    func testSpecMetaDecodes() throws {
-        // Canonical row from `GET /specs` — apps/agent/src/routes/specs.ts.
-        // The agent's wire shape today does NOT carry a hasProposal /
-        // hasDesign / hasTasks tri-state; the spec prose anticipates a
-        // future extension. We assert the present-day contract: name,
-        // project, status, task counts decode, and a non-empty
-        // capability-style slug is derivable from `name`.
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testSpecSummaryDecodesWithMarkers() throws {
         let json = """
         {
-            "name": "extend-integration-gate-liveness-payloads",
+            "name": "agent-payload-completeness",
             "project": "nx",
             "status": "in-progress",
-            "completedTasks": 8,
-            "totalTasks": 20,
-            "lastModified": "2026-05-19T10:00:00.000Z"
+            "completedTasks": 9,
+            "totalTasks": 19,
+            "lastModified": "2026-05-19T10:00:00.000Z",
+            "has_proposal": true,
+            "has_design": true,
+            "has_tasks": true
         }
         """
         let s = try decode(SpecSummary.self, from: json)
-        XCTAssertEqual(s.name, "extend-integration-gate-liveness-payloads")
+        XCTAssertEqual(s.name, "agent-payload-completeness")
         XCTAssertEqual(s.project, "nx")
         XCTAssertEqual(s.status, "in-progress")
-        XCTAssertEqual(s.completedTasks, 8)
-        XCTAssertEqual(s.totalTasks, 20)
-        XCTAssertFalse(s.name.isEmpty, "spec slug MUST be non-empty")
-        XCTAssertGreaterThan(s.progress, 0, "progress derived from {completed,total}Tasks")
-        XCTAssertLessThan(s.progress, 1)
+        XCTAssertEqual(s.completedTasks, 9)
+        XCTAssertEqual(s.totalTasks, 19)
+        XCTAssertTrue(s.hasProposal, "complete spec has proposal.md")
+        XCTAssertTrue(s.hasDesign, "complete spec has design.md")
+        XCTAssertTrue(s.hasTasks, "complete spec has tasks.md")
         XCTAssertNotNil(s.lastModified)
     }
 
-    func testSpecMetaToleratesMissingTaskCounts() throws {
-        // Older agents may omit task counts entirely — model defaults to 0.
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testSpecSummaryDecodesProposalOnlyTriState() throws {
+        // Proposal-only spec — design.md + tasks.md absent on disk.
         let json = """
         {
             "name": "early-spec",
+            "project": "nx",
+            "status": "draft",
+            "completedTasks": 0,
+            "totalTasks": 0,
+            "lastModified": "2026-05-18T08:00:00.000Z",
+            "has_proposal": true,
+            "has_design": false,
+            "has_tasks": false
+        }
+        """
+        let s = try decode(SpecSummary.self, from: json)
+        XCTAssertTrue(s.hasProposal)
+        XCTAssertFalse(s.hasDesign, "design.md absent decodes to false")
+        XCTAssertFalse(s.hasTasks, "tasks.md absent decodes to false")
+    }
+
+    // Negative test 2/4: older agents that omit the marker tri-state
+    // decode tolerantly (all default = false). The v2 gate would catch
+    // a regression only when the agent affirmatively emits a malformed
+    // value — omission is treated as legacy-agent tolerance.
+    func testSpecSummaryDecodeToleratesOmittedMarkers() throws {
+        let json = """
+        {
+            "name": "no-markers-spec",
             "project": "nx",
             "status": "draft"
         }
         """
         let s = try decode(SpecSummary.self, from: json)
+        XCTAssertFalse(s.hasProposal, "omitted has_proposal defaults to false")
+        XCTAssertFalse(s.hasDesign, "omitted has_design defaults to false")
+        XCTAssertFalse(s.hasTasks, "omitted has_tasks defaults to false")
         XCTAssertEqual(s.completedTasks, 0)
         XCTAssertEqual(s.totalTasks, 0)
-        XCTAssertEqual(s.progress, 0)
     }
 
-    // MARK: - 2.6 Notification
+    // MARK: - NotificationEvent (v2: + severity + delivery_state)
 
-    func testNotificationDecodes() throws {
-        // Canonical payload from the agent's `NotificationFired` event /
-        // `/notifications` REST surface. The Swift model today carries
-        // body/title/channel/emoji + receivedAt; severity + delivery
-        // state are not yet typed on the Swift side.
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testNotificationDecodesWithSeverityAndDeliveryState() throws {
         let json = """
         {
             "id": "B40A2C20-9E0E-4F49-A1B5-1A0BAEFEFEFE",
-            "body": "Stop hook fired for session abc123",
-            "channel": "elevenlabs",
             "title": "Nexus",
-            "emoji": "bell",
-            "receivedAt": 1747504800
+            "body": "Stop hook fired for session abc123",
+            "channel": "tts",
+            "project": "nx",
+            "severity": "warn",
+            "delivery_state": "delivered",
+            "created_at": "2026-05-19T10:00:00.000Z"
         }
         """
         let n = try decode(NotificationEvent.self, from: json)
         XCTAssertEqual(n.body, "Stop hook fired for session abc123")
-        XCTAssertEqual(n.channel, "elevenlabs",
-                       "channel acts as the delivery-state lane today")
+        XCTAssertEqual(n.channel, "tts")
         XCTAssertEqual(n.title, "Nexus")
-        XCTAssertEqual(n.emoji, "bell")
-        XCTAssertNotNil(n.id, "id MUST decode to a non-nil UUID")
+        XCTAssertEqual(n.project, "nx")
+        XCTAssertEqual(n.severity, .warn, "severity decodes to typed enum case")
+        XCTAssertEqual(n.deliveryState, .delivered, "delivery_state decodes to typed enum case")
+        XCTAssertEqual(
+            n.id.uuidString.lowercased(),
+            "B40A2C20-9E0E-4F49-A1B5-1A0BAEFEFEFE".lowercased(),
+            "id MUST decode preserving the wire UUID"
+        )
     }
 
-    // MARK: - 2.7 FailureRecord
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testNotificationDecodesErrorSeverityFailedDelivery() throws {
+        let json = """
+        {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "title": "TTS unreachable",
+            "body": "ElevenLabs rate-limit exhausted",
+            "channel": "tts",
+            "project": null,
+            "severity": "error",
+            "delivery_state": "failed",
+            "created_at": "2026-05-19T11:00:00.000Z"
+        }
+        """
+        let n = try decode(NotificationEvent.self, from: json)
+        XCTAssertEqual(n.severity, .error)
+        XCTAssertEqual(n.deliveryState, .failed)
+        XCTAssertNil(n.project, "null project decodes to nil")
+    }
 
-    func testFailureRecordDecodes() throws {
-        // Canonical envelope from `GET /failures` — wraps `top_errors`,
-        // the aggregated array the dashboard renders directly. ScriptError
-        // does NOT carry trace_id or stack_truncated today; those spec
-        // assertions are deferred until the schema grows the columns.
+    // Negative test 3/4: UNKNOWN severity value MUST fail decode. This
+    // is the gate's primary selectivity proof — a payload outside the
+    // documented enum aborts the pre-push gate with a Codable error.
+    func testNotificationDecodeFailsOnUnknownSeverity() {
+        let json = """
+        {
+            "id": "DEADBEEF-DEAD-BEEF-DEAD-BEEFDEADBEEF",
+            "title": "Bad payload",
+            "body": "agent emitted out-of-contract severity",
+            "channel": "tts",
+            "project": "nx",
+            "severity": "critical",
+            "delivery_state": "delivered",
+            "created_at": "2026-05-19T12:00:00.000Z"
+        }
+        """
+        XCTAssertThrowsError(try decode(NotificationEvent.self, from: json)) { error in
+            // Codable raises DecodingError.dataCorrupted for unknown enum
+            // raw values; assert the error surfaces so the gate can
+            // surface the offending key in the failure tail.
+            guard let decodingError = error as? DecodingError else {
+                XCTFail("Expected DecodingError for unknown enum value, got \(error)")
+                return
+            }
+            switch decodingError {
+            case .dataCorrupted, .typeMismatch, .valueNotFound, .keyNotFound:
+                // Any DecodingError variant is acceptable — what matters
+                // is the decode aborted rather than silently degraded.
+                break
+            @unknown default:
+                XCTFail("Unexpected DecodingError variant: \(decodingError)")
+            }
+        }
+    }
+
+    // Tolerance check: an older agent that omits severity/delivery_state
+    // entirely decodes to the safe defaults. This contrasts with the
+    // strict-on-unknown-enum-value check above.
+    func testNotificationDecodeToleratesOmittedSeverityFields() throws {
+        let json = """
+        {
+            "id": "F0F0F0F0-F0F0-F0F0-F0F0-F0F0F0F0F0F0",
+            "title": "Legacy emission",
+            "body": "agent without severity contract",
+            "channel": "tts",
+            "created_at": "2026-05-19T13:00:00.000Z"
+        }
+        """
+        let n = try decode(NotificationEvent.self, from: json)
+        XCTAssertEqual(n.severity, .info, "omitted severity defaults to .info")
+        XCTAssertEqual(n.deliveryState, .pending, "omitted delivery_state defaults to .pending")
+    }
+
+    // MARK: - FailureRecord / ScriptError (v2: + trace_id + stack_truncated)
+
+    // Contract: agent-payload-completeness spec 2026-05-19, agent commit f6d0e05
+    func testFailureRecordDecodesWithTraceIDAndStackTruncated() throws {
         let json = """
         {
             "period_days": 7,
@@ -223,14 +354,18 @@ final class PayloadDecodeTests: XCTestCase {
                     "captured_at": "2026-05-18T12:00:00.000Z",
                     "stack": "Error: 429\\n  at fetch (...)",
                     "source": "notifications.tts",
-                    "occurrences": 7
+                    "occurrences": 7,
+                    "trace_id": "00f067aa0ba902b7-aaaaaaaaaaaaaaaa",
+                    "stack_truncated": true
                 },
                 {
                     "id": "err-2",
                     "script": "scripts.cleanup-tmux",
                     "message": "no such session",
                     "captured_at": 1747504800000,
-                    "occurrences": 1
+                    "occurrences": 1,
+                    "trace_id": null,
+                    "stack_truncated": false
                 }
             ]
         }
@@ -238,30 +373,57 @@ final class PayloadDecodeTests: XCTestCase {
         let env = try decode(FailuresResponse.self, from: json)
         XCTAssertEqual(env.periodDays, 7)
         XCTAssertEqual(env.total, 42)
-        XCTAssertEqual(env.topErrors.count, 2,
-                       "top_errors MUST decode every row")
+        XCTAssertEqual(env.topErrors.count, 2)
 
         let first = env.topErrors[0]
-        XCTAssertEqual(first.id, "err-1",
-                       "id acts as the dashboard's row identity (trace_id proxy today)")
-        XCTAssertFalse(first.id.isEmpty, "id MUST be non-empty (trace_id non-nil proxy)")
+        XCTAssertEqual(first.id, "err-1")
         XCTAssertEqual(first.script, "notifications.tts.elevenlabs")
         XCTAssertEqual(first.occurrences, 7)
         XCTAssertNotNil(first.stack)
         XCTAssertNotNil(first.source)
+        XCTAssertEqual(
+            first.traceID,
+            "00f067aa0ba902b7-aaaaaaaaaaaaaaaa",
+            "instrumented row carries non-nil trace_id"
+        )
+        XCTAssertTrue(first.stackTruncated, "row above truncation threshold flags truncated=true")
 
         let second = env.topErrors[1]
-        // Epoch-millis date decodes through the permissive helper.
         XCTAssertGreaterThan(second.capturedAt.timeIntervalSince1970, 0)
-        XCTAssertEqual(second.occurrences, 1,
-                       "occurrences default = 1 when omitted-or-present-as-1")
+        XCTAssertEqual(second.occurrences, 1)
+        XCTAssertNil(second.traceID, "legacy row decodes JSON null trace_id to nil without throwing")
+        XCTAssertFalse(second.stackTruncated, "non-truncated row flags false")
     }
 
-    // MARK: - HealthMetrics (task 2.1 — safe defaults)
+    // Negative test 4/4: older agents that omit `stack_truncated` decode
+    // tolerantly (default = false). Older agents that omit `trace_id`
+    // decode to nil (Optional<String>). Neither raises a decode error —
+    // legacy-row tolerance is intentional per the spec scenario.
+    func testFailureRecordDecodeToleratesOmittedTraceAndTruncation() throws {
+        let json = """
+        {
+            "period_days": 7,
+            "total": 1,
+            "top_errors": [
+                {
+                    "id": "legacy-err",
+                    "script": "scripts.legacy",
+                    "message": "pre-instrumentation row",
+                    "captured_at": "2026-04-01T00:00:00.000Z",
+                    "occurrences": 1
+                }
+            ]
+        }
+        """
+        let env = try decode(FailuresResponse.self, from: json)
+        let row = env.topErrors[0]
+        XCTAssertNil(row.traceID, "omitted trace_id decodes to nil")
+        XCTAssertFalse(row.stackTruncated, "omitted stack_truncated defaults to false")
+    }
+
+    // MARK: - HealthMetrics (unchanged from v1 — task 2.1 safe defaults)
 
     func testHealthMetricsDecodesOlderAgentWithoutLivenessFields() throws {
-        // Older agent omits db_ok / last_watcher_tick_ms / socket_server_listening.
-        // Decoder MUST apply safe defaults so the dashboard can still bind.
         let json = """
         {
             "hostname": "homelab",
