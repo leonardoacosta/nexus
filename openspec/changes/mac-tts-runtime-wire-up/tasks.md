@@ -9,7 +9,7 @@
 - [x] [1.2] Add `TTSObserver` class in `apps/swift/NexusShared/Observers/TTSObserver.swift` with `start() async` + `stop()` API, dependency-injected ElevenLabsClient + SystemSpeechSynthesizer + AudioPlayer + KeychainStore [owner:ui-engineer] [type:feature] [beads:nx-9dkr8]
 - [x] [1.3] [P-1] TTSObserver receives NotificationFired via `consumeNotifications`, filters channel=="tts", posts UNUserNotificationCenter banner BEFORE synth attempt [owner:ui-engineer] [type:feature] [beads:nx-hdriz]
 - [x] [1.4] [P-1] TTSObserver synth chain: try ElevenLabs (Keychain key, HTTP) -> fallback to SystemSpeechSynthesizer on any error; pipe ElevenLabs mp3 to AudioPlayer.shared.play with ducking from settings [owner:ui-engineer] [type:feature] [beads:nx-n7a8d]
-- [ ] [1.5] TTSObserver os_log instrumentation at every pipeline stage (received, filtered, banner, synth-start, synth-result, playback) with `%{public}@` formatters [owner:ui-engineer] [type:feature] [beads:nx-47pfz]
+- [x] [1.5] TTSObserver os_log instrumentation at every pipeline stage (received, filtered, banner, synth-start, synth-result, playback) with `%{public}@` formatters [owner:ui-engineer] [type:feature] [beads:nx-47pfz]
 
 ## UI Batch
 
