@@ -28,6 +28,8 @@ import type {
   CredentialDuplicateEntry,
   CredentialListEntry,
 } from "./types";
+import { recordFailure } from "../../services/credential-pool/rate-limit-tracker";
+import { recordSwap } from "../../services/credential-pool/swap-tracker";
 
 /** Default cooldown duration in milliseconds (5 minutes). */
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -440,6 +442,12 @@ export class CredentialPool {
         const credential = await getCredentialById(this.db, id);
         if (!credential) return null;
 
+        // Record the 429 against the credential's fingerprint so the
+        // /credentials reader can project `rateLimit429Count` (24h window).
+        if (credential.fingerprint) {
+          recordFailure(credential.fingerprint, 429);
+        }
+
         const cooldownUntil = new Date(Date.now() + this.cooldownMs);
 
         // Atomically increment rate_limit_count and transition to cooldown.
@@ -472,6 +480,11 @@ export class CredentialPool {
 
         // Try to lease the next available credential of the same type
         const next = await this.lease(credential.type, leasedBy);
+
+        // Record the auto-swap on both fingerprints (rate-limited → next).
+        if (next) {
+          recordSwap(cooledDown.fingerprint, next.fingerprint);
+        }
 
         return { cooledDown, next };
       },
@@ -658,6 +671,9 @@ export class CredentialPool {
         // 6. Re-fetch both rows to return the final state.
         const parkedRow = await getCredentialById(this.db, bestAvailable.id);
         const activatedRow = await getCredentialById(this.db, targetId);
+
+        // Record manual swap event so /credentials lastSwapAt reflects it.
+        recordSwap(parkedRow?.fingerprint, activatedRow?.fingerprint);
 
         logger.info(
           {
