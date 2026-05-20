@@ -107,19 +107,34 @@ export async function loadProjectRegistryFromDb(db: Db): Promise<ProjectPath[]> 
 /**
  * Run `openspec list --json` in a project directory and parse the output
  * into SpecSnapshot[]. Returns an empty array on any failure.
+ *
+ * Decorates each snapshot with `has_proposal`/`has_design`/`has_tasks`
+ * booleans computed at scan time (agent-payload-completeness) — the parser
+ * is a pure function and cannot touch the filesystem, so the decoration
+ * happens here.
  */
 export async function pollProjectSpecs(cwd: string): Promise<SpecSnapshot[]> {
   const openspecDir = join(cwd, "openspec");
   if (!existsSync(openspecDir)) return [];
 
+  let snapshots: SpecSnapshot[];
   try {
     const stdout = await execText("openspec", ["list", "--json"], {
       cwd,
       timeout: SUBPROCESS_TIMEOUT_MS,
     });
-    return parseSpecList(stdout);
+    snapshots = parseSpecList(stdout);
   } catch (err) {
     log.debug({ cwd, error: err }, "openspec list --json failed");
     return [];
   }
+
+  for (const snap of snapshots) {
+    const specDir = join(openspecDir, "changes", snap.name);
+    snap.has_proposal = existsSync(join(specDir, "proposal.md"));
+    snap.has_design = existsSync(join(specDir, "design.md"));
+    snap.has_tasks = existsSync(join(specDir, "tasks.md"));
+  }
+
+  return snapshots;
 }

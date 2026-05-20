@@ -19,6 +19,19 @@ export interface SpecSnapshot {
   completedTasks: number;
   totalTasks: number;
   lastModified?: string;
+  /**
+   * Marker tri-state booleans (agent-payload-completeness): true iff the
+   * corresponding markdown artifact exists in the spec directory at scan
+   * time. Optional on the in-memory type so legacy snapshot constructors
+   * (tests, fs-watch synthesized rows) continue to compile, but the
+   * `pollProjectSpecs` decoration step and the `handleListSpecs` wire
+   * normalisation ensure every row emitted on `GET /specs` carries them
+   * as non-optional booleans — the Swift `SpecSummary` decoder pins them
+   * non-optional via PayloadDecodeTests v2.
+   */
+  has_proposal?: boolean;
+  has_design?: boolean;
+  has_tasks?: boolean;
 }
 
 /** A detected state change in a project's spec landscape. */
@@ -68,6 +81,12 @@ export function parseSpecList(json: string): SpecSnapshot[] {
       completedTasks: Number(item.completedTasks ?? item.completed_tasks ?? 0),
       totalTasks: Number(item.totalTasks ?? item.total_tasks ?? 0),
       lastModified: typeof lastModifiedRaw === "string" ? lastModifiedRaw : undefined,
+      // Marker booleans default to false here — the parser is pure and has
+      // no filesystem access. `pollProjectSpecs` decorates each snapshot
+      // with the real existsSync() result before the route emits it.
+      has_proposal: Boolean(item.has_proposal ?? false),
+      has_design: Boolean(item.has_design ?? false),
+      has_tasks: Boolean(item.has_tasks ?? false),
     });
   }
   return results;
