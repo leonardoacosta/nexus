@@ -180,6 +180,29 @@ public actor NexusAggregateClient {
         return Array(merged.values)
     }
 
+    /// Spec markdown content (`proposal`/`design`/`tasks`). First agent that
+    /// answers with a non-nil body wins. Returns nil when every reachable
+    /// agent returns 404 or fails. The spec lives on exactly one agent in
+    /// practice (each project is hosted by one machine), so fan-out is
+    /// effectively a "which agent owns this project" probe.
+    ///
+    /// Spec: dashboard-ui-pass-v1 (task 2.1)
+    public func fetchSpecContent(
+        project: String,
+        name: String,
+        file: String
+    ) async -> String? {
+        let (perAgent, _) = await fanOut("fetchSpecContent") { client in
+            try await client.fetchSpecContent(project: project, name: name, file: file)
+        }
+        // First non-nil body wins. perAgent only contains successes (errors
+        // are dropped by fanOut), so any non-nil here is the answer.
+        for body in perAgent {
+            if let body { return body }
+        }
+        return nil
+    }
+
     /// Credentials merged across agents, deduped by profile `id`.
     public func fetchCredentials() async -> [CcProfile] {
         let (perAgent, _) = await fanOut("fetchCredentials") { client in

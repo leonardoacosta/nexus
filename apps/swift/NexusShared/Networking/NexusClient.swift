@@ -190,6 +190,43 @@ public actor NexusClient {
         return try await getJSON(url: url)
     }
 
+    /// `GET /specs/{project}/{name}/{file}` — raw markdown content for a
+    /// single spec document. `file` MUST be one of "proposal", "design",
+    /// "tasks". Returns `nil` on 404 (file/spec/project absent); throws on
+    /// transport error or non-200/404 status.
+    ///
+    /// Spec: dashboard-ui-pass-v1 (task 2.1) — backs SpecDetailView's
+    /// markdown fetch on selection change.
+    public func fetchSpecContent(
+        project: String,
+        name: String,
+        file: String
+    ) async throws -> String? {
+        let url = endpoint.baseURL
+            .appendingPathComponent("specs")
+            .appendingPathComponent(project)
+            .appendingPathComponent(name)
+            .appendingPathComponent(file)
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.addValue("text/markdown", forHTTPHeaderField: "Accept")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     /// Consume `GET /specs/events`, invoking `handler` per SpecTransition.
     public func consumeSpecEvents(
         handler: @Sendable @escaping (SSEEvent) async -> Void
