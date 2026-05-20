@@ -2,6 +2,23 @@
  * Subprocess orchestration for the spec-watcher service.
  *
  * Handles `openspec list --json` polling and project registry loading.
+ *
+ * AUDIT (2026-05-20, homelab-emits-specs-credentials task 1.1):
+ *   Why `GET /specs` returned `[]` on the deployed homelab agent:
+ *     1. Project enumeration via `getProjects()` (config-loader) returns the
+ *        expected ~/.claude/scripts/config/projects.json entries with paths
+ *        under ~/dev/* — verified on disk.
+ *     2. `pollProjectSpecs(cwd)` shells out to `openspec list --json`
+ *        through `execText`. On homelab, `openspec` is NOT installed
+ *        (`command not found`). Every invocation fails, the catch swallows
+ *        the error at debug level, and `[]` is returned.
+ *     3. Result: every project scan returns `[]`, the route emits `[]`,
+ *        the Mac dashboard shows "no specs found".
+ *
+ *   Fix landed in task 1.3: replace the subprocess call with a direct
+ *   filesystem scan of `<root>/<project>/openspec/changes/*/` driven by
+ *   `services/spec-watcher/config.ts` (task 1.2). The pure-fs path has no
+ *   external dependency on the `openspec` CLI binary.
  */
 
 import { existsSync } from "node:fs";
