@@ -44,7 +44,7 @@ struct SpecDetailView: View {
     let spec: SpecSummary?
 
     @State private var activeTab: SpecDocumentTab = .proposal
-    @State private var body: String?
+    @State private var content: String?
     @State private var isLoading: Bool = false
     @State private var loadError: String?
 
@@ -57,7 +57,7 @@ struct SpecDetailView: View {
             if let spec {
                 header(for: spec)
                 Divider()
-                content(for: spec)
+                contentPane(for: spec)
             } else {
                 hintState
             }
@@ -66,7 +66,7 @@ struct SpecDetailView: View {
         // Refetch whenever the selected spec OR the active tab changes.
         .task(id: TaskKey(spec: spec, tab: activeTab)) {
             guard let spec else {
-                body = nil
+                content = nil
                 loadError = nil
                 return
             }
@@ -101,7 +101,7 @@ struct SpecDetailView: View {
     }
 
     @ViewBuilder
-    private func content(for spec: SpecSummary) -> some View {
+    private func contentPane(for spec: SpecSummary) -> some View {
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,9 +109,9 @@ struct SpecDetailView: View {
             errorState(message: error, retry: {
                 Task { await load(spec: spec, tab: activeTab) }
             })
-        } else if let body, !body.isEmpty {
+        } else if let content, !content.isEmpty {
             ScrollView {
-                Text(renderMarkdown(body))
+                Text(renderMarkdown(content))
                     .textSelection(.enabled)
                     .font(.system(.body, design: .default))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,12 +191,12 @@ struct SpecDetailView: View {
             // when every agent returned 404. We can't distinguish those two
             // here; we treat nil as "no document" (the 404 case is the
             // overwhelmingly common one).
-            let content = await client.fetchSpecContent(
+            let fetched = await client.fetchSpecContent(
                 project: spec.project,
                 name: spec.name,
                 file: tab.fileSlug
             )
-            body = content
+            content = fetched
         }
     }
 

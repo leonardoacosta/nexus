@@ -34,8 +34,9 @@ public actor SystemSpeechSynthesizer {
     ///
     /// Closure contract: given (rate, text), launch a process and return it
     /// already-running. Throw to signal launch failure (will be logged + the
-    /// queue advances to the next utterance).
-    public typealias Spawner = @Sendable (Int, String) throws -> Process
+    /// queue advances to the next utterance). Async-allowed so test spawners
+    /// can record state on an actor before launch.
+    public typealias Spawner = @Sendable (Int, String) async throws -> Process
 
     private let spawner: Spawner
 
@@ -90,7 +91,7 @@ public actor SystemSpeechSynthesizer {
             // 2. Spawn the subprocess. Failure is logged + the queue moves on.
             let process: Process
             do {
-                process = try spawner(rate, trimmed)
+                process = try await spawner(rate, trimmed)
             } catch {
                 Self.logger.error(
                     "SystemSpeechSynthesizer: say failed error=\(error.localizedDescription, privacy: .public)"
@@ -103,15 +104,25 @@ public actor SystemSpeechSynthesizer {
             )
 
             // 3. Wait for the subprocess to exit. waitUntilExit is blocking
-            // so we hop to a background thread to avoid pinning the actor's
-            // executor on a synchronous wait.
+            // so we use terminationHandler + a continuation. Foundation does
+            // NOT retroactively invoke a handler set after termination, so
+            // we double-check isRunning right after wiring it to close the
+            // race window.
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                process.terminationHandler = { _ in
-                    cont.resume()
+                // Resume only ONCE — terminationHandler vs the post-wire
+                // isRunning check could both fire on a fast process.
+                let didResume = ResumeOnce(cont: cont)
+                // Preserve a pre-existing terminationHandler set by the
+                // spawner (tests use it for sequencing assertions). Our
+                // resume hook runs after the spawner's handler.
+                let priorHandler = process.terminationHandler
+                process.terminationHandler = { p in
+                    priorHandler?(p)
+                    didResume.resumeIfNeeded()
                 }
-                // If the process is already terminated by the time the
-                // handler is wired, terminationHandler still fires per
-                // Foundation docs. No additional polling needed.
+                if !process.isRunning {
+                    didResume.resumeIfNeeded()
+                }
             }
         }
 
@@ -123,5 +134,25 @@ public actor SystemSpeechSynthesizer {
     /// chained Tasks.
     public func waitForIdle() async {
         await pending?.value
+    }
+}
+
+/// Single-shot continuation resumer. Foundation's terminationHandler can
+/// race with our post-wire `isRunning` check on fast processes; we'd
+/// otherwise resume the continuation twice and trip the CheckedContinuation
+/// runtime assertion.
+private final class ResumeOnce: @unchecked Sendable {
+    private let cont: CheckedContinuation<Void, Never>
+    private let lock = NSLock()
+    private var resumed = false
+
+    init(cont: CheckedContinuation<Void, Never>) { self.cont = cont }
+
+    func resumeIfNeeded() {
+        lock.lock()
+        let shouldResume = !resumed
+        resumed = true
+        lock.unlock()
+        if shouldResume { cont.resume() }
     }
 }
