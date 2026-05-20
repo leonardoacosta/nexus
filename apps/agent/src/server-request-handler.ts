@@ -28,6 +28,7 @@ import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
 import {
   handleSendNotification,
+  handleListNotifications,
   handleMeetingStart,
   handleMeetingEnd,
   handleMeetingStatus,
@@ -98,6 +99,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/projects/discovered" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
+  { method: "GET", path: "/notifications" },
   { method: "GET", path: "/notifications/settings" },
   { method: "PATCH", path: "/notifications/settings" },
   { method: "POST", path: "/meeting/start" },
@@ -325,6 +327,17 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/notifications/send" && request.method === "POST") {
         return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /notifications — list canonical NotificationEvent rows for the
+      // Swift dashboard. Added by `agent-payload-completeness`. Returns
+      // `[]` on empty; never 404 (path matches; the empty-set case has its
+      // own contract).
+      if (url.pathname === "/notifications" && request.method === "GET") {
+        return handleListNotifications(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
