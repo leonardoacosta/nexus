@@ -24,6 +24,19 @@ public struct ScriptError: Identifiable, Equatable, Hashable, Codable, Sendable 
     /// already aggregates top_errors by fingerprint.
     public var occurrences: Int
 
+    /// OpenTelemetry trace identifier for the row, when the error was
+    /// captured under instrumentation. Nullable on legacy
+    /// pre-instrumentation rows; the agent emits `null` in that case.
+    /// Spec: agent-payload-completeness § Failure Top Errors Include
+    /// Trace ID + Stack Truncation Marker.
+    public var traceID: String?
+
+    /// Whether the serialized `stack` exceeded the agent's truncation
+    /// threshold (the agent caps stack length to keep payloads bounded).
+    /// Non-optional in the model; older agents that omit the field decode
+    /// as `false`.
+    public var stackTruncated: Bool
+
     public enum CodingKeys: String, CodingKey {
         case id
         case script
@@ -32,6 +45,8 @@ public struct ScriptError: Identifiable, Equatable, Hashable, Codable, Sendable 
         case stack
         case source
         case occurrences
+        case traceID = "trace_id"
+        case stackTruncated = "stack_truncated"
     }
 
     public init(from decoder: Decoder) throws {
@@ -44,6 +59,12 @@ public struct ScriptError: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.stack = try? c.decode(String.self, forKey: .stack)
         self.source = try? c.decode(String.self, forKey: .source)
         self.occurrences = (try? c.decode(Int.self, forKey: .occurrences)) ?? 1
+        // `trace_id` is genuinely nullable on legacy rows — `decodeIfPresent`
+        // returns nil for absent OR explicit null.
+        self.traceID = try c.decodeIfPresent(String.self, forKey: .traceID)
+        // Backward-tolerant: older agents omit `stack_truncated`. Default
+        // to false (untruncated).
+        self.stackTruncated = try c.decodeIfPresent(Bool.self, forKey: .stackTruncated) ?? false
     }
 
     public init(
@@ -53,7 +74,9 @@ public struct ScriptError: Identifiable, Equatable, Hashable, Codable, Sendable 
         capturedAt: Date,
         stack: String? = nil,
         source: String? = nil,
-        occurrences: Int = 1
+        occurrences: Int = 1,
+        traceID: String? = nil,
+        stackTruncated: Bool = false
     ) {
         self.id = id
         self.script = script
@@ -62,6 +85,8 @@ public struct ScriptError: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.stack = stack
         self.source = source
         self.occurrences = occurrences
+        self.traceID = traceID
+        self.stackTruncated = stackTruncated
     }
 
     private static func decodePermissiveDate(
