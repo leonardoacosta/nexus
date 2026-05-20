@@ -119,6 +119,21 @@ export async function handleGetSpecsAll(): Promise<Response> {
 
 // ---------------------------------------------------------------------------
 // GET /specs -- list specs with optional status filter
+//
+// VERIFICATION (homelab-emits-specs-credentials task 1.5):
+//   This handler is correct against the wire contract. It composes
+//     loadProjects() (projects.json registry, expandTilde'd in config-loader)
+//     × pollProjectSpecs(project.path) (now filesystem-driven per task 1.3)
+//   then attaches `project: project.code` to each spec and normalizes the
+//   has_proposal/has_design/has_tasks tri-state via the `?? false` default
+//   below. The `agent-payload-completeness` Swift decoder pins those three
+//   booleans non-optional, so the `?? false` default is load-bearing for
+//   the wire contract.
+//
+//   No changes required — the empty `[]` symptom was rooted in
+//   pollProjectSpecs failing silently against a missing `openspec` CLI.
+//   With task 1.3's fs-direct scan in place, this handler now surfaces
+//   real spec rows without modification.
 // ---------------------------------------------------------------------------
 
 export async function handleListSpecs(url: URL): Promise<Response> {
