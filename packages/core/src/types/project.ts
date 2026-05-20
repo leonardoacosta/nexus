@@ -11,6 +11,16 @@ export interface Project {
   active_sessions: number;
   total_sessions: number;
   machines: string[];
+  /**
+   * Sticky-exclude flag from `projects.hidden` (`folder-based-project-autodiscovery`).
+   * Non-optional in current-generation agent emissions so the Swift dashboard can
+   * filter hidden projects from the list view without round-tripping through
+   * `PATCH /projects/:id`. Synthetic `(unregistered)` buckets emit `false`.
+   *
+   * Older agents (pre-`agent-payload-completeness`) omit this field — the
+   * Swift decoder substitutes `false` for backward tolerance.
+   */
+  hidden: boolean;
 }
 
 export interface DiscoveredProject {

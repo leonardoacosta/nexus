@@ -5,15 +5,15 @@
 
 ## API Batch
 
-- [ ] [1.1] Extend `packages/core/src/types/project.ts` `Project` type with `hidden: boolean` [owner:types-engineer] [type:types] [beads:nx-qprig]
-- [ ] [1.2] Update `apps/agent/src/routes/projects.ts` `aggregateProjects` to surface `hidden` from registry rows (use the existing `projects.hidden` column); unregistered bucket defaults to false [owner:api-engineer] [type:feature] [beads:nx-fjz9h]
-- [ ] [1.3] [P-1] Extend `apps/agent/src/services/spec-watcher/parser.ts` `SpecSnapshot` with `has_proposal/has_design/has_tasks` booleans computed at scan time [owner:api-engineer] [type:feature] [beads:nx-drzes]
-- [ ] [1.4] [P-1] Extend `apps/agent/src/routes/specs.ts` `handleListSpecs` to surface the three marker booleans in the JSON response [owner:api-engineer] [type:feature] [beads:nx-rw6k2]
-- [ ] [1.5] Add `apps/agent/src/routes/notifications.ts` handler for `GET /notifications` returning the canonical NotificationEvent list with `severity` + `delivery_state` fields [owner:api-engineer] [type:feature] [beads:nx-jutwn]
-- [ ] [1.6] Wire `GET /notifications` into `apps/agent/src/server-request-handler.ts` route table [owner:api-engineer] [type:feature] [beads:nx-ihshs]
-- [ ] [1.7] [P-2] Extend `apps/agent/src/routes/failures-route.ts` `top_errors[]` row builder with `trace_id` (read from script_errors.trace_id column or null) and `stack_truncated` boolean [owner:api-engineer] [type:feature] [beads:nx-tvhx8]
-- [ ] [1.8] Extend `packages/core/src/types/{spec,notification,failure}.ts` with the matching TS shapes [owner:types-engineer] [type:types] [beads:nx-sjljo]
-- [ ] [1.9] Add per-endpoint contract tests under `apps/agent/src/routes/*.test.ts` asserting the new fields are emitted (one test per endpoint) [owner:api-engineer] [type:test] [beads:nx-wc06n]
+- [x] [1.1] Extend `packages/core/src/types/project.ts` `Project` type with `hidden: boolean` [owner:types-engineer] [type:types] [beads:nx-qprig]
+- [x] [1.2] Update `apps/agent/src/routes/projects.ts` `aggregateProjects` to surface `hidden` from registry rows (use the existing `projects.hidden` column); unregistered bucket defaults to false [owner:api-engineer] [type:feature] [beads:nx-fjz9h]
+- [x] [1.3] [P-1] Extend `apps/agent/src/services/spec-watcher/parser.ts` `SpecSnapshot` with `has_proposal/has_design/has_tasks` booleans computed at scan time [owner:api-engineer] [type:feature] [beads:nx-drzes]
+- [x] [1.4] [P-1] Extend `apps/agent/src/routes/specs.ts` `handleListSpecs` to surface the three marker booleans in the JSON response [owner:api-engineer] [type:feature] [beads:nx-rw6k2]
+- [x] [1.5] Add `apps/agent/src/routes/notifications.ts` handler for `GET /notifications` returning the canonical NotificationEvent list with `severity` + `delivery_state` fields [owner:api-engineer] [type:feature] [beads:nx-jutwn]
+- [x] [1.6] Wire `GET /notifications` into `apps/agent/src/server-request-handler.ts` route table [owner:api-engineer] [type:feature] [beads:nx-ihshs]
+- [x] [1.7] [P-2] Extend `apps/agent/src/routes/failures-route.ts` `top_errors[]` row builder with `trace_id` (read from script_errors.trace_id column or null) and `stack_truncated` boolean [owner:api-engineer] [type:feature] [beads:nx-tvhx8]
+- [x] [1.8] Extend `packages/core/src/types/{spec,notification,failure}.ts` with the matching TS shapes [owner:types-engineer] [type:types] [beads:nx-sjljo]
+- [x] [1.9] Add per-endpoint contract tests under `apps/agent/src/routes/*.test.ts` asserting the new fields are emitted (one test per endpoint) [owner:api-engineer] [type:test] [beads:nx-wc06n]
 
 ## UI Batch
 
