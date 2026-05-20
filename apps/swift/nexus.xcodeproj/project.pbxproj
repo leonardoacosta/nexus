@@ -70,6 +70,7 @@
 		9FE3932290A918E3C331297C /* SpecsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA2250911C4813370B4DC79 /* SpecsView.swift */; };
 		A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */; };
 		A6F122DECCB643B55D29998A /* NexusAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */; };
+		A9077D4148E30229B5629137 /* SSEStreamDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */; };
 		AA4B77ABFB54B52F627F6D8A /* AggregateState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E8C108E1340EBB0A56B793 /* AggregateState.swift */; };
 		AA4C8647C6E33974DF124621 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC52DACE0847988C6311B227 /* SettingsStore.swift */; };
 		ABB74124C4F4E52BCD30B4A5 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAC4C5587B393E5686B0518 /* Typography.swift */; };
@@ -258,6 +259,7 @@
 		3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSnapshot.swift; sourceTree = "<group>"; };
 		3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSpeechSynthesizer.swift; sourceTree = "<group>"; };
 		3F16E8714DDBB28908DEE41D /* NotifyButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyButton.swift; sourceTree = "<group>"; };
+		4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEStreamDelegate.swift; sourceTree = "<group>"; };
 		482782F9B3DD653CB99247DB /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
 		485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDecodingTests.swift; sourceTree = "<group>"; };
 		4AC6B83DC21187B1451A8146 /* nexusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusTests.swift; sourceTree = "<group>"; };
@@ -579,6 +581,7 @@
 				530F0A2939FC997360C17FC7 /* NexusAggregateClient.swift */,
 				0E53AD8EA6F5A9C4F0025ECD /* NexusClient.swift */,
 				0674A881886D6D227D1A2ECB /* SSEDecoder.swift */,
+				4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -1029,6 +1032,7 @@
 				B91D8D018154470FE334AF06 /* Notification.swift in Sources */,
 				0317B9688F369E37DC0DD93D /* ProjectAggregate.swift in Sources */,
 				06F1C9F9E1CE5678DF584ED1 /* SSEDecoder.swift in Sources */,
+				A9077D4148E30229B5629137 /* SSEStreamDelegate.swift in Sources */,
 				174B26DFC4458341673382E2 /* ScriptError.swift in Sources */,
 				2C3849FCFA7819DFCD63D248 /* Session.swift in Sources */,
 				49E6F51BAF32E7CB435154C6 /* SessionObserver.swift in Sources */,

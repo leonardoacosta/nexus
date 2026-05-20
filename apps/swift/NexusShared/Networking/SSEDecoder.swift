@@ -25,30 +25,80 @@ public struct SSEEvent: Equatable, Sendable {
 public enum SSEDecoder {
     /// Consume an SSE endpoint, invoking `handler` per `event:`-named frame.
     /// Throws on transport / status failure (caller is responsible for retry).
+    ///
+    /// Implementation note (nx-60zzf):
+    /// The previous implementation used `URLSession.bytes(for:).lines`, which
+    /// buffers chunked `text/event-stream` bytes on macOS until the connection
+    /// closes or buffer pressure builds — fatal for a low-rate notification
+    /// stream where each event is ~150 B and may arrive seconds apart. The
+    /// `session` argument is no longer used for the streaming request itself;
+    /// it is retained in the signature for caller compatibility. A fresh
+    /// `URLSession` with a `URLSessionDataDelegate` (`SSEStreamDelegate`) is
+    /// built per call so we observe `didReceive data:` callbacks per TCP
+    /// chunk and forward lines immediately. The delegate session is
+    /// invalidated when the consume Task is cancelled or the stream ends.
     public static func consume(
         url: URL,
         session: URLSession,
         handler: @Sendable @escaping (SSEEvent) async -> Void
     ) async throws {
+        _ = session  // see implementation note above
+
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         req.addValue("text/event-stream", forHTTPHeaderField: "Accept")
         req.timeoutInterval = TimeInterval.infinity
+        req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
-        let (bytes, response): (URLSession.AsyncBytes, URLResponse)
-        do {
-            (bytes, response) = try await session.bytes(for: req)
-        } catch {
-            throw NexusClientError.transport(error)
+        let cfg = URLSessionConfiguration.default
+        cfg.httpAdditionalHeaders = ["Accept": "text/event-stream"]
+        cfg.timeoutIntervalForRequest = TimeInterval.infinity
+        cfg.timeoutIntervalForResource = TimeInterval.infinity
+        cfg.httpMaximumConnectionsPerHost = 1
+        cfg.urlCache = nil
+        cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        // HTTP/2 multiplexing is the buffering culprit on macOS for chunked
+        // text/event-stream. Disabling pipelining and capping per-host
+        // connections nudges URLSession toward a dedicated HTTP/1.1 stream.
+        cfg.httpShouldUsePipelining = false
+
+        // AsyncThrowingStream bridges the delegate callbacks (which run on
+        // URLSession's serial delegate queue) into the async caller's task.
+        let lineStream = AsyncThrowingStream<String, Error> { continuation in
+            let delegate = SSEStreamDelegate(
+                onResponse: { status in
+                    if !(200...299).contains(status) {
+                        continuation.finish(throwing: NexusClientError.badStatus(status))
+                    }
+                },
+                onLine: { line in
+                    continuation.yield(line)
+                },
+                onComplete: { error in
+                    if let error = error {
+                        continuation.finish(throwing: NexusClientError.transport(error))
+                    } else {
+                        continuation.finish()
+                    }
+                }
+            )
+            let delegateQueue = OperationQueue()
+            delegateQueue.maxConcurrentOperationCount = 1
+            delegateQueue.name = "dev.leonardoacosta.nexus.sse"
+            let urlSession = URLSession(configuration: cfg, delegate: delegate, delegateQueue: delegateQueue)
+            let task = urlSession.dataTask(with: req)
+            continuation.onTermination = { _ in
+                task.cancel()
+                urlSession.invalidateAndCancel()
+            }
+            task.resume()
         }
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw NexusClientError.badStatus(http.statusCode)
-        }
+
         sseLogger.info("SSEDecoder: connected url=\(url.absoluteString, privacy: .public)")
 
         var currentEvent: String?
         var currentData = ""
-        for try await line in bytes.lines {
+        for try await line in lineStream {
             sseLogger.debug("SSEDecoder: line len=\(line.count) prefix=\(String(line.prefix(40)), privacy: .public)")
             if line.isEmpty {
                 // Dispatch the frame on blank-line boundary.
