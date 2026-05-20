@@ -270,6 +270,16 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /notifications` — historical notification rows persisted by the
+    /// agent (severity + delivery_state shipped in agent-payload-completeness).
+    /// Returned newest-first by the agent; callers prepend on mount so the
+    /// HISTORY sidebar surfaces past rows before live SSE arrives.
+    /// nx-9mt43: NotificationsView historical backfill.
+    public func fetchNotifications() async throws -> [NotificationEvent] {
+        let url = endpoint.baseURL.appendingPathComponent("notifications")
+        return try await getJSON(url: url)
+    }
+
     /// Consume `GET /events/stream` and filter for `NotificationFired`
     /// frames client-side via `decodeNotification()`. Invokes `handler`
     /// per decoded NotificationEvent. (The agent does not expose a

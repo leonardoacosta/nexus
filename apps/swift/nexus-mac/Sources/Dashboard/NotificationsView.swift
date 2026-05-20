@@ -189,6 +189,17 @@ final class NotificationsViewModel: ObservableObject {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
             guard let self else { return }
+            // nx-9mt43: backfill historical rows from GET /notifications BEFORE
+            // subscribing to live SSE. Without this the HISTORY sidebar shows
+            // "No notifications yet" until the next NotificationFired arrives
+            // even though the agent has persisted rows on disk.
+            let historical = await self.client.fetchNotifications()
+            FileHandle.standardError.write(Data(
+                "[NotificationsView] fetchNotifications backfill: \(historical.count) rows\n".utf8
+            ))
+            if !historical.isEmpty {
+                await self.prependBatch(historical)
+            }
             // Aggregate owns per-agent retry; this returns on cancel only.
             await self.client.consumeNotifications { [weak self] ev in
                 await self?.prepend(ev)
@@ -207,6 +218,26 @@ final class NotificationsViewModel: ObservableObject {
 
     private func prepend(_ ev: NotificationEvent) {
         history.insert(ev, at: 0)
+        if history.count > 100 {
+            history.removeLast(history.count - 100)
+        }
+    }
+
+    /// nx-9mt43: prepend a batch of historical rows on mount. Aggregate
+    /// already returns newest-first; replace the empty list to preserve
+    /// that order, then cap at 100.
+    private func prependBatch(_ events: [NotificationEvent]) {
+        if history.isEmpty {
+            history = Array(events.prefix(100))
+            return
+        }
+        // Live frames may have already landed during the fetch; merge by id.
+        var seen = Set(history.map(\.id))
+        for ev in events where !seen.contains(ev.id) {
+            history.append(ev)
+            seen.insert(ev.id)
+        }
+        history.sort { $0.receivedAt > $1.receivedAt }
         if history.count > 100 {
             history.removeLast(history.count - 100)
         }

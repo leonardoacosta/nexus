@@ -199,6 +199,18 @@ public actor NexusAggregateClient {
         return Array(all.prefix(limit))
     }
 
+    /// Historical notifications merged across agents, deduped by `id`,
+    /// newest first. nx-9mt43: NotificationsView mount-time backfill so
+    /// the HISTORY sidebar surfaces past rows before live SSE arrives.
+    public func fetchNotifications() async -> [NotificationEvent] {
+        let (perAgent, _) = await fanOut("fetchNotifications") { client in
+            try await client.fetchNotifications()
+        }
+        var merged: [String: NotificationEvent] = [:]
+        for rows in perAgent { for n in rows { merged[n.id.uuidString] = n } }
+        return merged.values.sorted { $0.receivedAt > $1.receivedAt }
+    }
+
     /// Integration status merged across agents, deduped by `id`.
     public func fetchIntegrations() async -> [IntegrationStatus] {
         let (perAgent, _) = await fanOut("fetchIntegrations") { client in
