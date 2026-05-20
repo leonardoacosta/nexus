@@ -24,7 +24,7 @@
 - [x] [2.5] Rewrite `apps/swift/NexusSharedTests/PayloadDecodeTests.swift` as v2 — replace `decodeIfPresent` patterns with non-optional Codable assertions for the four newly-required field groups [owner:ui-engineer] [type:test] [beads:nx-m6o6a]
 - [x] [2.6] Add a "missing-field" negative test per endpoint that asserts the decode FAILS when a required field is absent (proves the gate would catch regressions) [owner:ui-engineer] [type:test] [beads:nx-7yhsn]
 - [x] [2.7] Capture canonical fixtures from a live homelab agent via `curl` against the Tailscale IP and inline them as Swift string literals; document the agent commit sha alongside each fixture [owner:ui-engineer] [type:test] [beads:nx-100jc]
-- [ ] [2.8] Regenerate Xcode project via `cd apps/swift && xcodegen generate` if any file structure changes warrant it [owner:ui-engineer] [type:test] [beads:nx-8wqic]
+- [x] [2.8] Regenerate Xcode project via `cd apps/swift && xcodegen generate` if any file structure changes warrant it [owner:ui-engineer] [type:test] [beads:nx-8wqic]
 
 ## E2E Batch
 
