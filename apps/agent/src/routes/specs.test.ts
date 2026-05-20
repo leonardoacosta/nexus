@@ -5,15 +5,35 @@
  * filesystem and subprocess dependencies so they run without external tools.
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Mutable fixture project registry consulted by the mocked config-loader.
+// Tests append/clear entries to control what `getProjects()` returns inside
+// the handler under test. Declared BEFORE `mock.module` so the factory
+// closes over the live binding.
+const fixtureProjects: Array<{ code: string; name: string; path: string }> = [];
+
+// Mock config-loader at module-load time. This MUST be hoisted above the
+// `./specs` import below so the route module captures the mocked export.
+// We delegate to the real implementation for `getSettings`/init/stop so the
+// existing tests that exercise `handleGetSpecsAll` / `handleListSpecs`
+// continue to see their normal behavior; only `getProjects` is replaced.
+mock.module("../services/config-loader", () => ({
+  getProjects: () => fixtureProjects.slice(),
+  getSettings: () => ({}),
+  initConfigLoader: () => {},
+  stopConfigLoader: () => {},
+}));
+
 import {
   handleGetSpecsAll,
   handleListSpecs,
   handleGetSpec,
+  handleGetSpecContent,
   handleApproveSpec,
   handleRejectSpec,
   handleReadSpec,
@@ -376,5 +396,130 @@ describe("resolveRoots — fs-existence filter", () => {
     } finally {
       rmSync(real, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGetSpecContent — dashboard-ui-pass-v1 task 1.3
+//
+// Tests the new GET /specs/:project/:name/:file route handler.
+// File slug + segment sanitization happens BEFORE project resolution, so
+// the 400 cases don't need a registered project. The 200 + 404 cases
+// monkey-patch `getProjects()` to inject a tempdir-backed fixture project.
+// ---------------------------------------------------------------------------
+
+describe("handleGetSpecContent", () => {
+  it("returns 400 for invalid file slug", async () => {
+    const response = await handleGetSpecContent("nx", "some-spec", "readme");
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("invalid file");
+  });
+
+  it("returns 400 for traversal in name segment", async () => {
+    const response = await handleGetSpecContent("nx", "..", "proposal");
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("invalid path segment");
+  });
+
+  it("returns 400 for traversal embedded in name", async () => {
+    const response = await handleGetSpecContent("nx", "foo..bar", "proposal");
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 400 for slash in project segment", async () => {
+    const response = await handleGetSpecContent("nx/etc", "foo", "proposal");
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 400 for empty name segment", async () => {
+    const response = await handleGetSpecContent("nx", "", "proposal");
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 404 for unknown project (post-sanitization)", async () => {
+    const response = await handleGetSpecContent(
+      "zzz-nonexistent-project-code",
+      "some-spec",
+      "proposal",
+    );
+    expect(response.status).toBe(404);
+  });
+
+  describe("with fixture project", () => {
+    // Per-test setup pushes a fixture project into the mocked registry and
+    // creates the on-disk tempdir; teardown clears both.
+    const proposalBody = "# Demo Proposal\n\nHello *world*.\n";
+    const tasksBody = "- [x] one\n- [ ] two\n";
+
+    function setupFixture(): string {
+      const root = mkdtempSync(join(tmpdir(), "nx-specs-content-"));
+      const specDir = join(root, "openspec", "changes", "demo-spec");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "proposal.md"), proposalBody);
+      writeFileSync(join(specDir, "tasks.md"), tasksBody);
+      // (design.md intentionally omitted to test 404 for absent file)
+      fixtureProjects.push({ code: "fix", name: "fixture", path: root });
+      return root;
+    }
+
+    function teardownFixture(root: string) {
+      fixtureProjects.length = 0;
+      rmSync(root, { recursive: true, force: true });
+    }
+
+    it("returns 200 + text/markdown for valid proposal", async () => {
+      const root = setupFixture();
+      try {
+        const response = await handleGetSpecContent("fix", "demo-spec", "proposal");
+        expect(response.status).toBe(200);
+        expect(response.headers.get("Content-Type")).toBe(
+          "text/markdown; charset=utf-8",
+        );
+        const body = await response.text();
+        expect(body).toBe(proposalBody);
+      } finally {
+        teardownFixture(root);
+      }
+    });
+
+    it("returns 200 + text/markdown for valid tasks", async () => {
+      const root = setupFixture();
+      try {
+        const response = await handleGetSpecContent("fix", "demo-spec", "tasks");
+        expect(response.status).toBe(200);
+        const body = await response.text();
+        expect(body).toBe(tasksBody);
+      } finally {
+        teardownFixture(root);
+      }
+    });
+
+    it("returns 404 for missing design.md", async () => {
+      const root = setupFixture();
+      try {
+        const response = await handleGetSpecContent("fix", "demo-spec", "design");
+        expect(response.status).toBe(404);
+        const body = (await response.json()) as { error: string };
+        expect(body.error).toBe("not found");
+      } finally {
+        teardownFixture(root);
+      }
+    });
+
+    it("returns 404 for unknown spec name", async () => {
+      const root = setupFixture();
+      try {
+        const response = await handleGetSpecContent(
+          "fix",
+          "no-such-spec",
+          "proposal",
+        );
+        expect(response.status).toBe(404);
+      } finally {
+        teardownFixture(root);
+      }
+    });
   });
 });

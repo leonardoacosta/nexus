@@ -12,7 +12,8 @@
 
 import { createLogger } from "@nexus/core/node";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import {
   loadProjectRegistry,
   pollProjectSpecs,
@@ -332,6 +333,96 @@ export async function handleReadSpec(
     return new Response(
       JSON.stringify({ project, name, status: "read" }),
       { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /specs/:project/:name/:file -- raw markdown content
+//
+// Serves proposal.md / design.md / tasks.md for a given spec, after strict
+// path sanitization. The canonical filesystem layout is
+//   <project.path>/openspec/changes/<name>/<file>.md
+//
+// Sanitization rules:
+//   - `file` MUST be one of {"proposal","design","tasks"}.
+//   - `project` and `name` MUST be non-empty and contain no path separators
+//     or ".." segments.
+//   - The resolved absolute path MUST live under the project's openspec
+//     changes directory (defense in depth against symlink escapes).
+//
+// Spec: dashboard-ui-pass-v1 (task 1.1)
+// ---------------------------------------------------------------------------
+
+const SPEC_FILES = new Set(["proposal", "design", "tasks"]);
+
+function isUnsafeSegment(seg: string): boolean {
+  if (!seg || seg.length === 0) return true;
+  if (seg === "." || seg === "..") return true;
+  if (seg.includes("/") || seg.includes("\\") || seg.includes("\0")) return true;
+  if (seg.includes("..")) return true;
+  return false;
+}
+
+export async function handleGetSpecContent(
+  project: string,
+  name: string,
+  file: string,
+): Promise<Response> {
+  // 1. Validate the `file` slug against the allowlist BEFORE any fs work.
+  if (!SPEC_FILES.has(file)) {
+    return new Response(
+      JSON.stringify({ error: "invalid file (expected proposal|design|tasks)" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 2. Reject traversal / separator characters in path segments.
+  if (isUnsafeSegment(project) || isUnsafeSegment(name)) {
+    return new Response(
+      JSON.stringify({ error: "invalid path segment" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 3. Resolve the project root.
+  const proj = resolveProject(project);
+  if (!proj) {
+    return new Response(
+      JSON.stringify({ error: "not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // 4. Build the canonical path and verify it lives under the changes dir.
+  const changesRoot = resolve(join(proj.path, "openspec", "changes"));
+  const filePath = resolve(join(changesRoot, name, `${file}.md`));
+  const rootWithSep = changesRoot.endsWith(sep) ? changesRoot : changesRoot + sep;
+  if (!filePath.startsWith(rootWithSep)) {
+    return new Response(
+      JSON.stringify({ error: "invalid path" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  if (!existsSync(filePath)) {
+    return new Response(
+      JSON.stringify({ error: "not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  try {
+    const body = await readFile(filePath, "utf8");
+    return new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/markdown; charset=utf-8" },
+    });
+  } catch (err) {
+    log.warn({ project, name, file, err }, "spec content read failed");
+    return new Response(
+      JSON.stringify({ error: "not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
     );
   }
 }

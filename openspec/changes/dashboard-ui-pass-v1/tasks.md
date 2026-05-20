@@ -5,9 +5,9 @@
 
 ## API Batch
 
-- [ ] [1.1] Add `GET /specs/{project}/{name}/{file}` route to `apps/agent/src/routes/specs.ts`. file ∈ {proposal, design, tasks}. Resolve path via spec-watcher's `resolveRoots()` config + path sanitization (reject `..` and absolute paths; only allow `<root>/<project>/openspec/changes/<spec>/<file>.md`). Return 200 with `Content-Type: text/markdown; charset=utf-8` on success, 400 on traversal, 404 on missing file [owner:api-engineer] [type:feature] [beads:nx-u002i]
-- [ ] [1.2] [P-1] Wire route into `apps/agent/src/server-request-handler.ts` — pattern-match `/specs/{a}/{b}/{c}` GET, delegate to new handler [owner:api-engineer] [type:feature] [beads:nx-776hz]
-- [ ] [1.3] [P-1] Add `apps/agent/src/routes/specs.test.ts` tests for the new endpoint: valid proposal fetch, valid design fetch, 404 on missing file, 400 on `..` traversal, 400 on missing query params [owner:api-engineer] [type:test] [beads:nx-3kwsg]
+- [x] [1.1] Add `GET /specs/{project}/{name}/{file}` route to `apps/agent/src/routes/specs.ts`. file ∈ {proposal, design, tasks}. Resolve path via spec-watcher's `resolveRoots()` config + path sanitization (reject `..` and absolute paths; only allow `<root>/<project>/openspec/changes/<spec>/<file>.md`). Return 200 with `Content-Type: text/markdown; charset=utf-8` on success, 400 on traversal, 404 on missing file [owner:api-engineer] [type:feature] [beads:nx-u002i]
+- [x] [1.2] [P-1] Wire route into `apps/agent/src/server-request-handler.ts` — pattern-match `/specs/{a}/{b}/{c}` GET, delegate to new handler [owner:api-engineer] [type:feature] [beads:nx-776hz]
+- [x] [1.3] [P-1] Add `apps/agent/src/routes/specs.test.ts` tests for the new endpoint: valid proposal fetch, valid design fetch, 404 on missing file, 400 on `..` traversal, 400 on missing query params [owner:api-engineer] [type:test] [beads:nx-3kwsg]
 
 ## UI Batch
 

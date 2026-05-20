@@ -138,6 +138,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/project/:code/git" },
   { method: "GET", path: "/project/:code/specs" },
   { method: "POST", path: "/project/:code/run" },
+  // Spec content (dashboard-ui-pass-v1)
+  { method: "GET", path: "/specs/:project/:name/:file" },
   // Events
   { method: "GET", path: "/events" },
   { method: "GET", path: "/events/stream" },

@@ -10,6 +10,7 @@ import {
   handleGetSpecsAll,
   handleListSpecs,
   handleGetSpec,
+  handleGetSpecContent,
   handleApproveSpec,
   handleRejectSpec,
   handleReadSpec,
@@ -88,6 +89,22 @@ export function tryHandleSpecRoute(
   if (specStatusMatch && request.method === "GET") {
     return handleSpecStatus(specStatusMatch[1]!, specStatusMatch[2]!).then((r) => withCors(request, r)).catch((err) => {
       logger.error({ route: "/specs/:project/:name/status", method: "GET", err }, "route handler failed");
+      return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    });
+  }
+
+  // GET /specs/:project/:name/:file — raw markdown content (proposal/design/tasks).
+  // Matched AFTER the typed verbs above so `/approve`, `/reject`, `/read`,
+  // `/status` are not mis-classified as a content file.
+  // Spec: dashboard-ui-pass-v1 (task 1.2)
+  const specContentMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  if (specContentMatch && request.method === "GET") {
+    return handleGetSpecContent(
+      specContentMatch[1]!,
+      specContentMatch[2]!,
+      specContentMatch[3]!,
+    ).then((r) => withCors(request, r)).catch((err) => {
+      logger.error({ route: "/specs/:project/:name/:file", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
   }
