@@ -10,7 +10,7 @@
  * Retention: 30 days — pruned by `apps/agent/src/db/retention.ts`.
  */
 
-import { index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const scriptErrors = pgTable(
   "script_errors",
@@ -27,6 +27,19 @@ export const scriptErrors = pgTable(
     machine: text("machine"),
     /** Set by withErrorCapture when the script exits non-zero. */
     exitCode: integer("exit_code"),
+    /**
+     * OpenTelemetry trace id propagated from the originating span
+     * (agent-payload-completeness). Nullable for legacy rows captured
+     * before pino-db-transport was instrumented with OTel context.
+     */
+    traceId: text("trace_id"),
+    /**
+     * True when `stack` was truncated at ingest because it exceeded the
+     * agent's configured threshold (default 4KB). Lets the Swift dashboard
+     * surface a "stack truncated" affordance without re-deriving the
+     * threshold client-side.
+     */
+    stackTruncated: boolean("stack_truncated").notNull().default(false),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
