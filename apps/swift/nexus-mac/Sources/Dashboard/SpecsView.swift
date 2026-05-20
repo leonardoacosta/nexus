@@ -17,9 +17,13 @@ struct SpecsView: View {
             header
             if model.specs.isEmpty {
                 ContentUnavailableView(
-                    "No specs",
+                    "No specs yet",
                     systemImage: "doc.text",
-                    description: Text(model.isLoading ? "Loading…" : "No OpenSpec changes detected.")
+                    description: Text(
+                        model.isLoading
+                            ? "Loading…"
+                            : "Waiting for the homelab spec-watcher to scan openspec/changes…"
+                    )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

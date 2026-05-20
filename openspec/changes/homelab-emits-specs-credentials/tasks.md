@@ -18,9 +18,9 @@
 
 ## UI Batch
 
-- [ ] [2.1] Verify `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift` already calls `fetchSpecs()` on mount (it does per the 2026-05-20 grep — line 156). No change needed; pure verification [owner:ui-engineer] [type:test] [beads:nx-2qph5]
-- [ ] [2.2] Verify `apps/swift/nexus-mac/Sources/Dashboard/CredentialsView.swift` already calls `fetchCredentials()` on mount (it does — line 172). No change [owner:ui-engineer] [type:test] [beads:nx-wkmlv]
-- [ ] [2.3] [P-1] If the SpecsView empty state copy is too generic ("No specs found"), update to mention waiting for the homelab spec-watcher to scan. Minor copy polish [owner:ui-engineer] [type:feature] [beads:nx-6x1eu]
+- [x] [2.1] Verify `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift` already calls `fetchSpecs()` on mount (it does per the 2026-05-20 grep — line 156). No change needed; pure verification [owner:ui-engineer] [type:test] [beads:nx-2qph5]
+- [x] [2.2] Verify `apps/swift/nexus-mac/Sources/Dashboard/CredentialsView.swift` already calls `fetchCredentials()` on mount (it does — line 172). No change [owner:ui-engineer] [type:test] [beads:nx-wkmlv]
+- [x] [2.3] [P-1] If the SpecsView empty state copy is too generic ("No specs found"), update to mention waiting for the homelab spec-watcher to scan. Minor copy polish [owner:ui-engineer] [type:feature] [beads:nx-6x1eu]
 
 ## E2E Batch
 
