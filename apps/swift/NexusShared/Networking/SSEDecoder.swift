@@ -7,6 +7,9 @@
 // typed `SSEEvent`; per-event payload decoding lives in extensions below.
 
 import Foundation
+import OSLog
+
+private let sseLogger = Logger(subsystem: "dev.leonardoacosta.nexus.mac", category: "SSEDecoder")
 
 /// A decoded SSE frame from the agent's `/events/stream`.
 public struct SSEEvent: Equatable, Sendable {
@@ -41,16 +44,20 @@ public enum SSEDecoder {
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw NexusClientError.badStatus(http.statusCode)
         }
+        sseLogger.info("SSEDecoder: connected url=\(url.absoluteString, privacy: .public)")
 
         var currentEvent: String?
         var currentData = ""
         for try await line in bytes.lines {
+            sseLogger.debug("SSEDecoder: line len=\(line.count) prefix=\(String(line.prefix(40)), privacy: .public)")
             if line.isEmpty {
                 // Dispatch the frame on blank-line boundary.
                 if let name = currentEvent, !currentData.isEmpty {
                     await handler(SSEEvent(name: name, data: currentData))
+                    sseLogger.info("SSEDecoder: dispatched event=\(name, privacy: .public) data_len=\(currentData.count)")
                 } else if !currentData.isEmpty {
                     await handler(SSEEvent(name: "message", data: currentData))
+                    sseLogger.info("SSEDecoder: dispatched event=message data_len=\(currentData.count)")
                 }
                 currentEvent = nil
                 currentData = ""
