@@ -26,6 +26,16 @@ export interface RegisteredProject {
 }
 
 /**
+ * Variant of `RegisteredProject` that includes the sticky-exclude `hidden`
+ * flag (agent-payload-completeness). Used by `GET /projects` so the dashboard
+ * can surface every registry row — visible and hidden — and apply its own
+ * filter, rather than having the agent silently drop hidden rows.
+ */
+export interface RegisteredProjectWithHidden extends RegisteredProject {
+  hidden: boolean;
+}
+
+/**
  * List non-hidden, non-archived projects from the registry.
  *
  * Joins `projects` to `project_locations` and filters out:
@@ -61,6 +71,44 @@ export async function listRegisteredProjects(db: Db): Promise<RegisteredProject[
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
       "listRegisteredProjects query failed — returning empty",
+    );
+    return [];
+  }
+}
+
+/**
+ * List all non-archived projects from the registry, INCLUDING hidden rows.
+ *
+ * Same filter shape as `listRegisteredProjects` but without the `hidden=false`
+ * predicates — `GET /projects` (agent-payload-completeness) needs to surface
+ * the sticky-exclude flag to the Swift dashboard so the UI can filter rather
+ * than the server silently dropping rows. Returns `[]` on error.
+ */
+export async function listAllRegisteredProjects(
+  db: Db,
+): Promise<RegisteredProjectWithHidden[]> {
+  try {
+    const rows = await db
+      .select({
+        projectId: projects.id,
+        name: projects.name,
+        path: projectLocations.path,
+        agentId: projectLocations.agentId,
+        activeSessions: projectLocations.activeSessions,
+        totalSessions: projectLocations.totalSessions,
+        // Project-level hidden is the canonical sticky-exclude flag; the
+        // per-location hidden bit is a finer-grained UI affordance we don't
+        // surface in the aggregate row today.
+        hidden: projects.hidden,
+      })
+      .from(projectLocations)
+      .innerJoin(projects, eq(projectLocations.projectId, projects.id))
+      .where(eq(projectLocations.status, "active"));
+    return rows;
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "listAllRegisteredProjects query failed — returning empty",
     );
     return [];
   }

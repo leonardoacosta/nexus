@@ -4,7 +4,7 @@ import { createLogger } from "@nexus/core/node";
 import { projects as projectsTable, eq } from "@nexus/db";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
-import { listRegisteredProjects } from "../db/project-registry";
+import { listAllRegisteredProjects } from "../db/project-registry";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
 
 const log = createLogger("agent:routes:projects");
@@ -79,13 +79,15 @@ function bucketSessions(sessions: SessionRow[]): Map<string, SessionAgg> {
  */
 export function aggregateProjects(
   sessions: SessionRow[],
-  registered: { projectId: string; name: string }[],
+  registered: { projectId: string; name: string; hidden?: boolean }[],
 ): Project[] {
   const sessionBuckets = bucketSessions(sessions);
   const projects: Project[] = [];
   const consumedKeys = new Set<string>();
 
-  // 1. Registry-driven rows — named, hidden-filtered, zero-session-safe.
+  // 1. Registry-driven rows — named, zero-session-safe. `hidden` is surfaced
+  //    verbatim so the Swift dashboard can filter rather than rely on a
+  //    server-side drop (agent-payload-completeness).
   for (const reg of registered) {
     const agg = sessionBuckets.get(reg.projectId);
     if (agg) consumedKeys.add(reg.projectId);
@@ -95,11 +97,13 @@ export function aggregateProjects(
       active_sessions: agg?.active ?? 0,
       total_sessions: agg?.total ?? 0,
       machines: agg ? Array.from(agg.machines).sort() : [],
+      hidden: reg.hidden ?? false,
     });
   }
 
   // 2. Session-only buckets with no registry row (fallback — never regress).
   //    No registry id exists for these — emit `id: null` (never fabricate).
+  //    Synthetic buckets always emit `hidden: false` per spec.
   for (const [key, agg] of sessionBuckets) {
     if (consumedKeys.has(key)) continue;
     projects.push({
@@ -108,6 +112,7 @@ export function aggregateProjects(
       active_sessions: agg.active,
       total_sessions: agg.total,
       machines: Array.from(agg.machines).sort(),
+      hidden: false,
     });
   }
 
@@ -188,8 +193,11 @@ export async function handleGetProjects(db: Db, url?: URL): Promise<Response> {
   } else {
     // Use a broad window so we include recently ended sessions too
     const sessions = await queryRecentSessions(db, 24 * 30); // 30 days
-    // listRegisteredProjects already excludes hidden projects/locations.
-    const registered = await listRegisteredProjects(db);
+    // listAllRegisteredProjects INCLUDES hidden rows — surfacing `hidden`
+    // lets the Swift dashboard filter without round-tripping PATCH state
+    // (agent-payload-completeness). The legacy filter-on-server behaviour is
+    // gone; downstream consumers MUST honour the `hidden` field.
+    const registered = await listAllRegisteredProjects(db);
     projects = aggregateProjects(sessions, registered);
     projectsCache = { data: projects, expiry: now + PROJECTS_CACHE_TTL_MS };
     log.info(
