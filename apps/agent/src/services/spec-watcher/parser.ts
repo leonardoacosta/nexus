@@ -9,6 +9,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
+// Re-export filesystem-snapshot helpers (split into ./fs-snapshot to keep
+// this file under the 250-line module ceiling enforced by line-count.test.ts).
+export { parseSpecFromPath, parseTaskCounts } from "./fs-snapshot";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

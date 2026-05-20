@@ -70,9 +70,16 @@ export function startChangesFsWatchers(): () => void {
 // Re-exports (backward compat — consumer imports resolve unchanged)
 // ---------------------------------------------------------------------------
 
-export { parseSpecList } from "./parser";
+export { parseSpecList, parseSpecFromPath, parseTaskCounts } from "./parser";
 export type { SpecSnapshot } from "./parser";
-export { loadProjectRegistry, loadProjectRegistryFromDb, pollProjectSpecs } from "./poller";
+export {
+  loadProjectRegistry,
+  loadProjectRegistryFromDb,
+  pollProjectSpecs,
+  scanResolvedRoots,
+} from "./poller";
+export { loadConfig, resolveRoots } from "./config";
+export type { SpecWatcherConfig } from "./config";
 export { _getWatchDegradedForTest } from "./watcher";
 
 // ---------------------------------------------------------------------------

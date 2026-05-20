@@ -16,20 +16,19 @@
  *        the Mac dashboard shows "no specs found".
  *
  *   Fix landed in task 1.3: replace the subprocess call with a direct
- *   filesystem scan of `<root>/<project>/openspec/changes/*/` driven by
- *   `services/spec-watcher/config.ts` (task 1.2). The pure-fs path has no
- *   external dependency on the `openspec` CLI binary.
+ *   filesystem scan of `<root>/<project>/openspec/changes/<spec>/` driven
+ *   by `services/spec-watcher/config.ts` (task 1.2). The pure-fs path has
+ *   no external dependency on the `openspec` CLI binary.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
-import { execText } from "../../utils/exec";
 import * as configLoader from "../config-loader";
 import { listRegisteredProjects } from "../../db/project-registry";
-import { parseSpecList, type SpecSnapshot } from "./parser";
-import { SUBPROCESS_TIMEOUT_MS } from "./constants";
+import { parseSpecFromPath, type SpecSnapshot } from "./parser";
+import { resolveRoots } from "./config";
 
 const log = createLogger("agent:spec-watcher");
 
@@ -122,36 +121,103 @@ export async function loadProjectRegistryFromDb(db: Db): Promise<ProjectPath[]> 
 // ---------------------------------------------------------------------------
 
 /**
- * Run `openspec list --json` in a project directory and parse the output
- * into SpecSnapshot[]. Returns an empty array on any failure.
+ * Scan a project directory for active OpenSpec change proposals.
  *
- * Decorates each snapshot with `has_proposal`/`has_design`/`has_tasks`
- * booleans computed at scan time (agent-payload-completeness) — the parser
- * is a pure function and cannot touch the filesystem, so the decoration
- * happens here.
+ * Enumerates `<cwd>/openspec/changes/<spec>/` directly via readdirSync
+ * (no subprocess), filters out the `archive/` sibling and any non-directory
+ * entries, and projects each remaining child into a `SpecSnapshot` via
+ * `parseSpecFromPath`. The parser computes the has_proposal/has_design/
+ * has_tasks tri-state plus completedTasks/totalTasks from tasks.md.
+ *
+ * Returns `[]` on any error (missing openspec dir, readdir failure, etc.).
+ *
+ * Historical context: this used to shell out to `openspec list --json` via
+ * `execText`. The CLI isn't installed on every agent host (homelab does
+ * NOT have it), so every invocation collapsed to []. The pure-fs scan
+ * removes that external dependency. See file-header AUDIT block.
  */
 export async function pollProjectSpecs(cwd: string): Promise<SpecSnapshot[]> {
   const openspecDir = join(cwd, "openspec");
   if (!existsSync(openspecDir)) return [];
 
-  let snapshots: SpecSnapshot[];
+  const changesDir = join(openspecDir, "changes");
+  if (!existsSync(changesDir)) return [];
+
+  let entries: string[];
   try {
-    const stdout = await execText("openspec", ["list", "--json"], {
-      cwd,
-      timeout: SUBPROCESS_TIMEOUT_MS,
-    });
-    snapshots = parseSpecList(stdout);
+    entries = readdirSync(changesDir);
   } catch (err) {
-    log.debug({ cwd, error: err }, "openspec list --json failed");
+    log.debug({ cwd, error: err }, "readdir(openspec/changes) failed");
     return [];
   }
 
-  for (const snap of snapshots) {
-    const specDir = join(openspecDir, "changes", snap.name);
-    snap.has_proposal = existsSync(join(specDir, "proposal.md"));
-    snap.has_design = existsSync(join(specDir, "design.md"));
-    snap.has_tasks = existsSync(join(specDir, "tasks.md"));
+  const snapshots: SpecSnapshot[] = [];
+  for (const name of entries) {
+    // Skip the archive sibling and any hidden entries.
+    if (name === "archive" || name.startsWith(".")) continue;
+
+    const specDir = join(changesDir, name);
+    try {
+      const st = statSync(specDir);
+      if (!st.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    const snap = parseSpecFromPath(specDir, name);
+    if (snap) snapshots.push(snap);
   }
 
   return snapshots;
+}
+
+/**
+ * Scan every resolved workspace root for projects with an
+ * `openspec/changes/` directory.
+ *
+ * For each `<root>/<project>/openspec/changes/<spec>/`, emits one
+ * SpecSnapshot decorated with `project` (the project directory name).
+ * This is the canonical surface for the `/specs` route — the configured
+ * roots replace the per-project subprocess fan-out that depended on the
+ * external `openspec` CLI.
+ */
+export async function scanResolvedRoots(): Promise<
+  Array<SpecSnapshot & { project: string; projectCwd: string }>
+> {
+  const roots = resolveRoots();
+  if (roots.length === 0) {
+    log.debug("scanResolvedRoots: no roots resolved");
+    return [];
+  }
+
+  const out: Array<SpecSnapshot & { project: string; projectCwd: string }> = [];
+
+  for (const root of roots) {
+    let children: string[];
+    try {
+      children = readdirSync(root);
+    } catch (err) {
+      log.debug({ root, error: err }, "scanResolvedRoots: readdir(root) failed");
+      continue;
+    }
+
+    for (const child of children) {
+      if (child.startsWith(".")) continue;
+      const projectCwd = join(root, child);
+      try {
+        const st = statSync(projectCwd);
+        if (!st.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      if (!existsSync(join(projectCwd, "openspec", "changes"))) continue;
+
+      const specs = await pollProjectSpecs(projectCwd);
+      for (const s of specs) {
+        out.push({ ...s, project: child, projectCwd });
+      }
+    }
+  }
+
+  return out;
 }
