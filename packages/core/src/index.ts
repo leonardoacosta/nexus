@@ -24,6 +24,9 @@ export type {
 export type {
   Credential,
   CredentialStatus,
+  CredentialWireStatus,
+  CredentialEntry,
+  CredentialReadResponse,
 } from "./types/credential";
 export type {
   Account,
