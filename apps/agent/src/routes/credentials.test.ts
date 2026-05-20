@@ -483,7 +483,7 @@ describe("readCredentials — filesystem reader (task 1.10)", () => {
       expect(activeRows.length).toBe(1);
       // The fingerprint of the active row must equal the envelope's
       // activeFingerprint.
-      expect(activeRows[0]?.fingerprint).toBe(result.activeFingerprint);
+      expect(activeRows[0]?.fingerprint).toBe(result.activeFingerprint!);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
