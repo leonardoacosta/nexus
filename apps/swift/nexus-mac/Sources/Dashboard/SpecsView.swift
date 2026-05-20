@@ -11,8 +11,37 @@ import NexusShared
 
 struct SpecsView: View {
     @StateObject private var model = SpecsViewModel()
+    // dashboard-ui-pass-v1 (task 2.3): selection bridges the list pane to
+    // SpecDetailView. Persisted in @State so tab/window resize doesn't drop
+    // the active spec.
+    @State private var selectedSpec: SpecSummary?
 
     var body: some View {
+        HSplitView {
+            leftPane
+                .frame(minWidth: 280, idealWidth: 360)
+            SpecDetailView(spec: selectedSpec)
+                .frame(minWidth: 320, idealWidth: 520)
+        }
+        .task {
+            await model.load()
+            await model.subscribe()
+        }
+        .onDisappear {
+            model.cancel()
+        }
+        // Keep selection in sync with the live spec list: if the selected
+        // spec's row is refreshed (status/progress changed), pick up the
+        // updated SpecSummary so the detail header reflects current state.
+        .onChange(of: model.specs) { _, newSpecs in
+            if let current = selectedSpec,
+               let refreshed = newSpecs.first(where: { $0.id == current.id }) {
+                selectedSpec = refreshed
+            }
+        }
+    }
+
+    private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             if model.specs.isEmpty {
@@ -31,13 +60,6 @@ struct SpecsView: View {
             }
         }
         .padding(.vertical, 8)
-        .task {
-            await model.load()
-            await model.subscribe()
-        }
-        .onDisappear {
-            model.cancel()
-        }
     }
 
     private var header: some View {
@@ -69,7 +91,14 @@ struct SpecsView: View {
                 ForEach(model.grouped, id: \.project) { group in
                     Section {
                         ForEach(group.specs) { spec in
-                            SpecRow(spec: spec)
+                            SpecRow(
+                                spec: spec,
+                                isSelected: selectedSpec?.id == spec.id
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedSpec = spec
+                            }
                         }
                     } header: {
                         Text(group.project)
@@ -89,6 +118,7 @@ struct SpecsView: View {
 
 private struct SpecRow: View {
     let spec: SpecSummary
+    var isSelected: Bool = false
 
     var body: some View {
         HStack(alignment: .top) {
@@ -112,6 +142,11 @@ private struct SpecRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
+        .background(
+            isSelected
+                ? AnyShapeStyle(Color.accentColor.opacity(0.18))
+                : AnyShapeStyle(Color.clear)
+        )
     }
 
     private var statusBadge: some View {
