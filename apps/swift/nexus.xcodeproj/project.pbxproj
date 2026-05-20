@@ -83,6 +83,7 @@
 		B91D8D018154470FE334AF06 /* Notification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C8B46EABE340ECDF07493C /* Notification.swift */; };
 		BAAAE289AABAE5624D037BDE /* AgentNotificationIntegrationTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */; };
 		BC8C1A1198CB98D090FB5493 /* NexusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62182CA602E791DB6BDBE3EB /* NexusPanel.swift */; };
+		BD10EE040BEE7CD968E5D12F /* SystemSpeechSynthesizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06710683263B71F5965F745C /* SystemSpeechSynthesizerTests.swift */; };
 		BDE7D0FBD98D061FB22F3919 /* NexusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E53AD8EA6F5A9C4F0025ECD /* NexusClient.swift */; };
 		BEAF5B94C31DBA512408DAA5 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = BD684782E301B381CB87943C /* SwiftTerm */; };
 		C2CF24DAC38AE12072B534BF /* IntegrationGateUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */; };
@@ -90,6 +91,7 @@
 		C6CE1B60ED5791BB565E1F7D /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */; };
 		C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */; };
 		D1B25E27984FCD6A9442A0C2 /* HealthSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */; };
+		D28A73352A6BDEF5D7E617FC /* MarkdownRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570A08307B8A0D0713D9E014 /* MarkdownRenderingTests.swift */; };
 		D340D2B69EB091A00E62BCD1 /* NotificationActionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED50A4C95555C16FF3CC37F /* NotificationActionRegistry.swift */; };
 		D47B8DD11C85D8797FD4A8C2 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B0CFFE5094C6A1D743886C /* HealthView.swift */; };
 		D4F630B0DDB1738EC54687C1 /* AttachButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F70D84BB75E0E9CE5C68D89 /* AttachButton.swift */; };
@@ -100,6 +102,7 @@
 		DA9A124444C0790484593933 /* PanelSummonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */; };
 		DB29584B3E3C2EA47F562D39 /* nexusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */; };
 		DD5649BB1E98A992271F43AC /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DDA7BCBA04790129C650C84B /* SpecDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3AF8C2C6E2BB9ADB4D3FB4 /* SpecDetailView.swift */; };
 		DF922F4E4A0C773843B6AFA0 /* SendTextDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B696D33BC6C44412228D7C /* SendTextDispatcher.swift */; };
 		E6BDF54CB91D8971AE88B65B /* CcProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0491406946C9544A414272 /* CcProfile.swift */; };
 		EDDB858FEB42BE8AFE46F4BA /* SpecSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */; };
@@ -230,6 +233,7 @@
 		01EB083041F4DC22A305EF1E /* IntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsView.swift; sourceTree = "<group>"; };
 		031637B7BA75BA58C2D9E167 /* SSEEventParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEEventParsingTests.swift; sourceTree = "<group>"; };
 		061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecSummary.swift; sourceTree = "<group>"; };
+		06710683263B71F5965F745C /* SystemSpeechSynthesizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSpeechSynthesizerTests.swift; sourceTree = "<group>"; };
 		0674A881886D6D227D1A2ECB /* SSEDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEDecoder.swift; sourceTree = "<group>"; };
 		082EF1BB13B1AEFFA39B5E1A /* SshTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshTerminalSession.swift; sourceTree = "<group>"; };
 		091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusAppDelegate.swift; sourceTree = "<group>"; };
@@ -271,6 +275,7 @@
 		53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSummonTests.swift; sourceTree = "<group>"; };
 		5592F30E8101D234FB6B4159 /* RootScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootScene.swift; sourceTree = "<group>"; };
 		561095874ED05EE3F7DBEE0E /* PtyViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtyViewer.swift; sourceTree = "<group>"; };
+		570A08307B8A0D0713D9E014 /* MarkdownRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderingTests.swift; sourceTree = "<group>"; };
 		593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyLauncherTests.swift; sourceTree = "<group>"; };
 		62182CA602E791DB6BDBE3EB /* NexusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusPanel.swift; sourceTree = "<group>"; };
 		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
@@ -291,6 +296,7 @@
 		9684BD3B2D5D0F2F2D11F9EF /* SessionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRow.swift; sourceTree = "<group>"; };
 		9932003F0D7F48309F41C215 /* nexus-mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9D24CEE54AC03D22CFBB47C8 /* ElevenLabsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsSettingsView.swift; sourceTree = "<group>"; };
+		9E3AF8C2C6E2BB9ADB4D3FB4 /* SpecDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecDetailView.swift; sourceTree = "<group>"; };
 		9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusUITests.swift; sourceTree = "<group>"; };
 		A04AFE6B178D2BA94B85748B /* Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Network.swift; sourceTree = "<group>"; };
 		AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NexusShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -439,6 +445,7 @@
 				561095874ED05EE3F7DBEE0E /* PtyViewer.swift */,
 				C58206A090C96AC1CD08BC7D /* SessionsView.swift */,
 				D3B39F7E98289F86C25ADFFC /* SettingsView.swift */,
+				9E3AF8C2C6E2BB9ADB4D3FB4 /* SpecDetailView.swift */,
 				1EA2250911C4813370B4DC79 /* SpecsView.swift */,
 			);
 			path = Dashboard;
@@ -497,9 +504,11 @@
 			isa = PBXGroup;
 			children = (
 				910FFCDAA0AD2FCA24472FAC /* AggregateStateTests.swift */,
+				570A08307B8A0D0713D9E014 /* MarkdownRenderingTests.swift */,
 				B3E127C0C98FB3DCF20776D6 /* PayloadDecodeTests.swift */,
 				485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */,
 				1A9AF8C66BD065438059BCF0 /* SettingsStoreTests.swift */,
+				06710683263B71F5965F745C /* SystemSpeechSynthesizerTests.swift */,
 			);
 			path = NexusSharedTests;
 			sourceTree = "<group>";
@@ -968,6 +977,7 @@
 				F642384DE730B82BA0405638 /* SettingsView.swift in Sources */,
 				1D7C23E1CE0DA82514C8D4A4 /* Sparkline.swift in Sources */,
 				92078DA331418A0E6A9A0DB8 /* SpawnHomelabSession.swift in Sources */,
+				DDA7BCBA04790129C650C84B /* SpecDetailView.swift in Sources */,
 				9FE3932290A918E3C331297C /* SpecsView.swift in Sources */,
 				7F5531DED1E2B21A91B56EFF /* StatusIcon.swift in Sources */,
 				F33E8FB65180C3CB9127BDBB /* Theme.swift in Sources */,
@@ -982,9 +992,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				49EA3D1F02E4BA847C026CB2 /* AggregateStateTests.swift in Sources */,
+				D28A73352A6BDEF5D7E617FC /* MarkdownRenderingTests.swift in Sources */,
 				53F7C977ABD51172A4F4D278 /* PayloadDecodeTests.swift in Sources */,
 				0572D733D77B83BFDBB9E450 /* SessionDecodingTests.swift in Sources */,
 				5C7487DDB6C2CFBCBC57AD08 /* SettingsStoreTests.swift in Sources */,
+				BD10EE040BEE7CD968E5D12F /* SystemSpeechSynthesizerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
