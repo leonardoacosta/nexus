@@ -270,13 +270,14 @@ public actor NexusClient {
         }
     }
 
-    /// Consume `GET /notifications/stream` (or fallback to `/events/stream`
-    /// filtered to `NotificationFired`). Invokes `handler` per decoded
-    /// NotificationEvent.
+    /// Consume `GET /events/stream` and filter for `NotificationFired`
+    /// frames client-side via `decodeNotification()`. Invokes `handler`
+    /// per decoded NotificationEvent. (The agent does not expose a
+    /// dedicated `/notifications/stream` endpoint.)
     public func consumeNotifications(
         handler: @Sendable @escaping (NotificationEvent) async -> Void
     ) async throws {
-        let url = endpoint.baseURL.appendingPathComponent("notifications/stream")
+        let url = endpoint.baseURL.appendingPathComponent("events/stream")
         try await SSEDecoder.consume(
             url: url,
             session: streamingSession
