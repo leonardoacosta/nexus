@@ -72,7 +72,11 @@ public final class TTSObserver: ObservableObject {
         client: NexusAggregateClient,
         keychain: KeychainStore = LiveKeychainStore(),
         audioPlayer: MP3PlayerProtocol? = nil,
-        systemSpeech: SystemSpeechSynthesizer? = nil,
+        // dashboard-ui-pass-v1 (task 2.6): SystemSpeechSynthesizer is now
+        // an `actor`. Actor types initialize freely from any isolation
+        // context, so the optional-defaulted-nil dance is no longer
+        // necessary — non-optional default works directly.
+        systemSpeech: SystemSpeechSynthesizer = SystemSpeechSynthesizer(),
         elevenLabs: ElevenLabsClient = ElevenLabsClient(),
         settings: SettingsStore = .shared,
         notificationCenter: UNUserNotificationCenter = .current()
@@ -80,13 +84,7 @@ public final class TTSObserver: ObservableObject {
         self.client = client
         self.keychain = keychain
         self.audioPlayer = audioPlayer
-        // `SystemSpeechSynthesizer.init` is @MainActor; the enclosing init
-        // is @MainActor too so it's safe to build a default here. The
-        // optional parameter form keeps the call site terse while
-        // sidestepping Swift 5.10's "main-actor default in nonisolated
-        // context" diagnostic when this initializer is referenced from a
-        // type-only context (e.g. type checker).
-        self.systemSpeech = systemSpeech ?? SystemSpeechSynthesizer()
+        self.systemSpeech = systemSpeech
         self.elevenLabs = elevenLabs
         self.settings = settings
         self.notificationCenter = notificationCenter
@@ -193,7 +191,7 @@ public final class TTSObserver: ObservableObject {
             Self.logger.info(
                 "TTSObserver: synth start (system-speech) — elevenlabs creds absent"
             )
-            speakSystem(body: body)
+            await speakSystem(body: body)
             return
         }
 
@@ -208,7 +206,7 @@ public final class TTSObserver: ObservableObject {
                 Self.logger.error(
                     "TTSObserver: elevenlabs returned undersized payload bytes=\(data.count, privacy: .public) — falling back"
                 )
-                speakSystem(body: body)
+                await speakSystem(body: body)
                 return
             }
             Self.logger.info(
@@ -219,7 +217,7 @@ public final class TTSObserver: ObservableObject {
             Self.logger.error(
                 "TTSObserver: elevenlabs failed (\(String(describing: error), privacy: .public)) — falling back to AVSpeechSynthesizer"
             )
-            speakSystem(body: body)
+            await speakSystem(body: body)
         }
     }
 
@@ -244,9 +242,9 @@ public final class TTSObserver: ObservableObject {
         }
     }
 
-    private func speakSystem(body: String) {
+    private func speakSystem(body: String) async {
         Self.logger.info("TTSObserver: fallback to AVSpeechSynthesizer")
-        systemSpeech.speak(body)
+        await systemSpeech.speak(body)
     }
 
     /// Ducking lives in UserDefaults under the key SettingsView writes
