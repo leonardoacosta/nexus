@@ -8,9 +8,19 @@ export type {
   NotificationChannel,
   NotificationPriority,
   NotificationStatus,
+  NotificationSeverity,
+  NotificationDeliveryState,
+  NotificationEvent,
   MeetingBehavior,
   NotificationRule,
 } from "./types/notification";
+export type { SpecSummary } from "./types/spec";
+export type {
+  FailuresResponse,
+  FailureTopError,
+  FailureTrend,
+  FailureTrendDirection,
+} from "./types/failure";
 export type {
   Credential,
   CredentialStatus,
