@@ -19,11 +19,15 @@ struct NotificationsView: View {
     @StateObject private var model = NotificationsViewModel()
 
     var body: some View {
-        HSplitView {
+        // dashboard-ui-pass-v1 (task 2.4): replaced HSplitView with a
+        // VStack so the history body gets the full window width. Settings
+        // collapsed into a compact bottom toolbar — daily-use controls
+        // remain one click away without consuming horizontal real-estate.
+        VStack(spacing: 0) {
             historyPane
-                .frame(minWidth: 320, idealWidth: 420)
-            settingsPane
-                .frame(minWidth: 260, idealWidth: 320)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            settingsToolbar
         }
         .task {
             await model.start()
@@ -75,43 +79,89 @@ struct NotificationsView: View {
         .padding(.vertical, 8)
     }
 
-    private var settingsPane: some View {
-        Form {
-            Section("Mode") {
-                Toggle("Meeting mode (suppress all)", isOn: $model.meetingMode)
-                    .onChange(of: model.meetingMode) { _, _ in model.persist() }
-                Toggle("Signal-only (no TTS body)", isOn: $model.signalOnly)
-                    .onChange(of: model.signalOnly) { _, _ in model.persist() }
+    /// Compact bottom toolbar — replaces the previous right-hand settings
+    /// pane. Mode picker (Mix / Meet), Signal-only toggle, Suppression
+    /// stepper, Ducking menu. Stays bound to the same NotificationsModel
+    /// so SettingsView and the agent stay in sync via the existing
+    /// `model.persist()` flow.
+    private var settingsToolbar: some View {
+        HStack(spacing: 14) {
+            // Mode picker — Mix is the default ("normal"); Meet is meeting-mode.
+            Picker("Mode", selection: $model.meetingMode) {
+                Text("Mix").tag(false)
+                Text("Meet").tag(true)
             }
-            Section("Suppression") {
-                HStack {
-                    Text("Window")
-                    Spacer()
-                    Stepper("\(model.suppressionMinutes)m",
-                            value: $model.suppressionMinutes,
-                            in: 0...60,
-                            step: 1)
-                        .onChange(of: model.suppressionMinutes) { _, _ in model.persist() }
-                }
-                Text("Notifications within \(model.suppressionMinutes) minute(s) of the previous are coalesced.")
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 110)
+            .onChange(of: model.meetingMode) { _, _ in model.persist() }
+            .help("Meeting mode suppresses all TTS delivery")
+
+            Toggle(isOn: $model.signalOnly) {
+                Image(systemName: "waveform.path.ecg")
+                Text("Signal only")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            Section("Audio") {
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .onChange(of: model.signalOnly) { _, _ in model.persist() }
+            .help("Drop TTS body; banner only")
+
+            HStack(spacing: 4) {
+                Image(systemName: "clock")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Stepper(value: $model.suppressionMinutes, in: 0...60, step: 1) {
+                    Text("\(model.suppressionMinutes)m")
+                        .font(.caption.monospacedDigit())
+                        .frame(minWidth: 24)
+                }
+                .controlSize(.small)
+                .labelsHidden()
+                .onChange(of: model.suppressionMinutes) { _, _ in model.persist() }
+            }
+            .help("Coalesce notifications within this minute window")
+
+            Menu {
                 Picker("Ducking", selection: $model.ducking) {
                     Text("Mix").tag(DuckingMode.mix)
                     Text("Duck").tag(DuckingMode.duck)
                     Text("Pause others").tag(DuckingMode.pause)
                 }
-                .onChange(of: model.ducking) { _, _ in model.persist() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "speaker.wave.2")
+                        .font(.caption2)
+                    Text(duckingLabel(model.ducking))
+                        .font(.caption)
+                }
             }
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
+            .fixedSize()
+            .onChange(of: model.ducking) { _, _ in model.persist() }
+            .help("How audio interacts with other system audio")
+
+            Spacer()
+
             if let status = model.persistStatus {
                 Text(status)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.green)
+                    .transition(.opacity)
             }
         }
-        .padding()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+    }
+
+    private func duckingLabel(_ mode: DuckingMode) -> String {
+        switch mode {
+        case .mix:   return "Mix"
+        case .duck:  return "Duck"
+        case .pause: return "Pause"
+        }
     }
 }
 
