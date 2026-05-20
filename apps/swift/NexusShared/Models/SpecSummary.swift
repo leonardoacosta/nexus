@@ -18,6 +18,15 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
     public var totalTasks: Int
     public var lastModified: Date?
 
+    /// Filesystem-presence tri-state for the spec's three canonical markdown
+    /// artifacts. Spec-watcher computes these at scan time from the spec
+    /// directory contents. Spec: agent-payload-completeness § Spec Watcher
+    /// Emits Marker Tri-State. Non-optional in the model; older agents that
+    /// omit the keys decode as `false` via `decodeIfPresent`.
+    public var hasProposal: Bool
+    public var hasDesign: Bool
+    public var hasTasks: Bool
+
     public var id: String { "\(project)/\(name)" }
 
     public var progress: Double {
@@ -31,6 +40,9 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         case completedTasks
         case totalTasks
         case lastModified
+        case hasProposal = "has_proposal"
+        case hasDesign   = "has_design"
+        case hasTasks    = "has_tasks"
     }
 
     public init(
@@ -39,7 +51,10 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         status: String,
         completedTasks: Int,
         totalTasks: Int,
-        lastModified: Date? = nil
+        lastModified: Date? = nil,
+        hasProposal: Bool = false,
+        hasDesign: Bool = false,
+        hasTasks: Bool = false
     ) {
         self.name = name
         self.project = project
@@ -47,6 +62,9 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.completedTasks = completedTasks
         self.totalTasks = totalTasks
         self.lastModified = lastModified
+        self.hasProposal = hasProposal
+        self.hasDesign = hasDesign
+        self.hasTasks = hasTasks
     }
 
     public init(from decoder: Decoder) throws {
@@ -56,6 +74,11 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.status         = try c.decode(String.self, forKey: .status)
         self.completedTasks = try c.decodeIfPresent(Int.self, forKey: .completedTasks) ?? 0
         self.totalTasks     = try c.decodeIfPresent(Int.self, forKey: .totalTasks) ?? 0
+        // Backward-tolerant: older agents omit the marker tri-state. Default
+        // each to false; current-gen agents always emit booleans.
+        self.hasProposal    = try c.decodeIfPresent(Bool.self, forKey: .hasProposal) ?? false
+        self.hasDesign      = try c.decodeIfPresent(Bool.self, forKey: .hasDesign) ?? false
+        self.hasTasks       = try c.decodeIfPresent(Bool.self, forKey: .hasTasks) ?? false
         if let s = try c.decodeIfPresent(String.self, forKey: .lastModified) {
             let f1 = ISO8601DateFormatter()
             f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

@@ -18,7 +18,7 @@
 ## UI Batch
 
 - [x] [2.1] Update `apps/swift/NexusShared/Models/ProjectAggregate.swift` to add `hidden: Bool` as non-optional with `decodeIfPresent ?? false` for backward tolerance [owner:ui-engineer] [type:types] [beads:nx-ctm3d]
-- [ ] [2.2] [P-1] Update `apps/swift/NexusShared/Models/SpecSummary.swift` with `hasProposal: Bool`, `hasDesign: Bool`, `hasTasks: Bool` (non-optional, snake_case CodingKeys) [owner:ui-engineer] [type:types] [beads:nx-8xe5c]
+- [x] [2.2] [P-1] Update `apps/swift/NexusShared/Models/SpecSummary.swift` with `hasProposal: Bool`, `hasDesign: Bool`, `hasTasks: Bool` (non-optional, snake_case CodingKeys) [owner:ui-engineer] [type:types] [beads:nx-8xe5c]
 - [ ] [2.3] [P-1] Update `apps/swift/NexusShared/Models/Notification.swift` `NotificationEvent` with `severity: NotificationSeverity` enum + `deliveryState: DeliveryState` enum (both non-optional) [owner:ui-engineer] [type:types] [beads:nx-iej4d]
 - [ ] [2.4] [P-1] Update `apps/swift/NexusShared/Models/ScriptError.swift` with `traceID: String?` + `stackTruncated: Bool` (default false) [owner:ui-engineer] [type:types] [beads:nx-i9ras]
 - [ ] [2.5] Rewrite `apps/swift/NexusSharedTests/PayloadDecodeTests.swift` as v2 — replace `decodeIfPresent` patterns with non-optional Codable assertions for the four newly-required field groups [owner:ui-engineer] [type:test] [beads:nx-m6o6a]
