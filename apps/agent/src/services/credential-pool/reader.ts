@@ -89,6 +89,7 @@
  * ───────────────────────────────────────────────────────────────────────────
  */
 
+import { createHash } from "node:crypto";
 import {
   existsSync,
   readdirSync,
@@ -103,6 +104,8 @@ import {
   computeCredentialFingerprint,
   CredentialParseError,
 } from "../../credentials/credentials.helpers";
+import { count24h } from "./rate-limit-tracker";
+import { lastSwapAt as swapTrackerLastSwapAt } from "./swap-tracker";
 
 const log = createLogger("agent:credential-pool:reader");
 
@@ -113,18 +116,88 @@ const log = createLogger("agent:credential-pool:reader");
 /** Status of a credential row in the `/credentials` wire shape. */
 export type CredentialStatus = "active" | "available" | "expired";
 
-/** One row in the `/credentials` wire `credentials` array. */
+/**
+ * One row in the `/credentials` wire `credentials` array.
+ *
+ * Matches the Swift `CcProfile` Codable struct in
+ * `apps/swift/NexusShared/Models/CcProfile.swift`. Field-by-field rationale
+ * lives in the file-header comment block (key set discovery).
+ *
+ * Legacy fields retained for backward compat with existing TS consumers:
+ *   - `account`     (deprecated alias of `name`; kept until call sites migrate)
+ *   - `created_at`  (file mtime; not consumed by the dashboard)
+ */
 export interface CredentialEntry {
+  /** Stable UUID derived from fingerprint. Required by Swift CcProfile. */
+  id: string;
+  /** Human-readable label: email if available, else short fp prefix. */
+  name: string;
+  /** SHA-256 of claudeAiOauth.refreshToken — stable identity. */
   fingerprint: string;
-  account: string | null;
-  created_at: string;
+  /** CC subscription tier (free|pro|team|max). Null when absent. */
+  subscriptionType: string | null;
+  /** CC rate-limit tier label, e.g. "default_claude_max_20x". */
+  rateLimitTier: string | null;
+  /** OAuth account email (CC doesn't expose this on disk today → null). */
+  accountEmail: string | null;
+  /** OAuth account display name (not exposed by CC today → null). */
+  accountName: string | null;
+  /** Org name when surfaced (not exposed by CC today → null). */
+  orgName: string | null;
+  /** "active" | "available" | "expired". */
   status: CredentialStatus;
+  /** ISO-8601 string of OAuth token expiry, or null. */
+  expiresAt: string | null;
+  /** Count of 429 responses observed for this fingerprint in trailing 24h. */
+  rateLimit429Count: number;
+  /** ISO-8601 string of last swap event involving this fingerprint, or null. */
+  lastSwapAt: string | null;
+  /** True iff this row's fingerprint matches the envelope's activeFingerprint. */
+  isActive: boolean;
+
+  // ── Legacy/back-compat fields ──────────────────────────────────────────
+  /** @deprecated Alias of `name`. Retained for pre-enrichment consumers. */
+  account: string | null;
+  /** File mtime as ISO-8601. Not consumed by Swift; kept for ops/debug. */
+  created_at: string;
 }
 
 /** Top-level `/credentials` response envelope. */
 export interface CredentialReadResult {
   credentials: CredentialEntry[];
   activeFingerprint: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Identity derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a stable, UUID-shaped id from a credential fingerprint.
+ *
+ * The fingerprint is already a SHA-256 hex (64 chars). We re-hash via SHA-1
+ * and slice 32 hex chars, then format as 8-4-4-4-12 so the value parses as
+ * a UUID for clients that want one. Pure function of the fingerprint, so
+ * the same credential always yields the same id across reads + restarts.
+ */
+function deriveStableId(fingerprint: string): string {
+  const hex = createHash("sha1").update(fingerprint).digest("hex").slice(0, 32);
+  return (
+    hex.slice(0, 8) +
+    "-" +
+    hex.slice(8, 12) +
+    "-" +
+    hex.slice(12, 16) +
+    "-" +
+    hex.slice(16, 20) +
+    "-" +
+    hex.slice(20, 32)
+  );
+}
+
+/** Derive a short, human-readable name when no email is available. */
+function shortFingerprintName(fingerprint: string): string {
+  return `cred-${fingerprint.slice(0, 8)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +238,80 @@ function extractAccountLabel(plaintext: string): string | null {
     return null;
   } catch {
     return null;
+  }
+}
+
+/** Pulled from the OAuth blob — null when the file omits the key. */
+interface EnrichedMetadata {
+  subscriptionType: string | null;
+  rateLimitTier: string | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  orgName: string | null;
+  expiresAtIso: string | null;
+}
+
+/**
+ * Best-effort enriched-metadata extraction. Returns all-null on parse failure
+ * — the fingerprint step already validated the JSON structure, so this is
+ * purely projection.
+ */
+function extractEnrichedMetadata(plaintext: string): EnrichedMetadata {
+  const empty: EnrichedMetadata = {
+    subscriptionType: null,
+    rateLimitTier: null,
+    accountEmail: null,
+    accountName: null,
+    orgName: null,
+    expiresAtIso: null,
+  };
+  try {
+    const parsed = JSON.parse(plaintext);
+    const oauth = parsed?.claudeAiOauth;
+    if (typeof oauth !== "object" || oauth === null) return empty;
+
+    const subscriptionType =
+      typeof oauth.subscriptionType === "string" ? oauth.subscriptionType : null;
+    const rateLimitTier =
+      typeof oauth.rateLimitTier === "string" ? oauth.rateLimitTier : null;
+    const accountEmail =
+      typeof oauth.email === "string" && oauth.email.length > 0
+        ? oauth.email
+        : null;
+    const accountName =
+      typeof oauth.accountName === "string" && oauth.accountName.length > 0
+        ? oauth.accountName
+        : null;
+    const orgName =
+      typeof oauth.orgName === "string" && oauth.orgName.length > 0
+        ? oauth.orgName
+        : null;
+
+    let expiresAtIso: string | null = null;
+    const expiresAt = oauth.expiresAt;
+    if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
+      try {
+        expiresAtIso = new Date(expiresAt).toISOString();
+      } catch {
+        expiresAtIso = null;
+      }
+    } else if (typeof expiresAt === "string") {
+      const ms = Date.parse(expiresAt);
+      if (!Number.isNaN(ms)) {
+        expiresAtIso = new Date(ms).toISOString();
+      }
+    }
+
+    return {
+      subscriptionType,
+      rateLimitTier,
+      accountEmail,
+      accountName,
+      orgName,
+      expiresAtIso,
+    };
+  } catch {
+    return empty;
   }
 }
 
@@ -312,11 +459,34 @@ export async function readCredentials(
       throw err;
     }
 
+    const enriched = extractEnrichedMetadata(plaintext);
+    const accountLabel =
+      extractAccountLabel(plaintext) ?? basename(filename, ".json");
+    const name =
+      enriched.accountEmail ??
+      enriched.accountName ??
+      accountLabel ??
+      shortFingerprintName(fingerprint);
+    const lastSwap = swapTrackerLastSwapAt(fingerprint);
+
     rows.push({
+      id: deriveStableId(fingerprint),
+      name,
       fingerprint,
-      account: extractAccountLabel(plaintext) ?? basename(filename, ".json"),
-      created_at: mtime.toISOString(),
+      subscriptionType: enriched.subscriptionType,
+      rateLimitTier: enriched.rateLimitTier,
+      accountEmail: enriched.accountEmail,
+      accountName: enriched.accountName,
+      orgName: enriched.orgName,
       status: isExpired(plaintext) ? "expired" : "available",
+      expiresAt: enriched.expiresAtIso,
+      rateLimit429Count: count24h(fingerprint),
+      lastSwapAt: lastSwap ? lastSwap.toISOString() : null,
+      // isActive is populated after activeFingerprint resolves below.
+      isActive: false,
+      // Legacy fields kept for back-compat.
+      account: accountLabel,
+      created_at: mtime.toISOString(),
     });
   }
 
@@ -328,6 +498,7 @@ export async function readCredentials(
     for (const row of rows) {
       if (row.fingerprint === activeFingerprint && row.status !== "expired") {
         row.status = "active";
+        row.isActive = true;
       }
     }
   }
