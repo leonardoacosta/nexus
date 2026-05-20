@@ -28,5 +28,5 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Smoke push: revert one of the new required field emissions (e.g., drop `hidden` from /projects), confirm the pre-push gate Tier A xcodebuild step blocks with the specific Codable key visible in the failure tail. Revert the smoke regression before completing [owner:devops-engineer] [type:test] [beads:nx-41nxv]
+- [x] [3.1] Smoke push: revert one of the new required field emissions (e.g., drop `hidden` from /projects), confirm the pre-push gate Tier A xcodebuild step blocks with the specific Codable key visible in the failure tail. Revert the smoke regression before completing [owner:devops-engineer] [type:test] [beads:nx-41nxv]
 - [ ] [3.2] Update `openspec/specs/test-infrastructure/spec.md` post-archive with the new gate-enforced field guarantees [handled by Phase 4 archive] [owner:devops-engineer] [type:docs] [beads:nx-njlkz]
