@@ -5,6 +5,48 @@
  * the wire shape consumed by the Mac dashboard's `/credentials` view.
  *
  * ───────────────────────────────────────────────────────────────────────────
+ * KEY SET (credentials-rich-emission task 1.1, 2026-05-20):
+ *
+ * Inspected ~/.claude/.credentials.json on Mac (not present — CC not logged
+ * in here) and homelab (nyaptor@100.73.182.4). Homelab pool entries under
+ * ~/.config/nexus/credentials/acct-*.json (18 files) ALL share this shape:
+ *
+ *   {
+ *     "claudeAiOauth": {
+ *       "accessToken":     "sk-ant-oat01-...",
+ *       "refreshToken":    "sk-ant-ort01-...",    // <- fingerprint source
+ *       "expiresAt":       1775306344008,          // epoch ms (number)
+ *       "scopes":          ["user:file_upload", "user:inference", ...],
+ *       "subscriptionType":"max",                  // free|pro|team|max
+ *       "rateLimitTier":   "default_claude_max_20x"
+ *     },
+ *     "mcpOAuth": { "<provider>|<id>": { "serverName": "...", ... } }
+ *   }
+ *
+ * Notable ABSENCES (the spec's proposal.md speculated these keys exist;
+ * the actual CC file on a real host does NOT include them):
+ *   - `accountUuid`     — NOT in the on-disk OAuth blob
+ *   - `email`           — NOT in the on-disk OAuth blob
+ *   - `displayName`     — NOT in the on-disk OAuth blob
+ *   - `accountName`     — NOT in the on-disk OAuth blob
+ *   - `orgName`         — NOT in the on-disk OAuth blob
+ *
+ * Mapping to Swift CcProfile (apps/swift/NexusShared/Models/CcProfile.swift):
+ *   id                  := sha1(fingerprint).slice(0,32) as UUID-shaped hex
+ *   name                := <email if ever surfaced> ?? <fingerprint[0..8]>
+ *   fingerprint         := sha256(claudeAiOauth.refreshToken)   [unchanged]
+ *   subscriptionType    := claudeAiOauth.subscriptionType
+ *   rateLimitTier       := claudeAiOauth.rateLimitTier
+ *   accountEmail        := claudeAiOauth.email ?? null   [null in practice]
+ *   accountName         := claudeAiOauth.accountName ?? null   [null today]
+ *   orgName             := null   [CC does not expose this on disk]
+ *   status              := "active" | "available" | "expired"
+ *   expiresAt           := new Date(claudeAiOauth.expiresAt).toISOString()
+ *   rateLimit429Count   := rate-limit-tracker.count24h(fingerprint)
+ *   lastSwapAt          := swap-tracker.lastSwapAt(fingerprint)?.toISOString()
+ *   isActive            := fingerprint === envelope.activeFingerprint
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * INVESTIGATION (homelab-emits-specs-credentials task 1.7, 2026-05-20):
  *
  * I checked CC's active-credential convention on two hosts to learn the
