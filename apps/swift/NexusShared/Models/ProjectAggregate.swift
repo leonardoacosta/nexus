@@ -21,6 +21,14 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
     /// list dedup/diffing is unchanged.
     public var projectID: String?
 
+    /// Whether the project is hidden from the dashboard's default view.
+    /// Surfaced by the agent's `/projects` aggregate response (read from
+    /// the `projects.hidden` registry column). Non-optional in the model;
+    /// `decodeIfPresent ?? false` preserves backward compatibility with
+    /// older agents that don't emit the field. Spec:
+    /// agent-payload-completeness § Project Aggregate Includes Hidden Field.
+    public var hidden: Bool
+
     public var id: String { name }
 
     public enum CodingKeys: String, CodingKey {
@@ -29,6 +37,7 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         case totalSessions  = "total_sessions"
         case machines
         case projectID = "id"
+        case hidden
     }
 
     public init(from decoder: Decoder) throws {
@@ -40,6 +49,9 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         // Backward-tolerant: older agents omit `id`; a session-only bucket
         // sends `id: null`. Both decode to nil.
         projectID = try c.decodeIfPresent(String.self, forKey: .projectID)
+        // Backward-tolerant: older agents omit `hidden`. Default to false
+        // (registered-but-visible). Current-gen agents always emit a bool.
+        hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
     }
 
     public init(
@@ -47,13 +59,15 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         activeSessions: Int,
         totalSessions: Int,
         machines: [String],
-        projectID: String? = nil
+        projectID: String? = nil,
+        hidden: Bool = false
     ) {
         self.name = name
         self.activeSessions = activeSessions
         self.totalSessions = totalSessions
         self.machines = machines
         self.projectID = projectID
+        self.hidden = hidden
     }
 }
 
