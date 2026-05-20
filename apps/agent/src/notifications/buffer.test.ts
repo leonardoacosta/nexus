@@ -81,6 +81,8 @@ describe("notification buffer: MAX_BUFFER_SIZE cap and FIFO eviction", () => {
         agentId: null,
         priority: "normal",
         status: "queued",
+        severity: "info",
+        deliveryState: "pending",
         createdAt: new Date(),
         sentAt: null,
       });
@@ -115,6 +117,8 @@ describe("notification buffer: MAX_BUFFER_SIZE cap and FIFO eviction", () => {
         agentId: null,
         priority: "normal",
         status: "queued",
+        severity: "info",
+        deliveryState: "pending",
         createdAt: new Date(),
         sentAt: null,
       });

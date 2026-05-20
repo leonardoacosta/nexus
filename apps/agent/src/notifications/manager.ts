@@ -33,11 +33,19 @@ export class NotificationManager {
    * Send a notification: check meeting state, then buffer or route.
    * Returns the notification row with its assigned id.
    */
-  async send(notification: Omit<NotificationRow, "status" | "sentAt">): Promise<NotificationRow> {
+  async send(
+    notification: Omit<NotificationRow, "status" | "sentAt" | "severity" | "deliveryState"> &
+      Partial<Pick<NotificationRow, "severity" | "deliveryState">>,
+  ): Promise<NotificationRow> {
     const row: NotificationRow = {
       ...notification,
       status: "queued",
       sentAt: null,
+      // Dashboard-facing enums (agent-payload-completeness). Defaults
+      // match the DB column defaults so existing callers continue to
+      // work without passing them through.
+      severity: notification.severity ?? "info",
+      deliveryState: notification.deliveryState ?? "pending",
     };
 
     // Always persist to buffer first

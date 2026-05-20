@@ -13,6 +13,22 @@ export const notifications = pgTable("notifications", {
   agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
   priority: text("priority").notNull().default("normal"),
   status: text("status").notNull().default("queued"),
+  /**
+   * Dashboard-facing severity enum (agent-payload-completeness): one of
+   * `info` | `warn` | `error`. Distinct from `priority` (delivery hint —
+   * low/normal/high) — severity is the visual urgency surface for the
+   * Swift dashboard notifications view. Default `info` so legacy rows
+   * remain decodable.
+   */
+  severity: text("severity").notNull().default("info"),
+  /**
+   * Dashboard-facing delivery lifecycle (agent-payload-completeness):
+   * one of `pending` | `delivered` | `failed`. Mirrors `status` but uses
+   * the Swift-facing enum spelling — `status` retains the legacy
+   * `queued/delivered/expired` shape that the dispatcher writes against.
+   * Default `pending` so existing rows backfill cleanly.
+   */
+  deliveryState: text("delivery_state").notNull().default("pending"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   sentAt: timestamp("sent_at", { mode: "date" }),
 });

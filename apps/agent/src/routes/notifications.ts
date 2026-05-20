@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Db } from "@nexus/db";
+import { notifications as notificationsTable } from "@nexus/db";
+import { desc } from "drizzle-orm";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { NotificationManager } from "../notifications/manager";
@@ -215,4 +217,53 @@ function jsonResponse(data: unknown, status: number = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/**
+ * GET /notifications — return the canonical NotificationEvent list.
+ *
+ * Added by `agent-payload-completeness` — the Swift dashboard's
+ * NotificationEvent decoder previously had nothing to fetch. Each row
+ * includes the Swift-facing `severity` (info|warn|error) and
+ * `delivery_state` (pending|delivered|failed) enums.
+ *
+ * Returns `[]` on empty (never 404). Returns 500 with `{ error }` on a
+ * DB failure so the caller knows the table is unreachable (distinct from
+ * the empty-set case).
+ */
+export async function handleListNotifications(db: Db): Promise<Response> {
+  try {
+    const rows = await db
+      .select({
+        id: notificationsTable.id,
+        title: notificationsTable.title,
+        body: notificationsTable.body,
+        channel: notificationsTable.channel,
+        project: notificationsTable.project,
+        severity: notificationsTable.severity,
+        delivery_state: notificationsTable.deliveryState,
+        created_at: notificationsTable.createdAt,
+      })
+      .from(notificationsTable)
+      .orderBy(desc(notificationsTable.createdAt))
+      .limit(200);
+
+    // Project Date columns to ISO strings on the wire — the Swift decoder
+    // expects an ISO-8601 string for created_at (matches /sessions shape).
+    const payload = rows.map((r) => ({
+      ...r,
+      created_at:
+        r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : (r.created_at as unknown as string),
+    }));
+
+    return jsonResponse(payload, 200);
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "GET /notifications failed",
+    );
+    return jsonResponse({ error: "failed to list notifications" }, 500);
+  }
 }

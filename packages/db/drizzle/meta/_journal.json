@@ -225,6 +225,13 @@
       "when": 1779222285971,
       "tag": "0031_add_hidden_to_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1779250658954,
+      "tag": "0032_agent-payload-completeness-schema",
+      "breakpoints": true
     }
   ]
 }
