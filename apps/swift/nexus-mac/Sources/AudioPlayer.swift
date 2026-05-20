@@ -2,8 +2,11 @@
 // configurable ducking behavior.
 //
 // Spec: openspec/changes/swift-owns-elevenlabs-synth (task 1.3)
+//       openspec/changes/mac-tts-runtime-wire-up (task 1.2 — conforms to
+//       MP3PlayerProtocol so TTSObserver in NexusShared can drive playback
+//       without importing the macOS-only AVAudioPlayer surface)
 //
-// Ducking modes:
+// Ducking modes (DuckingMode enum lives in NexusShared/Synthesis/MP3Player.swift):
 //   - .duck    — temporarily lower other audio while we speak
 //   - .mix     — play over existing audio at full volume (default)
 //   - .pause   — pause everything else, resume on completion
@@ -15,14 +18,9 @@
 
 import AVFoundation
 import Foundation
+import NexusShared
 
-public enum DuckingMode: String, Codable, Sendable {
-    case duck
-    case mix
-    case pause
-}
-
-public final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
+public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     public static let shared = AudioPlayer()
     private var player: AVAudioPlayer?
     private var onFinish: (() -> Void)?
@@ -47,5 +45,17 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         self.player = nil
         onFinish?()
         onFinish = nil
+    }
+}
+
+// MARK: - MP3PlayerProtocol conformance
+//
+// TTSObserver (in NexusShared) holds an `MP3PlayerProtocol` and stays
+// platform-agnostic; this extension wires AudioPlayer.shared to the
+// protocol's no-default-arg `play(mp3Data:ducking:)` signature.
+
+extension AudioPlayer: MP3PlayerProtocol {
+    public func play(mp3Data: Data, ducking: DuckingMode) throws {
+        try play(mp3Data: mp3Data, ducking: ducking, onFinish: nil)
     }
 }
