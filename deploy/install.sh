@@ -128,63 +128,20 @@ install_linux() {
 }
 
 install_macos() {
-    # Swift dashboard build — xcodegen generates the .xcodeproj from
-    # apps/swift/project.yml, then xcodebuild produces nexus.app.
+    # Swift dashboard build/install is delegated to the shared library at
+    # deploy/lib/macos-swift-deploy.sh so the post-merge hook
+    # (deploy/hooks.d/post-merge/04-swift-deploy) and this installer share
+    # the same mechanics. See bd:nx-9ndp7.
     if $DO_BUILD; then
-        if ! command -v xcodegen &>/dev/null; then
-            warn "xcodegen not found — skipping Swift dashboard build."
-            warn "Install: brew install xcodegen"
-        elif ! command -v xcodebuild &>/dev/null; then
-            warn "xcodebuild not found — Xcode CLT required for Swift build."
+        local LIB_PATH="$SCRIPT_DIR/lib/macos-swift-deploy.sh"
+        if [[ -f "$LIB_PATH" ]]; then
+            # shellcheck source=lib/macos-swift-deploy.sh
+            source "$LIB_PATH"
+            if ! macos_swift_deploy_run; then
+                warn "Swift dashboard build/install failed — continuing with agent install."
+            fi
         else
-            info "Regenerating Xcode project (xcodegen)"
-            # Capture xcodegen output. xcodegen exits 0 even on spec-validation
-            # errors — detect the silent-fail by grepping its output explicitly.
-            local XCODEGEN_OUT
-            XCODEGEN_OUT="$(cd "$REPO_DIR/apps/swift" && xcodegen generate 2>&1)"
-            if echo "$XCODEGEN_OUT" | grep -qE "Spec validation|invalid dependency|errors"; then
-                error "xcodegen reported spec validation errors — aborting Swift build:
-$XCODEGEN_OUT
-See bd:nx-jmqyk for the canonical NexusShared multi-platform issue."
-            fi
-
-            info "Building Nexus.app (Release scheme: nexus-mac)"
-            local BUILD_DIR
-            BUILD_DIR="$(mktemp -d)"
-            # Note: `cmd 2>&1 | tail -20` masks the exit code of cmd via the
-            # pipe. Use PIPESTATUS to recover the real status. Without this,
-            # silent Swift compile failures (like nx-jmqyk, 2026-05-18) ship
-            # to /Applications as missing-app + warn-only output.
-            (cd "$REPO_DIR/apps/swift" && xcodebuild \
-                    -project nexus.xcodeproj \
-                    -scheme nexus-mac \
-                    -configuration Release \
-                    -derivedDataPath "$BUILD_DIR" \
-                    CODE_SIGN_IDENTITY="" \
-                    CODE_SIGNING_REQUIRED=NO \
-                    CODE_SIGNING_ALLOWED=NO \
-                    build 2>&1 | tail -20)
-            local XCODEBUILD_RC="${PIPESTATUS[0]:-1}"
-            if [[ "$XCODEBUILD_RC" -eq 0 ]]; then
-                local APP_PATH
-                APP_PATH="$(find "$BUILD_DIR" -name 'Nexus.app' -type d -print -quit 2>/dev/null || true)"
-                if [[ -n "$APP_PATH" && -d "$APP_PATH" ]]; then
-                    if [[ -w /Applications ]] || [[ -w /Applications/Nexus.app ]] 2>/dev/null; then
-                        info "Installing Nexus.app to /Applications"
-                        rm -rf /Applications/Nexus.app
-                        cp -R "$APP_PATH" /Applications/Nexus.app
-                    else
-                        warn "/Applications is not writable. Copy manually:"
-                        warn "  sudo cp -R $APP_PATH /Applications/Nexus.app"
-                    fi
-                else
-                    warn "xcodebuild succeeded but Nexus.app not found in $BUILD_DIR"
-                fi
-                rm -rf "$BUILD_DIR"
-            else
-                warn "xcodebuild failed — Swift dashboard not installed. Continuing with agent install."
-                rm -rf "$BUILD_DIR"
-            fi
+            warn "shared lib not found at $LIB_PATH — skipping Swift dashboard build."
         fi
     fi
 

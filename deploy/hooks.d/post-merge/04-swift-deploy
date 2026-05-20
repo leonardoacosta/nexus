@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Nexus Swift Dashboard — post-merge deploy hook
+# Rebuilds and relaunches Nexus.app on macOS when apps/swift/ changes.
+# Fail-soft: logs a warning on failure but never blocks subsequent hooks.
+#
+# Symmetry: this is the macOS counterpart to 02-deploy (which rebuilds the
+# Linux nexus-agent systemd service on apps/agent/|deploy/ changes).
+
+# ── Skip on non-macOS ───────────────────────────────────────────────
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    exit 0
+fi
+
+# ── Check for Swift changes (skip with --force) ─────────────────────
+
+if [[ "${1:-}" != "--force" ]]; then
+    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^apps/swift/'; then
+        printf '\033[1;33mswift-deploy: %s\033[0m\n' "no apps/swift/ changes, skipping"
+        exit 0
+    fi
+fi
+
+# ── Source shared lib and invoke ────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+LIB_PATH="$REPO_ROOT/deploy/lib/macos-swift-deploy.sh"
+if [[ ! -f "$LIB_PATH" ]]; then
+    printf '\033[1;33mswift-deploy: %s\033[0m\n' "shared lib not found at $LIB_PATH; skipping" >&2
+    exit 0
+fi
+
+# shellcheck source=../../lib/macos-swift-deploy.sh
+source "$LIB_PATH"
+
+if ! macos_swift_deploy_run "$@"; then
+    printf '\033[1;33mswift-deploy: %s\033[0m\n' "rebuild failed (fail-soft); Nexus.app may be stale" >&2
+    exit 0  # Fail-soft: don't block subsequent hooks
+fi
