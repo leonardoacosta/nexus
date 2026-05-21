@@ -12,6 +12,11 @@ import { scheduleProjectDiscovery } from "./routes/projects-discovered";
 import { loadEncryptionKey, loadPrerotateThreshold } from "./credentials/encryption";
 import { startSocketServer, createSocketEventDispatcher, type SocketServer } from "./services/socket-server";
 import { startCronService, type CronService } from "./services/cron";
+import {
+  startCredentialUsagePoller,
+  type CredentialUsagePollerService,
+} from "./services/credential-usage-poller";
+import { getCredentialPool } from "./routes/credentials";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
 import { initSendTextRoute } from "./routes/commands-send-text";
@@ -171,6 +176,29 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "cron service failed to start");
 }
 
+// ── Credential usage poller ────────────────────────────────────────────────
+// Periodically samples Anthropic /api/oauth/usage for every primary,
+// available credential so the dashboard can show 5h / 7d utilization +
+// reset countdowns. Requires the credential pool (initialised by
+// `startServer` above through `initCredentialRoutes`).
+let credentialUsagePoller: CredentialUsagePollerService | null = null;
+try {
+  const pool = getCredentialPool();
+  if (pool) {
+    credentialUsagePoller = startCredentialUsagePoller({ db, pool });
+    logger.info("credential usage poller started");
+  } else {
+    logger.warn(
+      "credential usage poller skipped — credential pool not initialised",
+    );
+  }
+} catch (err) {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "credential usage poller failed to start",
+  );
+}
+
 // ── Spec watcher ───────────────────────────────────────────────────────────
 // Polls openspec status across registered projects and fires TTS notifications.
 let specWatcher: SpecWatcherService | null = null;
@@ -217,6 +245,7 @@ async function shutdown() {
   // Stop new services first.
   await tokenStreamLifecycle.stopAll();
   specWatcher?.stop();
+  credentialUsagePoller?.stop();
   cronService?.stop();
   socketServer?.stop();
   stopConfigLoader();

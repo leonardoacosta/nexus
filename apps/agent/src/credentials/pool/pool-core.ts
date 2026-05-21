@@ -107,8 +107,13 @@ export class CredentialPool {
    * Probe the Anthropic /api/oauth/profile endpoint and persist account
    * identity fields on the credential row. Best-effort: caller should
    * `.catch()` the returned promise.
+   *
+   * Exposed publicly so route handlers (handleRefreshIdentity /
+   * handleRefreshIdentityAll) can re-probe individual rows whose identity
+   * fields are blank. The original constructor-time best-effort probe in
+   * `add()` continues to call this method internally — no callsite change.
    */
-  private async probeIdentity(
+  async probeIdentity(
     credentialId: string,
     plaintext: string,
   ): Promise<void> {

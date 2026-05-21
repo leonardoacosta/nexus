@@ -8,7 +8,7 @@
 
 import type { Db } from "@nexus/db";
 import { CredentialPool } from "../../credentials/pool";
-import { poolRef } from "./shared";
+import { poolRef, dbRef } from "./shared";
 
 /** Initialize credential routes with a database connection. */
 export function initCredentialRoutes(
@@ -21,6 +21,7 @@ export function initCredentialRoutes(
   },
 ): void {
   poolRef.current = new CredentialPool(db, options);
+  dbRef.current = db;
 }
 
 /** Get the pool (for testing). */
@@ -32,4 +33,5 @@ export function getCredentialPool(): CredentialPool | null {
 export function resetCredentialRoutes(): void {
   if (poolRef.current) poolRef.current.stopCleanup();
   poolRef.current = null;
+  dbRef.current = null;
 }

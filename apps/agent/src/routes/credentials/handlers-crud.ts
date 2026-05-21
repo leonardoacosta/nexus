@@ -98,8 +98,24 @@ export async function handleAddCredential(request: Request): Promise<Response> {
  * credential-watcher pass yet would otherwise show "no credentials" even
  * though the operator has acct-*.json files on disk.
  */
-export async function handleListCredentials(): Promise<Response> {
+export async function handleListCredentials(
+  request?: Request,
+): Promise<Response> {
   const pool = poolRef.current;
+
+  // `?dedupe=true` collapses the response to primaries only, with each row
+  // carrying `siblingCount` / `siblingIds[]` describing the hidden duplicates.
+  // Default behaviour (no query param) returns every row byte-for-byte the
+  // same as before for back-compat.
+  const dedupe = (() => {
+    if (!request) return false;
+    try {
+      const url = new URL(request.url);
+      return url.searchParams.get("dedupe") === "true";
+    } catch {
+      return false;
+    }
+  })();
 
   // Pool path: try the DB-backed listing first.
   if (pool) {
@@ -116,6 +132,11 @@ export async function handleListCredentials(): Promise<Response> {
         // subscriptionType/rateLimitTier/expiresAt/accountEmail/accountName/
         // orgName/status — those pass through untouched so existing callers
         // (CLI/curl) keep the legacy fields.
+        //
+        // The seven usage_* columns added by
+        // `credentials-account-resolve-and-usage` (usage5hUsed, usage5hLimit,
+        // usage5hResetAt, etc. + usagePolledAt) ride through via the
+        // top-level spread — null until the poller has sampled the row.
         const activeFp = snap.fingerprint;
         const enriched = credentials.map((row) => {
           const fp = row.fingerprint ?? "";
@@ -127,6 +148,41 @@ export async function handleListCredentials(): Promise<Response> {
             lastSwapAt: swapAt ? swapAt.toISOString() : null,
           };
         });
+
+        if (dedupe) {
+          // Build the duplicate-group index from the full enriched list, then
+          // emit only the primaries (each carrying `siblingCount` +
+          // `siblingIds`). Rows without a duplicate_group_id fall back to
+          // their fingerprint, then to a synthetic key, matching the
+          // primary-attach logic in `pool.list()`.
+          const groupIndex = new Map<string, typeof enriched>();
+          for (const row of enriched) {
+            const key =
+              row.duplicateGroupId ?? row.fingerprint ?? `__id:${row.id}`;
+            const bucket = groupIndex.get(key) ?? [];
+            bucket.push(row);
+            groupIndex.set(key, bucket);
+          }
+          const collapsed = enriched
+            .filter((row) => row.isPrimary === true)
+            .map((row) => {
+              const key =
+                row.duplicateGroupId ?? row.fingerprint ?? `__id:${row.id}`;
+              const siblings = (groupIndex.get(key) ?? []).filter(
+                (m) => m.id !== row.id,
+              );
+              return {
+                ...row,
+                siblingCount: siblings.length,
+                siblingIds: siblings.map((m) => m.id),
+              };
+            });
+          return jsonResponse({
+            credentials: collapsed,
+            activeFingerprint: activeFp,
+          });
+        }
+
         return jsonResponse({
           credentials: enriched,
           activeFingerprint: activeFp,

@@ -15,6 +15,8 @@ import {
   handleReportRateLimit,
   handleCredentialHealth,
   handleGetActiveCredential,
+  handleRefreshIdentity,
+  handleRefreshIdentityAll,
 } from "./routes/credentials";
 import { withCors } from "./server-origin";
 import { CREDENTIAL_ID_RE } from "./server-auth";
@@ -38,7 +40,7 @@ export function tryHandleCredentialRoute(
   }
 
   if (url.pathname === "/credentials" && request.method === "GET") {
-    return handleListCredentials().then((r) => withCors(request, r)).catch((err) => {
+    return handleListCredentials(request).then((r) => withCors(request, r)).catch((err) => {
       logger.error({ route: "/credentials", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
@@ -52,6 +54,57 @@ export function tryHandleCredentialRoute(
       logger.error({ route: "/credentials/active", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
+  }
+
+  // POST /credentials/refresh-identity-all — bulk re-probe every blank-identity
+  // credential. Must appear before /credentials/:id/refresh-identity below so
+  // the reserved word doesn't get captured as an id.
+  if (
+    url.pathname === "/credentials/refresh-identity-all" &&
+    request.method === "POST"
+  ) {
+    return handleRefreshIdentityAll()
+      .then((r) => withCors(request, r))
+      .catch((err) => {
+        logger.error(
+          { route: "/credentials/refresh-identity-all", method: "POST", err },
+          "route handler failed",
+        );
+        return withCors(
+          request,
+          new Response(JSON.stringify({ error: "internal error" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      });
+  }
+
+  // POST /credentials/:id/refresh-identity — single-row re-probe.
+  // Pre-empts the /credentials/:id catch-all in server-request-handler.ts so
+  // the dashboard "refresh" button always lands here first.
+  const credRefreshIdentityMatch = url.pathname.match(
+    /^\/credentials\/([^/]+)\/refresh-identity$/,
+  );
+  if (credRefreshIdentityMatch && request.method === "POST") {
+    if (!CREDENTIAL_ID_RE.test(credRefreshIdentityMatch[1]!)) {
+      return withCors(request, new Response("Bad Request", { status: 400 }));
+    }
+    return handleRefreshIdentity(credRefreshIdentityMatch[1]!)
+      .then((r) => withCors(request, r))
+      .catch((err) => {
+        logger.error(
+          { route: "/credentials/:id/refresh-identity", method: "POST", err },
+          "route handler failed",
+        );
+        return withCors(
+          request,
+          new Response(JSON.stringify({ error: "internal error" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      });
   }
 
   if (url.pathname === "/credentials/lease" && request.method === "POST") {
@@ -101,7 +154,7 @@ export function tryHandleCredentialRoute(
 
   // GET /credentials/status — pool overview
   if (url.pathname === "/credentials/status" && request.method === "GET") {
-    return handleListCredentials().then((r) => withCors(request, r)).catch((err) => {
+    return handleListCredentials(request).then((r) => withCors(request, r)).catch((err) => {
       logger.error({ route: "/credentials/status", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });

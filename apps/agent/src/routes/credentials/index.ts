@@ -44,3 +44,8 @@ export {
 export { handleSwapCredential } from "./handlers-swap";
 
 export { handleGetActiveCredential } from "./handlers-active";
+
+export {
+  handleRefreshIdentity,
+  handleRefreshIdentityAll,
+} from "./handlers-refresh-identity";

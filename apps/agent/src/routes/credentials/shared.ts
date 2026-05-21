@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "@nexus/core/node";
+import type { Db } from "@nexus/db";
 import type { CredentialPool } from "../../credentials/pool";
 
 // ── Audit logger ────────────────────────────────────────────────────────────
@@ -50,6 +51,16 @@ export function extractCallerIp(request: Request): string {
 // current pool without re-exporting a getter from each file.
 
 export const poolRef: { current: CredentialPool | null } = { current: null };
+
+/**
+ * Shared DB handle for handlers that need direct schema access without going
+ * through the pool. Populated by `initCredentialRoutes(db, ...)`.
+ *
+ * Today this is used by the refresh-identity handlers (added in
+ * `credentials-account-resolve-and-usage`) which need to read/update the
+ * `credentials` row directly after invoking `pool.probeIdentity()`.
+ */
+export const dbRef: { current: Db | null } = { current: null };
 
 // ── Loopback address detection ──────────────────────────────────────────────
 
