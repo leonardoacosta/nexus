@@ -29,6 +29,11 @@ private let ptyLog = Logger(subsystem: "dev.priceless.nexus", category: "PtyView
 struct PtyViewer: View {
     let sessionId: String
     let sessionLabel: String?
+    /// `pid <N> · <machine>` rendered in the header between the title and
+    /// the close button. Optional so legacy callers / tests can omit it.
+    /// Caller should pass `Session.metaLine(for:)` for parity with the
+    /// SessionsRowView trailing column (bd:nx-dijep).
+    let sessionMeta: String?
     /// Gates bidirectional input. When `sessionType != "managed"` the
     /// SwiftTerm delegate's send() is a no-op + one-shot os_log warn.
     /// `nil` is treated as non-managed (safe default — never forward keys
@@ -45,11 +50,13 @@ struct PtyViewer: View {
     init(
         sessionId: String,
         sessionLabel: String? = nil,
+        sessionMeta: String? = nil,
         sessionType: String? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.sessionId = sessionId
         self.sessionLabel = sessionLabel
+        self.sessionMeta = sessionMeta
         self.sessionType = sessionType
         self.onClose = onClose
         _model = StateObject(wrappedValue: PtyViewerModel(
@@ -73,16 +80,28 @@ struct PtyViewer: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("PTY")
                 .font(.system(.caption, design: .monospaced))
                 .tracking(2)
                 .foregroundStyle(.secondary)
-            Text(sessionLabel ?? sessionId)
+            // Session label degrades through gitOwnerRepo -> projectId ->
+            // cwd basename -> "pid <N>" -> "—". A bare em-dash is the
+            // last-resort placeholder; watcher-only rows hit the "pid <N>"
+            // rung so the header is never empty (bd:nx-dijep).
+            Text(headerTitle)
                 .font(.caption.monospaced())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .accessibilityIdentifier("pty-viewer-title")
+            if let meta = sessionMeta, !meta.isEmpty {
+                Text(meta)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("pty-viewer-meta")
+            }
             Spacer()
             statusBadge
             Text(model.status.rawValue)
@@ -90,16 +109,31 @@ struct PtyViewer: View {
                 .foregroundStyle(.secondary)
             if let onClose {
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption2.weight(.semibold))
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
                 .help("Close PTY viewer")
+                .accessibilityLabel("Close PTY viewer")
                 .accessibilityIdentifier("pty-viewer-close")
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+    }
+
+    /// Title degradation — prefers an explicit `sessionLabel` from the caller
+    /// (typically `Session.projectLabel(for:)`), falling back to the raw
+    /// `sessionId`. `sessionId` is never empty so the header always renders
+    /// SOMETHING (bd:nx-dijep — runtime regression where label was `nil`
+    /// AND projectLabel returned bare `"—"`).
+    private var headerTitle: String {
+        if let label = sessionLabel, !label.isEmpty, label != "—" {
+            return label
+        }
+        return sessionId
     }
 
     @ViewBuilder

@@ -49,15 +49,54 @@ final class SessionRowTests: XCTestCase {
         XCTAssertEqual(Session.projectLabel(for: session), "oo")
     }
 
-    /// All fields empty / nil — the view still has to render something, so
-    /// we emit the em-dash placeholder rather than a blank row.
-    func testAllNullRendersDash() {
+    /// pid-only fallback — watcher-only rows that registered via ps-scan
+    /// before any hook fired (no gitOwnerRepo/projectId/cwd yet). Surfacing
+    /// the pid keeps PTY header titles meaningful instead of degrading to a
+    /// bare em-dash (bd:nx-dijep).
+    func testPidOnlyRendersPidLabel() {
         let session = Session(
             id: "s4",
             projectId: nil,
+            pid: 1234,
+            cwd: nil,
+            gitOwnerRepo: nil
+        )
+        XCTAssertEqual(Session.projectLabel(for: session), "pid 1234")
+    }
+
+    /// All fields empty / nil AND no pid — the view still has to render
+    /// something, so we emit the em-dash placeholder rather than a blank row.
+    func testAllNullRendersDash() {
+        let session = Session(
+            id: "s5",
+            projectId: nil,
+            pid: nil,
             cwd: nil,
             gitOwnerRepo: nil
         )
         XCTAssertEqual(Session.projectLabel(for: session), "—")
+    }
+
+    /// metaLine — `pid <N> · <machine>` when pid > 0.
+    func testMetaLineWithPidShowsBothSegments() {
+        let session = Session(
+            id: "s6",
+            machine: "mac-mini-01",
+            agent: nil,
+            pid: 9876,
+            gitOwnerRepo: "leonardoacosta/oo"
+        )
+        XCTAssertEqual(Session.metaLine(for: session), "pid 9876 · mac-mini-01")
+    }
+
+    /// metaLine — falls back to originAgent alone when pid is nil/zero.
+    func testMetaLineWithoutPidShowsOriginAgentOnly() {
+        let session = Session(
+            id: "s7",
+            machine: "homelab-01",
+            agent: nil,
+            pid: nil
+        )
+        XCTAssertEqual(Session.metaLine(for: session), "homelab-01")
     }
 }

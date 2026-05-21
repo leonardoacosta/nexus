@@ -169,13 +169,16 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         agent ?? machine ?? "unknown"
     }
 
-    /// Project-label degradation chain used by SessionsRowView. Hoisted to
-    /// NexusShared so the test target (NexusSharedTests) can exercise it
-    /// without spinning up the full SwiftUI view hierarchy.
+    /// Project-label degradation chain used by SessionsRowView and PtyViewer.
+    /// Hoisted to NexusShared so the test target (NexusSharedTests) can exercise
+    /// it without spinning up the full SwiftUI view hierarchy.
     ///
-    /// Fallback ladder: gitOwnerRepo -> projectId -> cwd basename -> "—".
-    /// `gitOwnerRepo` wins because `leonardoacosta/oo` is more readable than
-    /// a UUID-shaped projectId.
+    /// Fallback ladder: gitOwnerRepo -> projectId -> cwd basename -> "pid <N>"
+    /// -> "—". `gitOwnerRepo` wins because `leonardoacosta/oo` is more readable
+    /// than a UUID-shaped projectId. The "pid <N>" rung is the watcher-only
+    /// fallback for sessions that registered via ps-scan before any hook fired
+    /// (no project enrichment yet) — surfacing the pid keeps the PTY header
+    /// title meaningful instead of degrading to a bare em-dash (bd:nx-dijep).
     public static func projectLabel(for session: Session) -> String {
         if let repo = session.gitOwnerRepo, !repo.isEmpty {
             return repo
@@ -186,7 +189,22 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         if let cwd = session.cwd, !cwd.isEmpty {
             return URL(fileURLWithPath: cwd).lastPathComponent
         }
+        if let pid = session.pid, pid > 0 {
+            return "pid \(pid)"
+        }
         return "—"
+    }
+
+    /// Compact meta line for the PtyViewer header — mirrors the row-level
+    /// trailing column ("pid <N> · <machine>" when pid > 0, originAgent alone
+    /// otherwise). Hoisted alongside `projectLabel` so the PTY header can
+    /// render `[label]  [meta]  [X]` without re-implementing the fallback
+    /// in the view layer (bd:nx-dijep).
+    public static func metaLine(for session: Session) -> String {
+        if let pid = session.pid, pid > 0 {
+            return "pid \(pid) · \(session.originAgent)"
+        }
+        return session.originAgent
     }
 
     private static func decodeFlexibleDate(

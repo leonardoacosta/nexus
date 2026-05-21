@@ -57,6 +57,7 @@ struct SessionsView: View {
                 PtyViewer(
                     sessionId: session.id,
                     sessionLabel: Session.projectLabel(for: session),
+                    sessionMeta: Session.metaLine(for: session),
                     sessionType: session.sessionType,
                     onClose: { selectedSessionId = nil }
                 )
@@ -230,14 +231,11 @@ private struct SessionsRowView: View {
         }
     }
 
-    /// `pid 1234 · machine` — both segments shown when pid > 0, originAgent
-    /// alone otherwise. originAgent has a graceful fallback ("unknown") so
-    /// the line always renders.
+    /// `pid 1234 · machine` — delegates to NexusShared's
+    /// `Session.metaLine(for:)` so PTY header and row trailing column share
+    /// the same fallback chain (bd:nx-dijep).
     private var metaLine: String {
-        if let pid = session.pid, pid > 0 {
-            return "pid \(pid) · \(session.originAgent)"
-        }
-        return session.originAgent
+        Session.metaLine(for: session)
     }
 
     /// model · $cost · idle/duration. Cost suppressed when null or <= 0
