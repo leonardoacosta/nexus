@@ -65,6 +65,7 @@ import { CREDENTIAL_ID_RE } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
+import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
 
 /**
@@ -143,6 +144,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // Events
   { method: "GET", path: "/events" },
   { method: "GET", path: "/events/stream" },
+  // Wave plans (specs-tab-accordion-with-topology)
+  { method: "GET", path: "/wave-plans/active" },
   // Version (self)
   { method: "GET", path: "/version" },
 ];
@@ -502,6 +505,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // ── Command routes (delegated) ────────────────────────────────────────
     const commandResult = tryHandleCommandRoute(request, url);
     if (commandResult !== null) return commandResult;
+
+    // ── Wave-plan routes (delegated) ──────────────────────────────────────
+    // Surfaces the in-flight /apply or /apply:all wave plan to the dashboard
+    // (specs-tab-accordion-with-topology). Reads docs/apply/active.txt + the
+    // referenced wave-plan.json from disk; no DB required.
+    const wavePlanResult = tryHandleWavePlanRoute(request, url);
+    if (wavePlanResult !== null) return wavePlanResult;
 
     // ── Operational routes (no DB required) ──────────────────────────────
     if (url.pathname === "/environment" && request.method === "GET") {
