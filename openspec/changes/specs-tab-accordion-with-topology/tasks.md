@@ -23,7 +23,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add `apps/swift/NexusSharedTests/WavePlanStatusTests.swift` — 3 tests: testDecodesFullPayload, testDecodesEmptyPayload (runId nil), testLookupSpecReturnsNilForMissing [owner:ui-engineer] [type:test] [beads:nx-g94wu]
+- [x] [3.1] Add `apps/swift/NexusSharedTests/WavePlanStatusTests.swift` — 3 tests: testDecodesFullPayload, testDecodesEmptyPayload (runId nil), testLookupSpecReturnsNilForMissing [owner:ui-engineer] [type:test] [beads:nx-g94wu] — verified `Executed 3 tests, with 0 failures (0 unexpected)` via `xcodebuild test -only-testing:NexusSharedTests/WavePlanStatusTests`
 - [ ] [3.2] Push + ssh-pull homelab — verify `/wave-plans/active` returns valid JSON via Tailscale curl. If no active run on homelab, response should be `{runId: null, specStatuses: []}`. Capture stdout [owner:devops-engineer] [type:test] [beads:nx-22u0o]
 - [ ] [3.3] Mac post-merge rebuild via `deploy/hooks.d/post-merge/04-swift-deploy --force`. Force-kill old PID + relaunch (nx-4l66v hook bug workaround). Verify rebuild via PID change [owner:devops-engineer] [type:test] [beads:nx-ssksd]
 - [ ] [3.4] [user] Open Nexus.app Specs tab: (a) confirm accordions are collapsed by default; (b) expand one project, confirm specs render with progress bars; (c) verify active-session dot appears on project headers with running CC sessions in their dir; (d) if any /apply is running, confirm wave chips appear. Capture screenshot [user] [owner:user] [type:test] [beads:nx-8tdzd]
