@@ -104,13 +104,32 @@ async function listClaudeProcesses(): Promise<LiveProcess[]> {
 }
 
 /**
+ * One-shot canary: emit a single info log on the FIRST successful
+ * `readProcessCwd` after agent boot. Confirms in production that the
+ * `AmbientCapabilities=CAP_SYS_PTRACE` granted by `deploy/nexus-agent.service`
+ * is actually taking effect — under kernel.yama.ptrace_scope=1 hardening the
+ * call returns EACCES without the cap. Module-level so it persists across
+ * watcher ticks; single set means at most one log line per agent process.
+ * See spec: openspec/changes/session-attach-and-cwd-cap/specs/systemd-service/spec.md.
+ */
+let loggedFirstSuccess = false;
+
+/**
  * Best-effort cwd lookup. `/proc/<pid>/cwd` is a symlink on Linux; macOS
  * has no `/proc` so we return `undefined` and let the caller skip the
  * field.
  */
 function readProcessCwd(pid: number): string | undefined {
   try {
-    return readlinkSync(`/proc/${pid}/cwd`);
+    const cwd = readlinkSync(`/proc/${pid}/cwd`);
+    if (!loggedFirstSuccess) {
+      loggedFirstSuccess = true;
+      log.info(
+        { pid, cwd },
+        "process-watcher: first successful cwd read (CAP_SYS_PTRACE verified)",
+      );
+    }
+    return cwd;
   } catch {
     return undefined;
   }
