@@ -110,6 +110,7 @@
 		EDDB858FEB42BE8AFE46F4BA /* SpecSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */; };
 		EF58AF75AE85858492EA6F3A /* NexusAggregateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F0A2939FC997360C17FC7 /* NexusAggregateClient.swift */; };
 		F33E8FB65180C3CB9127BDBB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291C3DBCBB9B361ADE3D89A3 /* Theme.swift */; };
+		F51F1E61D18B0E5602C0F71A /* WavePlanStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3282DDBA27541EC2851EDFC3 /* WavePlanStatus.swift */; };
 		F541D56BAD08613C0FF5626F /* NexusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146BA2FC2272427A549FBC55 /* NexusClient.swift */; };
 		F642384DE730B82BA0405638 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B39F7E98289F86C25ADFFC /* SettingsView.swift */; };
 		F813C35EF1ABF7138D38C1CF /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */; };
@@ -256,6 +257,7 @@
 		2E053DC27B1EEB7686A0BD2E /* PreferencesScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesScene.swift; sourceTree = "<group>"; };
 		31115AFC5C16685752DA91CC /* TTSObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSObserverTests.swift; sourceTree = "<group>"; };
 		31BA3ED5F66F53704DCA1F07 /* TerminalHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostView.swift; sourceTree = "<group>"; };
+		3282DDBA27541EC2851EDFC3 /* WavePlanStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavePlanStatus.swift; sourceTree = "<group>"; };
 		332165B2E191D7C8F049DC61 /* SpawnHomelabSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpawnHomelabSession.swift; sourceTree = "<group>"; };
 		374BADBBD17FCCF7AD3FC7E1 /* TtsButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtsButton.swift; sourceTree = "<group>"; };
 		3923F629707730C5EE840D38 /* SessionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionObserver.swift; sourceTree = "<group>"; };
@@ -575,6 +577,7 @@
 				AB2C93268B41859AEFAA71CA /* ScriptError.swift */,
 				012FF0DFB2DB82FE9B710D15 /* Session.swift */,
 				061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */,
+				3282DDBA27541EC2851EDFC3 /* WavePlanStatus.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -1060,6 +1063,7 @@
 				EDDB858FEB42BE8AFE46F4BA /* SpecSummary.swift in Sources */,
 				C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */,
 				D6D4A23D02F7A837A8339BB8 /* TTSObserver.swift in Sources */,
+				F51F1E61D18B0E5602C0F71A /* WavePlanStatus.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

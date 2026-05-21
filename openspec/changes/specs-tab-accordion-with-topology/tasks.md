@@ -13,7 +13,7 @@
 
 ## UI Batch
 
-- [ ] [2.1] Create `apps/swift/NexusShared/Models/WavePlanStatus.swift` — Codable structs mirroring the agent's wire shape: `WavePlanStatus`, `SpecStatus`. Use camelCase CodingKeys (wire uses camelCase). Add helper computed properties: `isActive: Bool` (runId != nil), `lookupSpec(name:) -> SpecStatus?` [owner:ui-engineer] [type:types] [beads:nx-5qker]
+- [x] [2.1] Create `apps/swift/NexusShared/Models/WavePlanStatus.swift` — Codable structs mirroring the agent's wire shape: `WavePlanStatus`, `SpecStatus`. Use camelCase CodingKeys (wire uses camelCase). Add helper computed properties: `isActive: Bool` (runId != nil), `lookupSpec(name:) -> SpecStatus?` [owner:ui-engineer] [type:types] [beads:nx-5qker]
 - [ ] [2.2] [P-1] Add `fetchWavePlanStatus() async -> WavePlanStatus?` to `apps/swift/NexusShared/Networking/NexusClient.swift` and `apps/swift/NexusShared/Networking/NexusAggregateClient.swift`. Returns nil on transport error; returns empty payload on 200 with `runId: null` [owner:ui-engineer] [type:feature] [beads:nx-ihhyh]
 - [ ] [2.3] Update `SpecsView`/`SpecsViewModel` to fetch wave plan on `.task` mount alongside the existing specs fetch. Store in `@Published var wavePlan: WavePlanStatus?`. Refresh on the same cadence as specs SSE updates (or on manual pull-to-refresh — whichever is wired today) [owner:ui-engineer] [type:feature] [beads:nx-kiton]
 - [ ] [2.4] [P-2] Restructure `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift` to use `DisclosureGroup` per project group. Persist expansion state via UserDefaults keyed by `specsAccordion.<slug>`, default collapsed. Replace the existing always-expanded `Section` blocks [owner:ui-engineer] [type:feature] [beads:nx-z2il2]
