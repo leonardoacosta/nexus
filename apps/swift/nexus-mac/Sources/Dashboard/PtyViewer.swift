@@ -86,9 +86,10 @@ struct PtyViewer: View {
                 .tracking(2)
                 .foregroundStyle(.secondary)
             // Session label degrades through gitOwnerRepo -> projectId ->
-            // cwd basename -> "pid <N>" -> "—". A bare em-dash is the
-            // last-resort placeholder; watcher-only rows hit the "pid <N>"
-            // rung so the header is never empty (bd:nx-dijep).
+            // cwd basename -> "—". The bare em-dash is the last-resort
+            // placeholder; watcher rows now always carry cwd (sourced from
+            // tmux per nx-ds6rq) so the em-dash is reserved for telemetry
+            // stubs with no fingerprint at all.
             Text(headerTitle)
                 .font(.caption.monospaced())
                 .foregroundStyle(.primary)

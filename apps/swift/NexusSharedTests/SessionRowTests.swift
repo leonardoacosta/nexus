@@ -1,7 +1,10 @@
 // SessionRowTests — exercise the project-label degradation chain used by
 // SessionsRowView (nexus-mac dashboard) without binding to SwiftUI.
 //
-// Spec: openspec/changes/session-row-enrichment-v1 (task 3.1, beads nx-l1agm)
+// Spec: openspec/changes/session-row-enrichment-v1 (task 3.1, beads nx-l1agm).
+// nx-ds6rq dropped the "pid <N>" rung after the process-watcher began
+// pulling cwd from tmux — watcher rows now always carry cwd, so the pid
+// fallback was leaking a kernel-internal value to the user-facing title.
 //
 // The label helper itself lives on `Session` (NexusShared) so it's reachable
 // from this test target via `@testable import NexusShared`. Cost / idle /
@@ -49,11 +52,12 @@ final class SessionRowTests: XCTestCase {
         XCTAssertEqual(Session.projectLabel(for: session), "oo")
     }
 
-    /// pid-only fallback — watcher-only rows that registered via ps-scan
-    /// before any hook fired (no gitOwnerRepo/projectId/cwd yet). Surfacing
-    /// the pid keeps PTY header titles meaningful instead of degrading to a
-    /// bare em-dash (bd:nx-dijep).
-    func testPidOnlyRendersPidLabel() {
+    /// nx-ds6rq: a session whose only identifier is a pid no longer renders
+    /// `pid <N>` — that rung was dropped after the process-watcher started
+    /// pulling cwd from tmux. Watcher rows now always carry cwd; sessions
+    /// that fall through all three textual rungs render the em-dash so the
+    /// dashboard doesn't leak a kernel value into a user-facing title.
+    func testPidOnlyRendersDash() {
         let session = Session(
             id: "s4",
             projectId: nil,
@@ -61,11 +65,12 @@ final class SessionRowTests: XCTestCase {
             cwd: nil,
             gitOwnerRepo: nil
         )
-        XCTAssertEqual(Session.projectLabel(for: session), "pid 1234")
+        XCTAssertEqual(Session.projectLabel(for: session), "—")
     }
 
-    /// All fields empty / nil AND no pid — the view still has to render
+    /// All textual fields empty / nil — the view still has to render
     /// something, so we emit the em-dash placeholder rather than a blank row.
+    /// (pid is irrelevant to the label; metaLine carries it separately.)
     func testAllNullRendersDash() {
         let session = Session(
             id: "s5",

@@ -48,10 +48,38 @@ function setPgrepOutput(lines: string[]): void {
   pgrepResponse = { lines };
 }
 
+// nx-ds6rq: mock tmux list-panes output. Each fixture is the raw stdout the
+// watcher would see from
+// `tmux list-panes -a -F '#{pane_pid}|#{pane_current_path}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}'`.
+let tmuxPanesOutput: string = "";
+function setTmuxPanesOutput(lines: string[]): void {
+  tmuxPanesOutput = lines.join("\n");
+}
+
+// Map<parentPid, childPids[]> — controls `pgrep -P <pid>` responses for the
+// descendant walk. Tests build a tiny ancestry tree like:
+//   pane_pid 1000 -> 1001 (shell) -> 1234 (claude)
+// by setting setChildMap({ 1000: [1001], 1001: [1234] }).
+let childMap: Record<number, number[]> = {};
+function setChildMap(map: Record<number, number[]>): void {
+  childMap = map;
+}
+
 mock.module("../utils/exec", () => ({
   execText: mock(async (cmd: string, args: string[]) => {
+    // pgrep -af claude — the master live-claude scan.
     if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
       return pgrepResponse.lines.join("\n");
+    }
+    // pgrep -P <pid> — descendant walk for tmuxScan.
+    if (cmd === "pgrep" && args[0] === "-P" && args.length === 2) {
+      const pid = parseInt(args[1] ?? "", 10);
+      const kids = childMap[pid] ?? [];
+      return kids.join("\n");
+    }
+    // tmux list-panes -a -F <format> — pane scan.
+    if (cmd === "tmux" && args[0] === "list-panes" && args[1] === "-a") {
+      return tmuxPanesOutput;
     }
     // Any other invocation is unexpected — surface it loudly.
     throw new Error(`unexpected execText call in test: ${cmd} ${args.join(" ")}`);
@@ -282,6 +310,8 @@ describe.skipIf(!hasPg)(
     beforeEach(async () => {
       await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."sessions"`);
       setPgrepOutput([]);
+      setTmuxPanesOutput([]);
+      setChildMap({});
       setResolverResult(null);
       clearReadlinkCalls();
     });
@@ -510,6 +540,183 @@ describe.skipIf(!hasPg)(
       // No /proc readlinks either.
       const procReads = readlinkCalls.filter((c) => /^\/proc\/\d+\/cwd$/.test(c.path));
       expect(procReads).toEqual([]);
+    });
+
+    // ── nx-ds6rq: tmux-derived cwd + tmuxTarget tests ─────────────────────
+    //
+    // When a tmux pane runs `claude` and the pid is descendable from the
+    // pane's pane_pid, the watcher pulls cwd + tmuxTarget straight from
+    // tmux and fires resolveProject inline. This bypasses the Yama-blocked
+    // /proc/PID/cwd readlink path entirely.
+
+    test("New PID matched to tmux pane → row gets cwd + tmuxTarget + git fields populated", async () => {
+      // Live claude pid 1234 is a grandchild of pane_pid 1000:
+      //   pane_pid 1000 (zsh) -> 1001 (bash wrapper) -> 1234 (claude)
+      setPgrepOutput([pgrepLine(1234, "claude")]);
+      setTmuxPanesOutput([
+        "1000|/home/nyaptor/dev/ws|0|1|1|claude",
+      ]);
+      setChildMap({ 1000: [1001], 1001: [1234] });
+      setResolverResult({
+        provider: "github",
+        ownerRepo: "leonardoacosta/ws",
+        projectId: "11111111-2222-3333-4444-555555555555",
+      });
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.pid).toBe(1234);
+      expect(row.cwd).toBe("/home/nyaptor/dev/ws");
+      expect(row.tmuxTarget).toBe("0:1.1");
+      expect(row.gitProvider).toBe("github");
+      expect(row.gitOwnerRepo).toBe("leonardoacosta/ws");
+      expect(row.projectId).toBe("11111111-2222-3333-4444-555555555555");
+      // No /proc/PID/cwd reads.
+      const procReads = readlinkCalls.filter((c) =>
+        /^\/proc\/\d+\/cwd$/.test(c.path),
+      );
+      expect(procReads).toEqual([]);
+    });
+
+    test("Pid is the pane shell directly → row gets cwd + tmuxTarget (no descendant hop)", async () => {
+      // Rare but possible: tmux's pane_pid IS the claude process (no
+      // intermediate shell). The BFS short-circuits when rootPid is itself
+      // in the live set.
+      setPgrepOutput([pgrepLine(4025347, "claude")]);
+      setTmuxPanesOutput([
+        "4025347|/home/nyaptor/dev/oo|0|3|1|claude",
+      ]);
+      // No child map needed — pane_pid IS the claude pid.
+      setResolverResult(null);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.cwd).toBe("/home/nyaptor/dev/oo");
+      expect(row.tmuxTarget).toBe("0:3.1");
+    });
+
+    test("Multiple panes scanned — each claude pid mapped to its own pane", async () => {
+      setPgrepOutput([
+        pgrepLine(4025347, "claude"),
+        pgrepLine(1616637, "claude"),
+      ]);
+      setTmuxPanesOutput([
+        "4025347|/home/nyaptor/dev/ws|0|1|1|claude",
+        "1616637|/home/nyaptor/dev/oo|0|3|1|claude",
+      ]);
+      setResolverResult(null);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 2, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(2);
+      const byPid = new Map(rows.map((r) => [r.pid, r]));
+      expect(byPid.get(4025347)!.cwd).toBe("/home/nyaptor/dev/ws");
+      expect(byPid.get(4025347)!.tmuxTarget).toBe("0:1.1");
+      expect(byPid.get(1616637)!.cwd).toBe("/home/nyaptor/dev/oo");
+      expect(byPid.get(1616637)!.tmuxTarget).toBe("0:3.1");
+    });
+
+    test("Panes whose foreground command is not claude are ignored", async () => {
+      // Three panes; only the third is running claude.
+      setPgrepOutput([pgrepLine(5000, "claude")]);
+      setTmuxPanesOutput([
+        "1000|/home/nyaptor/dev/a|0|1|1|vim",
+        "2000|/home/nyaptor/dev/b|0|2|1|bash",
+        "3000|/home/nyaptor/dev/c|0|3|1|claude",
+      ]);
+      setChildMap({ 3000: [5000] });
+      setResolverResult(null);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.cwd).toBe("/home/nyaptor/dev/c");
+      expect(rows[0]!.tmuxTarget).toBe("0:3.1");
+    });
+
+    test("tmux unavailable → watcher falls back to PID-only detection", async () => {
+      // No tmux output set; tmuxPanesOutput defaults to "" which parses to
+      // an empty pane list. The fail-soft path applies — pid is inserted
+      // with cwd="" and tmuxTarget=null.
+      setPgrepOutput([pgrepLine(7777, "claude")]);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.cwd ?? "").toBe("");
+      expect(row.tmuxTarget).toBeNull();
+    });
+
+    test("Alive row missing cwd gets tmux-derived cwd + tmuxTarget backfilled", async () => {
+      // Pre-seed a row that was inserted before tmuxScan landed: pid known,
+      // cwd/tmuxTarget empty.
+      await db.insert(sessions).values({
+        id: "row-backfill",
+        machine: "local",
+        status: "active",
+        startedAt: new Date(),
+        lastActivity: new Date(),
+        endedAt: null,
+        pid: 8888,
+        cwd: "",
+        branch: null,
+        sessionType: "managed",
+        model: "claude",
+        tmuxTarget: null,
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+        projectId: null,
+        ccSessionId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+        gitProvider: null,
+        gitOwnerRepo: null,
+      });
+
+      setPgrepOutput([pgrepLine(8888, "claude --resume")]);
+      setTmuxPanesOutput([
+        "8000|/home/nyaptor/dev/ws|0|2|1|claude",
+      ]);
+      setChildMap({ 8000: [8888] });
+      setResolverResult({
+        provider: "github",
+        ownerRepo: "leonardoacosta/ws",
+        projectId: null,
+      });
+
+      const result = await reconcileOnce(db);
+      // No new rows, none closed — backfill + resolver only.
+      expect(result).toEqual({ created: 0, closed: 0 });
+
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-backfill"));
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.cwd).toBe("/home/nyaptor/dev/ws");
+      expect(row.tmuxTarget).toBe("0:2.1");
+      expect(row.gitProvider).toBe("github");
+      expect(row.gitOwnerRepo).toBe("leonardoacosta/ws");
     });
 
     test("Existing null-project row gets re-enriched on next poll", async () => {
