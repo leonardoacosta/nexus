@@ -24,9 +24,15 @@
 
 ## E2E Batch
 
-- [ ] 2.1 Verify on the homelab agent (which has `~/.claude/.credentials.json`,
+- [ ] [deferred] 2.1 Verify on the homelab agent (which has `~/.claude/.credentials.json`,
   1699 bytes): restart/redeploy the agent, then `GET /credentials` returns a
   non-empty result with non-null `activeFingerprint`; the dashboard Credentials
   view shows the real active credential. Paste the curl/JSON proof. [beads:nx-dt4rt]
-- [ ] 2.2 Negative check: with no `~/.claude/.credentials.json`, `GET
+  (Deferred — operator verification against a deployed homelab agent, not
+  an automated test. Requires curl/dashboard inspection by Leo on the real
+  deployment. /apply:all Phase 4 will file a P4 backlog issue.)
+- [ ] [deferred] 2.2 Negative check: with no `~/.claude/.credentials.json`, `GET
   /credentials` returns an explicit empty result (not a 500/error). [beads:nx-c28wt]
+  (Deferred — operator verification against a deployed agent in a
+  no-credential configuration. /apply:all Phase 4 will file a P4 backlog
+  issue.)

@@ -84,24 +84,46 @@
 
 ## E2E Batch
 
-- [ ] 4.1 End-to-end: trigger the `reaper` job with `--dry-run`, assert a [beads:nx-oe4kw]
+- [x] 4.1 End-to-end: trigger the `reaper` job with `--dry-run`, assert a [beads:nx-oe4kw]
   `cron_runs` row is written, zero filesystem mutations occurred, and the
   completion notification payload carries `items` + `logPath`
-- [ ] 4.2 End-to-end: seed a synthetic over-threshold bloat target, run the [beads:nx-3kke1]
+  (Covered by `apps/agent/src/services/reaper-job.e2e.test.ts` — describe
+  block "reaper E2E [4.1] — real dry-run against sandboxed $HOME". Gated
+  behind `POSTGRES_URL` + `NEXUS_RUN_LIVE_REAPER_TESTS=1`; skips cleanly
+  otherwise per the project test convention.)
+- [x] 4.2 End-to-end: seed a synthetic over-threshold bloat target, run the [beads:nx-3kke1]
   reaper (dry-run), assert a `bloat_radar` row is persisted and the dedicated
   bloat TTS path is exercised
-- [ ] 4.3 CLEAN CUT — remove the chezmoi reaper script from `~/dev/if`: [beads:nx-h7gs3]
+  (Covered by `apps/agent/src/services/reaper-job.e2e.test.ts` — describe
+  block "reaper E2E [4.2] — synthetic bloat seed exercises bloat_radar +
+  dedicated TTS". The "synthetic seed" is a stub script that emits the
+  same NEXUS_BLOAT protocol the real script would on a 40 GiB CoreSimulator
+  dir, driving the production parser -> persister -> notifier path verbatim
+  without requiring multi-GB of real disk. Asserts the dedicated bloat TTS
+  emit (channel="tts", title "Disk bloat warning").)
+- [ ] [deferred] 4.3 CLEAN CUT — remove the chezmoi reaper script from `~/dev/if`: [beads:nx-h7gs3]
   delete `home/dot_local/bin/executable_weekly-cleanup`
-- [ ] 4.4 CLEAN CUT — remove the macOS LaunchAgent from `~/dev/if`: [beads:nx-ka5qp]
+  (Deferred — cross-repo edit in ~/dev/if, out of scope for this Nexus
+  worktree dispatch. /apply:all Phase 4 will file a P4 backlog issue.)
+- [ ] [deferred] 4.4 CLEAN CUT — remove the macOS LaunchAgent from `~/dev/if`: [beads:nx-ka5qp]
   delete `home/Library/LaunchAgents/com.leonardoacosta.weekly-cleanup.plist`
   and `launchctl unload` any deployed copy so it cannot fire Sunday 03:00
-- [ ] 4.5 CLEAN CUT — remove the Linux systemd units from `~/dev/if`: [beads:nx-3kjkj]
+  (Deferred — cross-repo edit in ~/dev/if, out of scope for this Nexus
+  worktree dispatch. /apply:all Phase 4 will file a P4 backlog issue.)
+- [ ] [deferred] 4.5 CLEAN CUT — remove the Linux systemd units from `~/dev/if`: [beads:nx-3kjkj]
   delete `home/dot_config/systemd/user/weekly-cleanup.timer` and
   `weekly-cleanup.service`, and `systemctl --user disable --now` any deployed
   copy
-- [ ] 4.6 Sequence verification: confirm steps 4.3–4.5 run only AFTER the [beads:nx-x2rab]
+  (Deferred — cross-repo edit in ~/dev/if, out of scope for this Nexus
+  worktree dispatch. /apply:all Phase 4 will file a P4 backlog issue.)
+- [ ] [deferred] 4.6 Sequence verification: confirm steps 4.3–4.5 run only AFTER the [beads:nx-x2rab]
   nx `reaper` job is registered and verified (2.6), so the two schedulers
   can never both fire on the same Sunday 03:00
-- [ ] 4.7 Verify cross-platform parity: the reaper produces the expected [beads:nx-ftjrt]
+  (Deferred — depends on 4.3–4.5 which are themselves deferred to a
+  cross-repo follow-up. /apply:all Phase 4 will file a P4 backlog issue.)
+- [ ] [deferred] 4.7 Verify cross-platform parity: the reaper produces the expected [beads:nx-ftjrt]
   macOS sweep set and the expected Linux homelab sweep set with equivalent
   destructive-safety invariants
+  (Deferred — requires production deployment + homelab observation, out of
+  scope for an automated dispatch. /apply:all Phase 4 will file a P4
+  backlog issue.)
