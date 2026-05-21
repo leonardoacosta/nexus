@@ -72,6 +72,47 @@ mock.module("../utils/exec", () => ({
   execJson: mock(() => Promise.resolve(null)),
 }));
 
+// session-row-enrichment-v1 § 1.8: mock the git-project-resolver so each
+// test can deterministically control what the watcher sees. Default
+// behaviour is "no project" — individual tests override via
+// `setResolverResult` below.
+interface ResolverResult {
+  provider: string;
+  ownerRepo: string;
+  projectId: string | null;
+}
+let resolverResult: ResolverResult | null = null;
+function setResolverResult(result: ResolverResult | null): void {
+  resolverResult = result;
+}
+mock.module("./git-project-resolver", () => ({
+  resolveProject: mock(async (_cwd: string | null | undefined) => resolverResult),
+  __resetCacheForTests: () => {},
+}));
+
+// On macOS the watcher's readProcessCwd returns undefined (no /proc), so
+// the cwd short-circuit (`cwd ? await resolveProject(...) : null`) never
+// fires the resolver. Mock node:fs readlinkSync to return a deterministic
+// fake cwd so the resolver call site is exercised on CI / mac dev too.
+let fakeProcessCwd: string | null = "/tmp/fake-cwd";
+function setFakeProcessCwd(value: string | null): void {
+  fakeProcessCwd = value;
+}
+mock.module("node:fs", () => {
+  const real = require("node:fs") as typeof import("node:fs");
+  return {
+    ...real,
+    readlinkSync: (path: string, ..._args: unknown[]) => {
+      if (typeof path === "string" && /^\/proc\/\d+\/cwd$/.test(path)) {
+        if (fakeProcessCwd === null) throw new Error("ENOENT");
+        return fakeProcessCwd;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (real.readlinkSync as any)(path, ..._args);
+    },
+  };
+});
+
 // Now safe to import the module under test + DB plumbing.
 import { reconcileOnce, __testing } from "./process-watcher";
 import { createDb, sessions, eq } from "@nexus/db";
@@ -234,6 +275,8 @@ describe.skipIf(!hasPg)(
     beforeEach(async () => {
       await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."sessions"`);
       setPgrepOutput([]);
+      setResolverResult(null);
+      setFakeProcessCwd("/tmp/fake-cwd");
     });
 
     test("New PID → row created with status='active' and model='claude'", async () => {
@@ -402,6 +445,120 @@ describe.skipIf(!hasPg)(
       const rows = await db.select().from(sessions);
       expect(rows).toHaveLength(1);
       expect(rows[0]!.pid).toBe(4242);
+    });
+
+    // ── session-row-enrichment-v1 § 1.8: resolver enrichment ────────────
+    //
+    // These tests assert the call site introduced in process-watcher.ts §
+    // 1.4 populates gitProvider / gitOwnerRepo / projectId on the freshly
+    // inserted row when the resolver returns a non-null result, and that
+    // existing null-project rows are re-enriched on subsequent polls.
+
+    test("New PID with resolved project → gitProvider/gitOwnerRepo/projectId populated", async () => {
+      setResolverResult({
+        provider: "github",
+        ownerRepo: "leonardoacosta/oo",
+        projectId: null, // registry lookup miss is still a valid enrichment
+      });
+      setPgrepOutput([pgrepLine(1111, "claude")]);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.gitProvider).toBe("github");
+      expect(row.gitOwnerRepo).toBe("leonardoacosta/oo");
+    });
+
+    test("New PID with resolver projectId → row.project_id populated", async () => {
+      // Use a real UUID — the column is uuid and rejects bare text.
+      const fakeProjectId = "00000000-0000-0000-0000-000000000111";
+      setResolverResult({
+        provider: "github",
+        ownerRepo: "test/fixture",
+        projectId: fakeProjectId,
+      });
+      setPgrepOutput([pgrepLine(2222, "claude")]);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.projectId).toBe(fakeProjectId);
+      expect(row.gitProvider).toBe("github");
+      expect(row.gitOwnerRepo).toBe("test/fixture");
+    });
+
+    test("New PID with no resolver result → fields stay null (fail-soft)", async () => {
+      setResolverResult(null);
+      setPgrepOutput([pgrepLine(3333, "claude")]);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 1, closed: 0 });
+
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.gitProvider).toBeNull();
+      expect(row.gitOwnerRepo).toBeNull();
+      expect(row.projectId).toBeNull();
+    });
+
+    test("Existing null-project row gets re-enriched on next poll", async () => {
+      // Seed an active row with null git fields. The resolver wasn't
+      // available the first time around — now it is.
+      await db.insert(sessions).values({
+        id: "row-needs-enrich",
+        machine: "local",
+        status: "active",
+        startedAt: new Date(),
+        lastActivity: new Date(),
+        endedAt: null,
+        pid: 4444,
+        cwd: "/home/test/repo",
+        branch: null,
+        sessionType: "managed",
+        model: "claude",
+        tmuxTarget: null,
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+        projectId: null,
+        ccSessionId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+        gitProvider: null,
+        gitOwnerRepo: null,
+      });
+
+      // Resolver now returns a project for that cwd.
+      setResolverResult({
+        provider: "github",
+        ownerRepo: "leonardoacosta/oo",
+        projectId: null,
+      });
+      // Same PID is reported alive — heartbeat path, NOT new-row path.
+      setPgrepOutput([pgrepLine(4444, "claude --resume")]);
+
+      const result = await reconcileOnce(db);
+      // No new rows, none closed.
+      expect(result).toEqual({ created: 0, closed: 0 });
+
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-needs-enrich"));
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.gitProvider).toBe("github");
+      expect(row.gitOwnerRepo).toBe("leonardoacosta/oo");
     });
   },
 );

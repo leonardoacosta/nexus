@@ -12,7 +12,7 @@
 - [x] [1.5] [P-2] Hook resolver into the session_start hook path in `apps/agent/src/routes/hooks.ts` (or wherever hook ingest creates the session row). Same enrichment call, same fail-soft semantics [owner:api-engineer] [type:feature] [beads:nx-ph2d7]
 - [x] [1.6] [P-2] Update `packages/db/src/schema/sessions.ts` if columns added in 1.1 — add `gitProvider`, `gitOwnerRepo` fields [owner:db-engineer] [type:db] [beads:nx-i55iu]
 - [x] [1.7] Add `apps/agent/src/services/git-project-resolver.test.ts` with 5 tests: github HTTPS URL, github SSH URL, Azure DevOps URL, missing-git-repo (returns null), cache hit within 30s [owner:api-engineer] [type:test] [beads:nx-e2xej]
-- [ ] [1.8] Extend `apps/agent/src/services/process-watcher.test.ts` to assert resolver call site populates the three fields when cwd has a git remote [owner:api-engineer] [type:test] [beads:nx-sm52r]
+- [x] [1.8] Extend `apps/agent/src/services/process-watcher.test.ts` to assert resolver call site populates the three fields when cwd has a git remote [owner:api-engineer] [type:test] [beads:nx-sm52r]
 
 ## UI Batch
 
