@@ -1,5 +1,5 @@
 import type { Db } from "@nexus/db";
-import { sessionTokenTurns, eq, sql } from "@nexus/db";
+import { sessions, sessionTokenTurns, eq, sql } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import {
   queryActiveSessions,
@@ -12,6 +12,7 @@ import type { SessionRow } from "../db/sessions";
 import { execText, ExecError } from "../utils/exec";
 import { reconcileOnce } from "../services/process-watcher";
 import { resolveGitOrigin } from "../services/git-project";
+import { resolveProject } from "../services/git-project-resolver";
 
 const log = createLogger("agent:routes:sessions");
 
@@ -367,20 +368,38 @@ export async function handleSessionStart(
         childRole: null,
       });
 
-      // Fire-and-forget git origin resolution. /session/start does not flow
-      // through `processHookEvent` (it's a managed-spawn route, not a hook
-      // ingress) — but the same enrichment applies: a managed session
-      // should carry git_provider/git_owner_repo so dashboards can group
-      // by repo. add-git-project-resolver 1.3 wire-in alt-path.
-      resolveGitOrigin(body.path)
-        .then((origin) => {
-          if (!origin) return;
-          return updateSessionGitOrigin(db, sessionName, origin);
+      // Fire-and-forget git project resolution. /session/start does not
+      // flow through `processHookEvent` (it's a managed-spawn route, not a
+      // hook ingress) — but the same enrichment applies: a managed session
+      // should carry git_provider/git_owner_repo/project_id so dashboards
+      // can group by repo. session-row-enrichment-v1 § 1.5 wire-in alt-path.
+      resolveProject(body.path, db)
+        .then(async (project) => {
+          if (!project) {
+            // Resolver returned null — fall back to the narrower legacy
+            // path so the row still gets provider/ownerRepo when the
+            // registry lookup didn't apply.
+            const origin = await resolveGitOrigin(body.path);
+            if (origin) {
+              await updateSessionGitOrigin(db, sessionName, origin);
+            }
+            return;
+          }
+          await updateSessionGitOrigin(db, sessionName, {
+            provider: project.provider,
+            ownerRepo: project.ownerRepo,
+          });
+          if (project.projectId) {
+            await db
+              .update(sessions)
+              .set({ projectId: project.projectId })
+              .where(eq(sessions.id, sessionName));
+          }
         })
         .catch((err: unknown) => {
           log.warn(
             { sessionName, error: err instanceof Error ? err.message : String(err) },
-            "git origin enrichment failed for /session/start (non-fatal)",
+            "git project enrichment failed for /session/start (non-fatal)",
           );
         });
     } catch (err) {

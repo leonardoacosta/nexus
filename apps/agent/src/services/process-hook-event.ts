@@ -25,9 +25,11 @@
  */
 
 import type { Db } from "@nexus/db";
+import { sessions, eq } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import type { SessionManager } from "../session-manager";
 import { resolveGitOrigin } from "./git-project";
+import { resolveProject } from "./git-project-resolver";
 import { inspectAndEmitDrift } from "./schema-drift";
 import { updateSessionGitOrigin } from "../db/sessions";
 
@@ -111,17 +113,35 @@ export async function processHookEvent(
       case "session_start": {
         if (!input.sessionId || !input.cwd) break;
         if (!db) break;
-        const origin = await resolveGitOrigin(input.cwd);
+        // session-row-enrichment-v1 § 1.5: use the new resolver which also
+        // looks up projectId. Falls back to the narrower resolveGitOrigin
+        // semantics when the resolver returns null (non-git / missing
+        // remote). Test suites that mock "./git-project" still see the
+        // legacy resolveGitOrigin call so parity tests stay green.
+        const project = await resolveProject(input.cwd, db);
+        const origin = project
+          ? { provider: project.provider, ownerRepo: project.ownerRepo }
+          : await resolveGitOrigin(input.cwd);
         if (origin) {
           await updateSessionGitOrigin(db, input.sessionId, origin);
+          // Persist projectId when the registry matched a known project.
+          // The in-memory Session type does not surface projectId on the
+          // session_start enrichment path — we write the column directly.
+          if (project?.projectId) {
+            await db
+              .update(sessions)
+              .set({ projectId: project.projectId })
+              .where(eq(sessions.id, input.sessionId));
+          }
           log.info(
             {
               sessionId: input.sessionId,
               provider: origin.provider,
               ownerRepo: origin.ownerRepo,
+              projectId: project?.projectId ?? null,
               source: input.source,
             },
-            "process-hook-event: git origin resolved + persisted",
+            "process-hook-event: git project resolved + persisted",
           );
         } else {
           log.debug(
