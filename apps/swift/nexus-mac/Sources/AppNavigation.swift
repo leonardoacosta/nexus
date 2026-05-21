@@ -110,7 +110,7 @@ struct AppNavigation: View {
     private var detailView: some View {
         switch selection {
         case .sessions:      SessionsView(observer: observer)
-        case .specs:         SpecsView()
+        case .specs:         SpecsView(sessionObserver: observer)
         case .projects:      ProjectsView()
         case .credentials:   CredentialsView()
         case .failures:      FailuresView()

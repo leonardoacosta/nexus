@@ -20,6 +20,15 @@ struct SpecsView: View {
     // `specsAccordion.<slug>` on the first render of each group, persisted
     // on every toggle.
     @State private var expandedProjects: Set<String> = []
+    // specs-tab-accordion-with-topology (task 2.5): shared with AppNavigation
+    // / SessionsView so the project header can count active sessions whose
+    // cwd resolves to that project's slug. Optional so the view still
+    // builds in isolation (previews, tests).
+    @ObservedObject var sessionObserver: SessionObserver
+
+    init(sessionObserver: SessionObserver) {
+        self.sessionObserver = sessionObserver
+    }
 
     var body: some View {
         HSplitView {
@@ -108,17 +117,107 @@ struct SpecsView: View {
                             }
                         }
                     } label: {
-                        Text(group.project)
-                            .font(.system(.caption, design: .monospaced))
-                            .tracking(1.5)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        projectHeader(for: group)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 4)
                 }
             }
         }
+    }
+
+    /// Project group header — slug, completion summary, and an
+    /// active-session pulsing green dot when at least one CC session
+    /// is running inside that project's working directory. The dot is
+    /// `.help`-decorated so hovering surfaces the active-session count.
+    ///
+    /// specs-tab-accordion-with-topology tasks 2.5 (session dot) + 2.6
+    /// (wave rollup chip) compose here so a single header header renders
+    /// every adornment with the same layout budget.
+    @ViewBuilder
+    private func projectHeader(for group: SpecsViewModel.Group) -> some View {
+        let totalSpecs = group.specs.count
+        let activeSpecs = group.specs.filter {
+            switch $0.status.lowercased() {
+            case "in-progress", "approved": return true
+            default: return false
+            }
+        }.count
+        let sessionCount = activeSessionCount(forProject: group.project)
+        HStack(spacing: 8) {
+            Text(group.project)
+                .font(.system(.caption, design: .monospaced))
+                .tracking(1.5)
+                .foregroundStyle(.secondary)
+            Text("\(activeSpecs)/\(totalSpecs) active")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
+            if sessionCount > 0 {
+                ActiveSessionDot(count: sessionCount)
+            }
+            if let chip = waveRollupChip(forProject: group.project) {
+                chip
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Count active CC sessions whose `cwd` resolves to the given project
+    /// slug. Two boundary checks guard against substring collisions
+    /// (`nx` matching `nexus`): the slug must be the LAST path segment
+    /// or appear as `/dev/<slug>/`. Reads from the shared
+    /// `SessionObserver.sessions` published list — staying inside the
+    /// macOS dashboard's existing data flow rather than spinning up a
+    /// separate fetch.
+    private func activeSessionCount(forProject project: String) -> Int {
+        let suffix = "/dev/\(project)"
+        let middle = "/dev/\(project)/"
+        return sessionObserver.activeSessions.filter { session in
+            guard let cwd = session.cwd, !cwd.isEmpty else { return false }
+            return cwd.contains(middle) || cwd.hasSuffix(suffix)
+        }.count
+    }
+
+    /// Wave rollup chip for the project header (task 2.6). Hidden when
+    /// no /apply is active, or when none of this project's specs are
+    /// in the wave plan. Renders `[W{n}]` for a single-wave plan and
+    /// `[W{min}-W{max}]` for multi-wave plans, followed by a count of
+    /// dispatched/in_progress specs scoped to this project.
+    @ViewBuilder
+    private func waveRollupChip(forProject project: String) -> AnyView? {
+        guard let plan = model.wavePlan, plan.isActive else { return nil }
+        // Names of specs that belong to this project in the live spec list.
+        let names = Set(
+            model.grouped
+                .first(where: { $0.project == project })?
+                .specs
+                .map(\.name) ?? []
+        )
+        let matching = plan.specStatuses.filter { names.contains($0.name) }
+        guard !matching.isEmpty else { return nil }
+        let waves = matching.map(\.wave)
+        let minW = waves.min() ?? 0
+        let maxW = waves.max() ?? 0
+        let label = minW == maxW ? "[W\(minW)]" : "[W\(minW)-W\(maxW)]"
+        let inflight = matching.filter {
+            $0.status == .dispatched || $0.status == .in_progress
+        }.count
+        return AnyView(
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tint)
+                if inflight > 0 {
+                    Text("· \(inflight) dispatched")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tint.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.tint.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        )
     }
 
     /// Two-way binding for a project's accordion expansion. Reads
@@ -198,6 +297,29 @@ private struct SpecRow: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .padding(.top, 6)
+    }
+}
+
+/// Pulsing green dot rendered on a project header when at least one
+/// CC session is running inside that project's working directory.
+/// Hover-tooltip surfaces the exact session count.
+///
+/// specs-tab-accordion-with-topology task 2.5.
+private struct ActiveSessionDot: View {
+    let count: Int
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.green)
+            .frame(width: 7, height: 7)
+            .opacity(pulsing ? 0.4 : 1.0)
+            .animation(
+                .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                value: pulsing
+            )
+            .onAppear { pulsing = true }
+            .help("\(count) active session\(count == 1 ? "" : "s")")
     }
 }
 
