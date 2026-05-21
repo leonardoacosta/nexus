@@ -234,13 +234,61 @@ public actor NexusAggregateClient {
     }
 
     /// Credentials merged across agents, deduped by profile `id`.
-    public func fetchCredentials() async -> [CcProfile] {
+    ///
+    /// `dedupe = true` forwards `?dedupe=true` to each peer agent so the
+    /// per-agent list comes back collapsed to primaries-with-sibling-count;
+    /// the cross-agent merge by `id` still applies (rare two agents would
+    /// own the same credential).
+    public func fetchCredentials(dedupe: Bool = false) async -> [CcProfile] {
         let (perAgent, _) = await fanOut("fetchCredentials") { client in
-            try await client.fetchCredentials()
+            try await client.fetchCredentials(dedupe: dedupe)
         }
         var merged: [String: CcProfile] = [:]
         for rows in perAgent { for c in rows { merged[c.id] = c } }
         return Array(merged.values)
+    }
+
+    /// Best-effort refresh-identity-all across every reachable agent.
+    /// Returns the summed `{ probed, succeeded, failed }` so the UI can
+    /// render a single toast. Per-agent failures are dropped.
+    public struct AggregateIdentityRefresh: Sendable {
+        public var probed: Int
+        public var succeeded: Int
+        public var failed: Int
+    }
+
+    public func refreshAllCredentialIdentities() async -> AggregateIdentityRefresh {
+        let (perAgent, _) = await fanOut("refreshAllCredentialIdentities") {
+            client in
+            try await client.refreshAllCredentialIdentities()
+        }
+        var totalProbed = 0
+        var totalSucceeded = 0
+        var totalFailed = 0
+        for r in perAgent {
+            totalProbed += r.probed
+            totalSucceeded += r.succeeded
+            totalFailed += r.failed
+        }
+        return AggregateIdentityRefresh(
+            probed: totalProbed,
+            succeeded: totalSucceeded,
+            failed: totalFailed
+        )
+    }
+
+    /// Per-row refresh-identity. The credential lives on exactly one agent
+    /// (the one that originally added it); fan-out lets the owner answer
+    /// while the rest return 404 harmlessly — the first successful response
+    /// wins. Returns nil when every agent returned an error.
+    public func refreshCredentialIdentity(
+        id: String
+    ) async -> NexusClient.CredentialIdentityResponse? {
+        let (perAgent, _) = await fanOut("refreshCredentialIdentity") {
+            client in
+            try await client.refreshCredentialIdentity(id: id)
+        }
+        return perAgent.first
     }
 
     /// Script errors merged across agents, newest first.

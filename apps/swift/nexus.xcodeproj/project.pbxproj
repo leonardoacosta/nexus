@@ -26,6 +26,7 @@
 		21C247527E7607CC8F7140BC /* RootScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5592F30E8101D234FB6B4159 /* RootScene.swift */; };
 		21FAE3BB9FA83CE0B0FCE22A /* IdentityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DAD3B87469E5CB921D78729 /* IdentityRow.swift */; };
 		2C3849FCFA7819DFCD63D248 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012FF0DFB2DB82FE9B710D15 /* Session.swift */; };
+		2CA1788A9ABE8156EB680DCF /* CredentialsUsageBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */; };
 		2F4511F8432A2F20634CF42C /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		2FF6FA5BB943BF786EDAA66C /* NexusWatchAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE273DB369C38A05DB36ABEE /* NexusWatchAppDelegate.swift */; };
 		308B831B7BC40C8B46F9EFA8 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0384CA9ED243F4F09451466 /* AppNavigation.swift */; };
@@ -61,6 +62,7 @@
 		73217CD0F7C5C4CCDBD74439 /* ProcessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */; };
 		73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */; };
 		7AEABBD2A9816884E84085DA /* AlertStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */; };
+		7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */; };
 		7D765D29938F746D74AFC05E /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		7E20A55440A77EBEB02F157F /* SessionListScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2961F8489D19EAFAD0D4F457 /* SessionListScene.swift */; };
 		7F5531DED1E2B21A91B56EFF /* StatusIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C8FAB9AEABD956F824CDBA /* StatusIcon.swift */; };
@@ -98,6 +100,7 @@
 		C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */; };
 		CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */; };
 		D1B25E27984FCD6A9442A0C2 /* HealthSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */; };
+		D1EDA0FE8AF902AD35250D5C /* CredentialsUsageBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */; };
 		D28A73352A6BDEF5D7E617FC /* MarkdownRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570A08307B8A0D0713D9E014 /* MarkdownRenderingTests.swift */; };
 		D340D2B69EB091A00E62BCD1 /* NotificationActionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED50A4C95555C16FF3CC37F /* NotificationActionRegistry.swift */; };
 		D47B8DD11C85D8797FD4A8C2 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B0CFFE5094C6A1D743886C /* HealthView.swift */; };
@@ -292,6 +295,7 @@
 		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
 		6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertStrip.swift; sourceTree = "<group>"; };
 		6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowTests.swift; sourceTree = "<group>"; };
+		6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsViewTests.swift; sourceTree = "<group>"; };
 		6E0EE128D4680A02B87E3651 /* ActionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionRow.swift; sourceTree = "<group>"; };
 		6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbe.swift; sourceTree = "<group>"; };
@@ -343,8 +347,10 @@
 		E0F53FABAE091A9DA2BF18BF /* NexusIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusIOSApp.swift; sourceTree = "<group>"; };
 		E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
 		EBF82FA65C214FE1491DE3E4 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
+		EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageBarTests.swift; sourceTree = "<group>"; };
 		EE1CF4A9536CEA43E2DA5FE6 /* Sparkline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sparkline.swift; sourceTree = "<group>"; };
 		EE33C13805C324E12DC6C002 /* nexus-ios.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "nexus-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageBar.swift; sourceTree = "<group>"; };
 		F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsView.swift; sourceTree = "<group>"; };
 		FC8713A6F0FF55E278958C07 /* ElevenLabsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsClient.swift; sourceTree = "<group>"; };
@@ -455,6 +461,7 @@
 		632E1E5D8441BA5C9AD28F15 /* Dashboard */ = {
 			isa = PBXGroup;
 			children = (
+				F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */,
 				F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */,
 				92DE47387ED686498A455137 /* FailuresView.swift */,
 				01B0CFFE5094C6A1D743886C /* HealthView.swift */,
@@ -648,6 +655,8 @@
 			isa = PBXGroup;
 			children = (
 				DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */,
+				EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */,
+				6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */,
 				ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */,
 				31115AFC5C16685752DA91CC /* TTSObserverTests.swift */,
 			);
@@ -980,6 +989,7 @@
 				5224ED8142D833BD558692C7 /* AudioPlayer.swift in Sources */,
 				3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */,
 				1BAFA2038CD249707F7B77C5 /* CcProfileStatusView.swift in Sources */,
+				D1EDA0FE8AF902AD35250D5C /* CredentialsUsageBar.swift in Sources */,
 				B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */,
 				3D1C98BE91C22C8FFFFD3F2E /* ElevenLabsSettingsView.swift in Sources */,
 				4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */,
@@ -1049,6 +1059,8 @@
 			files = (
 				BAAAE289AABAE5624D037BDE /* AgentNotificationIntegrationTest.swift in Sources */,
 				150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */,
+				2CA1788A9ABE8156EB680DCF /* CredentialsUsageBarTests.swift in Sources */,
+				7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */,
 				73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */,
 				5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */,
 				CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */,

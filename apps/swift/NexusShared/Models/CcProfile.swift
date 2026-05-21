@@ -33,6 +33,26 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
     /// True when this fingerprint matches the agent's `activeFingerprint`.
     public var isActive: Bool
 
+    // MARK: - Usage snapshot (credentials-account-resolve-and-usage)
+    //
+    // Populated by the agent's `credential-usage-poller` service every
+    // 5 minutes; nil until the first successful poll. The 5-hour and
+    // 7-day windows mirror Anthropic's /api/oauth/usage shape.
+    public var usage5hUsed: Int?
+    public var usage5hLimit: Int?
+    public var usage5hResetAt: Date?
+    public var usage7dUsed: Int?
+    public var usage7dLimit: Int?
+    public var usage7dResetAt: Date?
+    public var usagePolledAt: Date?
+
+    // MARK: - Dedupe metadata (credentials-account-resolve-and-usage)
+    //
+    // Present only when the dashboard requested `GET /credentials?dedupe=true`.
+    // `siblingCount == 0` means this row's group has no hidden duplicates.
+    public var siblingCount: Int?
+    public var siblingIds: [String]?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case name
@@ -47,6 +67,15 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         case rateLimit429Count = "rateLimit429Count"
         case lastSwapAt = "lastSwapAt"
         case isActive = "isActive"
+        case usage5hUsed
+        case usage5hLimit
+        case usage5hResetAt
+        case usage7dUsed
+        case usage7dLimit
+        case usage7dResetAt
+        case usagePolledAt
+        case siblingCount
+        case siblingIds
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,6 +93,15 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.rateLimit429Count = (try? c.decode(Int.self, forKey: .rateLimit429Count)) ?? 0
         self.lastSwapAt = CcProfile.decodePermissiveDate(c, .lastSwapAt)
         self.isActive = (try? c.decode(Bool.self, forKey: .isActive)) ?? false
+        self.usage5hUsed = try? c.decode(Int.self, forKey: .usage5hUsed)
+        self.usage5hLimit = try? c.decode(Int.self, forKey: .usage5hLimit)
+        self.usage5hResetAt = CcProfile.decodePermissiveDate(c, .usage5hResetAt)
+        self.usage7dUsed = try? c.decode(Int.self, forKey: .usage7dUsed)
+        self.usage7dLimit = try? c.decode(Int.self, forKey: .usage7dLimit)
+        self.usage7dResetAt = CcProfile.decodePermissiveDate(c, .usage7dResetAt)
+        self.usagePolledAt = CcProfile.decodePermissiveDate(c, .usagePolledAt)
+        self.siblingCount = try? c.decode(Int.self, forKey: .siblingCount)
+        self.siblingIds = try? c.decode([String].self, forKey: .siblingIds)
     }
 
     public init(
@@ -79,7 +117,16 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         expiresAt: Date? = nil,
         rateLimit429Count: Int = 0,
         lastSwapAt: Date? = nil,
-        isActive: Bool = false
+        isActive: Bool = false,
+        usage5hUsed: Int? = nil,
+        usage5hLimit: Int? = nil,
+        usage5hResetAt: Date? = nil,
+        usage7dUsed: Int? = nil,
+        usage7dLimit: Int? = nil,
+        usage7dResetAt: Date? = nil,
+        usagePolledAt: Date? = nil,
+        siblingCount: Int? = nil,
+        siblingIds: [String]? = nil
     ) {
         self.id = id
         self.name = name
@@ -94,6 +141,15 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.rateLimit429Count = rateLimit429Count
         self.lastSwapAt = lastSwapAt
         self.isActive = isActive
+        self.usage5hUsed = usage5hUsed
+        self.usage5hLimit = usage5hLimit
+        self.usage5hResetAt = usage5hResetAt
+        self.usage7dUsed = usage7dUsed
+        self.usage7dLimit = usage7dLimit
+        self.usage7dResetAt = usage7dResetAt
+        self.usagePolledAt = usagePolledAt
+        self.siblingCount = siblingCount
+        self.siblingIds = siblingIds
     }
 
     /// Return a copy with `isActive = true` — used by `NexusClient.fetchCredentials()`

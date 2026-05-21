@@ -265,10 +265,21 @@ public actor NexusClient {
     /// `GET /credentials` — list every CC profile the agent currently manages.
     /// Returns the flat profile array; callers needing the active fingerprint
     /// hit `fetchCredentialsEnvelope()` instead.
-    public func fetchCredentials() async throws -> [CcProfile] {
-        let envelope: CredentialListResponse = try await getJSON(
-            url: endpoint.baseURL.appendingPathComponent("credentials")
-        )
+    ///
+    /// `dedupe = true` flips on `?dedupe=true`, collapsing duplicate-token
+    /// rows to their primary with `siblingCount` + `siblingIds` populated
+    /// (added by credentials-account-resolve-and-usage). Default `false`
+    /// preserves byte-for-byte legacy behaviour.
+    public func fetchCredentials(dedupe: Bool = false) async throws -> [CcProfile] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("credentials"),
+            resolvingAgainstBaseURL: false
+        )!
+        if dedupe {
+            comps.queryItems = [URLQueryItem(name: "dedupe", value: "true")]
+        }
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        let envelope: CredentialListResponse = try await getJSON(url: url)
         // Stamp `isActive` so the UI doesn't need to thread the fingerprint.
         let active = envelope.activeFingerprint
         return envelope.credentials.map { profile in
@@ -281,6 +292,96 @@ public actor NexusClient {
     /// `GET /credentials` — full envelope including `activeFingerprint`.
     public func fetchCredentialsEnvelope() async throws -> CredentialListResponse {
         try await getJSON(url: endpoint.baseURL.appendingPathComponent("credentials"))
+    }
+
+    /// `POST /credentials/:id/refresh-identity` — manually re-probe a single
+    /// credential's /api/oauth/profile and persist the new identity fields.
+    /// Returns the updated identity object on 200, throws on transport or
+    /// non-2xx status so the UI can surface the failure.
+    ///
+    /// Added by credentials-account-resolve-and-usage; backs the dashboard's
+    /// per-row refresh button on rows where `accountEmail == nil`.
+    public struct CredentialIdentityResponse: Decodable, Sendable {
+        public var accountEmail: String?
+        public var accountName: String?
+        public var accountUuid: String?
+        public var orgName: String?
+        public var orgUuid: String?
+    }
+
+    public func refreshCredentialIdentity(
+        id: String
+    ) async throws -> CredentialIdentityResponse {
+        let escaped = id.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? id
+        let url = endpoint.baseURL
+            .appendingPathComponent("credentials")
+            .appendingPathComponent(escaped)
+            .appendingPathComponent("refresh-identity")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        do {
+            return try decoder.decode(CredentialIdentityResponse.self, from: data)
+        } catch {
+            throw NexusClientError.decoding(error)
+        }
+    }
+
+    /// `POST /credentials/refresh-identity-all` — bulk re-probe every
+    /// credential whose `account_email` is null. Returns the per-batch
+    /// summary `{ probed, succeeded, failed }` so the UI can render a
+    /// toast on completion. Throws on transport / non-2xx.
+    public struct CredentialIdentityBatchResponse: Decodable, Sendable {
+        public var probed: Int
+        public var succeeded: Int
+        public var failed: Int
+    }
+
+    public func refreshAllCredentialIdentities()
+        async throws -> CredentialIdentityBatchResponse
+    {
+        let url = endpoint.baseURL
+            .appendingPathComponent("credentials")
+            .appendingPathComponent("refresh-identity-all")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        do {
+            return try decoder.decode(
+                CredentialIdentityBatchResponse.self,
+                from: data
+            )
+        } catch {
+            throw NexusClientError.decoding(error)
+        }
     }
 
     /// `GET /failures?days=N` — recent script + notification failures.
