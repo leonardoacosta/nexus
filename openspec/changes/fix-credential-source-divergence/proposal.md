@@ -1,3 +1,9 @@
+---
+status: approved
+approved-by: leo@leonardoacosta.dev
+approved-at: 2026-05-21T11:02:40-05:00
+---
+
 # Proposal: Fix credential source divergence (dashboard /credentials reflects real auth)
 
 ## Change ID
