@@ -172,6 +172,12 @@ final class SpecsViewModel: ObservableObject {
     @Published private(set) var specs: [SpecSummary] = []
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var latestTransition: String?
+    /// Active /apply wave-plan projection from `GET /wave-plans/active`.
+    /// Optional so the dashboard can distinguish three states:
+    /// nil = fetch failed (hide chips), .isActive == false = no active
+    /// run (hide chips), .isActive == true = render wave/status chips.
+    /// Decoration only — never blocks the specs render path.
+    @Published private(set) var wavePlan: WavePlanStatus?
 
     private let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
@@ -191,8 +197,13 @@ final class SpecsViewModel: ObservableObject {
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        // Merged across reachable agents; partial failure tolerated.
-        specs = await client.fetchSpecs()
+        // Fetch specs + wave plan concurrently so the wave-plan call never
+        // serializes behind the (larger) specs fetch. Wave plan is pure
+        // decoration; even if it fails, specs still render.
+        async let specsFetch = client.fetchSpecs()
+        async let wavePlanFetch = client.fetchWavePlanStatus()
+        self.specs = await specsFetch
+        self.wavePlan = await wavePlanFetch
     }
 
     func subscribe() async {
