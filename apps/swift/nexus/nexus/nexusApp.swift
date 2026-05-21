@@ -23,6 +23,13 @@ struct nexusApp: App {
     // 2026-05-16, bd:nx-smger).
     @StateObject private var ttsObserver: TTSObserver
 
+    // Strong reference to the UN delegate — `UNUserNotificationCenter`
+    // stores the delegate as a `weak` reference, so without an owner the
+    // delegate would be released between init() and the first banner
+    // click. Mounted alongside TTSObserver so its lifetime matches the
+    // app's. Spec: openspec/changes/adopt-reaper-into-nx-cron task 3.3.
+    private let activationHandler = NotificationActivationHandler()
+
     // App-init logger — same subsystem as TTSObserver so Console.app's
     // `process:nexus` filter shows the launch trace alongside the pipeline.
     private static let appLogger = Logger(
@@ -54,6 +61,14 @@ struct nexusApp: App {
         if SettingsStore.shared.dashboardEndpoint == nil {
             SettingsStore.shared.dashboardEndpoint = "http://100.73.182.4:7400"
         }
+
+        // Mount the activation handler BEFORE requesting authorisation
+        // so a queued banner-click activation that arrives during the
+        // authorisation prompt still routes through our logPath handler.
+        // The delegate is held by `activationHandler` (strong), then
+        // assigned weakly to UNUserNotificationCenter per Apple's API
+        // contract. Spec: openspec/changes/adopt-reaper-into-nx-cron 3.3.
+        UNUserNotificationCenter.current().delegate = activationHandler
 
         // Request notification authorisation once at launch. The completion
         // handler is non-blocking — macOS caches the user's decision, so

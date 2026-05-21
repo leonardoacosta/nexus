@@ -32,6 +32,21 @@ public protocol KeychainStore: Sendable {
     func voiceId() -> String?
 }
 
+/// Stable string keys for fields the notification renderer stashes on
+/// `UNNotificationContent.userInfo`. Centralised so the renderer (write
+/// side, `TTSObserver.postBanner`) and the click handler (read side,
+/// `NotificationActivationHandler`) agree on the spelling.
+///
+/// Spec: openspec/changes/adopt-reaper-into-nx-cron (task 3.3 — the
+/// raw-osascript click-attribution fix path).
+public enum NotificationUserInfoKeys {
+    /// File path to open via `NSWorkspace.shared.open(_:)` when the user
+    /// clicks the banner. Set only when the originating
+    /// `NotificationEvent.logPath` is non-empty; absent keys mean "fall
+    /// back to default activation".
+    public static let logPath = "nexus.logPath"
+}
+
 /// Default Keychain-backed store. Reads on every call (Keychain has its
 /// own cache; we don't want a stale snapshot if the user pastes a new key
 /// while the observer is running).
@@ -150,13 +165,58 @@ public final class TTSObserver: ObservableObject {
         await synthesise(event: event)
     }
 
+    // MARK: - Body renderer (public for test reach)
+
+    /// Format the banner body. When `event.items` is non-empty, render
+    /// the body as `event.body` followed by a `• item` bullet list (one
+    /// item per line) so users can scan multi-finding notifications
+    /// without the previous run-on single-line collapse. When `items` is
+    /// nil or empty, fall back to the raw `event.body` — preserving the
+    /// pre-reaper behaviour for every other channel.
+    ///
+    /// Spec: openspec/changes/adopt-reaper-into-nx-cron (task 3.2).
+    ///
+    /// Whitespace policy: empty / whitespace-only entries are dropped so
+    /// stray trailing newlines from the agent's bullet generator don't
+    /// produce orphan `• ` lines. If filtering leaves no items, the body
+    /// degrades cleanly to `event.body` alone.
+    ///
+    /// `nonisolated` because the function is pure-string and tests need
+    /// to call it from non-main contexts. The enclosing class is
+    /// `@MainActor`-isolated for the SSE pipeline, but rendering body
+    /// text does not touch shared mutable state.
+    public nonisolated static func renderBody(for event: NotificationEvent) -> String {
+        let items = (event.items ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if items.isEmpty {
+            return event.body
+        }
+        let bullets = items.map { "• \($0)" }.joined(separator: "\n")
+        // Two-part body: the existing summary line, blank line, then the
+        // bullet block. Apple's banner truncates long bodies but the
+        // full text is visible in Notification Center.
+        if event.body.isEmpty {
+            return bullets
+        }
+        return "\(event.body)\n\n\(bullets)"
+    }
+
     // MARK: - Stage helpers
 
     private func postBanner(for event: NotificationEvent) async {
         let content = UNMutableNotificationContent()
         content.title = event.title ?? "Nexus"
-        content.body = event.body
+        content.body = TTSObserver.renderBody(for: event)
         content.sound = .default
+        // adopt-reaper-into-nx-cron task 3.3: stash the optional log path
+        // on the request's userInfo so the UNUserNotificationCenterDelegate
+        // can open it on click without re-resolving the original event.
+        // Empty/whitespace logPath is treated as "no path" — fall through
+        // to default activation. userInfo MUST be plist-serializable, so
+        // we only forward the raw string.
+        if let logPath = event.logPath, !logPath.isEmpty {
+            content.userInfo[NotificationUserInfoKeys.logPath] = logPath
+        }
 
         let request = UNNotificationRequest(
             identifier: event.id.uuidString,

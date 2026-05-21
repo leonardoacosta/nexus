@@ -49,6 +49,21 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
     /// that omit the field decode as `.pending`.
     public var deliveryState: DeliveryState
 
+    /// Optional bullet items emitted by structured-summary jobs (currently
+    /// the weekly reaper completion notification — bloat findings list).
+    /// Mac renderer expands these into a `• line` body when non-empty.
+    /// Spec: openspec/changes/adopt-reaper-into-nx-cron (task 3.1, wire
+    /// contract from API task 2.8 in `apps/agent/src/services/lifecycle-bus.ts`).
+    /// Codable back-compat: older payloads omit the key and decode as nil.
+    public var items: [String]?
+
+    /// Optional path to a job log file. When present, clicking the banner
+    /// activates `NSWorkspace.shared.open(URL(fileURLWithPath: logPath))`
+    /// instead of the default click-attribution path. Threaded from the
+    /// agent's reaper job completion payload (API task 2.8).
+    /// Codable back-compat: older payloads omit the key and decode as nil.
+    public var logPath: String?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case body
@@ -64,6 +79,13 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         case receivedAtCamel = "receivedAt"
         case severity
         case deliveryState = "delivery_state"
+        // adopt-reaper-into-nx-cron (task 3.1): optional structured fields
+        // forwarded from `NotificationFiredPayload`. Snake-case `log_path`
+        // matches the canonical agent wire spelling; camelCase fallback is
+        // accepted as a tolerance hook (some legacy SSE frames camelCase).
+        case items
+        case logPath = "log_path"
+        case logPathCamel = "logPath"
     }
 
     public init(
@@ -75,7 +97,9 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         project: String? = nil,
         receivedAt: Date = Date(),
         severity: NotificationSeverity = .info,
-        deliveryState: DeliveryState = .pending
+        deliveryState: DeliveryState = .pending,
+        items: [String]? = nil,
+        logPath: String? = nil
     ) {
         self.id = id
         self.body = body
@@ -86,6 +110,8 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         self.receivedAt = receivedAt
         self.severity = severity
         self.deliveryState = deliveryState
+        self.items = items
+        self.logPath = logPath
     }
 
     public init(from decoder: Decoder) throws {
@@ -125,6 +151,20 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         } else {
             self.deliveryState = .pending
         }
+
+        // adopt-reaper-into-nx-cron task 3.1: optional structured fields.
+        // Absent keys decode as nil — back-compat for older agent payloads
+        // and non-reaper notifications. `items` is strict on shape (must
+        // be a JSON string array if present); `logPath` accepts either
+        // snake_case (canonical) or camelCase (legacy SSE tolerance).
+        self.items = try c.decodeIfPresent([String].self, forKey: .items)
+        if let snake = try c.decodeIfPresent(String.self, forKey: .logPath) {
+            self.logPath = snake
+        } else if let camel = try c.decodeIfPresent(String.self, forKey: .logPathCamel) {
+            self.logPath = camel
+        } else {
+            self.logPath = nil
+        }
     }
 
     /// Custom encoder — written to `created_at` (the canonical REST shape)
@@ -144,6 +184,11 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         try c.encode(f.string(from: receivedAt), forKey: .createdAt)
         try c.encode(severity, forKey: .severity)
         try c.encode(deliveryState, forKey: .deliveryState)
+        // Round-trip the optional structured fields on the canonical
+        // snake-case key. We do NOT emit the camelCase `logPath` legacy
+        // spelling — decode tolerates it, encode is contract.
+        try c.encodeIfPresent(items, forKey: .items)
+        try c.encodeIfPresent(logPath, forKey: .logPath)
     }
 
     private static func decodeDate(

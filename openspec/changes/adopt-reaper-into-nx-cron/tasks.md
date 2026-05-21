@@ -70,16 +70,16 @@
 
 ## UI Batch
 
-- [ ] 3.1 Extend the Swift `NotificationEvent` mirror in [beads:nx-ds60x]
+- [x] 3.1 Extend the Swift `NotificationEvent` mirror in [beads:nx-ds60x]
   `apps/swift/NexusShared/Models/Notification.swift` with optional
   `items: [String]?` and `logPath: String?`, keeping Codable back-compat
-- [ ] 3.2 Update the Mac listener notification renderer [beads:nx-838kq]
+- [x] 3.2 Update the Mac listener notification renderer [beads:nx-838kq]
   (`apps/swift/nexus-mac` SSE consumer) to render a non-empty `items` array
   as a bullet list instead of one run-on banner line
-- [ ] 3.3 Make notification activation open `logPath` via the OS default [beads:nx-nx294]
+- [x] 3.3 Make notification activation open `logPath` via the OS default [beads:nx-nx294]
   handler when present; fall back to default activation when absent (fixes
   the raw-osascript click-attribution bug for all nx notifications)
-- [ ] 3.4 Add/extend a Swift test asserting items→bullet rendering and [beads:nx-aad5a]
+- [x] 3.4 Add/extend a Swift test asserting items→bullet rendering and [beads:nx-aad5a]
   logPath→open-log activation, including the no-logPath fallback
 
 ## E2E Batch
