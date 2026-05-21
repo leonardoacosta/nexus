@@ -10,9 +10,27 @@
  *      NULL`) that the watcher already tagged with a PID. For each one
  *      whose PID has disappeared, sets `endedAt = NOW()`, `status =
  *      "ended"` and emits a `RemoteSessionEnded` lifecycle event.
- *   4. For every live PID that has no matching row, INSERTS a new
- *      fingerprinted row (`pid`, `model = "claude"`, optional `cwd` from
- *      `/proc/<pid>/cwd` on Linux) and emits a `RemoteSessionStarted`.
+ *   4. For every live PID that has no matching row, INSERTS a new row with
+ *      `cwd = ""` and emits a `RemoteSessionStarted`. The cwd is left
+ *      empty because the watcher canNOT read `/proc/<pid>/cwd` reliably —
+ *      see below.
+ *
+ * cwd is hook-authoritative; watcher does not introspect /proc/PID/cwd
+ * because user-instance systemd cannot grant CAP_SYS_PTRACE under Yama=1.
+ * The earlier `session-attach-and-cwd-cap` spec wired
+ * `AmbientCapabilities=CAP_SYS_PTRACE` into the unit file, but user-instance
+ * systemd holds CapEff=0x800000000 (cap_audit_write only) — it cannot
+ * delegate a capability it does not itself hold. ptrace_may_access()
+ * rejects the agent's readlink of /proc/<other-pid>/cwd with EACCES even
+ * with the ambient bit set, because the granting authority (user systemd)
+ * never had the cap. /proc/PID/environ has the same restriction (file
+ * mode r-------- enforces ptrace_may_access). See nx-9jz0v.
+ *
+ * The CC `session_start` hook payload is the authoritative source for cwd.
+ * Watcher's job is strictly: detect new PIDs (insert {pid, status:'active',
+ * cwd:''}), detect dead PIDs (close), refresh last_activity on alive PIDs,
+ * and re-enrich existing rows whose cwd was populated by a prior hook but
+ * whose git_provider is still null.
  *
  * Legacy rows whose `pid` is null are NEVER closed by this watcher — those
  * predate the tracking work and may have been created by hooks. The
@@ -23,7 +41,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { readlinkSync } from "node:fs";
 import type { Db } from "@nexus/db";
 import { sessions, eq } from "@nexus/db";
 import { and, isNull, isNotNull, gt } from "drizzle-orm";
@@ -101,38 +118,6 @@ async function listClaudeProcesses(): Promise<LiveProcess[]> {
     procs.push({ pid, cmd });
   }
   return procs;
-}
-
-/**
- * One-shot canary: emit a single info log on the FIRST successful
- * `readProcessCwd` after agent boot. Confirms in production that the
- * `AmbientCapabilities=CAP_SYS_PTRACE` granted by `deploy/nexus-agent.service`
- * is actually taking effect — under kernel.yama.ptrace_scope=1 hardening the
- * call returns EACCES without the cap. Module-level so it persists across
- * watcher ticks; single set means at most one log line per agent process.
- * See spec: openspec/changes/session-attach-and-cwd-cap/specs/systemd-service/spec.md.
- */
-let loggedFirstSuccess = false;
-
-/**
- * Best-effort cwd lookup. `/proc/<pid>/cwd` is a symlink on Linux; macOS
- * has no `/proc` so we return `undefined` and let the caller skip the
- * field.
- */
-function readProcessCwd(pid: number): string | undefined {
-  try {
-    const cwd = readlinkSync(`/proc/${pid}/cwd`);
-    if (!loggedFirstSuccess) {
-      loggedFirstSuccess = true;
-      log.info(
-        { pid, cwd },
-        "process-watcher: first successful cwd read (CAP_SYS_PTRACE verified)",
-      );
-    }
-    return cwd;
-  } catch {
-    return undefined;
-  }
 }
 
 export interface ReconcileResult {
@@ -213,44 +198,11 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     if (livePids.has(pid)) {
       liveManagedPids.push(pid);
       if (!row.gitProvider) {
-        // Refresh cwd from /proc/<pid>/cwd when the stored value is empty.
-        // Pre-resolver inserts (nx-lebux regression) wrote `cwd: ""` for
-        // rows that the watcher never re-reads. Without this top-up, the
-        // enrichment loop below can never fire for those rows. On macOS
-        // `readProcessCwd` returns undefined and we leave row.cwd as-is.
-        //
-        // NOTE: when the agent runs under a systemd unit with
-        // `ProtectHome=read-only` + `ProtectSystem=strict`, readlinkSync on
-        // /proc/<pid>/cwd returns EACCES because the new mount namespace
-        // masks the target path. The deploy unit MUST set
-        // `ProtectHome=off` (or add `BindPaths` covering /home) for this
-        // recovery path to work. See nx-lebux thread.
-        let effectiveCwd = row.cwd ?? "";
-        if (!effectiveCwd) {
-          const fresh = readProcessCwd(pid);
-          if (fresh) {
-            effectiveCwd = fresh;
-            // Persist so future polls don't re-read /proc and so any other
-            // consumer (dashboard, hooks) sees the real cwd. Fail-soft —
-            // the resolver will still run from the in-memory value if the
-            // write fails.
-            try {
-              await db
-                .update(sessions)
-                .set({ cwd: fresh })
-                .where(eq(sessions.id, row.id));
-            } catch (err) {
-              log.warn(
-                {
-                  id: row.id,
-                  pid,
-                  error: err instanceof Error ? err.message : String(err),
-                },
-                "failed to persist refreshed cwd (non-fatal)",
-              );
-            }
-          }
-        }
+        // Re-enrich existing rows whose git_provider is still null but
+        // whose cwd was populated by a prior CC `session_start` hook.
+        // The watcher itself does NOT read /proc/<pid>/cwd — see file
+        // header (nx-9jz0v) for the CAP_SYS_PTRACE / Yama explanation.
+        const effectiveCwd = row.cwd ?? "";
         if (effectiveCwd) {
           needsEnrichment.push({ id: row.id, cwd: effectiveCwd });
         }
@@ -322,25 +274,31 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   }
 
   // Step 2: open rows for live PIDs we haven't seen yet.
+  //
+  // The watcher does NOT introspect /proc/<pid>/cwd here — user-instance
+  // systemd cannot grant CAP_SYS_PTRACE under Yama=1, so readlink always
+  // returns EACCES for non-descendant `claude` processes. cwd is left as
+  // empty string and is populated later by the CC `session_start` hook
+  // (which carries the authoritative cwd in its payload). See nx-9jz0v +
+  // file header for the full root-cause writeup.
   let created = 0;
   for (const proc of live) {
     if (managedPids.has(proc.pid)) continue;
-    const cwd = readProcessCwd(proc.pid);
     const sessionId = `cc-${proc.pid}-${randomUUID().slice(0, 8)}`;
 
-    // session-row-enrichment-v1 § 1.4: resolve git project for this cwd
-    // BEFORE upserting. Result is fail-soft (null when not a git repo or
-    // resolution fails) — the row still inserts with null fields.
-    const project = cwd ? await resolveProject(cwd, db) : null;
+    // No /proc readlink; no resolver call on insert. The session_start
+    // hook handler (services/process-hook-event.ts) calls resolveProject
+    // once cwd is known, and the alive-row re-enrichment loop above picks
+    // up rows whose cwd lands later via the hook.
 
     try {
       await upsertSession(db, {
         id: sessionId,
         pid: proc.pid,
         project: undefined,
-        projectId: project?.projectId ?? null,
+        projectId: null,
         machine: "local",
-        cwd: cwd ?? "",
+        cwd: "",
         branch: null,
         startedAt: now,
         lastHeartbeat: now,
@@ -364,30 +322,15 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
       });
       created += 1;
 
-      // The in-memory Session type omits git_provider/git_owner_repo (see
-      // packages/core/src/types/session.ts — fields are persisted directly
-      // to the DB row, never surfaced on the domain type). Write them via
-      // the dedicated helper after the upsert lands.
-      if (project) {
-        try {
-          await updateSessionGitOrigin(db, sessionId, {
-            provider: project.provider,
-            ownerRepo: project.ownerRepo,
-          });
-        } catch (err) {
-          log.warn(
-            {
-              sessionId,
-              error: err instanceof Error ? err.message : String(err),
-            },
-            "failed to persist git origin for new session row (non-fatal)",
-          );
-        }
-      }
+      // No git-origin write here — cwd is empty at insert time (see header
+      // re: CAP_SYS_PTRACE / nx-9jz0v). The session_start hook handler
+      // populates gitProvider/gitOwnerRepo/projectId once cwd lands; the
+      // alive-row re-enrichment loop above also catches rows whose hook
+      // arrives after this insert.
       lifecycleBus.emit("RemoteSessionStarted", {
         sessionId,
         pid: proc.pid,
-        cwd: cwd ?? null,
+        cwd: null,
         model: "claude",
         tmuxTarget: null,
         machine: "local",
@@ -493,5 +436,4 @@ export function startProcessWatcher(
 export const __testing = {
   isClaudeCommand,
   listClaudeProcesses,
-  readProcessCwd,
 };

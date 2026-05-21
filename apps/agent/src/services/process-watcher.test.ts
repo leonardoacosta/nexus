@@ -90,22 +90,29 @@ mock.module("./git-project-resolver", () => ({
   __resetCacheForTests: () => {},
 }));
 
-// On macOS the watcher's readProcessCwd returns undefined (no /proc), so
-// the cwd short-circuit (`cwd ? await resolveProject(...) : null`) never
-// fires the resolver. Mock node:fs readlinkSync to return a deterministic
-// fake cwd so the resolver call site is exercised on CI / mac dev too.
-let fakeProcessCwd: string | null = "/tmp/fake-cwd";
-function setFakeProcessCwd(value: string | null): void {
-  fakeProcessCwd = value;
+// nx-9jz0v: the watcher MUST NOT introspect /proc/<pid>/cwd because
+// user-instance systemd cannot grant CAP_SYS_PTRACE under Yama=1. We mock
+// node:fs.readlinkSync to record every call and fail loudly on /proc/PID/cwd
+// reads, so any regression that re-introduces the /proc readlink path
+// surfaces immediately in this suite.
+interface ReadlinkCall { path: string }
+const readlinkCalls: ReadlinkCall[] = [];
+function clearReadlinkCalls(): void {
+  readlinkCalls.length = 0;
 }
 mock.module("node:fs", () => {
   const real = require("node:fs") as typeof import("node:fs");
   return {
     ...real,
     readlinkSync: (path: string, ..._args: unknown[]) => {
-      if (typeof path === "string" && /^\/proc\/\d+\/cwd$/.test(path)) {
-        if (fakeProcessCwd === null) throw new Error("ENOENT");
-        return fakeProcessCwd;
+      if (typeof path === "string") {
+        readlinkCalls.push({ path });
+        if (/^\/proc\/\d+\/cwd$/.test(path)) {
+          throw new Error(
+            `nx-9jz0v regression: watcher attempted readlinkSync(${path}) — ` +
+              `/proc cwd reads are banned (CAP_SYS_PTRACE inert under user-instance systemd)`,
+          );
+        }
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (real.readlinkSync as any)(path, ..._args);
@@ -276,7 +283,7 @@ describe.skipIf(!hasPg)(
       await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."sessions"`);
       setPgrepOutput([]);
       setResolverResult(null);
-      setFakeProcessCwd("/tmp/fake-cwd");
+      clearReadlinkCalls();
     });
 
     test("New PID → row created with status='active' and model='claude'", async () => {
@@ -447,18 +454,23 @@ describe.skipIf(!hasPg)(
       expect(rows[0]!.pid).toBe(4242);
     });
 
-    // ── session-row-enrichment-v1 § 1.8: resolver enrichment ────────────
+    // ── nx-9jz0v: cwd is hook-authoritative; watcher does NOT introspect
+    // /proc/<pid>/cwd because user-instance systemd cannot grant
+    // CAP_SYS_PTRACE under Yama=1. These tests pin that behaviour:
     //
-    // These tests assert the call site introduced in process-watcher.ts §
-    // 1.4 populates gitProvider / gitOwnerRepo / projectId on the freshly
-    // inserted row when the resolver returns a non-null result, and that
-    // existing null-project rows are re-enriched on subsequent polls.
+    //   - New PIDs inserted by the watcher get cwd="" and null git fields
+    //     (the resolver is NEVER called on insert — there's no cwd to
+    //     resolve from).
+    //   - readlinkSync is never invoked against /proc/<pid>/cwd (the mock
+    //     above throws on any such call, surfacing regressions loudly).
+    //   - Existing rows whose cwd was populated by a hook DO get
+    //     re-enriched on the next poll via the alive-row resolver loop.
 
-    test("New PID with resolved project → gitProvider/gitOwnerRepo/projectId populated", async () => {
+    test("New PID insert leaves cwd='' and git fields null (no /proc readlink)", async () => {
       setResolverResult({
         provider: "github",
         ownerRepo: "leonardoacosta/oo",
-        projectId: null, // registry lookup miss is still a valid enrichment
+        projectId: "00000000-0000-0000-0000-000000000111",
       });
       setPgrepOutput([pgrepLine(1111, "claude")]);
 
@@ -468,29 +480,18 @@ describe.skipIf(!hasPg)(
       const rows = await db.select().from(sessions);
       expect(rows).toHaveLength(1);
       const row = rows[0]!;
-      expect(row.gitProvider).toBe("github");
-      expect(row.gitOwnerRepo).toBe("leonardoacosta/oo");
-    });
+      // cwd is empty until the hook arrives (wire-shape: empty string,
+      // not null — preserves existing client behaviour).
+      expect(row.cwd ?? "").toBe("");
+      // Resolver was not called on insert (no cwd to resolve from), so
+      // git fields stay null even though the mock would return a hit.
+      expect(row.gitProvider).toBeNull();
+      expect(row.gitOwnerRepo).toBeNull();
+      expect(row.projectId).toBeNull();
 
-    test("New PID with resolver projectId → row.project_id populated", async () => {
-      // Use a real UUID — the column is uuid and rejects bare text.
-      const fakeProjectId = "00000000-0000-0000-0000-000000000111";
-      setResolverResult({
-        provider: "github",
-        ownerRepo: "test/fixture",
-        projectId: fakeProjectId,
-      });
-      setPgrepOutput([pgrepLine(2222, "claude")]);
-
-      const result = await reconcileOnce(db);
-      expect(result).toEqual({ created: 1, closed: 0 });
-
-      const rows = await db.select().from(sessions);
-      expect(rows).toHaveLength(1);
-      const row = rows[0]!;
-      expect(row.projectId).toBe(fakeProjectId);
-      expect(row.gitProvider).toBe("github");
-      expect(row.gitOwnerRepo).toBe("test/fixture");
+      // Binding evidence: zero /proc/<pid>/cwd readlinks were issued.
+      const procReads = readlinkCalls.filter((c) => /^\/proc\/\d+\/cwd$/.test(c.path));
+      expect(procReads).toEqual([]);
     });
 
     test("New PID with no resolver result → fields stay null (fail-soft)", async () => {
@@ -506,6 +507,9 @@ describe.skipIf(!hasPg)(
       expect(row.gitProvider).toBeNull();
       expect(row.gitOwnerRepo).toBeNull();
       expect(row.projectId).toBeNull();
+      // No /proc readlinks either.
+      const procReads = readlinkCalls.filter((c) => /^\/proc\/\d+\/cwd$/.test(c.path));
+      expect(procReads).toEqual([]);
     });
 
     test("Existing null-project row gets re-enriched on next poll", async () => {

@@ -27,19 +27,26 @@ NoNewPrivileges=true
 PrivateTmp=false
 ProtectSystem=strict
 
-# CAP_SYS_PTRACE — grant the agent permission to read /proc/<pid>/cwd for any
-# same-user process regardless of ancestry. The homelab kernel runs with
-# kernel.yama.ptrace_scope=1, which Yama LSM uses to block readlink of
-# /proc/PID/cwd across non-ancestor processes (shell-launched `claude`
-# instances are NOT descendants of this systemd unit). Without this cap,
-# readlinkSync('/proc/<pid>/cwd') in process-watcher returns EACCES for
-# those sessions, leaving the cwd field null and the Sessions tab unable to
-# resolve gitOwnerRepo / project labels.
+# CAP_SYS_PTRACE — INERT under the current user-instance deployment (nx-9jz0v).
 #
-# CapabilityBoundingSet already includes cap_sys_ptrace (the unit's capability
-# ceiling), but AmbientCapabilities is what actually grants the cap to the
-# running process at exec time. Narrower than `sysctl kernel.yama.ptrace_scope=0`
-# (which would disable Yama LSM globally) — this only affects nexus-agent.
+# The earlier session-attach-and-cwd-cap spec wired this in to grant readlink
+# access to /proc/<pid>/cwd for non-descendant `claude` processes under
+# kernel.yama.ptrace_scope=1. In practice, user-instance systemd holds
+# CapEff=0x800000000 (cap_audit_write only); it CANNOT delegate a capability
+# it does not itself hold. The agent's process status shows CapAmb=0x80000
+# but ptrace_may_access() still returns EACCES because the granting authority
+# (user systemd) never had the cap. /proc/PID/environ has the same restriction.
+#
+# Consequence: the watcher no longer attempts /proc readlinks. cwd is
+# populated exclusively from the CC `session_start` hook payload, which the
+# socket-server already routes through services/process-hook-event.ts. See
+# `apps/agent/src/services/process-watcher.ts` header for the runtime contract.
+#
+# This line is left in place because it is harmless (the kernel silently
+# drops the cap rather than rejecting unit activation) and a future
+# migration to a system-instance unit would re-light it without further
+# changes.
+#
 # See spec: openspec/changes/session-attach-and-cwd-cap/specs/systemd-service/spec.md.
 AmbientCapabilities=CAP_SYS_PTRACE
 # ProtectHome=read-only replaced with ReadOnlyPaths=/home:
