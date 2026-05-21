@@ -428,6 +428,35 @@ public actor NexusClient {
         return try await getJSON(url: url)
     }
 
+    /// `GET /health/processes?limit=N` — top CPU / RAM process snapshot from
+    /// the collector cache (no recomputation per request). Added by
+    /// `health-tab-process-view`. `limit` is clamped to 1...50 client-side
+    /// before being sent; the agent enforces the same range and returns
+    /// 400 on violations (caller surfaces via `NexusClientError.badStatus`).
+    ///
+    /// `machine` is reserved for the agent-aggregate fan-out and is currently
+    /// unused on the single-endpoint client; the parameter is here so the
+    /// signature lines up with the aggregate-client wrapper.
+    public func fetchHealthProcesses(
+        machine: String? = nil,
+        limit: Int = 10
+    ) async throws -> HealthProcessesResponse {
+        let clamped = max(1, min(50, limit))
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("health/processes"),
+            resolvingAgainstBaseURL: false
+        )!
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "limit", value: String(clamped))
+        ]
+        if let machine, !machine.isEmpty {
+            items.append(URLQueryItem(name: "machine", value: machine))
+        }
+        comps.queryItems = items
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        return try await getJSON(url: url)
+    }
+
     /// `GET /integrations` — read-only status of every wired integration.
     /// Returns `[]` on 404 so older agents (which only ship per-integration
     /// sub-routes) don't break the dashboard.

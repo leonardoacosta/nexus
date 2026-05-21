@@ -157,6 +157,55 @@ public actor NexusAggregateClient {
         return perAgent.flatMap { $0 }.sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// `GET /health/processes?limit=N&machine=…` — fan out across every
+    /// reachable agent and return the response from the matching machine
+    /// (or the freshest snapshot when no machine filter is set).
+    ///
+    /// Added by `health-tab-process-view`. The process table polls this at
+    /// 5s cadence; partial-failure tolerance means a single dead peer must
+    /// not blank out the table.
+    ///
+    /// Selection:
+    ///   - When `machine` is non-nil and matches a reachable agent name,
+    ///     return that agent's payload (owner semantics — the agent that
+    ///     IS the machine).
+    ///   - Otherwise fall back to the snapshot with the most recent
+    ///     `collectedAt`, preferring non-empty lists over warming-up
+    ///     empties.
+    public func fetchHealthProcesses(
+        machine: String? = nil,
+        limit: Int = 10
+    ) async -> HealthProcessesResponse {
+        // fanOut tags each result with the agent name via a parallel
+        // `reachable` array — pair them up so we can match `machine` to
+        // the owning agent.
+        let (perAgent, reachable) = await fanOut("fetchHealthProcesses") { client in
+            try await client.fetchHealthProcesses(machine: machine, limit: limit)
+        }
+
+        // Owner-of-machine: when the caller specified a machine, prefer
+        // the response from the agent whose name matches.
+        if let machine, !machine.isEmpty {
+            for (idx, name) in reachable.enumerated() where name == machine && idx < perAgent.count {
+                return perAgent[idx]
+            }
+        }
+
+        // No machine filter (or no match): pick the snapshot that's both
+        // freshest AND non-empty. An empty warming-up payload from one
+        // agent must not shadow a populated payload from another.
+        let populated = perAgent.filter { !$0.topCpu.isEmpty || !$0.topRam.isEmpty }
+        let pool = populated.isEmpty ? perAgent : populated
+        if let freshest = pool.max(by: {
+            (($0.collectedAt ?? .distantPast) < ($1.collectedAt ?? .distantPast))
+        }) {
+            return freshest
+        }
+        // Every agent unreachable / failed — surface an empty payload so
+        // the UI can hide the section instead of hanging on a nil model.
+        return HealthProcessesResponse(topCpu: [], topRam: [], collectedAt: nil)
+    }
+
     /// Projects merged across agents, deduped by `id` (project name).
     public func fetchProjects() async -> [ProjectAggregate] {
         let (perAgent, _) = await fanOut("fetchProjects") { client in

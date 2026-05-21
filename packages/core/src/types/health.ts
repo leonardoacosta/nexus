@@ -62,4 +62,31 @@ export interface ProcessInfo {
   name: string;
   cpu_percent: number;
   ram_percent: number;
+  /**
+   * Full command-line as reported by `systeminformation`. Truncated at 200
+   * characters with a trailing ellipsis (`…`) when the upstream value
+   * exceeds that length. Optional / nullable so older agents that omit the
+   * field continue to decode on the Swift side.
+   */
+  command?: string | null;
+  /**
+   * Process owner — username on macOS, numeric uid on Linux. Best-effort
+   * passthrough; the UI is responsible for any cosmetic prefixing of
+   * numeric uids (e.g. `uid:1000`).
+   */
+  user?: string | null;
+  /**
+   * Kernel state string. Linux returns R/S/D/Z/I; macOS may return
+   * `running` / `sleeping` / etc. Passed through as-is — cross-platform
+   * normalisation is out of scope.
+   */
+  state?: string | null;
+}
+
+/** Response payload for `GET /health/processes`. */
+export interface HealthProcessesResponse {
+  top_cpu: ProcessInfo[];
+  top_ram: ProcessInfo[];
+  /** ISO-8601 timestamp of the collector tick. Null while warming up. */
+  collectedAt: string | null;
 }

@@ -145,6 +145,20 @@ function round(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/** Max length of the `command` field before truncation (with `…` suffix). */
+const COMMAND_MAX_LENGTH = 200;
+
+/**
+ * Truncate a command string to 200 chars + trailing ellipsis (`…`). The
+ * resulting length is exactly 201 characters when truncation kicks in.
+ * Returns null when the input is null / undefined / empty.
+ */
+function truncateCommand(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  if (raw.length <= COMMAND_MAX_LENGTH) return raw;
+  return raw.slice(0, COMMAND_MAX_LENGTH) + "…";
+}
+
 /** Extract top N processes sorted by the given field. */
 function topN(
   list: si.Systeminformation.ProcessesProcessData[],
@@ -154,10 +168,23 @@ function topN(
   return [...list]
     .sort((a, b) => b[field] - a[field])
     .slice(0, n)
-    .map((p) => ({
-      pid: p.pid,
-      name: p.name,
-      cpu_percent: round(p.cpu),
-      ram_percent: round(p.mem),
-    }));
+    .map((p) => {
+      // systeminformation's ProcessesProcessData carries optional
+      // `command`, `user`, and `state` fields that aren't in the strict
+      // public type on older releases. Read them with `unknown`-typed
+      // bracket access so missing fields degrade to `null` rather than
+      // crashing the collector.
+      const row = p as unknown as Record<string, unknown>;
+      const userRaw = row.user;
+      const stateRaw = row.state;
+      return {
+        pid: p.pid,
+        name: p.name,
+        cpu_percent: round(p.cpu),
+        ram_percent: round(p.mem),
+        command: truncateCommand(row.command),
+        user: typeof userRaw === "string" && userRaw.length > 0 ? userRaw : null,
+        state: typeof stateRaw === "string" && stateRaw.length > 0 ? stateRaw : null,
+      };
+    });
 }

@@ -36,9 +36,9 @@ const siMock = {
   processes: mock(() =>
     Promise.resolve({
       list: [
-        { pid: 1, name: "node", cpu: 30, mem: 10 },
-        { pid: 2, name: "chrome", cpu: 20, mem: 40 },
-        { pid: 3, name: "rust", cpu: 10, mem: 5 },
+        { pid: 1, name: "node", cpu: 30, mem: 10, command: "/usr/bin/node server.js", user: "leo", state: "S" },
+        { pid: 2, name: "chrome", cpu: 20, mem: 40, command: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", user: "leo", state: "S" },
+        { pid: 3, name: "rust", cpu: 10, mem: 5, command: "/usr/local/bin/cargo build", user: "leo", state: "R" },
       ],
     }),
   ),
@@ -84,9 +84,9 @@ describe("HealthCollector", () => {
     siMock.processes.mockImplementation(() =>
       Promise.resolve({
         list: [
-          { pid: 1, name: "node", cpu: 30, mem: 10 },
-          { pid: 2, name: "chrome", cpu: 20, mem: 40 },
-          { pid: 3, name: "rust", cpu: 10, mem: 5 },
+          { pid: 1, name: "node", cpu: 30, mem: 10, command: "/usr/bin/node server.js", user: "leo", state: "S" },
+          { pid: 2, name: "chrome", cpu: 20, mem: 40, command: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", user: "leo", state: "S" },
+          { pid: 3, name: "rust", cpu: 10, mem: 5, command: "/usr/local/bin/cargo build", user: "leo", state: "R" },
         ],
       }),
     );
@@ -131,19 +131,67 @@ describe("HealthCollector", () => {
       tx_bytes: 2000,
     });
 
-    // Processes
+    // Processes — now carries command/user/state per process-info-extended-fields
     expect(metrics.processes!.top_cpu[0]).toEqual({
       pid: 1,
       name: "node",
       cpu_percent: 30,
       ram_percent: 10,
+      command: "/usr/bin/node server.js",
+      user: "leo",
+      state: "S",
     });
     expect(metrics.processes!.top_ram[0]).toEqual({
       pid: 2,
       name: "chrome",
       cpu_percent: 20,
       ram_percent: 40,
+      command: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      user: "leo",
+      state: "S",
     });
+  });
+
+  // ── process-info-extended-fields scenarios ──────────────────────────────
+
+  it("collect() truncates command at 200 chars with trailing ellipsis", async () => {
+    const longCommand = "a".repeat(350);
+    siMock.processes.mockImplementation(() =>
+      Promise.resolve({
+        list: [
+          { pid: 99, name: "build", cpu: 50, mem: 10, command: longCommand, user: "leo", state: "R" },
+        ],
+      }),
+    );
+    const collector = new HealthCollector();
+    const metrics = await collector.collect();
+    const proc = metrics.processes!.top_cpu[0]!;
+    // 200 retained chars + 1-char ellipsis = 201
+    expect(proc.command!.length).toBe(201);
+    expect(proc.command!.endsWith("…")).toBe(true);
+    expect(proc.command!.slice(0, 200)).toBe("a".repeat(200));
+  });
+
+  it("collect() tolerates missing command/user/state on systeminformation row", async () => {
+    // Older / stripped systeminformation row with only the legacy four
+    // fields. Must NOT throw; the extension fields fall back to null.
+    // Cast through `any` so TS doesn't widen the mock signature for the
+    // surrounding `siMock.processes` callable.
+    const strippedList = [
+      { pid: 7, name: "legacy", cpu: 12, mem: 3 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as unknown as any;
+    siMock.processes.mockImplementation(() =>
+      Promise.resolve({ list: strippedList }),
+    );
+    const collector = new HealthCollector();
+    const metrics = await collector.collect();
+    const proc = metrics.processes!.top_cpu[0]!;
+    expect(proc.pid).toBe(7);
+    expect(proc.name).toBe("legacy");
+    expect(proc.command).toBeNull();
+    expect(proc.user).toBeNull();
+    expect(proc.state).toBeNull();
   });
 
   // ── [4.2] Docker unavailable → docker: null ─────────────────────────────

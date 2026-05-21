@@ -26,6 +26,7 @@ import { handleSaveAgent, handleDeleteAgent } from "./routes/settings";
 import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
+import { handleHealthProcesses } from "./routes/health-processes";
 import {
   handleSendNotification,
   handleListNotifications,
@@ -89,6 +90,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/health" },
   { method: "POST", path: "/health/ingest" },
   { method: "GET", path: "/health/history" },
+  { method: "GET", path: "/health/processes" },
   // Sessions
   { method: "GET", path: "/sessions" },
   { method: "GET", path: "/sessions/:id" },
@@ -214,6 +216,15 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
     if (url.pathname === "/health") {
       return handleHealthGet(request, url, state, db);
+    }
+
+    // ── /health/processes ─────────────────────────────────────────────────
+    // Dedicated process-table endpoint (health-tab-process-view). Reads the
+    // collector's cached snapshot — no recomputation per request. MUST be
+    // registered BEFORE any catch-all so the Swift dashboard can poll at a
+    // different cadence than the broader /health rollup.
+    if (url.pathname === "/health/processes" && request.method === "GET") {
+      return withCors(request, handleHealthProcesses(url, state));
     }
 
     // ── Credential ID pre-validation (before DB guard) ──────────────────

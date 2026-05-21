@@ -144,10 +144,51 @@ public struct HealthMetrics: Equatable, Hashable, Codable, Sendable {
         public var cpuPercent: Double
         public var ramPercent: Double
 
+        // Optional fields added by `health-tab-process-view` so older agents
+        // that emit only `{pid,name,cpu_percent,ram_percent}` still decode.
+        // `command` is truncated agent-side at 200 chars + "…".
+        public var command: String?
+        public var user: String?
+        public var state: String?
+
         public enum CodingKeys: String, CodingKey {
             case pid, name
             case cpuPercent = "cpu_percent"
             case ramPercent = "ram_percent"
+            case command, user, state
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.pid        = (try? c.decode(Int.self, forKey: .pid)) ?? 0
+            self.name       = (try? c.decode(String.self, forKey: .name)) ?? ""
+            self.cpuPercent = (try? c.decode(Double.self, forKey: .cpuPercent)) ?? 0
+            self.ramPercent = (try? c.decode(Double.self, forKey: .ramPercent)) ?? 0
+            // Optional new fields — `try?` plus decodeIfPresent so both
+            // {field missing} AND {field present but null} decode cleanly
+            // to nil. Older agents that omit the keys, and newer agents
+            // that emit `null`, both produce `nil` here.
+            self.command = (try? c.decodeIfPresent(String.self, forKey: .command)) ?? nil
+            self.user    = (try? c.decodeIfPresent(String.self, forKey: .user)) ?? nil
+            self.state   = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
+        }
+
+        public init(
+            pid: Int,
+            name: String,
+            cpuPercent: Double,
+            ramPercent: Double,
+            command: String? = nil,
+            user: String? = nil,
+            state: String? = nil
+        ) {
+            self.pid = pid
+            self.name = name
+            self.cpuPercent = cpuPercent
+            self.ramPercent = ramPercent
+            self.command = command
+            self.user = user
+            self.state = state
         }
     }
 
@@ -229,5 +270,50 @@ public struct HealthMetrics: Equatable, Hashable, Codable, Sendable {
         self.dbOk = dbOk
         self.lastWatcherTickMs = lastWatcherTickMs
         self.socketServerListening = socketServerListening
+    }
+}
+
+// MARK: - HealthProcessesResponse
+
+/// Codable mirror of `GET /health/processes` response. Added by
+/// `health-tab-process-view`; uses the same `ProcessInfo` shape that
+/// `HealthMetrics.Processes` carries so the dashboard never has to
+/// re-decode the rows. `collectedAt` is optional — the agent returns
+/// `null` while the collector is warming up.
+public struct HealthProcessesResponse: Equatable, Hashable, Codable, Sendable {
+    public var topCpu: [HealthMetrics.ProcessInfo]
+    public var topRam: [HealthMetrics.ProcessInfo]
+    public var collectedAt: Date?
+
+    public enum CodingKeys: String, CodingKey {
+        case topCpu = "top_cpu"
+        case topRam = "top_ram"
+        case collectedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.topCpu = (try? c.decode([HealthMetrics.ProcessInfo].self, forKey: .topCpu)) ?? []
+        self.topRam = (try? c.decode([HealthMetrics.ProcessInfo].self, forKey: .topRam)) ?? []
+        // Same ISO-8601 dual-formatter dance as HealthMetrics.collectedAt.
+        if let s = try? c.decodeIfPresent(String.self, forKey: .collectedAt), let s {
+            let f1 = ISO8601DateFormatter()
+            f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let f2 = ISO8601DateFormatter()
+            f2.formatOptions = [.withInternetDateTime]
+            self.collectedAt = f1.date(from: s) ?? f2.date(from: s)
+        } else {
+            self.collectedAt = nil
+        }
+    }
+
+    public init(
+        topCpu: [HealthMetrics.ProcessInfo],
+        topRam: [HealthMetrics.ProcessInfo],
+        collectedAt: Date? = nil
+    ) {
+        self.topCpu = topCpu
+        self.topRam = topRam
+        self.collectedAt = collectedAt
     }
 }
