@@ -230,19 +230,11 @@ private struct SessionsRowView: View {
         return "\(minutes)m"
     }
 
-    /// Project-label degradation chain — gitOwnerRepo wins because
-    /// `leonardoacosta/oo` is more readable than a UUID. Fallback ladder:
-    /// gitOwnerRepo -> projectId -> cwd basename -> "—".
+    /// Project-label degradation chain — delegates to NexusShared's
+    /// `Session.projectLabel(for:)` so the chain is exercised by
+    /// `SessionRowTests` in NexusSharedTests without coupling tests to
+    /// the SwiftUI view hierarchy.
     private var primaryLabel: String {
-        if let repo = session.gitOwnerRepo, !repo.isEmpty {
-            return repo
-        }
-        if let pid = session.projectId, !pid.isEmpty {
-            return pid
-        }
-        if let cwd = session.cwd, !cwd.isEmpty {
-            return URL(fileURLWithPath: cwd).lastPathComponent
-        }
-        return "—"
+        Session.projectLabel(for: session)
     }
 }

@@ -157,6 +157,26 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         agent ?? machine ?? "unknown"
     }
 
+    /// Project-label degradation chain used by SessionsRowView. Hoisted to
+    /// NexusShared so the test target (NexusSharedTests) can exercise it
+    /// without spinning up the full SwiftUI view hierarchy.
+    ///
+    /// Fallback ladder: gitOwnerRepo -> projectId -> cwd basename -> "—".
+    /// `gitOwnerRepo` wins because `leonardoacosta/oo` is more readable than
+    /// a UUID-shaped projectId.
+    public static func projectLabel(for session: Session) -> String {
+        if let repo = session.gitOwnerRepo, !repo.isEmpty {
+            return repo
+        }
+        if let pid = session.projectId, !pid.isEmpty {
+            return pid
+        }
+        if let cwd = session.cwd, !cwd.isEmpty {
+            return URL(fileURLWithPath: cwd).lastPathComponent
+        }
+        return "—"
+    }
+
     private static func decodeFlexibleDate(
         _ c: KeyedDecodingContainer<CodingKeys>,
         _ key: CodingKeys

@@ -24,7 +24,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add `apps/swift/NexusSharedTests/SessionRowTests.swift` — 4 tests: gitOwnerRepo-present renders owner/repo, projectId-only renders projectId, cwd-only renders basename, all-null renders dash. Cost/idle degradation tested separately [owner:ui-engineer] [type:test] [beads:nx-l1agm]
+- [x] [3.1] Add `apps/swift/NexusSharedTests/SessionRowTests.swift` — 4 tests: gitOwnerRepo-present renders owner/repo, projectId-only renders projectId, cwd-only renders basename, all-null renders dash. Cost/idle degradation tested separately [owner:ui-engineer] [type:test] [beads:nx-l1agm]
 - [ ] [3.2] Push + ssh-pull homelab: hook chain runs bun install (if needed), 02-deploy rebuilds, agent restarts. Verify via `curl /sessions` that gitOwnerRepo / gitProvider are populated on active rows (your 3 active sessions in `/home/nyaptor/dev/oo` should show `leonardoacosta/oo`) [owner:devops-engineer] [type:test] [beads:nx-cc4kj]
 - [ ] [3.3] Mac post-merge: `deploy/hooks.d/post-merge/04-swift-deploy --force` rebuilds Nexus.app. Force-kill + relaunch (nx-4l66v hook bug workaround). Verify rebuild via PID change [owner:devops-engineer] [type:test] [beads:nx-djdq3]
 - [ ] [3.4] [user] Open Nexus.app dashboard Sessions tab. Confirm rows now show: project label (owner/repo or project), branch if any, model, cost, idle/duration, pid, machine. Capture screenshot for audit trail [user] [owner:user] [type:test] [beads:nx-lm57x]
