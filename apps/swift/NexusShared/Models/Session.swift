@@ -45,6 +45,13 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     /// Timestamp the session entered the idle state. Drives `Nm idle` rendering
     /// in SessionsView. Null when the session is actively producing tokens.
     public var idleSince: Date?
+    /// Session lifecycle classification — `"managed"` (tmux-owned, bidirectional
+    /// attach available), `"ad_hoc"` (fire-and-forget), `"pooled"` (shared pool),
+    /// or `nil` (legacy / unclassified row). Drives the SessionRow tappability
+    /// gate and PtyViewer input-forwarding gate in the macOS dashboard.
+    ///
+    /// Spec: openspec/changes/session-attach-and-cwd-cap (tasks 2.3, 2.4, 2.6)
+    public var sessionType: String?
 
     public enum CodingKeys: String, CodingKey {
         case id
@@ -68,6 +75,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case gitOwnerRepo
         case totalCostUsd
         case idleSince
+        case sessionType
     }
 
     public init(from decoder: Decoder) throws {
@@ -98,6 +106,8 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.gitOwnerRepo  = (ownerRepoRaw?.isEmpty ?? true) ? nil : ownerRepoRaw
         self.totalCostUsd  = try c.decodeIfPresent(Double.self, forKey: .totalCostUsd)
         self.idleSince     = (try? Self.decodeFlexibleDate(c, .idleSince)) ?? nil
+        let typeRaw        = try c.decodeIfPresent(String.self, forKey: .sessionType)
+        self.sessionType   = (typeRaw?.isEmpty ?? true) ? nil : typeRaw
     }
 
     public init(
@@ -120,7 +130,8 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         gitProvider: String? = nil,
         gitOwnerRepo: String? = nil,
         totalCostUsd: Double? = nil,
-        idleSince: Date? = nil
+        idleSince: Date? = nil,
+        sessionType: String? = nil
     ) {
         self.id = id
         self.project = project
@@ -142,6 +153,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.gitOwnerRepo = gitOwnerRepo
         self.totalCostUsd = totalCostUsd
         self.idleSince = idleSince
+        self.sessionType = sessionType
     }
 
     /// Distinguish a real Claude Code session from telemetry-ping stubs.

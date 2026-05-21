@@ -1,13 +1,14 @@
 // SessionsView — macOS dashboard parity for apps/nextjs/src/app/session.
 //
 // Spec: openspec/changes/swift-dashboard-feature-parity (task 1.2)
+//       openspec/changes/session-attach-and-cwd-cap (tasks 2.4, 2.5, 2.6)
 //
 // NexusShared-based replacement for the legacy SessionList. Binds to a
 // `SessionObserver` (cross-platform observer that consumes /sessions +
-// the agent SSE stream) so the same code can be reused on iOS. The
-// legacy `SessionList.swift` continues to back the menu-bar popover via
-// `NexusViewModel` until the nexus-mac NexusShared migration (nx-4roof)
-// retires it.
+// the agent SSE stream) so the same code can be reused on iOS. Managed
+// sessions render as tappable Buttons that open a PTY pane in the
+// trailing column of an HSplitView; non-managed sessions render
+// read-only with a muted "untracked" badge.
 
 import SwiftUI
 import NexusShared
@@ -24,6 +25,10 @@ struct SessionsView: View {
     /// for every other tab (bd:nx-t9wrj).
     private let ownsLifecycle: Bool
 
+    /// Currently-selected managed session id. Nil → no PTY pane shown,
+    /// list takes full width. Non-managed rows can never set this.
+    @State private var selectedSessionId: String?
+
     public init() {
         _observer = StateObject(wrappedValue: SessionObserver())
         ownsLifecycle = true
@@ -35,15 +40,30 @@ struct SessionsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            if observer.activeSessions.isEmpty {
-                emptyState
-            } else {
-                listBody
+        HSplitView {
+            VStack(alignment: .leading, spacing: 8) {
+                header
+                if observer.activeSessions.isEmpty {
+                    emptyState
+                } else {
+                    listBody
+                }
+            }
+            .padding(.vertical, 8)
+            .frame(minWidth: 320, idealWidth: 420)
+
+            if let id = selectedSessionId,
+               let session = observer.activeSessions.first(where: { $0.id == id }) {
+                PtyViewer(
+                    sessionId: session.id,
+                    sessionLabel: Session.projectLabel(for: session),
+                    sessionType: session.sessionType,
+                    onClose: { selectedSessionId = nil }
+                )
+                .frame(minWidth: 420)
+                .accessibilityIdentifier("sessions-pty-pane")
             }
         }
-        .padding(.vertical, 8)
         // XCUITest guard hooks (spec 2.2 + 2.4):
         //  - "sessions-view" present  ⇒ SessionsView actually mounted ⇒
         //    its .task ran ⇒ a fetch was triggered (fault #4 /
@@ -113,7 +133,7 @@ struct SessionsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(observer.activeSessions) { session in
-                    SessionsRowView(session: session)
+                    sessionRow(session)
                         // Per-row hook so the 2.4 client-transport test
                         // can assert the EXACT deterministic stub fixture
                         // row (id "stub-sess-1") rendered.
@@ -123,10 +143,40 @@ struct SessionsView: View {
             }
         }
     }
+
+    /// Managed sessions wrap the row in a `.plain` Button so the visual
+    /// layout matches non-managed rows but the whole row is tappable.
+    /// Tap commits the session id to selectedSessionId, which the
+    /// HSplitView observes to mount PtyViewer in the trailing column.
+    /// Non-managed rows render the row directly — no Button, no tap target.
+    @ViewBuilder
+    private func sessionRow(_ session: Session) -> some View {
+        let isManaged = session.sessionType == "managed"
+        let isSelected = selectedSessionId == session.id
+        if isManaged {
+            Button {
+                selectedSessionId = session.id
+            } label: {
+                SessionsRowView(session: session, isSelected: isSelected)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            SessionsRowView(session: session, isSelected: false)
+        }
+    }
 }
 
 private struct SessionsRowView: View {
     let session: Session
+    /// Highlights the currently-selected managed row so the user keeps
+    /// orientation when the PTY pane mounts.
+    let isSelected: Bool
+
+    init(session: Session, isSelected: Bool = false) {
+        self.session = session
+        self.isSelected = isSelected
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -153,10 +203,13 @@ private struct SessionsRowView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .contentShape(Rectangle())
     }
 
     /// Trailing column: status pill on top, muted `pid · originAgent` below.
+    /// Non-managed sessions get an additional "untracked" badge under the
+    /// meta line so users can see at a glance that the row is read-only.
     /// Right-justified, monospaced caption2 for the meta line so digits align
     /// vertically across rows.
     private var trailingColumn: some View {
@@ -168,6 +221,12 @@ private struct SessionsRowView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .monospaced()
+            if session.sessionType != "managed" {
+                Text("untracked")
+                    .font(.caption2.monospaced())
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("session-untracked-badge")
+            }
         }
     }
 
