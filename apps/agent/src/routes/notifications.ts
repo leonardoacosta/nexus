@@ -6,6 +6,7 @@ import type { NotificationChannel, NotificationPriority } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
+import { audioExists } from "../notifications/audio-store";
 
 const log = createLogger("agent:routes:notifications");
 
@@ -243,6 +244,13 @@ export async function handleListNotifications(db: Db): Promise<Response> {
         severity: notificationsTable.severity,
         delivery_state: notificationsTable.deliveryState,
         created_at: notificationsTable.createdAt,
+        // notifications-overhaul (task 2.10) — surface the audio
+        // bookkeeping columns. `voice_used` is column-passthrough;
+        // `audioAvailable` is a per-row stat() check (the DB column
+        // and the filesystem can drift if the cron sweep pruned the
+        // mp3 between writes).
+        voice_used: notificationsTable.voiceUsed,
+        audio_path: notificationsTable.audioPath,
       })
       .from(notificationsTable)
       .orderBy(desc(notificationsTable.createdAt))
@@ -250,13 +258,22 @@ export async function handleListNotifications(db: Db): Promise<Response> {
 
     // Project Date columns to ISO strings on the wire — the Swift decoder
     // expects an ISO-8601 string for created_at (matches /sessions shape).
-    const payload = rows.map((r) => ({
-      ...r,
-      created_at:
-        r.created_at instanceof Date
-          ? r.created_at.toISOString()
-          : (r.created_at as unknown as string),
-    }));
+    const payload = rows.map((r) => {
+      // Stat-based liveness — when the file was pruned the column may
+      // still be set; we honor the filesystem, not the column.
+      const hasFile = r.audio_path != null && audioExists(r.id);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { audio_path: _drop, ...rest } = r;
+      return {
+        ...rest,
+        created_at:
+          r.created_at instanceof Date
+            ? r.created_at.toISOString()
+            : (r.created_at as unknown as string),
+        audioAvailable: hasFile,
+        voiceUsed: r.voice_used ?? null,
+      };
+    });
 
     return jsonResponse(payload, 200);
   } catch (err) {

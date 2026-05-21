@@ -31,6 +31,7 @@ import {
   emitStaleHeartbeatNotification,
   runAndPersistReaper,
 } from "./reaper-job";
+import { pruneAudioOlderThan } from "../notifications/audio-store";
 
 const log = createLogger("agent:cron");
 
@@ -248,6 +249,18 @@ function runMaintain(): void {
     totalBytes += r.bytes;
   } catch (e) {
     errors.push(`paste-cache prune: ${e}`);
+  }
+
+  // 6. Prune ~/.config/nexus/audio/*.mp3 >30 days old (notifications-overhaul).
+  // Same age threshold as the failures JSONL sweep — keeps disk usage
+  // bounded for the per-notification mp3 cache.
+  try {
+    const r = pruneAudioOlderThan(30);
+    if (r.count > 0) details.push(`audio/: ${r.count} files, ${r.bytes} bytes`);
+    totalPruned += r.count;
+    totalBytes += r.bytes;
+  } catch (e) {
+    errors.push(`audio prune: ${e}`);
   }
 
   const durationMs = Math.round(performance.now() - start);

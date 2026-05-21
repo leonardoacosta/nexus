@@ -185,6 +185,20 @@ export interface NotificationFiredPayload {
   logPath?: string;
 }
 
+/**
+ * Emitted when a `/notifications/voices/:project` PUT or DELETE commits.
+ *
+ * The Mac TTSObserver subscribes to this event on the SSE stream and
+ * refreshes its `projectVoiceCache` so per-project voice resolution
+ * picks up the new mapping without a poll cycle.
+ *
+ * Spec: openspec/changes/notifications-overhaul (task 2.7)
+ */
+export interface VoiceOverrideChangedPayload {
+  /** Project slug whose override was inserted, updated, or deleted. */
+  project: string;
+}
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -203,6 +217,7 @@ export interface LifecycleEventMap {
   HookSchemaDrift: HookSchemaDriftPayload;
   RemoteSessionStarted: RemoteSessionStartedPayload;
   RemoteSessionEnded: RemoteSessionEndedPayload;
+  VoiceOverrideChanged: VoiceOverrideChangedPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;

@@ -34,6 +34,12 @@ import {
   handleMeetingEnd,
   handleMeetingStatus,
 } from "./routes/notifications";
+import { handleNotificationAudio } from "./routes/notifications-audio";
+import {
+  handleListVoices,
+  handlePutVoice,
+  handleDeleteVoice,
+} from "./routes/notifications-voices";
 import {
   handleGetNotificationSettings,
   handlePatchNotificationSettings,
@@ -105,6 +111,11 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/notifications" },
   { method: "GET", path: "/notifications/settings" },
   { method: "PATCH", path: "/notifications/settings" },
+  // notifications-overhaul: audio cache + per-project voice overrides.
+  { method: "GET", path: "/notifications/voices" },
+  { method: "PUT", path: "/notifications/voices/:project" },
+  { method: "DELETE", path: "/notifications/voices/:project" },
+  { method: "GET", path: "/notifications/:id/audio" },
   { method: "POST", path: "/meeting/start" },
   { method: "POST", path: "/meeting/end" },
   { method: "GET", path: "/meeting/status" },
@@ -368,6 +379,41 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/notifications/settings" && request.method === "PATCH") {
         return handlePatchNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/notifications/settings", method: "PATCH", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── notifications-overhaul: voice overrides + audio cache ──────
+      // The voices routes MUST register BEFORE any /notifications/:id
+      // shape so the literal "/notifications/voices" path does not get
+      // misrouted as `id = "voices"`. The audio route uses an explicit
+      // `/audio` suffix match so collisions are impossible.
+      if (url.pathname === "/notifications/voices" && request.method === "GET") {
+        return handleListVoices(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/voices", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const voicePutMatch = url.pathname.match(/^\/notifications\/voices\/([^/]+)$/);
+      if (voicePutMatch && request.method === "PUT") {
+        return handlePutVoice(db, voicePutMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/voices/:project", method: "PUT", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (voicePutMatch && request.method === "DELETE") {
+        return handleDeleteVoice(db, voicePutMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/voices/:project", method: "DELETE", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      const audioMatch = url.pathname.match(/^\/notifications\/([^/]+)\/audio$/);
+      if (audioMatch && request.method === "GET") {
+        return handleNotificationAudio(db, audioMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/:id/audio", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

@@ -83,6 +83,8 @@ describe("notification buffer: MAX_BUFFER_SIZE cap and FIFO eviction", () => {
         status: "queued",
         severity: "info",
         deliveryState: "pending",
+        audioPath: null,
+        voiceUsed: null,
         createdAt: new Date(),
         sentAt: null,
       });
@@ -119,6 +121,8 @@ describe("notification buffer: MAX_BUFFER_SIZE cap and FIFO eviction", () => {
         status: "queued",
         severity: "info",
         deliveryState: "pending",
+        audioPath: null,
+        voiceUsed: null,
         createdAt: new Date(),
         sentAt: null,
       });

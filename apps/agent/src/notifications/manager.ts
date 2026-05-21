@@ -1,4 +1,6 @@
 import type { Db } from "@nexus/db";
+import { notifications as notificationsTable } from "@nexus/db";
+import { eq } from "drizzle-orm";
 import { logger } from "@nexus/core/node";
 import {
   insertNotification,
@@ -10,6 +12,7 @@ import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
 import { routeNotification, findMatchingRule, routeNotificationParallel } from "./router";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { writeAudio } from "./audio-store";
 
 /**
  * Transient transport-only fields threaded through the `NotificationFired`
@@ -53,8 +56,16 @@ export class NotificationManager {
    * activation work without a schema change.
    */
   async send(
-    notification: Omit<NotificationRow, "status" | "sentAt" | "severity" | "deliveryState"> &
-      Partial<Pick<NotificationRow, "severity" | "deliveryState">>,
+    notification: Omit<
+      NotificationRow,
+      "status" | "sentAt" | "severity" | "deliveryState" | "audioPath" | "voiceUsed"
+    > &
+      Partial<
+        Pick<
+          NotificationRow,
+          "severity" | "deliveryState" | "audioPath" | "voiceUsed"
+        >
+      >,
     extras?: NotificationTransportExtras,
   ): Promise<NotificationRow> {
     const row: NotificationRow = {
@@ -66,6 +77,10 @@ export class NotificationManager {
       // work without passing them through.
       severity: notification.severity ?? "info",
       deliveryState: notification.deliveryState ?? "pending",
+      // notifications-overhaul (task 1.1) — both null until the synth
+      // pipeline records audio via `recordSynthesisedAudio()` below.
+      audioPath: notification.audioPath ?? null,
+      voiceUsed: notification.voiceUsed ?? null,
     };
 
     // Always persist to buffer first
@@ -175,6 +190,34 @@ export class NotificationManager {
     }
 
     return anyDelivered;
+  }
+
+  /**
+   * Persist synthesised MP3 bytes for a notification row and stamp the
+   * row's `audio_path` + `voice_used` columns (notifications-overhaul,
+   * task 2.2).
+   *
+   * Called either by an in-process agent-side synthesiser, or by the
+   * Mac listener via a future `POST /notifications/:id/audio` upload
+   * endpoint. Keeping the persistence path here (manager, not route)
+   * means both upload paths converge on the same DB write. When
+   * synthesis fails or TTS is disabled the row's columns remain NULL —
+   * callers MUST NOT invoke this method on a failed synth.
+   */
+  async recordSynthesisedAudio(
+    notificationId: string,
+    mp3Bytes: Uint8Array | Buffer,
+    voiceId: string,
+  ): Promise<void> {
+    const path = await writeAudio(notificationId, mp3Bytes);
+    await this.db
+      .update(notificationsTable)
+      .set({ audioPath: path, voiceUsed: voiceId })
+      .where(eq(notificationsTable.id, notificationId));
+    logger.debug(
+      { notificationId, voiceId, bytes: mp3Bytes.byteLength },
+      "manager: persisted synthesised audio",
+    );
   }
 
   /** Start meeting mode. */
