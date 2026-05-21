@@ -29,6 +29,18 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
     /// agent-payload-completeness § Project Aggregate Includes Hidden Field.
     public var hidden: Bool
 
+    /// Git metadata for the project's cwd. Surfaced by the agent's
+    /// `getGitMetadata(cwd)` extension (30s per-cwd cache, 2s subprocess
+    /// timeout). Outer optional + inner optionals model the three states:
+    ///   - nil           → older agent (field omitted) OR non-git cwd
+    ///                     (the agent serialized null).
+    ///   - non-nil with `branch == nil`
+    ///                  → detached HEAD; ahead/behind hidden in UI.
+    ///   - non-nil with `branch != nil`
+    ///                  → tracked branch; full metadata surfaces.
+    /// Spec: projects-tab-accordion-deeplink § swift-menubar-client.
+    public var gitMetadata: GitMetadata?
+
     public var id: String { name }
 
     public enum CodingKeys: String, CodingKey {
@@ -38,6 +50,7 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         case machines
         case projectID = "id"
         case hidden
+        case gitMetadata = "git_metadata"
     }
 
     public init(from decoder: Decoder) throws {
@@ -52,6 +65,11 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         // Backward-tolerant: older agents omit `hidden`. Default to false
         // (registered-but-visible). Current-gen agents always emit a bool.
         hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        // Backward-tolerant: older agents omit `git_metadata`; current
+        // agents emit either the object or explicit null for non-git cwds.
+        // Both omitted and null decode to `nil` so the UI's optional check
+        // stays uniform.
+        gitMetadata = try c.decodeIfPresent(GitMetadata.self, forKey: .gitMetadata)
     }
 
     public init(
@@ -60,7 +78,8 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         totalSessions: Int,
         machines: [String],
         projectID: String? = nil,
-        hidden: Bool = false
+        hidden: Bool = false,
+        gitMetadata: GitMetadata? = nil
     ) {
         self.name = name
         self.activeSessions = activeSessions
@@ -68,6 +87,7 @@ public struct ProjectAggregate: Identifiable, Equatable, Hashable, Codable, Send
         self.machines = machines
         self.projectID = projectID
         self.hidden = hidden
+        self.gitMetadata = gitMetadata
     }
 }
 

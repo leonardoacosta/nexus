@@ -120,6 +120,152 @@ final class PayloadDecodeTests: XCTestCase {
         XCTAssertFalse(p.hidden, "omitted hidden defaults to false (legacy-agent tolerance)")
     }
 
+    // MARK: - ProjectAggregate.gitMetadata (projects-tab-accordion-deeplink)
+
+    // Contract: projects-tab-accordion-deeplink spec 2026-05-21 § project-registry.
+    // Wire-format round-trip: agent emits non-null git_metadata object on a
+    // tracked branch; Swift decoder populates `gitMetadata` with branch +
+    // ahead/behind/dirty + lastCommit.
+    func testProjectAggregateDecodesGitMetadataPresent() throws {
+        let json = """
+        {
+            "name": "nx",
+            "active_sessions": 2,
+            "total_sessions": 5,
+            "machines": ["homelab"],
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa",
+            "hidden": false,
+            "git_metadata": {
+                "branch": "main",
+                "ahead": 0,
+                "behind": 0,
+                "dirty": false,
+                "last_commit": {
+                    "author": "leo",
+                    "ts": "2026-05-21T18:00:00-05:00"
+                }
+            }
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertNotNil(p.gitMetadata)
+        XCTAssertEqual(p.gitMetadata?.branch, "main")
+        XCTAssertEqual(p.gitMetadata?.ahead, 0)
+        XCTAssertEqual(p.gitMetadata?.behind, 0)
+        XCTAssertFalse(p.gitMetadata?.dirty ?? true)
+        XCTAssertEqual(p.gitMetadata?.lastCommit?.author, "leo")
+        XCTAssertNotNil(p.gitMetadata?.lastCommit?.ts)
+    }
+
+    // Contract: dirty branch on feat/foo ahead of origin.
+    func testProjectAggregateDecodesGitMetadataDirtyBranch() throws {
+        let json = """
+        {
+            "name": "nx",
+            "active_sessions": 1,
+            "total_sessions": 1,
+            "machines": ["homelab"],
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa",
+            "hidden": false,
+            "git_metadata": {
+                "branch": "feat/foo",
+                "ahead": 3,
+                "behind": 0,
+                "dirty": true,
+                "last_commit": {
+                    "author": "leo",
+                    "ts": "2026-05-21T18:00:00-05:00"
+                }
+            }
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertEqual(p.gitMetadata?.branch, "feat/foo")
+        XCTAssertEqual(p.gitMetadata?.ahead, 3)
+        XCTAssertTrue(p.gitMetadata?.dirty ?? false)
+    }
+
+    // Contract: detached HEAD — non-nil git_metadata, nil branch.
+    func testProjectAggregateDecodesGitMetadataDetachedHead() throws {
+        let json = """
+        {
+            "name": "nx",
+            "active_sessions": 0,
+            "total_sessions": 0,
+            "machines": [],
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa",
+            "hidden": false,
+            "git_metadata": {
+                "branch": null,
+                "ahead": 0,
+                "behind": 0,
+                "dirty": false,
+                "last_commit": {
+                    "author": "leo",
+                    "ts": "2026-05-21T18:00:00-05:00"
+                }
+            }
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertNotNil(p.gitMetadata, "detached HEAD still emits the object")
+        XCTAssertNil(p.gitMetadata?.branch, "branch is null for detached HEAD")
+    }
+
+    // Contract: non-git directory — git_metadata is explicit JSON null,
+    // decoder collapses to nil.
+    func testProjectAggregateDecodesGitMetadataNullForNonGit() throws {
+        let json = """
+        {
+            "name": "notes",
+            "active_sessions": 0,
+            "total_sessions": 0,
+            "machines": ["homelab"],
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-bbbbbbbbbbbb",
+            "hidden": false,
+            "git_metadata": null
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertNil(p.gitMetadata, "non-git cwd surfaces gitMetadata=nil")
+    }
+
+    // Contract: legacy agent that pre-dates projects-tab-accordion-deeplink
+    // omits the field entirely. Decoder MUST tolerate it without throwing.
+    func testProjectAggregateDecodesToleratesOmittedGitMetadata() throws {
+        let json = """
+        {
+            "name": "nx",
+            "active_sessions": 2,
+            "total_sessions": 5,
+            "machines": ["homelab"],
+            "id": "0f7c8a1e-2b9d-4c3a-9e1f-aaaaaaaaaaaa",
+            "hidden": false
+        }
+        """
+        let p = try decode(ProjectAggregate.self, from: json)
+        XCTAssertNil(p.gitMetadata)
+    }
+
+    // Contract: round-trip encode-then-decode preserves the structure
+    // (proves the CodingKeys + Date encoder/decoder are inverse).
+    func testGitMetadataRoundTripsEncode() throws {
+        let commit = GitMetadata.Commit(
+            author: "leo",
+            ts: ISO8601DateFormatter().date(from: "2026-05-21T18:00:00Z")!
+        )
+        let md = GitMetadata(
+            branch: "main",
+            ahead: 1,
+            behind: 2,
+            dirty: true,
+            lastCommit: commit
+        )
+        let data = try JSONEncoder().encode(md)
+        let decoded = try JSONDecoder().decode(GitMetadata.self, from: data)
+        XCTAssertEqual(decoded, md)
+    }
+
     // MARK: - CredentialState (unchanged from v1)
 
     func testCredentialStateDecodes() throws {
