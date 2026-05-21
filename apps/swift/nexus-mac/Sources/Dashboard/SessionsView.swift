@@ -149,18 +149,36 @@ private struct SessionsRowView: View {
                 bottomLine
             }
             Spacer(minLength: 6)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(session.status)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                Text(session.originAgent)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            trailingColumn
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+
+    /// Trailing column: status pill on top, muted `pid · originAgent` below.
+    /// Right-justified, monospaced caption2 for the meta line so digits align
+    /// vertically across rows.
+    private var trailingColumn: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(session.status)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+            Text(metaLine)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospaced()
+        }
+    }
+
+    /// `pid 1234 · machine` — both segments shown when pid > 0, originAgent
+    /// alone otherwise. originAgent has a graceful fallback ("unknown") so
+    /// the line always renders.
+    private var metaLine: String {
+        if let pid = session.pid, pid > 0 {
+            return "pid \(pid) · \(session.originAgent)"
+        }
+        return session.originAgent
     }
 
     /// model · $cost · idle/duration. Cost suppressed when null or <= 0
