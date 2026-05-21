@@ -202,6 +202,10 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         let effectiveCwd = row.cwd ?? "";
         if (!effectiveCwd) {
           const fresh = readProcessCwd(pid);
+          log.info(
+            { id: row.id, pid, freshCwd: fresh ?? null, rawCwd: row.cwd },
+            "process-watcher: refreshing empty cwd",
+          );
           if (fresh) {
             effectiveCwd = fresh;
             // Persist so future polls don't re-read /proc and so any other
