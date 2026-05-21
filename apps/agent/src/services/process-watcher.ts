@@ -199,13 +199,16 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         // rows that the watcher never re-reads. Without this top-up, the
         // enrichment loop below can never fire for those rows. On macOS
         // `readProcessCwd` returns undefined and we leave row.cwd as-is.
+        //
+        // NOTE: when the agent runs under a systemd unit with
+        // `ProtectHome=read-only` + `ProtectSystem=strict`, readlinkSync on
+        // /proc/<pid>/cwd returns EACCES because the new mount namespace
+        // masks the target path. The deploy unit MUST set
+        // `ProtectHome=off` (or add `BindPaths` covering /home) for this
+        // recovery path to work. See nx-lebux thread.
         let effectiveCwd = row.cwd ?? "";
         if (!effectiveCwd) {
           const fresh = readProcessCwd(pid);
-          log.info(
-            { id: row.id, pid, freshCwd: fresh ?? null, rawCwd: row.cwd },
-            "process-watcher: refreshing empty cwd",
-          );
           if (fresh) {
             effectiveCwd = fresh;
             // Persist so future polls don't re-read /proc and so any other
