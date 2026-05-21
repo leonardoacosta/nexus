@@ -164,7 +164,15 @@ async function listTmuxPanes(): Promise<RawPane[]> {
     "#{pane_pid}|#{pane_current_path}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}";
   let stdout: string;
   try {
-    stdout = await execText("tmux", ["list-panes", "-a", "-F", TMUX_FORMAT]);
+    // The format string contains `#{…}` placeholders which trip the
+    // safeSpawn shell-metacharacter guard. The string is a hard-coded
+    // constant in this file with no user-controlled input — safe to opt
+    // out of arg validation here. tmux is the bin allowlisted in
+    // ALLOWED_BINARIES; trustArgs only skips the arg-content check, not
+    // the binary allowlist.
+    stdout = await execText("tmux", ["list-panes", "-a", "-F", TMUX_FORMAT], {
+      trustArgs: true,
+    });
   } catch (err) {
     // No tmux server, or some other failure. Fail-soft — fall back to
     // PID-only detection (cwd empty, tmuxTarget null).
