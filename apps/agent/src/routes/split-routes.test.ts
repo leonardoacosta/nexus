@@ -103,20 +103,25 @@ describe("split route files — response shape", () => {
 
   test("handleCron returns valid JSON with jobs", async () => {
     const { handleCron } = await import("./cron-routes");
-    const response = handleCron();
+    // No db provided — route returns nullish reaper fields without touching PG.
+    const response = await handleCron();
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       jobs: {
         maintain: { schedule: string };
         drift: { schedule: string };
+        reaper: { schedule: string; last_run: string | null };
       };
     };
     expect(body).toHaveProperty("jobs");
     expect(body.jobs).toHaveProperty("maintain");
     expect(body.jobs).toHaveProperty("drift");
+    expect(body.jobs).toHaveProperty("reaper");
     expect(body.jobs.maintain.schedule).toBe("daily @ 00:17");
     expect(body.jobs.drift.schedule).toBe("weekly @ Sun 09:00");
+    expect(body.jobs.reaper.schedule).toBe("weekly @ Sun 03:00");
+    expect(body.jobs.reaper.last_run).toBeNull();
   });
 
 });

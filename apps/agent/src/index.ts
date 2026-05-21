@@ -159,10 +159,13 @@ tokenStreamLifecycle.resumeActiveWatchers().catch((err) => {
 });
 
 // ── Cron service ───────────────────────────────────────────────────────────
-// Scheduled maintenance (daily) and drift detection (weekly).
+// Scheduled maintenance (daily), drift detection (weekly), and the weekly
+// reaper (adopt-reaper-into-nx-cron). The reaper job is gated behind the
+// `db` handle — passing `db` here registers the weekly Sun 03:00 sweep
+// and starts the stale-heartbeat watchdog.
 let cronService: CronService | null = null;
 try {
-  cronService = startCronService();
+  cronService = startCronService({ db });
   logger.info("cron service started");
 } catch (err) {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "cron service failed to start");

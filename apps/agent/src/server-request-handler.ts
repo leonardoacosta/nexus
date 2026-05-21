@@ -529,7 +529,10 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     }
 
     if (url.pathname === "/cron" && request.method === "GET") {
-      return withCors(request, handleCron());
+      return handleCron(db).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/cron", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
     }
 
     // ── SSE stream ──────────────────────────────────────────────────────

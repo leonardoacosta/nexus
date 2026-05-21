@@ -1,13 +1,19 @@
 /**
  * CronService -- scheduled maintenance and drift detection.
  *
- * Two internal jobs:
+ * Three internal jobs:
  *
  * **maintain** (daily ~00:17): Prunes stale temp files, old failure JSONL,
  * old telemetry JSONL, debug logs, paste-cache, and session dirs.
  *
  * **drift** (weekly, Sunday ~09:00): Validates settings.json, checks for
  * orphaned worktree memory directories.
+ *
+ * **reaper** (weekly, Sunday ~03:00): Spawns `reaper-core.sh` to sweep
+ * regenerable caches/builds and run the bloat radar, persists the result
+ * to `cron_runs` + `bloat_radar`, and emits the completion notification.
+ * Added by `adopt-reaper-into-nx-cron`. Requires `db` — gracefully no-ops
+ * when no db is passed (so tests that don't need it still work).
  *
  * Uses setInterval with absolute next-run timestamp calculation so jobs
  * fire at the correct local time regardless of system sleep or clock drift.
@@ -17,8 +23,14 @@ import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "@nexus/core/node";
+import type { Db } from "@nexus/db";
 import { execText } from "../utils/exec";
 import { getSettings } from "./config-loader";
+import {
+  checkReaperHeartbeat,
+  emitStaleHeartbeatNotification,
+  runAndPersistReaper,
+} from "./reaper-job";
 
 const log = createLogger("agent:cron");
 
@@ -312,6 +324,54 @@ async function runDrift(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Reaper job (adopt-reaper-into-nx-cron)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reaper tick — checks the stale-heartbeat detector first (loud TTS if
+ * stale), then spawns the bash core, persists the result, and emits the
+ * completion notification. All side effects are wrapped in try/catch so a
+ * persistence failure never kills the cron service.
+ */
+async function runReaperJob(db: Db): Promise<void> {
+  log.info("cron: reaper job starting");
+
+  // Stale-heartbeat detector — fires BEFORE the next run so an operator
+  // sees the warning even if the new run is about to succeed.
+  try {
+    const heartbeat = await checkReaperHeartbeat(db);
+    if (heartbeat.stale) {
+      log.warn({ heartbeat }, "cron: reaper heartbeat stale — emitting warning");
+      emitStaleHeartbeatNotification(heartbeat);
+    }
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "cron: reaper heartbeat check failed",
+    );
+  }
+
+  try {
+    const result = await runAndPersistReaper({ db });
+    log.info(
+      {
+        status: result.status,
+        pruned: result.pruned,
+        freedBytes: result.freedBytes,
+        durationMs: result.durationMs,
+        bloatCount: result.bloatFindings.length,
+      },
+      "cron: reaper job complete",
+    );
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "cron: reaper job failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
@@ -319,14 +379,25 @@ export interface CronService {
   stop(): void;
 }
 
+export interface StartCronServiceOpts {
+  /**
+   * DB handle for the reaper job. When omitted the reaper job is NOT
+   * registered (useful for tests + early-boot paths that haven't opened
+   * the database yet).
+   */
+  db?: Db;
+}
+
 /**
- * Start the cron service with two scheduled jobs:
+ * Start the cron service with three scheduled jobs:
  * - maintain: daily at 00:17 local time
  * - drift: weekly Sunday at 09:00 local time
+ * - reaper: weekly Sunday at 03:00 local time (only when `db` is provided)
  */
-export function startCronService(): CronService {
+export function startCronService(opts: StartCronServiceOpts = {}): CronService {
   let maintainTimer: ReturnType<typeof setTimeout> | null = null;
   let driftTimer: ReturnType<typeof setTimeout> | null = null;
+  let reaperTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
   function scheduleMaintain(): void {
@@ -363,18 +434,64 @@ export function startCronService(): CronService {
     }, delayMs);
   }
 
+  function scheduleReaper(db: Db): void {
+    if (stopped) return;
+    const delayMs = msUntilWeeklyAt(0, 3, 0); // 0 = Sunday, 03:00
+    log.debug(
+      { delaySecs: Math.round(delayMs / 1000) },
+      "cron: scheduling next reaper job",
+    );
+    reaperTimer = setTimeout(() => {
+      if (stopped) return;
+      runReaperJob(db)
+        .catch((err) => {
+          log.error({ error: err }, "cron: reaper job failed (outer)");
+        })
+        .finally(() => {
+          scheduleReaper(db); // Reschedule for next occurrence.
+        });
+    }, delayMs);
+  }
+
   scheduleMaintain();
   scheduleDrift();
 
-  log.info("CronService started -- maintain(daily@00:17), drift(weekly Sun@09:00)");
+  // The reaper job is gated behind a DB handle. When `db` is absent the
+  // job is not registered — early-boot paths and tests skip silently.
+  if (opts.db) {
+    scheduleReaper(opts.db);
+    // On startup, also fire the stale-heartbeat detector once so an
+    // operator sees the loud warning immediately if the last successful
+    // run is missing or >8 days old (the chezmoi original behavior).
+    checkReaperHeartbeat(opts.db)
+      .then((hb) => {
+        if (hb.stale) {
+          log.warn({ heartbeat: hb }, "cron: reaper heartbeat stale at startup");
+          emitStaleHeartbeatNotification(hb);
+        }
+      })
+      .catch((err) => {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "cron: startup heartbeat check failed",
+        );
+      });
+  }
+
+  log.info(
+    { reaperEnabled: !!opts.db },
+    "CronService started -- maintain(daily@00:17), drift(weekly Sun@09:00), reaper(weekly Sun@03:00)",
+  );
 
   return {
     stop() {
       stopped = true;
       if (maintainTimer) clearTimeout(maintainTimer);
       if (driftTimer) clearTimeout(driftTimer);
+      if (reaperTimer) clearTimeout(reaperTimer);
       maintainTimer = null;
       driftTimer = null;
+      reaperTimer = null;
       log.info("CronService stopped");
     },
   };

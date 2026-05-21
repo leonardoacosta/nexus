@@ -12,6 +12,19 @@ import { routeNotification, findMatchingRule, routeNotificationParallel } from "
 import { lifecycleBus } from "../services/lifecycle-bus";
 
 /**
+ * Transient transport-only fields threaded through the `NotificationFired`
+ * lifecycle payload but NOT persisted on the `notifications` row.
+ *
+ * Added by `adopt-reaper-into-nx-cron` (`items` + `logPath`). Emitters that
+ * want a structured bullet-list / open-log activation pass these alongside
+ * `send()`; the Mac listener reads them off the SSE envelope.
+ */
+export interface NotificationTransportExtras {
+  items?: string[];
+  logPath?: string;
+}
+
+/**
  * Notification manager — orchestrates the lifecycle:
  * check meeting state -> buffer or route -> flush on meeting end.
  */
@@ -32,10 +45,17 @@ export class NotificationManager {
   /**
    * Send a notification: check meeting state, then buffer or route.
    * Returns the notification row with its assigned id.
+   *
+   * `extras` carries transient transport-only fields (`items`, `logPath`)
+   * that travel through the lifecycle `NotificationFired` payload but are
+   * NOT persisted on the `notifications` row. Threaded by
+   * `adopt-reaper-into-nx-cron` so structured bullet-list + open-log
+   * activation work without a schema change.
    */
   async send(
     notification: Omit<NotificationRow, "status" | "sentAt" | "severity" | "deliveryState"> &
       Partial<Pick<NotificationRow, "severity" | "deliveryState">>,
+    extras?: NotificationTransportExtras,
   ): Promise<NotificationRow> {
     const row: NotificationRow = {
       ...notification,
@@ -73,7 +93,7 @@ export class NotificationManager {
     }
 
     // Deliver now
-    await this.deliverNotification(row);
+    await this.deliverNotification(row, extras);
     return row;
   }
 
@@ -108,7 +128,10 @@ export class NotificationManager {
   }
 
   /** Deliver a single notification via the router using parallel channel delivery. */
-  private async deliverNotification(notification: NotificationRow): Promise<boolean> {
+  private async deliverNotification(
+    notification: NotificationRow,
+    extras?: NotificationTransportExtras,
+  ): Promise<boolean> {
     // Use parallel delivery with partial-success reporting (D4).
     const { delivered, failed } = await routeNotificationParallel(notification);
 
@@ -123,6 +146,10 @@ export class NotificationManager {
       // dispatch on the channel name. The event is signal-only — the Mac
       // listener performs synthesis locally via NexusShared.ElevenLabsClient
       // + Keychain (swift-owns-elevenlabs-synth).
+      //
+      // `items` + `logPath` (adopt-reaper-into-nx-cron) are threaded from
+      // the caller's `extras` argument — transient transport-only fields
+      // that don't live on the persisted row.
       for (const { channel } of delivered) {
         lifecycleBus.emit("NotificationFired", {
           id: notification.id,
@@ -131,6 +158,8 @@ export class NotificationManager {
           channel,
           project: notification.project ?? undefined,
           message: notification.body, // back-compat alias
+          items: extras?.items,
+          logPath: extras?.logPath,
         });
       }
     }

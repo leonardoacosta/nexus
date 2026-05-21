@@ -165,6 +165,24 @@ export interface NotificationFiredPayload {
   project?: string;
   /** @deprecated Use `body` instead. Kept for subscribers on the old schema. */
   message?: string;
+  /**
+   * Optional bullet-list items rendered by the Mac listener as a structured
+   * sub-list under the banner body. First consumer: `reaper-job.ts` — emits
+   * one entry per bloat finding. Other emitters MAY use this for structured
+   * multi-line content (e.g. per-spec status lists).
+   *
+   * Added by `adopt-reaper-into-nx-cron`. Optional + back-compat — existing
+   * emitters omit it and existing renderers ignore it.
+   */
+  items?: string[];
+  /**
+   * Optional absolute path to a log file the user can open from the
+   * notification activation. The Mac listener opens this via the OS default
+   * handler when present, fixing the raw-osascript click-attribution bug.
+   *
+   * Added by `adopt-reaper-into-nx-cron`. Optional + back-compat.
+   */
+  logPath?: string;
 }
 
 // ---------------------------------------------------------------------------
