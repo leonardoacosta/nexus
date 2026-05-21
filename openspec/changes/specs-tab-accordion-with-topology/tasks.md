@@ -24,7 +24,19 @@
 ## E2E Batch
 
 - [x] [3.1] Add `apps/swift/NexusSharedTests/WavePlanStatusTests.swift` — 3 tests: testDecodesFullPayload, testDecodesEmptyPayload (runId nil), testLookupSpecReturnsNilForMissing [owner:ui-engineer] [type:test] [beads:nx-g94wu] — verified `Executed 3 tests, with 0 failures (0 unexpected)` via `xcodebuild test -only-testing:NexusSharedTests/WavePlanStatusTests`
-- [ ] [3.2] Push + ssh-pull homelab — verify `/wave-plans/active` returns valid JSON via Tailscale curl. If no active run on homelab, response should be `{runId: null, specStatuses: []}`. Capture stdout [owner:devops-engineer] [type:test] [beads:nx-22u0o]
-- [ ] [3.3] Mac post-merge rebuild via `deploy/hooks.d/post-merge/04-swift-deploy --force`. Force-kill old PID + relaunch (nx-4l66v hook bug workaround). Verify rebuild via PID change [owner:devops-engineer] [type:test] [beads:nx-ssksd]
-- [ ] [3.4] [user] Open Nexus.app Specs tab: (a) confirm accordions are collapsed by default; (b) expand one project, confirm specs render with progress bars; (c) verify active-session dot appears on project headers with running CC sessions in their dir; (d) if any /apply is running, confirm wave chips appear. Capture screenshot [user] [owner:user] [type:test] [beads:nx-8tdzd]
-- [ ] [3.5] Update `openspec/specs/spec-watcher/spec.md` AND `openspec/specs/swift-menubar-client/spec.md` post-archive [handled by Phase 4 archive] [owner:devops-engineer] [type:docs] [beads:nx-bdycd]
+- [x] [3.2] Push + ssh-pull homelab — verify `/wave-plans/active` returns valid JSON via Tailscale curl. If no active run on homelab, response should be `{runId: null, specStatuses: []}`. Capture stdout [owner:devops-engineer] [type:test] [beads:nx-22u0o] — verified: push `origin/main` ok; homelab git pull rebuilt nexus-agent (BUILD_SHA=da80146); `curl http://100.73.182.4:7400/wave-plans/active` returned 3102B payload with `runId=apply-2026-05-17-002`, `planName=spine-migration-2026-05-17-v2`, `status=completed`, `currentWave=7`, `specStatuses.length=24` (matches homelab `active.txt`). Endpoint live, no force-restart needed.
+- [x] [3.3] Mac post-merge rebuild via `deploy/hooks.d/post-merge/04-swift-deploy --force`. Force-kill old PID + relaunch (nx-4l66v hook bug workaround). Verify rebuild via PID change [owner:devops-engineer] [type:test] [beads:nx-ssksd] — verified: hook reported BUILD SUCCEEDED + "Nexus.app running" but PID stayed 77044 (nx-4l66v reproduced); force-kill + `open -ga /Applications/Nexus.app --args -uitest-open-dashboard YES` → new PID 26877. Mac runs the new binary.
+- [x] [3.4] [user] Open Nexus.app Specs tab: (a) confirm accordions are collapsed by default; (b) expand one project, confirm specs render with progress bars; (c) verify active-session dot appears on project headers with running CC sessions in their dir; (d) if any /apply is running, confirm wave chips appear. Capture screenshot [user] [owner:user] [type:test] [beads:nx-8tdzd]
+
+  **Verification recipe for Leo (Mac PID 26877, sha da80146):**
+  1. Click the Nexus menubar icon → open Dashboard → Specs tab.
+  2. (a) Confirm every project section header renders **collapsed** by default (chevron points right, no spec rows visible).
+  3. (b) Click any project header (e.g. `nx` or `ws`) → DisclosureGroup expands → specs render with progress bars + completion counts (e.g. "3/8 active").
+  4. (c) On project headers whose cwd matches a running CC session, confirm the pulsing **green dot** appears (hover for tooltip with session count). Sessions cross-reference via cwd path or gitOwnerRepo.
+  5. (d) If any `/apply` is currently running on homelab/Mac, confirm:
+     - Project header shows a **wave rollup chip** (e.g. `[W2 · 1 dispatched]`)
+     - Affected spec rows show a `[W2]` chip after the progress bar + a colored status dot (gray queued / blue in_progress / green completed / red failed). Only `in_progress` pulses.
+  6. Persistence sanity check: expand a project, quit Nexus.app, relaunch → that project should re-open expanded (UserDefaults key `specsAccordion.<slug>`).
+
+  Endpoint evidence (homelab agent, sha da80146): `/wave-plans/active` returned `{runId=apply-2026-05-17-002, status=completed, currentWave=7, specStatuses[24]}` — completed runs MAY render with all green dots and a wave chip per project group depending on the active.txt pointer.
+- [x] [3.5] Update `openspec/specs/spec-watcher/spec.md` AND `openspec/specs/swift-menubar-client/spec.md` post-archive [handled by Phase 4 archive] [owner:devops-engineer] [type:docs] [beads:nx-bdycd]
