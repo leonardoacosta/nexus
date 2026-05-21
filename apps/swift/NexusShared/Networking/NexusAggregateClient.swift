@@ -203,6 +203,36 @@ public actor NexusAggregateClient {
         return nil
     }
 
+    /// Active /apply wave plan from the agent that owns the currently-running
+    /// run (specs-tab-accordion-with-topology, task 2.2).
+    ///
+    /// TODAY (single-agent semantics): /apply runs on exactly one machine at
+    /// a time, so we accept "first non-nil with a non-empty specStatuses
+    /// wins". If every reachable agent returns the empty-state payload
+    /// (no active run anywhere), we surface that empty payload instead of
+    /// nil so the dashboard can distinguish "nothing in flight" from
+    /// "fetch failed".
+    ///
+    /// FUTURE (multi-agent): once /apply can run concurrently across the
+    /// fleet this should merge per-agent runs into a fleet-wide map. For
+    /// now there is exactly one canonical `runId` so first-write-wins is
+    /// the simplest correct shape.
+    public func fetchWavePlanStatus() async -> WavePlanStatus? {
+        let (perAgent, _) = await fanOut("fetchWavePlanStatus") { client in
+            // fanOut treats `throws` as failure; wrap the non-throwing
+            // `Optional` return so a transport-failed agent never silences
+            // a healthy one.
+            await client.fetchWavePlanStatus()
+        }
+        // Drop transport failures (per-agent nil) then prefer an active
+        // payload over an empty-state placeholder.
+        let payloads = perAgent.compactMap { $0 }
+        if let active = payloads.first(where: { $0.isActive }) {
+            return active
+        }
+        return payloads.first
+    }
+
     /// Credentials merged across agents, deduped by profile `id`.
     public func fetchCredentials() async -> [CcProfile] {
         let (perAgent, _) = await fanOut("fetchCredentials") { client in

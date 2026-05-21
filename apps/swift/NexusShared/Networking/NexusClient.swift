@@ -173,6 +173,29 @@ public actor NexusClient {
         return try await getJSON(url: url)
     }
 
+    /// `GET /wave-plans/active` — projection of the in-flight `/apply` or
+    /// `/apply:all` wave plan (added by specs-tab-accordion-with-topology).
+    ///
+    /// Returns:
+    /// - `nil` on transport error / non-200 status (caller treats as
+    ///   "fetch failed" — the dashboard simply hides wave chips).
+    /// - The fully-populated empty payload (`runId == nil`,
+    ///   `specStatuses == []`) when no /apply is currently active. This
+    ///   lets the consumer distinguish "fetched, no active run" from
+    ///   "fetch failed" via `isActive`.
+    ///
+    /// One-shot HTTP call against `session` (NOT `streamingSession`) —
+    /// the agent emits a small static JSON object, no streaming.
+    public func fetchWavePlanStatus() async -> WavePlanStatus? {
+        let url = endpoint.baseURL.appendingPathComponent("wave-plans/active")
+        do {
+            let payload: WavePlanStatus = try await getJSON(url: url)
+            return payload
+        } catch {
+            return nil
+        }
+    }
+
     /// `GET /specs[?status=…&project=…]` — list specs across all projects.
     public func fetchSpecs(
         status: String? = nil,
