@@ -26,6 +26,22 @@ NoNewPrivileges=true
 # PrivateTmp disabled — nexus-agent exposes sockets in /tmp/ that CC hooks must access
 PrivateTmp=false
 ProtectSystem=strict
+
+# CAP_SYS_PTRACE — grant the agent permission to read /proc/<pid>/cwd for any
+# same-user process regardless of ancestry. The homelab kernel runs with
+# kernel.yama.ptrace_scope=1, which Yama LSM uses to block readlink of
+# /proc/PID/cwd across non-ancestor processes (shell-launched `claude`
+# instances are NOT descendants of this systemd unit). Without this cap,
+# readlinkSync('/proc/<pid>/cwd') in process-watcher returns EACCES for
+# those sessions, leaving the cwd field null and the Sessions tab unable to
+# resolve gitOwnerRepo / project labels.
+#
+# CapabilityBoundingSet already includes cap_sys_ptrace (the unit's capability
+# ceiling), but AmbientCapabilities is what actually grants the cap to the
+# running process at exec time. Narrower than `sysctl kernel.yama.ptrace_scope=0`
+# (which would disable Yama LSM globally) — this only affects nexus-agent.
+# See spec: openspec/changes/session-attach-and-cwd-cap/specs/systemd-service/spec.md.
+AmbientCapabilities=CAP_SYS_PTRACE
 # ProtectHome=read-only replaced with ReadOnlyPaths=/home:
 # ProtectHome uses a mount-namespace bind that breaks readlinkSync('/proc/<pid>/cwd')
 # resolution when the target lives under /home (process-watcher cwd enrichment fails
