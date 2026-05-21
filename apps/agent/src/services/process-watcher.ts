@@ -193,8 +193,41 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     managedPids.add(pid);
     if (livePids.has(pid)) {
       liveManagedPids.push(pid);
-      if (!row.gitProvider && row.cwd) {
-        needsEnrichment.push({ id: row.id, cwd: row.cwd });
+      if (!row.gitProvider) {
+        // Refresh cwd from /proc/<pid>/cwd when the stored value is empty.
+        // Pre-resolver inserts (nx-lebux regression) wrote `cwd: ""` for
+        // rows that the watcher never re-reads. Without this top-up, the
+        // enrichment loop below can never fire for those rows. On macOS
+        // `readProcessCwd` returns undefined and we leave row.cwd as-is.
+        let effectiveCwd = row.cwd ?? "";
+        if (!effectiveCwd) {
+          const fresh = readProcessCwd(pid);
+          if (fresh) {
+            effectiveCwd = fresh;
+            // Persist so future polls don't re-read /proc and so any other
+            // consumer (dashboard, hooks) sees the real cwd. Fail-soft —
+            // the resolver will still run from the in-memory value if the
+            // write fails.
+            try {
+              await db
+                .update(sessions)
+                .set({ cwd: fresh })
+                .where(eq(sessions.id, row.id));
+            } catch (err) {
+              log.warn(
+                {
+                  id: row.id,
+                  pid,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                "failed to persist refreshed cwd (non-fatal)",
+              );
+            }
+          }
+        }
+        if (effectiveCwd) {
+          needsEnrichment.push({ id: row.id, cwd: effectiveCwd });
+        }
       }
     }
     if (!livePids.has(pid)) {
