@@ -15,8 +15,36 @@
 import SwiftUI
 import NexusShared
 
+/// Sort mode for the notification history list (notifications-overhaul,
+/// task 3.5). Persisted across launches via `@AppStorage`.
+enum NotificationSortMode: String, CaseIterable, Identifiable {
+    case time    // newest -> oldest
+    case project // alphabetical, nil-project last
+    case session // alphabetical by channel as a session proxy
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .time:    return "Time"
+        case .project: return "Project"
+        case .session: return "Session"
+        }
+    }
+}
+
 struct NotificationsView: View {
     @StateObject private var model = NotificationsViewModel()
+    @AppStorage("notifications.sort") private var sortRaw: String = NotificationSortMode.time.rawValue
+    @AppStorage("notifications.group") private var groupOn: Bool = false
+
+    private var sortMode: NotificationSortMode {
+        NotificationSortMode(rawValue: sortRaw) ?? .time
+    }
+
+    private func setSortMode(_ mode: NotificationSortMode) {
+        sortRaw = mode.rawValue
+    }
 
     var body: some View {
         // dashboard-ui-pass-v1 (task 2.4): replaced HSplitView with a
@@ -37,14 +65,114 @@ struct NotificationsView: View {
         }
     }
 
+    /// Apply the persisted sort mode to the raw newest-first history.
+    /// Pulled out into a static helper so the test target can pin the
+    /// ordering rules without instantiating SwiftUI views.
+    static func sorted(
+        _ events: [NotificationEvent],
+        mode: NotificationSortMode
+    ) -> [NotificationEvent] {
+        switch mode {
+        case .time:
+            return events.sorted { $0.receivedAt > $1.receivedAt }
+        case .project:
+            return events.sorted { lhs, rhs in
+                // Nil/empty project sorts LAST regardless of receivedAt.
+                let lp = lhs.project ?? ""
+                let rp = rhs.project ?? ""
+                if lp.isEmpty && rp.isEmpty {
+                    return lhs.receivedAt > rhs.receivedAt
+                }
+                if lp.isEmpty { return false }
+                if rp.isEmpty { return true }
+                if lp == rp { return lhs.receivedAt > rhs.receivedAt }
+                return lp < rp
+            }
+        case .session:
+            return events.sorted { lhs, rhs in
+                // Channel acts as a session proxy until a real session id
+                // ships on the wire (NotificationEvent has no sessionId).
+                let ls = lhs.channel ?? ""
+                let rs = rhs.channel ?? ""
+                if ls.isEmpty && rs.isEmpty {
+                    return lhs.receivedAt > rhs.receivedAt
+                }
+                if ls.isEmpty { return false }
+                if rs.isEmpty { return true }
+                if ls == rs { return lhs.receivedAt > rhs.receivedAt }
+                return ls < rs
+            }
+        }
+    }
+
+    /// Group rows for the disclosure view (task 3.6). "Misc" key holds
+    /// rows lacking the group field and is sorted to the end.
+    static func grouped(
+        _ events: [NotificationEvent],
+        mode: NotificationSortMode
+    ) -> [(group: String, rows: [NotificationEvent])] {
+        let keyFor: (NotificationEvent) -> String = { ev in
+            switch mode {
+            case .time: return ""
+            case .project: return ev.project?.isEmpty == false ? ev.project! : "Misc"
+            case .session: return ev.channel?.isEmpty == false ? ev.channel! : "Misc"
+            }
+        }
+        var buckets: [String: [NotificationEvent]] = [:]
+        for ev in events {
+            buckets[keyFor(ev), default: []].append(ev)
+        }
+        // Stable key order: alphabetical, "Misc" last.
+        return buckets.keys.sorted { lhs, rhs in
+            if lhs == "Misc" { return false }
+            if rhs == "Misc" { return true }
+            return lhs < rhs
+        }.map { ($0, buckets[$0] ?? []) }
+    }
+
     private var historyPane: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let sortedRows = NotificationsView.sorted(model.history, mode: sortMode)
+        let groupingAvailable = sortMode != .time
+        let groupingActive = groupingAvailable && groupOn
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("HISTORY")
                     .font(.system(.caption, design: .monospaced))
                     .tracking(2)
                     .foregroundStyle(.secondary)
+
+                ElevenLabsStatusChip(state: model.elevenLabsKeyState)
+                    .onTapGesture {
+                        model.toggleElevenLabsPopover()
+                    }
+
                 Spacer()
+
+                // notifications-overhaul (task 3.5): sort picker.
+                Picker("Sort", selection: Binding(
+                    get: { sortMode },
+                    set: { setSortMode($0) }
+                )) {
+                    ForEach(NotificationSortMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+
+                // notifications-overhaul (task 3.6): group toggle. Only
+                // visible when the sort mode supports grouping.
+                if groupingAvailable {
+                    Toggle(isOn: $groupOn) {
+                        Image(systemName: "rectangle.3.group")
+                    }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Group rows by \(sortMode.label.lowercased())")
+                }
+
                 Text("\(model.history.count)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
@@ -65,11 +193,37 @@ struct NotificationsView: View {
                     description: Text("Waiting for the next NotificationFired event…")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if groupingActive {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        let groups = NotificationsView.grouped(sortedRows, mode: sortMode)
+                        ForEach(groups, id: \.group) { entry in
+                            DisclosureGroup(isExpanded: .constant(true)) {
+                                ForEach(entry.rows) { ev in
+                                    NotificationHistoryRow(event: ev, player: model.audioPlayer)
+                                    Divider().padding(.leading, 14)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(entry.group)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .tracking(1)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(entry.rows.count)")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.history) { ev in
-                            NotificationHistoryRow(event: ev)
+                        ForEach(sortedRows) { ev in
+                            NotificationHistoryRow(event: ev, player: model.audioPlayer)
                             Divider().padding(.leading, 14)
                         }
                     }
@@ -77,6 +231,9 @@ struct NotificationsView: View {
             }
         }
         .padding(.vertical, 8)
+        .popover(isPresented: $model.elevenLabsPopover) {
+            ElevenLabsStatusPopover(model: model)
+        }
     }
 
     /// Compact bottom toolbar — replaces the previous right-hand settings
@@ -167,6 +324,7 @@ struct NotificationsView: View {
 
 private struct NotificationHistoryRow: View {
     let event: NotificationEvent
+    let player: MP3PlayerProtocol?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -193,12 +351,27 @@ private struct NotificationHistoryRow: View {
                             .font(.caption2.monospaced())
                             .foregroundStyle(.tertiary)
                     }
+                    if let project = event.project, !project.isEmpty {
+                        Text(project)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
                     Text(event.receivedAt, style: .relative)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
             Spacer()
+            // notifications-overhaul (task 3.7 + 3.8): replay button when
+            // the agent has a cached MP3. Hidden entirely otherwise so
+            // older clients keep the existing row layout.
+            if event.audioAvailable == true {
+                NotificationReplayButton(
+                    notificationId: event.id.uuidString,
+                    audioAvailable: true,
+                    player: player
+                )
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -213,8 +386,15 @@ final class NotificationsViewModel: ObservableObject {
     @Published var suppressionMinutes: Int = 0
     @Published var ducking: DuckingMode = .mix
     @Published private(set) var persistStatus: String?
+    @Published var elevenLabsKeyState: ElevenLabsKeyState = .unknown
+    @Published var elevenLabsPopover: Bool = false
 
-    private let client = NexusShared.NexusAggregateClient()
+    /// Player handle threaded into row replay buttons. Defaults to the
+    /// shared AudioPlayer; the test target can inject a stub via
+    /// `NotificationsView(model:)` once that initializer ships.
+    let audioPlayer: MP3PlayerProtocol? = AudioPlayer.shared
+
+    let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
 
     private enum Keys {
@@ -233,6 +413,16 @@ final class NotificationsViewModel: ObservableObject {
            let mode = DuckingMode(rawValue: raw) {
             ducking = mode
         }
+        elevenLabsKeyState = Self.detectInitialKeyState()
+    }
+
+    func toggleElevenLabsPopover() {
+        elevenLabsPopover.toggle()
+    }
+
+    static func detectInitialKeyState() -> ElevenLabsKeyState {
+        let key = (try? Keychain.get(KeychainAccount.elevenLabsApiKey)) ?? ""
+        return key.isEmpty ? .noKey : .keySet
     }
 
     func start() async {

@@ -82,6 +82,14 @@ public final class TTSObserver: ObservableObject {
     private let notificationCenter: UNUserNotificationCenter
 
     private var subscriptionTask: Task<Void, Never>?
+    private var voiceEventTask: Task<Void, Never>?
+
+    /// Cached per-project voice id map (notifications-overhaul, task 3.3).
+    /// Populated on `start()` via `client.fetchProjectVoices()` and
+    /// refreshed when a `VoiceOverrideChanged` SSE frame arrives. Reads
+    /// happen on the MainActor (TTSObserver isolation) — the cache
+    /// itself needs no extra synchronisation.
+    private var projectVoiceCache: [String: String] = [:]
 
     public init(
         client: NexusAggregateClient,
@@ -117,6 +125,26 @@ public final class TTSObserver: ObservableObject {
             return
         }
         Self.logger.info("TTSObserver: starting NotificationFired subscription")
+
+        // Bootstrap the project voice cache before the SSE pipe goes
+        // live. Best-effort — empty map on transport failure keeps the
+        // global Keychain voice as the fallback.
+        await refreshProjectVoiceCache()
+
+        // Side-channel subscription: refresh the cache when the agent
+        // publishes a `VoiceOverrideChanged` SSE frame. We piggy-back on
+        // the generic `/events/stream` consumer because the dispatch
+        // happens via the same lifecycle bus.
+        let voiceTask = Task { [weak self] in
+            guard let self else { return }
+            await self.client.consumeEvents { event in
+                guard event.name == "VoiceOverrideChanged" else { return }
+                guard event.decodeVoiceOverrideChange() != nil else { return }
+                await self.refreshProjectVoiceCache()
+            }
+        }
+        self.voiceEventTask = voiceTask
+
         let task = Task { [client] in
             await client.consumeNotifications { event in
                 await self.handle(event: event)
@@ -131,10 +159,33 @@ public final class TTSObserver: ObservableObject {
 
     /// Cancel the subscription. Idempotent — second call is a no-op.
     public func stop() {
-        guard let task = subscriptionTask else { return }
-        Self.logger.info("TTSObserver: stop() cancelling subscription")
-        task.cancel()
-        subscriptionTask = nil
+        if let task = subscriptionTask {
+            Self.logger.info("TTSObserver: stop() cancelling subscription")
+            task.cancel()
+            subscriptionTask = nil
+        }
+        if let voiceTask = voiceEventTask {
+            voiceTask.cancel()
+            voiceEventTask = nil
+        }
+    }
+
+    /// Pull the current per-project voice id map from the agent fleet.
+    /// Falls back to an empty map on transport failure; the synth path
+    /// then uses the Keychain global as the sole resolution source.
+    /// (notifications-overhaul, task 3.3)
+    private func refreshProjectVoiceCache() async {
+        let map = await client.fetchProjectVoices()
+        projectVoiceCache = map
+        Self.logger.info(
+            "TTSObserver: projectVoiceCache refreshed (count=\(map.count, privacy: .public))"
+        )
+    }
+
+    /// Test seam: synchronously read the cache for assertions.
+    /// (`@testable import` reach.)
+    internal var debugProjectVoiceCache: [String: String] {
+        projectVoiceCache
     }
 
     // MARK: - Per-event handler
@@ -240,10 +291,17 @@ public final class TTSObserver: ObservableObject {
 
     private func synthesise(event: NotificationEvent) async {
         let body = event.body
-        // Voice id resolution: Keychain wins (per-user override), fall back
-        // to SettingsStore's persisted preference. If both are absent we
-        // still attempt SystemSpeechSynthesizer below.
-        let voiceId = keychain.voiceId() ?? settings.elevenLabsVoiceId
+        // Voice id resolution chain (notifications-overhaul, task 3.3):
+        //   1. project override — projectVoiceCache[event.project]
+        //   2. Keychain global override (per-user)
+        //   3. SettingsStore persisted preference
+        // If none yield a non-empty value we still attempt
+        // SystemSpeechSynthesizer below.
+        let projectVoice: String? = {
+            guard let p = event.project, !p.isEmpty else { return nil }
+            return projectVoiceCache[p]
+        }()
+        let voiceId = projectVoice ?? keychain.voiceId() ?? settings.elevenLabsVoiceId
 
         // Short-circuit when the key is missing — no point hitting the API
         // just to throw `missingKey`.

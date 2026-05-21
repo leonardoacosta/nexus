@@ -180,6 +180,19 @@ extension SSEEvent {
         return (cpu, ram)
     }
 
+    /// `VoiceOverrideChanged` — agent emits this AFTER a PUT or DELETE
+    /// on `/notifications/voices/:project` commits. Returns the project
+    /// slug whose mapping changed, or nil if the frame cannot be parsed.
+    /// (notifications-overhaul, task 3.4)
+    public func decodeVoiceOverrideChange() -> String? {
+        guard let bytes = data.data(using: .utf8) else { return nil }
+        if let env = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] {
+            let p = (env["payload"] as? [String: Any]) ?? env
+            return p["project"] as? String
+        }
+        return nil
+    }
+
     /// `NotificationFired` — body+channel+title+emoji envelope.
     public func decodeNotification() -> NotificationEvent? {
         guard let bytes = data.data(using: .utf8) else { return nil }

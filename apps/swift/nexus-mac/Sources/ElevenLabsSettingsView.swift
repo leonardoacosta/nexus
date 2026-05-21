@@ -34,6 +34,14 @@ struct ElevenLabsSettingsView: View {
                     Text(status).foregroundColor(statusIsError ? .red : .green).font(.caption)
                 }
             }
+
+            // notifications-overhaul (task 3.12): per-project voice
+            // overrides mount inside the existing Settings tab. The
+            // single global voice field above stays as the fallback
+            // when no override matches.
+            Section("Project voices") {
+                ProjectVoicesView()
+            }
         }
         .padding()
         .onAppear(perform: load)

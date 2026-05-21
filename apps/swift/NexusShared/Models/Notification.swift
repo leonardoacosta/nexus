@@ -64,6 +64,18 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
     /// Codable back-compat: older payloads omit the key and decode as nil.
     public var logPath: String?
 
+    /// True when the agent has a cached MP3 for this notification on
+    /// disk (notifications-overhaul, task 2.10). Optional in the wire
+    /// contract — older agents omit the key and the field decodes as
+    /// `nil` (rendered identically to `false` by the dashboard).
+    public var audioAvailable: Bool?
+
+    /// Voice id that produced the cached MP3 (notifications-overhaul,
+    /// task 2.10). Useful for debugging per-project voice resolution.
+    /// Optional + back-compat — `nil` when synthesis didn't happen or
+    /// the row predates the column.
+    public var voiceUsed: String?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case body
@@ -86,6 +98,11 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         case items
         case logPath = "log_path"
         case logPathCamel = "logPath"
+        // notifications-overhaul (task 3.1): audio cache liveness flag
+        // and the voice id that produced the cached MP3. Both optional
+        // for back-compat with pre-overhaul agents.
+        case audioAvailable
+        case voiceUsed
     }
 
     public init(
@@ -99,7 +116,9 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         severity: NotificationSeverity = .info,
         deliveryState: DeliveryState = .pending,
         items: [String]? = nil,
-        logPath: String? = nil
+        logPath: String? = nil,
+        audioAvailable: Bool? = nil,
+        voiceUsed: String? = nil
     ) {
         self.id = id
         self.body = body
@@ -112,6 +131,8 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         self.deliveryState = deliveryState
         self.items = items
         self.logPath = logPath
+        self.audioAvailable = audioAvailable
+        self.voiceUsed = voiceUsed
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,6 +186,11 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         } else {
             self.logPath = nil
         }
+
+        // notifications-overhaul (task 3.1): optional. Absent keys decode
+        // as nil — back-compat with pre-overhaul agents.
+        self.audioAvailable = try c.decodeIfPresent(Bool.self, forKey: .audioAvailable)
+        self.voiceUsed = try c.decodeIfPresent(String.self, forKey: .voiceUsed)
     }
 
     /// Custom encoder — written to `created_at` (the canonical REST shape)
@@ -189,6 +215,9 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         // spelling — decode tolerates it, encode is contract.
         try c.encodeIfPresent(items, forKey: .items)
         try c.encodeIfPresent(logPath, forKey: .logPath)
+        // notifications-overhaul (task 3.1): round-trip on the same key.
+        try c.encodeIfPresent(audioAvailable, forKey: .audioAvailable)
+        try c.encodeIfPresent(voiceUsed, forKey: .voiceUsed)
     }
 
     private static func decodeDate(

@@ -499,6 +499,128 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /notifications/:id/audio` — stream the cached MP3 for a
+    /// notification (notifications-overhaul, task 3.2). Returns the
+    /// full bytes in one `AsyncThrowingStream` chunk; downstream players
+    /// (AVAudioPlayer) buffer the whole body before playback. Throws
+    /// `NexusClientError.badStatus(404|410|...)` so the caller can
+    /// distinguish "never synthesised" (404) from "pruned" (410) from
+    /// transport failure.
+    public func streamNotificationAudio(
+        id: String
+    ) -> AsyncThrowingStream<Data, Error> {
+        let endpoint = self.endpoint
+        let streamingSession = self.streamingSession
+        return AsyncThrowingStream { continuation in
+            let escaped = id.addingPercentEncoding(
+                withAllowedCharacters: .urlPathAllowed
+            ) ?? id
+            let url = endpoint.baseURL
+                .appendingPathComponent("notifications")
+                .appendingPathComponent(escaped)
+                .appendingPathComponent("audio")
+            var req = URLRequest(url: url)
+            req.httpMethod = "GET"
+            req.addValue("audio/mpeg", forHTTPHeaderField: "Accept")
+            Task {
+                do {
+                    let (data, response) = try await streamingSession.data(for: req)
+                    if let http = response as? HTTPURLResponse,
+                       !(200...299).contains(http.statusCode) {
+                        continuation.finish(
+                            throwing: NexusClientError.badStatus(http.statusCode)
+                        )
+                        return
+                    }
+                    continuation.yield(data)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: NexusClientError.transport(error))
+                }
+            }
+        }
+    }
+
+    /// `GET /notifications/voices` — fetch the project -> voiceId mapping
+    /// (notifications-overhaul, task 3.2). Returns an empty dictionary on
+    /// no rows; throws on transport / non-2xx.
+    public func fetchProjectVoices() async throws -> [String: String] {
+        let url = endpoint.baseURL.appendingPathComponent("notifications/voices")
+        return try await getJSON(url: url)
+    }
+
+    /// `PUT /notifications/voices/:project` — upsert a voice override.
+    /// Returns the persisted row on 200; throws on transport / non-2xx.
+    public struct ProjectVoiceResponse: Decodable, Sendable {
+        public var project: String
+        public var voice_id: String
+        public var updated_at: String
+    }
+
+    @discardableResult
+    public func putProjectVoice(
+        project: String,
+        voiceId: String
+    ) async throws -> ProjectVoiceResponse {
+        let escaped = project.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? project
+        let url = endpoint.baseURL
+            .appendingPathComponent("notifications/voices")
+            .appendingPathComponent(escaped)
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try JSONSerialization.data(
+            withJSONObject: ["voice_id": voiceId]
+        )
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        do {
+            return try decoder.decode(ProjectVoiceResponse.self, from: data)
+        } catch {
+            throw NexusClientError.decoding(error)
+        }
+    }
+
+    /// `DELETE /notifications/voices/:project` — drop the override.
+    /// 204 on success (also 204 when the row didn't exist; idempotent).
+    /// Throws on transport or other non-2xx status.
+    public func deleteProjectVoice(project: String) async throws {
+        let escaped = project.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? project
+        let url = endpoint.baseURL
+            .appendingPathComponent("notifications/voices")
+            .appendingPathComponent(escaped)
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+    }
+
     /// `POST /commands/send-text` — forward keystrokes into the session's
     /// tmux pane. Used by the macOS dashboard's PTY viewer to attach
     /// bidirectionally (read stream + write keystrokes) on managed sessions.

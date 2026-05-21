@@ -432,6 +432,82 @@ public actor NexusAggregateClient {
         }
     }
 
+    /// `GET /notifications/:id/audio` on every agent — only the agent
+    /// that produced the notification will have the cached MP3; the rest
+    /// 404 fast. Returns the first non-empty stream (first wins).
+    /// (notifications-overhaul, task 3.2)
+    public func streamNotificationAudio(
+        id: String
+    ) -> AsyncThrowingStream<Data, Error> {
+        let snapshot = clients
+        return AsyncThrowingStream { continuation in
+            Task {
+                var lastError: Error?
+                for client in snapshot {
+                    do {
+                        let stream = await client.streamNotificationAudio(id: id)
+                        for try await chunk in stream {
+                            continuation.yield(chunk)
+                        }
+                        // First agent that produced bytes wins.
+                        continuation.finish()
+                        return
+                    } catch {
+                        lastError = error
+                        continue
+                    }
+                }
+                continuation.finish(
+                    throwing: lastError ?? NexusClientError.badStatus(404)
+                )
+            }
+        }
+    }
+
+    /// Fetch + merge per-project voice overrides across every agent.
+    /// On conflict, the last writer wins (overrides should be globally
+    /// unique by project; conflicts indicate operator drift).
+    public func fetchProjectVoices() async -> [String: String] {
+        var merged: [String: String] = [:]
+        await withTaskGroup(of: [String: String].self) { group in
+            for client in clients {
+                group.addTask {
+                    (try? await client.fetchProjectVoices()) ?? [:]
+                }
+            }
+            for await partial in group {
+                for (k, v) in partial { merged[k] = v }
+            }
+        }
+        return merged
+    }
+
+    /// PUT a project voice override on every agent (idempotent upsert).
+    /// Fire-and-forget — per-agent failures don't abort the fan-out.
+    public func putProjectVoice(project: String, voiceId: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            for client in clients {
+                group.addTask {
+                    _ = try? await client.putProjectVoice(
+                        project: project,
+                        voiceId: voiceId
+                    )
+                }
+            }
+        }
+    }
+
+    /// DELETE a project voice override on every agent (idempotent).
+    public func deleteProjectVoice(project: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            for client in clients {
+                group.addTask {
+                    try? await client.deleteProjectVoice(project: project)
+                }
+            }
+        }
+    }
+
     /// Set/clear a project's persisted `hidden` flag. A project lives on
     /// exactly one agent; fan out to all — the owner applies it, the rest
     /// 404 harmlessly (same idiom as the PTY stream fan-out). Best-effort,
