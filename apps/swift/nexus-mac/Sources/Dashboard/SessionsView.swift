@@ -145,12 +145,8 @@ private struct SessionsRowView: View {
                             .lineLimit(1)
                     }
                 }
-                // BOTTOM line (placeholder until 2.3): model only.
-                if let model = session.model {
-                    Text(model)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                // BOTTOM line: model · $cost · idle/duration
+                bottomLine
             }
             Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 2) {
@@ -165,6 +161,55 @@ private struct SessionsRowView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+
+    /// model · $cost · idle/duration. Cost suppressed when null or <= 0
+    /// (no `$0.00` noise on freshly-spawned sessions).
+    private var bottomLine: some View {
+        HStack(spacing: 6) {
+            if let model = session.model, !model.isEmpty {
+                Text(model)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if let costText = costText {
+                Text("·").foregroundStyle(.tertiary).font(.caption2)
+                Text(costText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Text("·").foregroundStyle(.tertiary).font(.caption2)
+            Text(timeText)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// Format `$N.NN`. Returns nil when cost is missing or non-positive so
+    /// the caller can omit the entire segment (avoiding `$0.00` noise).
+    private var costText: String? {
+        guard let cost = session.totalCostUsd, cost > 0 else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: cost)) ?? String(format: "$%.2f", cost)
+    }
+
+    /// `Nm idle` when idleSince is set, otherwise the running session duration
+    /// `Nm` (<= 60 min) or `Nh` (> 60 min) measured from startedAt.
+    private var timeText: String {
+        if let idleSince = session.idleSince {
+            let minutes = max(0, Int(Date().timeIntervalSince(idleSince) / 60))
+            return "\(minutes)m idle"
+        }
+        let elapsed = max(0, Date().timeIntervalSince(session.startedAt))
+        let minutes = Int(elapsed / 60)
+        if minutes >= 60 {
+            return "\(minutes / 60)h"
+        }
+        return "\(minutes)m"
     }
 
     /// Project-label degradation chain — gitOwnerRepo wins because
