@@ -96,6 +96,8 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
+      - package: MarkdownUI
+        product: MarkdownUI
     # The nexus-mac scheme is the canonical Swift test entry point for the
     # integration gate (deploy/hooks.d/pre-push/01-deploy runs
     # `xcodebuild test -scheme nexus-mac -only-testing:<bundle>`). XcodeGen
@@ -227,3 +229,11 @@ packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     from: 1.2.0
+  # swift-markdown-ui (gonzalezreal) — full GitHub-Flavored Markdown rendering
+  # for SwiftUI. Replaces the AttributedString(interpretedSyntax:
+  # .inlineOnlyPreservingWhitespace) path in SpecDetailView, which only handled
+  # bold/italic/inline-code and rendered headings, fenced code blocks, lists,
+  # and HTML comments as raw text. nx-lm5y4.
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.0

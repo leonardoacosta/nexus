@@ -17,6 +17,7 @@
 		150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */; };
 		17245C99759FEBBB9D99AFC9 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		174B26DFC4458341673382E2 /* ScriptError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2C93268B41859AEFAA71CA /* ScriptError.swift */; };
+		1B5F1633627E9B089B9F438F /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 9A22E58161A4A4C3279BD0B4 /* MarkdownUI */; };
 		1BAFA2038CD249707F7B77C5 /* CcProfileStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A4B1EA409AA9AEC96BD42D2 /* CcProfileStatusView.swift */; };
 		1D7C23E1CE0DA82514C8D4A4 /* Sparkline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1CF4A9536CEA43E2DA5FE6 /* Sparkline.swift */; };
 		1FA7E0C3DC619674A2D5247C /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
@@ -365,6 +366,7 @@
 			files = (
 				2F4511F8432A2F20634CF42C /* NexusShared.framework in Frameworks */,
 				BEAF5B94C31DBA512408DAA5 /* SwiftTerm in Frameworks */,
+				1B5F1633627E9B089B9F438F /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -795,6 +797,7 @@
 			name = "nexus-mac";
 			packageProductDependencies = (
 				BD684782E301B381CB87943C /* SwiftTerm */,
+				9A22E58161A4A4C3279BD0B4 /* MarkdownUI */,
 			);
 			productName = "nexus-mac";
 			productReference = 9932003F0D7F48309F41C215 /* nexus-mac.app */;
@@ -881,6 +884,7 @@
 			mainGroup = D085A8C8D4FF2123E16B069A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				ABF66F6DC1C43D983F7B5EA1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				D96B4879FC344DCC3DCB3158 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -1563,6 +1567,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		ABF66F6DC1C43D983F7B5EA1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
 		D96B4879FC344DCC3DCB3158 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -1578,6 +1590,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D96B4879FC344DCC3DCB3158 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		9A22E58161A4A4C3279BD0B4 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ABF66F6DC1C43D983F7B5EA1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
 		};
 		BD684782E301B381CB87943C /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -1,15 +1,18 @@
 // SpecDetailView — markdown-rendered right-pane for SpecsView.
 //
 // Spec: openspec/changes/dashboard-ui-pass-v1 (task 2.2)
+// Follow-up: nx-lm5y4 — swap inline-only AttributedString for MarkdownUI.
 //
 // Accepts a selected SpecSummary (or nil). When a spec is selected:
 //   1. Renders a tab picker (proposal / design / tasks).
 //   2. Fetches the corresponding markdown file via
 //      NexusAggregateClient.fetchSpecContent on selection or tab change.
-//   3. Renders the markdown via SwiftUI's built-in AttributedString
-//      initializer with `.inlineOnlyPreservingWhitespace` — bold, italic,
-//      inline code, and links work; headings/code blocks degrade to plain
-//      text. No SPM markdown dep per locked-decision.
+//   3. Renders the markdown via swift-markdown-ui (gonzalezreal) with the
+//      built-in `.gitHub` theme. Handles full GFM: headings, fenced code
+//      blocks, lists, task lists, blockquotes, tables, links, inline
+//      formatting. Replaced the previous AttributedString(markdown:
+//      interpretedSyntax: .inlineOnlyPreservingWhitespace) path which
+//      rendered block-level constructs as raw markdown source.
 //
 // State semantics:
 //   - selectedSpec == nil  -> hint state ("Select a spec to view…")
@@ -18,6 +21,7 @@
 //   - fetched body == ""   -> empty state (treated identically to nil)
 
 import SwiftUI
+import MarkdownUI
 import NexusShared
 
 enum SpecDocumentTab: String, CaseIterable, Identifiable {
@@ -111,9 +115,9 @@ struct SpecDetailView: View {
             })
         } else if let content, !content.isEmpty {
             ScrollView {
-                Text(renderMarkdown(content))
+                Markdown(content)
+                    .markdownTheme(.gitHub)
                     .textSelection(.enabled)
-                    .font(.system(.body, design: .default))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
             }
@@ -160,22 +164,6 @@ struct SpecDetailView: View {
     }
 
     // MARK: - Helpers
-
-    /// Render the markdown source. AttributedString.init(markdown:options:)
-    /// throws on certain SDK / input combinations; we fall back to a plain
-    /// AttributedString so the user always sees the raw text instead of an
-    /// empty pane. Empty string returns an empty AttributedString without
-    /// invoking the markdown parser.
-    private func renderMarkdown(_ source: String) -> AttributedString {
-        if source.isEmpty { return AttributedString() }
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        if let attr = try? AttributedString(markdown: source, options: options) {
-            return attr
-        }
-        return AttributedString(source)
-    }
 
     private func load(spec: SpecSummary, tab: SpecDocumentTab) async {
         isLoading = true

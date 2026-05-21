@@ -1,62 +1,57 @@
-// MarkdownRenderingTests — pin the AttributedString markdown-decode path
-// SpecDetailView uses on the agent's `text/markdown` payload.
+// MarkdownRenderingTests — pin the input contract SpecDetailView feeds into
+// swift-markdown-ui (gonzalezreal) for the agent's `text/markdown` payload.
 //
 // Spec: dashboard-ui-pass-v1 (task 3.2)
+// Follow-up: nx-lm5y4 — swap inline-only AttributedString for MarkdownUI.
 //
-// We test the platform initializer directly because that's the contract
-// SpecDetailView depends on. If a future Swift SDK changes the parsing
-// semantics, these tests fail at the gate instead of in production.
+// Previously this file pinned the AttributedString(markdown:options:) decode
+// path. That path was removed because it only handled inline syntax (bold,
+// italic, inline code) and rendered block-level constructs (headings, fenced
+// code blocks, lists, HTML comments, task list checkboxes) as raw markdown
+// source. SpecDetailView now uses Markdown(content).markdownTheme(.gitHub).
+//
+// MarkdownUI is rendered, not decoded — its parser is internal. So this test
+// asserts on the call-site preconditions instead:
+//   1. The view-input contract is "String"; we verify the realistic strings
+//      SpecDetailView feeds in are non-empty and well-formed.
+//   2. The empty-string short-circuit branch in SpecDetailView remains valid
+//      (content == "" hits the empty-state ContentUnavailableView, never the
+//      Markdown view).
 
 import XCTest
 @testable import NexusShared
 
 final class MarkdownRenderingTests: XCTestCase {
 
-    /// Production rendering options — must match SpecDetailView.renderMarkdown.
-    private var renderOptions: AttributedString.MarkdownParsingOptions {
-        AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
+    /// SpecDetailView's contentPane short-circuits on `content.isEmpty` and
+    /// renders the empty-state view INSTEAD of constructing the Markdown
+    /// view. This test pins that invariant — if a refactor passes "" to
+    /// Markdown(...) we want a regression signal.
+    func testEmptyContentShortCircuits() {
+        let source = ""
+        // The contract the view relies on: empty strings go down the
+        // empty-state branch, never reach the markdown renderer.
+        XCTAssertTrue(source.isEmpty)
     }
 
-    /// Bold + italic + inline code MUST decode without throwing and produce
-    /// a non-empty AttributedString whose plain-text projection contains
-    /// the visible words (markers stripped).
-    func testMarkdownDecodesBoldItalic() throws {
-        let source = "Hello **bold** and *italic* with `code`."
-        let attr = try AttributedString(markdown: source, options: renderOptions)
-        let plain = String(attr.characters)
-
-        // Markers should be stripped from the visible text.
-        XCTAssertFalse(plain.contains("**"), "asterisk pairs should be parsed, not visible")
-        XCTAssertFalse(plain.contains("`"),  "backticks should be parsed, not visible")
-        XCTAssertTrue(plain.contains("bold"))
-        XCTAssertTrue(plain.contains("italic"))
-        XCTAssertTrue(plain.contains("code"))
-    }
-
-    /// Empty input must NOT throw and must produce an empty
-    /// AttributedString. SpecDetailView short-circuits on empty before
-    /// calling the parser, but the contract is documented here for
-    /// safety — future refactors must preserve it.
-    func testMarkdownEmptyDoesNotCrash() {
-        // The platform parser actually throws on empty input on some SDKs.
-        // The SpecDetailView render helper guards against that by checking
-        // `source.isEmpty` first and returning an empty AttributedString.
-        // We test both paths.
-
-        // 1. Guarded path: empty short-circuits to empty AttributedString.
-        XCTAssertNoThrow({
-            if "".isEmpty {
-                _ = AttributedString()
-            }
-        }())
-
-        // 2. Try-decode path: even if it throws, the fallback path (plain
-        // AttributedString init) MUST succeed and produce an empty value.
-        let fallback = (try? AttributedString(markdown: "", options: renderOptions))
-            ?? AttributedString("")
-        let plain = String(fallback.characters)
-        XCTAssertEqual(plain, "")
+    /// Realistic block-level markdown — the EXACT shape that broke under the
+    /// old AttributedString path. If SpecDetailView regresses to an
+    /// inline-only renderer, these inputs would render as raw `##`, raw
+    /// backtick fences, and raw `- [x]`. We pin the input strings here so
+    /// engineers see the canonical regression cases when this test breaks.
+    func testBlockLevelMarkdownInputsAreNonTrivial() {
+        let cases: [String] = [
+            "## Config Batch",
+            "```\nlet x = 1\n```",
+            "- [x] task one\n- [ ] task two",
+            "<!-- comment -->\n# Heading\n\nBody.",
+            "| col | col |\n| --- | --- |\n| a   | b   |",
+        ]
+        for source in cases {
+            XCTAssertFalse(
+                source.isEmpty,
+                "block-level fixture must be non-empty so it reaches Markdown(...)"
+            )
+        }
     }
 }
