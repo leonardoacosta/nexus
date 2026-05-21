@@ -36,7 +36,7 @@
 
 ## E2E Batch
 
-- [ ] 4.1 End-to-end: deploy agent with the poller, wait two ticks, curl `GET /credentials`, assert at least one row has non-null `usage5hUsed` and `usagePolledAt`. Confirm `usage_5h_reset_at` is a valid ISO timestamp in the future. [beads:nx-7cqem]
-- [ ] 4.2 End-to-end: with one credential having `account_email = null` in the DB, curl `POST /credentials/:id/refresh-identity`. Assert response 200 with populated identity. Re-query GET /credentials, assert the row now carries the email. [beads:nx-53zr7]
-- [ ] 4.3 End-to-end: curl `GET /credentials?dedupe=true` against a homelab agent with known-duplicate credentials. Assert response has fewer rows than `GET /credentials`, and each primary row has `siblingCount` set. [beads:nx-weu5y]
+- [ ] 4.1 [DEFERRED — requires deployed agent + Anthropic OAuth + Postgres] End-to-end: deploy agent with the poller, wait two ticks, curl `GET /credentials`, assert at least one row has non-null `usage5hUsed` and `usagePolledAt`. Confirm `usage_5h_reset_at` is a valid ISO timestamp in the future. Runtime evidence not reproducible in this worktree. [beads:nx-7cqem]
+- [ ] 4.2 [DEFERRED — requires deployed agent + Anthropic OAuth + Postgres] End-to-end: with one credential having `account_email = null` in the DB, curl `POST /credentials/:id/refresh-identity`. Assert response 200 with populated identity. Re-query GET /credentials, assert the row now carries the email. Runtime evidence not reproducible in this worktree. [beads:nx-53zr7]
+- [ ] 4.3 [DEFERRED — requires deployed agent + Postgres + known-duplicate credentials] End-to-end: curl `GET /credentials?dedupe=true` against a homelab agent with known-duplicate credentials. Assert response has fewer rows than `GET /credentials`, and each primary row has `siblingCount` set. Runtime evidence not reproducible in this worktree. [beads:nx-weu5y]
 - [ ] 4.4 [user] Open Nexus.app Credentials tab. Confirm: (a) usage bars render with reset countdowns; (b) refresh-identity button works on a row with blank email; (c) dedupe toggle collapses/expands the list; (d) sibling chip expansion shows duplicate ids. [beads:nx-47gn6]
