@@ -1,12 +1,14 @@
 // PtyViewer — macOS dashboard parity for the web xterm session pane.
 //
 // Spec: openspec/changes/swift-dashboard-feature-parity (task 1.11)
-// bd:nx-gaquu
+//       openspec/changes/session-attach-and-cwd-cap (tasks 2.2, 2.3, 2.5)
+// bd:nx-gaquu, nx-0ix6e, nx-qxkvq, nx-273ve
 //
 // SwiftTerm-based viewer that subscribes to the agent's PTY byte stream
-// (`GET /sessions/{id}/stream`) and renders the ANSI output read-only.
-// Input is captured by SwiftTerm but discarded — the dashboard surface
-// does not allow typing back (use the Attach button for full PTY).
+// (`GET /sessions/{id}/stream`) AND forwards keystrokes via
+// `POST /commands/send-text` for bidirectional PTY attach. Input forwarding
+// is gated on `sessionType == "managed"` — non-managed sessions render
+// read-only and log a one-shot warn on the first dropped keystroke.
 //
 // SwiftTerm is declared as an SPM package in apps/swift/project.yml.
 // We guard the import with `#if canImport(SwiftTerm)` so the file
@@ -14,6 +16,7 @@
 
 import SwiftUI
 import NexusShared
+import os
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -21,16 +24,38 @@ import AppKit
 import SwiftTerm
 #endif
 
+private let ptyLog = Logger(subsystem: "dev.priceless.nexus", category: "PtyViewer")
+
 struct PtyViewer: View {
     let sessionId: String
     let sessionLabel: String?
+    /// Gates bidirectional input. When `sessionType != "managed"` the
+    /// SwiftTerm delegate's send() is a no-op + one-shot os_log warn.
+    /// `nil` is treated as non-managed (safe default — never forward keys
+    /// to a session whose ownership we can't confirm).
+    let sessionType: String?
+    /// Optional close handler — when present, header renders an X button
+    /// that calls back to the parent (e.g. SessionsView clearing
+    /// `selectedSessionId`). Pure presentation hook; PtyViewer itself
+    /// does not own dismissal.
+    let onClose: (() -> Void)?
 
     @StateObject private var model: PtyViewerModel
 
-    init(sessionId: String, sessionLabel: String? = nil) {
+    init(
+        sessionId: String,
+        sessionLabel: String? = nil,
+        sessionType: String? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
         self.sessionId = sessionId
         self.sessionLabel = sessionLabel
-        _model = StateObject(wrappedValue: PtyViewerModel(sessionId: sessionId))
+        self.sessionType = sessionType
+        self.onClose = onClose
+        _model = StateObject(wrappedValue: PtyViewerModel(
+            sessionId: sessionId,
+            sessionType: sessionType
+        ))
     }
 
     var body: some View {
@@ -63,6 +88,15 @@ struct PtyViewer: View {
             Text(model.status.rawValue)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.caption2.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .help("Close PTY viewer")
+                .accessibilityIdentifier("pty-viewer-close")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -110,19 +144,65 @@ enum PtyStatus: String, Equatable, Sendable {
 final class PtyViewerModel: ObservableObject {
     @Published private(set) var status: PtyStatus = .idle
     let sessionId: String
+    /// Mirror of PtyViewer.sessionType — used by the coordinator to gate
+    /// input forwarding. `nil` is treated as non-managed.
+    let sessionType: String?
 
     /// Buffered bytes received before the terminal view has been attached.
     /// Drained on `attach(view:)`.
     private var preAttachBuffer: [UInt8] = []
     private var sseTask: Task<Void, Never>?
     private let client = NexusShared.NexusAggregateClient()
+    /// One-shot guard so the non-managed-session warn doesn't spam the log
+    /// on every keystroke.
+    private var loggedNonManagedSuppression = false
 
     #if canImport(SwiftTerm)
     private weak var terminal: TerminalView?
     #endif
 
-    init(sessionId: String) {
+    init(sessionId: String, sessionType: String? = nil) {
         self.sessionId = sessionId
+        self.sessionType = sessionType
+    }
+
+    /// Forward keystrokes from the SwiftTerm delegate to the agent's
+    /// `POST /commands/send-text`. Non-UTF8 byte sequences are dropped with
+    /// a one-shot warn (see `loggedNonManagedSuppression` for the managed
+    /// counterpart). When `sessionType != "managed"` the call is a no-op
+    /// plus one-shot warn — non-managed (raw/ad_hoc) sessions don't have a
+    /// tmux target to forward into.
+    func forwardInput(_ data: ArraySlice<UInt8>) {
+        guard sessionType == "managed" else {
+            if !loggedNonManagedSuppression {
+                loggedNonManagedSuppression = true
+                ptyLog.warning(
+                    "PtyViewer: input forwarding disabled for non-managed session (sessionId=\(self.sessionId, privacy: .public), sessionType=\(self.sessionType ?? "nil", privacy: .public))"
+                )
+            }
+            return
+        }
+        guard let text = String(bytes: data, encoding: .utf8) else {
+            ptyLog.warning(
+                "PtyViewer: dropped non-UTF8 input (sessionId=\(self.sessionId, privacy: .public), bytes=\(data.count, privacy: .public))"
+            )
+            return
+        }
+        let sessionId = self.sessionId
+        let originAgent: String? = nil
+        Task { [client] in
+            do {
+                try await client.sendText(
+                    sessionId: sessionId,
+                    text: text,
+                    originAgent: originAgent
+                )
+            } catch {
+                ptyLog.error(
+                    "PtyViewer: sendText failed (sessionId=\(sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
     }
 
     #if canImport(SwiftTerm)
@@ -185,6 +265,7 @@ struct PtyTerminalRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TerminalView {
         let view = TerminalView()
+        context.coordinator.model = model
         view.terminalDelegate = context.coordinator
         Task { @MainActor in
             model.attach(view: view)
@@ -192,7 +273,9 @@ struct PtyTerminalRepresentable: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: TerminalView, context: Context) {}
+    func updateNSView(_ nsView: TerminalView, context: Context) {
+        context.coordinator.model = model
+    }
 
     func makeCoordinator() -> PtyTerminalCoordinator {
         PtyTerminalCoordinator()
@@ -200,8 +283,18 @@ struct PtyTerminalRepresentable: NSViewRepresentable {
 }
 
 final class PtyTerminalCoordinator: NSObject, @preconcurrency TerminalViewDelegate {
-    // Read-only viewer — input bytes are intentionally discarded.
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {}
+    /// Set by the representable so the synchronous SwiftTerm `send` callback
+    /// can fire-and-forget a sendText call. Weak-ish (the coordinator
+    /// outlives the view); the model is owned by the SwiftUI struct.
+    weak var model: PtyViewerModel?
+
+    @MainActor
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        // SwiftTerm calls send() synchronously; the model wraps the async
+        // sendText in a Task so the terminal never blocks waiting on HTTP.
+        model?.forwardInput(data)
+    }
+
     func scrolled(source: TerminalView, position: Double) {}
     func setTerminalTitle(source: TerminalView, title: String) {}
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
