@@ -1,7 +1,8 @@
 ---
-status: draft
+status: approved
+approved-by: leo@leonardoacosta.dev
+approved-at: 2026-05-21T14:43:29-05:00
 ---
-
 # Proposal: settings-tab-redesign
 
 ## Why
