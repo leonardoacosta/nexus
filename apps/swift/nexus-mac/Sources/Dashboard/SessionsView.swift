@@ -129,25 +129,30 @@ private struct SessionsRowView: View {
     let session: Session
 
     var body: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.project ?? "—")
-                    .font(.system(.body, design: .monospaced))
+                // TOP line: project label · branch  (primary identity)
                 HStack(spacing: 6) {
-                    if let branch = session.branch {
+                    Text(primaryLabel)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                    if let branch = session.branch, !branch.isEmpty {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
                         Text(branch)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    if let model = session.model {
-                        Text(model)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                }
+                // BOTTOM line (placeholder until 2.3): model only.
+                if let model = session.model {
+                    Text(model)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
-            Spacer()
+            Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(session.status)
                     .font(.caption2.monospaced())
@@ -159,5 +164,22 @@ private struct SessionsRowView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    /// Project-label degradation chain — gitOwnerRepo wins because
+    /// `leonardoacosta/oo` is more readable than a UUID. Fallback ladder:
+    /// gitOwnerRepo -> projectId -> cwd basename -> "—".
+    private var primaryLabel: String {
+        if let repo = session.gitOwnerRepo, !repo.isEmpty {
+            return repo
+        }
+        if let pid = session.projectId, !pid.isEmpty {
+            return pid
+        }
+        if let cwd = session.cwd, !cwd.isEmpty {
+            return URL(fileURLWithPath: cwd).lastPathComponent
+        }
+        return "—"
     }
 }

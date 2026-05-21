@@ -17,7 +17,7 @@
 ## UI Batch
 
 - [x] [2.1] Update `apps/swift/NexusShared/Models/Session.swift` if the model is missing `gitProvider`/`gitOwnerRepo`/`totalCostUsd`/`idleSince` fields. Decode as optional types with snake_case CodingKeys matching the wire shape [owner:ui-engineer] [type:types] [beads:nx-5wyto]
-- [ ] [2.2] [P-1] Restructure `apps/swift/nexus-mac/Sources/Dashboard/SessionsView.swift` `SessionRow` view: two-line layout, primary line with project label + branch, trailing column with status/pinned chips. Implement the project-label degradation chain (gitOwnerRepo → projectId → cwd basename → dash) [owner:ui-engineer] [type:feature] [beads:nx-8gkci]
+- [x] [2.2] [P-1] Restructure `apps/swift/nexus-mac/Sources/Dashboard/SessionsView.swift` `SessionRow` view: two-line layout, primary line with project label + branch, trailing column with status/pinned chips. Implement the project-label degradation chain (gitOwnerRepo → projectId → cwd basename → dash) [owner:ui-engineer] [type:feature] [beads:nx-8gkci]
 - [ ] [2.3] [P-1] Add secondary-line rendering: model · cost · idle/duration. Cost omitted when null/zero. Idle shows `Nm idle` when idleSince set, else `Nm`/`Nh` since startedAt [owner:ui-engineer] [type:feature] [beads:nx-61lt4]
 - [ ] [2.4] [P-2] Add trailing-column muted text for `pid · originAgent` below the status chips. Compact monospace, secondary color [owner:ui-engineer] [type:feature] [beads:nx-kfaqb]
 - [ ] [2.5] [P-2] Verify the existing tap handler (session detail navigation) still fires on the redesigned row. No regressions to click-target [owner:ui-engineer] [type:test] [beads:nx-otiu4]
