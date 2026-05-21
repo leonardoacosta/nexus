@@ -29,8 +29,13 @@ import { sessions, eq } from "@nexus/db";
 import { and, isNull, isNotNull, gt } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { execText } from "../utils/exec";
-import { upsertSession, touchHeartbeatByPids } from "../db/sessions";
+import {
+  upsertSession,
+  touchHeartbeatByPids,
+  updateSessionGitOrigin,
+} from "../db/sessions";
 import { lifecycleBus } from "./lifecycle-bus";
+import { resolveProject } from "./git-project-resolver";
 
 const log = createLogger("agent:process-watcher");
 
@@ -148,8 +153,17 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   // pid > 0). Rows lacking a pid are legacy and left alone — they MAY be
   // managed by hook-driven session_start payloads which carry their own
   // tmux/cc identifiers but no PID.
+  //
+  // session-row-enrichment-v1 § 1.4: also load `cwd` + `gitProvider` so we
+  // can re-enrich existing null-project rows on subsequent polls (spec
+  // scenario "existing null-project row gets enriched on next poll").
   const openRows = await db
-    .select({ id: sessions.id, pid: sessions.pid })
+    .select({
+      id: sessions.id,
+      pid: sessions.pid,
+      cwd: sessions.cwd,
+      gitProvider: sessions.gitProvider,
+    })
     .from(sessions)
     .where(
       and(
@@ -165,6 +179,11 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   // liveness heartbeat so a long-running session between CC hook events does
   // not go stale and fall out of the dashboard's freshness window.
   const liveManagedPids: number[] = [];
+  // session-row-enrichment-v1 § 1.4: existing alive rows whose git_provider
+  // is still null get re-enriched on each poll (spec scenario "existing
+  // null-project row gets enriched on next poll"). The 30s resolver cache
+  // keeps this cheap even across many sessions in the same cwd.
+  const needsEnrichment: Array<{ id: string; cwd: string }> = [];
   let closed = 0;
   const now = new Date();
 
@@ -174,6 +193,9 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     managedPids.add(pid);
     if (livePids.has(pid)) {
       liveManagedPids.push(pid);
+      if (!row.gitProvider && row.cwd) {
+        needsEnrichment.push({ id: row.id, cwd: row.cwd });
+      }
     }
     if (!livePids.has(pid)) {
       try {
@@ -210,18 +232,54 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     );
   }
 
+  // Step 1c: re-enrich any live row that's still missing git project metadata
+  // (session-row-enrichment-v1 § 1.4). The resolver's 30s cache means this
+  // is at-most one subprocess per unique cwd per poll cycle. Each call is
+  // independent and fail-soft.
+  for (const row of needsEnrichment) {
+    try {
+      const project = await resolveProject(row.cwd, db);
+      if (!project) continue;
+      await updateSessionGitOrigin(db, row.id, {
+        provider: project.provider,
+        ownerRepo: project.ownerRepo,
+      });
+      if (project.projectId) {
+        await db
+          .update(sessions)
+          .set({ projectId: project.projectId })
+          .where(eq(sessions.id, row.id));
+      }
+    } catch (err) {
+      log.warn(
+        {
+          id: row.id,
+          cwd: row.cwd,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "failed to re-enrich session row with git project (non-fatal)",
+      );
+    }
+  }
+
   // Step 2: open rows for live PIDs we haven't seen yet.
   let created = 0;
   for (const proc of live) {
     if (managedPids.has(proc.pid)) continue;
     const cwd = readProcessCwd(proc.pid);
     const sessionId = `cc-${proc.pid}-${randomUUID().slice(0, 8)}`;
+
+    // session-row-enrichment-v1 § 1.4: resolve git project for this cwd
+    // BEFORE upserting. Result is fail-soft (null when not a git repo or
+    // resolution fails) — the row still inserts with null fields.
+    const project = cwd ? await resolveProject(cwd, db) : null;
+
     try {
       await upsertSession(db, {
         id: sessionId,
         pid: proc.pid,
         project: undefined,
-        projectId: null,
+        projectId: project?.projectId ?? null,
         machine: "local",
         cwd: cwd ?? "",
         branch: null,
@@ -246,6 +304,27 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         childRole: null,
       });
       created += 1;
+
+      // The in-memory Session type omits git_provider/git_owner_repo (see
+      // packages/core/src/types/session.ts — fields are persisted directly
+      // to the DB row, never surfaced on the domain type). Write them via
+      // the dedicated helper after the upsert lands.
+      if (project) {
+        try {
+          await updateSessionGitOrigin(db, sessionId, {
+            provider: project.provider,
+            ownerRepo: project.ownerRepo,
+          });
+        } catch (err) {
+          log.warn(
+            {
+              sessionId,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            "failed to persist git origin for new session row (non-fatal)",
+          );
+        }
+      }
       lifecycleBus.emit("RemoteSessionStarted", {
         sessionId,
         pid: proc.pid,
