@@ -1,0 +1,29 @@
+# Tasks: failures-investigation-and-surface
+
+<!-- beads:epic:nx-loa0q -->
+<!-- beads:feature:nx-m7sqs -->
+
+## API Batch
+
+- [ ] 1.1 Add `apps/agent/src/services/cc-failures-ingester.ts` exporting `ingestFailures(days: number): Promise<IngestResult>`. Reads `~/.claude/scripts/state/failures/*.jsonl` filtered to the requested day window (filename pattern `YYYY-MM-DD.jsonl`). Streams each file line-by-line via `Bun.file().stream()` to avoid buffering. Per-line `JSON.parse` wrapped in try/catch — increments a `parseErrors` counter on failure, never throws. Returns `{ entries: FailureEntry[], parseErrors: number }`. [beads:nx-80c2o]
+- [ ] 1.2 Add a 60-second TTL cache `Map<number, { value: IngestResult, expiresAt: number }>` keyed by `days`. Lookup-first pattern (cache hit returns immediately, miss spawns the read). Expose `clearFailuresCache()` for tests. [beads:nx-evgey]
+- [ ] 1.3 Rewrite `apps/agent/src/routes/failures-route.ts handleFailures` to consume the ingester and produce the full aggregate: `total`, `by_tool` (object), `by_project` (object), `top_errors[]` (top 20 by count, fingerprint-deduped), `trend` (current vs previous window), `source: "jsonl"`, `parse_errors`, `period_days`. Preserve the existing `STACK_TRUNCATE_BYTES` export + `buildTopErrorRow` for the contract test. Enforce `days > 90` returns `400 { error: "max window is 90 days" }`. [beads:nx-9mhuz]
+- [ ] 1.4 Implement fingerprint dedup in `failures-route.ts`: `sha256(toolName + errorSnippet.slice(0,200))`. First-occurrence wins for `command` field. Count-sort descending with stable tie-break on tool name. Cap output at 20 rows. [beads:nx-ovxc8]
+- [ ] 1.5 Implement trend computation: `current` = entries with `timestamp >= now - days`, `previous` = entries with `timestamp` in `[now - 2*days, now - days)`. Direction: `"up"` if current > previous*1.1, `"down"` if < previous*0.9, else `"flat"`. Special case: previous==0 AND current>0 ⇒ "up"; both 0 ⇒ "flat". [beads:nx-p4z6q]
+- [ ] 1.6 Add `apps/agent/src/services/cc-failures-ingester.test.ts` covering: empty filesystem, single-day populated, multi-day window, malformed lines counted, 90-day cap, cache hit. Use real tmpdir JSONL fixtures (no mocks per project test convention). [beads:nx-ua0s5]
+- [ ] 1.7 Extend `apps/agent/src/routes/failures-route.test.ts` with the 7 scenarios from `specs/failure-store/spec.md` (empty, populated single day, malformed tolerated, 90-day cap, cache hit, fingerprint dedup, count-sort, 20-cap, trend up/down/flat/zero-to-nonzero). Verify the contract row shape still matches `agent-payload-completeness` expectations. [beads:nx-gw7p5]
+- [ ] 1.8 Extend `apps/swift/NexusShared/Models/FailureSummary.swift` (or wherever the `/failures` response decoder lives) with optional `source: String?` and optional `parseErrors: Int?` (keys `source`, `parse_errors`). Decoders default to nil for back-compat. [beads:nx-npnpe]
+
+## UI Batch
+
+- [ ] 2.1 In `apps/swift/nexus-mac/Sources/Dashboard/FailuresView.swift`, add a `@State private var activeToolFilters: Set<String>` and `@State private var activeProjectFilters: Set<String>`. Filter chip strip rendered ABOVE the existing list, showing keys from `model.byTool` and `model.byProject` with selected-state styling. Tap toggles membership in the set. Filter is applied via a computed `filteredErrors` property — no re-fetch. [beads:nx-stwfu]
+- [ ] 2.2 Add disambiguated empty-state in FailuresView: if `model.errors.isEmpty` AND (activeToolFilters non-empty OR activeProjectFilters non-empty), render "No failures match this filter" with a "Clear filters" button. Otherwise the existing "No failures" placeholder. [beads:nx-cv4kz]
+- [ ] 2.3 Add a trend indicator in the FailuresView header. Hidden when `trend.direction == "flat"`. Renders `↑Y%` in red for `"up"` or `↓Y%` in green for `"down"`, where Y = `round(abs(current - previous) / max(previous, 1) * 100)`. Wire to `model.trend` from the response. [beads:nx-dqkl4]
+- [ ] 2.4 Add `apps/swift/nexus-mac/Sources/Dashboard/FailuresViewTests.swift` (or extend) covering: filter chip toggle + AND across categories, empty-by-filter vs empty-globally, trend indicator visibility logic. Use the existing FailuresViewModel testing seam. [beads:nx-btn4p]
+
+## E2E Batch
+
+- [ ] 3.1 End-to-end: seed `~/.claude/scripts/state/failures/$(date +%Y-%m-%d).jsonl` with 10 synthetic failure lines, restart the agent, curl `GET /failures?days=1`, assert `total: 10`, `by_tool` populated, `top_errors[]` length matches fingerprint dedup expectations. [beads:nx-oh1g1]
+- [ ] 3.2 End-to-end: deploy the agent to homelab (which has real production JSONL volume), curl `GET /failures?days=30`, paste the response JSON. Confirm `total > 0` (validates the fix) and that `parse_errors` is 0 or low (validates JSONL parser robustness on real data). [beads:nx-mscoc]
+- [ ] 3.3 [user] Open Nexus.app dashboard Failures tab on Mac. Confirm: (a) populated rows render; (b) trend chip visible if direction != flat; (c) tapping a tool chip filters the list; (d) clear-filters returns to full list; (e) day-window picker (1d/7d/30d) re-fetches. [beads:nx-xiwwp]
+- [ ] 3.4 Confirm the existing Next.js Failures page (if still mounted in the web dashboard) is unaffected — `GET /failures` response shape additions (`source`, `parse_errors`) are forward-compatible extra JSON keys. [beads:nx-oqepr]
