@@ -5,11 +5,11 @@
 
 ## API Batch
 
-- [ ] [1.1] Create `apps/agent/src/routes/wave-plans.ts` with `handleGetActiveWavePlan(): Promise<Response>`. Reads `docs/apply/active.txt` from the agent's repo root (resolve via existing project-registry or env). Parses `docs/apply/<run-id>/wave-plan.json`. Projects per-spec status into the documented wire shape. Returns 200 with `{runId, planName, status, currentWave, currentPhase, specStatuses: []}` on success; empty payload on missing active.txt; error-embedded payload on malformed JSON [owner:api-engineer] [type:feature] [beads:nx-68qqu]
-- [ ] [1.2] [P-1] Add route dispatch in `apps/agent/src/server-routes-wave-plans.ts` (NEW) matching `GET /wave-plans/active`. Wire into the main request handler via the existing `LEGACY_DISPATCH_ROUTES` or per-domain dispatcher pattern [owner:api-engineer] [type:feature] [beads:nx-ncgel]
-- [ ] [1.3] [P-1] Wire `tryHandleWavePlanRoute` into `apps/agent/src/server-request-handler.ts` route table [owner:api-engineer] [type:feature] [beads:nx-6xhkf]
-- [ ] [1.4] Spec status normalization helper: internal wave-plan json may use `dispatched`/`pending`/`done` — map to canonical wire enum `queued|dispatched|in_progress|completed|failed|skipped` (mirror what /apply already uses for telemetry). Unknown → `queued` fallback [owner:api-engineer] [type:feature] [beads:nx-rm21h]
-- [ ] [1.5] Add `apps/agent/src/routes/wave-plans.test.ts` with 5 tests: valid active plan returns projection, no active.txt returns empty payload, malformed JSON returns error-embedded payload, status enum normalization, current wave inference [owner:api-engineer] [type:test] [beads:nx-9nxvf]
+- [x] [1.1] Create `apps/agent/src/routes/wave-plans.ts` with `handleGetActiveWavePlan(): Promise<Response>`. Reads `docs/apply/active.txt` from the agent's repo root (resolve via existing project-registry or env). Parses `docs/apply/<run-id>/wave-plan.json`. Projects per-spec status into the documented wire shape. Returns 200 with `{runId, planName, status, currentWave, currentPhase, specStatuses: []}` on success; empty payload on missing active.txt; error-embedded payload on malformed JSON [owner:api-engineer] [type:feature] [beads:nx-68qqu]
+- [x] [1.2] [P-1] Add route dispatch in `apps/agent/src/server-routes-wave-plans.ts` (NEW) matching `GET /wave-plans/active`. Wire into the main request handler via the existing `LEGACY_DISPATCH_ROUTES` or per-domain dispatcher pattern [owner:api-engineer] [type:feature] [beads:nx-ncgel]
+- [x] [1.3] [P-1] Wire `tryHandleWavePlanRoute` into `apps/agent/src/server-request-handler.ts` route table [owner:api-engineer] [type:feature] [beads:nx-6xhkf]
+- [x] [1.4] Spec status normalization helper: internal wave-plan json may use `dispatched`/`pending`/`done` — map to canonical wire enum `queued|dispatched|in_progress|completed|failed|skipped` (mirror what /apply already uses for telemetry). Unknown → `queued` fallback [owner:api-engineer] [type:feature] [beads:nx-rm21h]
+- [x] [1.5] Add `apps/agent/src/routes/wave-plans.test.ts` with 5 tests: valid active plan returns projection, no active.txt returns empty payload, malformed JSON returns error-embedded payload, status enum normalization, current wave inference [owner:api-engineer] [type:test] [beads:nx-9nxvf]
 
 ## UI Batch
 
