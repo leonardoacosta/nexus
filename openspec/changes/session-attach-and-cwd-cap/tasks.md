@@ -24,7 +24,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add `apps/swift/NexusSharedTests/PtyAttachTests.swift` — 3 tests: testSendTextCallsClient (typing forwards to NexusClient.sendText with correct sessionId), testNonManagedSessionSuppressesInput (sessionType="raw" → no sendText calls), testSendTextEncodesControlChars (Ctrl-C byte \x03 makes it through) [owner:ui-engineer] [type:test] [beads:nx-gdvgq]
+- [x] [3.1] Add `apps/swift/NexusSharedTests/PtyAttachTests.swift` — 3 tests: testSendTextCallsClient (typing forwards to NexusClient.sendText with correct sessionId), testNonManagedSessionSuppressesInput (sessionType="raw" → no sendText calls), testSendTextEncodesControlChars (Ctrl-C byte \x03 makes it through) [owner:ui-engineer] [type:test] [beads:nx-gdvgq]
 - [ ] [3.2] Push + ssh-pull homelab — verify ambient cap actually takes effect: curl /sessions after a watcher tick and confirm at least one row that was previously empty-cwd now shows non-null cwd + gitOwnerRepo. Capture stdout [owner:devops-engineer] [type:test] [beads:nx-37h8m]
 - [ ] [3.3] Mac post-merge rebuild via `04-swift-deploy --force`. Force-kill old PID + relaunch (nx-4l66v workaround). Verify PID change [owner:devops-engineer] [type:test] [beads:nx-c1lki]
 - [ ] [3.4] [user] Open Nexus.app Sessions tab: (a) confirm rows show populated project labels; (b) tap a managed row → confirm right pane opens PtyViewer with the session's stream; (c) type a command into PtyViewer → confirm it appears in the actual tmux pane on homelab (cross-check via `ssh nyaptor@homelab 'tmux capture-pane -p'`); (d) Ctrl-C interrupts the running command. Capture screenshots [user] [owner:user] [type:test] [beads:nx-fw2ng]
