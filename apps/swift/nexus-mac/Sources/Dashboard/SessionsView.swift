@@ -29,6 +29,13 @@ struct SessionsView: View {
     /// list takes full width. Non-managed rows can never set this.
     @State private var selectedSessionId: String?
 
+    /// Transient "session ended" toast shown when a tap-handler observes
+    /// that the selected row's id is no longer in the most recent
+    /// /sessions fetch (e.g. agent restarted between render and tap).
+    /// Self-clears after `staleToastDurationSeconds`.
+    @State private var staleSessionToast: String?
+    private let staleToastDurationSeconds: UInt64 = 3
+
     public init() {
         _observer = StateObject(wrappedValue: SessionObserver())
         ownsLifecycle = true
@@ -43,6 +50,9 @@ struct SessionsView: View {
         HSplitView {
             VStack(alignment: .leading, spacing: 8) {
                 header
+                if let toast = staleSessionToast {
+                    staleToast(toast)
+                }
                 if observer.activeSessions.isEmpty {
                     emptyState
                 } else {
@@ -133,7 +143,7 @@ struct SessionsView: View {
     private var listBody: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(observer.activeSessions) { session in
+                ForEach(sortedSessions) { session in
                     sessionRow(session)
                         // Per-row hook so the 2.4 client-transport test
                         // can assert the EXACT deterministic stub fixture
@@ -142,6 +152,27 @@ struct SessionsView: View {
                     Divider().padding(.leading, 14)
                 }
             }
+        }
+    }
+
+    /// Stable display order for the session list.
+    ///
+    /// 1. Active sessions first (status == "active") so the row Leo most
+    ///    likely wants to tap is always at the top.
+    /// 2. Then by `Session.projectLabel(for:)` (the resolved/decoded
+    ///    display name) — alphabetic by what the user actually sees, not
+    ///    by cwd path which leaks raw filesystem ordering.
+    /// 3. Final tie-break on session id for deterministic rendering
+    ///    (avoids row jitter across refetches when names collide).
+    private var sortedSessions: [Session] {
+        observer.activeSessions.sorted { a, b in
+            if (a.status == "active") != (b.status == "active") {
+                return a.status == "active"
+            }
+            let la = Session.projectLabel(for: a)
+            let lb = Session.projectLabel(for: b)
+            if la != lb { return la < lb }
+            return a.id < b.id
         }
     }
 
@@ -156,7 +187,7 @@ struct SessionsView: View {
         let isSelected = selectedSessionId == session.id
         if isManaged {
             Button {
-                selectedSessionId = session.id
+                handleSessionTap(session)
             } label: {
                 SessionsRowView(session: session, isSelected: isSelected)
                     .contentShape(Rectangle())
@@ -165,6 +196,48 @@ struct SessionsView: View {
         } else {
             SessionsRowView(session: session, isSelected: false)
         }
+    }
+
+    /// Verify the tapped session id still exists in the most recent
+    /// `/sessions` fetch before mounting PtyViewer. Stale ids (agent
+    /// restart, session ended between render + tap) fall through to a
+    /// "session ended" toast + selection clear instead of opening PtyViewer
+    /// in a permanent "connecting" hang (the aggregate fan-out 404s
+    /// silently, so the viewer can't detect a vanished session on its own).
+    private func handleSessionTap(_ session: Session) {
+        let stillLive = observer.activeSessions.contains(where: { $0.id == session.id })
+        if !stillLive {
+            staleSessionToast = "session ended — \(Session.projectLabel(for: session))"
+            selectedSessionId = nil
+            let duration = staleToastDurationSeconds
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: duration * 1_000_000_000)
+                staleSessionToast = nil
+            }
+            return
+        }
+        selectedSessionId = session.id
+    }
+
+    /// Inline toast banner under the header. Auto-clears after
+    /// `staleToastDurationSeconds`. Render is conditional in `body` so the
+    /// disappearance is a real view removal (animatable in future).
+    private func staleToast(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .background(Color.orange.opacity(0.08))
+        .accessibilityIdentifier("sessions-stale-toast")
     }
 }
 

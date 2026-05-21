@@ -127,7 +127,14 @@ targets:
     info:
       path: nexus-mac/Generated/Info.plist
       properties:
-        LSUIElement: true
+        # LSUIElement=false makes Nexus.app a regular .regular activation
+        # policy app — appears in Dock, Cmd-Tab switcher, and force-quit
+        # dialog. We previously ran as a pure menu-bar-only app
+        # (LSUIElement=true → .accessory policy), but Leo's workflow needs
+        # Cmd-Tab to bring the dashboard forward without hunting for the
+        # status item. The MenuBarExtra status item still renders alongside
+        # the Dock entry; both coexist with .regular policy.
+        LSUIElement: false
         ATSApplicationFontsPath: Fonts
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"

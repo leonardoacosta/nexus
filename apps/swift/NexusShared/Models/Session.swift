@@ -182,13 +182,19 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     /// user-facing title was confusing rather than helpful.
     public static func projectLabel(for session: Session) -> String {
         if let repo = session.gitOwnerRepo, !repo.isEmpty {
-            return repo
+            // Git origin labels arrive percent-encoded for safety in the
+            // wire format (e.g. "brownandbrowninc/Wholesale%20Architecture")
+            // but humans want decoded text in the dashboard row. Decode is
+            // permissive — invalid encodings fall back to the raw string so
+            // we never render an empty label.
+            return repo.removingPercentEncoding ?? repo
         }
         if let pid = session.projectId, !pid.isEmpty {
-            return pid
+            return pid.removingPercentEncoding ?? pid
         }
         if let cwd = session.cwd, !cwd.isEmpty {
-            return URL(fileURLWithPath: cwd).lastPathComponent
+            let last = URL(fileURLWithPath: cwd).lastPathComponent
+            return last.removingPercentEncoding ?? last
         }
         return "—"
     }

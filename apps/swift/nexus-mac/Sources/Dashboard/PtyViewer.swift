@@ -104,6 +104,27 @@ struct PtyViewer: View {
                     .accessibilityIdentifier("pty-viewer-meta")
             }
             Spacer()
+            // Error state surfaces a retry button + warn copy. The badge
+            // colour also flips red via `statusColor` so the user notices
+            // without reading the status word.
+            if model.status == .error {
+                Text("session not found")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("pty-viewer-error")
+                Button {
+                    Task { await model.retry() }
+                } label: {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Retry PTY stream")
+                .accessibilityLabel("Retry PTY stream")
+                .accessibilityIdentifier("pty-viewer-retry")
+            }
             statusBadge
             Text(model.status.rawValue)
                 .font(.caption2.monospaced())
@@ -164,6 +185,7 @@ struct PtyViewer: View {
         case .connecting:  return .yellow
         case .streaming:   return .green
         case .disconnected: return .red
+        case .error:       return .red
         }
     }
 }
@@ -173,6 +195,10 @@ enum PtyStatus: String, Equatable, Sendable {
     case connecting = "connecting"
     case streaming = "streaming"
     case disconnected = "disconnected"
+    /// Stream never produced bytes within the connect window — the session id
+    /// is likely stale (agent restart, session ended, fan-out 404 on every
+    /// peer). User-facing recovery is the retry button in the header.
+    case error = "error"
 }
 
 @MainActor
@@ -187,6 +213,15 @@ final class PtyViewerModel: ObservableObject {
     /// Drained on `attach(view:)`.
     private var preAttachBuffer: [UInt8] = []
     private var sseTask: Task<Void, Never>?
+    /// Connect-window watchdog. If no bytes arrive within
+    /// `connectTimeoutSeconds` after `start()`, we flip to `.error` so the
+    /// header surfaces the retry path. The aggregate client multiplexes
+    /// across every agent and silently swallows per-peer 404s (the design
+    /// requirement — only the owner serves bytes), so a stale session id
+    /// looks like a permanent "connecting" hang from the model's POV.
+    /// Watchdog converts that hang into an actionable error state.
+    private var connectWatchdog: Task<Void, Never>?
+    private let connectTimeoutSeconds: UInt64 = 6
     private let client = NexusShared.NexusAggregateClient()
     /// One-shot guard so the non-managed-session warn doesn't spam the log
     /// on every keystroke.
@@ -252,7 +287,9 @@ final class PtyViewerModel: ObservableObject {
 
     func start() async {
         sseTask?.cancel()
+        connectWatchdog?.cancel()
         status = .connecting
+        let sid = self.sessionId
         sseTask = Task { [weak self] in
             guard let self else { return }
             // Aggregate fans out to every agent (only the session owner
@@ -263,17 +300,54 @@ final class PtyViewerModel: ObservableObject {
             await self.client.consumePtyStream(sessionId: self.sessionId) { [weak self] data in
                 await self?.feed(data: data)
             }
-            self.status = .disconnected
+            // Only flip to .disconnected if the watchdog hasn't already
+            // moved us to .error — otherwise the user sees status flicker.
+            if self.status != .error {
+                self.status = .disconnected
+            }
         }
+        // Watchdog: if we're still in .connecting after the budget elapses,
+        // assume the session id is stale (agent restart / session ended)
+        // and surface the error state with a retry button. os_log mirrors
+        // the chat-side surfacing so production logs catch the same signal.
+        connectWatchdog = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: (self?.connectTimeoutSeconds ?? 6) * 1_000_000_000)
+            guard let self else { return }
+            if Task.isCancelled { return }
+            if self.status == .connecting {
+                ptyLog.warning(
+                    "PtyViewer: stream connect timeout — likely stale session id (sessionId=\(sid, privacy: .public), windowSeconds=\(self.connectTimeoutSeconds, privacy: .public))"
+                )
+                self.status = .error
+            }
+        }
+    }
+
+    /// User-initiated retry from the header retry button. Tears down the
+    /// existing stream task + watchdog and re-runs `start()`. The aggregate
+    /// client owns its own per-agent backoff; this just resets the local
+    /// connect window so the user gets a fresh `.error` decision after
+    /// another `connectTimeoutSeconds`.
+    func retry() async {
+        ptyLog.info(
+            "PtyViewer: user retry (sessionId=\(self.sessionId, privacy: .public))"
+        )
+        await start()
     }
 
     func stop() {
         sseTask?.cancel()
         sseTask = nil
+        connectWatchdog?.cancel()
+        connectWatchdog = nil
         status = .idle
     }
 
     private func feed(data: Data) async {
+        // First byte = stream is live. Cancel the connect-window watchdog
+        // so it can't promote a momentarily-empty stream to .error.
+        connectWatchdog?.cancel()
+        connectWatchdog = nil
         status = .streaming
         let bytes = [UInt8](data)
         #if canImport(SwiftTerm)
