@@ -32,12 +32,14 @@
 		308B831B7BC40C8B46F9EFA8 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0384CA9ED243F4F09451466 /* AppNavigation.swift */; };
 		330834207334556FB46ADEC0 /* PtyViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 561095874ED05EE3F7DBEE0E /* PtyViewer.swift */; };
 		3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F8967872A72450315AC519 /* AutostartInstaller.swift */; };
+		395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */; };
 		3AF53DBE67B6F3E42BA65CB0 /* HealthSummaryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C554612A3F1669167A5A69 /* HealthSummaryScene.swift */; };
 		3CE043331BCDC10623CEB08A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D26019595C89D3AA34964F /* ContentView.swift */; };
 		3D1C98BE91C22C8FFFFD3F2E /* ElevenLabsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D24CEE54AC03D22CFBB47C8 /* ElevenLabsSettingsView.swift */; };
 		3E320883E4FA025DE7B1A1BE /* SessionRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */; };
 		3FE4C6D545B0F34A720472C4 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF654BB0375E595A1948E65 /* Keychain.swift */; };
 		3FF4DCDF99FEA9A4AC54FA79 /* MetricsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E79DB0015B5859AAC480C97 /* MetricsRow.swift */; };
+		45ED6FF75A282AA2C9E12C7A /* ProjectAccordionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */; };
 		4638A955ED918EA4ED06F1AE /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		46F08D21D5272A2BE8333CE8 /* ApnsRegistrar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A88982005CBC2421EC5B93 /* ApnsRegistrar.swift */; };
 		4705778D6B3105737CAA75EC /* NotificationAudioFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B73A9657818F6505743E0E8 /* NotificationAudioFieldTests.swift */; };
@@ -62,10 +64,12 @@
 		6DEA5B7D486F9A6F4FF59047 /* ProcessTableViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92883A9BE9E7941CFB310050 /* ProcessTableViewTests.swift */; };
 		6EF01A0287987E6B63E81C81 /* NexusIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0F53FABAE091A9DA2BF18BF /* NexusIOSApp.swift */; };
 		6F150EBF7BC9B6EF080384ED /* NexusWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DAD12EAB241E569D958F2F /* NexusWatchApp.swift */; };
+		7019694A6907843416E6F51A /* ProjectsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBE1B4715A7F3952458F64F /* ProjectsViewTests.swift */; };
 		73217CD0F7C5C4CCDBD74439 /* ProcessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */; };
 		73A5FB7F05768E9E02C01C98 /* ProcessInfoDecodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB82BFC925082829235A684A /* ProcessInfoDecodeTests.swift */; };
 		73C686C92A6D2D201819B1E1 /* ProcessTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA25DA13C7B0A5769320CA4 /* ProcessTableView.swift */; };
 		73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */; };
+		79D4B9DBF30A3C4A894666D2 /* DashboardNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */; };
 		7AEABBD2A9816884E84085DA /* AlertStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */; };
 		7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */; };
 		7D765D29938F746D74AFC05E /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
@@ -261,6 +265,7 @@
 		082EF1BB13B1AEFFA39B5E1A /* SshTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshTerminalSession.swift; sourceTree = "<group>"; };
 		091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusAppDelegate.swift; sourceTree = "<group>"; };
 		0A85188AE7ED53AB749EEB08 /* AgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRegistry.swift; sourceTree = "<group>"; };
+		0DBE1B4715A7F3952458F64F /* ProjectsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsViewTests.swift; sourceTree = "<group>"; };
 		0E53AD8EA6F5A9C4F0025ECD /* NexusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusClient.swift; sourceTree = "<group>"; };
 		1387D70399F82E187F0A74D6 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		146BA2FC2272427A549FBC55 /* NexusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusClient.swift; sourceTree = "<group>"; };
@@ -311,6 +316,7 @@
 		6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsViewTests.swift; sourceTree = "<group>"; };
 		6E0EE128D4680A02B87E3651 /* ActionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionRow.swift; sourceTree = "<group>"; };
 		6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
+		706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAccordionRow.swift; sourceTree = "<group>"; };
 		71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailuresViewTests.swift; sourceTree = "<group>"; };
 		777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbe.swift; sourceTree = "<group>"; };
 		79A88982005CBC2421EC5B93 /* ApnsRegistrar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApnsRegistrar.swift; sourceTree = "<group>"; };
@@ -349,6 +355,7 @@
 		C0DAD12EAB241E569D958F2F /* NexusWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusWatchApp.swift; sourceTree = "<group>"; };
 		C1C554612A3F1669167A5A69 /* HealthSummaryScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSummaryScene.swift; sourceTree = "<group>"; };
 		C58206A090C96AC1CD08BC7D /* SessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsView.swift; sourceTree = "<group>"; };
+		C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardNavigationCoordinatorTests.swift; sourceTree = "<group>"; };
 		C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWindowNameTests.swift; sourceTree = "<group>"; };
 		CA086800FB479B8C247153B9 /* nexus-mac-UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "nexus-mac-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA11900623305F1A30FFCA04 /* NotificationRingBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRingBufferTests.swift; sourceTree = "<group>"; };
@@ -372,6 +379,7 @@
 		EE1CF4A9536CEA43E2DA5FE6 /* Sparkline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sparkline.swift; sourceTree = "<group>"; };
 		EE33C13805C324E12DC6C002 /* nexus-ios.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "nexus-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageBar.swift; sourceTree = "<group>"; };
+		F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardNavigationCoordinator.swift; sourceTree = "<group>"; };
 		F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsView.swift; sourceTree = "<group>"; };
 		FA0C0A15C297BEA453820EEB /* ProjectVoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVoicesView.swift; sourceTree = "<group>"; };
@@ -485,6 +493,7 @@
 			children = (
 				F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */,
 				F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */,
+				F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */,
 				D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */,
 				92DE47387ED686498A455137 /* FailuresView.swift */,
 				01B0CFFE5094C6A1D743886C /* HealthView.swift */,
@@ -492,6 +501,7 @@
 				327312239EBDF6F78197F4DA /* NotificationReplayButton.swift */,
 				F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */,
 				BFA25DA13C7B0A5769320CA4 /* ProcessTableView.swift */,
+				706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */,
 				6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */,
 				FA0C0A15C297BEA453820EEB /* ProjectVoicesView.swift */,
 				561095874ED05EE3F7DBEE0E /* PtyViewer.swift */,
@@ -686,10 +696,12 @@
 				DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */,
 				EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */,
 				6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */,
+				C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */,
 				71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */,
 				ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */,
 				D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */,
 				92883A9BE9E7941CFB310050 /* ProcessTableViewTests.swift */,
+				0DBE1B4715A7F3952458F64F /* ProjectsViewTests.swift */,
 				CF774D7E04ADAD41A6CCBB65 /* ProjectVoicesViewTests.swift */,
 				31115AFC5C16685752DA91CC /* TTSObserverTests.swift */,
 			);
@@ -1024,6 +1036,7 @@
 				1BAFA2038CD249707F7B77C5 /* CcProfileStatusView.swift in Sources */,
 				D1EDA0FE8AF902AD35250D5C /* CredentialsUsageBar.swift in Sources */,
 				B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */,
+				79D4B9DBF30A3C4A894666D2 /* DashboardNavigationCoordinator.swift in Sources */,
 				3D1C98BE91C22C8FFFFD3F2E /* ElevenLabsSettingsView.swift in Sources */,
 				FD0BFD926C048E01DDEB45F0 /* ElevenLabsStatusChip.swift in Sources */,
 				4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */,
@@ -1044,6 +1057,7 @@
 				8315F13A574FFAA105B2B22A /* PreferencesScene.swift in Sources */,
 				73217CD0F7C5C4CCDBD74439 /* ProcessProbe.swift in Sources */,
 				73C686C92A6D2D201819B1E1 /* ProcessTableView.swift in Sources */,
+				45ED6FF75A282AA2C9E12C7A /* ProjectAccordionRow.swift in Sources */,
 				810BBC591887E1BD054DEF51 /* ProjectVoicesView.swift in Sources */,
 				F813C35EF1ABF7138D38C1CF /* ProjectsView.swift in Sources */,
 				330834207334556FB46ADEC0 /* PtyViewer.swift in Sources */,
@@ -1100,6 +1114,7 @@
 				150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */,
 				2CA1788A9ABE8156EB680DCF /* CredentialsUsageBarTests.swift in Sources */,
 				7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */,
+				395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */,
 				654E341195B4A39169F7E278 /* FailuresViewTests.swift in Sources */,
 				73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */,
 				5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */,
@@ -1108,6 +1123,7 @@
 				D827808F1160E4F12701F7F4 /* NotificationsViewTests.swift in Sources */,
 				6DEA5B7D486F9A6F4FF59047 /* ProcessTableViewTests.swift in Sources */,
 				D36F2DC82065BF8BDAD92310 /* ProjectVoicesViewTests.swift in Sources */,
+				7019694A6907843416E6F51A /* ProjectsViewTests.swift in Sources */,
 				9D1D4C4A9622D111E7607C11 /* SSEEventParsingTests.swift in Sources */,
 				55F2A42C0995BF5FE43DCE93 /* TTSObserverTests.swift in Sources */,
 				A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */,

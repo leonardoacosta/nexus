@@ -36,6 +36,21 @@ struct SessionsView: View {
     @State private var staleSessionToast: String?
     private let staleToastDurationSeconds: UInt64 = 3
 
+    /// Cross-tab deep-link router (injected from AppNavigation). Surfaces
+    /// pending Projects-tab → Sessions-tab deep links so the right pane
+    /// can mount the requested PTY without the user having to re-tap.
+    /// Spec: projects-tab-accordion-deeplink task 2.3.
+    @EnvironmentObject private var coordinator: DashboardNavigationCoordinator
+
+    /// Track the most recently consumed token so a re-render that fires
+    /// `.task(id:)` again doesn't double-open. Cleared on
+    /// `coordinator.clear()` from inside `programmaticOpen`.
+    @State private var consumedDeepLinkToken: UUID?
+
+    /// Latest "session no longer available" notice for failed deep links.
+    /// Spec: session-deep-link-from-projects § deep-link to unknown session ID.
+    @State private var unknownSessionBanner: String?
+
     public init() {
         _observer = StateObject(wrappedValue: SessionObserver())
         ownsLifecycle = true
@@ -52,6 +67,9 @@ struct SessionsView: View {
                 header
                 if let toast = staleSessionToast {
                     staleToast(toast)
+                }
+                if let banner = unknownSessionBanner {
+                    unknownSessionBannerView(banner)
                 }
                 if observer.activeSessions.isEmpty {
                     emptyState
@@ -89,12 +107,88 @@ struct SessionsView: View {
             // the shared observer.
             observer.startStreams()
             await observer.refreshSessions()
+            // Drain any deep link the user staged before SessionsView
+            // mounted (e.g. clicked a project accordion row while still
+            // on the Projects tab). Subsequent links arriving while
+            // SessionsView is mounted hit the `.onChange` path below.
+            drainPendingDeepLink()
+        }
+        .onChange(of: coordinator.pendingDeepLink) { _, newValue in
+            // Skip our own clear() echo (newValue == nil after drain).
+            guard newValue != nil else { return }
+            drainPendingDeepLink()
         }
         .onDisappear {
             if ownsLifecycle {
                 observer.stopStreams()
             }
         }
+    }
+
+    // MARK: - Deep-link drain (projects-tab-accordion-deeplink)
+
+    /// Idempotent drain — looks at `coordinator.pendingDeepLink`, opens
+    /// the matching session if present, posts an info banner if the id
+    /// is unknown. Cancellation: each drain captures the link's token;
+    /// if a fresher link arrives before our PTY mount commits, the
+    /// `.onChange` rerun supersedes us (and PtyViewer's cancel API
+    /// handles the WebSocket cleanup).
+    private func drainPendingDeepLink() {
+        guard let link = coordinator.pendingDeepLink else { return }
+        switch link {
+        case .openSession(let sessionId, let token):
+            if consumedDeepLinkToken == token { return }
+            consumedDeepLinkToken = token
+            programmaticOpen(sessionId, token: token)
+        }
+    }
+
+    /// Public-ish entry point (kept fileprivate-by-default — only the
+    /// drain calls into it). Spec § task 2.3: find the session, set the
+    /// selection, scroll into view via the ScrollViewReader, then nil
+    /// out the coordinator's pending link to avoid re-firing.
+    private func programmaticOpen(_ sessionId: String, token: UUID) {
+        let match = observer.activeSessions.first(where: { $0.id == sessionId })
+        if let session = match {
+            unknownSessionBanner = nil
+            selectedSessionId = session.id
+            pendingScrollTarget = session.id
+        } else {
+            // Unknown session — banner per spec scenario, no selection
+            // change, no scroll.
+            unknownSessionBanner = "session no longer available"
+            let duration = staleToastDurationSeconds
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: duration * 1_000_000_000)
+                if unknownSessionBanner == "session no longer available" {
+                    unknownSessionBanner = nil
+                }
+            }
+        }
+        // Clear the coordinator's link — whether we opened or surfaced
+        // the banner — so the same link doesn't refire on re-render.
+        coordinator.clear()
+    }
+
+    /// Bridges the deep-link drain to the ScrollViewReader inside
+    /// `listBody`. Set to a session id by `programmaticOpen`; observed
+    /// by `listBody` which calls `.scrollTo(_:anchor:)` then nils it.
+    @State private var pendingScrollTarget: String?
+
+    private func unknownSessionBannerView(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .background(Color.secondary.opacity(0.08))
+        .accessibilityIdentifier("sessions-unknown-deeplink-banner")
     }
 
     private var header: some View {
@@ -141,16 +235,36 @@ struct SessionsView: View {
     }
 
     private var listBody: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(sortedSessions) { session in
-                    sessionRow(session)
-                        // Per-row hook so the 2.4 client-transport test
-                        // can assert the EXACT deterministic stub fixture
-                        // row (id "stub-sess-1") rendered.
-                        .accessibilityIdentifier("session-row-\(session.id)")
-                    Divider().padding(.leading, 14)
+        // ScrollViewReader so the deep-link drain can scroll a
+        // programmatically-opened session into view in the same frame
+        // it commits the selection. Spec: projects-tab-accordion-deeplink
+        // task 2.5 (deep-link scroll-to-row).
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(sortedSessions) { session in
+                        sessionRow(session)
+                            // Per-row hook so the 2.4 client-transport
+                            // test can assert the EXACT deterministic
+                            // stub fixture row (id "stub-sess-1")
+                            // rendered. ALSO doubles as the
+                            // `.scrollTo(_:)` anchor for the deep-link
+                            // drain — `.id(_:)` makes the row
+                            // addressable by the ScrollViewReader.
+                            .id(session.id)
+                            .accessibilityIdentifier("session-row-\(session.id)")
+                        Divider().padding(.leading, 14)
+                    }
                 }
+            }
+            .onChange(of: pendingScrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+                // Single-shot: nil after drain so re-render of the
+                // ScrollViewReader doesn't re-scroll.
+                pendingScrollTarget = nil
             }
         }
     }

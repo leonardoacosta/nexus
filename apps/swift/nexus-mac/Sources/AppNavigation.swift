@@ -75,6 +75,13 @@ struct AppNavigation: View {
     // selection-commit timing.
     @StateObject private var observer = SessionObserver()
 
+    // Cross-tab deep-link router. ProjectAccordionRow (Projects tab) calls
+    // `coordinator.openSession(_:)`, which flips a published
+    // `pendingDeepLink`. We watch the published value here and switch the
+    // active tab to `.sessions`; `SessionsView` then drains the link in
+    // its own `.task`. Spec: projects-tab-accordion-deeplink task 2.2.
+    @StateObject private var coordinator = DashboardNavigationCoordinator()
+
     var body: some View {
         NavigationSplitView {
             List(DashboardSection.allCases, selection: $selection) { section in
@@ -100,9 +107,20 @@ struct AppNavigation: View {
                 .accessibilityIdentifier("detail-\(selection.rawValue)")
         }
         .navigationTitle("Nexus")
+        .environmentObject(coordinator)
         .task {
             observer.startStreams()
             await observer.refreshSessions()
+        }
+        // Tab-switch hook: when a producer flips `pendingDeepLink`, jump
+        // to Sessions so SessionsView's drain task fires. Leaving the
+        // pending link in place hands the drain off to SessionsView; it
+        // calls `coordinator.clear()` once the PTY mount commits.
+        .onChange(of: coordinator.pendingDeepLink) { _, newValue in
+            guard newValue != nil else { return }
+            if selection != .sessions {
+                selection = .sessions
+            }
         }
     }
 
@@ -111,7 +129,7 @@ struct AppNavigation: View {
         switch selection {
         case .sessions:      SessionsView(observer: observer)
         case .specs:         SpecsView(sessionObserver: observer)
-        case .projects:      ProjectsView()
+        case .projects:      ProjectsView(sessionObserver: observer)
         case .credentials:   CredentialsView()
         case .failures:      FailuresView()
         case .notifications: NotificationsView()

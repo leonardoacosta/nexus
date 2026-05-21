@@ -1,16 +1,27 @@
 // ProjectsView — macOS dashboard parity for apps/nextjs/src/app/projects.
 //
 // Spec: openspec/changes/swift-dashboard-feature-parity (task 1.4)
+//       openspec/changes/projects-tab-accordion-deeplink (task 2.6)
 //
-// Read-only view: project name, active/total session counts, and the
-// set of machines hosting at least one session. Refresh-on-foreground +
-// pull-down (Cmd+R) — no SSE topic for project rollup today.
+// Each project renders as an expandable `ProjectAccordionRow` carrying
+// git metadata + a nested live-session list. Sticky expand state via
+// `@AppStorage` keyed by project id; orphan keys are pruned on `.task()`.
+//
+// Sessions are sourced from the shared `SessionObserver` injected at
+// scene root so list refreshes don't fan out duplicate /sessions polls.
 
 import SwiftUI
 import NexusShared
 
 struct ProjectsView: View {
     @StateObject private var model = ProjectsViewModel()
+    /// Shared with SessionsView/SpecsView at scene root. Used to source
+    /// the live session list per project for the accordion expansion.
+    @ObservedObject private var sessionObserver: SessionObserver
+
+    init(sessionObserver: SessionObserver) {
+        self.sessionObserver = sessionObserver
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,6 +40,11 @@ struct ProjectsView: View {
         .padding(.vertical, 8)
         .task {
             await model.load()
+            // Orphan @AppStorage pruning — drop stored expand state for
+            // projects that no longer exist in the registry. O(N) over
+            // UserDefaults keys with the namespaced prefix; cheap and
+            // bounded. Spec: projects-tab-accordion-deeplink § task 2.6.
+            ProjectsView.pruneOrphanExpandKeys(liveIds: Set(model.projects.map(\.id)))
         }
     }
 
@@ -58,7 +74,7 @@ struct ProjectsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(model.projects) { project in
-                    ProjectRow(project: project)
+                    accordionRow(project)
                         .contextMenu {
                             // Remove affordance only composes when the row
                             // carries a registry UUID — `PATCH /projects/:id`
@@ -78,50 +94,68 @@ struct ProjectsView: View {
             }
         }
     }
-}
 
-private struct ProjectRow: View {
-    let project: ProjectAggregate
-
-    var body: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(project.name)
-                    .font(.system(.body, design: .monospaced))
-                machines
-            }
-            Spacer()
-            counts
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+    @ViewBuilder
+    private func accordionRow(_ project: ProjectAggregate) -> some View {
+        let sessions = sessionsFor(project)
+        // @AppStorage doesn't support dynamic keys via property wrapper —
+        // bridge via a binding-backed lookup helper that reads/writes
+        // UserDefaults directly. Default-state logic:
+        //   - explicit stored value → honour it
+        //   - no stored value && activeSessions > 0 → default expanded
+        //   - no stored value && activeSessions == 0 → default collapsed
+        let key = Self.expandKey(for: project.id)
+        let stored = UserDefaults.standard.object(forKey: key) as? Bool
+        let defaultExpanded = project.activeSessions > 0
+        let isExpandedBinding = Binding<Bool>(
+            get: { stored ?? defaultExpanded },
+            set: { UserDefaults.standard.set($0, forKey: key) }
+        )
+        ProjectAccordionRow(
+            project: project,
+            sessions: sessions,
+            isExpanded: isExpandedBinding
+        )
     }
 
-    private var machines: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "server.rack")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text(project.machines.isEmpty ? "—" : project.machines.joined(separator: ", "))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+    /// Match accordion sessions to the project. The aggregate's `id` is
+    /// keyed on project name today (`ProjectAggregate.id == name`), and
+    /// the session's `project` field carries the project name too — so
+    /// straight name-equality is the join key. Fallback to projectId if
+    /// both are non-nil.
+    private func sessionsFor(_ project: ProjectAggregate) -> [Session] {
+        sessionObserver.activeSessions.filter { session in
+            if let pid = session.projectId, let aid = project.projectID, pid == aid {
+                return true
+            }
+            return session.project == project.name
         }
     }
 
-    private var counts: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(project.activeSessions > 0 ? Color.green : Color.secondary)
-                    .frame(width: 7, height: 7)
-                Text("\(project.activeSessions) active")
-                    .font(.caption.monospacedDigit())
+    // MARK: - @AppStorage namespacing + pruning
+
+    /// Stable namespaced key for an accordion row's expand state.
+    /// Prefix-grepping for `expandKeyPrefix` is the cleanup contract
+    /// the pruning helper relies on; do NOT change without also
+    /// updating `pruneOrphanExpandKeys`.
+    static let expandKeyPrefix = "projects-accordion-expanded."
+
+    static func expandKey(for id: String) -> String {
+        expandKeyPrefix + id
+    }
+
+    /// Drop UserDefaults entries for projects that no longer exist in the
+    /// registry. O(N) over all defaults — fine because the projects-
+    /// accordion namespace is bounded and the call runs once per
+    /// `ProjectsView.task()`. Exposed `static` so tests can drive it.
+    static func pruneOrphanExpandKeys(liveIds: Set<String>) {
+        let defaults = UserDefaults.standard
+        let allKeys = defaults.dictionaryRepresentation().keys
+        for key in allKeys where key.hasPrefix(expandKeyPrefix) {
+            let id = String(key.dropFirst(expandKeyPrefix.count))
+            if !liveIds.contains(id) {
+                defaults.removeObject(forKey: key)
             }
-            Text("\(project.totalSessions) total")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
         }
     }
 }
