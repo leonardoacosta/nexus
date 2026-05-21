@@ -360,6 +360,40 @@ public actor NexusClient {
         }
     }
 
+    /// `POST /commands/send-text` — forward keystrokes into the session's
+    /// tmux pane. Used by the macOS dashboard's PTY viewer to attach
+    /// bidirectionally (read stream + write keystrokes) on managed sessions.
+    ///
+    /// Spec: openspec/changes/session-attach-and-cwd-cap (task 2.1)
+    /// Agent route: apps/agent/src/routes/commands-send-text.ts
+    ///
+    /// Uses `session` (NOT `streamingSession`) — this is a one-shot POST.
+    /// Throws `NexusClientError.badStatus(...)` on non-2xx so the caller can
+    /// surface "session vanished" (404) or "agent rejected the keys" (400/500)
+    /// distinctly from a successful send.
+    public func sendText(sessionId: String, text: String) async throws {
+        let url = endpoint.baseURL.appendingPathComponent("commands/send-text")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = ["sessionId": sessionId, "text": text]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        _ = data
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+    }
+
     /// Consume `GET /sessions/{id}/stream` — agent PTY byte stream. The
     /// handler receives raw bytes (post-SSE-frame, pre-ANSI). Callers feed
     /// the bytes into a terminal emulator (SwiftTerm) for rendering.

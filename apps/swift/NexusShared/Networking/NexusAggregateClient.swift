@@ -328,6 +328,34 @@ public actor NexusAggregateClient {
         }
     }
 
+    /// Forward keystrokes into a managed session's tmux pane. Routes to the
+    /// agent identified by `originAgent` when known; falls back to the first
+    /// client otherwise (single-agent fleets, or sessions arriving without an
+    /// agent tag). Throws `NexusClientError` on transport / non-2xx so the
+    /// caller can surface a transient send failure to the user.
+    ///
+    /// Spec: openspec/changes/session-attach-and-cwd-cap (task 2.1)
+    public func sendText(
+        sessionId: String,
+        text: String,
+        originAgent: String? = nil
+    ) async throws {
+        let client = resolveClient(forAgent: originAgent)
+        try await client.sendText(sessionId: sessionId, text: text)
+    }
+
+    /// Match `originAgent` (Session.agent ?? Session.machine) against the
+    /// `agentNames` array; fall back to the first client when nothing matches
+    /// or the hint is nil. `agentNames` is parallel to `clients`, so the
+    /// lookup is O(N) over a tiny array.
+    private func resolveClient(forAgent originAgent: String?) -> NexusClient {
+        if let hint = originAgent,
+           let idx = agentNames.firstIndex(of: hint) {
+            return clients[idx]
+        }
+        return clients.first ?? NexusClient(endpoint: .localhost)
+    }
+
     /// PTY streams are session-scoped; a session lives on exactly one agent.
     /// Subscribe on all agents — only the owner has the session and the rest
     /// 404 fast and retry harmlessly. Keeps the call agent-agnostic so the
