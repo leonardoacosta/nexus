@@ -49,6 +49,19 @@ export { ccProfileEvents as credentialEvents } from "./schema";
 // script_errors — durable error capture for one-off scripts.
 export { scriptErrors, type ScriptError, type NewScriptError } from "./schema";
 
+// cron_runs + bloat_radar — telemetry tables for the in-process nx-cron
+// service (adopt-reaper-into-nx-cron). cron_runs gets one row per job tick;
+// bloat_radar gets one row per over-threshold finding (zero rows on a clear
+// run). Both are pruned by `apps/agent/src/db/retention.ts` at 90 days.
+export {
+  cronRuns,
+  type CronRun,
+  type NewCronRun,
+  bloatRadar,
+  type BloatRadar,
+  type NewBloatRadar,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

@@ -5,18 +5,19 @@
 
 ## DB Batch
 
-- [ ] 1.1 Add `packages/db/src/schema/cronRuns.ts` — `cron_runs` table (id, [beads:nx-8hrn9]
+- [x] 1.1 Add `packages/db/src/schema/cronRuns.ts` — `cron_runs` table (id, [beads:nx-8hrn9]
   timestamp, job text, status text, details text/json, metrics text/json),
   with an index on `timestamp` mirroring `healthSnapshots` conventions
-- [ ] 1.2 Add `packages/db/src/schema/bloatRadar.ts` — `bloat_radar` table [beads:nx-cougs]
+- [x] 1.2 Add `packages/db/src/schema/bloatRadar.ts` — `bloat_radar` table [beads:nx-cougs]
   (id, runTimestamp, label, path, sizeBytes, thresholdBytes), index on
   `runTimestamp`
-- [ ] 1.3 Export `cronRuns` and `bloatRadar` from [beads:nx-fi6ob]
+- [x] 1.3 Export `cronRuns` and `bloatRadar` from [beads:nx-fi6ob]
   `packages/db/src/schema/index.ts` (append-only, after the existing exports)
-- [ ] 1.4 Generate the Drizzle migration [beads:nx-rm4lq]
-  `packages/db/drizzle/0031_add_reaper_telemetry.sql` via drizzle-kit (do not
-  hand-write SQL) and verify it creates both tables + indices
-- [ ] 1.5 Add a retention rule for `cron_runs` and `bloat_radar` in [beads:nx-y4ddo]
+- [x] 1.4 Generate the Drizzle migration [beads:nx-rm4lq]
+  `packages/db/drizzle/0033_add_reaper_telemetry.sql` via drizzle-kit (do not
+  hand-write SQL) and verify it creates both tables + indices (renumbered
+  from 0031 → 0033; 0031 and 0032 were already taken by in-flight changes)
+- [x] 1.5 Add a retention rule for `cron_runs` and `bloat_radar` in [beads:nx-y4ddo]
   `apps/agent/src/db/retention.ts` consistent with the existing 30/90-day
   retention pattern (choose a sensible window, default 90 days)
 

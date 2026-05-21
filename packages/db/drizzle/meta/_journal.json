@@ -232,6 +232,13 @@
       "when": 1779250658954,
       "tag": "0032_agent-payload-completeness-schema",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1779384339505,
+      "tag": "0033_add_reaper_telemetry",
+      "breakpoints": true
     }
   ]
 }
