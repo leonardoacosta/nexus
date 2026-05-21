@@ -57,3 +57,8 @@ export {
   type BloatRadar,
   type NewBloatRadar,
 } from "./bloatRadar";
+export {
+  projectVoiceOverrides,
+  type ProjectVoiceOverride,
+  type NewProjectVoiceOverride,
+} from "./projectVoiceOverrides";

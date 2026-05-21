@@ -62,6 +62,15 @@ export {
   type NewBloatRadar,
 } from "./schema";
 
+// project_voice_overrides — per-project ElevenLabs voice id mapping
+// (notifications-overhaul). Backs `/notifications/voices*` endpoints +
+// the TTSObserver's projectVoiceCache.
+export {
+  projectVoiceOverrides,
+  type ProjectVoiceOverride,
+  type NewProjectVoiceOverride,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

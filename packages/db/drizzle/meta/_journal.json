@@ -246,6 +246,13 @@
       "when": 1779395616822,
       "tag": "0034_add_credential_usage_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1779404130625,
+      "tag": "0035_add_notification_audio_and_project_voices",
+      "breakpoints": true
     }
   ]
 }

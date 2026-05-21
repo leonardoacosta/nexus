@@ -29,6 +29,27 @@ export const notifications = pgTable("notifications", {
    * Default `pending` so existing rows backfill cleanly.
    */
   deliveryState: text("delivery_state").notNull().default("pending"),
+  /**
+   * Absolute path to the cached MP3 produced by ElevenLabs at synthesise
+   * time (notifications-overhaul). Set when the Mac listener (or future
+   * agent-side synthesiser) writes synthesised audio to
+   * `~/.config/nexus/audio/<id>.mp3` via the audio-store helper. NULL when
+   * TTS is disabled, synthesis failed, or the row predates this column.
+   *
+   * The file may have been pruned by the cron retention sweep even when
+   * `audio_path` is set — consumers MUST `stat()` the path before serving
+   * to disambiguate "never synthesised" (NULL, 404) vs "pruned"
+   * (set-but-missing, 410 Gone).
+   */
+  audioPath: text("audio_path"),
+  /**
+   * ElevenLabs voice id that produced the audio referenced by
+   * `audio_path`. Useful for debugging per-project voice resolution
+   * (notifications-overhaul) — confirms which override fired without
+   * round-tripping the resolver. NULL alongside `audio_path` when no
+   * synthesis happened.
+   */
+  voiceUsed: text("voice_used"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   sentAt: timestamp("sent_at", { mode: "date" }),
 });

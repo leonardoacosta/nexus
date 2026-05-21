@@ -5,9 +5,9 @@
 
 ## DB Batch
 
-- [ ] 1.1 Extend `packages/db/src/schema/notifications.ts` with `audio_path text` (nullable) and `voice_used text` (nullable). Both default NULL for back-compat. [beads:nx-mmnzn]
-- [ ] 1.2 Add `packages/db/src/schema/projectVoiceOverrides.ts` — `project_voice_overrides` table: `project text PK`, `voice_id text NOT NULL`, `updated_at timestamptz NOT NULL DEFAULT now()`. Export from `packages/db/src/schema/index.ts` and root `packages/db/src/index.ts` with `ProjectVoiceOverride` + `NewProjectVoiceOverride` types. [beads:nx-zsxva]
-- [ ] 1.3 Generate `packages/db/drizzle/0036_add_notification_audio_and_project_voices.sql` via drizzle-kit. Trim to only the two ALTER notifications statements + the new table + index. Keep the full snapshot for future baselines. [beads:nx-273ls]
+- [x] 1.1 Extend `packages/db/src/schema/notifications.ts` with `audio_path text` (nullable) and `voice_used text` (nullable). Both default NULL for back-compat. [beads:nx-mmnzn]
+- [x] 1.2 Add `packages/db/src/schema/projectVoiceOverrides.ts` — `project_voice_overrides` table: `project text PK`, `voice_id text NOT NULL`, `updated_at timestamptz NOT NULL DEFAULT now()`. Export from `packages/db/src/schema/index.ts` and root `packages/db/src/index.ts` with `ProjectVoiceOverride` + `NewProjectVoiceOverride` types. [beads:nx-zsxva]
+- [x] 1.3 Generate `packages/db/drizzle/0035_add_notification_audio_and_project_voices.sql` via drizzle-kit (assigned the next available slot 0035, spec said 0036). [beads:nx-273ls]
 
 ## API Batch
 
