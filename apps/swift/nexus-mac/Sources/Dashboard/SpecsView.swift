@@ -109,7 +109,8 @@ struct SpecsView: View {
                         ForEach(group.specs) { spec in
                             SpecRow(
                                 spec: spec,
-                                isSelected: selectedSpec?.id == spec.id
+                                isSelected: selectedSpec?.id == spec.id,
+                                waveStatus: model.wavePlan?.lookupSpec(name: spec.name)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -252,6 +253,10 @@ struct SpecsView: View {
 private struct SpecRow: View {
     let spec: SpecSummary
     var isSelected: Bool = false
+    /// Active wave-plan row for this spec, when present. Drives the
+    /// [W{n}] chip + status dot adornments (task 2.7). Nil when the
+    /// spec is not in the in-flight wave plan or no /apply is active.
+    var waveStatus: SpecStatus?
 
     var body: some View {
         HStack(alignment: .top) {
@@ -269,6 +274,10 @@ private struct SpecRow: View {
                     ProgressView(value: spec.progress)
                         .progressViewStyle(.linear)
                         .frame(width: 80)
+                    if let wave = waveStatus {
+                        WaveChip(wave: wave.wave)
+                        WaveStatusDot(status: wave.status)
+                    }
                 }
             }
             Spacer()
@@ -320,6 +329,62 @@ private struct ActiveSessionDot: View {
             )
             .onAppear { pulsing = true }
             .help("\(count) active session\(count == 1 ? "" : "s")")
+    }
+}
+
+/// `[W{n}]` chip rendered next to the progress bar of a spec that's in
+/// the active wave plan. Monospaced so the chip width stays steady as
+/// wave numbers grow.
+///
+/// specs-tab-accordion-with-topology task 2.7.
+private struct WaveChip: View {
+    let wave: Int
+
+    var body: some View {
+        Text("[W\(wave)]")
+            .font(.caption2.monospaced())
+            .foregroundStyle(.tint)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(.tint.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+    }
+}
+
+/// Status dot for a wave-plan spec row. Color encodes the canonical
+/// SpecRunStatus enum; `in_progress` is the only state that pulses
+/// (every other state is steady so the row doesn't hum visually).
+///
+/// specs-tab-accordion-with-topology task 2.7.
+private struct WaveStatusDot: View {
+    let status: SpecRunStatus
+    @State private var pulsing = false
+
+    private var color: Color {
+        switch status {
+        case .queued:      return .gray
+        case .dispatched:  return .blue
+        case .in_progress: return .blue
+        case .completed:   return .green
+        case .failed:      return .red
+        case .skipped:     return .yellow
+        }
+    }
+
+    var body: some View {
+        let isInflight = status == .in_progress
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+            .opacity(isInflight && pulsing ? 0.4 : 1.0)
+            .animation(
+                isInflight
+                    ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
+                    : .default,
+                value: pulsing
+            )
+            .onAppear { if isInflight { pulsing = true } }
+            .help("wave status: \(status.rawValue)")
     }
 }
 

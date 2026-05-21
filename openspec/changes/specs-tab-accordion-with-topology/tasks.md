@@ -19,7 +19,7 @@
 - [x] [2.4] [P-2] Restructure `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift` to use `DisclosureGroup` per project group. Persist expansion state via UserDefaults keyed by `specsAccordion.<slug>`, default collapsed. Replace the existing always-expanded `Section` blocks [owner:ui-engineer] [type:feature] [beads:nx-z2il2]
 - [x] [2.5] [P-2] Project header: render slug, completion summary (e.g. `3/8 active`), and an active-session pulsing green dot when at least one active session matches the project (cross-reference SessionObserver's session list by cwd path or gitOwnerRepo). Add tooltip with session count [owner:ui-engineer] [type:feature] [beads:nx-3s5cu]
 - [x] [2.6] [P-3] Project header: when the active wave plan touches any spec in this project, render a wave rollup chip on the header (e.g. `[W2 · 1 dispatched]`). Hidden when no active wave plan [owner:ui-engineer] [type:feature] [beads:nx-hqeqy]
-- [ ] [2.7] [P-3] Spec row enrichment: when the spec is in the active wave plan, render a `[W2]` chip after the progress bar AND a colored status dot (gray queued / blue in_progress / green completed / red failed). Pulsing animation only on in_progress [owner:ui-engineer] [type:feature] [beads:nx-fasin]
+- [x] [2.7] [P-3] Spec row enrichment: when the spec is in the active wave plan, render a `[W2]` chip after the progress bar AND a colored status dot (gray queued / blue in_progress / green completed / red failed). Pulsing animation only on in_progress [owner:ui-engineer] [type:feature] [beads:nx-fasin]
 
 ## E2E Batch
 
