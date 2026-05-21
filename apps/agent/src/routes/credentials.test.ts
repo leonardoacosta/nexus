@@ -224,6 +224,15 @@ function makeListEntry(overrides: {
     orgName: null,
     orgUuid: null,
     mcpProviders: null,
+    // Usage snapshot columns (credentials-account-resolve-and-usage spec):
+    // all NULL until credential-usage-poller writes the first sample.
+    usage5hUsed: null,
+    usage5hLimit: null,
+    usage5hResetAt: null,
+    usage7dUsed: null,
+    usage7dLimit: null,
+    usage7dResetAt: null,
+    usagePolledAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -260,6 +269,15 @@ function makeCredentialRow(overrides: {
     orgName: null,
     orgUuid: null,
     mcpProviders: null,
+    // Usage snapshot columns (credentials-account-resolve-and-usage spec):
+    // all NULL until credential-usage-poller writes the first sample.
+    usage5hUsed: null,
+    usage5hLimit: null,
+    usage5hResetAt: null,
+    usage7dUsed: null,
+    usage7dLimit: null,
+    usage7dResetAt: null,
+    usagePolledAt: null,
     createdAt: now,
     updatedAt: now,
   };

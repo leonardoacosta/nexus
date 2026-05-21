@@ -32,7 +32,20 @@ interface CredentialRowFixture {
 }
 
 interface FakeListEnvelope {
-  credentials: Array<CredentialRowFixture & { siblingCount?: number; siblingIds?: string[]; rateLimit429Count: number; isActive: boolean; lastSwapAt: string | null }>;
+  // Response envelope: Date columns are serialized to ISO strings by Bun's
+  // Response.json(), so override the date-typed usage fields here.
+  credentials: Array<
+    Omit<CredentialRowFixture, "usage5hResetAt" | "usage7dResetAt" | "usagePolledAt"> & {
+      siblingCount?: number;
+      siblingIds?: string[];
+      rateLimit429Count: number;
+      isActive: boolean;
+      lastSwapAt: string | null;
+      usage5hResetAt?: string | null;
+      usage7dResetAt?: string | null;
+      usagePolledAt?: string | null;
+    }
+  >;
   activeFingerprint: string | null;
 }
 
