@@ -300,6 +300,55 @@ public actor NexusAggregateClient {
         return Array(all.prefix(limit))
     }
 
+    /// Failures envelope merged across agents. Per-agent topErrors are
+    /// concatenated; `byTool` / `byProject` are summed; `trend.current` /
+    /// `trend.previous` are summed and direction recomputed from the
+    /// totals. `source` and `parseErrors` are picked from the first
+    /// responding agent (best-effort provenance).
+    ///
+    /// Spec: openspec/changes/failures-investigation-and-surface (task 1.8)
+    public func fetchFailuresEnvelope(days: Int = 7) async -> FailuresResponse {
+        let (perAgent, _) = await fanOut("fetchFailuresEnvelope") { client in
+            try await client.fetchFailuresEnvelope(days: days)
+        }
+        var allTopErrors: [ScriptError] = []
+        var byTool: [String: Int] = [:]
+        var byProject: [String: Int] = [:]
+        var sumCurrent = 0
+        var sumPrevious = 0
+        var source: String?
+        var parseErrors: Int?
+        for env in perAgent {
+            allTopErrors.append(contentsOf: env.topErrors)
+            for (k, v) in env.byTool { byTool[k, default: 0] += v }
+            for (k, v) in env.byProject { byProject[k, default: 0] += v }
+            sumCurrent += env.trend.current
+            sumPrevious += env.trend.previous
+            if source == nil { source = env.source }
+            if parseErrors == nil { parseErrors = env.parseErrors }
+        }
+        // Recompute direction from the merged totals using the same rules
+        // as the agent (rules/PATTERNS.md keeps this in sync).
+        let direction: String = {
+            if sumPrevious == 0 && sumCurrent == 0 { return "flat" }
+            if sumPrevious == 0 && sumCurrent > 0 { return "up" }
+            if Double(sumCurrent) > Double(sumPrevious) * 1.1 { return "up" }
+            if Double(sumCurrent) < Double(sumPrevious) * 0.9 { return "down" }
+            return "flat"
+        }()
+        let total = allTopErrors.reduce(0) { $0 + max($1.occurrences, 1) }
+        return FailuresResponse(
+            periodDays: days,
+            total: max(total, sumCurrent),
+            topErrors: allTopErrors.sorted { $0.capturedAt > $1.capturedAt },
+            byTool: byTool,
+            byProject: byProject,
+            trend: FailureTrend(current: sumCurrent, previous: sumPrevious, direction: direction),
+            source: source,
+            parseErrors: parseErrors
+        )
+    }
+
     /// Historical notifications merged across agents, deduped by `id`,
     /// newest first. nx-9mt43: NotificationsView mount-time backfill so
     /// the HISTORY sidebar surfaces past rows before live SSE arrives.

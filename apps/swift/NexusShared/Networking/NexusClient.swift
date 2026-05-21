@@ -387,15 +387,24 @@ public actor NexusClient {
     /// `GET /failures?days=N` — recent script + notification failures.
     /// `limit` constrains the rendered top-N (server may return more).
     public func fetchScriptErrors(limit: Int = 50, days: Int = 7) async throws -> [ScriptError] {
+        let envelope = try await fetchFailuresEnvelope(days: days)
+        let sorted = envelope.topErrors.sorted { $0.capturedAt > $1.capturedAt }
+        return Array(sorted.prefix(limit))
+    }
+
+    /// `GET /failures?days=N` — full envelope including `byTool`, `byProject`,
+    /// `trend`, `source`, `parseErrors`. Used by the FailuresView header to
+    /// render filter chips + the trend indicator.
+    ///
+    /// Spec: openspec/changes/failures-investigation-and-surface (task 1.8)
+    public func fetchFailuresEnvelope(days: Int = 7) async throws -> FailuresResponse {
         var comps = URLComponents(
             url: endpoint.baseURL.appendingPathComponent("failures"),
             resolvingAgainstBaseURL: false
         )!
         comps.queryItems = [URLQueryItem(name: "days", value: String(days))]
         guard let url = comps.url else { throw NexusClientError.badStatus(0) }
-        let envelope: FailuresResponse = try await getJSON(url: url)
-        let sorted = envelope.topErrors.sorted { $0.capturedAt > $1.capturedAt }
-        return Array(sorted.prefix(limit))
+        return try await getJSON(url: url)
     }
 
     /// `GET /health/history?hours=N&machine=…` — per-machine sparkline rows.
