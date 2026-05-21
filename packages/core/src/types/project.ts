@@ -1,3 +1,28 @@
+/**
+ * Git working-tree snapshot for a project's cwd. Surfaced by
+ * `GET /projects` as `git_metadata` so the Projects-tab accordion
+ * (`projects-tab-accordion-deeplink`) can render branch chips +
+ * ahead/behind/dirty without each client re-shelling out to git.
+ *
+ * The agent resolves this via `getGitMetadata(cwd)` with a 30s per-cwd
+ * cache. Non-git cwds, broken repos, or subprocess timeouts surface as
+ * `git_metadata: null` (the outer field is set, the value is null).
+ */
+export interface GitCommit {
+  author: string;
+  /** ISO-8601 timestamp string. */
+  ts: string;
+}
+
+export interface GitMetadata {
+  /** `null` for detached HEAD. */
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  last_commit: GitCommit | null;
+}
+
 export interface Project {
   /**
    * Registry project UUID (matches `projects.id`, the path-param
@@ -21,6 +46,13 @@ export interface Project {
    * Swift decoder substitutes `false` for backward tolerance.
    */
   hidden: boolean;
+  /**
+   * Git metadata for the project's cwd. Optional so older agents (pre-
+   * `projects-tab-accordion-deeplink`) decode unchanged; explicit `null`
+   * means the cwd is non-git, the subprocess failed, or the project has
+   * no registered location on this agent.
+   */
+  git_metadata?: GitMetadata | null;
 }
 
 export interface DiscoveredProject {

@@ -1,10 +1,11 @@
 import type { Db } from "@nexus/db";
-import type { Project } from "@nexus/core";
+import type { Project, GitMetadata } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { projects as projectsTable, eq } from "@nexus/db";
 import { queryRecentSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { listAllRegisteredProjects } from "../db/project-registry";
+import { getGitMetadata } from "../services/git-project";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
 
 const log = createLogger("agent:routes:projects");
@@ -77,9 +78,28 @@ function bucketSessions(sessions: SessionRow[]): Map<string, SessionAgg> {
  *
  * Exported for unit testing the registry-id threading without a live DB.
  */
+/**
+ * Aggregate the project list from the registry, overlaying live session
+ * counts. Optional `gitMetadataByProjectId` (added by
+ * `projects-tab-accordion-deeplink`) attaches per-cwd git metadata onto
+ * registered rows; missing entries surface as `git_metadata: null`.
+ * Session-only fallback buckets always carry `git_metadata: null` —
+ * they have no registry cwd to resolve against.
+ */
 export function aggregateProjects(
   sessions: SessionRow[],
-  registered: { projectId: string; name: string; hidden?: boolean }[],
+  registered: {
+    projectId: string;
+    name: string;
+    hidden?: boolean;
+    /**
+     * Per-cwd path for this registered project (from `project_locations.path`).
+     * Optional so legacy unit tests that construct registered rows without
+     * locations still pass.
+     */
+    path?: string;
+  }[],
+  gitMetadataByProjectId?: Map<string, GitMetadata | null>,
 ): Project[] {
   const sessionBuckets = bucketSessions(sessions);
   const projects: Project[] = [];
@@ -87,10 +107,13 @@ export function aggregateProjects(
 
   // 1. Registry-driven rows — named, zero-session-safe. `hidden` is surfaced
   //    verbatim so the Swift dashboard can filter rather than rely on a
-  //    server-side drop (agent-payload-completeness).
+  //    server-side drop (agent-payload-completeness). `git_metadata` is
+  //    attached from the optional pre-resolved map; absent entries surface
+  //    as `null` so the wire shape stays stable.
   for (const reg of registered) {
     const agg = sessionBuckets.get(reg.projectId);
     if (agg) consumedKeys.add(reg.projectId);
+    const gitMetadata = gitMetadataByProjectId?.get(reg.projectId) ?? null;
     projects.push({
       id: reg.projectId,
       name: reg.name,
@@ -98,12 +121,14 @@ export function aggregateProjects(
       total_sessions: agg?.total ?? 0,
       machines: agg ? Array.from(agg.machines).sort() : [],
       hidden: reg.hidden ?? false,
+      git_metadata: gitMetadata,
     });
   }
 
   // 2. Session-only buckets with no registry row (fallback — never regress).
   //    No registry id exists for these — emit `id: null` (never fabricate).
-  //    Synthetic buckets always emit `hidden: false` per spec.
+  //    Synthetic buckets always emit `hidden: false` per spec. They have no
+  //    registry cwd, so `git_metadata` is always `null`.
   for (const [key, agg] of sessionBuckets) {
     if (consumedKeys.has(key)) continue;
     projects.push({
@@ -113,6 +138,7 @@ export function aggregateProjects(
       total_sessions: agg.total,
       machines: Array.from(agg.machines).sort(),
       hidden: false,
+      git_metadata: null,
     });
   }
 
@@ -198,7 +224,20 @@ export async function handleGetProjects(db: Db, url?: URL): Promise<Response> {
     // (agent-payload-completeness). The legacy filter-on-server behaviour is
     // gone; downstream consumers MUST honour the `hidden` field.
     const registered = await listAllRegisteredProjects(db);
-    projects = aggregateProjects(sessions, registered);
+    // Resolve git metadata per cwd in parallel — total wall-clock cost is
+    // bounded by the slowest project (typically <300ms on a clean repo;
+    // 30s cache absorbs subsequent polls). Per-call timeout is 2s
+    // (`getGitMetadata` aborts the subprocess) so a stuck git CLI cannot
+    // pin the request over the 500ms p95 budget (spec
+    // projects-tab-accordion-deeplink). Failures cache as null.
+    const metadataResults = await Promise.all(
+      registered.map(async (r) => {
+        const value = await getGitMetadata(r.path);
+        return [r.projectId, value] as const;
+      }),
+    );
+    const gitMetadataByProjectId = new Map(metadataResults);
+    projects = aggregateProjects(sessions, registered, gitMetadataByProjectId);
     projectsCache = { data: projects, expiry: now + PROJECTS_CACHE_TTL_MS };
     log.info(
       { route, count: projects.length, fromCache: false, paginated },

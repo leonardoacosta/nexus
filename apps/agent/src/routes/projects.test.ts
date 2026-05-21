@@ -12,6 +12,7 @@
 import { describe, it, expect } from "bun:test";
 import { aggregateProjects } from "./projects";
 import type { SessionRow } from "../db/sessions";
+import type { GitMetadata } from "@nexus/core";
 
 const REG_ID_VISIBLE = "11111111-1111-1111-1111-111111111111";
 const REG_ID_HIDDEN = "22222222-2222-2222-2222-222222222222";
@@ -79,6 +80,101 @@ describe("aggregateProjects — hidden emission (agent-payload-completeness)", (
     );
     for (const row of rows) {
       expect(typeof row.hidden).toBe("boolean");
+    }
+  });
+});
+
+// projects-tab-accordion-deeplink — `git_metadata` threading on the row.
+// Pure-function test against `aggregateProjects` with a stubbed metadata
+// map (avoids real git subprocess in unit scope).
+
+describe("aggregateProjects — git_metadata emission", () => {
+  const REG_ID_GIT = "33333333-3333-3333-3333-333333333333";
+  const REG_ID_NOGIT = "44444444-4444-4444-4444-444444444444";
+
+  const sampleMetadata: GitMetadata = {
+    branch: "main",
+    ahead: 0,
+    behind: 0,
+    dirty: false,
+    last_commit: { author: "Test Author", ts: "2026-05-21T18:00:00-05:00" },
+  };
+
+  function session(over: Partial<SessionRow>): SessionRow {
+    return {
+      projectId: null,
+      status: "active",
+      machine: "host-a",
+      ...over,
+    } as unknown as SessionRow;
+  }
+
+  it("attaches git_metadata when the map has an entry for the project id", () => {
+    const map = new Map<string, GitMetadata | null>([
+      [REG_ID_GIT, sampleMetadata],
+    ]);
+    const rows = aggregateProjects(
+      [],
+      [{ projectId: REG_ID_GIT, name: "nx", path: "/tmp/nx" }],
+      map,
+    );
+    const row = rows.find((r) => r.name === "nx");
+    expect(row).toBeDefined();
+    expect(row!.git_metadata).toEqual(sampleMetadata);
+  });
+
+  it("emits git_metadata=null when the map has no entry (non-git cwd)", () => {
+    const map = new Map<string, GitMetadata | null>();
+    const rows = aggregateProjects(
+      [],
+      [{ projectId: REG_ID_NOGIT, name: "notes", path: "/tmp/notes" }],
+      map,
+    );
+    const row = rows.find((r) => r.name === "notes");
+    expect(row!.git_metadata).toBeNull();
+  });
+
+  it("session-only fallback buckets always carry git_metadata=null", () => {
+    const map = new Map<string, GitMetadata | null>();
+    const rows = aggregateProjects(
+      [session({ projectId: null, machine: "host-a" })],
+      [],
+      map,
+    );
+    const row = rows.find((r) => r.name === "(unregistered)");
+    expect(row!.git_metadata).toBeNull();
+  });
+
+  it("omitting the metadata map preserves prior call semantics (backward-compat)", () => {
+    const rows = aggregateProjects(
+      [],
+      [{ projectId: REG_ID_GIT, name: "alpha" }],
+    );
+    const row = rows.find((r) => r.name === "alpha");
+    // Wire shape now always includes the field; legacy callers (no map)
+    // get null for every row — explicit null, not undefined.
+    expect(row!.git_metadata).toBeNull();
+  });
+
+  it("budget proxy: 15 projects with cached/stubbed metadata aggregate well under 500ms", () => {
+    const REG_PREFIX = "5555aaaa-5555-5555-5555-";
+    const registered = Array.from({ length: 15 }, (_, i) => ({
+      projectId: REG_PREFIX + i.toString().padStart(12, "0"),
+      name: `proj-${i}`,
+      path: `/tmp/proj-${i}`,
+    }));
+    const map = new Map<string, GitMetadata | null>(
+      registered.map((r) => [r.projectId, sampleMetadata] as const),
+    );
+    const start = Date.now();
+    const rows = aggregateProjects([], registered, map);
+    const elapsed = Date.now() - start;
+    // Pure in-memory aggregation; real wall-clock budget (500ms p95) is
+    // tested at integration scope in E2E task 3.1.
+    expect(elapsed).toBeLessThan(500);
+    expect(rows).toHaveLength(15);
+    for (const row of rows) {
+      expect(row.git_metadata).toEqual(sampleMetadata);
     }
   });
 });
