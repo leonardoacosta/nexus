@@ -26,7 +26,14 @@ NoNewPrivileges=true
 # PrivateTmp disabled — nexus-agent exposes sockets in /tmp/ that CC hooks must access
 PrivateTmp=false
 ProtectSystem=strict
-ProtectHome=read-only
+# ProtectHome=read-only replaced with ReadOnlyPaths=/home:
+# ProtectHome uses a mount-namespace bind that breaks readlinkSync('/proc/<pid>/cwd')
+# resolution when the target lives under /home (process-watcher cwd enrichment fails
+# for all CC sessions running in ~/dev/*). ReadOnlyPaths=/home enforces the same
+# read-only invariant on /home without the namespace bind, so /proc cwd readlinks
+# resolve correctly. ReadWritePaths below take precedence for the agent's own
+# state dirs.
+ReadOnlyPaths=/home
 ReadWritePaths=%h/.claude
 ReadWritePaths=%h/.config/nexus
 ReadWritePaths=%h/.local
