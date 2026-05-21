@@ -296,7 +296,7 @@ public struct HealthProcessesResponse: Equatable, Hashable, Codable, Sendable {
         self.topCpu = (try? c.decode([HealthMetrics.ProcessInfo].self, forKey: .topCpu)) ?? []
         self.topRam = (try? c.decode([HealthMetrics.ProcessInfo].self, forKey: .topRam)) ?? []
         // Same ISO-8601 dual-formatter dance as HealthMetrics.collectedAt.
-        if let s = try? c.decodeIfPresent(String.self, forKey: .collectedAt), let s {
+        if let s = try c.decodeIfPresent(String.self, forKey: .collectedAt) {
             let f1 = ISO8601DateFormatter()
             f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let f2 = ISO8601DateFormatter()
