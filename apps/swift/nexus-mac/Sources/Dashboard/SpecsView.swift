@@ -15,6 +15,11 @@ struct SpecsView: View {
     // SpecDetailView. Persisted in @State so tab/window resize doesn't drop
     // the active spec.
     @State private var selectedSpec: SpecSummary?
+    // specs-tab-accordion-with-topology (task 2.4): per-project accordion
+    // state, default collapsed. Hydrated from UserDefaults
+    // `specsAccordion.<slug>` on the first render of each group, persisted
+    // on every toggle.
+    @State private var expandedProjects: Set<String> = []
 
     var body: some View {
         HSplitView {
@@ -87,9 +92,11 @@ struct SpecsView: View {
 
     private var listBody: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(model.grouped, id: \.project) { group in
-                    Section {
+                    DisclosureGroup(
+                        isExpanded: binding(for: group.project)
+                    ) {
                         ForEach(group.specs) { spec in
                             SpecRow(
                                 spec: spec,
@@ -100,19 +107,46 @@ struct SpecsView: View {
                                 selectedSpec = spec
                             }
                         }
-                    } header: {
+                    } label: {
                         Text(group.project)
                             .font(.system(.caption, design: .monospaced))
                             .tracking(1.5)
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 4)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.background.opacity(0.85))
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
                 }
             }
         }
+    }
+
+    /// Two-way binding for a project's accordion expansion. Reads
+    /// initial state from UserDefaults (default: collapsed) and
+    /// persists on every toggle so the user's last layout sticks
+    /// across window restarts. The local `Set<String>` mirror keeps
+    /// SwiftUI's diff cheap — only the toggled row redraws.
+    ///
+    /// UserDefaults key: `specsAccordion.<slug>` (per
+    /// specs-tab-accordion-with-topology task 2.4).
+    private func binding(for project: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                if expandedProjects.contains(project) { return true }
+                // Lazy hydrate from UserDefaults the first time this
+                // project's binding is asked for. `bool(forKey:)` returns
+                // false for absent keys — which is the documented default.
+                return UserDefaults.standard.bool(forKey: "specsAccordion.\(project)")
+            },
+            set: { newValue in
+                if newValue {
+                    expandedProjects.insert(project)
+                } else {
+                    expandedProjects.remove(project)
+                }
+                UserDefaults.standard.set(newValue, forKey: "specsAccordion.\(project)")
+            }
+        )
     }
 }
 
