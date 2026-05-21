@@ -34,6 +34,17 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     public var pid: Int?
     public var cwd: String?
     public var ccSessionId: String?
+    /// Git origin enrichment, populated by the agent's git-project-resolver
+    /// (apps/agent/src/services/git-project-resolver.ts). The wire shape is
+    /// camelCase (see SessionDecodingTests.testDecodesFullStubSessionsWireRow).
+    public var gitProvider: String?
+    public var gitOwnerRepo: String?
+    /// Aggregate cost in USD across the lifetime of the session. Null when
+    /// unknown (freshly spawned, or pre-cost-tracking sessions).
+    public var totalCostUsd: Double?
+    /// Timestamp the session entered the idle state. Drives `Nm idle` rendering
+    /// in SessionsView. Null when the session is actively producing tokens.
+    public var idleSince: Date?
 
     public enum CodingKeys: String, CodingKey {
         case id
@@ -53,6 +64,10 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case pid
         case cwd
         case ccSessionId
+        case gitProvider
+        case gitOwnerRepo
+        case totalCostUsd
+        case idleSince
     }
 
     public init(from decoder: Decoder) throws {
@@ -77,6 +92,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         let cwdRaw         = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.cwd           = (cwdRaw?.isEmpty ?? true) ? nil : cwdRaw
         self.ccSessionId   = try c.decodeIfPresent(String.self, forKey: .ccSessionId)
+        let providerRaw    = try c.decodeIfPresent(String.self, forKey: .gitProvider)
+        self.gitProvider   = (providerRaw?.isEmpty ?? true) ? nil : providerRaw
+        let ownerRepoRaw   = try c.decodeIfPresent(String.self, forKey: .gitOwnerRepo)
+        self.gitOwnerRepo  = (ownerRepoRaw?.isEmpty ?? true) ? nil : ownerRepoRaw
+        self.totalCostUsd  = try c.decodeIfPresent(Double.self, forKey: .totalCostUsd)
+        self.idleSince     = (try? Self.decodeFlexibleDate(c, .idleSince)) ?? nil
     }
 
     public init(
@@ -95,7 +116,11 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         branch: String? = nil,
         pid: Int? = nil,
         cwd: String? = nil,
-        ccSessionId: String? = nil
+        ccSessionId: String? = nil,
+        gitProvider: String? = nil,
+        gitOwnerRepo: String? = nil,
+        totalCostUsd: Double? = nil,
+        idleSince: Date? = nil
     ) {
         self.id = id
         self.project = project
@@ -113,6 +138,10 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.pid = pid
         self.cwd = cwd
         self.ccSessionId = ccSessionId
+        self.gitProvider = gitProvider
+        self.gitOwnerRepo = gitOwnerRepo
+        self.totalCostUsd = totalCostUsd
+        self.idleSince = idleSince
     }
 
     /// Distinguish a real Claude Code session from telemetry-ping stubs.
