@@ -5,9 +5,9 @@
 
 ## DB Batch
 
-- [ ] 1.1 Extend `packages/db/src/schema/credentials.ts` with seven nullable columns: `usage5hUsed` (integer), `usage5hLimit` (integer), `usage5hResetAt` (timestamptz), `usage7dUsed` (integer), `usage7dLimit` (integer), `usage7dResetAt` (timestamptz), `usagePolledAt` (timestamptz). All default NULL. Snake_case wire-format names: `usage_5h_used`, etc. [beads:nx-5y8kv]
-- [ ] 1.2 Generate `packages/db/drizzle/0035_add_credential_usage_columns.sql` via drizzle-kit. Trim auto-emitted SQL to only the seven ALTER TABLE statements; keep the full snapshot for future drizzle-kit baselines (same convention as 0033/0034). [beads:nx-xkc1z]
-- [ ] 1.3 Confirm the new columns surface in `packages/db/src/index.ts` re-exports automatically via the existing `type Credential = typeof credentials.$inferSelect` synthesis. [beads:nx-d0og4]
+- [x] 1.1 Extend `packages/db/src/schema/credentials.ts` with seven nullable columns: `usage5hUsed` (integer), `usage5hLimit` (integer), `usage5hResetAt` (timestamptz), `usage7dUsed` (integer), `usage7dLimit` (integer), `usage7dResetAt` (timestamptz), `usagePolledAt` (timestamptz). All default NULL. Snake_case wire-format names: `usage_5h_used`, etc. [beads:nx-5y8kv]
+- [x] 1.2 Generate `packages/db/drizzle/0034_add_credential_usage_columns.sql` via drizzle-kit (worktree 0034 slot was open; spec text said 0035, but the active baseline is 0033 so drizzle-kit emitted 0034). Trim auto-emitted SQL to only the seven ALTER TABLE statements; keep the full snapshot for future drizzle-kit baselines (same convention as 0033/0034). [beads:nx-xkc1z]
+- [x] 1.3 Confirm the new columns surface in `packages/db/src/index.ts` re-exports automatically via the existing `type Credential = typeof credentials.$inferSelect` synthesis. [beads:nx-d0og4]
 
 ## API Batch
 

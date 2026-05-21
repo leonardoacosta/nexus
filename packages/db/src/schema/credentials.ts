@@ -78,6 +78,31 @@ export const credentials = pgTable(
     orgUuid: text("org_uuid"),
     /** Comma-separated MCP provider names extracted from mcpOAuth keys (e.g. "figma,posthog,slack"). */
     mcpProviders: text("mcp_providers"),
+    /**
+     * Latest Anthropic /api/oauth/usage snapshot (5-hour window + 7-day window).
+     *
+     * Populated by `credential-usage-poller.ts` every 5 minutes for rows where
+     * `is_primary = true AND status = 'available'`. All NULL until the first
+     * successful poll. The poller never clobbers a populated row on parse /
+     * network failure — older data is left in place until a fresh sample lands.
+     */
+    usage5hUsed: integer("usage_5h_used"),
+    usage5hLimit: integer("usage_5h_limit"),
+    usage5hResetAt: timestamp("usage_5h_reset_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    usage7dUsed: integer("usage_7d_used"),
+    usage7dLimit: integer("usage_7d_limit"),
+    usage7dResetAt: timestamp("usage_7d_reset_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    /** Wall-clock at which the poller last wrote the usage snapshot above. */
+    usagePolledAt: timestamp("usage_polled_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" })
       .notNull()
