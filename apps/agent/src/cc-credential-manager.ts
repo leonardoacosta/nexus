@@ -35,8 +35,18 @@ const log = createLogger("agent:cc-credential-manager");
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default credentials.json location. Override via CC_CREDENTIALS_PATH. */
-const DEFAULT_CREDENTIALS_PATH = join(homedir(), ".claude", "credentials.json");
+/**
+ * Default Claude Code credentials file. Override via CC_CREDENTIALS_PATH.
+ *
+ * Note the leading dot — Claude Code stores its OAuth blob at
+ * `~/.claude/.credentials.json` (dotted). The no-dot variant
+ * (`~/.claude/credentials.json`) does not exist on real hosts; pointing here
+ * silently broke active-management for every agent. See
+ * `openspec/changes/fix-credential-source-divergence/` for the audit that
+ * surfaced the divergence between this manager and
+ * `active-credential-watcher.ts` (which always used the dotted path).
+ */
+const DEFAULT_CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
 
 /** Refresh tokens whose access expires within this window are refreshed eagerly. */
 export const REFRESH_LOOKAHEAD_MS = 5 * 60 * 1000;
@@ -131,10 +141,28 @@ export class CcCredentialManager {
    * Read credentials.json from disk. Returns null when the file is absent.
    * Throws on JSON parse failure — the caller decides whether to emit
    * `CCAuthSchemaDrift`.
+   *
+   * Resolves symlinks via `fs.realpath` before reading so the schema-drift
+   * fingerprint check sees the canonical file shape regardless of how
+   * Claude Code rotates `~/.claude/.credentials.json` (the file is sometimes
+   * a symlink that swaps mid-session). Mirrors the realpath handling in
+   * `credentials/active-credential-watcher.ts`. A failed realpath (e.g. the
+   * file IS a regular file, not a symlink — `realpath` succeeds; or the
+   * link target is missing) falls back to the original path so a non-symlink
+   * file is still read correctly.
    */
   async read(): Promise<CredentialsFile | null> {
+    let resolvedPath = this.credentialsPath;
     try {
-      const raw = await fs.readFile(this.credentialsPath, "utf8");
+      resolvedPath = await fs.realpath(this.credentialsPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      // Non-ENOENT realpath failure (e.g. EACCES on a parent dir) — fall back
+      // to the original path so the readFile below produces the real error.
+      resolvedPath = this.credentialsPath;
+    }
+    try {
+      const raw = await fs.readFile(resolvedPath, "utf8");
       return JSON.parse(raw) as CredentialsFile;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;

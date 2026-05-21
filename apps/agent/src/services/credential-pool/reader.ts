@@ -503,6 +503,23 @@ export async function readCredentials(
     }
   }
 
+  // Final fallback (fix-credential-source-divergence task 1.2): when the
+  // nexus pool directory has no acct-*.json files BUT the host has a valid
+  // `~/.claude/.credentials.json`, synthesize a single entry from the
+  // dotted file so the dashboard reflects the real active Claude Code
+  // credential. Without this branch the endpoint returns empty on every
+  // host that uses CC directly (no nexus pool import) — the original
+  // symptom that motivated the spec.
+  if (rows.length === 0) {
+    const synthetic = readActiveCcCredentialEntry();
+    if (synthetic) {
+      return {
+        credentials: [synthetic],
+        activeFingerprint: synthetic.fingerprint,
+      };
+    }
+  }
+
   return {
     credentials: rows,
     // Only return the active fingerprint if we actually found a matching
@@ -512,5 +529,79 @@ export async function readCredentials(
       activeFingerprint && rows.some((r) => r.fingerprint === activeFingerprint)
         ? activeFingerprint
         : null,
+  };
+}
+
+/**
+ * Read `~/.claude/.credentials.json` and project it into a single
+ * `CredentialEntry`. Returns null when the file is absent or unparseable.
+ *
+ * Mirrors `active-credential-watcher.ts`' realpath handling so a symlinked
+ * credentials file (Claude Code rotates via symlink swap on some hosts)
+ * resolves to its target before reading. This is the synthesis path used
+ * by `readCredentials()` when the nexus pool is empty — see the call site
+ * for rationale.
+ */
+function readActiveCcCredentialEntry(): CredentialEntry | null {
+  const ccPath = ccActiveCredentialPath();
+  if (!existsSync(ccPath)) return null;
+
+  let resolvedPath = ccPath;
+  try {
+    resolvedPath = realpathSync(ccPath);
+  } catch {
+    // Not a symlink, or link target missing — fall back to the original
+    // path so a regular file is still read correctly.
+    resolvedPath = ccPath;
+  }
+
+  let plaintext: string;
+  let mtime: Date;
+  try {
+    plaintext = readFileSync(resolvedPath, "utf-8");
+    mtime = statSync(resolvedPath).mtime;
+  } catch (err) {
+    log.debug({ ccPath, resolvedPath, error: err }, "active CC credentials read failed");
+    return null;
+  }
+
+  let fingerprint: string;
+  try {
+    fingerprint = computeCredentialFingerprint(plaintext);
+  } catch (err) {
+    if (err instanceof CredentialParseError) {
+      log.debug({ resolvedPath, error: err.message }, "active CC credentials unparseable");
+      return null;
+    }
+    throw err;
+  }
+
+  const enriched = extractEnrichedMetadata(plaintext);
+  const accountLabel = extractAccountLabel(plaintext) ?? "claude-code-active";
+  const name =
+    enriched.accountEmail ??
+    enriched.accountName ??
+    accountLabel ??
+    shortFingerprintName(fingerprint);
+  const lastSwap = swapTrackerLastSwapAt(fingerprint);
+  const expired = isExpired(plaintext);
+
+  return {
+    id: deriveStableId(fingerprint),
+    name,
+    fingerprint,
+    subscriptionType: enriched.subscriptionType,
+    rateLimitTier: enriched.rateLimitTier,
+    accountEmail: enriched.accountEmail,
+    accountName: enriched.accountName,
+    orgName: enriched.orgName,
+    status: expired ? "expired" : "active",
+    expiresAt: enriched.expiresAtIso,
+    rateLimit429Count: count24h(fingerprint),
+    lastSwapAt: lastSwap ? lastSwap.toISOString() : null,
+    isActive: !expired,
+    // Legacy fields kept for back-compat.
+    account: accountLabel,
+    created_at: mtime.toISOString(),
   };
 }
