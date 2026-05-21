@@ -142,7 +142,8 @@
           ],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "add-nexus-shared-framework",
@@ -157,7 +158,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "add-schema-drift-detector",
@@ -175,7 +177,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "add-socket-hook-helper",
@@ -193,7 +196,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "bump-session-idle-threshold",
@@ -212,7 +216,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "delete-http-hooks-endpoint",
@@ -230,7 +235,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "enforce-pino-script-errors",
@@ -249,7 +255,8 @@
           ],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "env-aware-install-script",
@@ -266,7 +273,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "migrate-cc-hooks-to-socket",
@@ -283,7 +291,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "remove-notification-channels",
@@ -301,7 +310,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "remove-peer-connector",
@@ -319,7 +329,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "remove-slack-channel",
@@ -337,7 +348,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "retire-web-dashboard-infra",
@@ -354,7 +366,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "scaffold-nexus-ios-target",
@@ -369,7 +382,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "scaffold-nexus-watch-target",
@@ -384,7 +398,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "swift-dashboard-feature-parity",
@@ -399,7 +414,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "swift-owns-elevenlabs-synth",
@@ -416,7 +432,8 @@
           ],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "xcodegen-initial-generate",
@@ -433,7 +450,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         }
       ]
     },
@@ -459,7 +477,8 @@
           ],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "collapse-credentials-dir",
@@ -476,7 +495,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "document-spine-architecture",
@@ -494,7 +514,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "drop-recognized-events-allowlist",
@@ -512,7 +533,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "remove-mac-deploy-artifacts",
@@ -533,7 +555,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         }
       ]
     },
@@ -560,7 +583,8 @@
           "ddl_tables": [],
           "feature": "",
           "epic": "",
-          "priority": null
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
         }
       ]
     }
@@ -1311,8 +1335,9 @@
   ],
   "runtime": {},
   "plan_id": "apply-2026-05-21-001",
-  "status": "in_progress",
+  "status": "completed",
   "decisions": [],
   "mode": "consolidated",
-  "current_phase": null
+  "current_phase": null,
+  "completed_at": "2026-05-21T13:31:03.689306"
 }

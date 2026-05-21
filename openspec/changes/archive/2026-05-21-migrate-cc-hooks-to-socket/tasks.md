@@ -100,7 +100,7 @@
   This task is marked done only in the meta-sense: the soak is tracked,
   not executed. The bd issue is the durable handle.
 
-- [ ] 1.6 On confidence: stop the cycle, hand off to P3.4 (delete-http-hooks-endpoint)
+- [ ] [deferred] 1.6 On confidence: stop the cycle, hand off to P3.4 (delete-http-hooks-endpoint)
 
   Blocked on **bd:nx-ebmrq** (soak) AND wave-5 spec
   `delete-http-hooks-endpoint` (already on disk under
