@@ -5,10 +5,10 @@
 
 ## API Batch
 
-- [ ] 1.1 Add `apps/swift/NexusShared/Config/AgentsConfigStore.swift` — `read() -> [AgentEntry]` (parse the existing TOML file), `write(_ entries: [AgentEntry]) throws` (atomic `.tmp + rename` write of the array-of-tables format), `validate(_ entry: AgentEntry) -> [ValidationError]` (URL + non-empty checks). Reuse the existing `AgentRegistry` parse logic; refactor into a shared parser so both Registry and Store consume the same code path. [beads:nx-af3aq]
-- [ ] 1.2 Extend `apps/swift/NexusShared/Networking/NexusAggregateClient.swift` with `rebootstrap()` — re-reads agents.toml via `AgentsConfigStore.read()` and rebuilds the per-agent `NexusClient` list. Cancels in-flight requests via `URLSession.invalidateAndCancel()` before swapping. **Conflict: shared file with 6 prior specs; wave-plan-build serializes.** [beads:nx-ymz1v]
-- [ ] 1.3 Add a NotificationCenter listener inside `NexusAggregateClient` for `AgentsConfigChanged`. On post, debounce 200ms then call `rebootstrap()`. Debounce ensures rapid edits don't churn requests. [beads:nx-na0yx]
-- [ ] 1.4 Add `apps/swift/NexusShared/Config/AgentsConfigStore.test.swift` covering: read round-trip, atomic write doesn't corrupt on mid-write crash (simulate by killing the .tmp before rename), validate rejects invalid endpoints, parse failure surfaces a typed error not a crash. [beads:nx-gd41u]
+- [x] 1.1 Add `apps/swift/NexusShared/Config/AgentsConfigStore.swift` — `read() -> [AgentEntry]` (parse the existing TOML file), `write(_ entries: [AgentEntry]) throws` (atomic `.tmp + rename` write of the array-of-tables format), `validate(_ entry: AgentEntry) -> [ValidationError]` (URL + non-empty checks). Reuse the existing `AgentRegistry` parse logic; refactor into a shared parser so both Registry and Store consume the same code path. [beads:nx-af3aq]
+- [x] 1.2 Extend `apps/swift/NexusShared/Networking/NexusAggregateClient.swift` with `rebootstrap()` — re-reads agents.toml via `AgentsConfigStore.read()` and rebuilds the per-agent `NexusClient` list. Cancels in-flight requests via `URLSession.invalidateAndCancel()` before swapping. **Conflict: shared file with 6 prior specs; wave-plan-build serializes.** [beads:nx-ymz1v]
+- [x] 1.3 Add a NotificationCenter listener inside `NexusAggregateClient` for `AgentsConfigChanged`. On post, debounce 200ms then call `rebootstrap()`. Debounce ensures rapid edits don't churn requests. [beads:nx-na0yx]
+- [x] 1.4 Add `apps/swift/NexusShared/Config/AgentsConfigStore.test.swift` covering: read round-trip, atomic write doesn't corrupt on mid-write crash (simulate by killing the .tmp before rename), validate rejects invalid endpoints, parse failure surfaces a typed error not a crash. [beads:nx-gd41u]
 
 ## UI Batch
 

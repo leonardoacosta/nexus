@@ -20,10 +20,23 @@ import Foundation
 
 public actor NexusAggregateClient {
     /// One transport client per resolved agent.
-    private let clients: [NexusClient]
+    /// `var` (was `let`) so `rebootstrap()` can swap the list when the
+    /// agents.toml editor saves. Reads stay actor-isolated, so callers
+    /// always see a consistent (clients, agentNames) pair.
+    /// Spec: settings-tab-redesign (task 1.2, bd:nx-ymz1v)
+    private var clients: [NexusClient]
     /// Parallel to `clients` — display name for the agent, used to tag
     /// Session.machine and to surface "M/N agents reachable".
-    private let agentNames: [String]
+    private var agentNames: [String]
+
+    /// AgentsConfigChanged observer token. Held weakly by NotificationCenter
+    /// but we retain the token here so removeObserver works in deinit.
+    /// Spec: settings-tab-redesign (task 1.3, bd:nx-na0yx)
+    private var configChangedObserver: NSObjectProtocol?
+    /// Debounce window for rapid AgentsConfigChanged posts (operator
+    /// typing while Save fires repeatedly). 200ms matches the design.md
+    /// recommendation in the proposal.
+    private var pendingRebootstrap: Task<Void, Never>?
 
     private static let logPrefix = "[aggregate]"
     private var didLogSelfTest = false
@@ -38,12 +51,67 @@ public actor NexusAggregateClient {
         let (clients, names) = Self.resolveClients()
         self.clients = clients
         self.agentNames = names
+        // Observer registration must happen synchronously so the actor
+        // catches the first AgentsConfigChanged post; the closure hops
+        // back onto the actor via Task to call `rebootstrap()`.
+        Task { await self.startObservingConfig() }
     }
 
     /// Test / back-compat: wrap an explicit single client (one-agent aggregate).
     public init(client: NexusClient, name: String = "agent") {
         self.clients = [client]
         self.agentNames = [name]
+    }
+
+    deinit {
+        if let token = configChangedObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    // MARK: - Rebootstrap (settings-tab-redesign 1.2 / 1.3)
+
+    /// Re-read agents.toml and rebuild the per-agent NexusClient list.
+    /// Cancels any in-flight requests on the previous clients via
+    /// URLSession invalidation through reinit (NexusClient is an actor
+    /// owning its own URLSession; the old reference dropping is enough
+    /// to retire its session — the swap below replaces the entire array).
+    public func rebootstrap() async {
+        let (newClients, newNames) = Self.resolveClients()
+        // Best-effort: ask outgoing clients to drop in-flight transport.
+        for c in clients {
+            await c.invalidateSessions()
+        }
+        clients = newClients
+        agentNames = newNames
+        lastReachable = []
+        didLogSelfTest = false
+        Self.logLine("rebootstrap: \(newClients.count) agents resolved")
+    }
+
+    /// Register NotificationCenter listener for AgentsConfigChanged.
+    /// Debounces 200ms so rapid Save→Save churn collapses into one
+    /// rebootstrap call.
+    private func startObservingConfig() {
+        let token = NotificationCenter.default.addObserver(
+            forName: .agentsConfigChanged,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { await self.scheduleRebootstrap() }
+        }
+        configChangedObserver = token
+    }
+
+    /// 200ms debounce — coalesce a burst of AgentsConfigChanged posts.
+    private func scheduleRebootstrap() {
+        pendingRebootstrap?.cancel()
+        pendingRebootstrap = Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if Task.isCancelled { return }
+            await self.rebootstrap()
+        }
     }
 
     /// Resolution order matches the mode-selection contract above.

@@ -676,6 +676,17 @@ public actor NexusClient {
         }
     }
 
+    // MARK: - Lifecycle
+
+    /// Drop in-flight transport before the owning aggregate replaces this
+    /// client (settings-tab-redesign / agents.toml rebootstrap, bd:nx-ymz1v).
+    /// Best-effort — invalidation cancels outstanding tasks; subsequent
+    /// callers on a retired client will see `NexusClientError.transport`.
+    public func invalidateSessions() {
+        session.invalidateAndCancel()
+        streamingSession.invalidateAndCancel()
+    }
+
     // MARK: - Helpers
 
     private func getJSON<T: Decodable>(url: URL) async throws -> T {
