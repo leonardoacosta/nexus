@@ -185,11 +185,11 @@ export function createRequestHandler(state: ServerState, db?: Db) {
   return function handleRequest(
     request: Request,
     server: import("bun").Server<WsData>,
-  ): Response | Promise<Response> | undefined {
+  ): Response | Promise<Response | undefined> | undefined {
     const url = new URL(request.url);
 
     // ── WebSocket upgrade routes ──────────────────────────────────────────
-    const wsResult = handleWsUpgrade(state, request, url, server);
+    const wsResult = handleWsUpgrade(state, request, url, server, db);
     // null  → URL didn't match any WS route; continue to HTTP dispatch
     // undefined → upgrade succeeded (Bun convention: return undefined)
     // Response → auth failure, connection limit, bad request, etc.

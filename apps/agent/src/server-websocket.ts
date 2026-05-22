@@ -19,9 +19,12 @@
  */
 
 import type { ServerWebSocket } from "bun";
+import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
 import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
+import { getSessionById } from "./db/sessions";
+import { TmuxPtySource, isValidTmuxTarget } from "./terminal/tmux-pty-source";
 
 // ── WebSocket keepalive constants ───────────────────────────────────────────
 const PING_INTERVAL_MS = 30_000;
@@ -101,6 +104,62 @@ export class ServerState {
 }
 
 /**
+ * Try to lazy-attach a tmux-backed PtySource for a session row discovered by
+ * the process-watcher. Returns true when a PTY is now registered against the
+ * given sessionId (either pre-existing or freshly attached), false otherwise.
+ *
+ * The process-watcher inserts session rows with `tmux_session` and
+ * `tmux_target` populated but never calls `streamManager.attach(...)`. Without
+ * this lazy path, every WS upgrade for a discovered session returns 404 —
+ * the bug tracked as `nx-omso0`. We resolve the tmux target on-demand the
+ * first time a viewer connects and register a TmuxPtySource so subsequent
+ * viewers (and reconnects) skip straight to the fast path.
+ */
+async function ensurePtyForSession(
+  state: ServerState,
+  sessionId: string,
+  db: Db | undefined,
+): Promise<boolean> {
+  if (state.streamManager.getPty(sessionId)) return true;
+  if (!db) return false;
+  let row: Awaited<ReturnType<typeof getSessionById>> = null;
+  try {
+    row = await getSessionById(db, sessionId);
+  } catch (err) {
+    logger.warn(
+      { sessionId, error: err instanceof Error ? err.message : String(err) },
+      "lazy-attach: getSessionById threw",
+    );
+    return false;
+  }
+  if (!row) return false;
+  const target = row.tmuxTarget;
+  if (!target || target.trim() === "") return false;
+  if (!isValidTmuxTarget(target)) {
+    logger.warn({ sessionId, tmuxTarget: target }, "lazy-attach: rejected unsafe tmux target");
+    return false;
+  }
+  // Re-check under the implicit "no concurrent attach" assumption — if a
+  // sibling viewer raced to attach() between our getPty() and DB read,
+  // streamManager.attach() is a no-op (it returns early when the sessionId
+  // is already present). The cost is one wasted TmuxPtySource construction
+  // in the race window, which is bounded by a single tmux capture-pane.
+  if (state.streamManager.getPty(sessionId)) return true;
+  try {
+    const pty = new TmuxPtySource(target);
+    state.streamManager.attach(sessionId, pty);
+    logger.info({ sessionId, tmuxTarget: target }, "lazy-attached tmux PtySource");
+    return true;
+  } catch (err) {
+    logger.warn(
+      { sessionId, tmuxTarget: target, error: err instanceof Error ? err.message : String(err) },
+      "lazy-attach: TmuxPtySource construction threw",
+    );
+    return false;
+  }
+}
+
+/**
  * Handle WebSocket upgrade requests for /sessions/:id/stream and
  * /sessions/:id/interact.
  *
@@ -108,70 +167,101 @@ export class ServerState {
  * Returns `undefined` when the upgrade succeeds (Bun convention).
  * Returns `null` when the URL does not match any WebSocket route (caller
  * should continue to HTTP dispatch).
+ *
+ * When `db` is provided AND no PTY is registered for the session yet, the
+ * handler will look the session up in the `sessions` table and lazy-attach
+ * a `TmuxPtySource` if the row has a populated `tmux_target`. This is the
+ * fix for nx-omso0 — without it every viewer click on a process-watcher-
+ * discovered session hits 404.
  */
 export function handleWsUpgrade(
   state: ServerState,
   request: Request,
   url: URL,
   server: import("bun").Server<WsData>,
-): Response | undefined | null {
+  db?: Db,
+): Response | Promise<Response | undefined> | undefined | null {
   // ── /sessions/:id/stream ────────────────────────────────────────────────
   const streamMatch = url.pathname.match(WS_STREAM_RE);
   if (streamMatch) {
     const sessionId = streamMatch[1]!;
-    // Validate session ID against safe pattern
     if (!SESSION_ID_RE.test(sessionId)) {
       return new Response("Bad Request", { status: 400 });
     }
-    // Enforce connection limit
     if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
       return new Response("Too Many Requests", { status: 429 });
     }
-    if (!state.streamManager.getPty(sessionId)) {
-      // No PTY attached — session doesn't exist or isn't streamable
-      return new Response(JSON.stringify({ error: "session not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    const upgraded = server.upgrade(request, {
-      data: { sessionId, mode: "stream" },
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    return undefined;
+    return finalizeWsUpgrade(state, request, server, db, sessionId, "stream");
   }
 
   // ── /sessions/:id/interact ──────────────────────────────────────────────
   const interactMatch = url.pathname.match(WS_INTERACT_RE);
   if (interactMatch) {
     const sessionId = interactMatch[1]!;
-    // Validate session ID against safe pattern
     if (!SESSION_ID_RE.test(sessionId)) {
       return new Response("Bad Request", { status: 400 });
     }
-    // Enforce connection limit
     if (state.allSockets.size >= MAX_CONCURRENT_CONNECTIONS) {
       return new Response("Too Many Requests", { status: 429 });
     }
-    if (!state.streamManager.getPty(sessionId)) {
+    return finalizeWsUpgrade(state, request, server, db, sessionId, "interact");
+  }
+
+  // URL did not match any WebSocket route
+  return null;
+}
+
+/**
+ * Shared finalisation path for both stream and interact upgrades. Returns a
+ * Promise when a DB lookup is required to lazy-attach a tmux PtySource;
+ * otherwise returns the synchronous Response/undefined the caller expects.
+ *
+ * NOTE: `server.upgrade(req, opts)` MUST be invoked while the original
+ * `Request` is still in scope. Bun's fetch handler supports returning a
+ * `Promise<Response | undefined>`, so awaiting a DB lookup here is safe.
+ */
+function finalizeWsUpgrade(
+  state: ServerState,
+  request: Request,
+  server: import("bun").Server<WsData>,
+  db: Db | undefined,
+  sessionId: string,
+  mode: "stream" | "interact",
+): Response | Promise<Response | undefined> | undefined {
+  // Fast path: PTY already attached.
+  if (state.streamManager.getPty(sessionId)) {
+    return performUpgrade(server, request, sessionId, mode);
+  }
+  // No PTY yet — attempt lazy attach if db is available, otherwise 404.
+  if (!db) {
+    return new Response(JSON.stringify({ error: "session not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return (async (): Promise<Response | undefined> => {
+    const ok = await ensurePtyForSession(state, sessionId, db);
+    if (!ok) {
       return new Response(JSON.stringify({ error: "session not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
     }
-    const upgraded = server.upgrade(request, {
-      data: { sessionId, mode: "interact" },
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    return undefined;
-  }
+    return performUpgrade(server, request, sessionId, mode);
+  })();
+}
 
-  // URL did not match any WebSocket route
-  return null;
+function performUpgrade(
+  server: import("bun").Server<WsData>,
+  request: Request,
+  sessionId: string,
+  mode: "stream" | "interact",
+): Response | undefined {
+  const upgraded = server.upgrade(request, { data: { sessionId, mode } });
+  if (!upgraded) {
+    return new Response("WebSocket upgrade failed", { status: 500 });
+  }
+  return undefined;
 }
 
 /**

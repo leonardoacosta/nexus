@@ -114,11 +114,11 @@ async function dispatch(
   request: Request,
 ): Promise<Response> {
   const handler = createRequestHandler(ServerState.create(), db);
-  const result = handler(request, fakeServer);
+  const result = await handler(request, fakeServer);
   if (result === undefined) {
     throw new Error("dispatcher returned undefined (WS upgrade path?)");
   }
-  return Promise.resolve(result);
+  return result;
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────
