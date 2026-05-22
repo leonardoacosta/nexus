@@ -12,6 +12,7 @@
 // Wired into `nexusApp.swift` as a `WindowGroup("Nexus Dashboard")` scene
 // alongside the existing `MenuBarExtra` + `Settings` scenes.
 
+import AppKit
 import SwiftUI
 import NexusShared
 
@@ -108,6 +109,16 @@ struct AppNavigation: View {
         }
         .navigationTitle("Nexus")
         .environmentObject(coordinator)
+        // Bridge to the underlying NSWindow so we can (a) opt the
+        // dashboard `Window` into native green-button fullscreen via
+        // `.fullScreenPrimary`, and (b) claim foreground focus on
+        // launch — SwiftUI `Window` does not auto-activate the app
+        // even with LSUIElement=false. Spec: bd:nx-chztj (nx-2pmzs
+        // follow-up).
+        .background(WindowAccessor { window in
+            window.collectionBehavior.insert(.fullScreenPrimary)
+            NSApp.activate(ignoringOtherApps: true)
+        })
         .task {
             observer.startStreams()
             await observer.refreshSessions()
