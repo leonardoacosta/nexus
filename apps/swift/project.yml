@@ -82,8 +82,10 @@ targets:
   # Sources span two trees:
   #   nexus/nexus/           — pre-XcodeGen menu bar app (views, AppDelegate)
   #   nexus-mac/Sources/     — new files shipped by P4.5+P4.6 (AudioPlayer,
-  #                            ElevenLabsSettingsView) that depend on
+  #                            Settings/SettingsXxxView) that depend on
   #                            NexusShared.ElevenLabsClient + Keychain.
+  #                            (ElevenLabsSettingsView was absorbed into
+  #                            SettingsTtsView by settings-tab-redesign.)
   nexus-mac:
     type: application
     platform: macOS

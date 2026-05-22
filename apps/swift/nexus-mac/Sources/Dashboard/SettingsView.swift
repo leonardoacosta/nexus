@@ -1,256 +1,92 @@
-// SettingsView — macOS dashboard parity for apps/nextjs/src/app/settings.
+// SettingsView — NavigationSplitView shell for the redesigned Settings tab.
 //
-// Spec: openspec/changes/swift-dashboard-feature-parity (task 1.8)
-// bd:nx-gaquu
+// Spec: openspec/changes/settings-tab-redesign (task 2.1, bd:nx-5il4b)
 //
-// Aggregator scene combining four panes:
-//   1. TTS (ElevenLabs voice, ducking, signal-only)
-//   2. Keychain viewer (read-only — counts entries by service)
-//   3. Agent connection (URL, port, last sync)
-//   4. Dashboard preferences (refresh interval, default view)
-//
-// All non-secret values persist via SettingsStore (UserDefaults); the
-// ElevenLabs API key is owned by Keychain.swift and is never displayed.
+// Sidebar lists five categories; detail pane swaps in one of five dedicated
+// SettingsXxxView files. Selection persists via @AppStorage so the user
+// returns to the same pane on relaunch. The previous flat-Form layout is
+// removed — every code path into Settings lands here.
 
 import SwiftUI
 import NexusShared
 
-struct SettingsView: View {
-    @StateObject private var model = SettingsViewModel()
+/// Five categories surfaced in the sidebar. Raw values double as the
+/// @AppStorage payload (`tts`/`notifications`/.../`diagnostics`).
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case tts
+    case notifications
+    case agents
+    case dashboard
+    case diagnostics
 
-    var body: some View {
-        Form {
-            ttsSection
-            keychainSection
-            agentSection
-            dashboardSection
-            if let status = model.statusMessage {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(model.statusIsError ? .red : .green)
-            }
-        }
-        .padding(20)
-        .task {
-            await model.refreshAgentStatus()
-        }
-    }
+    var id: String { rawValue }
 
-    private var ttsSection: some View {
-        Section("TTS") {
-            HStack {
-                Text("ElevenLabs voice ID")
-                Spacer()
-                Text(model.maskedVoiceId)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            Picker("Ducking", selection: $model.ducking) {
-                Text("Mix").tag(DuckingMode.mix)
-                Text("Duck").tag(DuckingMode.duck)
-                Text("Pause others").tag(DuckingMode.pause)
-            }
-            .onChange(of: model.ducking) { _, _ in model.persistTts() }
-            Toggle("Signal-only mode (no spoken body)", isOn: $model.signalOnly)
-                .onChange(of: model.signalOnly) { _, _ in model.persistTts() }
-            Toggle("TTS enabled", isOn: $model.ttsEnabled)
-                .onChange(of: model.ttsEnabled) { _, _ in model.persistTts() }
+    var label: String {
+        switch self {
+        case .tts:           return "TTS & Audio"
+        case .notifications: return "Notifications"
+        case .agents:        return "Agents"
+        case .dashboard:     return "Dashboard"
+        case .diagnostics:   return "Diagnostics"
         }
     }
 
-    private var keychainSection: some View {
-        Section("Keychain") {
-            HStack {
-                Image(systemName: model.elevenLabsKeyConfigured ? "checkmark.seal.fill" : "xmark.seal")
-                    .foregroundStyle(model.elevenLabsKeyConfigured ? .green : .secondary)
-                Text("ElevenLabs API key")
-                Spacer()
-                Text(model.elevenLabsKeyConfigured ? "configured" : "missing")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            HStack {
-                Image(systemName: model.elevenLabsVoiceConfigured ? "checkmark.seal.fill" : "xmark.seal")
-                    .foregroundStyle(model.elevenLabsVoiceConfigured ? .green : .secondary)
-                Text("ElevenLabs voice ID")
-                Spacer()
-                Text(model.elevenLabsVoiceConfigured ? "configured" : "missing")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            Text("Manage Keychain entries via the legacy Preferences → TTS pane.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var agentSection: some View {
-        Section("Agent connection") {
-            HStack {
-                Text("URL")
-                Spacer()
-                TextField("http://localhost:7400", text: $model.agentUrl)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 260)
-            }
-            HStack {
-                Circle()
-                    .fill(model.agentReachable ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(model.agentReachable ? "reachable" : "unreachable")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if let synced = model.lastSync {
-                    Text("synced \(synced, style: .relative) ago")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                Button("Test") {
-                    Task { await model.refreshAgentStatus() }
-                }
-                .buttonStyle(.borderless)
-            }
-            HStack {
-                Spacer()
-                Button("Save URL") {
-                    model.persistAgentUrl()
-                }
-                .disabled(model.agentUrl.isEmpty)
-            }
-        }
-    }
-
-    private var dashboardSection: some View {
-        Section("Dashboard") {
-            HStack {
-                Text("Refresh interval")
-                Spacer()
-                Stepper("\(model.refreshIntervalSeconds)s",
-                        value: $model.refreshIntervalSeconds,
-                        in: 5...300,
-                        step: 5)
-                    .onChange(of: model.refreshIntervalSeconds) { _, _ in model.persistDashboard() }
-            }
-            Picker("Default view", selection: $model.defaultView) {
-                Text("Sessions").tag("sessions")
-                Text("Projects").tag("projects")
-                Text("Specs").tag("specs")
-                Text("Health").tag("health")
-                Text("Notifications").tag("notifications")
-            }
-            .onChange(of: model.defaultView) { _, _ in model.persistDashboard() }
+    /// SF Symbol per the proposal §2.1.
+    var symbol: String {
+        switch self {
+        case .tts:           return "speaker.wave.2"
+        case .notifications: return "bell.badge"
+        case .agents:        return "network"
+        case .dashboard:     return "slider.horizontal.3"
+        case .diagnostics:   return "waveform.path.ecg"
         }
     }
 }
 
+/// Thin router model — owns the sidebar selection only. Each category view
+/// owns its own @StateObject; this view-model intentionally carries nothing
+/// else (split from the legacy SettingsViewModel per task 2.10, bd:nx-8ltyr).
 @MainActor
-final class SettingsViewModel: ObservableObject {
-    // TTS
-    @Published var ducking: DuckingMode = .mix
-    @Published var signalOnly: Bool = false
-    @Published var ttsEnabled: Bool = true
+final class SettingsRouterViewModel: ObservableObject {
+    /// Backed by @AppStorage at the View layer — duplicated here as a
+    /// fallback for callers that need an in-process source-of-truth without
+    /// touching SwiftUI APIs (e.g. tests).
+    @Published var selection: SettingsCategory = .tts
+}
 
-    // Keychain (read-only flags)
-    @Published private(set) var elevenLabsKeyConfigured: Bool = false
-    @Published private(set) var elevenLabsVoiceConfigured: Bool = false
+struct SettingsView: View {
+    @AppStorage("settings.sidebar.selection")
+    private var selectionRaw: String = SettingsCategory.tts.rawValue
 
-    // Agent
-    @Published var agentUrl: String = "http://localhost:7400"
-    @Published private(set) var agentReachable: Bool = false
-    @Published private(set) var lastSync: Date?
-
-    // Dashboard
-    @Published var refreshIntervalSeconds: Int = 30
-    @Published var defaultView: String = "sessions"
-
-    // Status
-    @Published private(set) var statusMessage: String?
-    @Published private(set) var statusIsError: Bool = false
-
-    private let store: SettingsStore = .shared
-
-    private enum Keys {
-        static let ducking          = "elevenlabs.ducking"
-        static let signalOnly       = "nx.notifications.signalOnly"
-        static let agentUrl         = "nx.agent.baseUrl"
-        static let refreshInterval  = "nx.dashboard.refreshSeconds"
-        static let defaultView      = "nx.dashboard.defaultView"
+    private var selection: Binding<SettingsCategory> {
+        Binding(
+            get: { SettingsCategory(rawValue: selectionRaw) ?? .tts },
+            set: { selectionRaw = $0.rawValue }
+        )
     }
 
-    var maskedVoiceId: String {
-        let raw = (try? Keychain.get(KeychainAccount.elevenLabsVoiceId)) ?? ""
-        guard !raw.isEmpty else { return "—" }
-        if raw.count <= 6 { return raw }
-        return String(raw.prefix(4)) + "…" + String(raw.suffix(2))
-    }
-
-    init() {
-        let defaults = UserDefaults.standard
-
-        if let raw = defaults.string(forKey: Keys.ducking),
-           let mode = DuckingMode(rawValue: raw) {
-            ducking = mode
-        }
-        signalOnly = defaults.bool(forKey: Keys.signalOnly)
-        ttsEnabled = store.ttsEnabled
-        agentUrl = defaults.string(forKey: Keys.agentUrl) ?? "http://localhost:7400"
-        let stored = defaults.integer(forKey: Keys.refreshInterval)
-        refreshIntervalSeconds = stored > 0 ? stored : 30
-        defaultView = defaults.string(forKey: Keys.defaultView) ?? "sessions"
-
-        elevenLabsKeyConfigured = (try? Keychain.get(KeychainAccount.elevenLabsApiKey)) != nil
-        elevenLabsVoiceConfigured = (try? Keychain.get(KeychainAccount.elevenLabsVoiceId)) != nil
-    }
-
-    func persistTts() {
-        let defaults = UserDefaults.standard
-        defaults.set(ducking.rawValue, forKey: Keys.ducking)
-        defaults.set(signalOnly, forKey: Keys.signalOnly)
-        store.ttsEnabled = ttsEnabled
-        flash("TTS settings saved")
-    }
-
-    func persistDashboard() {
-        let defaults = UserDefaults.standard
-        defaults.set(refreshIntervalSeconds, forKey: Keys.refreshInterval)
-        defaults.set(defaultView, forKey: Keys.defaultView)
-        flash("Dashboard preferences saved")
-    }
-
-    func persistAgentUrl() {
-        UserDefaults.standard.set(agentUrl, forKey: Keys.agentUrl)
-        flash("Agent URL saved — restart to apply")
-        Task { await refreshAgentStatus() }
-    }
-
-    func refreshAgentStatus() async {
-        guard let url = URL(string: agentUrl)?.appendingPathComponent("health/history") else {
-            agentReachable = false
-            return
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.timeoutInterval = 3
-        do {
-            let (_, response) = try await URLSession.shared.data(for: req)
-            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
-                agentReachable = true
-                lastSync = Date()
-            } else {
-                agentReachable = false
+    var body: some View {
+        NavigationSplitView {
+            List(SettingsCategory.allCases, selection: selection) { category in
+                Label(category.label, systemImage: category.symbol)
+                    .tag(category)
             }
-        } catch {
-            agentReachable = false
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationTitle("Settings")
+        } detail: {
+            detailPane(for: selection.wrappedValue)
+                .frame(minWidth: 480, idealWidth: 560, minHeight: 360)
         }
     }
 
-    private func flash(_ msg: String) {
-        statusMessage = msg
-        statusIsError = false
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_800_000_000)
-            statusMessage = nil
+    @ViewBuilder
+    private func detailPane(for category: SettingsCategory) -> some View {
+        switch category {
+        case .tts:           SettingsTtsView()
+        case .notifications: SettingsNotificationsView()
+        case .agents:        SettingsAgentsView()
+        case .dashboard:     SettingsDashboardView()
+        case .diagnostics:   SettingsDiagnosticsView()
         }
     }
 }

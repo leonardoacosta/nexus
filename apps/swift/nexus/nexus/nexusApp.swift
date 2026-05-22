@@ -62,6 +62,12 @@ struct nexusApp: App {
             SettingsStore.shared.dashboardEndpoint = "http://100.73.182.4:7400"
         }
 
+        // settings-tab-redesign task 2.11 (bd:nx-s76uz):
+        // Observational migration check — log warn when an expected
+        // @AppStorage / Keychain key is absent post-redesign. NO mutation;
+        // a regression should surface as a log line, not a settings reset.
+        Self.runSettingsKeyMigrationCheck()
+
         // Mount the activation handler BEFORE requesting authorisation
         // so a queued banner-click activation that arrives during the
         // authorisation prompt still routes through our logPath handler.
@@ -151,6 +157,52 @@ struct nexusApp: App {
                 .environmentObject(viewModel)
         }
         .uiTestLaunchBehavior(presentAtLaunch: uiTestOpensDashboard)
+    }
+}
+
+private extension nexusApp {
+    /// Settings persistence-key migration audit (task 2.11). Enumerates
+    /// every @AppStorage / Keychain key the redesigned Settings pane
+    /// expects to read; emits `warning` (NOT mutation) for each absent
+    /// key so a silent regression surfaces in the launch trace.
+    static func runSettingsKeyMigrationCheck() {
+        let defaults = UserDefaults.standard
+
+        // Keys that MAY legitimately be unset on a fresh install — track
+        // them anyway so the log captures the post-redesign baseline.
+        let expectedDefaults: [String] = [
+            "elevenlabs.ducking",              // SettingsTtsView
+            "nx.notifications.signalOnly",     // SettingsTtsView / NotificationsView
+            "nx.tts.enabled",                  // SettingsStore.ttsEnabled
+            "nx.notifications.bannerEnabled",  // SettingsTtsView + SettingsNotificationsView
+            "notifications.sort",              // SettingsNotificationsView
+            "notifications.group",             // SettingsNotificationsView
+            "notifications.replay.autoplay",   // SettingsNotificationsView (new)
+            "nx.dashboard.refreshSeconds",     // SettingsDashboardView
+            "nx.dashboard.defaultView",        // SettingsDashboardView
+            "nx.dashboard.theme",              // SettingsDashboardView (new)
+            "nx.dashboard.accentHex",          // SettingsDashboardView (new)
+            "nx.dashboard.fontScale",          // SettingsDashboardView (new)
+            "settings.sidebar.selection"       // SettingsView shell
+        ]
+        for key in expectedDefaults {
+            if defaults.object(forKey: key) == nil {
+                appLogger.warning(
+                    "settings-migration: expected default key '\(key, privacy: .public)' not present"
+                )
+            }
+        }
+        let expectedKeychain = [
+            KeychainAccount.elevenLabsApiKey,
+            KeychainAccount.elevenLabsVoiceId
+        ]
+        for account in expectedKeychain {
+            if (try? Keychain.get(account)) == nil {
+                appLogger.warning(
+                    "settings-migration: expected Keychain account '\(account, privacy: .public)' not present"
+                )
+            }
+        }
     }
 }
 
