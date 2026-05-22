@@ -11,7 +11,7 @@
  */
 
 import { createLogger } from "@nexus/core/node";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import {
@@ -206,9 +206,16 @@ export async function handleGetSpec(
     );
   }
 
+  // specs-tab-start-on-spec task 2.7: stitch the proposal.md frontmatter
+  // alongside the openspec CLI output so the Swift dashboard can render a
+  // read-only metadata pane (approved-by, approved-at, capability, etc.)
+  // without a follow-up fetch. Missing/unreadable frontmatter -> `{}`. Keys
+  // are preserved verbatim (no case normalisation).
+  const frontmatter = readProposalFrontmatter(proj.path, name);
+
   try {
     const spec = JSON.parse(result.stdout);
-    return new Response(JSON.stringify({ ...spec, project }), {
+    return new Response(JSON.stringify({ ...spec, project, frontmatter }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -218,6 +225,98 @@ export async function handleGetSpec(
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
+}
+
+/**
+ * Parse the flat YAML frontmatter at the top of `proposal.md` into a string
+ * map. Missing file / no fence / malformed block → `{}`. Values are read
+ * verbatim, trimmed; quoted values are unwrapped (single or double).
+ *
+ * This is the read counterpart to `spliceFrontmatter` in
+ * `routes/specs/handlers-status.ts`. Kept intentionally flat (no nested
+ * keys, no list values) — the proposal contract is flat-only.
+ */
+function readProposalFrontmatter(
+  projectPath: string,
+  specName: string,
+): Record<string, string> {
+  // Try live first, then archive (mirrors resolveSpecDir's order).
+  const livePath = join(projectPath, "openspec", "changes", specName, "proposal.md");
+  let source: string | null = null;
+  if (existsSync(livePath)) {
+    try {
+      source = readFileSync(livePath, "utf8");
+    } catch {
+      /* fall through */
+    }
+  }
+  if (source === null) {
+    // Archive scan (best-effort; no error on miss).
+    const archiveRoot = join(projectPath, "openspec", "changes", "archive");
+    if (existsSync(archiveRoot)) {
+      try {
+        const suffix = `-${specName}`;
+        for (const entry of readdirSync(archiveRoot)) {
+          if (entry === specName || entry.endsWith(suffix)) {
+            const candidate = join(archiveRoot, entry, "proposal.md");
+            if (existsSync(candidate)) {
+              try {
+                source = readFileSync(candidate, "utf8");
+                break;
+              } catch {
+                /* keep searching */
+              }
+            }
+          }
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  if (source === null) return {};
+
+  const FENCE = "---";
+  const lines = source.split("\n");
+
+  // First non-empty line MUST be `---` to count as frontmatter.
+  let firstIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trim().length === 0) continue;
+    if (line.trim() === FENCE) firstIdx = i;
+    break;
+  }
+  if (firstIdx === -1) return {};
+
+  // Closing fence.
+  let endIdx = -1;
+  for (let i = firstIdx + 1; i < lines.length; i++) {
+    if ((lines[i] ?? "").trim() === FENCE) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) return {};
+
+  const out: Record<string, string> = {};
+  for (let i = firstIdx + 1; i < endIdx; i++) {
+    const line = lines[i] ?? "";
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    if (!key) continue;
+    let value = line.slice(colonIdx + 1).trim();
+    // Unwrap single/double-quoted values.
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

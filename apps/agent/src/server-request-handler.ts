@@ -154,6 +154,9 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/project/:code/run" },
   // Spec content (dashboard-ui-pass-v1)
   { method: "GET", path: "/specs/:project/:name/:file" },
+  // specs-tab-start-on-spec — sessions linkage + status PATCH.
+  { method: "GET", path: "/specs/:project/:name/sessions" },
+  { method: "PATCH", path: "/specs/:project/:name/status" },
   // Events
   { method: "GET", path: "/events" },
   { method: "GET", path: "/events/stream" },
@@ -556,7 +559,10 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // ── Routes that do not require a DB connection ────────────────────────
 
     // ── Spec routes (delegated) ───────────────────────────────────────────
-    const specResult = tryHandleSpecRoute(request, url);
+    // db is forwarded so the specs-tab-start-on-spec additions
+    // (`GET /specs/.../sessions`, `PATCH /specs/.../status`) can join
+    // against the live registry; legacy read-only routes ignore it.
+    const specResult = tryHandleSpecRoute(request, url, db);
     if (specResult !== null) return specResult;
 
     // ── Command routes (delegated) ────────────────────────────────────────

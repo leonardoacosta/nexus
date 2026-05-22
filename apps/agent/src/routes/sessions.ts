@@ -13,6 +13,7 @@ import { execText, ExecError } from "../utils/exec";
 import { reconcileOnce } from "../services/process-watcher";
 import { resolveGitOrigin } from "../services/git-project";
 import { resolveProject } from "../services/git-project-resolver";
+import { linkSpecToSession } from "../services/session-spec-link";
 
 const log = createLogger("agent:routes:sessions");
 
@@ -242,9 +243,13 @@ export async function handleSessionStart(
   request: Request,
   db?: Db,
 ): Promise<Response> {
-  let body: { project: string; path: string };
+  let body: { project: string; path: string; spec_slug?: string };
   try {
-    body = (await request.json()) as { project: string; path: string };
+    body = (await request.json()) as {
+      project: string;
+      path: string;
+      spec_slug?: string;
+    };
   } catch {
     return new Response(
       JSON.stringify({ error: "invalid JSON body" }),
@@ -410,12 +415,50 @@ export async function handleSessionStart(
     }
   }
 
+  // ── 7. Optional spec linkage (specs-tab-start-on-spec, task 2.2) ────────
+  //
+  // When the caller passes `spec_slug`, insert a `spec_sessions` row so the
+  // Swift dashboard can later render a per-row session-count chip on the
+  // Specs tab. Failure to link MUST NOT roll back the spawn — the tmux
+  // window is already live and useful. We pino-warn and surface a
+  // `spec_linked: false` + `spec_link_error: "..."` on the response so the
+  // caller can show a "session started, linkage skipped" toast.
+  let specLinked: boolean | undefined;
+  let specLinkError: string | undefined;
+  if (db && body.spec_slug) {
+    try {
+      const result = await linkSpecToSession({
+        db,
+        project: body.project,
+        specSlug: body.spec_slug,
+        sessionId: sessionName,
+      });
+      specLinked = result.linked;
+      if (!result.linked) {
+        specLinkError = result.error ?? "unknown";
+      }
+    } catch (err) {
+      log.warn(
+        {
+          sessionName,
+          spec_slug: body.spec_slug,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "spec link unexpected throw (degraded gracefully)",
+      );
+      specLinked = false;
+      specLinkError = "internal error";
+    }
+  }
+
   return new Response(
     JSON.stringify({
       session_name: sessionName,
       started: true,
       ...(pid !== null ? { pid } : {}),
       session_id: sessionName,
+      ...(specLinked !== undefined ? { spec_linked: specLinked } : {}),
+      ...(specLinkError !== undefined ? { spec_link_error: specLinkError } : {}),
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );

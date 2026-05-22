@@ -6,6 +6,7 @@
  */
 
 import { logger } from "@nexus/core/node";
+import type { Db } from "@nexus/db";
 import {
   handleGetSpecsAll,
   handleListSpecs,
@@ -17,6 +18,8 @@ import {
   handleSpecStatus,
 } from "./routes/specs";
 import { handleSpecEventsStream } from "./routes/specs-events";
+import { handleListSpecSessions } from "./routes/specs/handlers-sessions";
+import { handlePatchSpecStatus } from "./routes/specs/handlers-status";
 import {
   handleListCommands,
   handleListCommandsByNamespace,
@@ -29,10 +32,17 @@ import { withCors } from "./server-origin";
  * Try to match and handle a spec route.
  *
  * Returns a Response (or Promise<Response>) when the URL matches, else null.
+ *
+ * `db` is optional: spec routes added by specs-tab-start-on-spec (the
+ * `sessions` listing and the `status` PATCH) require it; older read-only
+ * routes work without. When `db` is undefined those new routes fall
+ * through to null so the dispatcher's 404 path takes over (matches the
+ * legacy "no DB → no DB-dependent surface" contract).
  */
 export function tryHandleSpecRoute(
   request: Request,
   url: URL,
+  db?: Db,
 ): Response | Promise<Response> | null {
   if (url.pathname === "/specs/all" && request.method === "GET") {
     return handleGetSpecsAll().then((r) => withCors(request, r)).catch((err) => {
@@ -91,6 +101,33 @@ export function tryHandleSpecRoute(
       logger.error({ route: "/specs/:project/:name/status", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
+  }
+
+  // PATCH /specs/:project/:name/status — flip frontmatter status atomically.
+  // Registered BEFORE the `/specs/:project/:name/:file` catch-all so the
+  // literal `status` segment isn't classified as a markdown filename. The
+  // archived-spec short-circuit (409) lives inside the handler — see
+  // handlers-status.ts § 409 short-circuit. specs-tab-start-on-spec § 2.6.
+  if (specStatusMatch && request.method === "PATCH" && db) {
+    return handlePatchSpecStatus(specStatusMatch[1]!, specStatusMatch[2]!, request)
+      .then((r) => withCors(request, r))
+      .catch((err) => {
+        logger.error({ route: "/specs/:project/:name/status", method: "PATCH", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+  }
+
+  // GET /specs/:project/:name/sessions — historical + live linked sessions.
+  // Registered BEFORE the catch-all so the literal `sessions` segment isn't
+  // mistaken for a markdown file. specs-tab-start-on-spec § 2.4.
+  const specSessionsMatch = url.pathname.match(/^\/specs\/([^/]+)\/([^/]+)\/sessions$/);
+  if (specSessionsMatch && request.method === "GET" && db) {
+    return handleListSpecSessions(db, specSessionsMatch[1]!, specSessionsMatch[2]!)
+      .then((r) => withCors(request, r))
+      .catch((err) => {
+        logger.error({ route: "/specs/:project/:name/sessions", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
   }
 
   // GET /specs/:project/:name/:file — raw markdown content (proposal/design/tasks).

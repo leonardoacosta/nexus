@@ -74,9 +74,21 @@ export interface StatusChangedPayload {
 export interface SpecTransitionPayload {
   project: string;
   specName: string;
-  transition: "new_spec" | "removed" | "progress" | "all_complete" | "hash_changed";
+  transition:
+    | "new_spec"
+    | "removed"
+    | "progress"
+    | "all_complete"
+    | "hash_changed"
+    // `status_change` — frontmatter status flipped via PATCH /specs/.../status
+    // (specs-tab-start-on-spec). `toStatus` is the new value the file now
+    // carries on disk; subscribers (SpecsView) reconcile their row pill
+    // optimistically.
+    | "status_change";
   completed?: number;
   total?: number;
+  /** Present only when `transition === "status_change"`. */
+  toStatus?: "draft" | "approved";
 }
 
 export interface CredentialSwapPayload {

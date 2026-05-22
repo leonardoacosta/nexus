@@ -22,7 +22,11 @@ export type SpecTransitionKind =
   | "new"
   | "progress"
   | "complete"
-  | "archived";
+  | "archived"
+  // `status_change` — frontmatter status flipped via PATCH /specs/.../status
+  // (specs-tab-start-on-spec). Carries the post-flip status so the
+  // dashboard can reconcile its row pill without a refetch.
+  | "status_change";
 
 export interface SpecTransitionEventBase {
   /** Project code (e.g. `nx`, `oo`). */
@@ -49,11 +53,18 @@ export interface SpecTransitionArchivedEvent extends SpecTransitionEventBase {
   kind: "archived";
 }
 
+export interface SpecTransitionStatusChangeEvent
+  extends SpecTransitionEventBase {
+  kind: "status_change";
+  to: "draft" | "approved";
+}
+
 export type SpecTransitionEvent =
   | SpecTransitionNewEvent
   | SpecTransitionProgressEvent
   | SpecTransitionCompleteEvent
-  | SpecTransitionArchivedEvent;
+  | SpecTransitionArchivedEvent
+  | SpecTransitionStatusChangeEvent;
 
 // ---------------------------------------------------------------------------
 // SSE wire framing
@@ -94,6 +105,12 @@ export const specEventsFrameSchema = z.object({
         kind: z.literal("archived"),
         project: z.string(),
         spec: z.string(),
+      }),
+      z.object({
+        kind: z.literal("status_change"),
+        project: z.string(),
+        spec: z.string(),
+        to: z.enum(["draft", "approved"]),
       }),
     ]),
   ),

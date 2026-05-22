@@ -56,6 +56,17 @@ function payloadToEvent(
       };
     case "all_complete":
       return { kind: "complete", project: p.project, spec: p.specName };
+    case "status_change":
+      // toStatus is required for this transition kind; guard so a
+      // malformed emit doesn't crash the SSE flush. Default to "draft"
+      // (most conservative — a missing flip is read as a revert, not a
+      // false approval).
+      return {
+        kind: "status_change",
+        project: p.project,
+        spec: p.specName,
+        to: p.toStatus ?? "draft",
+      };
     case "hash_changed":
       return null;
     default:
