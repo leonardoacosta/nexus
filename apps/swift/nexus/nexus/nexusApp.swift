@@ -44,18 +44,15 @@ struct nexusApp: App {
     // TODO(nx-4ohfs): drop this seed once the agents.toml multi-agent
     // aggregation + Settings-UI editor land — endpoint becomes
     // user-configured, not hardcoded.
-    /// XCUITest seam (spec add-fullstack-integration-test-gate 2.2–2.4,
-    /// bd:nx-68ulr). When launched with `-uitest-open-dashboard`, the
-    /// singleton dashboard `Window` is presented at launch. The app is
-    /// `LSUIElement` (no Dock window, the popover is lazy), so XCUITest
-    /// cannot reach the dashboard via the menu-bar click / global ⌘D.
-    /// A singleton `Window` (not `WindowGroup`) is Apple's documented
-    /// deterministic path for `.defaultLaunchBehavior(.presented)`;
-    /// `WindowGroup`'s present-at-launch is scene-restoration dependent
-    /// and flaked across the harness's repeated launches. Inert in normal
-    /// launches (the argument is never present).
-    private let uiTestOpensDashboard =
-        CommandLine.arguments.contains("-uitest-open-dashboard")
+    // XCUITest seam (spec add-fullstack-integration-test-gate 2.2–2.4,
+    // bd:nx-68ulr / bd:nx-2pmzs). The `-uitest-open-dashboard` launch
+    // argument is no longer load-bearing: the dashboard `Window` now
+    // unconditionally uses `.defaultLaunchBehavior(.presented)` so a
+    // fresh launch always surfaces the dashboard (LSUIElement=false in
+    // project.yml — "Leo's workflow needs Cmd-Tab to bring the
+    // dashboard forward without hunting"). The XCUITest harness
+    // continues to pass the flag, harmlessly, as documentation that the
+    // test is launching the GUI surface.
 
     init() {
         if SettingsStore.shared.dashboardEndpoint == nil {
@@ -156,7 +153,11 @@ struct nexusApp: App {
             AppNavigation()
                 .environmentObject(viewModel)
         }
-        .uiTestLaunchBehavior(presentAtLaunch: uiTestOpensDashboard)
+        // Always present the dashboard at launch (bd:nx-2pmzs). The
+        // `uiTestOpensDashboard` arg is preserved for harness
+        // documentation but is no longer load-bearing — the modifier
+        // unconditionally applies `.presented`.
+        .uiTestLaunchBehavior(presentAtLaunch: true)
     }
 }
 

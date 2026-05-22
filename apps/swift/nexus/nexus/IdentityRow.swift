@@ -3,13 +3,18 @@
 //  nexus
 //
 //  Top panel region: avatar gradient + homelab name + heartbeat-delta status
-//  sub-line + trailing `⋯` chevron that opens Preferences.
+//  sub-line + trailing `⋯` Menu dropdown with Nexus actions (open dashboard,
+//  preferences, quit). The Menu replaced a Button whose `showSettingsWindow:`
+//  selector no longer dispatches reliably to the modern `Settings { ... }`
+//  scene (bd:nx-2pmzs).
 //
 
 import SwiftUI
+import AppKit
 
 struct IdentityRow: View {
     @EnvironmentObject private var vm: NexusViewModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -43,8 +48,24 @@ struct IdentityRow: View {
 
             Spacer(minLength: 0)
 
-            // Preferences `⋯` chevron
-            Button(action: openPreferences) {
+            // Nexus actions `⋯` Menu — opens dashboard, preferences, or
+            // quits. Replaces a Button whose legacy `showSettingsWindow:`
+            // selector no longer dispatches to the modern `Settings { }`
+            // scene reliably (bd:nx-2pmzs). `SettingsLink` is the
+            // SwiftUI-native replacement (macOS 14+, matches project.yml
+            // minimum deployment target).
+            Menu {
+                Button("Open Dashboard Window") {
+                    openWindow(id: "dashboard")
+                }
+                SettingsLink {
+                    Text("Preferences…")
+                }
+                Divider()
+                Button("Quit Nexus") {
+                    NSApplication.shared.terminate(nil)
+                }
+            } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24)
@@ -53,9 +74,11 @@ struct IdentityRow: View {
                     )
                     .foregroundStyle(Color.nx.ink3)
             }
-            .buttonStyle(.plain)
-            .help("Preferences (⌘,)")
-            .accessibilityLabel("Open Preferences")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 24, height: 24)
+            .help("Nexus actions")
+            .accessibilityLabel("Nexus actions menu")
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
@@ -98,7 +121,4 @@ struct IdentityRow: View {
         return "\(secs / 3600)h"
     }
 
-    private func openPreferences() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
 }
