@@ -71,6 +71,18 @@ export {
   type NewProjectVoiceOverride,
 } from "./schema";
 
+// spec_sessions — many-to-many join between specs (project + name slug) and
+// sessions (session_id), written by POST /session/start when the caller
+// passes spec_slug. Survives session close — historical lookups
+// ("which sessions touched spec X?") drive the Swift dashboard's per-row
+// session count chip. Pruned at 365 days by retention.ts.
+// Spec: openspec/changes/specs-tab-start-on-spec.
+export {
+  specSessions,
+  type SpecSession,
+  type NewSpecSession,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

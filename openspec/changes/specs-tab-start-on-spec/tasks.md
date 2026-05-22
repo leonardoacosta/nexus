@@ -5,10 +5,11 @@
 
 ## DB Batch
 
-- [ ] 1.1 Add `packages/db/src/schema/specSessions.ts` — `spec_sessions` table (id identity, project text, spec_name text, session_id text, created_at timestamptz default now()), with composite index on `(project, spec_name)` and single-column index on `session_id`. Mirror `cronRuns.ts` style. [beads:nx-4jm7r]
-- [ ] 1.2 Export `specSessions` plus the inferred `SpecSession` and `NewSpecSession` types from `packages/db/src/schema/index.ts` (append-only) and the root `packages/db/src/index.ts`. [beads:nx-yctiq]
-- [ ] 1.3 Generate `packages/db/drizzle/0034_add_spec_sessions.sql` via drizzle-kit; trim the auto-emitted .sql to only the new table + 2 indices (avoid the pre-existing snapshot-desync re-emit pattern documented in adopt-reaper's nx-snapshot-desync follow-up). Keep the full 0034 snapshot for future drizzle-kit baselines. [beads:nx-uqvc8]
-- [ ] 1.4 Add a 365-day retention rule for `spec_sessions` in `apps/agent/src/db/retention.ts` (this is historical lookup data — longer than `cron_runs`' 90 days). Confirm the retention runner sees the new entry. [beads:nx-ac5v3]
+- [x] 1.1 Add `packages/db/src/schema/specSessions.ts` — `spec_sessions` table (id identity, project text, spec_name text, session_id text, created_at timestamptz default now()), with composite index on `(project, spec_name)` and single-column index on `session_id`. Mirror `cronRuns.ts` style. [beads:nx-4jm7r]
+- [x] 1.2 Export `specSessions` plus the inferred `SpecSession` and `NewSpecSession` types from `packages/db/src/schema/index.ts` (append-only) and the root `packages/db/src/index.ts`. [beads:nx-yctiq]
+- [x] 1.3 Generated `packages/db/drizzle/0036_add_spec_sessions.sql` via drizzle-kit (renumbered from 0034 — slots 0034/0035 were taken by 0034_add_credential_usage_columns + 0035_add_notification_audio_and_project_voices before this wave landed). Auto-output already contained only the new table + 2 indices; no trim required. [beads:nx-uqvc8]
+- [x] 1.4 Added a 365-day retention rule for `spec_sessions` in `apps/agent/src/db/retention.ts` (this is historical lookup data — longer than `cron_runs`' 90 days). Confirmed the retention runner picks it up via the new `SPEC_SESSIONS_RETENTION_DAYS` constant and the `specSessionsDeleted` log key. [beads:nx-ac5v3]
+  - id-column type is `integer` (not `text` as suggested in design.md) because `generatedAlwaysAsIdentity()` is only valid on integer columns; matches every other identity table in the repo.
 
 ## API Batch
 

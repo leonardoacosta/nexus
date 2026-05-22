@@ -253,6 +253,13 @@
       "when": 1779404130625,
       "tag": "0035_add_notification_audio_and_project_voices",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1779408530420,
+      "tag": "0036_add_spec_sessions",
+      "breakpoints": true
     }
   ]
 }

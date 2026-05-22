@@ -62,3 +62,8 @@ export {
   type ProjectVoiceOverride,
   type NewProjectVoiceOverride,
 } from "./projectVoiceOverrides";
+export {
+  specSessions,
+  type SpecSession,
+  type NewSpecSession,
+} from "./specSessions";
