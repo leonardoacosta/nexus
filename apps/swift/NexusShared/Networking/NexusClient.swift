@@ -262,6 +262,125 @@ public actor NexusClient {
         )
     }
 
+    // MARK: - session-start + spec linkage (specs-tab-start-on-spec)
+
+    /// Response from `POST /session/start`. `specLinked` / `specLinkError`
+    /// are populated ONLY when the caller passed `specSlug`; the agent
+    /// omits them otherwise.
+    public struct SessionStartResponse: Decodable, Sendable {
+        public var sessionName: String
+        public var started: Bool
+        public var sessionId: String?
+        public var pid: Int?
+        public var specLinked: Bool?
+        public var specLinkError: String?
+
+        public enum CodingKeys: String, CodingKey {
+            case sessionName = "session_name"
+            case started
+            case sessionId = "session_id"
+            case pid
+            case specLinked = "spec_linked"
+            case specLinkError = "spec_link_error"
+        }
+    }
+
+    /// `POST /session/start` — spawn a new Claude Code session in a tmux
+    /// window owned by this agent. When `specSlug` is non-nil the agent
+    /// also inserts a `spec_sessions` link row so the dashboard can
+    /// surface the session under its proposal row.
+    ///
+    /// The link insert is best-effort on the server: a failure surfaces
+    /// as `specLinked: false` + `specLinkError` rather than a non-2xx
+    /// response. The tmux window is created either way.
+    public func startSession(
+        project: String,
+        path: String,
+        specSlug: String? = nil
+    ) async throws -> SessionStartResponse {
+        let url = endpoint.baseURL.appendingPathComponent("session/start")
+        var body: [String: Any] = ["project": project, "path": path]
+        if let specSlug, !specSlug.isEmpty {
+            body["spec_slug"] = specSlug
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        do {
+            return try decoder.decode(SessionStartResponse.self, from: data)
+        } catch {
+            throw NexusClientError.decoding(error)
+        }
+    }
+
+    /// `GET /specs/{project}/{name}/sessions` — every session (live +
+    /// historical) linked to this spec. Returned newest-first.
+    public func listSpecSessions(
+        project: String,
+        name: String
+    ) async throws -> [SpecSession] {
+        let url = endpoint.baseURL
+            .appendingPathComponent("specs")
+            .appendingPathComponent(project)
+            .appendingPathComponent(name)
+            .appendingPathComponent("sessions")
+        let envelope: SpecSessionsResponse = try await getJSON(url: url)
+        return envelope.sessions
+    }
+
+    /// `PATCH /specs/{project}/{name}/status` — flip frontmatter status
+    /// between `draft` and `approved`. Throws `NexusClientError.badStatus`
+    /// on non-2xx; in particular `409` means the spec is archived
+    /// (read-only) and the caller should disable the toggle.
+    @discardableResult
+    public func patchSpecStatus(
+        project: String,
+        name: String,
+        status: String
+    ) async throws -> Data {
+        let url = endpoint.baseURL
+            .appendingPathComponent("specs")
+            .appendingPathComponent(project)
+            .appendingPathComponent(name)
+            .appendingPathComponent("status")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try JSONSerialization.data(
+            withJSONObject: ["status": status]
+        )
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        return data
+    }
+
     /// `GET /credentials` — list every CC profile the agent currently manages.
     /// Returns the flat profile array; callers needing the active fingerprint
     /// hit `fetchCredentialsEnvelope()` instead.

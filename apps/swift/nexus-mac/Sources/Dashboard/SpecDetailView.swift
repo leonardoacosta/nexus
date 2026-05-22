@@ -51,6 +51,16 @@ struct SpecDetailView: View {
     @State private var content: String?
     @State private var isLoading: Bool = false
     @State private var loadError: String?
+    // specs-tab-start-on-spec § 3.8: status pill state. Tracks the latest
+    // value the UI thinks the spec carries — optimistically updated on
+    // PATCH, then reconciled by SSE-driven refresh of the parent's
+    // SpecSummary. `nil` means we haven't received any signal yet (fall
+    // back to the spec's own status field).
+    @State private var optimisticStatus: String?
+    @State private var statusError: String?
+    @State private var pendingStatusFlip: Bool = false
+    @State private var showConfirm: Bool = false
+    @State private var confirmTargetStatus: String = "draft"
 
     /// Aggregate client — owns fan-out across reachable agents. Static-shared
     /// is fine because the actor handles serialization internally.
@@ -76,6 +86,13 @@ struct SpecDetailView: View {
             }
             await load(spec: spec, tab: activeTab)
         }
+        // Reset transient status state whenever the spec changes — keeps
+        // a stale optimistic flip from spilling over to the next spec.
+        .onChange(of: spec?.id) { _, _ in
+            optimisticStatus = nil
+            statusError = nil
+            pendingStatusFlip = false
+        }
     }
 
     // MARK: - Subviews
@@ -86,12 +103,24 @@ struct SpecDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spec.name)
                         .font(.system(.headline, design: .monospaced))
-                    Text("\(spec.project) · \(spec.status)")
+                    Text("\(spec.project) · \(effectiveStatus(for: spec))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                statusPill(for: spec)
             }
+            if let statusError {
+                Text(statusError)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("spec-detail-status-error")
+            }
+            // Metadata pane: read-only key/value list of every frontmatter
+            // entry except `status` (already shown in the pill).
+            // specs-tab-start-on-spec § 3.9.
+            metadataPane(for: spec)
             Picker("", selection: $activeTab) {
                 ForEach(SpecDocumentTab.allCases) { tab in
                     Text(tab.label).tag(tab)
@@ -102,6 +131,128 @@ struct SpecDetailView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .confirmationDialog(
+            "Set status to \(confirmTargetStatus)?",
+            isPresented: $showConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Set \(confirmTargetStatus)") {
+                Task { await applyStatusFlip(to: confirmTargetStatus, for: spec) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This rewrites the frontmatter of proposal.md on the owning agent.")
+        }
+    }
+
+    /// Effective status — optimistic value wins over the spec's published
+    /// value so a just-clicked PATCH reflects immediately.
+    private func effectiveStatus(for spec: SpecSummary) -> String {
+        optimisticStatus ?? spec.status
+    }
+
+    /// Pill button: gray for draft, green for approved, blue for archived
+    /// (read-only). Click → confirm dialog → PATCH. Disabled when the
+    /// spec is archived OR when a PATCH is already in flight.
+    private func statusPill(for spec: SpecSummary) -> some View {
+        let status = effectiveStatus(for: spec).lowercased()
+        let isArchived = status == "archived"
+        let nextStatus: String = status == "approved" ? "draft" : "approved"
+        return Button {
+            // Archived rejects the flip with 409; never even show the
+            // confirm dialog (the button is also `.disabled`).
+            guard !isArchived else { return }
+            confirmTargetStatus = nextStatus
+            showConfirm = true
+        } label: {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(pillColor(forStatus: status))
+                    .frame(width: 6, height: 6)
+                Text(status.uppercased())
+                    .font(.caption2.monospaced())
+                    .tracking(1.2)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(pillColor(forStatus: status).opacity(0.16))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.borderless)
+        .disabled(isArchived || pendingStatusFlip)
+        .help(
+            isArchived
+                ? "Archived (read-only)"
+                : "Click to set status to \(nextStatus)"
+        )
+        .accessibilityLabel("Status: \(status). Tap to set \(nextStatus).")
+        .accessibilityIdentifier("spec-detail-status-pill")
+    }
+
+    private func pillColor(forStatus s: String) -> Color {
+        switch s {
+        case "approved": return .green
+        case "archived": return .blue
+        default: return .gray
+        }
+    }
+
+    /// Key/value list rendered below the status pill. Skips `status`
+    /// (already shown in the pill). Hidden entirely when the agent
+    /// didn't ship a frontmatter map (older agents pre-2.7) OR when the
+    /// map is empty.
+    @ViewBuilder
+    private func metadataPane(for spec: SpecSummary) -> some View {
+        if let fm = spec.frontmatter, !fm.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(
+                    fm.keys
+                        .filter { $0.lowercased() != "status" }
+                        .sorted(),
+                    id: \.self
+                ) { key in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(key)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 120, alignment: .leading)
+                        Text(fm[key] ?? "")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+            .accessibilityIdentifier("spec-detail-metadata-pane")
+        }
+    }
+
+    private func applyStatusFlip(to target: String, for spec: SpecSummary) async {
+        pendingStatusFlip = true
+        statusError = nil
+        // Optimistic — reflect in the pill immediately.
+        optimisticStatus = target
+        do {
+            _ = try await client.patchSpecStatus(
+                project: spec.project,
+                name: spec.name,
+                status: target
+            )
+        } catch NexusClientError.badStatus(let code) {
+            // 409 = archived (server's read-only short-circuit). Revert
+            // the optimistic update and surface the specific message.
+            optimisticStatus = nil
+            statusError = code == 409
+                ? "Spec is archived (read-only)."
+                : "PATCH failed: HTTP \(code)"
+        } catch {
+            optimisticStatus = nil
+            statusError = "PATCH failed: \(String(describing: error))"
+        }
+        pendingStatusFlip = false
     }
 
     @ViewBuilder

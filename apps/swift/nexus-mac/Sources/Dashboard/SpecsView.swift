@@ -9,12 +9,39 @@
 import SwiftUI
 import NexusShared
 
+/// Right-pane state for SpecsView. The detail vs PTY swap is modelled as a
+/// discriminated enum so the view body never renders both at once and the
+/// transitions are auditable (specs-tab-start-on-spec § Swift UI § SpecsView
+/// changes). `.empty` is the initial state — neither a spec nor a PTY is
+/// shown — and exists primarily for the test harness so we can assert the
+/// "no selection" branch in unit tests.
+enum SpecsRightPaneState: Equatable {
+    case empty
+    case spec(SpecSummary)
+    case pty(sessionId: String, fromSpec: SpecSummary)
+}
+
+/// Optimistic placeholder sessionId surfaced to the PTY header while the
+/// `POST /session/start` call is in flight. Replaced with the real
+/// `session_id` on success or reverted to `.spec(fromSpec)` on failure.
+/// Tests assert on this constant.
+let SpecsViewStartingSessionPlaceholder = "starting..."
+
 struct SpecsView: View {
     @StateObject private var model = SpecsViewModel()
     // dashboard-ui-pass-v1 (task 2.3): selection bridges the list pane to
     // SpecDetailView. Persisted in @State so tab/window resize doesn't drop
     // the active spec.
     @State private var selectedSpec: SpecSummary?
+    // specs-tab-start-on-spec (task 3.5): right-pane state machine. The
+    // body switches on this; `.spec` renders SpecDetailView, `.pty`
+    // renders the existing PtyViewer from the Sessions tab. Stays in
+    // sync with `selectedSpec` via .onChange so tapping a row defaults
+    // to `.spec(row)`.
+    @State private var rightPane: SpecsRightPaneState = .empty
+    // Latest "Start Session" error banner shown above the row list. Cleared
+    // when the user selects any other spec or starts a new session.
+    @State private var startError: String?
     // specs-tab-accordion-with-topology (task 2.4): per-project accordion
     // state, default collapsed. Hydrated from UserDefaults
     // `specsAccordion.<slug>` on the first render of each group, persisted
@@ -34,7 +61,7 @@ struct SpecsView: View {
         HSplitView {
             leftPane
                 .frame(minWidth: 280, idealWidth: 360)
-            SpecDetailView(spec: selectedSpec)
+            rightPaneBody
                 .frame(minWidth: 320, idealWidth: 520)
         }
         .task {
@@ -51,13 +78,107 @@ struct SpecsView: View {
             if let current = selectedSpec,
                let refreshed = newSpecs.first(where: { $0.id == current.id }) {
                 selectedSpec = refreshed
+                // When the selected spec gets refreshed AND we're showing
+                // its detail pane, mirror the refresh into the rightPane
+                // so SpecDetailView's frontmatter / status updates without
+                // a fetch ping-pong.
+                if case .spec = rightPane {
+                    rightPane = .spec(refreshed)
+                }
             }
+        }
+        .onChange(of: selectedSpec) { _, newSelection in
+            // Clear the error banner whenever the user picks a different
+            // row. Then mirror the selection into the right pane unless
+            // we're already on a PTY for the same spec.
+            startError = nil
+            guard let s = newSelection else {
+                rightPane = .empty
+                return
+            }
+            if case let .pty(_, fromSpec) = rightPane, fromSpec.id == s.id {
+                // Keep the PTY visible — user just re-tapped the same row.
+                return
+            }
+            rightPane = .spec(s)
+        }
+    }
+
+    /// Right pane: detail vs PTY vs hint. Centralises the rendering branch
+    /// so unit tests can assert on `rightPane` alone without poking at the
+    /// view hierarchy.
+    @ViewBuilder
+    private var rightPaneBody: some View {
+        switch rightPane {
+        case .empty:
+            SpecDetailView(spec: nil)
+        case .spec(let spec):
+            SpecDetailView(spec: spec)
+        case .pty(let sessionId, let fromSpec):
+            PtyViewer(
+                sessionId: sessionId,
+                sessionLabel: fromSpec.name,
+                sessionMeta: "spec: \(fromSpec.project)/\(fromSpec.name)",
+                sessionType: "managed",
+                onClose: {
+                    // Back-arrow returns to the detail view of the spec
+                    // the PTY was started from. Matches the proposal's
+                    // "closing the PTY returns the right pane to the
+                    // spec detail it was on before" contract.
+                    rightPane = .spec(fromSpec)
+                }
+            )
+        }
+    }
+
+    /// Start Session click handler (specs-tab-start-on-spec § 3.6).
+    /// State machine:
+    ///   1. Optimistically transition rightPane to `.pty(starting...)`.
+    ///   2. Resolve the agent-side project path from the loaded
+    ///      ProjectAggregate cache (sourced by `model.projectsForRow`).
+    ///   3. Call `client.startSession(project, path, specSlug: spec.name)`.
+    ///   4. On success: swap the placeholder for the real session_id.
+    ///   5. On failure: revert to `.spec(spec)` + surface `startError`.
+    private func startSession(for spec: SpecSummary) async {
+        startError = nil
+        // Resolve project path from the model's projects cache. The
+        // agent's POST /session/start requires a real on-disk path; we
+        // refuse to start when we don't know it (rather than guess).
+        guard let projectPath = model.projectPath(forCode: spec.project) else {
+            startError = "Unknown project path for '\(spec.project)' — register the project in agents.toml or refresh."
+            return
+        }
+        rightPane = .pty(sessionId: SpecsViewStartingSessionPlaceholder, fromSpec: spec)
+        do {
+            let response = try await model.startSession(
+                project: spec.project,
+                path: projectPath,
+                specSlug: spec.name
+            )
+            let sid = response.sessionId ?? response.sessionName
+            rightPane = .pty(sessionId: sid, fromSpec: spec)
+            // Refresh linked-session count so the row's start button
+            // disables instantly without waiting on SSE.
+            await model.refreshLinkedSessions(for: spec)
+        } catch {
+            // Revert and surface the failure. SpecDetailView still has
+            // the spec selected so the user can retry.
+            rightPane = .spec(spec)
+            startError = "Start failed: \(String(describing: error))"
         }
     }
 
     private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            if let err = startError {
+                Text(err)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                    .padding(.horizontal, 14)
+                    .accessibilityIdentifier("specs-view-start-error")
+            }
             if model.specs.isEmpty {
                 ContentUnavailableView(
                     "No specs yet",
@@ -110,7 +231,9 @@ struct SpecsView: View {
                             SpecRow(
                                 spec: spec,
                                 isSelected: selectedSpec?.id == spec.id,
-                                waveStatus: model.wavePlan?.lookupSpec(name: spec.name)
+                                waveStatus: model.wavePlan?.lookupSpec(name: spec.name),
+                                linkedSessions: model.linkedSessions(for: spec),
+                                onStartSession: { Task { await startSession(for: spec) } }
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -257,6 +380,17 @@ private struct SpecRow: View {
     /// [W{n}] chip + status dot adornments (task 2.7). Nil when the
     /// spec is not in the in-flight wave plan or no /apply is active.
     var waveStatus: SpecStatus?
+    /// Cached `spec_sessions` linkage rows for this spec, fetched lazily
+    /// by SpecsViewModel. specs-tab-start-on-spec § 3.6 — when ≥1 active
+    /// row is present, the Start Session button is disabled (tooltip
+    /// lists existing session ids).
+    var linkedSessions: [SpecSession] = []
+    /// Callback fired when the user taps Start Session.
+    var onStartSession: () -> Void = {}
+
+    private var hasActiveSession: Bool {
+        linkedSessions.contains(where: \.active)
+    }
 
     var body: some View {
         HStack(alignment: .top) {
@@ -281,6 +415,7 @@ private struct SpecRow: View {
                 }
             }
             Spacer()
+            startSessionButton
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
@@ -289,6 +424,28 @@ private struct SpecRow: View {
                 ? AnyShapeStyle(Color.accentColor.opacity(0.18))
                 : AnyShapeStyle(Color.clear)
         )
+    }
+
+    /// Per-row Start Session button. Disabled when ≥1 linked session is
+    /// active; tooltip surfaces the live session ids so the user can find
+    /// them via Sessions tab instead of double-spawning.
+    private var startSessionButton: some View {
+        Button {
+            onStartSession()
+        } label: {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+        }
+        .buttonStyle(.borderless)
+        .disabled(hasActiveSession)
+        .help(
+            hasActiveSession
+                ? "Already running: \(linkedSessions.filter(\.active).map(\.sessionId).joined(separator: ", "))"
+                : "Start Session"
+        )
+        .accessibilityLabel("Start Session for \(spec.name)")
+        .accessibilityIdentifier("spec-row-start-session-\(spec.name)")
     }
 
     private var statusBadge: some View {
@@ -399,6 +556,16 @@ final class SpecsViewModel: ObservableObject {
     /// run (hide chips), .isActive == true = render wave/status chips.
     /// Decoration only — never blocks the specs render path.
     @Published private(set) var wavePlan: WavePlanStatus?
+    /// Per-spec linked-session cache keyed by SpecSummary.id
+    /// (`"<project>/<name>"`). Populated lazily — only the rows the user
+    /// hovers/expands get a fetch — so the Specs tab keeps its <500ms
+    /// first paint. specs-tab-start-on-spec § 3.6 disables the row Start
+    /// Session button when any cached entry has `active: true`.
+    @Published private(set) var linkedSessionsBySpec: [String: [SpecSession]] = [:]
+    /// Project code → on-disk path cache sourced from
+    /// `client.fetchProjects()`. Used by Start Session to resolve the
+    /// agent's POST /session/start `path` field.
+    @Published private(set) var projectPaths: [String: String] = [:]
 
     private let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
@@ -418,13 +585,84 @@ final class SpecsViewModel: ObservableObject {
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        // Fetch specs + wave plan concurrently so the wave-plan call never
-        // serializes behind the (larger) specs fetch. Wave plan is pure
-        // decoration; even if it fails, specs still render.
+        // Fetch specs + wave plan + projects concurrently. Projects feeds
+        // the `projectPaths` cache so Start Session can resolve a real
+        // on-disk path without a follow-up fetch (the agent's
+        // /session/start endpoint requires it).
         async let specsFetch = client.fetchSpecs()
         async let wavePlanFetch = client.fetchWavePlanStatus()
+        async let projectsFetch = client.fetchProjects()
         self.specs = await specsFetch
         self.wavePlan = await wavePlanFetch
+        let projects = await projectsFetch
+        var paths: [String: String] = [:]
+        for p in projects {
+            // ProjectAggregate.id is the project code; .path (when present)
+            // is the agent-side filesystem location. Skip entries without a
+            // path — Start Session falls back to a user-facing error in
+            // that case rather than guessing.
+            if let path = projectAggregatePath(p), !path.isEmpty {
+                paths[p.id] = path
+            }
+        }
+        self.projectPaths = paths
+    }
+
+    /// Best-effort accessor for ProjectAggregate.path — the model evolved
+    /// over time and old aggregates may not carry the field. We treat
+    /// missing as nil so Start Session surfaces a clean "unknown project"
+    /// error instead of crashing.
+    private func projectAggregatePath(_ p: ProjectAggregate) -> String? {
+        // ProjectAggregate exposes `path` directly when present. The
+        // optional cast keeps this resilient if the field is later removed
+        // or renamed (this view degrades to "manual path" entry rather
+        // than crashing).
+        let mirror = Mirror(reflecting: p)
+        for child in mirror.children {
+            if child.label == "path", let s = child.value as? String {
+                return s
+            }
+            if child.label == "path", let s = child.value as? String? {
+                return s
+            }
+        }
+        return nil
+    }
+
+    func projectPath(forCode code: String) -> String? {
+        projectPaths[code]
+    }
+
+    /// Read-side accessor used by `SpecRow` to render the disabled-state
+    /// tooltip. Returns the cached entry (may be empty) — never triggers
+    /// a fetch (the row mount drives that via `prefetchLinkedSessions`).
+    func linkedSessions(for spec: SpecSummary) -> [SpecSession] {
+        linkedSessionsBySpec[spec.id] ?? []
+    }
+
+    /// Fan out `listSpecSessions` for a single spec and update the cache.
+    /// Called by the row mount + after a successful start so the Start
+    /// button disables/enables without waiting on SSE.
+    func refreshLinkedSessions(for spec: SpecSummary) async {
+        let rows = await client.listSpecSessions(
+            project: spec.project,
+            name: spec.name
+        )
+        linkedSessionsBySpec[spec.id] = rows
+    }
+
+    /// Thin pass-through so the view can call the aggregate client without
+    /// holding it directly (keeps the actor inside the view-model).
+    func startSession(
+        project: String,
+        path: String,
+        specSlug: String
+    ) async throws -> NexusShared.NexusClient.SessionStartResponse {
+        try await client.startSession(
+            project: project,
+            path: path,
+            specSlug: specSlug
+        )
     }
 
     func subscribe() async {
@@ -444,10 +682,18 @@ final class SpecsViewModel: ObservableObject {
     }
 
     private func handle(event: SSEEvent) async {
-        guard event.name == "SpecTransition" else { return }
+        // Agent emits `event: spec-transition` (SPEC_EVENTS_EVENT_NAME).
+        // Pre-existing code matched `SpecTransition` (which never fired);
+        // we accept both so a future agent rename doesn't silently regress.
+        // specs-tab-start-on-spec § 3.7.
+        guard event.name == "spec-transition" || event.name == "SpecTransition"
+        else { return }
         latestTransition = "\(event.name)"
         // SpecTransition just signals "something moved" — refresh the
         // whole list rather than try to merge per-row. The list is small.
+        // (specs-tab-start-on-spec § 3.7 — the status_change kind is also
+        // covered by this branch; SpecSummary.status is the source of
+        // truth so a full refresh always converges the row pill.)
         await load()
     }
 }

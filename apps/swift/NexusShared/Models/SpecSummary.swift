@@ -27,6 +27,13 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
     public var hasDesign: Bool
     public var hasTasks: Bool
 
+    /// Flat YAML frontmatter parsed from `proposal.md`
+    /// (specs-tab-start-on-spec). Optional for back-compat with older
+    /// agents that don't yet stitch the frontmatter into `GET /specs/:p/:n`.
+    /// Keys preserved verbatim — `status`, `approved-by`, `approved-at`,
+    /// `capability`, etc.
+    public var frontmatter: [String: String]?
+
     public var id: String { "\(project)/\(name)" }
 
     public var progress: Double {
@@ -43,6 +50,7 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         case hasProposal = "has_proposal"
         case hasDesign   = "has_design"
         case hasTasks    = "has_tasks"
+        case frontmatter
     }
 
     public init(
@@ -54,7 +62,8 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         lastModified: Date? = nil,
         hasProposal: Bool = false,
         hasDesign: Bool = false,
-        hasTasks: Bool = false
+        hasTasks: Bool = false,
+        frontmatter: [String: String]? = nil
     ) {
         self.name = name
         self.project = project
@@ -65,6 +74,7 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.hasProposal = hasProposal
         self.hasDesign = hasDesign
         self.hasTasks = hasTasks
+        self.frontmatter = frontmatter
     }
 
     public init(from decoder: Decoder) throws {
@@ -79,6 +89,10 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.hasProposal    = try c.decodeIfPresent(Bool.self, forKey: .hasProposal) ?? false
         self.hasDesign      = try c.decodeIfPresent(Bool.self, forKey: .hasDesign) ?? false
         self.hasTasks       = try c.decodeIfPresent(Bool.self, forKey: .hasTasks) ?? false
+        // specs-tab-start-on-spec: optional frontmatter from proposal.md.
+        // Older agents don't emit this key; leave nil to signal "unknown"
+        // (the UI surfaces a placeholder in that case rather than {}).
+        self.frontmatter    = try c.decodeIfPresent([String: String].self, forKey: .frontmatter)
         if let s = try c.decodeIfPresent(String.self, forKey: .lastModified) {
             let f1 = ISO8601DateFormatter()
             f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

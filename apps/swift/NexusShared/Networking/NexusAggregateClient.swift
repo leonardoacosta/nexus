@@ -659,6 +659,112 @@ public actor NexusAggregateClient {
         }
     }
 
+    // MARK: - session-start + spec linkage (specs-tab-start-on-spec)
+
+    /// `POST /session/start` — fans out to every reachable agent but only
+    /// the agent that OWNS the project path will succeed (others can't
+    /// spawn a tmux window for a path they don't see). Returns the
+    /// successful response from the first answering agent.
+    ///
+    /// The owner agent ALSO inserts the `spec_sessions` link row when
+    /// `specSlug` is non-nil — that's all on the agent side. Throws when
+    /// every agent fails (the project lives on no reachable peer).
+    public func startSession(
+        project: String,
+        path: String,
+        specSlug: String? = nil
+    ) async throws -> NexusClient.SessionStartResponse {
+        let (perAgent, _) = await fanOut("startSession") { client in
+            try await client.startSession(
+                project: project,
+                path: path,
+                specSlug: specSlug
+            )
+        }
+        // First successful response wins. Exactly one agent should own the
+        // project path; fan-out is the agent-agnostic version of "which
+        // peer owns this project?".
+        guard let first = perAgent.first else {
+            throw NexusClientError.badStatus(404)
+        }
+        return first
+    }
+
+    /// `GET /specs/{project}/{name}/sessions` merged across agents. A spec
+    /// link table is owned by exactly one agent (the one whose database
+    /// got the insert during /session/start), so the response is
+    /// effectively single-agent. Fan-out is partial-failure tolerant — a
+    /// dead peer returns empty and never blanks out the owner's payload.
+    public func listSpecSessions(
+        project: String,
+        name: String
+    ) async -> [SpecSession] {
+        let (perAgent, _) = await fanOut("listSpecSessions") { client in
+            try await client.listSpecSessions(project: project, name: name)
+        }
+        // Dedup by id across agents (rare two agents would hold the same
+        // row id, but if it happens last-writer-wins). Sort DESC by
+        // createdAt so the merged list mirrors the per-agent contract.
+        var merged: [Int: SpecSession] = [:]
+        for rows in perAgent { for s in rows { merged[s.id] = s } }
+        return merged.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// `PATCH /specs/{project}/{name}/status` — fan out to every agent.
+    /// The owner applies the splice; non-owners typically 404. Returns
+    /// `true` when at least one agent succeeded. When every agent failed,
+    /// the most informative error is thrown so the caller can branch on
+    /// 409 (archived → read-only) vs 404 (unknown) vs transport. Spec
+    /// status is on-disk state, not a DB row, so single-writer guarantees
+    /// hold per the proposal's Risk § "last-writer-wins is acceptable".
+    @discardableResult
+    public func patchSpecStatus(
+        project: String,
+        name: String,
+        status: String
+    ) async throws -> Bool {
+        var lastError: Error?
+        var anySuccess = false
+        await withTaskGroup(of: Result<Bool, Error>.self) { group in
+            for client in clients {
+                group.addTask {
+                    do {
+                        _ = try await client.patchSpecStatus(
+                            project: project,
+                            name: name,
+                            status: status
+                        )
+                        return .success(true)
+                    } catch {
+                        return .failure(error)
+                    }
+                }
+            }
+            for await result in group {
+                switch result {
+                case .success: anySuccess = true
+                case .failure(let err):
+                    // Prefer the most informative error — a 409 (archived,
+                    // read-only) outranks a 404 (peer doesn't own this
+                    // spec), which outranks transport. This mirrors the
+                    // single-writer contract: the owner agent's error is
+                    // the one the user needs to see.
+                    if case NexusClientError.badStatus(409) = err {
+                        lastError = err
+                    } else if lastError == nil {
+                        lastError = err
+                    } else if case NexusClientError.badStatus(let code) = err,
+                              code != 404,
+                              case NexusClientError.badStatus(404)? = lastError {
+                        lastError = err
+                    }
+                }
+            }
+        }
+        if !anySuccess, let err = lastError { throw err }
+        return anySuccess
+    }
+
     /// Run a streaming subscription against every agent, each with its own
     /// exponential-backoff retry. Runs until the surrounding task is
     /// cancelled.
