@@ -23,6 +23,19 @@ struct nexusApp: App {
     // 2026-05-16, bd:nx-smger).
     @StateObject private var ttsObserver: TTSObserver
 
+    // Cross-platform multi-agent observer — hoisted from
+    // AppNavigation's @StateObject so SSE subscription begins at @main
+    // scope, not when the dashboard Window's view tree mounts. SwiftUI
+    // Window scenes lazy-mount their content (the OS may defer view
+    // instantiation until focus arrives), so a view-attached
+    // `.task { observer.startStreams() }` left the dashboard silent on
+    // cold launch — zero TCP sockets to homelab until the user clicked
+    // the menu bar item (bd:nx-q7lmb). AppNavigation now receives this
+    // observer via init parameter and keeps its `.task` call as a
+    // defensive idempotent retry (`startStreams()` short-circuits when
+    // `sseTask` is already running).
+    @StateObject private var sessionObserver: SessionObserver
+
     // Strong reference to the UN delegate — `UNUserNotificationCenter`
     // stores the delegate as a `weak` reference, so without an owner the
     // delegate would be released between init() and the first banner
@@ -116,6 +129,35 @@ struct nexusApp: App {
         Task { @MainActor in
             await observer.start()
         }
+
+        // Hoist the dashboard's SessionObserver to App scope and start
+        // its SSE + polling pumps immediately (bd:nx-q7lmb). The
+        // previous wiring lived in `AppNavigation.task`, which only
+        // fires when the dashboard Window's view tree actually mounts —
+        // SwiftUI Window scenes lazy-mount, so cold launches reliably
+        // showed ZERO TCP sockets to homelab until the user clicked the
+        // menu bar item. By owning the observer here we guarantee the
+        // multi-agent SSE consumer is alive the instant the app
+        // process is, independent of any window/view lifecycle.
+        let session = SessionObserver()
+        _sessionObserver = StateObject(wrappedValue: session)
+        Self.appLogger.info("NexusApp: starting SessionObserver streams")
+        Task { @MainActor in
+            session.startStreams()
+            await session.refreshSessions()
+        }
+
+        // Same defense for the menu-bar popover client. Pre-fix this
+        // was only started from `NexusPanel.onAppear` — the popover
+        // mounts only when the menu bar item is clicked open, so the
+        // legacy `NexusClient` SSE pump (sessions, notifications,
+        // heartbeat) was silent until first interaction. `startStreams()`
+        // is idempotent, so the popover's `onAppear` call remains as a
+        // harmless retry.
+        Self.appLogger.info("NexusApp: starting NexusViewModel.shared streams")
+        Task { @MainActor in
+            NexusViewModel.shared.startStreams()
+        }
     }
 
     var body: some Scene {
@@ -150,7 +192,7 @@ struct nexusApp: App {
 
     private var dashboardScene: some Scene {
         Window("Nexus Dashboard", id: "dashboard") {
-            AppNavigation()
+            AppNavigation(observer: sessionObserver)
                 .environmentObject(viewModel)
         }
         // Always present the dashboard at launch (bd:nx-2pmzs). The

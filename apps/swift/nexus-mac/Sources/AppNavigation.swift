@@ -65,16 +65,21 @@ struct AppNavigation: View {
     @State private var selection: DashboardSection = defaultSection()
     @State private var ptySessionId: String = ""
 
-    // One shared observer owned by the always-rendering scene root. The
-    // detail-pane `SessionsView` is mounted lazily by NavigationSplitView
-    // and — on macOS, with an initial *programmatic* List selection — is
-    // NOT instantiated until a sidebar row is physically clicked. Starting
-    // streams only inside SessionsView.task therefore never fires on
-    // launch (zero fetch, empty dashboard — bd:nx-t9wrj). Hoisting the
-    // observer here and starting it from a modifier on the split view
-    // itself makes the fetch fire on window appear regardless of the
-    // selection-commit timing.
-    @StateObject private var observer = SessionObserver()
+    // Multi-agent observer — OWNED by `nexusApp` as an `@StateObject`
+    // and injected here via `init(observer:)` so the SSE + polling
+    // pumps begin at @main scope (bd:nx-q7lmb). Pre-fix this was an
+    // inline `@StateObject private var observer = SessionObserver()`,
+    // which gated stream startup on the dashboard `Window`'s view tree
+    // mounting — SwiftUI Window scenes lazy-mount, so cold launches
+    // showed ZERO TCP sockets to homelab until the user clicked the
+    // menu bar item. The `.task { observer.startStreams() }` modifier
+    // below stays as a defensive idempotent retry (the underlying
+    // `if sseTask == nil` guard short-circuits when streams are
+    // already running). See the `bd:nx-t9wrj` note carried forward:
+    // SessionsView is lazy-instantiated by NavigationSplitView, so the
+    // observer MUST live above it — that constraint is preserved by
+    // App-scope ownership.
+    @ObservedObject private var observer: SessionObserver
 
     // Cross-tab deep-link router. ProjectAccordionRow (Projects tab) calls
     // `coordinator.openSession(_:)`, which flips a published
@@ -82,6 +87,13 @@ struct AppNavigation: View {
     // active tab to `.sessions`; `SessionsView` then drains the link in
     // its own `.task`. Spec: projects-tab-accordion-deeplink task 2.2.
     @StateObject private var coordinator = DashboardNavigationCoordinator()
+
+    /// Injected by `nexusApp` so SSE/polling begin at @main scope
+    /// (bd:nx-q7lmb). Callers in tests that need a fresh observer can
+    /// pass `SessionObserver()` directly.
+    init(observer: SessionObserver) {
+        self.observer = observer
+    }
 
     var body: some View {
         NavigationSplitView {
