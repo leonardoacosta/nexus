@@ -18,19 +18,29 @@
  * one-off listener registered per test.
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+// Use the injectable seam exported by session-spec-link rather than
+// mock.module("../../services/config-loader"). Bun's module mocks are
+// process-global and partial mocks leaked into config-loader.test.ts,
+// causing spurious failures there. See spec-watcher/poller.ts for the
+// canonical pattern this mirrors.
 let scratchProjects: Array<{ code: string; name: string; path: string }> = [];
 
-mock.module("../../services/config-loader", () => ({
-  getProjects: () => scratchProjects,
-}));
+import {
+  __setGetProjectsForTesting,
+  __resetGetProjectsForTesting,
+} from "../../services/session-spec-link";
+import { handlePatchSpecStatus, spliceFrontmatter } from "./handlers-status";
+import { lifecycleBus } from "../../services/lifecycle-bus";
 
-const { handlePatchSpecStatus, spliceFrontmatter } = await import("./handlers-status");
-const { lifecycleBus } = await import("../../services/lifecycle-bus");
+__setGetProjectsForTesting(() => scratchProjects);
+afterAll(() => {
+  __resetGetProjectsForTesting();
+});
 
 function setupScratchProject(code = "nx") {
   const path = mkdtempSync(join(tmpdir(), `${code}-spec-status-`));

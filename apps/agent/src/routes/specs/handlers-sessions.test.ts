@@ -13,19 +13,29 @@
  * is shape-tight; an unexpected call throws so we notice contract drift.
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Db } from "@nexus/db";
 
+// Use the injectable seam exported by session-spec-link rather than
+// mock.module("../../services/config-loader"). Bun's module mocks are
+// process-global and partial mocks leaked into config-loader.test.ts,
+// causing spurious failures there. See spec-watcher/poller.ts for the
+// canonical pattern this mirrors.
 let scratchProjects: Array<{ code: string; name: string; path: string }> = [];
 
-mock.module("../../services/config-loader", () => ({
-  getProjects: () => scratchProjects,
-}));
+import {
+  __setGetProjectsForTesting,
+  __resetGetProjectsForTesting,
+} from "../../services/session-spec-link";
+import { handleListSpecSessions } from "./handlers-sessions";
 
-const { handleListSpecSessions } = await import("./handlers-sessions");
+__setGetProjectsForTesting(() => scratchProjects);
+afterAll(() => {
+  __resetGetProjectsForTesting();
+});
 
 interface FakeRow {
   id: number;

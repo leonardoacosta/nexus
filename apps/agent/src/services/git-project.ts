@@ -24,7 +24,6 @@
  * cached too so a flapping repo doesn't peg CPU.
  */
 
-import { spawn } from "node:child_process";
 import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:services:git-project");
@@ -34,22 +33,30 @@ export interface GitOrigin {
   ownerRepo: string;
 }
 
-/** Execute `git remote get-url origin` and capture stdout. */
+/**
+ * Execute `git remote get-url origin` and capture stdout.
+ *
+ * Uses `Bun.spawn` with an arg-vector (cwd passed via `-C`) — mirrors the
+ * canonical pattern in `git-project-resolver.ts#execGitRemoteUrl`. Returns
+ * `null` on any spawn error, non-zero exit, or empty output.
+ */
 async function gitRemoteUrl(cwd: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = spawn("git", ["remote", "get-url", "origin"], {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+  try {
+    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
     });
-    const chunks: Buffer[] = [];
-    child.stdout.on("data", (b: Buffer) => chunks.push(b));
-    child.on("error", () => resolve(null));
-    child.on("close", (code) => {
-      if (code !== 0) return resolve(null);
-      const out = Buffer.concat(chunks).toString("utf8").trim();
-      resolve(out.length > 0 ? out : null);
-    });
-  });
+    const [stdout, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    if (exitCode !== 0) return null;
+    const out = stdout.trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -148,37 +155,44 @@ export function clearGitMetadataCache(): void {
  * shell. Returns combined stdout, or null on timeout / non-zero exit /
  * missing git / cwd not a repo. AbortController kills the subprocess
  * tree if it exceeds the 2s budget.
+ *
+ * Uses `Bun.spawn` (mirrors `git-project-resolver.ts` pattern). The cwd
+ * is interpolated into the shell `$0` positional so we never embed
+ * user-controlled paths into shell strings.
  */
 async function spawnGitMetadata(cwd: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    // `-z` makes status output NUL-separated which is stable across
-    // weird branch names. `--untracked-files=no` skips the (often huge)
-    // untracked-file enumeration — for dirty detection any tracked
-    // modification is enough; we don't need filenames.
-    const cmd = [
-      "git -C \"$0\" status --porcelain=v2 --branch --untracked-files=no",
-      "git -C \"$0\" log -1 --format=%aN%n%aI",
-    ].join(" && ");
+  // `--untracked-files=no` skips the (often huge) untracked-file
+  // enumeration — for dirty detection any tracked modification is enough.
+  const cmd = [
+    "git -C \"$0\" status --porcelain=v2 --branch --untracked-files=no",
+    "git -C \"$0\" log -1 --format=%aN%n%aI",
+  ].join(" && ");
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), GIT_METADATA_TIMEOUT_MS);
-
-    const child = spawn("/bin/sh", ["-c", cmd, cwd], {
-      stdio: ["ignore", "pipe", "pipe"],
-      signal: controller.signal,
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const proc = Bun.spawn(["/bin/sh", "-c", cmd, cwd], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
     });
-    const chunks: Buffer[] = [];
-    child.stdout.on("data", (b: Buffer) => chunks.push(b));
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve(null);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return resolve(null);
-      resolve(Buffer.concat(chunks).toString("utf8"));
-    });
-  });
+    timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* already exited */
+      }
+    }, GIT_METADATA_TIMEOUT_MS);
+    const [stdout, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    if (exitCode !== 0) return null;
+    return stdout;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**

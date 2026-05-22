@@ -20,9 +20,29 @@ import { join } from "node:path";
 import type { Db } from "@nexus/db";
 import { specSessions } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
-import { getProjects } from "./config-loader";
+import * as configLoader from "./config-loader";
 
 const log = createLogger("agent:services:session-spec-link");
+
+// Injectable getProjects accessor. We deliberately avoid mock.module(
+// "./config-loader") in tests because Bun's module mocks are process-global
+// and irreversible — partial mocks leaked into config-loader.test.ts and
+// caused spurious failures. Tests override via __setGetProjectsForTesting,
+// mirroring the pattern in spec-watcher/poller.ts.
+let getProjects: () => ReturnType<typeof configLoader.getProjects> = () =>
+  configLoader.getProjects();
+
+/** Test-only: replace the getProjects accessor. */
+export function __setGetProjectsForTesting(
+  fn: () => ReturnType<typeof configLoader.getProjects>,
+): void {
+  getProjects = fn;
+}
+
+/** Test-only: restore the real getProjects accessor. */
+export function __resetGetProjectsForTesting(): void {
+  getProjects = () => configLoader.getProjects();
+}
 
 export interface LinkSpecToSessionInput {
   db: Db;

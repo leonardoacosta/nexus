@@ -17,23 +17,27 @@
  * re-import, mirroring the existing health-history.test.ts harness.)
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Db } from "@nexus/db";
 
-// Stub the config-loader BEFORE importing the unit under test so the
-// service binds to our scratch registry. `mock.module()` is the Bun-test
-// equivalent of vitest's `vi.mock`.
+// Use the injectable seam exported by session-spec-link rather than
+// mock.module("./config-loader"). Bun's module mocks are process-global
+// and partial mocks leaked into config-loader.test.ts, causing spurious
+// failures there. Mirrors the pattern in spec-watcher/poller.ts.
 let scratchRoot: string;
 let scratchProjects: Array<{ code: string; name: string; path: string }> = [];
 
-mock.module("../services/config-loader", () => ({
-  getProjects: () => scratchProjects,
-}));
+import {
+  resolveSpecDir,
+  linkSpecToSession,
+  __setGetProjectsForTesting,
+  __resetGetProjectsForTesting,
+} from "./session-spec-link";
 
-const { resolveSpecDir, linkSpecToSession } = await import("./session-spec-link");
+__setGetProjectsForTesting(() => scratchProjects);
 
 interface InsertCall {
   project: string;
@@ -74,6 +78,12 @@ function setupScratchProject(projectCode: string): { projectPath: string } {
   ];
   return { projectPath };
 }
+
+// Restore the real getProjects accessor when this file's tests complete so
+// downstream test files in the same Bun process see the real config-loader.
+afterAll(() => {
+  __resetGetProjectsForTesting();
+});
 
 describe("resolveSpecDir", () => {
   beforeEach(() => {
