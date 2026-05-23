@@ -43,6 +43,21 @@ export function audioPathFor(notificationId: string): string {
 }
 
 /**
+ * Eagerly create the audio cache directory at agent boot.
+ *
+ * `writeAudio()` already does a lazy `mkdir -p` on first persist, but calling
+ * this at startup lets the agent fail loudly (and surfaces in logs) when the
+ * config dir is unwritable rather than silently degrading the first
+ * notification dispatch. Idempotent — safe to call repeatedly.
+ */
+export async function ensureAudioDir(): Promise<string> {
+  const dir = audioDir();
+  await mkdir(dir, { recursive: true });
+  log.debug({ dir }, "audio-store: ensured audio dir");
+  return dir;
+}
+
+/**
  * Persist MP3 bytes for a notification id and return the absolute path.
  * Creates the audio directory on first write (idempotent).
  */

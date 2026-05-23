@@ -24,6 +24,7 @@ import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
 import { TokenStreamLifecycle } from "./credentials/token-stream/lifecycle";
+import { ensureAudioDir } from "./notifications/audio-store";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -46,6 +47,16 @@ try {
   logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to open database — agent cannot start");
   process.exit(1);
 }
+
+// Bootstrap ~/.config/nexus/audio/ early so the first notification dispatch
+// can persist mp3 bytes without a lazy mkdir race. Non-fatal — writeAudio()
+// still does mkdir(recursive: true) on every write as a safety net.
+ensureAudioDir().catch((err) => {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "audio dir bootstrap failed — first notification write will retry",
+  );
+});
 
 const sessionManager = createSessionManager({ db });
 
