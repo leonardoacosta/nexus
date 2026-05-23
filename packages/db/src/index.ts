@@ -83,6 +83,16 @@ export {
   type NewSpecSession,
 } from "./schema";
 
+// process_watcher_state — append-only tick history for the
+// process-watcher health monitor (process-watcher-health-monitoring).
+// Pruned to the last 100 rows by the watcher itself; no retention.ts hook
+// required.
+export {
+  processWatcherState,
+  type ProcessWatcherState,
+  type NewProcessWatcherState,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

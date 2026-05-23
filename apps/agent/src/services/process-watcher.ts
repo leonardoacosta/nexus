@@ -46,8 +46,8 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@nexus/db";
-import { sessions, eq } from "@nexus/db";
-import { and, isNull, isNotNull, gt } from "drizzle-orm";
+import { sessions, eq, processWatcherState } from "@nexus/db";
+import { and, isNull, isNotNull, gt, lt, sql } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { execText } from "../utils/exec";
 import {
@@ -56,7 +56,13 @@ import {
   updateSessionGitOrigin,
 } from "../db/sessions";
 import { lifecycleBus } from "./lifecycle-bus";
-import { resolveProject } from "./git-project-resolver";
+import { resolveProject, resolverCacheStats } from "./git-project-resolver";
+import {
+  recordTickDurationMs,
+  incPidsOpened,
+  incPidsClosed,
+  setStaleRowsGauge,
+} from "./process-watcher-metrics";
 
 const log = createLogger("agent:process-watcher");
 
@@ -374,13 +380,56 @@ export interface ReconcileResult {
 //      isolation requirement to satisfy.
 let lastReconcileMs = -1;
 
+// ---------------------------------------------------------------------------
+// process-watcher-health-monitoring: tick state surface
+// ---------------------------------------------------------------------------
+//
+// All four fields below are mirrored on the `processWatcherHandle` returned
+// by `startProcessWatcher()` (see `lastTickMs()`, `lastReconcileError()`,
+// `livePidCount()`, `resolverCacheHitRatio()` getters) AND surfaced on the
+// `/health/process-watcher` JSON probe + future `/metrics` endpoint.
+//
+// Module-level so the standalone `reconcileOnce()` invocation paths
+// (`POST /sessions/probe`, tests, on-demand triggers) update the same state
+// the interval loop does.
+
+let lastReconcileError: string | null = null;
+let lastLivePidCount = 0;
+/** Last time we INSERTed into process_watcher_state — drives the prune-every-N-ticks pattern. */
+let ticksSinceLastPrune = 0;
+/** Keep the last 100 tick rows; prune older every ~10 ticks. */
+const TICK_HISTORY_KEEP_ROWS = 100;
+/** Stalled threshold — emits ProcessWatcherStalled when tick age exceeds. */
+const STALLED_AGE_SECONDS = 30;
+
+/** Cheap monotonic getter — seconds since the last tick completed. -1 if no tick yet. */
+function lastTickAgeSeconds(): number {
+  if (lastReconcileMs < 0) return -1;
+  return Math.max(0, (performance.now() - lastReconcileMs) / 1000);
+}
+
 /**
  * Single reconciliation pass. Exposed standalone so the
  * `POST /sessions/probe` route handler can trigger it on demand.
+ *
+ * process-watcher-health-monitoring: records tick duration, live pid count,
+ * and error text into `process_watcher_state` on every tick. Emits
+ * `ProcessWatcherStalled` on the lifecycle bus when the LATEST row
+ * carries an error or this tick's duration exceeds the stalled threshold.
  */
 export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
-  const live = await listClaudeProcesses();
+  const tickStartMs = performance.now();
+  let tickErrorText: string | null = null;
+
+  let live: LiveProcess[] = [];
+  try {
+    live = await listClaudeProcesses();
+  } catch (err) {
+    tickErrorText = err instanceof Error ? err.message : String(err);
+    log.warn({ err: tickErrorText }, "listClaudeProcesses threw inside reconcileOnce");
+  }
   const livePids = new Set(live.map((p) => p.pid));
+  lastLivePidCount = livePids.size;
 
   // Step 1b (nx-ds6rq): tmux is the authoritative source for cwd +
   // tmuxTarget. Walk every pane whose foreground command is `claude`,
@@ -669,12 +718,143 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     log.info({ created, closed, live: live.length }, "reconciliation pass complete");
   }
 
+  // process-watcher-health-monitoring: tick-level counters.
+  if (created > 0) incPidsOpened(created);
+  if (closed > 0) incPidsClosed(closed);
+
   // Stamp the watcher heartbeat — read by `processWatcherHandle.lastTickMs()`
   // and surfaced on `GET /health.last_watcher_tick_ms`.
   lastReconcileMs = performance.now();
+  lastReconcileError = tickErrorText;
+
+  // process-watcher-health-monitoring: persist tick + emit stalled event.
+  // Both side-effects are fail-soft — they MUST NOT mask the reconcile
+  // result (the caller has already done the real work).
+  const tickDurationMs = Math.round(performance.now() - tickStartMs);
+  recordTickDurationMs(tickDurationMs);
+  await persistTickRow(db, {
+    livePidCount: livePids.size,
+    tickDurationMs,
+    errorText: tickErrorText,
+  });
+  await maybeEmitStalled(db, {
+    livePidCount: livePids.size,
+    tickDurationMs,
+    errorText: tickErrorText,
+  });
 
   return { created, closed };
 }
+
+// ---------------------------------------------------------------------------
+// process-watcher-health-monitoring helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Append a row to `process_watcher_state` and opportunistically prune
+ * older rows so the table stays bounded at ~100 entries.
+ */
+async function persistTickRow(
+  db: Db,
+  row: { livePidCount: number; tickDurationMs: number; errorText: string | null },
+): Promise<void> {
+  try {
+    await db.insert(processWatcherState).values({
+      livePidCount: row.livePidCount,
+      tickDurationMs: row.tickDurationMs,
+      errorText: row.errorText,
+    });
+
+    ticksSinceLastPrune += 1;
+    if (ticksSinceLastPrune >= 10) {
+      ticksSinceLastPrune = 0;
+      try {
+        // Keep only the latest TICK_HISTORY_KEEP_ROWS rows. Implementation
+        // uses a subselect for portability across PG versions; on this
+        // table (tiny, append-only) the extra round-trip is irrelevant.
+        await db.execute(
+          sql`DELETE FROM ${processWatcherState} WHERE id NOT IN (
+            SELECT id FROM ${processWatcherState}
+            ORDER BY observed_at DESC
+            LIMIT ${TICK_HISTORY_KEEP_ROWS}
+          )`,
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "process_watcher_state prune failed (non-fatal)",
+        );
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "process_watcher_state INSERT failed (non-fatal)",
+    );
+  }
+}
+
+/**
+ * Emit `ProcessWatcherStalled` when this tick's duration exceeds the stalled
+ * threshold (>30s) OR `errorText` is set. Idempotent on the bus side; no
+ * rate limiting here — back-to-back stalled ticks each fire one event so
+ * subscribers see the streak.
+ */
+async function maybeEmitStalled(
+  _db: Db,
+  row: { livePidCount: number; tickDurationMs: number; errorText: string | null },
+): Promise<void> {
+  const stalled =
+    row.errorText !== null || row.tickDurationMs > STALLED_AGE_SECONDS * 1000;
+  if (!stalled) return;
+
+  try {
+    lifecycleBus.emit("ProcessWatcherStalled", {
+      tickAgeSeconds: row.tickDurationMs / 1000,
+      errorText: row.errorText,
+      livePidCount: row.livePidCount,
+    });
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "ProcessWatcherStalled emit failed (non-fatal)",
+    );
+  }
+}
+
+/**
+ * Count rows in `sessions` whose pid is set but no longer alive — the
+ * "stale rows" the watcher would close on the next tick. Used by the
+ * `/health/process-watcher` probe + `nexus_pw_stale_rows` gauge.
+ *
+ * Best-effort: returns 0 on any error.
+ */
+export async function staleRowCount(db: Db): Promise<number> {
+  try {
+    const result = await db.execute(
+      sql`SELECT COUNT(*)::int AS count FROM sessions
+          WHERE status = 'active'
+            AND ended_at IS NULL
+            AND pid IS NOT NULL
+            AND pid > 0`,
+    );
+    // drizzle returns a different shape per driver; reach into rows
+    const rows = (result as unknown as { rows?: Array<{ count: number }> }).rows
+      ?? (result as unknown as Array<{ count: number }>);
+    const first = Array.isArray(rows) ? rows[0] : undefined;
+    return first?.count ?? 0;
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "staleRowCount query failed (returning 0)",
+    );
+    return 0;
+  }
+}
+
+// Suppress unused-import warning for lt — kept for future window queries
+// against process_watcher_state.observed_at.
+void lt;
 
 export interface ProcessWatcherHandle {
   /** Stop the interval loop. Safe to call multiple times. */
@@ -684,6 +864,19 @@ export interface ProcessWatcherHandle {
    * Returns `-1` when the watcher has not ticked yet since process start.
    */
   lastTickMs(): number;
+  /**
+   * Error message from the most recent failed tick path (e.g. pgrep
+   * crash), or `null` when the latest tick succeeded.
+   * Spec: process-watcher-health-monitoring.
+   */
+  lastReconcileError(): string | null;
+  /** Number of live `claude` pids observed by the most recent tick. */
+  livePidCount(): number;
+  /**
+   * Hit ratio for the git-project resolver's in-process cache.
+   * Returns 0 when no lookups have happened since process start.
+   */
+  resolverCacheHitRatio(): number;
 }
 
 /**
@@ -748,8 +941,44 @@ export function startProcessWatcher(
     lastTickMs() {
       return lastWatcherTickMs();
     },
+    lastReconcileError() {
+      return lastReconcileError;
+    },
+    livePidCount() {
+      return lastLivePidCount;
+    },
+    resolverCacheHitRatio() {
+      return resolverCacheStats().ratio;
+    },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Standalone getters — usable by callers that don't hold the handle
+// ---------------------------------------------------------------------------
+
+/** Same as `handle.lastReconcileError()` — standalone form for routes/tests. */
+export function lastWatcherReconcileError(): string | null {
+  return lastReconcileError;
+}
+
+/** Same as `handle.livePidCount()` — standalone form for routes/tests. */
+export function lastWatcherLivePidCount(): number {
+  return lastLivePidCount;
+}
+
+/** Same as `handle.resolverCacheHitRatio()` — standalone form for routes/tests. */
+export function watcherResolverCacheHitRatio(): number {
+  return resolverCacheStats().ratio;
+}
+
+/** Expose the stalled threshold to consumers (e.g. the health probe). */
+export function watcherStalledAgeSeconds(): number {
+  return STALLED_AGE_SECONDS;
+}
+
+/** Suppress side-effect import warning if the gauge is unused inline. */
+void setStaleRowsGauge;
 
 // ---------------------------------------------------------------------------
 // Test-only exports

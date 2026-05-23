@@ -290,6 +290,27 @@ const cache = new Map<string, CacheEntry>();
  */
 export function __resetCacheForTests(): void {
   cache.clear();
+  cacheStats.hits = 0;
+  cacheStats.misses = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Cache hit/miss counters — process-watcher-health-monitoring
+// ---------------------------------------------------------------------------
+//
+// Process-level counters (monotonic from process start). Read by the
+// `/health/process-watcher` probe + the future `/metrics` surface. Reset by
+// `__resetCacheForTests` so test isolation stays predictable.
+
+const cacheStats = { hits: 0, misses: 0 };
+
+/** Snapshot the resolver's cache stats. */
+export function resolverCacheStats(): { hits: number; misses: number; total: number; ratio: number } {
+  const hits = cacheStats.hits;
+  const misses = cacheStats.misses;
+  const total = hits + misses;
+  const ratio = total === 0 ? 0 : hits / total;
+  return { hits, misses, total, ratio };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,8 +346,10 @@ export async function resolveProject(
   const now = Date.now();
   const cached = cache.get(cwd);
   if (cached && cached.expiresAt > now) {
+    cacheStats.hits += 1;
     return cached.result;
   }
+  cacheStats.misses += 1;
 
   // 2. git remote get-url origin
   const rawUrl = await execGitRemoteUrl(cwd);

@@ -223,6 +223,25 @@ export interface VoiceOverrideChangedPayload {
   project: string;
 }
 
+/**
+ * Emitted by the process-watcher when the latest tick is stale
+ * (`tickAgeSeconds > 30`) or the latest persisted row carries an
+ * `errorText`. Subscribers (alert pipelines, dashboards) MAY treat this
+ * as a "watcher is unhealthy" trigger. Idempotent on the consumer side —
+ * the emitter does NOT rate-limit, so back-to-back stalled ticks each
+ * fire one event.
+ *
+ * Spec: process-watcher-health-monitoring.
+ */
+export interface ProcessWatcherStalledPayload {
+  /** Seconds since the last tick completed. */
+  tickAgeSeconds: number;
+  /** Error message from the latest persisted row, or null. */
+  errorText: string | null;
+  /** Live pid count from the latest tick. */
+  livePidCount: number;
+}
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -242,6 +261,7 @@ export interface LifecycleEventMap {
   RemoteSessionStarted: RemoteSessionStartedPayload;
   RemoteSessionEnded: RemoteSessionEndedPayload;
   VoiceOverrideChanged: VoiceOverrideChangedPayload;
+  ProcessWatcherStalled: ProcessWatcherStalledPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;

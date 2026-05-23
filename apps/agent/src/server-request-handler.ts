@@ -27,6 +27,7 @@ import { handleGetAgentSelf } from "./routes/agent-self";
 import { handleGetDiscoveredProjects } from "./routes/projects-discovered";
 import { handleGetHealthHistory } from "./routes/health-history";
 import { handleHealthProcesses } from "./routes/health-processes";
+import { handleHealthProcessWatcher } from "./routes/health-process-watcher";
 import {
   handleSendNotification,
   handleListNotifications,
@@ -98,6 +99,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/health/ingest" },
   { method: "GET", path: "/health/history" },
   { method: "GET", path: "/health/processes" },
+  { method: "GET", path: "/health/process-watcher" },
   // Sessions
   { method: "GET", path: "/sessions" },
   { method: "GET", path: "/sessions/:id" },
@@ -338,6 +340,16 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/projects/discovered" && request.method === "GET") {
         return handleGetDiscoveredProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/projects/discovered", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /health/process-watcher — observability probe for the process
+      // watcher tick loop (process-watcher-health-monitoring). Status 200
+      // ALWAYS — the `healthy` boolean is the actionable signal.
+      if (url.pathname === "/health/process-watcher" && request.method === "GET") {
+        return handleHealthProcessWatcher(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/health/process-watcher", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
