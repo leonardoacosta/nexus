@@ -77,7 +77,7 @@ export interface NotificationRule {
  * columns (`sent_at`, `priority`, `status`) and may grow time-window
  * aggregates over time.
  *
- * Spec: analytics-query-and-tts-synthesis
+ * Spec: analytics-query-and-tts-synthesis, analytics-pagination-cursor
  */
 export interface AnalyticsNotificationRow {
   id: string;
@@ -93,4 +93,49 @@ export interface AnalyticsNotificationRow {
   created_at: string;
   /** ISO-8601 string on the wire, or null if not yet sent. */
   sent_at: string | null;
+  /**
+   * ElevenLabs voice id that produced the cached audio (notifications-overhaul).
+   * NULL when no synthesis happened (TTS disabled, synthesis failed, or row
+   * predates the column).
+   */
+  voice_used: string | null;
+  /**
+   * True iff `audio_path` is set on the row AND the file currently exists on
+   * disk. Derived per-request via `audioExists(id)` so pruned-but-pointer-
+   * retained rows correctly report `false` (notifications-overhaul retention
+   * sweep semantics).
+   */
+  audio_available: boolean;
+}
+
+/**
+ * Wire envelope returned by `GET /analytics/notifications`
+ * (analytics-pagination-cursor).
+ *
+ * Keyset pagination: `next_cursor` is an opaque base64url token encoding
+ * `{created_at, id}`. Consumers MUST NOT parse it — pass it back verbatim
+ * as `?cursor=...` on the next request. `has_more` mirrors "next_cursor is
+ * non-null" but is surfaced explicitly so naive clients can branch on a
+ * boolean instead of a null check.
+ *
+ * `filters` echoes the effective query so dashboards can render
+ * "showing N over the last H hours for project=X" without re-parsing the
+ * request URL. `hours` lives inside `filters` (top-level `hours` was
+ * removed in analytics-pagination-cursor — Swift NetworkClient updated in
+ * follow-up).
+ */
+export interface AnalyticsNotificationsResponse {
+  rows: AnalyticsNotificationRow[];
+  /** Opaque cursor for the next page; null when no more rows. */
+  next_cursor: string | null;
+  /** True when at least one more page exists. */
+  has_more: boolean;
+  /** Number of rows in this response (always <= effective limit). */
+  count: number;
+  /** Echo of the effective filter shape used for this query. */
+  filters: {
+    hours: number;
+    project: string | null;
+    status: string | null;
+  };
 }

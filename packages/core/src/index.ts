@@ -14,6 +14,7 @@ export type {
   MeetingBehavior,
   NotificationRule,
   AnalyticsNotificationRow,
+  AnalyticsNotificationsResponse,
 } from "./types/notification";
 export type { SpecSummary } from "./types/spec";
 export type {
