@@ -67,3 +67,8 @@ export {
   type SpecSession,
   type NewSpecSession,
 } from "./specSessions";
+export {
+  processWatcherState,
+  type ProcessWatcherState,
+  type NewProcessWatcherState,
+} from "./processWatcherState";

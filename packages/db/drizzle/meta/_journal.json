@@ -267,6 +267,13 @@
       "when": 1779566899566,
       "tag": "0037_seed_notification_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1779566962592,
+      "tag": "0038_add_process_watcher_state",
+      "breakpoints": true
     }
   ]
 }
