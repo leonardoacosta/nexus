@@ -12,8 +12,7 @@ exists yet; this directory is the initial scaffolding.
   not rendered CSS/UX. Headless-browser drive would add substantial infra (Playwright,
   browser downloads, shared-state coordination between Next.js server + agent + DB)
   without catching a different class of bug.
-- The rest of the repo uses `bun:test` (apps/agent) and `vitest` (apps/nextjs). A third
-  runner isn't worth the tax.
+- The rest of the repo uses `bun:test` (apps/agent). A third runner isn't worth the tax.
 - When real Playwright coverage is needed (visual regression, multi-route flows), a new
   `tests/e2e/playwright/` subdirectory can be added alongside these bun tests.
 
@@ -41,7 +40,6 @@ e2e tests do not need to set `NEXUS_ATTACH_SECRET` in their environment.
 
 | File | Tasks | What it proves |
 |------|-------|----------------|
-| `dashboard-offline.test.ts` | [5.2] nx-3wpy | Dashboard renders from Postgres when all agents are stopped. Banner copy and session row are present. Regression guard for the fetchAllSessions HTTP fan-out removal. |
 | `attach-websocket.test.ts` | [5.3] nx-cjz0 | Attach path `/sessions/:id/stream` still delivers PTY output via WebSocket when the agent is up. Regression guard: the dual-path collapse must not have broken the live attach boundary. |
 
 ## Future work

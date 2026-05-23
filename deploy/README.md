@@ -12,7 +12,6 @@ scope for this README.)
 deploy/
 ├── install.sh                    # entry point — Linux install (Linux agent + git hooks)
 ├── nexus-agent.service           # systemd user unit (Linux agent)
-├── traefik/                      # dashboard reverse-proxy config
 ├── hooks/                        # git-hook dispatchers for spec-aware automation
 └── hooks.d/post-merge/02-deploy  # rebuilds + fans out to every Mac in agents.toml
 ```
@@ -40,13 +39,6 @@ This builds `apps/agent` via `bun run build`, drops the binary at
 systemctl --user daemon-reload
 systemctl --user enable --now nexus-agent
 journalctl --user -u nexus-agent -f
-```
-
-To also install the Next.js dashboard service (port 3100, fronted by
-Traefik), pass `--dashboard`:
-
-```bash
-deploy/install.sh --dashboard
 ```
 
 ## Mac listener install (audio dispatch side)

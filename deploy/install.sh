@@ -12,13 +12,6 @@ set -euo pipefail
 # Usage:
 #   deploy/install.sh                # build + install for current platform
 #   deploy/install.sh --no-build     # skip build; install pre-built binaries
-#   deploy/install.sh --dashboard    # (Linux only) install nexus-dashboard
-#                                    # systemd user unit (Next.js on :3100).
-#                                    # If TRAEFIK_DYNAMIC_DIR is exported,
-#                                    # also drops the Traefik file-provider
-#                                    # config for nexus.leonardoacosta.dev.
-#                                    # macOS is a no-op (Swift dashboard
-#                                    # reads from agents over Tailscale).
 #
 # This script is the single entry point. The post-merge git hook
 # (deploy/hooks.d/post-merge/02-deploy) calls into it for managed deploys.
@@ -27,16 +20,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nexus"
-# TRAEFIK_DYNAMIC_DIR is intentionally NOT defaulted here — we test for the
-# variable being set (vs. defaulted) in the --dashboard branch below to decide
-# whether to copy the reverse-proxy config. A default like /etc/traefik/dynamic
-# would force every installer run to attempt a root-owned copy.
-INSTALL_DASHBOARD=false
 DO_BUILD=true
 
 for arg in "$@"; do
     case "$arg" in
-        --dashboard) INSTALL_DASHBOARD=true ;;
         --no-build)  DO_BUILD=false ;;
         *) ;;
     esac
@@ -178,60 +165,3 @@ fi
 
 echo ""
 info "Config directory: $CONFIG_DIR"
-
-# ── Dashboard install (--dashboard flag, Linux only) ───────────────
-#
-# Kept for legacy Next.js dashboard hosts. The Swift dashboard is the
-# canonical UI going forward; this branch is for hosts that still serve
-# the web admin over Traefik.
-
-if $INSTALL_DASHBOARD; then
-    if [[ "$PLATFORM" != "linux" ]]; then
-        info "Dashboard unit Linux-only; macOS reads from agent over Tailscale"
-    else
-        echo ""
-        info "Installing Nexus Dashboard (Linux + Traefik)"
-
-        # Preflight reminder — Next.js requires `.next/` build artifacts on disk
-        # before `next start` will boot. The installer does NOT run the build
-        # itself (we can't gate the whole install on a multi-minute pnpm task),
-        # but we print the reminder loudly so the operator notices when the
-        # systemd unit fails to start with "Could not find a production build".
-        warn "Run \`pnpm --filter @nexus/nextjs build\` in apps/nextjs/ before enabling — Next.js requires .next/ artifacts on disk."
-
-        SYSTEMD_DIR="$HOME/.config/systemd/user"
-        mkdir -p "$SYSTEMD_DIR"
-        if [[ -f "$SCRIPT_DIR/nexus-dashboard.service" ]]; then
-            install -m 644 "$SCRIPT_DIR/nexus-dashboard.service" "$SYSTEMD_DIR/nexus-dashboard.service"
-            info "Installed nexus-dashboard.service to $SYSTEMD_DIR/"
-        else
-            warn "nexus-dashboard.service not present at $SCRIPT_DIR/nexus-dashboard.service — skipping unit install."
-        fi
-
-        # Traefik config copy is opt-in: the operator must export
-        # TRAEFIK_DYNAMIC_DIR pointing at a writable directory Traefik watches.
-        # Copying to /etc/traefik/dynamic by default would require root and
-        # silently fail on every per-user installer run.
-        if [[ -n "${TRAEFIK_DYNAMIC_DIR:-}" ]]; then
-            if [[ -d "$TRAEFIK_DYNAMIC_DIR" && -f "$SCRIPT_DIR/traefik/nexus-dashboard.yml" ]]; then
-                install -m 644 "$SCRIPT_DIR/traefik/nexus-dashboard.yml" "$TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
-                info "Installed Traefik config to $TRAEFIK_DYNAMIC_DIR/nexus-dashboard.yml"
-            else
-                warn "Traefik dynamic dir ($TRAEFIK_DYNAMIC_DIR) or config not found — skipping reverse proxy install."
-            fi
-        else
-            info "TRAEFIK_DYNAMIC_DIR not set, skipping Traefik config copy"
-            info "  (set TRAEFIK_DYNAMIC_DIR=/path/to/traefik/dynamic to enable)"
-        fi
-
-        systemctl --user daemon-reload || warn "systemctl daemon-reload failed (run manually)"
-        systemctl --user enable --now nexus-dashboard.service \
-            || warn "systemctl enable --now nexus-dashboard.service failed (run manually after building the Next.js app)"
-
-        echo ""
-        info "Dashboard install complete. Next steps:"
-        echo "  pnpm --filter @nexus/nextjs build       # required before first start"
-        echo "  systemctl --user status nexus-dashboard # verify"
-        echo "  journalctl --user -u nexus-dashboard -f # tail logs"
-    fi
-fi

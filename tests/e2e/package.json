@@ -3,19 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "End-to-end tests exercising the full stack (real Postgres, real agent HTTP/WS, real Next.js server action code paths).",
+  "description": "End-to-end tests exercising the full stack (real Postgres, real agent HTTP/WS).",
   "scripts": {
-    "test": "bun run test:attach && bun run test:dashboard && bun run test:agent-version-handshake",
+    "test": "bun run test:attach",
     "test:attach": "bun test ./attach-websocket.test.ts",
-    "test:dashboard": "cd ../../apps/nextjs && bun test ../../tests/e2e/dashboard-offline.test.ts",
-    "test:agent-version-handshake": "cd ../../apps/nextjs && bun test ../../tests/e2e/agent-version-handshake.test.ts",
     "test:e2e": "bun run test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@nexus/core": "workspace:*",
     "@nexus/db": "workspace:*",
-    "@nexus/nextjs": "workspace:*",
     "@nexus/agent": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

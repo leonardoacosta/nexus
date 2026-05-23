@@ -5,10 +5,6 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "paths": {
-      "@/*": ["../../apps/nextjs/src/*"],
-      "@nexus/nextjs/*": ["../../apps/nextjs/src/*"]
-    },
     "types": ["@types/bun"],
     "allowJs": true,
     "noEmit": true,
