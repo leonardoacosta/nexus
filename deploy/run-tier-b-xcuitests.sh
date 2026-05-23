@@ -53,10 +53,17 @@ BUN="$(command -v bun || echo /opt/homebrew/bin/bun)"
 
 STUB_LOG="$(mktemp -t nx-tier-b-stub.XXXXXX)"
 STUB_PID=""
+# Additional temp logs (e.g. the xcodebuild test log used for the
+# perms-timeout SKIP detection in step 3) push their paths onto this
+# array so cleanup() can remove them on exit.
+TEST_LOGS=()
 
 cleanup() {
   [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
   rm -f "$STUB_LOG" 2>/dev/null || true
+  for log in "${TEST_LOGS[@]}"; do
+    rm -f "$log" 2>/dev/null || true
+  done
 }
 trap cleanup EXIT
 
@@ -105,9 +112,58 @@ xcodebuild build-for-testing \
   CODE_SIGN_ENTITLEMENTS="$TEST_ENTITLEMENTS" \
   CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
 
+# --- 3. run the XCUITests with graceful perms-timeout SKIP (bd:nx-4p2ov) ---
+#
+# Capture stdout+stderr so we can inspect for the specific
+# "Timed out while enabling automation mode" failure signature. That
+# signature means the parent terminal/Cursor lacks the macOS Accessibility
+# / Automation perms that XCTest needs to drive the host app — a host
+# environment issue, NOT a code regression. Treating it as SKIP (non-failing)
+# lets the push proceed; treating any other failure as FAIL preserves the
+# existing contract for real test regressions.
+#
+# The CC-specific signatures we recognise as "perms timeout":
+#   - "Timed out while enabling automation mode"      (XCTest preflight)
+#   - "Failed to initialize for UI testing"           (XCTest harness)
+#   - "Test runner could not be attached"             (perms-blocked attach)
+# All three resolve the same way: grant the terminal automation control
+# under System Settings > Privacy & Security > Automation.
+TEST_LOG="$(mktemp -t nx-tier-b-xcuitest.XXXXXX)"
+TEST_LOGS+=("$TEST_LOG")  # cleanup() picks these up; see trap below
+
+set +e
 xcodebuild test-without-building \
   -project nexus.xcodeproj -scheme nexus-mac \
   -only-testing:nexus-mac-UITests/IntegrationGateUITests \
   -configuration Debug -derivedDataPath "$DD" \
   CODE_SIGN_ENTITLEMENTS="$TEST_ENTITLEMENTS" \
-  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+  2>&1 | tee "$TEST_LOG"
+TEST_RC=${PIPESTATUS[0]}
+set -e
+
+if [[ "$TEST_RC" -ne 0 ]]; then
+  if grep -qE "Timed out while enabling automation mode|Failed to initialize for UI testing|Test runner could not be attached" "$TEST_LOG"; then
+    cat >&2 <<'PERMS_SKIP'
+
+Tier B: SKIP — accessibility/automation perms missing for this terminal.
+
+XCTest's automation mode requires the parent terminal (Terminal.app,
+iTerm2, Cursor, etc.) to be granted control of System Events under:
+
+  System Settings > Privacy & Security > Automation > <your terminal>
+                                                       > System Events  (on)
+  System Settings > Privacy & Security > Accessibility > <your terminal>  (on)
+
+After granting, re-run the push. To bypass the gate entirely:
+  SKIP_INTEGRATION_GATE=1 git push
+or to skip just Tier B for one push:
+  SKIP_TIER_B_RUN=1 git push
+
+Not a code regression — exiting 0 so the push can proceed.
+PERMS_SKIP
+    exit 0
+  fi
+  # Any other failure: propagate so real test regressions still abort the push.
+  exit "$TEST_RC"
+fi
