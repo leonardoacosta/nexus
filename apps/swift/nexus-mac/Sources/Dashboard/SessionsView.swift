@@ -79,6 +79,30 @@ struct SessionsView: View {
             }
             .padding(.vertical, 8)
             .frame(minWidth: 320, idealWidth: 420)
+            // XCUITest guard hooks (spec 2.2 + 2.4, bd:nx-fkewy):
+            //  - "sessions-view" present  ⇒ SessionsView actually mounted ⇒
+            //    its .task ran ⇒ a fetch was triggered (fault #4 /
+            //    bd:nx-t9wrj regression assertion).
+            //  - "sessions-count:<n>" lets the transport round-trip test
+            //    (2.4) observe the stub fixture rendering (0 → 1).
+            //
+            // PRIOR LOCATION (broken): these modifiers used to live on the
+            // outer HSplitView. HSplitView is an AppKit-bridged NSSplitView
+            // wrapper, and SwiftUI accessibility modifiers attached to it
+            // do NOT propagate into the NSAccessibility tree the way
+            // pure-SwiftUI containers do — XCUITest's
+            // `app.descendants(matching: .any).matching(identifier:)`
+            // query found `sidebar-sessions`, `detail-sessions`, and the
+            // per-row `session-row-cc-*` buttons, but never the
+            // top-level `sessions-view`. Empirically verified 2026-05-22
+            // by dumping `entire contents of window 1` via AppleScript
+            // on the live binary. Moving the identifier onto the
+            // SwiftUI-native left-pane VStack makes it queryable; the
+            // semantic claim ("SessionsView mounted") is unchanged
+            // because the VStack only renders inside SessionsView's body.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("sessions-view")
+            .accessibilityValue("sessions-count:\(observer.activeSessions.count)")
 
             if let id = selectedSessionId,
                let session = observer.activeSessions.first(where: { $0.id == id }) {
@@ -93,14 +117,6 @@ struct SessionsView: View {
                 .accessibilityIdentifier("sessions-pty-pane")
             }
         }
-        // XCUITest guard hooks (spec 2.2 + 2.4):
-        //  - "sessions-view" present  ⇒ SessionsView actually mounted ⇒
-        //    its .task ran ⇒ a fetch was triggered (fault #4 /
-        //    bd:nx-t9wrj regression assertion).
-        //  - "sessions-count:<n>" lets the transport round-trip test
-        //    (2.4) observe the stub fixture rendering (0 → 1).
-        .accessibilityIdentifier("sessions-view")
-        .accessibilityValue("sessions-count:\(observer.activeSessions.count)")
         .task {
             // Idempotent: startStreams() guards on existing tasks, so this
             // is a harmless second call when the scene root already started

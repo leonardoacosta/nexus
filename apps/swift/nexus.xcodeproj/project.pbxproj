@@ -102,6 +102,7 @@
 		AF30FAB5D70705C27E9CB44B /* IntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C430AEEC725438D0A5B435 /* IntegrationStatus.swift */; };
 		B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */; };
 		B2AD8B89E490793CE957D1E8 /* SessionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9684BD3B2D5D0F2F2D11F9EF /* SessionRow.swift */; };
+		B309A23C5545931776B34BBB /* NexusMacAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */; };
 		B45298C4AD1D8538FB8CE2AD /* SessionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD10580432C088A1CE508F9 /* SessionList.swift */; };
 		B5F68150B6F058B29664ED8D /* NotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 482782F9B3DD653CB99247DB /* NotificationStore.swift */; };
 		B84A61BA3B3C80CE3693FEF6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1BB2ADEEAA160B6C7C5B5CE2 /* Assets.xcassets */; };
@@ -369,6 +370,7 @@
 		ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavePlanStatusTests.swift; sourceTree = "<group>"; };
 		ACF7696CDB6C8E33CDD0A500 /* ProjectAggregate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAggregate.swift; sourceTree = "<group>"; };
 		B0384CA9ED243F4F09451466 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
+		B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusMacAppDelegate.swift; sourceTree = "<group>"; };
 		B213F5631650836B0CE90CEB /* nexus-watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3D26019595C89D3AA34964F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B3E127C0C98FB3DCF20776D6 /* PayloadDecodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadDecodeTests.swift; sourceTree = "<group>"; };
@@ -500,6 +502,7 @@
 				632E1E5D8441BA5C9AD28F15 /* Dashboard */,
 				B0384CA9ED243F4F09451466 /* AppNavigation.swift */,
 				1387D70399F82E187F0A74D6 /* AudioPlayer.swift */,
+				B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */,
 				40F32F03C3F1B40C9236EC65 /* NotificationActivationHandler.swift */,
 			);
 			path = Sources;
@@ -1102,6 +1105,7 @@
 				8AB3E21ED1CD8990C943405B /* Models.swift in Sources */,
 				D8BE00C5B1EFB62A214B3AD3 /* Network.swift in Sources */,
 				F541D56BAD08613C0FF5626F /* NexusClient.swift in Sources */,
+				B309A23C5545931776B34BBB /* NexusMacAppDelegate.swift in Sources */,
 				BC8C1A1198CB98D090FB5493 /* NexusPanel.swift in Sources */,
 				ABEB490E880F6972B463B8C9 /* NotificationActivationHandler.swift in Sources */,
 				ED0F4D60B1DEA3C0766768E2 /* NotificationReplayButton.swift in Sources */,

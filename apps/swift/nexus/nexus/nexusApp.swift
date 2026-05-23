@@ -14,6 +14,20 @@ import os.log
 
 @main
 struct nexusApp: App {
+    // NSApplicationDelegate adapter — workaround for macOS 26.3 Tahoe
+    // where `.defaultLaunchBehavior(.presented)` does NOT actually
+    // present singleton `Window` scenes at cold launch. The delegate's
+    // `applicationDidFinishLaunching(_:)` programmatically triggers the
+    // SwiftUI-generated `Window > Nexus Dashboard` menu entry, which is
+    // the same code path `openWindow(id:)` exercises internally. Without
+    // this, the dashboard Window scene is registered (it appears in the
+    // Window menu) but never visibly mounts, which in turn makes the
+    // XCUITest fault #4 guard fail (bd:nx-fkewy) and is the cause of
+    // the SessionsView-never-mounts symptom — there is no host window
+    // for the sidebar query to find.
+    @NSApplicationDelegateAdaptor(NexusMacAppDelegate.self)
+    private var appDelegate
+
     @StateObject private var viewModel = NexusViewModel.shared
 
     // TTS observer — mounted in @main init() so the NotificationFired SSE
