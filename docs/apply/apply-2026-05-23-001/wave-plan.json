@@ -7,7 +7,7 @@
     "complete-next-dashboard-test-coverage",
     "process-watcher-health-monitoring"
   ],
-  "status": "in_progress",
+  "status": "completed",
   "current_wave": 1,
   "current_phase": null,
   "completed_waves": [],
@@ -60,7 +60,8 @@
           "ddl_tables": [],
           "feature": "nx-rh15n",
           "epic": "nx-jiqt9",
-          "priority": 1
+          "priority": 1,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "complete-dashboard-systemd-unit",
@@ -86,7 +87,8 @@
           "ddl_tables": [],
           "feature": "nx-ec5kw",
           "epic": "nx-1hluw",
-          "priority": 2
+          "priority": 2,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "complete-next-dashboard-test-coverage",
@@ -121,7 +123,8 @@
           "ddl_tables": [],
           "feature": "nx-rg2p4",
           "epic": "nx-sk3dc",
-          "priority": 2
+          "priority": 2,
+          "_warning": "unexpected status 'None' at completion"
         },
         {
           "name": "process-watcher-health-monitoring",
@@ -153,10 +156,12 @@
           "ddl_tables": [],
           "feature": "nx-iijxw",
           "epic": "nx-tyq0n",
-          "priority": 2
+          "priority": 2,
+          "_warning": "unexpected status 'None' at completion"
         }
       ]
     }
   ],
-  "run_id": "apply-2026-05-23-001"
+  "run_id": "apply-2026-05-23-001",
+  "completed_at": "2026-05-23T16:17:04.878219"
 }
