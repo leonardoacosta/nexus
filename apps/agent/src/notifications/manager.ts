@@ -165,16 +165,46 @@ export class NotificationManager {
       // `items` + `logPath` (adopt-reaper-into-nx-cron) are threaded from
       // the caller's `extras` argument — transient transport-only fields
       // that don't live on the persisted row.
-      for (const { channel } of delivered) {
+      for (const d of delivered) {
+        // Persist the agent-synth mp3 column on the DB row when the TTS
+        // handler returned audio bytes. The bytes are already on disk via
+        // `writeAudio()` in the handler — this just stamps the row's
+        // `audio_path` + `voice_used` columns so /notifications/:id/audio
+        // and dashboards can find them without re-stat()ing the dir.
+        if (d.channel === "tts" && d.audioBase64 && d.voiceUsed) {
+          try {
+            // Decode + re-write is unnecessary — writeAudio already happened
+            // inside the channel handler. We only need the column stamp.
+            // Use recordSynthesisedAudio with an empty buffer would re-write;
+            // instead inline the column UPDATE here, narrowly scoped.
+            await this.db
+              .update(notificationsTable)
+              .set({
+                audioPath: `${notification.id}.mp3`, // path relative to audio dir; absolute is computed by readAudioPath
+                voiceUsed: d.voiceUsed,
+              })
+              .where(eq(notificationsTable.id, notification.id));
+          } catch (err) {
+            logger.warn(
+              {
+                id: notification.id,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "manager: failed to stamp audio_path/voice_used columns (non-fatal)",
+            );
+          }
+        }
         lifecycleBus.emit("NotificationFired", {
           id: notification.id,
           title: notification.title,
           body: notification.body,
-          channel,
+          channel: d.channel,
           project: notification.project ?? undefined,
           message: notification.body, // back-compat alias
           items: extras?.items,
           logPath: extras?.logPath,
+          audioBase64: d.audioBase64,
+          voiceUsed: d.voiceUsed,
         });
       }
     }

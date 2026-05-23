@@ -10,8 +10,18 @@
  */
 
 import type { Db } from "@nexus/db";
+import { notifications as notificationsTable } from "@nexus/db";
+import { and, desc, eq, gte, type SQL } from "drizzle-orm";
 import { queryHealthTimeSeries } from "../db/health";
 import { createLogger } from "@nexus/core/node";
+import type {
+  AnalyticsNotificationRow,
+  NotificationChannel,
+  NotificationDeliveryState,
+  NotificationPriority,
+  NotificationSeverity,
+  NotificationStatus,
+} from "@nexus/core";
 
 const log = createLogger("agent:routes:analytics");
 
@@ -47,6 +57,108 @@ export async function handleAnalyticsHealth(
     });
   } catch (err) {
     log.error({ err }, "analytics/health query failed");
+    return new Response(
+      JSON.stringify({ error: "internal error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /analytics/notifications
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /analytics/notifications?hours=N&project=X&status=Y
+ *
+ * Query the `notifications` table with optional filters. Defaults to the
+ * trailing 24 hours and no project/status filter. Returns an envelope with
+ * the matched rows plus the effective filter shape so consumers can render
+ * "showing N over the last H hours for project=X" without re-parsing the
+ * request.
+ *
+ * Spec: analytics-query-and-tts-synthesis. Returns HTTP 200 with an empty
+ * `rows: []` when nothing matches — never 404 (path matched; empty-set has
+ * its own contract).
+ */
+export async function handleAnalyticsNotifications(
+  db: Db,
+  url: URL,
+): Promise<Response> {
+  const hoursParam = url.searchParams.get("hours");
+  const projectParam = url.searchParams.get("project");
+  const statusParam = url.searchParams.get("status");
+
+  const hours = hoursParam ? Number(hoursParam) : 24;
+  if (Number.isNaN(hours) || hours <= 0) {
+    return new Response(
+      JSON.stringify({ error: "hours must be a positive number" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  const cutoff = new Date(Date.now() - hours * 3600_000);
+  const conditions: SQL[] = [gte(notificationsTable.createdAt, cutoff)];
+  if (projectParam) conditions.push(eq(notificationsTable.project, projectParam));
+  if (statusParam) conditions.push(eq(notificationsTable.status, statusParam));
+
+  try {
+    const rows = await db
+      .select({
+        id: notificationsTable.id,
+        channel: notificationsTable.channel,
+        title: notificationsTable.title,
+        body: notificationsTable.body,
+        project: notificationsTable.project,
+        priority: notificationsTable.priority,
+        status: notificationsTable.status,
+        severity: notificationsTable.severity,
+        deliveryState: notificationsTable.deliveryState,
+        createdAt: notificationsTable.createdAt,
+        sentAt: notificationsTable.sentAt,
+      })
+      .from(notificationsTable)
+      .where(and(...conditions))
+      .orderBy(desc(notificationsTable.createdAt))
+      .limit(500);
+
+    const payload: AnalyticsNotificationRow[] = rows.map((r) => ({
+      id: r.id,
+      channel: r.channel as NotificationChannel,
+      title: r.title,
+      body: r.body,
+      project: r.project,
+      priority: r.priority as NotificationPriority,
+      status: r.status as NotificationStatus,
+      severity: r.severity as NotificationSeverity,
+      delivery_state: r.deliveryState as NotificationDeliveryState,
+      created_at:
+        r.createdAt instanceof Date
+          ? r.createdAt.toISOString()
+          : (r.createdAt as unknown as string),
+      sent_at:
+        r.sentAt instanceof Date
+          ? r.sentAt.toISOString()
+          : (r.sentAt as unknown as string | null) ?? null,
+    }));
+
+    return new Response(
+      JSON.stringify({
+        rows: payload,
+        count: payload.length,
+        hours,
+        filters: {
+          project: projectParam,
+          status: statusParam,
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "analytics/notifications query failed",
+    );
     return new Response(
       JSON.stringify({ error: "internal error" }),
       { status: 500, headers: { "Content-Type": "application/json" } },

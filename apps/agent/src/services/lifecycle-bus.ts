@@ -195,6 +195,18 @@ export interface NotificationFiredPayload {
    * Added by `adopt-reaper-into-nx-cron`. Optional + back-compat.
    */
   logPath?: string;
+  /**
+   * Base64-encoded MP3 audio produced by the agent-side ElevenLabs synth
+   * path (analytics-query-and-tts-synthesis). Present only when:
+   *   - `channel === "tts"`
+   *   - `ELEVENLABS_API_KEY` is set in the agent's environment
+   *   - The synth call returned a 2xx with mp3 bytes
+   * The Mac listener falls back to its own local synth path when this
+   * field is absent — back-compat with `swift-owns-elevenlabs-synth`.
+   */
+  audioBase64?: string;
+  /** ElevenLabs voice id used for the synth call. Pairs with `audioBase64`. */
+  voiceUsed?: string;
 }
 
 /**

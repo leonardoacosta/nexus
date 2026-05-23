@@ -194,10 +194,34 @@ export async function handlePatchNotificationSettings(
     update.duckingMode = dm as DuckingMode;
   }
 
+  // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
+  // SELECT the current row, merge the candidate patch, and if every field
+  // matches the existing value, return 200 WITHOUT issuing an UPDATE and
+  // WITHOUT emitting SettingsChanged. The spec scenario "no-op MUST NOT
+  // broadcast" was failing because the previous code always bumped
+  // updated_at — now PATCH {} (or PATCH {tts_enabled: true} when it was
+  // already true) is truly idempotent.
+  const current = await db.query.notificationSettings.findFirst({
+    where: eq(notificationSettings.id, SETTINGS_ROW_ID),
+  });
+  if (!current) {
+    return jsonResponse(
+      { error: "settings row not found", detail: "id=1 sentinel missing" },
+      404,
+    );
+  }
+
+  const changed =
+    (update.ttsEnabled !== undefined && update.ttsEnabled !== current.ttsEnabled) ||
+    (update.bannerEnabled !== undefined && update.bannerEnabled !== current.bannerEnabled) ||
+    (update.duckingMode !== undefined && update.duckingMode !== current.duckingMode);
+
+  if (!changed) {
+    // No-op: return current row, do NOT UPDATE, do NOT emit.
+    return jsonResponse(toResponse(current));
+  }
+
   // ── Persist ────────────────────────────────────────────────────────────
-  // Always bump `updatedAt` so PATCH {} still moves the timestamp (treated
-  // as a "touch"). Drizzle's `.returning()` gives us the post-update row
-  // in one round-trip — no second SELECT needed.
   const updated = await db
     .update(notificationSettings)
     .set({ ...update, updatedAt: new Date() })

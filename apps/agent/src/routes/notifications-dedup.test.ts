@@ -16,15 +16,25 @@ describe("notification route dedupMap", () => {
     // Reset to clear any state from other tests
     await resetNotificationRoutes();
 
-    const result1 = _testDedupInternals.isDuplicate("hello", "desktop");
+    const result1 = _testDedupInternals.isDuplicate("hello", null, "desktop");
     expect(result1).toBe(false);
 
-    const result2 = _testDedupInternals.isDuplicate("hello", "desktop");
+    const result2 = _testDedupInternals.isDuplicate("hello", null, "desktop");
     expect(result2).toBe(true);
 
     // Different message is not a duplicate
-    const result3 = _testDedupInternals.isDuplicate("different", "desktop");
+    const result3 = _testDedupInternals.isDuplicate("different", null, "desktop");
     expect(result3).toBe(false);
+
+    // Same message body for two DIFFERENT projects within TTL is NOT
+    // suppressed — both delivered. Spec: analytics-query-and-tts-synthesis.
+    const projA = _testDedupInternals.isDuplicate("multi-project", "alpha", "desktop");
+    expect(projA).toBe(false);
+    const projB = _testDedupInternals.isDuplicate("multi-project", "beta", "desktop");
+    expect(projB).toBe(false);
+    // Same message + same project still dedups.
+    const projAAgain = _testDedupInternals.isDuplicate("multi-project", "alpha", "desktop");
+    expect(projAAgain).toBe(true);
 
     // Cleanup
     await resetNotificationRoutes();

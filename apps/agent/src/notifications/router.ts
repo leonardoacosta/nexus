@@ -1,28 +1,194 @@
 import type { NotificationChannel, NotificationRule } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { captureException, addBreadcrumb } from "@sentry/node";
+import { fetchWithTimeout } from "@nexus/core";
+import type { Db } from "@nexus/db";
+import { projectVoiceOverrides } from "@nexus/db";
+import { eq } from "drizzle-orm";
 import type { NotificationRow } from "./buffer";
 import { isUnspeakable } from "./speakability";
+import { writeAudio } from "./audio-store";
 
 /**
  * Signal-only channel handler.
  *
- * After `remove-notification-channels` (P4) the agent owns NO synthesis or
- * desktop-banner duties. Both "tts" and "desktop" channels are now pure
- * lifecycle signals — the manager emits a `NotificationFired` event and the
- * Mac listener (nexus-mac via NexusShared) does the actual rendering /
- * synthesis / playback. The agent's role is to decide that the notification
- * fired and to persist the row; everything else is the listener's job.
- *
- * Kept here (rather than in a separate file) because there is nothing to
- * implement — a one-liner is dead code by itself.
+ * Used for `desktop` after `remove-notification-channels` (P4) — the agent
+ * owns NO desktop-banner duties; the Mac listener (nexus-mac via
+ * NexusShared) renders banners. For `tts`, see `sendTtsNotification` below
+ * — it was collapsed into this stub during a refactor and has been
+ * restored (analytics-query-and-tts-synthesis).
  */
 async function signalOnlyChannel(_notification: NotificationRow): Promise<boolean> {
   return true;
 }
 
 const sendDesktopNotification = signalOnlyChannel;
-const sendTtsNotification = signalOnlyChannel;
+
+// ---------------------------------------------------------------------------
+// TTS synthesis (analytics-query-and-tts-synthesis)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-call DB handle for the TTS channel. Set at agent boot via
+ * `setTtsDbHandle(db)`. Module-level (not injected via call sites) because
+ * `CHANNEL_HANDLERS` is keyed by channel name and the handler signature
+ * cannot grow without changing every caller; the manager already passes
+ * each NotificationRow individually so DB injection at boot keeps the
+ * dispatch arrow narrow.
+ */
+let ttsDbHandle: Db | null = null;
+
+/** Install the DB handle the TTS channel uses for voice-override lookup. */
+export function setTtsDbHandle(db: Db | null): void {
+  ttsDbHandle = db;
+}
+
+/** ElevenLabs default voice id — fallback when no per-project override is set. */
+function defaultVoiceId(): string | null {
+  const v = process.env.ELEVENLABS_DEFAULT_VOICE_ID;
+  return v && v.length > 0 ? v : null;
+}
+
+/**
+ * Resolve the ElevenLabs voice id for a notification:
+ *   1. per-project override row (project_voice_overrides) when project set
+ *   2. ELEVENLABS_DEFAULT_VOICE_ID env var
+ *   3. null → caller MUST treat as missing voice id (failure)
+ *
+ * Reuses the existing `projectVoiceOverrides` table — no new schema.
+ */
+async function resolveVoiceId(
+  notification: NotificationRow,
+): Promise<string | null> {
+  if (notification.project && ttsDbHandle) {
+    try {
+      const row = await ttsDbHandle
+        .select({ voiceId: projectVoiceOverrides.voiceId })
+        .from(projectVoiceOverrides)
+        .where(eq(projectVoiceOverrides.project, notification.project))
+        .limit(1);
+      if (row[0]) return row[0].voiceId;
+    } catch (err) {
+      log.warn(
+        {
+          project: notification.project,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "tts: project voice override lookup failed (non-fatal, falling back)",
+      );
+    }
+  }
+  return defaultVoiceId();
+}
+
+/**
+ * Send the notification body to ElevenLabs and return mp3 bytes.
+ *
+ * Structured errors:
+ *   - HTTP 4xx/5xx → Error("elevenlabs http <status>")
+ *   - Network/abort → underlying Error from fetchWithTimeout
+ *   - Missing voice id → Error("elevenlabs missing voice id")
+ * The caller MUST `captureException` and mark the channel failed without
+ * emitting NotificationFired.
+ */
+async function synthesizeViaElevenLabs(
+  notification: NotificationRow,
+  voiceId: string,
+  apiKey: string,
+): Promise<Uint8Array> {
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    timeout: 8_000,
+    headers: {
+      "xi-api-key": apiKey,
+      "content-type": "application/json",
+      accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text: notification.body,
+      model_id: "eleven_turbo_v2",
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`elevenlabs http ${res.status}`);
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+/**
+ * Real TTS channel handler — restored from the `signalOnlyChannel` stub by
+ * `analytics-query-and-tts-synthesis`. Behavioural contract:
+ *
+ *   - `ELEVENLABS_API_KEY` unset → return `success: true` with no audio
+ *     (Mac listener falls back to its own local synth path). Logs an info-
+ *     level "tts: api key unset" once per call.
+ *   - Voice id resolves to null → captureException + return failure (no
+ *     NotificationFired emit for tts).
+ *   - HTTP 4xx/5xx / network timeout → captureException + return failure.
+ *   - Success → persist mp3 to `~/.config/nexus/audio/<id>.mp3` via
+ *     `writeAudio()`, base64-encode the bytes, return as
+ *     `{ success: true, audioBase64, voiceUsed }`.
+ */
+async function sendTtsNotification(
+  notification: NotificationRow,
+): Promise<ChannelResult> {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey || apiKey.length === 0) {
+    log.info(
+      { notificationId: notification.id },
+      "tts: ELEVENLABS_API_KEY unset — emitting signal-only NotificationFired (listener falls back to local synth)",
+    );
+    return { success: true };
+  }
+
+  let voiceId: string | null;
+  try {
+    voiceId = await resolveVoiceId(notification);
+  } catch (err) {
+    captureException(err);
+    log.error(
+      {
+        notificationId: notification.id,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "tts: voice id resolution threw",
+    );
+    return { success: false };
+  }
+  if (!voiceId) {
+    const err = new Error(
+      `elevenlabs missing voice id (project=${notification.project ?? "<none>"})`,
+    );
+    captureException(err);
+    log.error(
+      { notificationId: notification.id, project: notification.project },
+      "tts: no voice id available (no project override + ELEVENLABS_DEFAULT_VOICE_ID unset)",
+    );
+    return { success: false };
+  }
+
+  try {
+    const mp3 = await synthesizeViaElevenLabs(notification, voiceId, apiKey);
+    await writeAudio(notification.id, mp3);
+    // Base64-encode for SSE transport. Buffer is available in both Bun and
+    // Node runtimes via the global.
+    const audioBase64 = Buffer.from(mp3).toString("base64");
+    return { success: true, audioBase64, voiceUsed: voiceId };
+  } catch (err) {
+    captureException(err);
+    log.error(
+      {
+        notificationId: notification.id,
+        voiceId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "tts: ElevenLabs synthesis failed",
+    );
+    return { success: false };
+  }
+}
 
 /** Timeout in ms for a single channel handler invocation. */
 const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
@@ -38,6 +204,15 @@ const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS
  */
 export interface ChannelResult {
   success: boolean;
+  /**
+   * Base64-encoded MP3 produced by an in-channel synthesiser (TTS only).
+   * Threaded through the manager onto `NotificationFired.audioBase64` so the
+   * Mac listener can play the agent-synth output instead of doing its own
+   * local synth round-trip.
+   */
+  audioBase64?: string;
+  /** Voice id used by the TTS handler. Pairs with `audioBase64`. */
+  voiceUsed?: string;
 }
 
 /** Channel handlers may return a bare boolean (legacy) or a structured result. */
@@ -200,6 +375,10 @@ export async function routeNotification(
 /** Per-channel delivery outcome surfaced to the manager. */
 export interface DeliveredChannel {
   channel: NotificationChannel;
+  /** Set by the TTS handler when agent-side synthesis succeeded. */
+  audioBase64?: string;
+  /** Voice id paired with `audioBase64`. */
+  voiceUsed?: string;
 }
 
 /**
@@ -253,7 +432,11 @@ export async function routeNotificationParallel(
     if (result.status === "fulfilled") {
       const value = result.value;
       if (value.success) {
-        delivered.push({ channel: channelName });
+        delivered.push({
+          channel: channelName,
+          audioBase64: value.audioBase64,
+          voiceUsed: value.voiceUsed,
+        });
       } else {
         // Handler returned `success: false` — treat as a soft failure.
         failed.push(channelName);

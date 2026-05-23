@@ -66,3 +66,31 @@ export interface NotificationRule {
   channels: NotificationChannel[];
   meeting_behavior: MeetingBehavior;
 }
+
+/**
+ * Wire shape returned by `GET /analytics/notifications`.
+ *
+ * Snake_case wire format matches DB column names so consumers (Swift
+ * dashboard, TUI, scripts) consume one canonical shape — no per-client
+ * renaming. Distinct from `NotificationEvent` (the live `/notifications`
+ * list endpoint) because analytics surfaces additional bookkeeping
+ * columns (`sent_at`, `priority`, `status`) and may grow time-window
+ * aggregates over time.
+ *
+ * Spec: analytics-query-and-tts-synthesis
+ */
+export interface AnalyticsNotificationRow {
+  id: string;
+  channel: NotificationChannel;
+  title: string;
+  body: string;
+  project: string | null;
+  priority: NotificationPriority;
+  status: NotificationStatus;
+  severity: NotificationSeverity;
+  delivery_state: NotificationDeliveryState;
+  /** ISO-8601 string on the wire. */
+  created_at: string;
+  /** ISO-8601 string on the wire, or null if not yet sent. */
+  sent_at: string | null;
+}

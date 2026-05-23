@@ -13,6 +13,7 @@ export type {
   NotificationEvent,
   MeetingBehavior,
   NotificationRule,
+  AnalyticsNotificationRow,
 } from "./types/notification";
 export type { SpecSummary } from "./types/spec";
 export type {

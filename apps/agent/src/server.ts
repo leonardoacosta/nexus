@@ -26,6 +26,7 @@ import type { Db } from "@nexus/db";
 import type { ServerWebSocket, Server as BunServer } from "bun";
 import { logger, parseConfig, getAgentsConfigPath } from "@nexus/core/node";
 import { initNotificationRoutes } from "./routes/notifications";
+import { setTtsDbHandle } from "./notifications/router";
 import { initCredentialRoutes, getCredentialPool } from "./routes/credentials";
 import {
   startCredentialWatcher,
@@ -248,6 +249,10 @@ export function startServer(
   // well before the first real request arrives.
   if (db) {
     safeFireAndForget(initNotificationRoutes(db), "init-notification-routes");
+    // Install the DB handle the TTS channel uses for per-project voice-
+    // override lookup (analytics-query-and-tts-synthesis). Synchronous —
+    // no I/O, just a setter.
+    setTtsDbHandle(db);
     initCredentialRoutes(db, {
       encryptionKey: options?.encryptionKey,
       prerotateThreshold: options?.prerotateThreshold,

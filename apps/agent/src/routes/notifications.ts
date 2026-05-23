@@ -70,8 +70,20 @@ function evictDedupEntries(): void {
   }
 }
 
-/** Return true if this (message, target) pair was already seen within DEDUP_TTL_MS. */
-function isDuplicate(message: string, target: string): boolean {
+/**
+ * Return true if this (message, project, channel) triple was already seen
+ * within DEDUP_TTL_MS. `project` is included so the same banner text fired
+ * for two distinct projects in the same 5s window is NOT suppressed
+ * (analytics-query-and-tts-synthesis). Pass `null`/`undefined` for
+ * project-less notifications — the empty-string segment keeps the key
+ * shape stable across both cases.
+ */
+function isDuplicate(
+  message: string,
+  project: string | null | undefined,
+  channel: string,
+): boolean {
+  const target = `${channel}|${project ?? ""}`;
   const key = createHash("sha256")
     .update(`${message}|${target}`)
     .digest("hex")
@@ -162,10 +174,17 @@ export async function handleSendNotification(
     );
   }
 
-  // Deduplication: suppress identical (body, channel) pairs within 5 seconds (D6).
-  const target = `${channel as string}`;
-  if (isDuplicate(notifBody as string, target)) {
-    log.info({ id, channel }, "notification suppressed (duplicate within 5s)");
+  // Deduplication: suppress identical (body, project, channel) triples within
+  // 5 seconds (D6 + analytics-query-and-tts-synthesis fix). Same body for two
+  // different projects in the same window is allowed (both delivered).
+  if (
+    isDuplicate(
+      notifBody as string,
+      (project as string | null | undefined) ?? null,
+      channel as string,
+    )
+  ) {
+    log.info({ id, channel, project }, "notification suppressed (duplicate within 5s)");
     return jsonResponse({ suppressed: true }, 200);
   }
 
