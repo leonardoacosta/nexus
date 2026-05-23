@@ -5,12 +5,23 @@
  *
  * Usage:
  *   POSTGRES_URL=... NEXUS_ENCRYPTION_KEY=... bun run apps/agent/src/scripts/probe-credential-identity.ts
+ *
+ * Note: nx-44mby made the active-credential-watcher mirror live rotations
+ * into the pool; the inline pool.add() auto-probe writes identity fields
+ * on every rotation. This script remains useful for backfilling rows that
+ * predate that change.
+ *
+ * Migrated to createLogger + withErrorCapture per nx-gk6qw / enforce-pino-script-errors.
  */
 
-import { createDb } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { createDb, credentials, scriptErrors } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { fetchWithTimeout } from "@nexus/core/fetch";
+import {
+  attachScriptErrorSink,
+  createLogger,
+  withErrorCapture,
+} from "@nexus/core/node";
 import { loadEncryptionKey, decrypt } from "../credentials/encryption";
 
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
@@ -34,26 +45,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function main() {
+const log = createLogger("probe-credential-identity");
+
+await withErrorCapture("probe-credential-identity", async () => {
   const dbUrl = process.env.POSTGRES_URL;
   if (!dbUrl) {
-    throw new Error("POSTGRES_URL is required.");
+    throw new Error("POSTGRES_URL is required");
   }
 
-  let encryptionKey: Buffer;
-  try {
-    encryptionKey = loadEncryptionKey();
-  } catch (err) {
-    console.error(
-      `NEXUS_ENCRYPTION_KEY error: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exit(1);
-  }
+  const encryptionKey: Buffer = loadEncryptionKey();
 
   const { db, client } = createDb(dbUrl);
+  attachScriptErrorSink({
+    async insert(records) {
+      await db.insert(scriptErrors).values(
+        records.map((r) => ({
+          id: r.id,
+          scriptName: r.scriptName,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          context: r.context,
+          machine: r.machine,
+          exitCode: r.exitCode,
+          createdAt: r.createdAt,
+        })),
+      );
+    },
+  });
 
   const allRows = await db.select().from(credentials);
-  console.log(`Found ${allRows.length} credentials to probe.\n`);
+  log.info({ total: allRows.length }, "identity probe started");
 
   let probed = 0;
   let failed = 0;
@@ -61,7 +83,7 @@ async function main() {
 
   for (const row of allRows) {
     if (!row.valueEncrypted) {
-      console.log(`  - ${row.name} (${row.id}) -- no encrypted value, skipping`);
+      log.info({ id: row.id, name: row.name }, "skip: no encrypted value");
       skipped++;
       continue;
     }
@@ -72,7 +94,10 @@ async function main() {
       const accessToken = parsed?.claudeAiOauth?.accessToken;
 
       if (!accessToken || typeof accessToken !== "string") {
-        console.log(`  - ${row.name} -- no accessToken in OAuth blob, skipping`);
+        log.info(
+          { name: row.name },
+          "skip: no accessToken in OAuth blob",
+        );
         skipped++;
         continue;
       }
@@ -84,8 +109,14 @@ async function main() {
 
       if (!res.ok) {
         const body = await res.text().catch(() => "");
-        console.error(
-          `  x ${row.name} -- HTTP ${res.status} ${res.statusText}${body ? `: ${body.slice(0, 120)}` : ""}`,
+        log.error(
+          {
+            name: row.name,
+            status: res.status,
+            statusText: res.statusText,
+            body: body ? body.slice(0, 120) : null,
+          },
+          "identity probe returned non-2xx",
         );
         failed++;
         await sleep(DELAY_MS);
@@ -114,30 +145,31 @@ async function main() {
         .where(eq(credentials.id, row.id));
 
       probed++;
-      console.log(
-        `  + ${row.name} -- ${accountEmail ?? "no-email"} | org=${orgName ?? "none"}`,
+      log.info(
+        {
+          name: row.name,
+          accountEmail,
+          orgName,
+        },
+        "identity probed + persisted",
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  x ${row.name} (${row.id}) -- ${msg}`);
+      log.error({ id: row.id, name: row.name, error: msg }, "probe failed");
       failed++;
     }
 
     await sleep(DELAY_MS);
   }
 
-  console.log(
-    `\nDone: ${probed} probed, ${failed} failed, ${skipped} skipped (of ${allRows.length} total)`,
+  log.info(
+    { probed, failed, skipped, total: allRows.length },
+    "identity probe complete",
   );
 
   await client.end();
 
   if (failed > 0) {
-    process.exitCode = 1;
+    throw new Error(`${failed} credential(s) failed identity probe`);
   }
-}
-
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
 });

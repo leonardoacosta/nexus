@@ -8,34 +8,58 @@
  *
  * Usage:
  *   POSTGRES_URL=... NEXUS_ENCRYPTION_KEY=... bun run apps/agent/src/scripts/import-credentials.ts
+ *
+ * Note: nx-wo9f9 made the agent's credential-watcher auto-import on startup,
+ * so this script is now redundant for steady-state operation. Retained as a
+ * one-shot recovery tool for cases where the DB is empty and a fresh agent
+ * restart isn't acceptable.
+ *
+ * Migrated to createLogger + withErrorCapture per nx-gk6qw / enforce-pino-script-errors.
  */
 
-import { createDb } from "@nexus/db";
+import { createDb, scriptErrors } from "@nexus/db";
+import {
+  attachScriptErrorSink,
+  createLogger,
+  withErrorCapture,
+} from "@nexus/core/node";
 import { CredentialPool } from "../credentials/pool";
 import { loadEncryptionKey } from "../credentials/encryption";
 import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 
-async function main() {
+const log = createLogger("import-credentials");
+
+await withErrorCapture("import-credentials", async () => {
   // ── Validate environment ──────────────────────────────────────────────────
   const dbUrl = process.env.POSTGRES_URL;
   if (!dbUrl) {
-    throw new Error("POSTGRES_URL is required. Set it in the environment.");
+    throw new Error("POSTGRES_URL is required");
   }
 
-  let encryptionKey: Buffer;
-  try {
-    encryptionKey = loadEncryptionKey();
-  } catch (err) {
-    console.error(
-      `NEXUS_ENCRYPTION_KEY error: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exit(1);
-  }
+  const encryptionKey: Buffer = loadEncryptionKey();
 
   // ── Open database ─────────────────────────────────────────────────────────
   const { db, client } = createDb(dbUrl);
+  attachScriptErrorSink({
+    async insert(records) {
+      await db.insert(scriptErrors).values(
+        records.map((r) => ({
+          id: r.id,
+          scriptName: r.scriptName,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          context: r.context,
+          machine: r.machine,
+          exitCode: r.exitCode,
+          createdAt: r.createdAt,
+        })),
+      );
+    },
+  });
+
   const pool = new CredentialPool(db, { encryptionKey });
 
   // ── Discover credential files ─────────────────────────────────────────────
@@ -44,9 +68,10 @@ async function main() {
   try {
     allFiles = await readdir(credDir);
   } catch (err) {
-    console.error(`Cannot read credential directory ${credDir}: ${err instanceof Error ? err.message : String(err)}`);
     await client.end();
-    process.exit(1);
+    throw new Error(
+      `Cannot read credential directory ${credDir}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const files = allFiles
@@ -54,12 +79,12 @@ async function main() {
     .sort();
 
   if (files.length === 0) {
-    console.log("No acct-*.json files found. Nothing to import.");
+    log.info({ dir: credDir }, "no acct-*.json files found — nothing to import");
     await client.end();
     return;
   }
 
-  console.log(`Found ${files.length} credential files in ${credDir}\n`);
+  log.info({ count: files.length, dir: credDir }, "discovered credential files");
 
   // ── Import each file ──────────────────────────────────────────────────────
   let imported = 0;
@@ -83,29 +108,24 @@ async function main() {
       });
 
       imported++;
-      console.log(`  + ${name} -- imported`);
+      log.info({ name }, "credential imported");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  x ${name} -- ${msg}`);
+      log.error({ name, error: msg }, "credential import failed");
       errors++;
     }
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const allCreds = await pool.list();
-  console.log(
-    `\nDone: ${imported} imported, ${errors} errors (of ${files.length} files)`,
+  log.info(
+    { imported, errors, total: files.length, poolSize: allCreds.length },
+    "import complete",
   );
-  console.log(`DB now has ${allCreds.length} credential rows`);
 
   await client.end();
 
   if (errors > 0) {
-    process.exit(1);
+    throw new Error(`${errors} credential(s) failed to import`);
   }
-}
-
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
 });

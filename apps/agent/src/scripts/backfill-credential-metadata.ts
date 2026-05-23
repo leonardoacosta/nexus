@@ -8,11 +8,17 @@
  *
  * Usage:
  *   POSTGRES_URL=... NEXUS_ENCRYPTION_KEY=... bun run apps/agent/src/scripts/backfill-credential-metadata.ts
+ *
+ * Migrated to createLogger + withErrorCapture per nx-gk6qw / enforce-pino-script-errors.
  */
 
-import { createDb } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { createDb, credentials, scriptErrors } from "@nexus/db";
 import { eq } from "drizzle-orm";
+import {
+  attachScriptErrorSink,
+  createLogger,
+  withErrorCapture,
+} from "@nexus/core/node";
 import { loadEncryptionKey, decrypt } from "../credentials/encryption";
 
 interface OAuthBlob {
@@ -23,26 +29,37 @@ interface OAuthBlob {
   };
 }
 
-async function main() {
+const log = createLogger("backfill-credential-metadata");
+
+await withErrorCapture("backfill-credential-metadata", async () => {
   const dbUrl = process.env.POSTGRES_URL;
   if (!dbUrl) {
-    throw new Error("POSTGRES_URL is required.");
+    throw new Error("POSTGRES_URL is required");
   }
 
-  let encryptionKey: Buffer;
-  try {
-    encryptionKey = loadEncryptionKey();
-  } catch (err) {
-    console.error(
-      `NEXUS_ENCRYPTION_KEY error: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exit(1);
-  }
+  const encryptionKey: Buffer = loadEncryptionKey();
 
   const { db, client } = createDb(dbUrl);
+  attachScriptErrorSink({
+    async insert(records) {
+      await db.insert(scriptErrors).values(
+        records.map((r) => ({
+          id: r.id,
+          scriptName: r.scriptName,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          context: r.context,
+          machine: r.machine,
+          exitCode: r.exitCode,
+          createdAt: r.createdAt,
+        })),
+      );
+    },
+  });
 
   const allRows = await db.select().from(credentials);
-  console.log(`Found ${allRows.length} credentials to backfill.\n`);
+  log.info({ total: allRows.length }, "credentials backfill started");
 
   let updated = 0;
   let skipped = 0;
@@ -50,7 +67,7 @@ async function main() {
 
   for (const row of allRows) {
     if (!row.valueEncrypted) {
-      console.log(`  - ${row.name} (${row.id}) -- no encrypted value, skipping`);
+      log.info({ id: row.id, name: row.name }, "skip: no encrypted value");
       skipped++;
       continue;
     }
@@ -61,7 +78,10 @@ async function main() {
       const oauth = parsed.claudeAiOauth;
 
       if (!oauth) {
-        console.log(`  - ${row.name} (${row.id}) -- no claudeAiOauth object, skipping`);
+        log.info(
+          { id: row.id, name: row.name },
+          "skip: no claudeAiOauth object",
+        );
         skipped++;
         continue;
       }
@@ -69,12 +89,13 @@ async function main() {
       const subscriptionType = oauth.subscriptionType ?? null;
       const rateLimitTier = oauth.rateLimitTier ?? null;
       const expiresAt =
-        typeof oauth.expiresAt === "number"
-          ? new Date(oauth.expiresAt)
-          : null;
+        typeof oauth.expiresAt === "number" ? new Date(oauth.expiresAt) : null;
 
       if (!subscriptionType && !rateLimitTier && !expiresAt) {
-        console.log(`  - ${row.name} (${row.id}) -- no metadata fields present, skipping`);
+        log.info(
+          { id: row.id, name: row.name },
+          "skip: no metadata fields present",
+        );
         skipped++;
         continue;
       }
@@ -89,28 +110,31 @@ async function main() {
         .where(eq(credentials.id, row.id));
 
       updated++;
-      console.log(
-        `  + ${row.name} -- sub=${subscriptionType ?? "null"}, tier=${rateLimitTier ?? "null"}, expires=${expiresAt?.toISOString() ?? "null"}`,
+      log.info(
+        {
+          id: row.id,
+          name: row.name,
+          subscriptionType,
+          rateLimitTier,
+          expiresAt: expiresAt?.toISOString() ?? null,
+        },
+        "updated credential metadata",
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  x ${row.name} (${row.id}) -- ${msg}`);
+      log.error({ id: row.id, name: row.name, error: msg }, "backfill failed");
       errors++;
     }
   }
 
-  console.log(
-    `\nDone: ${updated} updated, ${skipped} skipped, ${errors} errors (of ${allRows.length} total)`,
+  log.info(
+    { updated, skipped, errors, total: allRows.length },
+    "credentials backfill complete",
   );
 
   await client.end();
 
   if (errors > 0) {
-    process.exit(1);
+    throw new Error(`${errors} credential(s) failed to backfill`);
   }
-}
-
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
 });

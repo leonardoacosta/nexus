@@ -40,7 +40,10 @@ interface FakePool {
     type: string;
     value_plaintext: string;
   }): Promise<void>;
-  refreshMetadata(): Promise<void>;
+  // Matches the production CredentialPool.refreshMetadata signature
+  // (returns number of rows refreshed); the test only asserts call
+  // count so the value is always 0.
+  refreshMetadata(): Promise<number>;
   calls: FakePoolCall[];
   /** When set, `add` throws an Error with this message on the matching call. */
   throwOnAdd?: string;
@@ -66,6 +69,7 @@ function createFakePool(): FakePool {
     },
     async refreshMetadata() {
       pool.calls.push({ method: "refreshMetadata" });
+      return 0;
     },
   };
   return pool;

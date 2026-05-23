@@ -9,25 +9,50 @@
  *
  * Usage:
  *   POSTGRES_URL=... bun run apps/agent/src/scripts/backfill-mcp-providers.ts
+ *
+ * Migrated to createLogger + withErrorCapture per nx-gk6qw / enforce-pino-script-errors.
  */
 
-import { createDb } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { createDb, credentials, scriptErrors } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
+import {
+  attachScriptErrorSink,
+  createLogger,
+  withErrorCapture,
+} from "@nexus/core/node";
 
 interface McpOAuthEntry {
   serverName?: string;
 }
 
-async function main() {
+const log = createLogger("backfill-mcp-providers");
+
+await withErrorCapture("backfill-mcp-providers", async () => {
   const dbUrl = process.env.POSTGRES_URL;
   if (!dbUrl) {
-    throw new Error("POSTGRES_URL is required.");
+    throw new Error("POSTGRES_URL is required");
   }
 
   const { db, client } = createDb(dbUrl);
+  attachScriptErrorSink({
+    async insert(records) {
+      await db.insert(scriptErrors).values(
+        records.map((r) => ({
+          id: r.id,
+          scriptName: r.scriptName,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          context: r.context,
+          machine: r.machine,
+          exitCode: r.exitCode,
+          createdAt: r.createdAt,
+        })),
+      );
+    },
+  });
 
   // Discover credential files on disk
   const credDir = join(process.env.HOME ?? "", ".config/nexus/credentials");
@@ -37,16 +62,15 @@ async function main() {
     .sort();
 
   if (files.length === 0) {
-    console.log("No acct-*.json files found. Nothing to backfill.");
+    log.info({ dir: credDir }, "no acct-*.json files found — nothing to backfill");
     await client.end();
     return;
   }
 
-  console.log(`Found ${files.length} credential files in ${credDir}\n`);
+  log.info({ count: files.length, dir: credDir }, "discovered credential files");
 
   // Load all DB rows for name matching
   const allRows = await db.select().from(credentials);
-  const rowsByName = new Map(allRows.map((r) => [r.name, r]));
 
   let updated = 0;
   let skipped = 0;
@@ -62,7 +86,7 @@ async function main() {
       const mcpOAuth = parsed?.mcpOAuth;
 
       if (typeof mcpOAuth !== "object" || mcpOAuth === null) {
-        console.log(`  - ${name} -- no mcpOAuth object, skipping`);
+        log.info({ name }, "skip: no mcpOAuth object");
         skipped++;
         continue;
       }
@@ -76,7 +100,7 @@ async function main() {
       ].sort();
 
       if (providers.length === 0) {
-        console.log(`  - ${name} -- no MCP providers found, skipping`);
+        log.info({ name }, "skip: no MCP providers found");
         skipped++;
         continue;
       }
@@ -87,7 +111,7 @@ async function main() {
       const matchingRows = allRows.filter((r) => r.name === name);
 
       if (matchingRows.length === 0) {
-        console.log(`  ? ${name} -- no matching DB row, skipping`);
+        log.warn({ name }, "no matching DB row — skipping");
         noMatch++;
         continue;
       }
@@ -100,23 +124,20 @@ async function main() {
       }
 
       updated += matchingRows.length;
-      console.log(
-        `  + ${name} -- ${providers.join(", ")} (${matchingRows.length} row(s))`,
+      log.info(
+        { name, providers, rowCount: matchingRows.length },
+        "updated mcp_providers",
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  x ${name} -- ${msg}`);
+      log.error({ name, error: msg }, "backfill failed for file");
     }
   }
 
-  console.log(
-    `\nDone: ${updated} rows updated, ${skipped} skipped, ${noMatch} no-match (of ${files.length} files)`,
+  log.info(
+    { updated, skipped, noMatch, total: files.length },
+    "mcp-providers backfill complete",
   );
 
   await client.end();
-}
-
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
 });
