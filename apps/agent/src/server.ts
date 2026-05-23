@@ -54,37 +54,97 @@ const PORT = 7400;
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /**
- * Resolve the Tailscale interface IPv4 at boot. Synchronous on purpose so
- * `startServer` can stay synchronous and `Bun.serve` can be invoked with the
- * resolved address. Returns `null` (and logs a warning) on any failure — the
- * server falls back to loopback-only which is a valid degraded mode.
+ * Single-shot Tailscale IP probe. Returns the resolved IPv4 string on
+ * success, or null on any failure (non-zero exit, malformed output,
+ * spawn error). Exposed as a separate helper so `discoverTailscaleIp`
+ * can wrap it in a retry loop AND tests can inject a fake probe.
  */
-function discoverTailscaleIp(): string | null {
+function probeTailscaleOnce(): string | null {
   try {
     const proc = Bun.spawnSync(["tailscale", "ip", "-4"], {
       stdout: "pipe",
       stderr: "pipe",
     });
     if (proc.exitCode !== 0) {
-      logger.warn(
-        { exitCode: proc.exitCode },
-        "tailscale ip -4 exited non-zero; binding loopback only",
-      );
       return null;
     }
     const out = proc.stdout.toString().trim().split("\n")[0]?.trim() ?? "";
     if (!out || !IPV4_RE.test(out)) {
-      logger.warn({ raw: out }, "tailscale ip -4 returned non-IPv4; binding loopback only");
       return null;
     }
     return out;
-  } catch (err) {
-    logger.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "tailscale lookup threw; binding loopback only",
-    );
+  } catch {
     return null;
   }
+}
+
+/**
+ * Retry-with-backoff options for `discoverTailscaleIp`. Exposed so tests
+ * can inject a counted-failure probe + deterministic sleep without
+ * actually blocking the test runner.
+ *
+ * Default schedule: 5 attempts at offsets t=0, +500ms, +1.5s, +3.5s,
+ * +7.5s → ~7.5s total wall-time budget before degraded-mode fallback.
+ * Tuned for the homelab tailscaled race (nx-ir43a): systemd starts
+ * tailscaled.service and nexus-agent.service in parallel and tailscaled
+ * typically registers its interface IP within 2–5 seconds of boot.
+ * 7.5s gives headroom for a slow boot without making "clean degraded
+ * mode" (laptop on a flight) painful.
+ */
+export interface DiscoverTailscaleIpOptions {
+  probe?: () => string | null;
+  maxAttempts?: number;
+  /** Returns the delay (ms) BEFORE the `attempt`-th call (1-indexed). */
+  backoffMs?: (attempt: number) => number;
+  /** Sleep impl — defaults to Bun.sleepSync. Tests pass a no-op. */
+  sleep?: (ms: number) => void;
+}
+
+const DEFAULT_BACKOFF_MS = (attempt: number): number => {
+  // attempt 1 → 0ms (no wait), 2 → 500, 3 → 1000, 4 → 2000, 5 → 4000
+  if (attempt <= 1) return 0;
+  return Math.min(500 * Math.pow(2, attempt - 2), 4000);
+};
+
+/**
+ * Resolve the Tailscale interface IPv4 at boot, retrying with backoff
+ * if the probe initially fails. Synchronous on purpose so `startServer`
+ * can stay synchronous and `Bun.serve` can be invoked with the resolved
+ * address. Returns `null` (and logs a warning) on terminal failure — the
+ * server falls back to loopback-only which is a valid degraded mode.
+ *
+ * Retry rationale (nx-ir43a): tailscaled.service and nexus-agent.service
+ * start in parallel on systemd; a single-shot probe at agent boot will
+ * see tailscaled still mid-handshake and fall into degraded mode
+ * permanently. The retry budget covers the typical handshake window.
+ */
+function discoverTailscaleIp(
+  options?: DiscoverTailscaleIpOptions,
+): string | null {
+  const probe = options?.probe ?? probeTailscaleOnce;
+  const maxAttempts = options?.maxAttempts ?? 5;
+  const backoffMs = options?.backoffMs ?? DEFAULT_BACKOFF_MS;
+  const sleep = options?.sleep ?? ((ms) => Bun.sleepSync(ms));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const wait = backoffMs(attempt);
+    if (wait > 0) sleep(wait);
+    const ip = probe();
+    if (ip) {
+      if (attempt > 1) {
+        logger.info(
+          { attempts: attempt },
+          "tailscale ip discovered after retry (tailscaled race resolved)",
+        );
+      }
+      return ip;
+    }
+  }
+  logger.warn(
+    { attempts: maxAttempts },
+    "tailscale ip -4 unreachable after retries; binding loopback only (degraded mode)",
+  );
+  return null;
 }
 
 /**

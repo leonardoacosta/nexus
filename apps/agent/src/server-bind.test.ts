@@ -108,3 +108,89 @@ describe("discoverTailscaleIp (drop-attach-secret-gate)", () => {
     expect(ip).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
   });
 });
+
+describe("discoverTailscaleIp retry-with-backoff (nx-ir43a)", () => {
+  it("retries when initial probe fails and succeeds on a later attempt", () => {
+    // Simulate the homelab tailscaled race: first two probes fail
+    // (tailscaled still mid-handshake), the third succeeds.
+    let calls = 0;
+    const probe = (): string | null => {
+      calls += 1;
+      if (calls < 3) return null;
+      return "100.73.182.4";
+    };
+    const sleepCalls: number[] = [];
+    const sleep = (ms: number): void => {
+      sleepCalls.push(ms);
+    };
+
+    const ip = __testing.discoverTailscaleIp({ probe, sleep });
+
+    expect(ip).toBe("100.73.182.4");
+    expect(calls).toBe(3);
+    // Default backoff: attempt 1 → 0ms (skipped), 2 → 500ms, 3 → 1000ms.
+    // The probe runs three times; sleep is called BEFORE attempts 2 and 3.
+    expect(sleepCalls).toEqual([500, 1000]);
+  });
+
+  it("returns null after exhausting all attempts when probe never succeeds", () => {
+    let calls = 0;
+    const probe = (): string | null => {
+      calls += 1;
+      return null;
+    };
+    const sleepCalls: number[] = [];
+
+    const ip = __testing.discoverTailscaleIp({
+      probe,
+      sleep: (ms) => sleepCalls.push(ms),
+      maxAttempts: 5,
+    });
+
+    expect(ip).toBeNull();
+    expect(calls).toBe(5);
+    // Five attempts, sleeps before 2..5: 500, 1000, 2000, 4000 = 7500ms.
+    expect(sleepCalls.reduce((a, b) => a + b, 0)).toBe(7500);
+  });
+
+  it("succeeds on first attempt without any sleep delay (happy path)", () => {
+    let calls = 0;
+    const probe = (): string | null => {
+      calls += 1;
+      return "10.0.0.1";
+    };
+    const sleepCalls: number[] = [];
+
+    const ip = __testing.discoverTailscaleIp({
+      probe,
+      sleep: (ms) => sleepCalls.push(ms),
+    });
+
+    expect(ip).toBe("10.0.0.1");
+    expect(calls).toBe(1);
+    // First attempt has 0ms backoff → sleep MUST NOT be invoked.
+    expect(sleepCalls).toEqual([]);
+  });
+
+  it("honours custom backoffMs and maxAttempts", () => {
+    let calls = 0;
+    const probe = (): string | null => {
+      calls += 1;
+      return calls === 2 ? "192.168.1.1" : null;
+    };
+    const sleepCalls: number[] = [];
+
+    const ip = __testing.discoverTailscaleIp({
+      probe,
+      sleep: (ms) => sleepCalls.push(ms),
+      maxAttempts: 3,
+      backoffMs: () => 50,
+    });
+
+    expect(ip).toBe("192.168.1.1");
+    expect(calls).toBe(2);
+    // backoffMs returns 50 unconditionally → first probe sleeps 50ms,
+    // second probe sleeps 50ms, succeeds.
+    expect(sleepCalls).toEqual([50, 50]);
+  });
+});

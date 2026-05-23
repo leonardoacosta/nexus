@@ -1,7 +1,16 @@
 [Unit]
 Description=Nexus Agent — per-machine daemon for Claude Code session tracking
-After=network-online.target
-Wants=network-online.target
+# After=network-online.target alone is NOT sufficient: the agent's default
+# bind path discovers the Tailscale interface IP via `tailscale ip -4` and
+# falls into loopback-only "degraded mode" if tailscaled isn't yet
+# registered when the probe fires. systemd starts user services in parallel
+# with system services like tailscaled, so the race fires consistently on
+# slow boots. Ordering ourselves After=tailscaled.service makes systemd
+# wait until tailscaled has actually started before launching the agent;
+# the in-process retry-with-backoff loop (apps/agent/src/server.ts
+# discoverTailscaleIp) covers the residual handshake gap. Spec: bd:nx-ir43a.
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
 
 [Service]
 Type=simple
