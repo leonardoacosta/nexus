@@ -114,11 +114,70 @@ macos_swift_deploy_run() {
     fi
     _macos_swift_deploy_info "located built bundle at $app_path"
 
-    # ── Stop running instance ───────────────────────────────────────
-    # LSUIElement app — no Dock icon, no SIGHUP equivalent. killall by
-    # process name; tolerate "no matching processes".
-    _macos_swift_deploy_info "stopping running Nexus instance (if any)"
-    killall Nexus 2>/dev/null || true
+    # ── Stop running instance (bd:nx-4l66v) ──────────────────────────
+    # Three-phase termination with PID-level verification. Prior
+    # implementation was `killall Nexus 2>/dev/null || true` which
+    # was a silent no-op for two reasons:
+    #   (a) The executable is `nexus.app/Contents/MacOS/nexus` —
+    #       PRODUCT_NAME=nexus in project.yml, so `killall Nexus`
+    #       (capitalized) NEVER matched; exit 1 was swallowed by
+    #       `|| true`. (Process name is lowercase `nexus`, but that
+    #       also matches `nexus-statusline` — too greedy.)
+    #   (b) Even when a match existed, `killall` itself can fail
+    #       silently against (formerly) LSUIElement apps under TCC.
+    # New flow: snapshot PIDs by bundle path (precise — won't catch
+    # nexus-statusline or other lowercase-nexus processes), send TERM,
+    # verify, escalate to KILL, re-verify, fail loudly if still alive.
+
+    local -a old_pids=()
+    # pgrep -fl matches against full command line, so the bundle path
+    # `Nexus.app` (capitalized — the installed name) is a tight filter
+    # that excludes nexus-statusline and other unrelated processes.
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] && old_pids+=("$pid")
+    done < <(pgrep -f "Nexus\.app/Contents/MacOS/" 2>/dev/null || true)
+
+    if [[ ${#old_pids[@]} -eq 0 ]]; then
+        _macos_swift_deploy_info "no running Nexus.app instance found"
+    else
+        _macos_swift_deploy_info "stopping running Nexus instance(s): PIDs=${old_pids[*]}"
+        # Phase 1: SIGTERM (graceful)
+        kill "${old_pids[@]}" 2>/dev/null || true
+        # Wait up to 3 seconds for clean exit
+        local waited=0
+        local still_alive=0
+        while [[ $waited -lt 30 ]]; do
+            still_alive=0
+            for pid in "${old_pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    still_alive=1
+                    break
+                fi
+            done
+            [[ $still_alive -eq 0 ]] && break
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+        # Phase 2: SIGKILL escalation for survivors
+        if [[ $still_alive -eq 1 ]]; then
+            _macos_swift_deploy_warn "PIDs ${old_pids[*]} survived SIGTERM — escalating to SIGKILL"
+            for pid in "${old_pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill -9 "$pid" 2>/dev/null || true
+                fi
+            done
+            sleep 0.5
+        fi
+        # Phase 3: final verification
+        for pid in "${old_pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                _macos_swift_deploy_warn "PID $pid is STILL alive after SIGKILL — refusing to deploy over a running binary"
+                rm -rf "$build_dir"
+                return 1
+            fi
+        done
+        _macos_swift_deploy_info "old PID(s) ${old_pids[*]} terminated"
+    fi
     # Brief settle so the file is no longer held when we cp -R.
     sleep 1
 
@@ -150,13 +209,35 @@ macos_swift_deploy_run() {
         return 1
     fi
 
-    # ── Verify it came up ───────────────────────────────────────────
+    # ── Verify it came up with a NEW PID (bd:nx-4l66v) ───────────────
+    # The previous check (`pgrep -fl Nexus.app`) returned true even if
+    # `killall` silently no-op'd and the OLD PID was still running —
+    # the same string matched both old and new processes. Now that the
+    # stop-phase guarantees old PIDs are gone, the post-launch pgrep
+    # finds ONLY the new PID. We also cross-check that the new PID is
+    # not in the snapshot of old PIDs (defensive — could only happen
+    # if PIDs were exhausted and reused, which is astronomically rare).
     sleep 2
-    if pgrep -fl Nexus.app >/dev/null 2>&1; then
-        _macos_swift_deploy_info "Nexus.app running"
-    else
-        _macos_swift_deploy_warn "Nexus.app did not appear in process list after launch (non-fatal)"
+    local -a new_pids=()
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] && new_pids+=("$pid")
+    done < <(pgrep -f "Nexus\.app/Contents/MacOS/" 2>/dev/null || true)
+
+    if [[ ${#new_pids[@]} -eq 0 ]]; then
+        _macos_swift_deploy_warn "Nexus.app did not appear in process list after launch"
+        return 1
     fi
+
+    # Defensive: assert no new PID overlaps with the killed set.
+    for new_pid in "${new_pids[@]}"; do
+        for old_pid in "${old_pids[@]}"; do
+            if [[ "$new_pid" == "$old_pid" ]]; then
+                _macos_swift_deploy_warn "new PID $new_pid was in the killed set — kernel reused a PID; re-verifying liveness"
+            fi
+        done
+    done
+
+    _macos_swift_deploy_info "Nexus.app running with NEW PID(s): ${new_pids[*]}"
 
     return 0
 }
