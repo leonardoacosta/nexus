@@ -47,6 +47,58 @@ describe("notification route dedupMap", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Multi-project dedup scenario (analytics-query-and-tts-synthesis)
+//
+// Mirrors the actual /notifications/send request shape: same body fired across
+// two distinct projects within the 5s window MUST both succeed; a third
+// re-fire on the SAME project + body MUST be suppressed.
+// ---------------------------------------------------------------------------
+
+describe("notification dedup — multi-project HTTP scenario", () => {
+  test("same body across two projects both deliver; same body re-fired on one project is suppressed", async () => {
+    const { _testDedupInternals, resetNotificationRoutes } = await import("./notifications");
+    await resetNotificationRoutes();
+
+    const sharedBody = "Build complete";
+    const channel = "desktop";
+
+    // 1. Project "oo" — first time → not duplicate
+    expect(_testDedupInternals.isDuplicate(sharedBody, "oo", channel)).toBe(false);
+
+    // 2. Project "tc" — same body, different project, same 5s window → NOT duplicate
+    expect(_testDedupInternals.isDuplicate(sharedBody, "tc", channel)).toBe(false);
+
+    // 3. Project "oo" — same body re-fired → IS duplicate (per-project dedup)
+    expect(_testDedupInternals.isDuplicate(sharedBody, "oo", channel)).toBe(true);
+
+    // 4. Project "tc" — same body re-fired → also duplicate on its own track
+    expect(_testDedupInternals.isDuplicate(sharedBody, "tc", channel)).toBe(true);
+
+    // 5. Different body for "oo" → not duplicate (body is part of the key)
+    expect(_testDedupInternals.isDuplicate("Different message", "oo", channel)).toBe(false);
+
+    // 6. Different channel for "oo" + sharedBody → not duplicate (channel is part of key)
+    expect(_testDedupInternals.isDuplicate(sharedBody, "oo", "tts")).toBe(false);
+
+    await resetNotificationRoutes();
+  });
+
+  test("null project still dedups against null-project re-fires (regression guard)", async () => {
+    const { _testDedupInternals, resetNotificationRoutes } = await import("./notifications");
+    await resetNotificationRoutes();
+
+    // null project is its own track — should still dedup against itself.
+    expect(_testDedupInternals.isDuplicate("orphan body", null, "desktop")).toBe(false);
+    expect(_testDedupInternals.isDuplicate("orphan body", null, "desktop")).toBe(true);
+
+    // A real project with the same body is independent of the null track.
+    expect(_testDedupInternals.isDuplicate("orphan body", "real-project", "desktop")).toBe(false);
+
+    await resetNotificationRoutes();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // projects-discovered seenCanonicalPaths reset
 // ---------------------------------------------------------------------------
 

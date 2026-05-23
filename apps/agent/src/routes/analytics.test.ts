@@ -7,9 +7,12 @@
  * POSTGRES_URL.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
+import { createDb } from "@nexus/db";
+import type { Db } from "@nexus/db";
 import {
   handleAnalyticsHealth,
+  handleAnalyticsNotifications,
   handleAnalyticsSpecs,
   handleAnalyticsCredentials,
   handleAnalyticsGit,
@@ -177,6 +180,165 @@ describe.skipIf(!hasPg)("handleAnalyticsHealth (requires live PG)", () => {
 // ---------------------------------------------------------------------------
 // handleAnalyticsHealth — validation tests (no DB needed)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// handleAnalyticsNotifications (requires PG)
+//
+// Spec: analytics-query-and-tts-synthesis. Seeds three rows across two projects
+// and two statuses, then verifies the route's hours / project / status filters.
+// ---------------------------------------------------------------------------
+
+const AN_SCHEMA = `nx_an_test_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+
+const AN_DDL = `
+  CREATE TABLE "notifications" (
+    "id" text PRIMARY KEY NOT NULL,
+    "channel" text NOT NULL,
+    "title" text NOT NULL,
+    "body" text NOT NULL,
+    "project" text,
+    "agent_id" text,
+    "priority" text NOT NULL DEFAULT 'normal',
+    "status" text NOT NULL DEFAULT 'queued',
+    "severity" text NOT NULL DEFAULT 'info',
+    "delivery_state" text NOT NULL DEFAULT 'pending',
+    "audio_path" text,
+    "voice_used" text,
+    "created_at" timestamp NOT NULL,
+    "sent_at" timestamp
+  );
+`;
+
+describe.skipIf(!hasPg)("handleAnalyticsNotifications (requires live PG)", () => {
+  let adminClient: ReturnType<typeof createDb>["client"];
+  let scopedClient: ReturnType<typeof createDb>["client"];
+  let db: Db;
+
+  beforeAll(async () => {
+    const url = process.env.POSTGRES_URL!;
+    const adminHandle = createDb(url);
+    adminClient = adminHandle.client;
+
+    await adminClient.unsafe(`CREATE SCHEMA "${AN_SCHEMA}"`);
+    await adminClient.unsafe(`SET search_path TO "${AN_SCHEMA}", public`);
+    await adminClient.unsafe(AN_DDL);
+
+    const scopedHandle = createDb(url, {
+      connection: { search_path: `"${AN_SCHEMA}",public` },
+    });
+    scopedClient = scopedHandle.client;
+    db = scopedHandle.db;
+  });
+
+  afterAll(async () => {
+    try {
+      await scopedClient.end({ timeout: 5 });
+    } finally {
+      try {
+        await adminClient.unsafe(`DROP SCHEMA IF EXISTS "${AN_SCHEMA}" CASCADE`);
+      } finally {
+        await adminClient.end({ timeout: 5 });
+      }
+    }
+  });
+
+  beforeEach(async () => {
+    // Truncate + reseed three rows across two projects and two statuses.
+    // All three rows fall inside the default 24h window.
+    await scopedClient.unsafe(`DELETE FROM "${AN_SCHEMA}"."notifications"`);
+    const now = new Date();
+    const within24h = new Date(now.getTime() - 60 * 60 * 1000); // 1h ago
+    const within24hAlt = new Date(now.getTime() - 30 * 60 * 1000); // 30m ago
+
+    await adminClient.unsafe(`
+      INSERT INTO "${AN_SCHEMA}".notifications
+        ("id", "channel", "title", "body", "project", "status", "created_at")
+      VALUES
+        ('an-1', 'desktop', 'Build OK foo', 'foo body', 'foo', 'delivered', '${within24h.toISOString()}'),
+        ('an-2', 'desktop', 'Build dropped foo', 'foo dropped', 'foo', 'suppressed', '${within24hAlt.toISOString()}'),
+        ('an-3', 'tts', 'Build OK bar', 'bar body', 'bar', 'delivered', '${now.toISOString()}')
+    `);
+  });
+
+  it("?hours=24 returns all three seeded rows", async () => {
+    const url = new URL("http://localhost/analytics/notifications?hours=24");
+    const response = await handleAnalyticsNotifications(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { rows: unknown[]; count: number; hours: number };
+    expect(body.count).toBe(3);
+    expect(body.rows).toHaveLength(3);
+    expect(body.hours).toBe(24);
+  });
+
+  it("?project=foo returns only the foo rows", async () => {
+    const url = new URL("http://localhost/analytics/notifications?project=foo");
+    const response = await handleAnalyticsNotifications(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      rows: Array<{ id: string; project: string }>;
+      count: number;
+      filters: { project: string | null; status: string | null };
+    };
+    expect(body.count).toBe(2);
+    expect(body.rows.every((r) => r.project === "foo")).toBe(true);
+    expect(body.filters.project).toBe("foo");
+  });
+
+  it("?status=delivered returns only the delivered rows", async () => {
+    const url = new URL("http://localhost/analytics/notifications?status=delivered");
+    const response = await handleAnalyticsNotifications(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      rows: Array<{ id: string; status: string }>;
+      count: number;
+      filters: { project: string | null; status: string | null };
+    };
+    expect(body.count).toBe(2);
+    expect(body.rows.every((r) => r.status === "delivered")).toBe(true);
+    expect(body.filters.status).toBe("delivered");
+  });
+
+  it("combined ?project=foo&status=delivered returns the single matching row", async () => {
+    const url = new URL(
+      "http://localhost/analytics/notifications?project=foo&status=delivered",
+    );
+    const response = await handleAnalyticsNotifications(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      rows: Array<{ id: string; project: string; status: string }>;
+      count: number;
+    };
+    expect(body.count).toBe(1);
+    expect(body.rows[0]!.id).toBe("an-1");
+    expect(body.rows[0]!.project).toBe("foo");
+    expect(body.rows[0]!.status).toBe("delivered");
+  });
+
+  it("returns 200 with empty rows when no row matches", async () => {
+    const url = new URL("http://localhost/analytics/notifications?project=does-not-exist");
+    const response = await handleAnalyticsNotifications(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { rows: unknown[]; count: number };
+    expect(body.count).toBe(0);
+    expect(body.rows).toEqual([]);
+  });
+});
+
+describe("handleAnalyticsNotifications input validation (no DB)", () => {
+  it("rejects NaN hours param", async () => {
+    const url = new URL("http://localhost/analytics/notifications?hours=abc");
+    const response = await handleAnalyticsNotifications(null as never, url);
+    expect(response.status).toBe(400);
+
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("positive");
+  });
+});
 
 describe("handleAnalyticsHealth input validation (no DB)", () => {
   it("rejects NaN hours param", async () => {

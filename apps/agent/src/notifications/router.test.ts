@@ -14,7 +14,10 @@
  * correctly when this file is run in isolation.
  */
 
-import { describe, expect, it, mock, beforeEach, beforeAll } from "bun:test";
+import { describe, expect, it, mock, beforeEach, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ─── Sentry mock ─────────────────────────────────────────────────────────────
 // Registered before router.ts is imported. When run in isolation this file
@@ -391,5 +394,109 @@ describe("router: TTS suppression for unspeakable bodies", () => {
       expect(thrownErr).toBeDefined();
       expect(thrownErr!.message).toContain("tts");
     }
+  });
+});
+
+// ─── ElevenLabs round-trip (analytics-query-and-tts-synthesis) ───────────────
+//
+// Spec: when ELEVENLABS_API_KEY is set and a voice id resolves, the TTS
+// handler MUST:
+//   - POST the notification body to ElevenLabs
+//   - persist the mp3 bytes to `<audioDir>/<id>.mp3`
+//   - return `audioBase64` in the ChannelResult so the manager can stamp it on
+//     the NotificationFired payload
+//
+// We mock global fetch (which fetchWithTimeout calls underneath) to avoid the
+// real HTTP round-trip and route NEXUS_CONFIG_DIR to a tmp dir so the audio
+// file lands in isolation.
+
+describe("router: ElevenLabs TTS round-trip", () => {
+  const FAKE_MP3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0xff, 0xfb, 0x10, 0xab]);
+
+  let tmpConfigDir: string;
+  let originalFetch: typeof globalThis.fetch;
+  let originalApiKey: string | undefined;
+  let originalVoiceId: string | undefined;
+  let originalConfigDir: string | undefined;
+
+  beforeAll(() => {
+    tmpConfigDir = mkdtempSync(join(tmpdir(), "nx-router-tts-"));
+    originalFetch = globalThis.fetch;
+    originalApiKey = process.env.ELEVENLABS_API_KEY;
+    originalVoiceId = process.env.ELEVENLABS_DEFAULT_VOICE_ID;
+    originalConfigDir = process.env.NEXUS_CONFIG_DIR;
+
+    process.env.ELEVENLABS_API_KEY = "test-api-key";
+    process.env.ELEVENLABS_DEFAULT_VOICE_ID = "fake-voice-id";
+    process.env.NEXUS_CONFIG_DIR = tmpConfigDir;
+
+    // Mock the global fetch — fetchWithTimeout in @nexus/core calls it.
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("elevenlabs.io")) {
+        return new Response(FAKE_MP3, {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        });
+      }
+      throw new Error(`unexpected fetch in router.test.ts: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = originalApiKey;
+    if (originalVoiceId === undefined) delete process.env.ELEVENLABS_DEFAULT_VOICE_ID;
+    else process.env.ELEVENLABS_DEFAULT_VOICE_ID = originalVoiceId;
+    if (originalConfigDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
+    else process.env.NEXUS_CONFIG_DIR = originalConfigDir;
+    try {
+      rmSync(tmpConfigDir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  });
+
+  it("persists mp3 to audioDir and returns audioBase64 in the delivered envelope", async () => {
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
+    const { setTtsDbHandle } = await import("./router");
+    const { audioPathFor, audioExists } = await import("./audio-store");
+
+    // No DB-backed project voice override — fall through to env-default voice id.
+    setTtsDbHandle(null);
+
+    setRoutingRules([
+      { project: "tts-roundtrip", channels: ["tts"], meeting_behavior: "allow" },
+    ]);
+
+    const notifId = `tts-roundtrip-${Date.now()}`;
+    const notif = makeNotification({
+      id: notifId,
+      project: "tts-roundtrip",
+      channel: "tts",
+      body: "round trip test body",
+    });
+
+    const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+    // Delivery succeeded on the single tts channel.
+    expect(failed).toHaveLength(0);
+    expect(delivered).toHaveLength(1);
+    const ttsDelivery = delivered[0]!;
+    expect(ttsDelivery.channel).toBe("tts");
+
+    // audioBase64 is set and non-empty
+    expect(typeof ttsDelivery.audioBase64).toBe("string");
+    expect(ttsDelivery.audioBase64!.length).toBeGreaterThan(0);
+
+    // voiceUsed matches the env-default
+    expect(ttsDelivery.voiceUsed).toBe("fake-voice-id");
+
+    // File was persisted on disk at the audioPathFor() location
+    expect(audioExists(notifId)).toBe(true);
+    const persistedPath = audioPathFor(notifId);
+    expect(persistedPath).toContain(tmpConfigDir);
+    expect(existsSync(persistedPath)).toBe(true);
   });
 });
