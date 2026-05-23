@@ -1,34 +1,57 @@
 /**
  * Active-credential watcher.
  *
- * Watches `~/.claude/.credentials.json` (usually a symlink that Claude Code
- * swaps mid-session) and publishes the SHA-256 refresh-token fingerprint of
- * the currently-active credential so the Next.js credentials page can mark
- * exactly one account as "active for Claude Code".
+ * Watches `~/.claude/.credentials.json` (the live credential file Claude Code
+ * maintains, refreshes, and rotates) and:
+ *   1. publishes the SHA-256 refresh-token fingerprint of the currently-active
+ *      credential so the dashboard can mark exactly one account as "active";
+ *   2. MIRRORS the live credential into the pool on rotation (bd:nx-44mby).
  *
  * Behaviour:
  *   - Resolves the path via `fs.realpath()` on every change (follows symlinks).
  *   - Debounces watch events (200ms) — rotations can cause multiple fs events.
  *   - Computes the fingerprint via `computeCredentialFingerprint()` and matches
- *     it against the pool's DB rows. If no pool row matches, `fingerprint`
- *     becomes null (the user uses a credential nexus hasn't imported).
- *   - All failure modes — file missing, JSON parse error, no `refreshToken` —
- *     collapse to `fingerprint: null` without throwing, so the watcher never
- *     crashes the agent.
+ *     it against the pool's DB rows. If no pool row matches, the live file is
+ *     a rotation Claude Code performed since the last pool import — call
+ *     `pool.add()` to write the new credential to the pool, then re-match.
+ *     The auto-probe inside `pool.add()` hits api.anthropic.com (NOT
+ *     Cloudflare-blocked) with the fresh access token and populates
+ *     accountEmail/Name/Uuid/orgName/orgUuid for the new row.
+ *   - All failure modes — file missing, JSON parse error, no `refreshToken`,
+ *     pool.add() exception — collapse to `fingerprint: null` without throwing,
+ *     so the watcher never crashes the agent.
  *
  * The watcher runs in parallel with `startCredentialWatcher()`, which watches
- * the credential *pool* directory. The two watchers are independent.
+ * the credential *pool* directory at `~/.config/nexus/credentials/`. The pool
+ * directory contains snapshots that quickly go stale because Claude Code
+ * rotates refresh tokens; this watcher is the one that keeps the pool in
+ * sync with Claude Code's live rotation cadence.
  */
 
 import { watch, readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { createLogger } from "@nexus/core/node";
 import {
   computeCredentialFingerprint,
   CredentialParseError,
 } from "./credentials.helpers";
 import type { CredentialPool } from "./pool";
+
+/**
+ * Minimal pool surface the watcher consumes. Tests inject a fake satisfying
+ * just `list()` and `add()` — no DB or encryption setup required.
+ */
+type WatcherPool = {
+  list: () => Promise<Array<{ id: string; fingerprint: string | null }>>;
+  add: (input: {
+    id: string;
+    name: string;
+    type: string;
+    value_plaintext: string;
+  }) => Promise<void>;
+};
 
 const log = createLogger("agent:active-credential-watcher");
 
@@ -63,38 +86,48 @@ export function getActiveCredentialSnapshot(): ActiveCredentialSnapshot {
 }
 
 /**
- * Read `~/.claude/.credentials.json`, resolve its real path, compute the
- * refresh-token fingerprint, and — if the pool has a DB row with the same
- * fingerprint — return it. Returns `null` for every failure mode except
- * pool unavailability (which returns the computed fingerprint unmatched).
+ * Read the live credential file, resolve its real path, compute the
+ * refresh-token fingerprint, and return the parsed plaintext alongside.
+ * Returns `null` for every failure mode (file missing, parse error,
+ * malformed OAuth blob).
+ *
+ * Extracted from the legacy `readActiveFingerprint` so the rotation-import
+ * path in `runRefresh` can reuse the plaintext for `pool.add()` without a
+ * second disk read.
  */
-async function readActiveFingerprint(
-  pool: CredentialPool,
-): Promise<{ fingerprint: string | null; resolvedPath: string | null }> {
+async function readActiveCredentialBlob(
+  credentialPath: string,
+): Promise<{
+  plaintext: string;
+  fingerprint: string;
+  resolvedPath: string;
+} | null> {
   let resolvedPath: string | null = null;
   try {
-    resolvedPath = await realpath(CC_CREDENTIALS_PATH);
+    resolvedPath = await realpath(credentialPath);
   } catch (err) {
     // Fall back to reading the original path — realpath fails if the link
     // target is missing, but the file itself (if not a symlink) may still
     // be readable.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      resolvedPath = CC_CREDENTIALS_PATH;
+      resolvedPath = credentialPath;
     } else {
-      log.debug({ path: CC_CREDENTIALS_PATH }, "active credential file missing");
-      return { fingerprint: null, resolvedPath: null };
+      log.debug({ path: credentialPath }, "active credential file missing");
+      return null;
     }
   }
 
+  const finalPath = resolvedPath ?? credentialPath;
+
   let plaintext: string;
   try {
-    plaintext = await readFile(resolvedPath ?? CC_CREDENTIALS_PATH, "utf-8");
+    plaintext = await readFile(finalPath, "utf-8");
   } catch (err) {
     log.debug(
-      { path: resolvedPath, error: (err as Error).message },
+      { path: finalPath, error: (err as Error).message },
       "failed to read active credential file",
     );
-    return { fingerprint: null, resolvedPath };
+    return null;
   }
 
   let fingerprint: string;
@@ -103,30 +136,103 @@ async function readActiveFingerprint(
   } catch (err) {
     if (err instanceof CredentialParseError) {
       log.debug(
-        { path: resolvedPath, error: err.message },
+        { path: finalPath, error: err.message },
         "active credential file is not a valid OAuth blob",
       );
-      return { fingerprint: null, resolvedPath };
+      return null;
     }
     throw err;
   }
 
-  // Match against pool rows. pool.list() returns every credential with its
-  // fingerprint; we return null when no row matches so the UI can render
-  // "active account not in pool" gracefully.
-  try {
-    const rows = await pool.list();
-    const match = rows.find((r) => r.fingerprint === fingerprint);
-    return {
-      fingerprint: match ? fingerprint : null,
-      resolvedPath,
-    };
-  } catch (err) {
-    // Pool read failed — return the computed fingerprint anyway; consumers
-    // can at least tell that Claude Code is reading *something*.
-    log.warn({ error: err }, "pool.list() failed during active-credential match");
-    return { fingerprint, resolvedPath };
+  return { plaintext, fingerprint, resolvedPath: finalPath };
+}
+
+/**
+ * Core refresh logic: read the live file, mirror into the pool on rotation,
+ * and update the shared snapshot. Exposed via `__testing.runRefresh` so the
+ * import-on-rotation contract can be exercised without spinning up
+ * fs.watch / Postgres / encryption.
+ *
+ * `credentialPath` defaults to `~/.claude/.credentials.json` in production;
+ * tests pass an in-tmpdir path.
+ */
+async function runRefresh(
+  pool: WatcherPool,
+  credentialPath: string = CC_CREDENTIALS_PATH,
+): Promise<void> {
+  const blob = await readActiveCredentialBlob(credentialPath);
+
+  // Stamp the snapshot first so callers see a fresh observedAt even on
+  // failure paths. fingerprint/resolvedPath default to null and are
+  // overwritten below when the live file is readable.
+  snapshot.observedAt = new Date().toISOString();
+
+  if (!blob) {
+    snapshot.fingerprint = null;
+    snapshot.resolvedPath = null;
+    return;
   }
+
+  const { plaintext, fingerprint, resolvedPath } = blob;
+  snapshot.resolvedPath = resolvedPath;
+
+  // Match against pool — fast path when no rotation has happened.
+  let poolRows: Array<{ id: string; fingerprint: string | null }>;
+  try {
+    poolRows = await pool.list();
+  } catch (err) {
+    // Pool read failed — surface the LIVE fingerprint anyway so the UI can
+    // distinguish "Claude Code is up" from "Claude Code is down". Cannot
+    // trigger an import; snapshot retains the unmatched live fingerprint.
+    log.warn({ error: err }, "pool.list() failed during active-credential match");
+    snapshot.fingerprint = fingerprint;
+    return;
+  }
+
+  const alreadyImported = poolRows.some((r) => r.fingerprint === fingerprint);
+
+  if (!alreadyImported) {
+    // ROTATION CASE (bd:nx-44mby): Claude Code wrote a new credential whose
+    // refresh-token fingerprint isn't in the pool. Import it via pool.add()
+    // — the auto-probe inside add() hits api.anthropic.com (NOT
+    // Cloudflare-blocked, only console.anthropic.com's refresh-grant is)
+    // with the LIVE access token and populates accountEmail/Name/Uuid +
+    // organization fields on the new row.
+    try {
+      await pool.add({
+        id: randomUUID(),
+        name: `acct-${fingerprint.slice(0, 8)}`,
+        type: "oauth",
+        value_plaintext: plaintext,
+      });
+      log.info(
+        {
+          path: resolvedPath,
+          fingerprint: fingerprint.slice(0, 8),
+        },
+        "active-credential: imported rotated credential into pool",
+      );
+    } catch (err) {
+      // Graceful degrade: the snapshot keeps fingerprint=null so the UI
+      // shows "active account not in pool" instead of falsely matching.
+      // The next watcher tick will retry.
+      log.warn(
+        {
+          path: resolvedPath,
+          fingerprint: fingerprint.slice(0, 8),
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "active-credential: failed to import rotated credential",
+      );
+      snapshot.fingerprint = null;
+      return;
+    }
+  }
+
+  // Snapshot the LIVE fingerprint — at this point either it was already in
+  // the pool, or we just imported it. Either way the dashboard's
+  // "active account" indicator now matches a real row.
+  snapshot.fingerprint = fingerprint;
 }
 
 /**
@@ -142,10 +248,7 @@ export function startActiveCredentialWatcher(
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function refresh(): Promise<void> {
-    const result = await readActiveFingerprint(pool);
-    snapshot.fingerprint = result.fingerprint;
-    snapshot.resolvedPath = result.resolvedPath;
-    snapshot.observedAt = new Date().toISOString();
+    await runRefresh(pool, CC_CREDENTIALS_PATH);
     log.debug(
       {
         fingerprint: snapshot.fingerprint?.slice(0, 8) ?? null,
@@ -217,3 +320,16 @@ export function _resetActiveCredentialSnapshotForTest(): void {
   snapshot.resolvedPath = null;
   snapshot.observedAt = new Date(0).toISOString();
 }
+
+/**
+ * Test seam — exposes the rotation-import core so unit tests can drive it
+ * with a fake pool + tmpdir credential path. Production paths in this file
+ * continue to use `startActiveCredentialWatcher` / `getActiveCredentialSnapshot`.
+ *
+ * Spec: bd:nx-44mby tests.
+ */
+export const __testing = {
+  runRefresh,
+  resetSnapshot: _resetActiveCredentialSnapshotForTest,
+  getSnapshot: getActiveCredentialSnapshot,
+};
