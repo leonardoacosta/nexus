@@ -196,12 +196,14 @@ public final class TTSObserver: ObservableObject {
             "TTSObserver: received id=\(event.id.uuidString, privacy: .public) channel=\(channel, privacy: .public)"
         )
 
-        // Stage 1 — filter. Only the "tts" channel triggers the audio +
-        // banner pipeline. Other channels (desktop, slack, etc.) are
-        // handled by SessionObserver's notification list.
-        guard event.channel == "tts" else {
+        // Stage 1 — filter. Both "tts" and "desktop" channels reach the
+        // banner pipeline; the audio path below is internally gated to
+        // "tts" only. Pre-2026-05-24 the filter was tts-only, which silently
+        // dropped every banner because the agent's DEFAULT_RULES route to
+        // "desktop" (see apps/agent/src/notifications/router.ts).
+        guard event.channel == "tts" || event.channel == "desktop" else {
             Self.logger.debug(
-                "TTSObserver: dropped non-tts event id=\(event.id.uuidString, privacy: .public)"
+                "TTSObserver: dropped non-tts/desktop event id=\(event.id.uuidString, privacy: .public) channel=\(channel, privacy: .public)"
             )
             return
         }
@@ -211,8 +213,10 @@ public final class TTSObserver: ObservableObject {
         // out. Fire-and-forget; the OS handles authorisation gating.
         await postBanner(for: event)
 
-        // Stage 3 — synth + playback. ElevenLabs first, system speech on
-        // any failure (missing key, network error, HTTP non-2xx, tiny body).
+        // Stage 3 — synth + playback (TTS channel only). ElevenLabs first,
+        // system speech on any failure (missing key, network error, HTTP
+        // non-2xx, tiny body). Desktop channel skips audio entirely.
+        guard event.channel == "tts" else { return }
         await synthesise(event: event)
     }
 
