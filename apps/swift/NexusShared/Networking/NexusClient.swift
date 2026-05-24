@@ -65,13 +65,6 @@ public actor NexusClient {
 
     private let session: URLSession
     private let streamingSession: URLSession
-    /// Dedicated session for `URLSessionWebSocketTask` (PTY stream). MUST use
-    /// FINITE timeouts: `webSocketTask(with:)` throws an uncatchable ObjC
-    /// `NSInvalidArgumentException` at task-creation time if the session's
-    /// `timeoutIntervalForRequest` is `.infinity` (as `streamingSession` uses
-    /// for SSE). WS liveness is maintained by the protocol's own ping frames,
-    /// not the request timeout — so a long finite resource timeout is correct.
-    private let ptyWsSession: URLSession
     private let decoder: JSONDecoder
 
     // INTERIM (nx-4ohfs): default flipped .localhost -> .resolved so all
@@ -94,17 +87,6 @@ public actor NexusClient {
         streamCfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         streamCfg.httpMaximumConnectionsPerHost = 4
         self.streamingSession = URLSession(configuration: streamCfg)
-
-        // WS session — FINITE timeouts (see ptyWsSession doc). 30s handshake
-        // window; 24h max stream lifetime (re-established by the caller's
-        // reconnect loop if a session outlives it). `.infinity` here would
-        // crash the app at webSocketTask(with:) creation.
-        let wsCfg = URLSessionConfiguration.default
-        wsCfg.timeoutIntervalForRequest = 30
-        wsCfg.timeoutIntervalForResource = 86_400
-        wsCfg.requestCachePolicy = .reloadIgnoringLocalCacheData
-        wsCfg.httpMaximumConnectionsPerHost = 4
-        self.ptyWsSession = URLSession(configuration: wsCfg)
 
         self.decoder = JSONDecoder()
     }
@@ -807,26 +789,13 @@ public actor NexusClient {
     /// Transport (nx-gsk4h): the agent serves `/sessions/{id}/stream` as a
     /// **WebSocket-only** endpoint (`apps/agent/src/terminal/stream-manager.ts`).
     /// A plain `GET` with `Accept: text/event-stream` returns 500
-    /// "WebSocket upgrade failed", which the old SSE consumer swallowed —
-    /// the PtyViewer then flipped straight to `.disconnected` / `.error`.
-    /// We now drive a `URLSessionWebSocketTask`, which performs the
-    /// HTTP→WS upgrade automatically against the same `http(s)` URL.
-    ///
-    /// Frame protocol:
-    ///   - `.data`  → raw PTY output (`ws.sendBinary`); forwarded to `handler`.
-    ///   - `.string` → JSON control frame (`ws.sendText`, e.g.
-    ///                  `{"type":"replay_done"}`). Logged, never fed to the
-    ///                  terminal (it is NOT terminal output).
-    ///
-    /// The receive loop runs until `task.receive()` throws (peer close,
-    /// transport error, or task cancellation) and re-throws so the caller's
-    /// reconnect loop (`NexusAggregateClient.multiplex`) can back off and
-    /// retry — matching the SSE consumers' `async throws` contract.
-    ///
-    /// Cancellation: when the surrounding Swift `Task` is cancelled (e.g.
-    /// `PtyViewerModel.stop()` cancels `sseTask`), the loop observes
-    /// `Task.isCancelled` / `CancellationError`, sends a `.goingAway`
-    /// close, and returns.
+    /// "WebSocket upgrade failed", so this SSE consumer cannot actually attach
+    /// — the PtyViewer flips to `.disconnected`. KNOWN LIMITATION: a proper
+    /// `URLSessionWebSocketTask` client is needed, but the first attempt
+    /// crashed the app (uncatchable ObjC NSException from `webSocketTask(with:)`
+    /// on macOS 26.3). Reverted to SSE to keep the app stable; the WebSocket
+    /// re-attempt is tracked in nx-gsk4h. Until then, PTY terminal attach is
+    /// non-functional (everything else — sessions list, TTS, banner — works).
     public func consumePtyStream(
         sessionId: String,
         handler: @Sendable @escaping (Data) async -> Void
@@ -836,51 +805,23 @@ public actor NexusClient {
             .appendingPathComponent(sessionId)
             .appendingPathComponent("stream")
 
-        // Use the dedicated FINITE-timeout `ptyWsSession`. NEVER use
-        // `streamingSession` here — its `.infinity` request timeout makes
-        // `webSocketTask(with:)` throw an uncatchable ObjC NSException at
-        // creation time, crashing the whole app (the multiplex fan-out opens
-        // PTY streams eagerly on launch, so the crash is immediate).
-        let webSocketTask = ptyWsSession.webSocketTask(with: url)
-        webSocketTask.resume()
-        ptyLog.info(
-            "consumePtyStream: WS opened sessionId=\(sessionId, privacy: .public)"
-        )
-
-        // Ensure the socket is torn down on ANY exit (throw, cancel, return)
-        // so we never leak a half-open connection back into URLSession's pool.
-        defer {
-            webSocketTask.cancel(with: .goingAway, reason: nil)
-        }
-
-        while !Task.isCancelled {
-            let message: URLSessionWebSocketTask.Message
-            do {
-                message = try await webSocketTask.receive()
-            } catch is CancellationError {
-                // PtyViewer.stop() cancelled us — clean exit, no rethrow.
-                return
-            } catch {
-                if Task.isCancelled { return }
-                // Peer close / transport failure — propagate so the caller's
-                // reconnect loop can back off and re-subscribe.
-                throw NexusClientError.transport(error)
-            }
-
-            switch message {
-            case .data(let data):
+        // REVERTED to SSE 2026-05-24 (nx-gsk4h): the URLSessionWebSocketTask
+        // rewrite crashed the app — `webSocketTask(with:)` raises an
+        // UNCATCHABLE ObjC NSException on macOS 26.3 (`.infinity` request
+        // timeout was ruled out as the cause; the leading hypothesis is the
+        // endpoint's `http://` scheme being rejected — `webSocketTask` may
+        // require `ws://`/`wss://` on this OS). Swift `try/catch` cannot trap
+        // an ObjC exception, so the `NexusAggregateClient.multiplex` fan-out
+        // aborted the whole process. SSE hits the WS-only agent endpoint and
+        // gets HTTP 500, so PTY shows `.disconnected` (no terminal attach) —
+        // but the app STAYS UP. The proper WebSocket client (scheme fix +
+        // isolated runtime verification) is re-attempted under nx-gsk4h.
+        try await SSEDecoder.consume(
+            url: url,
+            session: streamingSession
+        ) { event in
+            if let data = event.data.data(using: .utf8) {
                 await handler(data)
-            case .string(let text):
-                // Control frame, e.g. {"type":"replay_done"}. Never feed JSON
-                // control text into the terminal — only log replay_done so
-                // production logs show the buffered-replay handshake landing.
-                if text.contains("replay_done") {
-                    ptyLog.info(
-                        "consumePtyStream: replay_done sessionId=\(sessionId, privacy: .public)"
-                    )
-                }
-            @unknown default:
-                break
             }
         }
     }
