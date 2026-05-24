@@ -53,7 +53,8 @@ function defaultVoiceId(): string | null {
  * Resolve the ElevenLabs voice id for a notification:
  *   1. per-project override row (project_voice_overrides) when project set
  *   2. ELEVENLABS_DEFAULT_VOICE_ID env var
- *   3. null → caller MUST treat as missing voice id (failure)
+ *   3. null → caller degrades to signal-only (Mac listener synthesizes
+ *      locally); never a hard failure.
  *
  * Reuses the existing `projectVoiceOverrides` table — no new schema.
  */
@@ -84,12 +85,12 @@ async function resolveVoiceId(
 /**
  * Send the notification body to ElevenLabs and return mp3 bytes.
  *
- * Structured errors:
+ * Structured errors (thrown — never returned):
  *   - HTTP 4xx/5xx → Error("elevenlabs http <status>")
  *   - Network/abort → underlying Error from fetchWithTimeout
- *   - Missing voice id → Error("elevenlabs missing voice id")
- * The caller MUST `captureException` and mark the channel failed without
- * emitting NotificationFired.
+ * The caller (`sendTtsNotification`) catches any throw and degrades to
+ * signal-only `{ success: true }` so the notification still delivers and the
+ * Mac listener synthesizes locally — synth is best-effort, never fatal.
  */
 async function synthesizeViaElevenLabs(
   notification: NotificationRow,
@@ -119,17 +120,36 @@ async function synthesizeViaElevenLabs(
 
 /**
  * Real TTS channel handler — restored from the `signalOnlyChannel` stub by
- * `analytics-query-and-tts-synthesis`. Behavioural contract:
+ * `analytics-query-and-tts-synthesis`.
  *
- *   - `ELEVENLABS_API_KEY` unset → return `success: true` with no audio
- *     (Mac listener falls back to its own local synth path). Logs an info-
- *     level "tts: api key unset" once per call.
- *   - Voice id resolves to null → captureException + return failure (no
- *     NotificationFired emit for tts).
- *   - HTTP 4xx/5xx / network timeout → captureException + return failure.
- *   - Success → persist mp3 to `~/.config/nexus/audio/<id>.mp3` via
- *     `writeAudio()`, base64-encode the bytes, return as
+ * TTS NEVER hard-fails. It always at least emits a signal-only
+ * `NotificationFired` (success: true, no audio) so the Mac listener
+ * (NexusShared.TTSObserver → ElevenLabsClient + Keychain) can synthesize
+ * locally. Agent-side synthesis is a best-effort OPTIMIZATION: when it works
+ * we pre-render the mp3 and ship it as `audioBase64` so the Mac can skip its
+ * own synth round-trip; when it can't, we degrade to signal-only rather than
+ * killing the whole notification (which would take down the banner too).
+ *
+ * Behavioural contract:
+ *
+ *   - `ELEVENLABS_API_KEY` unset → `{ success: true }` (signal-only; listener
+ *     synthesizes via Keychain). Info-level log.
+ *   - Voice id resolves to null (no project override + no env default) →
+ *     `{ success: true }` (signal-only). Info-level log — this is an expected
+ *     degradation, not an error; NO captureException.
+ *   - Voice resolution itself throws (e.g. DB hiccup in project-voice lookup)
+ *     → `{ success: true }` (signal-only). Warn-level log — a transient DB
+ *     error must never kill TTS.
+ *   - HTTP 4xx/5xx / network timeout during synth → `{ success: true }`
+ *     (signal-only). Warn-level log — a flaky ElevenLabs endpoint must not
+ *     spam Sentry on every notification; the Mac fallback handles it.
+ *   - Synth success → persist mp3 to `~/.config/nexus/audio/<id>.mp3` via
+ *     `writeAudio()`, base64-encode the bytes, return
  *     `{ success: true, audioBase64, voiceUsed }`.
+ *
+ * The ONLY path that returns `audioBase64` is the full happy path; every
+ * other outcome degrades to signal-only `success: true`. This handler does
+ * NOT return `success: false`.
  */
 async function sendTtsNotification(
   notification: NotificationRow,
@@ -147,26 +167,26 @@ async function sendTtsNotification(
   try {
     voiceId = await resolveVoiceId(notification);
   } catch (err) {
-    captureException(err);
-    log.error(
+    // Voice resolution threw (e.g. DB hiccup in project-voice lookup).
+    // Degrade to signal-only — a transient lookup error must never kill TTS.
+    log.warn(
       {
         notificationId: notification.id,
         err: err instanceof Error ? err.message : String(err),
       },
-      "tts: voice id resolution threw",
+      "tts: voice id resolution threw — emitting signal-only NotificationFired (listener falls back to local synth)",
     );
-    return { success: false };
+    return { success: true };
   }
   if (!voiceId) {
-    const err = new Error(
-      `elevenlabs missing voice id (project=${notification.project ?? "<none>"})`,
-    );
-    captureException(err);
-    log.error(
+    // Expected degradation (no project override + ELEVENLABS_DEFAULT_VOICE_ID
+    // unset), not an error. Emit signal-only so the Mac listener synthesizes
+    // via Keychain. No captureException — this is a normal fallback.
+    log.info(
       { notificationId: notification.id, project: notification.project },
-      "tts: no voice id available (no project override + ELEVENLABS_DEFAULT_VOICE_ID unset)",
+      "tts: no voice id available — emitting signal-only NotificationFired (listener falls back to local synth)",
     );
-    return { success: false };
+    return { success: true };
   }
 
   try {
@@ -177,16 +197,20 @@ async function sendTtsNotification(
     const audioBase64 = Buffer.from(mp3).toString("base64");
     return { success: true, audioBase64, voiceUsed: voiceId };
   } catch (err) {
-    captureException(err);
-    log.error(
+    // Synth HTTP/network error. Degrade to signal-only so the notification
+    // still delivers (banner + listener-side synth) — a flaky ElevenLabs
+    // endpoint must not kill TTS. Warn-only, no captureException (would spam
+    // Sentry on every notification during an outage; the Mac fallback covers
+    // synthesis).
+    log.warn(
       {
         notificationId: notification.id,
         voiceId,
         err: err instanceof Error ? err.message : String(err),
       },
-      "tts: ElevenLabs synthesis failed",
+      "tts: ElevenLabs synthesis failed — emitting signal-only NotificationFired (listener falls back to local synth)",
     );
-    return { success: false };
+    return { success: true };
   }
 }
 
