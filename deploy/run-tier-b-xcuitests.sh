@@ -31,7 +31,7 @@
 set -euo pipefail
 
 # Escape hatch (matches the pre-push hook's SKIP_* convention, e.g.
-# SKIP_DEPLOY / SKIP_INTEGRATION_GATE / SKIP_BUNDLE_INTEGRITY). When set,
+# SKIP_DEPLOY / SKIP_BUNDLE_INTEGRITY). When set,
 # the runner logs an explicit, NON-failing skip and exits 0. Used by
 # deploy/selftest-pre-push-gate.sh case (c) to validate the GUI-present
 # clean path of the gate orchestration without spending minutes on the
@@ -155,9 +155,8 @@ iTerm2, Cursor, etc.) to be granted control of System Events under:
                                                        > System Events  (on)
   System Settings > Privacy & Security > Accessibility > <your terminal>  (on)
 
-After granting, re-run the push. To bypass the gate entirely:
-  SKIP_INTEGRATION_GATE=1 git push
-or to skip just Tier B for one push:
+After granting, re-run the push. The integration gate is mandatory (no
+whole-gate bypass), but you can skip just the fragile Tier B XCUITest run:
   SKIP_TIER_B_RUN=1 git push
 
 Not a code regression — exiting 0 so the push can proceed.
