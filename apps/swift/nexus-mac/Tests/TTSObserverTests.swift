@@ -101,6 +101,10 @@ private final class SpyMP3Player: MP3PlayerProtocol, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         _calls.append(Call(bytes: mp3Data.count, ducking: ducking))
     }
+
+    /// airpods-tts-cancel: MP3PlayerProtocol gained `stop()`. The lifecycle
+    /// tests here don't drive playback, so a no-op satisfies the conformance.
+    func stop() {}
 }
 
 // MARK: - Test fixture

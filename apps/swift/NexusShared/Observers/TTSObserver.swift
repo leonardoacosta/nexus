@@ -81,6 +81,11 @@ public final class TTSObserver: ObservableObject {
     private let settings: SettingsStore
     private let notificationCenter: UNUserNotificationCenter
 
+    /// Owns the system Now-Playing session during TTS playback + a 2s grace
+    /// window, and routes an AirPods play/pause press to TTS cancellation.
+    /// Spec: openspec/changes/airpods-tts-cancel.
+    private let nowPlaying: NowPlayingController
+
     private var subscriptionTask: Task<Void, Never>?
     private var voiceEventTask: Task<Void, Never>?
 
@@ -102,7 +107,8 @@ public final class TTSObserver: ObservableObject {
         systemSpeech: SystemSpeechSynthesizer = SystemSpeechSynthesizer(),
         elevenLabs: ElevenLabsClient = ElevenLabsClient(),
         settings: SettingsStore = .shared,
-        notificationCenter: UNUserNotificationCenter = .current()
+        notificationCenter: UNUserNotificationCenter = .current(),
+        nowPlaying: NowPlayingController = NowPlayingController()
     ) {
         self.client = client
         self.keychain = keychain
@@ -111,6 +117,30 @@ public final class TTSObserver: ObservableObject {
         self.elevenLabs = elevenLabs
         self.settings = settings
         self.notificationCenter = notificationCenter
+        self.nowPlaying = nowPlaying
+
+        // Route an AirPods play/pause press (while the Now-Playing session is
+        // held) to TTS cancellation: stop the MP3 player, stop the system
+        // speech fallback, and start the grace window. Both stops are no-ops
+        // when their surface is idle, so a press during the post-clip grace
+        // window is consumed harmlessly. Spec: airpods-tts-cancel.
+        let player = audioPlayer
+        let speech = systemSpeech
+        let controller = nowPlaying
+        nowPlaying.cancelHandler = { [weak self] in
+            player?.stop()
+            Task { await speech.stop() }
+            controller.noteClipEnded()
+            Self.logger.info("TTSObserver: AirPods play/pause cancelled in-flight TTS")
+            _ = self
+        }
+
+        // Bridge the MP3 player's natural-finish callback to the grace window
+        // so the session resigns ~2s after a clip ends with no further
+        // activity. Idle conformers (test spies) leave this no-op.
+        self.audioPlayer?.onPlaybackFinished = { [weak nowPlaying] in
+            Task { @MainActor in nowPlaying?.noteClipEnded() }
+        }
     }
 
     // MARK: - Lifecycle
@@ -360,6 +390,12 @@ public final class TTSObserver: ObservableObject {
 
     private func synthesise(event: NotificationEvent) async {
         let body = event.body
+
+        // Acquire (or refresh) the Now-Playing session BEFORE playback so an
+        // AirPods press lands on us the instant audio begins. Idempotent —
+        // a back-to-back notification just resets the grace window. Spec:
+        // airpods-tts-cancel.
+        nowPlaying.acquire()
         // Voice id resolution chain (notifications-overhaul, task 3.3):
         //   1. project override — projectVoiceCache[event.project]
         //   2. Keychain global override (per-user)
@@ -432,6 +468,11 @@ public final class TTSObserver: ObservableObject {
     private func speakSystem(body: String) async {
         Self.logger.info("TTSObserver: fallback to AVSpeechSynthesizer")
         await systemSpeech.speak(body)
+        // The system-speech surface has no delegate-style finish callback, so
+        // we await its FIFO drain and start the Now-Playing grace window when
+        // the utterance completes. Spec: airpods-tts-cancel.
+        await systemSpeech.waitForIdle()
+        nowPlaying.noteClipEnded()
     }
 
     /// Ducking lives in UserDefaults under the key SettingsView writes

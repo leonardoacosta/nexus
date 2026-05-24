@@ -25,6 +25,11 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     private var player: AVAudioPlayer?
     private var onFinish: (() -> Void)?
 
+    /// Fired when a clip finishes naturally (delegate didFinish), NOT on
+    /// `stop()`. TTSObserver wires this to NowPlayingController.noteClipEnded().
+    /// Spec: openspec/changes/airpods-tts-cancel.
+    public var onPlaybackFinished: (() -> Void)?
+
     public func play(
         mp3Data: Data,
         ducking: DuckingMode = .mix,
@@ -44,6 +49,23 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully _: Bool) {
         self.player = nil
         onFinish?()
+        onFinish = nil
+        // Natural finish — signal the Now-Playing grace window to start.
+        onPlaybackFinished?()
+    }
+
+    /// Halt the current clip immediately and reset so the next `play()`
+    /// constructs a fresh AVAudioPlayer. Safe no-op when nothing is playing
+    /// (`player` is nil). `AVAudioPlayer.stop()` does NOT invoke the delegate
+    /// `audioPlayerDidFinishPlaying(_:successfully:)`, so we clear `onFinish`
+    /// here without firing it — the cancel path (NowPlayingController) drives
+    /// the grace-window lifecycle directly, not via the finish callback.
+    ///
+    /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener).
+    public func stop() {
+        guard let player else { return }
+        player.stop()
+        self.player = nil
         onFinish = nil
     }
 }

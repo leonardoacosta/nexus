@@ -30,4 +30,31 @@ public enum DuckingMode: String, Codable, Sendable, CaseIterable {
 /// device-level failures are logged by the conformer.
 public protocol MP3PlayerProtocol: AnyObject, Sendable {
     func play(mp3Data: Data, ducking: DuckingMode) throws
+
+    /// Halt the in-flight clip immediately, leaving the player ready for the
+    /// next `play()`. MUST be a safe no-op when nothing is playing.
+    ///
+    /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener,
+    /// "In-flight TTS playback MUST be cancellable"). A single AirPods
+    /// play/pause press routes through `NowPlayingController.cancelHandler`
+    /// to this method.
+    func stop()
+
+    /// Invoked when a clip finishes playing on its own (NOT when `stop()`
+    /// cancels it). TTSObserver wires this to `NowPlayingController.noteClipEnded()`
+    /// so the Now-Playing grace window starts only after a natural finish.
+    /// Optional — conformers that don't surface a finish signal leave the
+    /// default no-op getter/setter (the grace window then relies on the
+    /// system-speech `waitForIdle()` path or never starts, which is harmless:
+    /// the controller resigns on the next clip's acquire).
+    var onPlaybackFinished: (() -> Void)? { get set }
+}
+
+public extension MP3PlayerProtocol {
+    /// Default no-op so existing conformers (test spies, SettingsTtsView
+    /// preview players) don't have to implement the finish seam.
+    var onPlaybackFinished: (() -> Void)? {
+        get { nil }
+        set { _ = newValue }
+    }
 }

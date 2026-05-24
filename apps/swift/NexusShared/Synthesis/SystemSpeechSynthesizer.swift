@@ -48,6 +48,15 @@ public actor SystemSpeechSynthesizer {
     /// reads/writes of `pending`.
     private var pending: Task<Void, Never>?
 
+    /// The `/usr/bin/say` process currently producing audio (if any). Tracked
+    /// so `stop()` can terminate mid-utterance — the subprocess analogue of
+    /// AVSpeechSynthesizer's `stopSpeaking(at: .immediate)`. Cleared when the
+    /// process exits or when `stop()` terminates it.
+    ///
+    /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener,
+    /// "Stop cancels the speech-synth fallback").
+    private var current: Process?
+
     /// Default spawner — launches `/usr/bin/say -r <rate> <text>`.
     private static let defaultSpawner: Spawner = { rate, text in
         let task = Process()
@@ -103,6 +112,10 @@ public actor SystemSpeechSynthesizer {
                 "SystemSpeechSynthesizer: say invoked rate=\(rate) text_len=\(trimmed.count)"
             )
 
+            // Record the live process so stop() can terminate it mid-clip.
+            // Hopping back onto the actor to mutate isolated state.
+            await self.setCurrent(process)
+
             // 3. Wait for the subprocess to exit. waitUntilExit is blocking
             // so we use terminationHandler + a continuation. Foundation does
             // NOT retroactively invoke a handler set after termination, so
@@ -124,9 +137,42 @@ public actor SystemSpeechSynthesizer {
                     didResume.resumeIfNeeded()
                 }
             }
+
+            // Utterance done (natural exit or stop()-terminated) — release
+            // the tracked handle so a stale Process isn't terminated later.
+            await self.clearCurrent(process)
         }
 
         pending = task
+    }
+
+    /// Record the currently-speaking process (actor-isolated mutation hop
+    /// from the detached speak Task).
+    private func setCurrent(_ process: Process) {
+        current = process
+    }
+
+    /// Clear the tracked process only if it's still the one we recorded —
+    /// guards against a fast follow-up clip overwriting `current` before the
+    /// prior Task's cleanup runs.
+    private func clearCurrent(_ process: Process) {
+        if current === process {
+            current = nil
+        }
+    }
+
+    /// Cancel any in-flight utterance immediately. Terminates the live
+    /// `/usr/bin/say` subprocess (the subprocess analogue of
+    /// `AVSpeechSynthesizer.stopSpeaking(at: .immediate)`). Safe no-op when
+    /// nothing is speaking. The terminated process's exit fires the
+    /// continuation in `speak()`, so the FIFO queue advances normally.
+    ///
+    /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener).
+    public func stop() {
+        guard let process = current, process.isRunning else { return }
+        Self.logger.info("SystemSpeechSynthesizer: stop() terminating in-flight say process")
+        process.terminate()
+        current = nil
     }
 
     /// Drain the queue — await pending utterance completion. Test-only.
