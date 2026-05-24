@@ -494,15 +494,23 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
     if (livePids.has(pid)) {
       liveManagedPids.push(pid);
 
-      // nx-ds6rq: tmux-derived backfill for alive managed rows.
+      // nx-ds6rq + nx-tmuxdrift: tmux-derived backfill AND drift-repair for
+      // alive managed rows. tmuxTarget is ephemeral — tmux renumbers windows
+      // when one is closed, so a live pid (stable identity) can move panes.
+      // The stored target then points at a dead pane and PTY attach 404s.
+      // Refresh whenever the live scan differs from the stored value.
       const pane = paneByPid.get(pid);
       if (pane) {
         const cwdBlank = !(row.cwd ?? "").trim();
-        const tmuxBlank = !(row.tmuxTarget ?? "").trim();
-        if (cwdBlank || tmuxBlank) {
+        const storedTarget = (row.tmuxTarget ?? "").trim();
+        const tmuxBlank = storedTarget === "";
+        const tmuxStale = !tmuxBlank && storedTarget !== pane.tmuxTarget;
+        if (cwdBlank || tmuxBlank || tmuxStale) {
           needsTmuxFill.push({
             id: row.id,
-            cwd: pane.cwd,
+            // Don't clobber a good cwd with an empty pane.cwd; prefer the
+            // fresh pane cwd when present, else keep the existing row cwd.
+            cwd: (pane.cwd ?? "").trim() || (row.cwd ?? ""),
             tmuxTarget: pane.tmuxTarget,
           });
         }

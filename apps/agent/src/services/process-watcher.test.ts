@@ -719,6 +719,127 @@ describe.skipIf(!hasPg)(
       expect(row.gitOwnerRepo).toBe("leonardoacosta/ws");
     });
 
+    // ── nx-tmuxdrift: stale-tmuxTarget drift repair ───────────────────────
+    //
+    // tmuxTarget is ephemeral. When a user closes a tmux window, tmux
+    // renumbers the remaining windows, so a live claude pid (stable
+    // identity) moves to a different pane. The watcher recorded the OLD
+    // `<session>:<window>.<pane>` target once at discovery and only
+    // re-filled it when blank — so the stored target went stale, pointed at
+    // a dead pane, and PTY attach 404'd ("session not found"). These tests
+    // pin the drift-repair: whenever the live tmux scan differs from the
+    // stored target, the row is refreshed to the current pane address.
+
+    test("Stale tmuxTarget is refreshed when live pid moves panes (window renumber)", async () => {
+      // Reproduces the verified homelab failure: pid lives at pane 0:2.1 now,
+      // but the row was recorded as 0:3.1 before window 3 was closed.
+      await db.insert(sessions).values({
+        id: "row-tmux-drift",
+        machine: "local",
+        status: "active",
+        startedAt: new Date(),
+        lastActivity: new Date(),
+        endedAt: null,
+        pid: 364754,
+        // cwd is already good — only the tmuxTarget should change.
+        cwd: "/home/nyaptor/dev/oo",
+        branch: null,
+        sessionType: "managed",
+        model: "claude",
+        // STALE: window 3 was renumbered away when the user closed a window.
+        tmuxTarget: "0:3.1",
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+        projectId: null,
+        ccSessionId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+        gitProvider: "github",
+        gitOwnerRepo: "leonardoacosta/oo",
+      });
+
+      // Live scan: pid 364754 is now a child of pane_shell 773984, whose
+      // pane is window 2 (0:2.1) — window 3 no longer exists.
+      setPgrepOutput([pgrepLine(364754, "claude --resume")]);
+      setTmuxPanesOutput([
+        "773984|/home/nyaptor/dev/oo|0|2|1|claude",
+      ]);
+      setChildMap({ 773984: [364754] });
+      setResolverResult(null);
+
+      const result = await reconcileOnce(db);
+      // No new rows, none closed — drift-repair only.
+      expect(result).toEqual({ created: 0, closed: 0 });
+
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-tmux-drift"));
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      // Drift repaired: target now points at the LIVE pane.
+      expect(row.tmuxTarget).toBe("0:2.1");
+      // cwd was already good and the pane cwd matches — preserved.
+      expect(row.cwd).toBe("/home/nyaptor/dev/oo");
+    });
+
+    test("Matching tmuxTarget is preserved (no needless rewrite) when live scan agrees", async () => {
+      // The stored target already equals the live pane address — the row's
+      // values must be preserved exactly (drift-repair must not fire on a
+      // row that's already correct).
+      await db.insert(sessions).values({
+        id: "row-tmux-stable",
+        machine: "local",
+        status: "active",
+        startedAt: new Date(),
+        lastActivity: new Date(),
+        endedAt: null,
+        pid: 555000,
+        cwd: "/home/nyaptor/dev/ws",
+        branch: null,
+        sessionType: "managed",
+        model: "claude",
+        // Already correct — matches the live scan below.
+        tmuxTarget: "0:1.1",
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+        projectId: null,
+        ccSessionId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+        gitProvider: "github",
+        gitOwnerRepo: "leonardoacosta/ws",
+      });
+
+      setPgrepOutput([pgrepLine(555000, "claude")]);
+      setTmuxPanesOutput([
+        "554000|/home/nyaptor/dev/ws|0|1|1|claude",
+      ]);
+      setChildMap({ 554000: [555000] });
+      setResolverResult(null);
+
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 0, closed: 0 });
+
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-tmux-stable"));
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      // Value preserved — already-correct target is left intact.
+      expect(row.tmuxTarget).toBe("0:1.1");
+      expect(row.cwd).toBe("/home/nyaptor/dev/ws");
+    });
+
     test("Existing null-project row gets re-enriched on next poll", async () => {
       // Seed an active row with null git fields. The resolver wasn't
       // available the first time around — now it is.
