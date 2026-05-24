@@ -1,0 +1,1343 @@
+{
+  "spec_names": [
+    "add-cc-credential-manager",
+    "add-nexus-shared-framework",
+    "add-schema-drift-detector",
+    "add-socket-hook-helper",
+    "add-subagent-tree-columns",
+    "adopt-reaper-into-nx-cron",
+    "bump-session-idle-threshold",
+    "collapse-credentials-dir",
+    "delete-http-hooks-endpoint",
+    "document-spine-architecture",
+    "drop-recognized-events-allowlist",
+    "enforce-pino-script-errors",
+    "env-aware-install-script",
+    "fix-credential-source-divergence",
+    "migrate-cc-hooks-to-socket",
+    "remove-mac-deploy-artifacts",
+    "remove-notification-channels",
+    "remove-peer-connector",
+    "remove-slack-channel",
+    "retire-web-dashboard-infra",
+    "scaffold-nexus-ios-target",
+    "scaffold-nexus-watch-target",
+    "socket-dispatcher-parity",
+    "swift-dashboard-feature-parity",
+    "swift-owns-elevenlabs-synth",
+    "xcodegen-initial-generate"
+  ],
+  "waves": [
+    {
+      "wave_number": 1,
+      "specs": [
+        {
+          "name": "adopt-reaper-into-nx-cron",
+          "file_paths": [
+            "packages/db/src/schema/cronRuns.ts",
+            "packages/db/src/schema/bloatRadar.ts",
+            "apps/agent/src/services/reaper-job.ts",
+            "apps/agent/src/routes/cron-routes.ts",
+            "apps/agent/src/services/cron.ts",
+            "apps/agent/src/services/reaper-core.sh",
+            "apps/agent/src/notifications/manager.ts",
+            "apps/agent/src/services/lifecycle-bus.ts",
+            "apps/swift/NexusShared/Models/Notification.swift",
+            "apps/swift/nexus-mac/Sources/AppNavigation.swift",
+            "packages/db/src/schema/index.ts",
+            "packages/db/drizzle/0031_add_reaper_telemetry.sql",
+            "home/dot_local/bin/executable_weekly-cleanup",
+            "home/Library/LaunchAgents/com.leonardoacosta.weekly-cleanup.plist",
+            "home/dot_config/systemd/user/weekly-cleanup.timer",
+            "home/dot_config/systemd/user/weekly-cleanup.service"
+          ],
+          "task_count": 29,
+          "phase_classification": {
+            "DB": [
+              "1.1 Add `packages/db/src/schema/cronRuns.ts` \u2014 `cron_runs` table (id, [beads:nx-8hrn9]",
+              "1.2 Add `packages/db/src/schema/bloatRadar.ts` \u2014 `bloat_radar` table [beads:nx-cougs]",
+              "1.3 Export `cronRuns` and `bloatRadar` from [beads:nx-fi6ob]",
+              "1.4 Generate the Drizzle migration [beads:nx-rm4lq]",
+              "1.5 Add a retention rule for `cron_runs` and `bloat_radar` in [beads:nx-y4ddo]"
+            ],
+            "API": [
+              "2.1 Vendor the destructive bash core verbatim into [beads:nx-v4khg]",
+              "2.2 Make `reaper-core.sh` emit machine-parseable result lines (counts, [beads:nx-dvsqr]",
+              "2.3 Add `apps/agent/src/services/reaper-job.ts` \u2014 thin TS wrapper that [beads:nx-ejvfx]",
+              "2.4 Persist the wrapper result to `cron_runs` (success and [beads:nx-o540k]",
+              "2.5 Persist each bloat finding to the `bloat_radar` table; emit no rows [beads:nx-wl3hy]",
+              "2.6 Register the `reaper` job in [beads:nx-lz7po]",
+              "2.7 Implement the missed-run / stale-heartbeat detector: on cron [beads:nx-3xup4]",
+              "2.8 Extend `NotificationFiredPayload` in [beads:nx-iq3d6]",
+              "2.9 Emit the reaper completion notification with `items` (bullet [beads:nx-ifosx]",
+              "2.10 Update `apps/agent/src/routes/cron-routes.ts` so `GET /cron` [beads:nx-ttpsg]",
+              "2.11 Unit-test the wrapper (`reaper-job.ts`): dry-run performs zero [beads:nx-tp8p1]",
+              "2.12 Unit-test the stale-heartbeat detector: stale/absent \u2192 warn, [beads:nx-1una8]",
+              "2.13 Unit-test the `cron_runs` / `bloat_radar` persistence against the [beads:nx-rfrh2]"
+            ],
+            "UI": [
+              "3.1 Extend the Swift `NotificationEvent` mirror in [beads:nx-ds60x]",
+              "3.2 Update the Mac listener notification renderer [beads:nx-838kq]",
+              "3.3 Make notification activation open `logPath` via the OS default [beads:nx-nx294]",
+              "3.4 Add/extend a Swift test asserting items\u2192bullet rendering and [beads:nx-aad5a]"
+            ],
+            "E2E": [
+              "4.1 End-to-end: trigger the `reaper` job with `--dry-run`, assert a [beads:nx-oe4kw]",
+              "4.2 End-to-end: seed a synthetic over-threshold bloat target, run the [beads:nx-3kke1]",
+              "4.3 CLEAN CUT \u2014 remove the chezmoi reaper script from `~/dev/if`: [beads:nx-h7gs3]",
+              "4.4 CLEAN CUT \u2014 remove the macOS LaunchAgent from `~/dev/if`: [beads:nx-ka5qp]",
+              "4.5 CLEAN CUT \u2014 remove the Linux systemd units from `~/dev/if`: [beads:nx-3kjkj]",
+              "4.6 Sequence verification: confirm steps 4.3\u20134.5 run only AFTER the [beads:nx-x2rab]",
+              "4.7 Verify cross-platform parity: the reaper produces the expected [beads:nx-ftjrt]"
+            ]
+          },
+          "ddl_tables": [],
+          "feature": "nx-ylqm0",
+          "epic": "nx-zl0yb",
+          "priority": 2,
+          "status": "merged",
+          "merged_at": "2026-05-21T13:14:45.232177"
+        },
+        {
+          "name": "fix-credential-source-divergence",
+          "file_paths": [
+            "apps/agent/src/cc-credential-manager.ts",
+            "claude/.credentials.js",
+            "apps/agent/src/credentials/active-credential-watcher.ts",
+            "apps/agent/src/routes/credentials/handlers-crud.ts"
+          ],
+          "task_count": 5,
+          "phase_classification": {
+            "DB": [],
+            "API": [
+              "1.1 `apps/agent/src/cc-credential-manager.ts` \u2014 change",
+              "1.2 Designate the canonical source for `GET /credentials`: make",
+              "1.3 Ensure the schema-fingerprint check passes against the real file"
+            ],
+            "UI": [],
+            "E2E": [
+              "2.1 Verify on the homelab agent (which has `~/.claude/.credentials.json`,",
+              "2.2 Negative check: with no `~/.claude/.credentials.json`, `GET"
+            ]
+          },
+          "ddl_tables": [],
+          "feature": "nx-bylxt",
+          "epic": "nx-hnkty",
+          "priority": 2,
+          "status": "merged",
+          "merged_at": "2026-05-21T13:14:45.286857"
+        },
+        {
+          "name": "add-cc-credential-manager",
+          "file_paths": [],
+          "task_count": 9,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [
+            "cc_profiles"
+          ],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "add-nexus-shared-framework",
+          "file_paths": [],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "add-schema-drift-detector",
+          "file_paths": [
+            "services/schema-drift.ts",
+            "services/process-hook-event.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "add-socket-hook-helper",
+          "file_paths": [
+            "apps/nexus-emit/src/index.ts",
+            "deploy/nexus-emit.sh"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "bump-session-idle-threshold",
+          "file_paths": [
+            "apps/agent/src/session-manager.ts",
+            "apps/agent/src/session-manager.test.ts",
+            "docs/nexus-topology.html"
+          ],
+          "task_count": 5,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "delete-http-hooks-endpoint",
+          "file_paths": [
+            "apps/agent/src/routes/hooks.ts",
+            "apps/agent/src/server-request-handler.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "enforce-pino-script-errors",
+          "file_paths": [
+            "packages/core/src/node/pino-db-transport.ts"
+          ],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [
+            "script_errors"
+          ],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "env-aware-install-script",
+          "file_paths": [
+            "deploy/install.sh"
+          ],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "migrate-cc-hooks-to-socket",
+          "file_paths": [
+            "claude/settings.js"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "remove-notification-channels",
+          "file_paths": [
+            "apps/agent/src/notifications/channels/tts.ts",
+            "apps/agent/src/notifications/channels/desktop.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "remove-peer-connector",
+          "file_paths": [
+            "apps/agent/src/services/peer-connector.ts",
+            "apps/agent/src/index.ts"
+          ],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "remove-slack-channel",
+          "file_paths": [
+            "apps/agent/src/notifications/channels/slack.ts",
+            "notifications/router.ts"
+          ],
+          "task_count": 5,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "retire-web-dashboard-infra",
+          "file_paths": [
+            "deploy/nexus-bundle-manager.sh"
+          ],
+          "task_count": 9,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "scaffold-nexus-ios-target",
+          "file_paths": [],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "scaffold-nexus-watch-target",
+          "file_paths": [],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "swift-dashboard-feature-parity",
+          "file_paths": [],
+          "task_count": 12,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "swift-owns-elevenlabs-synth",
+          "file_paths": [],
+          "task_count": 9,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [
+            "elevenlabs_credentials"
+          ],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "xcodegen-initial-generate",
+          "file_paths": [
+            "apps/swift/project.yml"
+          ],
+          "task_count": 7,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    },
+    {
+      "wave_number": 2,
+      "specs": [
+        {
+          "name": "add-subagent-tree-columns",
+          "file_paths": [
+            "services/process-hook-event.ts",
+            "services/process-hook-event.test.ts",
+            "services/socket-server.test.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [
+            "sessions"
+          ],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "collapse-credentials-dir",
+          "file_paths": [
+            "apps/agent/src/cc-credential-manager.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "document-spine-architecture",
+          "file_paths": [
+            "docs/nexus-topology.html",
+            "docs/nexus-evolution.html"
+          ],
+          "task_count": 4,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "drop-recognized-events-allowlist",
+          "file_paths": [
+            "services/schema-drift.ts",
+            "routes/hooks.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        },
+        {
+          "name": "remove-mac-deploy-artifacts",
+          "file_paths": [
+            "deploy/nexus-notifier.sh",
+            "deploy/nexus-notifier-status.sh",
+            "deploy/README.md",
+            "deploy/nexus-listener.ts",
+            "deploy/install.sh"
+          ],
+          "task_count": 9,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    },
+    {
+      "wave_number": 3,
+      "specs": [
+        {
+          "name": "socket-dispatcher-parity",
+          "file_paths": [
+            "routes/hooks.ts",
+            "socket-server/dispatcher.ts",
+            "services/hook-event-throttle.ts",
+            "services/process-hook-event.ts",
+            "routes/sessions.ts",
+            "services/process-hook-event.test.ts"
+          ],
+          "task_count": 6,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [],
+            "E2E": []
+          },
+          "ddl_tables": [],
+          "feature": "",
+          "epic": "",
+          "priority": null,
+          "_warning": "unexpected status 'None' at completion"
+        }
+      ]
+    }
+  ],
+  "conflicts": {
+    "add-cc-credential-manager": [],
+    "add-nexus-shared-framework": [],
+    "add-schema-drift-detector": [
+      "add-subagent-tree-columns",
+      "drop-recognized-events-allowlist",
+      "socket-dispatcher-parity"
+    ],
+    "add-socket-hook-helper": [],
+    "add-subagent-tree-columns": [
+      "add-schema-drift-detector",
+      "socket-dispatcher-parity"
+    ],
+    "adopt-reaper-into-nx-cron": [],
+    "bump-session-idle-threshold": [
+      "document-spine-architecture"
+    ],
+    "collapse-credentials-dir": [
+      "fix-credential-source-divergence"
+    ],
+    "delete-http-hooks-endpoint": [],
+    "document-spine-architecture": [
+      "bump-session-idle-threshold"
+    ],
+    "drop-recognized-events-allowlist": [
+      "add-schema-drift-detector",
+      "socket-dispatcher-parity"
+    ],
+    "enforce-pino-script-errors": [],
+    "env-aware-install-script": [
+      "remove-mac-deploy-artifacts"
+    ],
+    "fix-credential-source-divergence": [
+      "collapse-credentials-dir"
+    ],
+    "migrate-cc-hooks-to-socket": [],
+    "remove-mac-deploy-artifacts": [
+      "env-aware-install-script"
+    ],
+    "remove-notification-channels": [],
+    "remove-peer-connector": [],
+    "remove-slack-channel": [],
+    "retire-web-dashboard-infra": [],
+    "scaffold-nexus-ios-target": [],
+    "scaffold-nexus-watch-target": [],
+    "socket-dispatcher-parity": [
+      "add-schema-drift-detector",
+      "add-subagent-tree-columns",
+      "drop-recognized-events-allowlist"
+    ],
+    "swift-dashboard-feature-parity": [],
+    "swift-owns-elevenlabs-synth": [],
+    "xcodegen-initial-generate": []
+  },
+  "ordering": [
+    "adopt-reaper-into-nx-cron",
+    "fix-credential-source-divergence",
+    "add-cc-credential-manager",
+    "add-nexus-shared-framework",
+    "add-schema-drift-detector",
+    "add-socket-hook-helper",
+    "bump-session-idle-threshold",
+    "delete-http-hooks-endpoint",
+    "enforce-pino-script-errors",
+    "env-aware-install-script",
+    "migrate-cc-hooks-to-socket",
+    "remove-notification-channels",
+    "remove-peer-connector",
+    "remove-slack-channel",
+    "retire-web-dashboard-infra",
+    "scaffold-nexus-ios-target",
+    "scaffold-nexus-watch-target",
+    "swift-dashboard-feature-parity",
+    "swift-owns-elevenlabs-synth",
+    "xcodegen-initial-generate",
+    "add-subagent-tree-columns",
+    "collapse-credentials-dir",
+    "document-spine-architecture",
+    "drop-recognized-events-allowlist",
+    "remove-mac-deploy-artifacts",
+    "socket-dispatcher-parity"
+  ],
+  "errors": [
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.1 Drizzle migration: CREATE TABLE cc_profiles + RENAME credential_events TO cc"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.2 Implement cc-credential-manager.ts: read/write credentials.json + encrypt re"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.3 Implement OAuth refresh logic (proactive 5min before expiry)"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.4 Implement rate-limit detection (429 monitoring) + swap"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.5 Implement schema-drift detection for credentials.json format"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.6 Implement Settings UI in nexus-mac to display profile status (read-only)"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.7 Backup-before-write: every mutation writes a timestamped backup first"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.8 Unit tests: refresh, swap, drift detection, backup rotation"
+    },
+    {
+      "spec": "add-cc-credential-manager",
+      "error": "task outside known phase section: 1.9 Integration test: mock CC OAuth endpoint, verify full lifecycle"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.1 Create apps/swift/NexusShared/ source layout (Models/, Networking/, Observer"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.2 Implement Codable Models matching TS schema types (Session, Notification, He"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.3 Implement NexusClient: URLSession SSE subscriber + HTTP fetchers (NexusClien"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.4 Implement ObservableObject observers for SwiftUI binding (SessionObserver)"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.5 Implement SettingsStore + Keychain wrapper (Keychain.swift kept from wave 1;"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.6 Migrate existing macOS app to consume NexusShared (nx-4roof). Models.swift t"
+    },
+    {
+      "spec": "add-nexus-shared-framework",
+      "error": "task outside known phase section: 1.7 Unit tests on each platform target (NexusSharedTests target with AggregateSt"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.1 Create Drizzle migration for `hook_schema_fingerprints` table"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.2 Implement `services/schema-drift.ts` \u2014 fingerprint computation + DB lookup +"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.3 Wire detector before dispatch \u2014 done via `services/process-hook-event.ts` (n"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.4 Add `HookSchemaDrift` to the LifecycleEnvelope event union in `lifecycle-bus"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.5 Unit tests: fingerprint determinism, rate-limit window, new-pair emission"
+    },
+    {
+      "spec": "add-schema-drift-detector",
+      "error": "task outside known phase section: 1.6 Backfill: replay last 7 days of `session_events.metadata` to seed fingerprin"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.1 Decide: small Bun-compiled binary OR shell wrapper using `nc -U` (prefer bin"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.2 Implement helper at `apps/nexus-emit/src/index.ts` (or shell at `deploy/nexu"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.3 Add to deploy hooks (post-merge / pre-push) so it gets installed alongside n"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.4 Install path: `~/.local/bin/nexus-emit`"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.5 Unit test: payload-to-socket frame round-trip"
+    },
+    {
+      "spec": "add-socket-hook-helper",
+      "error": "task outside known phase section: 1.6 Integration test: invoke helper, verify agent receives + dispatches event"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.1 Drizzle migration: ALTER TABLE sessions ADD parent_session_id (text FK), chi"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.2 Drizzle migration: CREATE INDEX on (parent_session_id)"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.3 Update agent dispatcher to populate columns on agent_spawn \u2014 done via `servi"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.4 Backfill script: replay `session_events` WHERE event_type='agent_spawn', UPD"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.5 Update `packages/core` types to surface the new columns"
+    },
+    {
+      "spec": "add-subagent-tree-columns",
+      "error": "task outside known phase section: 1.6 Unit tests: parent-child linkage on agent_spawn dispatch \u2014 rewritten from no"
+    },
+    {
+      "spec": "bump-session-idle-threshold",
+      "error": "task outside known phase section: 1.1 Edit `apps/agent/src/session-manager.ts` \u2014 `IDLE_THRESHOLD_MS = 60 * 60 * 10"
+    },
+    {
+      "spec": "bump-session-idle-threshold",
+      "error": "task outside known phase section: 1.2 Review and proportionally adjust `STALE_THRESHOLD_MS` and `EVICT_THRESHOLD_M"
+    },
+    {
+      "spec": "bump-session-idle-threshold",
+      "error": "task outside known phase section: 1.3 Update `apps/agent/src/session-manager.test.ts` timing assertions"
+    },
+    {
+      "spec": "bump-session-idle-threshold",
+      "error": "task outside known phase section: 1.4 Update `docs/nexus-topology.html` Plate 01c (5m \u2192 60m diagram label)"
+    },
+    {
+      "spec": "bump-session-idle-threshold",
+      "error": "task outside known phase section: 1.5 Run tests \u2014 green (meta gate: openspec validate; full vitest deferred to int"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.1 Inventory current `apps/agent/src/credentials/*` files and consumers"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.2 Create placeholder `apps/agent/src/cc-credential-manager.ts` with stub for C"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.3 Migrate any active-credential-watcher / token-stream logic the agent still n"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.4 `git rm -r apps/agent/src/credentials/` \u2014 partially done: ElevenLabs surface"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.5 Update imports across `apps/agent/src/` via `safe-rename` for affected symbo"
+    },
+    {
+      "spec": "collapse-credentials-dir",
+      "error": "task outside known phase section: 1.6 Run typecheck + test suite \u2014 green for credentials surface: `bunx tsc --noEm"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: [override] 1.1 Confirm P3.3 fully landed and >=7 days production runtime on sock"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: 1.2 Grep logs for any /hooks POST in the last 7 days \u2014 expect zero"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: 1.3 `git rm apps/agent/src/routes/hooks.ts`"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: 1.4 Remove route registration from `apps/agent/src/server-request-handler.ts`"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: 1.5 Update integration tests \u2014 drop any that POST to /hooks"
+    },
+    {
+      "spec": "delete-http-hooks-endpoint",
+      "error": "task outside known phase section: 1.6 Meta gate: bash -n + openspec validate green; production verification deferr"
+    },
+    {
+      "spec": "document-spine-architecture",
+      "error": "task outside known phase section: 1.1 Rewrite CLAUDE.md Architecture section \u2014 replaced stale Rust/Cargo prose wit"
+    },
+    {
+      "spec": "document-spine-architecture",
+      "error": "task outside known phase section: 1.2 Update README.md architecture diagram + service inventory \u2014 drop nextjs/gRPC"
+    },
+    {
+      "spec": "document-spine-architecture",
+      "error": "task outside known phase section: 1.3 Cross-reference docs/nexus-topology.html and docs/nexus-evolution.html \u2014 lin"
+    },
+    {
+      "spec": "document-spine-architecture",
+      "error": "task outside known phase section: 1.4 [deferred-to-/plan:advance] COMPLETION.md emitted when spine-migration archi"
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.1 Confirm P2.1 (add-schema-drift-detector) is merged (commit 320552e \u2014 service"
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.2 Remove `RECOGNIZED_EVENTS` set from `routes/hooks.ts`"
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.3 Remove the rejection branch in `handleHooks` switch statement (allowlist sho"
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.4 Verify `session_events.metadata` already stores full payload (handler always"
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.5 Update unit tests \u2014 drop \"unknown event rejected\" cases, add \"unknown event "
+    },
+    {
+      "spec": "drop-recognized-events-allowlist",
+      "error": "task outside known phase section: 1.6 Run integration test: send synthetic event with unknown type, verify row + d"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.1 Drizzle migration: CREATE TABLE script_errors"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.2 Implement Pino DB transport in `packages/core/src/node/pino-db-transport.ts`"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.3 Wire transport into `createLogger` factory"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.4 Implement `withErrorCapture` wrapper helper"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.5 Audit all scripts; replace `console.*` with `createLogger`-derived loggers"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.6 Wrap each script's `main()` with `withErrorCapture`"
+    },
+    {
+      "spec": "enforce-pino-script-errors",
+      "error": "task outside known phase section: 1.7 Unit tests: transport batching, log levels, error capture"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.1 Rewrite deploy/install.sh top-level: detect platform, branch (uname -s -> in"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.2 Implement Mac branch: xcodegen + xcodebuild (scheme nexus-mac) + copy Nexus."
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.3 Implement Linux branch: bun build + ~/.local/bin install + systemd user unit"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.4 Add login-item registration prompt for Mac \u2014 stubbed as TODO comment (osascr"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.5 Remove all references to deleted Mac daemons \u2014 install.sh no longer referenc"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.6 Update README.md install instructions \u2014 Install as Service section updated t"
+    },
+    {
+      "spec": "env-aware-install-script",
+      "error": "task outside known phase section: 1.7 Test fresh install on both Mac and Linux \u2014 bd:nx-43tz3 (cannot smoke-test in"
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.1 Inventory every hook entry in ~/.claude/settings.json that uses curl POST /h"
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.2 Inventory any referenced shell scripts (~/.claude/scripts/hooks/) that wrap "
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.3 Replace each curl invocation with `nexus-emit` (preserving stdin payload pat"
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.4 End-to-end test each of the 20 hook event types: trigger CC action, verify s"
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.5 Run for ~3 days with BOTH paths active (socket + http) to gather parity conf"
+    },
+    {
+      "spec": "migrate-cc-hooks-to-socket",
+      "error": "task outside known phase section: 1.6 On confidence: stop the cycle, hand off to P3.4 (delete-http-hooks-endpoint)"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.1 [ops-agent] launchctl unload ~/Library/LaunchAgents/com.nexus.agent.plist \u2014 "
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.2 [ops-agent] launchctl unload ~/Library/LaunchAgents/com.nexus.notifier.plist"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.3 [ops-agent] launchctl unload ~/Library/LaunchAgents/com.nexus.tts-player.pli"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.4 [ops-agent] rm ~/Library/LaunchAgents/com.nexus.*.plist \u2014 closed via nx-r1hz"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.5 git rm deploy/com.nexus.agent.plist"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.6 git rm deploy/com.nexus.notifier.plist deploy/com.nexus.tts-player.plist"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.7 git rm deploy/nexus-notifier.sh deploy/nexus-notifier-status.sh \u2014 completed "
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.8 git rm deploy/nexus-listener.ts deploy/nexus-stub.swift"
+    },
+    {
+      "spec": "remove-mac-deploy-artifacts",
+      "error": "task outside known phase section: 1.9 Update deploy/install.sh \u2014 [deferred-to-wave-7] env-aware-install-script rew"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.1 Confirm P4.5 (swift-owns-elevenlabs-synth) is merged and verified end-to-end"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.2 git rm apps/agent/src/notifications/channels/tts.ts"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.3 git rm apps/agent/src/notifications/channels/desktop.ts"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.4 Drop tts + desktop route cases from notifications manager (now collapsed int"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.5 Update unit tests \u2014 drop ElevenLabs / terminal-notifier specific cases"
+    },
+    {
+      "spec": "remove-notification-channels",
+      "error": "task outside known phase section: 1.6 Run typecheck + tests \u2014 result logged (meta gate accepts; full sweep deferre"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.1 `git rm apps/agent/src/services/peer-connector.ts`"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.2 Remove `/ws/federation` route from `server-websocket.ts`"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.3 Drop `source: 'peer' | 'local'` from `LifecycleEnvelope` type in `lifecycle-"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.4 Drop peer-connector init from `apps/agent/src/index.ts`"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.5 Search for any remaining `peer-connector`, `federation`, `source: 'peer'` re"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.6 Update `agents.toml` documentation to clarify it's now client-discovery only"
+    },
+    {
+      "spec": "remove-peer-connector",
+      "error": "task outside known phase section: 1.7 Run typecheck + tests \u2014 green (meta gate: bash -n + openspec validate; full "
+    },
+    {
+      "spec": "remove-slack-channel",
+      "error": "task outside known phase section: 1.1 `git rm apps/agent/src/notifications/channels/slack.ts`"
+    },
+    {
+      "spec": "remove-slack-channel",
+      "error": "task outside known phase section: 1.2 Drop the `slack:` entry from the `CHANNEL_HANDLERS` dispatch map in `notific"
+    },
+    {
+      "spec": "remove-slack-channel",
+      "error": "task outside known phase section: 1.3 Add a graceful \"unknown channel\" handler that logs warn-level and continues "
+    },
+    {
+      "spec": "remove-slack-channel",
+      "error": "task outside known phase section: 1.4 Update tests in `apps/agent/src/notifications/` to remove slack-specific cas"
+    },
+    {
+      "spec": "remove-slack-channel",
+      "error": "task outside known phase section: 1.5 Run typecheck + tests \u2014 green (meta gate: bash -n + openspec validate; full "
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.1 Confirm p5-parity-audit.md is 100% checked"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: [ops-agent] 1.2 [user] systemctl --user stop nexus-dashboard"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: [ops-agent] 1.3 [user] systemctl --user disable nexus-dashboard"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.4 Audit deploy/nexus-bundle-manager.sh \u2014 confirm it's web-only"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: [partial] 1.5 git rm -r apps/nextjs/ packages/ui/ deploy/nexus-dashboard.service"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.6 Remove apps/nextjs and packages/ui from tsconfig.json root references"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.7 Remove web-related deploy steps from deploy/hooks.d/"
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.8 Single commit \"chore: retire web dashboard stack\""
+    },
+    {
+      "spec": "retire-web-dashboard-infra",
+      "error": "task outside known phase section: 1.9 Verify no other code references @nexus/ui or @nexus/nextjs"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.1 Create apps/swift/nexus-ios/ source layout"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.2 Add SwiftTerm SPM dependency"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.3 Implement App + main SessionListScene reading from NexusShared"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.4 Implement AttachScene with SwiftTerm + SSH client"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.5 Implement APNS registration + notification handler (deep-link)"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.6 [user-action] Provision APNS via Apple Developer; add push entitlement"
+    },
+    {
+      "spec": "scaffold-nexus-ios-target",
+      "error": "task outside known phase section: 1.7 Test on iPhone hardware"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.1 Create apps/swift/nexus-watch/ source layout"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.2 Add agent endpoint POST /commands/send-text (uses tmux send-keys)"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.3 Implement watchOS App + ContentView (session count + last alert)"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.4 Implement UNNotificationCategory with action buttons"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.5 Implement notification action handler that POSTs to /commands/send-text"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.6 [user-action] Provision watchOS app; pair with phone"
+    },
+    {
+      "spec": "scaffold-nexus-watch-target",
+      "error": "task outside known phase section: 1.7 End-to-end test: Notification hook \u2192 watch action \u2192 tmux"
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.1 Audit gap: list every wrapping/enrichment in `routes/hooks.ts` not present i"
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.2 Wire credentialFingerprint binding through socket path \u2014 already present in "
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.3 Wire throttle layer through socket path (tool_use_* coalesce) \u2014 carved out f"
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.4 Wire schema-drift detector + git-project resolver \u2014 done via `services/proce"
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.5 Implement parity test \u2014 covered in `services/process-hook-event.test.ts` \"pa"
+    },
+    {
+      "spec": "socket-dispatcher-parity",
+      "error": "task outside known phase section: 1.6 Run parity test across all 27+ hook event types \u2014 partial: helper covers the"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.1 Create p5-parity-audit.md checklist of all web pages + actions"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.2 Implement Sessions view (already partially exists)"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.3 Implement Specs view (read-only with SpecTransition SSE subscription)"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.4 Implement Projects view"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.5 Implement Credentials view (read-only CC profile status from cc-credential-m"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.6 Implement Failures view (queries script_errors + recent failed notifications"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.7 Implement Notifications view (history + settings) \u2014 shipped via nx-gaquu (co"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.8 Implement Settings view (TTS settings, Keychain, agent connection, dashboard"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.9 Implement Health view (CPU/RAM/disk graphs from health_snapshots) \u2014 shipped "
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.10 Implement Integrations view (anything currently exposed in web) \u2014 shipped v"
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.11 Implement PTY viewer with SwiftTerm reading /sessions/$id/stream \u2014 shipped "
+    },
+    {
+      "spec": "swift-dashboard-feature-parity",
+      "error": "task outside known phase section: 1.12 Walk the parity-audit checklist; mark each row done"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.1 Implement Keychain wrapper in NexusShared/Storage/"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.2 Implement ElevenLabsClient in NexusShared"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.3 Implement AVAudioPlayer playback in nexus-mac with ducking modes"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.4 Implement Settings UI in nexus-mac for Keychain key + voice ID + ducking"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.5 Modify agent notifications.ts: drop ElevenLabs call + audioBase64 field"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.6 Drop encryption/master.key code path used only for ElevenLabs [user-action]"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.7 Drizzle migration: DROP TABLE elevenlabs_credentials [user-action]"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.8 [user] Migration: export current key from DB, paste into Keychain via Settin"
+    },
+    {
+      "spec": "swift-owns-elevenlabs-synth",
+      "error": "task outside known phase section: 1.9 End-to-end test: fire notification \u2192 Mac speaker plays"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.1 [user-action] Open current nexus.xcodeproj in Xcode; record DEVELOPMENT_TEAM"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.2 [user-action] Note any custom build phases, asset catalogs, or capabilities"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.3 Update apps/swift/project.yml with new wave-1 targets (AudioPlayer,"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.4 [user-or-auto] `cd apps/swift && xcodegen generate` \u2014 done in this batch"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.5 [user-action] Open regenerated project; build macOS scheme; verify app launc"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.6 Tests reference correct XCTest module imports"
+    },
+    {
+      "spec": "xcodegen-initial-generate",
+      "error": "task outside known phase section: 1.7 Commit regenerated project.pbxproj \u2014 included in this commit"
+    }
+  ],
+  "runtime": {},
+  "plan_id": "apply-2026-05-21-001",
+  "status": "completed",
+  "decisions": [],
+  "mode": "consolidated",
+  "current_phase": null,
+  "completed_at": "2026-05-21T13:31:03.689306"
+}
