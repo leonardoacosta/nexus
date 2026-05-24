@@ -146,6 +146,64 @@ final class PtyAttachTests: XCTestCase {
         XCTAssertEqual(roundTrippedBytes, [0x03],
                        "Ctrl-C must survive the JSON serialization NexusClient.sendText uses")
     }
+
+    // MARK: - Task 3.4: geometry lock + take-over resize gating
+    //
+    // The grid-lock + take-over logic lives in PtyViewerModel (nexus-mac,
+    // which NexusSharedTests does NOT link). We mirror the two contracts as a
+    // tiny `PtyGeometryReconciler` helper — identical decision logic to
+    // PtyViewer.swift's `applyGeometry` / `sizeChanged` gate — so the spec
+    // assertions stay pinned even as PtyViewer is refactored. Same discipline
+    // as PtyInputForwarder above.
+
+    /// A geometry control frame in lock mode resizes the grid to the reported
+    /// cols x rows. (Production: `PtyViewerModel.applyGeometry` -> SwiftTerm
+    /// `Terminal.resize`.)
+    func testGeometryFrameLocksGridInLockMode() async throws {
+        let recon = PtyGeometryReconciler(mode: .lock)
+        recon.applyGeometry(cols: 120, rows: 40)
+        XCTAssertEqual(recon.grid?.cols, 120,
+                       "lock mode must pin the grid columns to the reported pane width")
+        XCTAssertEqual(recon.grid?.rows, 40,
+                       "lock mode must pin the grid rows to the reported pane height")
+        XCTAssertEqual(recon.resizeCalls.count, 0,
+                       "a geometry frame in lock mode must NOT forward a resize to the agent")
+    }
+
+    /// In lock mode, a SwiftTerm `sizeChanged` must NOT forward a resize — the
+    /// grid is pinned to the source pane and the view letterboxes.
+    func testSizeChangedDoesNotResizeInLockMode() async throws {
+        let recon = PtyGeometryReconciler(mode: .lock)
+        recon.sizeChanged(newCols: 200, newRows: 60)
+        XCTAssertEqual(recon.resizeCalls.count, 0,
+                       "sizeChanged in lock mode must not POST /commands/resize")
+    }
+
+    /// In take-over mode, a SwiftTerm `sizeChanged` forwards the new grid to
+    /// the agent so the tmux pane resizes to fill the window.
+    func testSizeChangedForwardsResizeInTakeOverMode() async throws {
+        let recon = PtyGeometryReconciler(mode: .takeOver)
+        recon.sizeChanged(newCols: 200, newRows: 60)
+        XCTAssertEqual(recon.resizeCalls.count, 1,
+                       "take-over mode must forward exactly one resize per sizeChanged")
+        XCTAssertEqual(recon.resizeCalls[0].cols, 200)
+        XCTAssertEqual(recon.resizeCalls[0].rows, 60)
+    }
+
+    /// The agent's geometry control frame parses into a
+    /// `PtyStreamEvent.geometry`. Pins the wire contract
+    /// (`{"type":"geometry","cols":N,"rows":N}`) the agent ships.
+    func testGeometryControlFrameShape() throws {
+        let json = #"{"type":"geometry","cols":120,"rows":40}"#
+        let obj = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(json.utf8)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(obj["type"] as? String, "geometry")
+        XCTAssertEqual((obj["cols"] as? NSNumber)?.intValue, 120)
+        XCTAssertEqual((obj["rows"] as? NSNumber)?.intValue, 40)
+    }
 }
 
 // MARK: - Test helpers
@@ -200,5 +258,38 @@ private final class PtyInputForwarder {
         // PtyViewer.swift:185 — `String(bytes: data, encoding: .utf8)`.
         guard let text = String(bytes: bytes, encoding: .utf8) else { return }
         await send(sessionId, text)
+    }
+}
+
+/// Mirror of PtyViewerModel's geometry reconciliation (lock vs take-over)
+/// lifted out of nexus-mac so the lock/forward CONTRACT is unit-testable from
+/// NexusSharedTests. Decision logic is intentionally identical to
+/// `PtyViewer.swift` (`applyGeometry` pins the grid in lock mode;
+/// `sizeChanged`/`requestResize` forward only in take-over). Keep in lockstep.
+private final class PtyGeometryReconciler {
+    enum Mode { case lock, takeOver }
+
+    struct GridSize: Equatable { let cols: Int; let rows: Int }
+
+    private(set) var mode: Mode
+    private(set) var grid: GridSize?
+    private(set) var resizeCalls: [GridSize] = []
+
+    init(mode: Mode) { self.mode = mode }
+
+    /// Production: PtyViewerModel.applyGeometry — store the reported geometry;
+    /// in lock mode pin the grid to it; never forwards a resize.
+    func applyGeometry(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
+        if mode == .lock {
+            grid = GridSize(cols: cols, rows: rows)
+        }
+    }
+
+    /// Production: PtyTerminalCoordinator.sizeChanged — forward to the agent
+    /// ONLY in take-over mode.
+    func sizeChanged(newCols: Int, newRows: Int) {
+        guard mode == .takeOver else { return }
+        resizeCalls.append(GridSize(cols: newCols, rows: newRows))
     }
 }

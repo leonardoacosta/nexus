@@ -17,13 +17,13 @@ Agent-side (Bun/TypeScript). Geometry reporting, viewer-driven resize, auto-rest
 
 Swift-side (NexusShared + nexus-mac). Geometry consumption, grid lock, take-over toggle, robust fullscreen.
 
-- [ ] 2.1 In `apps/swift/NexusShared/Networking/NexusClient.swift` PTY WebSocket bridge, branch on WS message type: parse TEXT frames as JSON control messages and surface a `geometry(cols, rows)` event to the `consumePtyStream` handler; keep binary frames as raw bytes. [beads:nx-mmbvx]
-- [ ] 2.2 Add `requestResize(sessionId, cols, rows, originAgent)` to `NexusClient` + `NexusAggregateClient` (`apps/swift/NexusShared/Networking/NexusAggregateClient.swift`) calling `POST /commands/resize`. [beads:nx-wlm8g]
-- [ ] 2.3 In `apps/swift/nexus-mac/Sources/Dashboard/PtyViewer.swift`, add `geometryMode` (`.lock` default / `.takeOver`) and `reportedGeometry` to `PtyViewerModel`; on a `geometry` event in lock mode, resize the SwiftTerm grid to the reported `cols` x `rows`. [beads:nx-8aqzl]
-- [ ] 2.4 Constrain/letterbox `PtyTerminalRepresentable` so a frame larger than the reported geometry leaves empty space instead of stretching the grid (lock mode). [beads:nx-9w734]
-- [ ] 2.5 Implement `PtyTerminalCoordinator.sizeChanged(newCols, newRows)` (currently a no-op) to forward to `model.requestResize` ONLY when `geometryMode == .takeOver`. [beads:nx-zo6jz]
-- [ ] 2.6 Add a managed-gated take-over toggle to the `PtyViewer` header (hidden/disabled when `sessionType != "managed"`, no confirmation dialog); enabling forwards current grid size, disabling/`onDisappear` reverts to lock mode. [beads:nx-0ky0s]
-- [ ] 2.7 Make `apps/swift/nexus/nexus/WindowAccessor.swift` apply `onWindow` reliably: retry window resolution on subsequent runloop ticks until `view.window` is non-nil, and re-apply from `updateNSView` (insert is idempotent) so `.fullScreenPrimary` is always set on the dashboard `Window`. [beads:nx-ggepd]
+- [x] 2.1 In `apps/swift/NexusShared/Networking/NexusClient.swift` PTY WebSocket bridge, branch on WS message type: parse TEXT frames as JSON control messages and surface a `geometry(cols, rows)` event to the `consumePtyStream` handler; keep binary frames as raw bytes. [beads:nx-mmbvx]
+- [x] 2.2 Add `requestResize(sessionId, cols, rows, originAgent)` to `NexusClient` + `NexusAggregateClient` (`apps/swift/NexusShared/Networking/NexusAggregateClient.swift`) calling `POST /commands/resize`. [beads:nx-wlm8g]
+- [x] 2.3 In `apps/swift/nexus-mac/Sources/Dashboard/PtyViewer.swift`, add `geometryMode` (`.lock` default / `.takeOver`) and `reportedGeometry` to `PtyViewerModel`; on a `geometry` event in lock mode, resize the SwiftTerm grid to the reported `cols` x `rows`. [beads:nx-8aqzl]
+- [x] 2.4 Constrain/letterbox `PtyTerminalRepresentable` so a frame larger than the reported geometry leaves empty space instead of stretching the grid (lock mode). [beads:nx-9w734]
+- [x] 2.5 Implement `PtyTerminalCoordinator.sizeChanged(newCols, newRows)` (currently a no-op) to forward to `model.requestResize` ONLY when `geometryMode == .takeOver`. [beads:nx-zo6jz]
+- [x] 2.6 Add a managed-gated take-over toggle to the `PtyViewer` header (hidden/disabled when `sessionType != "managed"`, no confirmation dialog); enabling forwards current grid size, disabling/`onDisappear` reverts to lock mode. [beads:nx-0ky0s]
+- [x] 2.7 Make `apps/swift/nexus/nexus/WindowAccessor.swift` apply `onWindow` reliably: retry window resolution on subsequent runloop ticks until `view.window` is non-nil, and re-apply from `updateNSView` (insert is idempotent) so `.fullScreenPrimary` is always set on the dashboard `Window`. [beads:nx-ggepd]
 
 ## E2E Batch
 
@@ -32,5 +32,5 @@ Tests proving the spec assertions hold at runtime.
 - [ ] 3.1 Agent test: a tmux-backed stream emits a `geometry` control frame at attach with the pane's `cols`/`rows`. [beads:nx-tubsz]
 - [ ] 3.2 Agent test: `POST /commands/resize` on a managed session resizes the pane and records original geometry; a non-managed session is rejected; invalid dims are rejected. [beads:nx-ypn1e]
 - [ ] 3.3 Agent test: last take-over viewer disconnect restores original pane geometry; a never-resized viewer's disconnect does not resize. [beads:nx-mf7w1]
-- [ ] 3.4 Swift test in `apps/swift/NexusSharedTests/PtyAttachTests.swift`: a `geometry` control frame in lock mode sets the SwiftTerm grid to the reported size; `sizeChanged` forwards a resize only in take-over mode. [beads:nx-jsisz]
+- [x] 3.4 Swift test in `apps/swift/NexusSharedTests/PtyAttachTests.swift`: a `geometry` control frame in lock mode sets the SwiftTerm grid to the reported size; `sizeChanged` forwards a resize only in take-over mode. [beads:nx-jsisz]
 - [ ] 3.5 Manual/UI verification: green-button fullscreen enters a fullscreen Space, and PTY output renders aligned (no jumble) in lock mode against a live homelab session — capture a screenshot to `docs/screenshots/`. [beads:nx-evx6k]

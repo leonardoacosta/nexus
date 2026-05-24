@@ -652,11 +652,28 @@ public actor NexusAggregateClient {
     /// viewer doesn't need to know which peer owns the session.
     public func consumePtyStream(
         sessionId: String,
-        handler: @Sendable @escaping (Data) async -> Void
+        handler: @Sendable @escaping (PtyStreamEvent) async -> Void
     ) async {
         await multiplex("pty[\(sessionId)]") { client in
             try await client.consumePtyStream(sessionId: sessionId, handler: handler)
         }
+    }
+
+    /// `POST /commands/resize` — resize a managed session's tmux pane to the
+    /// viewer's grid (take-over mode). Routes to `originAgent` when known,
+    /// else the first client — same idiom as `sendText`. Throws on transport
+    /// / non-2xx so the caller can revert the toggle on a server rejection
+    /// (e.g. 409 non-managed).
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.2)
+    public func requestResize(
+        sessionId: String,
+        cols: Int,
+        rows: Int,
+        originAgent: String? = nil
+    ) async throws {
+        let client = resolveClient(forAgent: originAgent)
+        try await client.requestResize(sessionId: sessionId, cols: cols, rows: rows)
     }
 
     // MARK: - session-start + spec linkage (specs-tab-start-on-spec)

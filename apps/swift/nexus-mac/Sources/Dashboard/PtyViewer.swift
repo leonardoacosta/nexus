@@ -104,6 +104,22 @@ struct PtyViewer: View {
                     .accessibilityIdentifier("pty-viewer-meta")
             }
             Spacer()
+            // Take-over toggle — managed-gated. Hidden entirely for
+            // non-managed sessions (no tmux pane to resize). No confirmation
+            // dialog: the managed-gate + the agent's auto-restore-on-detach
+            // make the action safe. Enabling forwards the current grid size;
+            // disabling reverts to lock mode. Spec task 2.6.
+            if model.isManaged {
+                Toggle(isOn: takeOverBinding) {
+                    Label("Take over", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption2.monospaced())
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Resize the session's terminal to fill this window (auto-restores on close)")
+                .accessibilityIdentifier("pty-viewer-takeover-toggle")
+            }
             // Error state surfaces a retry button + warn copy. The badge
             // colour also flips red via `statusColor` so the user notices
             // without reading the status word.
@@ -158,6 +174,16 @@ struct PtyViewer: View {
         return sessionId
     }
 
+    /// Binding for the take-over toggle. Reads `geometryMode == .takeOver`;
+    /// writing routes through `model.setGeometryMode` so enable forwards the
+    /// grid + disable reverts to lock (the agent auto-restores). Spec task 2.6.
+    private var takeOverBinding: Binding<Bool> {
+        Binding(
+            get: { model.geometryMode == .takeOver },
+            set: { model.setGeometryMode($0 ? .takeOver : .lock) }
+        )
+    }
+
     @ViewBuilder
     private var terminal: some View {
         #if canImport(SwiftTerm) && canImport(AppKit)
@@ -190,6 +216,24 @@ struct PtyViewer: View {
     }
 }
 
+/// How the viewer reconciles its SwiftTerm grid with the source pane.
+///
+/// - `.lock` (default): the grid is pinned to the agent-reported pane
+///   geometry. ANSI cursor-positioning escapes land in the right cells, so
+///   Claude Code's full-screen TUI renders aligned (fixes the jumble). The
+///   representable letterboxes — a larger window leaves empty space rather
+///   than reflowing the grid. Fully read-only, no tmux mutation.
+/// - `.takeOver` (opt-in, managed-gated): the viewer forwards its own grid
+///   size to the agent (`POST /commands/resize`), which resizes the tmux
+///   pane so the viewer can use the full window. The agent auto-restores the
+///   pane geometry on viewer detach.
+///
+/// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.3)
+enum PtyGeometryMode: Equatable, Sendable {
+    case lock
+    case takeOver
+}
+
 enum PtyStatus: String, Equatable, Sendable {
     case idle = "idle"
     case connecting = "connecting"
@@ -204,10 +248,22 @@ enum PtyStatus: String, Equatable, Sendable {
 @MainActor
 final class PtyViewerModel: ObservableObject {
     @Published private(set) var status: PtyStatus = .idle
+    /// Lock (default) vs take-over. Drives whether geometry frames resize the
+    /// grid (lock) or the viewer forwards its grid to the agent (take-over).
+    @Published private(set) var geometryMode: PtyGeometryMode = .lock
+    /// Last agent-reported pane geometry (cols, rows). Published so the
+    /// representable can re-letterbox when it changes and the header can
+    /// surface the size. nil until the first geometry frame arrives.
+    @Published private(set) var reportedGeometry: (cols: Int, rows: Int)? = nil
     let sessionId: String
     /// Mirror of PtyViewer.sessionType — used by the coordinator to gate
     /// input forwarding. `nil` is treated as non-managed.
     let sessionType: String?
+
+    /// True when the session is managed — the only case where take-over (and
+    /// thus `POST /commands/resize`) is permitted. The header hides the
+    /// take-over toggle otherwise.
+    var isManaged: Bool { sessionType == "managed" }
 
     /// Buffered bytes received before the terminal view has been attached.
     /// Drained on `attach(view:)`.
@@ -297,8 +353,13 @@ final class PtyViewerModel: ObservableObject {
             // status pulse is approximate under fan-out — connecting until
             // first byte, then we let the stream run.
             self.status = .connecting
-            await self.client.consumePtyStream(sessionId: self.sessionId) { [weak self] data in
-                await self?.feed(data: data)
+            await self.client.consumePtyStream(sessionId: self.sessionId) { [weak self] event in
+                switch event {
+                case .bytes(let data):
+                    await self?.feed(data: data)
+                case .geometry(let cols, let rows):
+                    await self?.applyGeometry(cols: cols, rows: rows)
+                }
             }
             // Only flip to .disconnected if the watchdog hasn't already
             // moved us to .error — otherwise the user sees status flicker.
@@ -340,7 +401,89 @@ final class PtyViewerModel: ObservableObject {
         sseTask = nil
         connectWatchdog?.cancel()
         connectWatchdog = nil
+        // Revert to lock on teardown so a re-open starts clean and the agent's
+        // auto-restore (fired on viewer detach) leaves the next viewer with the
+        // correct pane geometry. No client-side resize needed — the agent owns
+        // restore.
+        geometryMode = .lock
         status = .idle
+    }
+
+    /// Apply an agent-reported pane geometry. Stores it for the representable's
+    /// letterbox math and — in lock mode — pins the SwiftTerm grid to the
+    /// reported cols x rows so ANSI cursor escapes land in the right cells
+    /// (fixes the jumble). In take-over mode the viewer owns the grid, so a
+    /// geometry frame only updates `reportedGeometry` (it's the echo of our own
+    /// resize) without forcing a grid resize.
+    ///
+    /// MUST run on the main thread (it mutates SwiftTerm's emulator) — the
+    /// model is `@MainActor`, so callers hop here automatically.
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.3)
+    func applyGeometry(cols: Int, rows: Int) async {
+        guard cols > 0, rows > 0 else { return }
+        reportedGeometry = (cols: cols, rows: rows)
+        guard geometryMode == .lock else { return }
+        #if canImport(SwiftTerm)
+        // Resize the emulator grid to the source pane. getTerminal().resize is
+        // idempotent (no-op when unchanged) so repeated identical frames are
+        // cheap. The representable re-letterboxes via updateNSView when the
+        // published reportedGeometry changes.
+        terminal?.getTerminal().resize(cols: cols, rows: rows)
+        ptyLog.debug(
+            "PtyViewer: locked grid to \(cols, privacy: .public)x\(rows, privacy: .public) (sessionId=\(self.sessionId, privacy: .public))"
+        )
+        #endif
+    }
+
+    /// Forward the viewer's current grid to the agent (take-over). Only fired
+    /// by the coordinator's `sizeChanged` when in `.takeOver` mode, and by the
+    /// header toggle on enable. Server-side managed-gate is authoritative; a
+    /// non-2xx (e.g. 409 non-managed) is logged. Best-effort fire-and-forget.
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (tasks 2.5, 2.6)
+    func requestResize(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
+        let sid = self.sessionId
+        Task { [client] in
+            do {
+                try await client.requestResize(
+                    sessionId: sid,
+                    cols: cols,
+                    rows: rows,
+                    originAgent: nil
+                )
+            } catch {
+                ptyLog.error(
+                    "PtyViewer: requestResize failed (sessionId=\(sid, privacy: .public), \(cols, privacy: .public)x\(rows, privacy: .public)): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+    }
+
+    /// Header toggle handler. Enabling take-over forwards the current grid size
+    /// to the agent; disabling reverts to lock (the agent auto-restores the
+    /// pane geometry on the next geometry frame / detach). Hard no-op for
+    /// non-managed sessions — the toggle is hidden there, but this guards the
+    /// programmatic path too. No confirmation dialog (managed-gate +
+    /// auto-restore make it safe).
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.6)
+    func setGeometryMode(_ mode: PtyGeometryMode) {
+        guard isManaged || mode == .lock else { return }
+        geometryMode = mode
+        #if canImport(SwiftTerm)
+        if mode == .takeOver, let term = terminal?.getTerminal() {
+            // Forward the grid SwiftTerm currently renders at so the agent
+            // resizes the pane to fill the window.
+            requestResize(cols: term.cols, rows: term.rows)
+        } else if mode == .lock, let geo = reportedGeometry {
+            // Snap the grid back to the last reported geometry immediately so
+            // the viewer doesn't show a stale take-over grid while waiting for
+            // the agent's restore geometry frame.
+            terminal?.getTerminal().resize(cols: geo.cols, rows: geo.rows)
+        }
+        #endif
     }
 
     private func feed(data: Data) async {
@@ -372,22 +515,98 @@ final class PtyViewerModel: ObservableObject {
 struct PtyTerminalRepresentable: NSViewRepresentable {
     @ObservedObject var model: PtyViewerModel
 
-    func makeNSView(context: Context) -> TerminalView {
-        let view = TerminalView()
+    /// We return a `PtyLetterboxContainer` (NOT the bare `TerminalView`) so
+    /// lock mode can pin the emulator to its exact grid size and center it,
+    /// leaving empty space (letterbox) when the window is larger than the
+    /// reported pane. A bare `TerminalView` would auto-resize its grid to fill
+    /// the SwiftUI frame (`MacTerminalView.setFrameSize` -> `processSizeChange`
+    /// reflows cols/rows), which is exactly the reflow that produces the
+    /// jumble. The container intercepts layout to defeat that in lock mode.
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.4)
+    func makeNSView(context: Context) -> PtyLetterboxContainer {
+        let terminalView = TerminalView()
         context.coordinator.model = model
-        view.terminalDelegate = context.coordinator
+        terminalView.terminalDelegate = context.coordinator
+        let container = PtyLetterboxContainer(terminalView: terminalView)
         Task { @MainActor in
-            model.attach(view: view)
+            model.attach(view: terminalView)
         }
-        return view
+        return container
     }
 
-    func updateNSView(_ nsView: TerminalView, context: Context) {
+    func updateNSView(_ nsView: PtyLetterboxContainer, context: Context) {
         context.coordinator.model = model
+        // Push the current mode + reported geometry into the container so it
+        // re-letterboxes when either changes (SwiftUI re-invokes updateNSView
+        // on @Published mutations of the observed model).
+        nsView.geometryMode = model.geometryMode
+        nsView.reportedGeometry = model.reportedGeometry
+        nsView.needsLayout = true
     }
 
     func makeCoordinator() -> PtyTerminalCoordinator {
         PtyTerminalCoordinator()
+    }
+}
+
+/// Hosts the SwiftTerm `TerminalView` and lays it out per geometry mode.
+///
+/// - `.lock`: the terminal is sized to its **optimal grid size**
+///   (`getOptimalFrameSize()` — exact cols x rows at the current font) and
+///   centered. When the container is larger, the surrounding area is left
+///   empty (letterbox). When smaller, the terminal is clamped to the container
+///   so it never overflows. The grid itself is owned by the model
+///   (`applyGeometry` -> `Terminal.resize`); this view only positions the
+///   already-sized emulator, so SwiftTerm's frame-driven reflow can't fire.
+/// - `.takeOver`: the terminal fills the container (classic autoresize),
+///   letting the user drive the grid — `sizeChanged` forwards the new dims to
+///   the agent.
+///
+/// Layout runs on the main thread (AppKit `layout()`), satisfying the
+/// "SwiftTerm grid resize + NSView letterbox must happen on the main thread"
+/// constraint.
+final class PtyLetterboxContainer: NSView {
+    private let terminalView: TerminalView
+    var geometryMode: PtyGeometryMode = .lock
+    var reportedGeometry: (cols: Int, rows: Int)? = nil
+
+    init(terminalView: TerminalView) {
+        self.terminalView = terminalView
+        super.init(frame: .zero)
+        wantsLayer = true
+        // Match the terminal's background so the letterbox margins blend in
+        // rather than showing a bright rectangle around the pane.
+        layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
+        // We position the child manually in layout(); disable autoresizing so
+        // AppKit doesn't fight us.
+        terminalView.translatesAutoresizingMaskIntoConstraints = true
+        terminalView.autoresizingMask = []
+        addSubview(terminalView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    override func layout() {
+        super.layout()
+        let bounds = self.bounds
+        switch geometryMode {
+        case .takeOver:
+            // Fill — the user owns the grid; SwiftTerm reflows to the frame and
+            // the coordinator forwards the new size to the agent.
+            terminalView.frame = bounds
+        case .lock:
+            // Size to the emulator's optimal grid rect, then center + clamp.
+            // getOptimalFrameSize() reflects the grid the model locked via
+            // Terminal.resize, so the terminal renders at 1:1 with the pane.
+            let optimal = terminalView.getOptimalFrameSize().size
+            let w = min(optimal.width, bounds.width)
+            let h = min(optimal.height, bounds.height)
+            let x = (bounds.width - w) / 2.0
+            let y = (bounds.height - h) / 2.0
+            terminalView.frame = NSRect(x: x, y: y, width: w, height: h)
+        }
     }
 }
 
@@ -406,7 +625,19 @@ final class PtyTerminalCoordinator: NSObject, @preconcurrency TerminalViewDelega
 
     func scrolled(source: TerminalView, position: Double) {}
     func setTerminalTitle(source: TerminalView, title: String) {}
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
+
+    /// SwiftTerm reports a grid change (the user resized the window so the
+    /// emulator reflowed). Forward to the agent ONLY in take-over mode — in
+    /// lock mode the grid is pinned to the source pane and the container
+    /// letterboxes, so any sizeChanged there is incidental and must NOT mutate
+    /// the tmux pane.
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.5)
+    @MainActor
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        guard model?.geometryMode == .takeOver else { return }
+        model?.requestResize(cols: newCols, rows: newRows)
+    }
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
     func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {}
     func clipboardCopy(source: TerminalView, content: Data) {}

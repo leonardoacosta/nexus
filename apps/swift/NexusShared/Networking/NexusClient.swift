@@ -783,6 +783,42 @@ public actor NexusClient {
         }
     }
 
+    /// `POST /commands/resize` — resize the session's tmux pane to the
+    /// viewer's grid (take-over mode). Mirrors `sendText`'s shape: one-shot
+    /// POST on `session`, JSON body `{ sessionId, cols, rows }`.
+    ///
+    /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.2)
+    /// Agent route: apps/agent/src/routes/commands-resize.ts —
+    /// enforces `sessionType == "managed"` (409 otherwise) and validates
+    /// in-range positive dims (400). The Swift toggle is also managed-gated,
+    /// so a 409 here is defence-in-depth, not the normal path.
+    ///
+    /// Throws `NexusClientError.badStatus(409)` when the session is not
+    /// managed, `.badStatus(400)` on invalid dims, `.badStatus(404)` when the
+    /// session vanished — so the caller can surface the right failure.
+    public func requestResize(sessionId: String, cols: Int, rows: Int) async throws {
+        let url = endpoint.baseURL.appendingPathComponent("commands/resize")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["sessionId": sessionId, "cols": cols, "rows": rows]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        _ = data
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+    }
+
     /// Consume `GET /sessions/{id}/stream` — agent PTY byte stream. The
     /// handler receives raw PTY bytes; callers feed them into a terminal
     /// emulator (SwiftTerm) for rendering.
@@ -808,15 +844,18 @@ public actor NexusClient {
     /// - Swift `Task` cancellation (PtyViewer.stop()) -> `conn.cancel()` and
     ///   returns; multiplex observes `Task.isCancelled` and exits.
     ///
-    /// Frame routing: only **binary** WS frames carry PTY bytes and reach
-    /// `handler`. **Text** frames are agent control messages (e.g.
-    /// `replay_done`) — logged, never forwarded. Binary bytes are delivered in
-    /// arrival order: the receive loop only re-arms `receiveMessage` AFTER the
-    /// per-message `await handler(...)` completes, so PTY output cannot
-    /// reorder or interleave.
+    /// Frame routing: **binary** WS frames carry PTY bytes and reach the
+    /// handler as `.bytes(Data)`. **Text** frames are agent control messages;
+    /// `{"type":"geometry","cols":N,"rows":N}` (shipped agent-side, task 1.4)
+    /// is parsed and surfaced as `.geometry(cols:rows:)` so the viewer can
+    /// lock its SwiftTerm grid to the source pane (fixes the jumble). Other
+    /// control frames (e.g. `replay_done`) are logged, never forwarded.
+    /// Binary bytes are delivered in arrival order: the receive loop only
+    /// re-arms `receiveMessage` AFTER the per-message `await handler(...)`
+    /// completes, so PTY output cannot reorder or interleave.
     public func consumePtyStream(
         sessionId: String,
-        handler: @Sendable @escaping (Data) async -> Void
+        handler: @Sendable @escaping (PtyStreamEvent) async -> Void
     ) async throws {
         // 1) Build the ws:// URL. Rewrite the endpoint's http/https scheme to
         //    ws/wss; anything else (or a nil URL) is fatal — never hand a bad
@@ -920,11 +959,24 @@ public actor NexusClient {
                                 ptyLog.debug(
                                     "PTY WS control frame (sessionId=\(sessionId, privacy: .public)): \(msg, privacy: .public)"
                                 )
-                                receiveLoop()
+                                // Geometry control frame -> surface as a
+                                // .geometry event so the viewer can lock its
+                                // grid to the source pane. Any other text frame
+                                // (replay_done, etc.) is log-only. Re-arm only
+                                // AFTER the handler completes so a geometry
+                                // event can't race ahead of subsequent bytes.
+                                if let geo = PtyControlFrame.geometry(from: data) {
+                                    Task {
+                                        await handler(.geometry(cols: geo.cols, rows: geo.rows))
+                                        receiveLoop()
+                                    }
+                                } else {
+                                    receiveLoop()
+                                }
                             } else {
                                 // Forward, then re-arm — ordered delivery.
                                 Task {
-                                    await handler(data)
+                                    await handler(.bytes(data))
                                     receiveLoop()
                                 }
                             }
@@ -1002,6 +1054,51 @@ public actor NexusClient {
 }
 
 // MARK: - PTY WebSocket bridge (nx-gsk4h)
+
+/// One demuxed event off the PTY stream WebSocket.
+///
+/// The stream interleaves two WS frame types: binary frames carry raw PTY
+/// bytes (`.bytes`), and a text geometry control frame
+/// (`{"type":"geometry","cols":N,"rows":N}`) reports the source pane's grid
+/// so the viewer can lock its SwiftTerm grid to match (fixes the jumble).
+/// Surfacing both through one event stream keeps ordering: a `.geometry`
+/// arriving between byte bursts is delivered in arrival order.
+///
+/// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.1)
+public enum PtyStreamEvent: Sendable {
+    case bytes(Data)
+    case geometry(cols: Int, rows: Int)
+}
+
+/// Parsed agent control frame off the PTY stream's TEXT channel. Today only
+/// `geometry` is consumed; the `type` discriminator lets future control
+/// frames slot in without widening the demux.
+private struct PtyControlFrame {
+    let cols: Int
+    let rows: Int
+
+    /// Decode `{"type":"geometry","cols":N,"rows":N}`. Returns nil for any
+    /// other text frame (replay_done, malformed JSON, missing fields) so the
+    /// receive loop falls through to the log-only path.
+    static func geometry(from data: Data) -> PtyControlFrame? {
+        guard
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            (obj["type"] as? String) == "geometry"
+        else { return nil }
+        // JSONSerialization decodes JSON numbers as NSNumber; accept Int or
+        // a numeric string for robustness against agent encoding drift.
+        func intValue(_ any: Any?) -> Int? {
+            if let n = any as? NSNumber { return n.intValue }
+            if let s = any as? String { return Int(s) }
+            return nil
+        }
+        guard
+            let cols = intValue(obj["cols"]), cols > 0,
+            let rows = intValue(obj["rows"]), rows > 0
+        else { return nil }
+        return PtyControlFrame(cols: cols, rows: rows)
+    }
+}
 
 /// Construction / scheme failures for the PTY WebSocket URL. Wrapped in
 /// `NexusClientError.transport` so the caller's reconnect loop treats them
