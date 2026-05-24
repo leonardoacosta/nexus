@@ -46,6 +46,25 @@ public final class NowPlayingController {
     /// no-ops, so the press is consumed without error.
     public var cancelHandler: (() -> Void)?
 
+    /// Invoked when an AirPods double-press (`nextTrackCommand`) fires while
+    /// the session is held and NOT already recording. Wired by `TTSObserver`
+    /// to start the `SpeechController`. Spec: airpods-stt-command.
+    public var sttStartHandler: (() -> Void)?
+
+    /// Invoked when ANY held remote press fires while recording is active —
+    /// the deterministic stop-and-send gesture (no silence auto-stop in v1).
+    /// Wired by `TTSObserver` to stop the `SpeechController` + route the
+    /// transcript. Spec: airpods-stt-command.
+    public var sttStopHandler: (() -> Void)?
+
+    /// True between an `sttStartHandler` dispatch and the next press that
+    /// triggers `sttStopHandler`. While recording, a play/pause press routes
+    /// to stop-STT (NOT cancel-TTS) so the user's reply isn't interrupted.
+    /// Set externally by the observer once the SpeechController confirms it
+    /// began (and cleared on stop) so the state machine never gets stuck
+    /// "recording" after a denied-auth no-op start.
+    public var isRecording = false
+
     /// Grace window held after a clip ends before the session is resigned.
     /// Injectable so tests can use a short window instead of waiting 2s.
     private let graceDuration: TimeInterval
@@ -121,18 +140,57 @@ public final class NowPlayingController {
         clearNowPlayingInfo()
     }
 
+    // MARK: - Press routing (recording-aware)
+
+    /// Route a play/pause / play / pause press. While recording, the press
+    /// is the deterministic STT stop-and-send gesture and MUST NOT also
+    /// cancel TTS. Otherwise it cancels in-flight TTS (legacy behaviour).
+    /// Only fires while the session is held — a press outside the
+    /// Now-Playing window never reaches the OS handler (commands disabled).
+    fileprivate func handlePlayPausePress() {
+        guard isAcquired else { return }
+        if isRecording {
+            sttStopHandler?()
+        } else {
+            cancelHandler?()
+        }
+    }
+
+    /// Route an AirPods double-press (`nextTrackCommand`). When NOT recording
+    /// it starts STT. When already recording it's a redundant stop gesture —
+    /// treat it like any other press and route to stop-and-send so a
+    /// double-press can't strand the recorder. Only fires while held.
+    fileprivate func handleNextTrackPress() {
+        guard isAcquired else { return }
+        if isRecording {
+            sttStopHandler?()
+        } else {
+            sttStartHandler?()
+        }
+    }
+
     // MARK: - Test seams
 
     /// Whether the controller currently owns the session. `@testable` reach.
     internal var debugIsAcquired: Bool { isAcquired }
 
-    /// Drive a remote-command press in tests without a real AirPods stem.
-    /// Mirrors the production handler path (invoke cancel hook). Returns the
-    /// status the OS would receive.
+    /// Drive a play/pause remote-command press in tests without a real
+    /// AirPods stem. Mirrors the production handler path (recording-aware
+    /// routing). Returns false (consumed nothing) when not acquired.
     @discardableResult
     internal func debugHandleRemoteCommand() -> Bool {
         guard isAcquired else { return false }
-        cancelHandler?()
+        handlePlayPausePress()
+        return true
+    }
+
+    /// Drive an AirPods double-press (`nextTrackCommand`) in tests. Returns
+    /// false when not acquired (press outside the Now-Playing window) so a
+    /// double-press with no recent TTS provably does NOT start recording.
+    @discardableResult
+    internal func debugHandleNextTrack() -> Bool {
+        guard isAcquired else { return false }
+        handleNextTrackPress()
         return true
     }
 
@@ -165,7 +223,8 @@ extension NowPlayingController {
 
     fileprivate func registerCommands() {
         let center = MPRemoteCommandCenter.shared()
-        // Route play/pause/toggle all to the cancel hook. We add a fresh
+        // Route play/pause/toggle through the recording-aware press handler
+        // (cancel-TTS when idle, stop-STT when recording). We add a fresh
         // target each acquire and remove ALL targets on resign, so there's
         // no double-registration leak across acquire/resign cycles.
         for command in [
@@ -176,12 +235,23 @@ extension NowPlayingController {
             command.isEnabled = true
             command.addTarget { [weak self] _ in
                 // Handler fires on the main thread; hop to the MainActor to
-                // satisfy isolation when calling the MainActor cancel hook.
+                // satisfy isolation when calling the MainActor hooks.
                 Task { @MainActor in
-                    self?.cancelHandler?()
+                    self?.handlePlayPausePress()
                 }
                 return .success
             }
+        }
+        // AirPods double-press maps to nextTrackCommand — the STT start/stop
+        // gesture (airpods-stt-command). Routed through the recording-aware
+        // next-track handler (start STT when idle, stop when recording).
+        let next = center.nextTrackCommand
+        next.isEnabled = true
+        next.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.handleNextTrackPress()
+            }
+            return .success
         }
     }
 
@@ -191,6 +261,7 @@ extension NowPlayingController {
             center.togglePlayPauseCommand,
             center.playCommand,
             center.pauseCommand,
+            center.nextTrackCommand,
         ] {
             command.removeTarget(nil)
             command.isEnabled = false

@@ -141,6 +141,14 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         NSHumanReadableCopyright: "Nexus menu bar client."
+        # airpods-stt-command: TCC usage strings for the AirPods double-press
+        # dictation command. Requested lazily on first dictation attempt.
+        # On-device recognition (requiresOnDeviceRecognition = true) — no
+        # audio leaves the Mac. The microphone entitlement
+        # (com.apple.security.device.audio-input) lives in nexus.entitlements
+        # because the app runs sandboxed.
+        NSMicrophoneUsageDescription: "Nexus uses the microphone to dictate a spoken reply to the session that spoke the last notification, triggered by an AirPods double-press."
+        NSSpeechRecognitionUsageDescription: "Nexus transcribes your spoken reply on-device to send it to the active Claude session."
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:

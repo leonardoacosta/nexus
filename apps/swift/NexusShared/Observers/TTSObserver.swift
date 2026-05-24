@@ -86,6 +86,15 @@ public final class TTSObserver: ObservableObject {
     /// Spec: openspec/changes/airpods-tts-cancel.
     private let nowPlaying: NowPlayingController
 
+    /// On-device speech recognizer driven by the AirPods double-press STT
+    /// gesture. Spec: airpods-stt-command.
+    private let speech: SpeechController
+
+    /// Project slug of the most recent `NotificationFired` — the routing
+    /// target's project for a dictated reply. Captured on every handled
+    /// event. `nil` until the first notification arrives.
+    private var lastNotifiedProject: String?
+
     private var subscriptionTask: Task<Void, Never>?
     private var voiceEventTask: Task<Void, Never>?
 
@@ -108,7 +117,10 @@ public final class TTSObserver: ObservableObject {
         elevenLabs: ElevenLabsClient = ElevenLabsClient(),
         settings: SettingsStore = .shared,
         notificationCenter: UNUserNotificationCenter = .current(),
-        nowPlaying: NowPlayingController = NowPlayingController()
+        nowPlaying: NowPlayingController = NowPlayingController(),
+        // airpods-stt-command: the recognizer. Defaulted to the live
+        // on-device engine; tests inject a stub TranscriptSource.
+        speech: SpeechController = SpeechController(source: LiveTranscriptSource())
     ) {
         self.client = client
         self.keychain = keychain
@@ -118,6 +130,7 @@ public final class TTSObserver: ObservableObject {
         self.settings = settings
         self.notificationCenter = notificationCenter
         self.nowPlaying = nowPlaying
+        self.speech = speech
 
         // Route an AirPods play/pause press (while the Now-Playing session is
         // held) to TTS cancellation: stop the MP3 player, stop the system
@@ -140,6 +153,44 @@ public final class TTSObserver: ObservableObject {
         // activity. Idle conformers (test spies) leave this no-op.
         self.audioPlayer?.onPlaybackFinished = { [weak nowPlaying] in
             Task { @MainActor in nowPlaying?.noteClipEnded() }
+        }
+
+        // airpods-stt-command: wire the double-press STT gesture.
+        // ── start: a double-press while the session is held starts the
+        //    on-device recognizer. Mark the controller `isRecording` so the
+        //    NEXT press routes to stop-and-send instead of cancel-TTS. Also
+        //    hold the session open (cancel any pending grace teardown) so the
+        //    user can speak past the 2s grace window.
+        // `speech` is shadowed above by `let speech = systemSpeech` (the
+        // cancel-handler captures the system synth). Bind the STT recognizer
+        // under a distinct name from the parameter.
+        let recognizer = self.speech
+        nowPlaying.sttStartHandler = { [weak nowPlaying] in
+            guard let nowPlaying else { return }
+            nowPlaying.acquire()       // keep the session alive while dictating
+            recognizer.start()
+            nowPlaying.isRecording = recognizer.isRecording
+            Self.logger.info(
+                "TTSObserver: STT start (recording=\(recognizer.isRecording, privacy: .public))"
+            )
+        }
+        // ── stop: the next press finalizes the transcript and routes it.
+        nowPlaying.sttStopHandler = { [weak nowPlaying] in
+            nowPlaying?.isRecording = false
+            recognizer.stop()          // delivers via onTranscript below
+            // Recording done — restart the grace window so the session
+            // resigns shortly if nothing else happens.
+            nowPlaying?.noteClipEnded()
+            Self.logger.info("TTSObserver: STT stop — finalizing transcript")
+        }
+        // ── route: SpeechController hands back the finalized transcript on
+        //    the MainActor. Forward it to the last-notified session, or fall
+        //    back to a banner when no session resolves.
+        recognizer.onTranscript = { [weak self] transcript in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.routeTranscript(transcript)
+            }
         }
     }
 
@@ -290,6 +341,16 @@ public final class TTSObserver: ObservableObject {
         Self.logger.info(
             "TTSObserver: received id=\(event.id.uuidString, privacy: .public) channel=\(channel, privacy: .public)"
         )
+
+        // airpods-stt-command: remember the routing target. The wire shape
+        // (NotificationEvent / packages/core) carries `project` but NOT a
+        // session id, so we capture the project here and resolve the active
+        // session id at dictation time via GET /sessions (see
+        // resolveSessionId). Capture for every reached event (tts + desktop)
+        // so a desktop-only notification still primes a reply target.
+        if let project = event.project, !project.isEmpty {
+            lastNotifiedProject = project
+        }
 
         // Stage 1 — filter. Both "tts" and "desktop" channels reach the
         // banner pipeline; the audio path below is internally gated to
@@ -484,5 +545,118 @@ public final class TTSObserver: ObservableObject {
             return mode
         }
         return .mix
+    }
+
+    // MARK: - STT transcript routing (airpods-stt-command)
+
+    /// Route a finalized dictation transcript to the last-notified session.
+    /// Resolves the session id from `lastNotifiedProject` via GET /sessions,
+    /// then `POST /commands/send-text`. On an empty transcript, or when no
+    /// session resolves, or when the send fails, the transcript is surfaced
+    /// in a banner — never silently dropped.
+    internal func routeTranscript(_ transcript: String) async {
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            Self.logger.info("TTSObserver: STT transcript empty — nothing to route")
+            return
+        }
+
+        guard let resolved = await resolveSessionTarget() else {
+            Self.logger.info(
+                "TTSObserver: STT no session resolved — surfacing transcript in banner"
+            )
+            await postTranscriptBanner(text)
+            return
+        }
+
+        do {
+            try await client.sendText(
+                sessionId: resolved.sessionId,
+                text: text,
+                originAgent: resolved.originAgent
+            )
+            Self.logger.info(
+                "TTSObserver: STT transcript routed to session=\(resolved.sessionId, privacy: .public)"
+            )
+        } catch {
+            Self.logger.error(
+                "TTSObserver: STT sendText failed (\(String(describing: error), privacy: .public)) — banner fallback"
+            )
+            await postTranscriptBanner(text)
+        }
+    }
+
+    /// Resolved routing target — session id plus the agent that owns it so
+    /// `NexusAggregateClient.sendText` hits the right peer.
+    private struct SessionTarget {
+        let sessionId: String
+        let originAgent: String?
+    }
+
+    /// Resolve the active session for `lastNotifiedProject`. The wire shape
+    /// of `NotificationFired` (NexusShared `NotificationEvent` / packages/core)
+    /// carries only `project`, NOT a session id — so we query
+    /// `GET /sessions?withFingerprint=true` and pick the project's
+    /// most-recent (`lastHeartbeat`) active session. Returns nil when no
+    /// project was notified or no matching active session exists.
+    private func resolveSessionTarget() async -> SessionTarget? {
+        guard let project = lastNotifiedProject, !project.isEmpty else {
+            return nil
+        }
+        let sessions = await client.fetchSessions(withFingerprint: true)
+        guard let session = Self.pickActiveSession(in: sessions, project: project) else {
+            return nil
+        }
+        return SessionTarget(
+            sessionId: session.id,
+            originAgent: session.agent ?? session.machine
+        )
+    }
+
+    /// Pure selection: the most-recent (`lastHeartbeat`) active session for
+    /// `project`. Extracted + `nonisolated static` so unit tests can prove
+    /// the routing-target logic without standing up a network client.
+    /// Returns nil when no active session matches the project.
+    nonisolated static func pickActiveSession(
+        in sessions: [Session],
+        project: String
+    ) -> Session? {
+        sessions
+            .filter { $0.project == project && $0.status == "active" }
+            .max(by: { $0.lastHeartbeat < $1.lastHeartbeat })
+    }
+
+    /// Surface a dictated transcript that couldn't be routed as a banner so
+    /// the user's words are never lost. Reuses the same
+    /// `UNUserNotificationCenter` add path as the notification banner.
+    private func postTranscriptBanner(_ transcript: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "Nexus — undelivered reply"
+        content.body = transcript
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "nexus.stt.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        do {
+            try await notificationCenter.add(request)
+            Self.logger.info("TTSObserver: STT transcript banner posted")
+        } catch {
+            Self.logger.error(
+                "TTSObserver: STT transcript banner failed (\(String(describing: error), privacy: .public))"
+            )
+        }
+    }
+
+    // MARK: - Test seams (airpods-stt-command)
+
+    /// Synchronously read the last-notified project for assertions.
+    internal var debugLastNotifiedProject: String? { lastNotifiedProject }
+
+    /// Set the last-notified project directly so routing tests don't need to
+    /// drive a full SSE event through the private handler.
+    internal func debugSetLastNotifiedProject(_ project: String?) {
+        lastNotifiedProject = project
     }
 }

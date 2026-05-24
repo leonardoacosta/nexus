@@ -52,6 +52,7 @@
 		49EA3D1F02E4BA847C026CB2 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910FFCDAA0AD2FCA24472FAC /* AggregateStateTests.swift */; };
 		4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92DE47387ED686498A455137 /* FailuresView.swift */; };
 		5224ED8142D833BD558692C7 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1387D70399F82E187F0A74D6 /* AudioPlayer.swift */; };
+		53E975392F5F6625BCBB79CE /* SpeechController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */; };
 		53F7C977ABD51172A4F4D278 /* PayloadDecodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3E127C0C98FB3DCF20776D6 /* PayloadDecodeTests.swift */; };
 		54812947FE3FF0AF5C659C9D /* SettingsDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9EAA56B8ACD6A2A461C82A /* SettingsDashboardView.swift */; };
 		55F2A42C0995BF5FE43DCE93 /* TTSObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31115AFC5C16685752DA91CC /* TTSObserverTests.swift */; };
@@ -90,6 +91,7 @@
 		9149D4D4F28F32A213B21933 /* ActionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0EE128D4680A02B87E3651 /* ActionRow.swift */; };
 		92078DA331418A0E6A9A0DB8 /* SpawnHomelabSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 332165B2E191D7C8F049DC61 /* SpawnHomelabSession.swift */; };
 		927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */; };
+		9A10DA461A4198E285AF30AD /* SttCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */; };
 		9D1D4C4A9622D111E7607C11 /* SSEEventParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031637B7BA75BA58C2D9E167 /* SSEEventParsingTests.swift */; };
 		9FE3932290A918E3C331297C /* SpecsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA2250911C4813370B4DC79 /* SpecsView.swift */; };
 		A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */; };
@@ -310,6 +312,7 @@
 		374BADBBD17FCCF7AD3FC7E1 /* TtsButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtsButton.swift; sourceTree = "<group>"; };
 		3923F629707730C5EE840D38 /* SessionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionObserver.swift; sourceTree = "<group>"; };
 		39C430AEEC725438D0A5B435 /* IntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationStatus.swift; sourceTree = "<group>"; };
+		3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechController.swift; sourceTree = "<group>"; };
 		3BF654BB0375E595A1948E65 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateStateTests.swift; sourceTree = "<group>"; };
 		3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSnapshot.swift; sourceTree = "<group>"; };
@@ -342,6 +345,7 @@
 		6EB08025BFBBAC75C925CBFE /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAccordionRow.swift; sourceTree = "<group>"; };
 		71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailuresViewTests.swift; sourceTree = "<group>"; };
+		72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SttCommandTests.swift; sourceTree = "<group>"; };
 		777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbe.swift; sourceTree = "<group>"; };
 		79A88982005CBC2421EC5B93 /* ApnsRegistrar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApnsRegistrar.swift; sourceTree = "<group>"; };
 		7B73A9657818F6505743E0E8 /* NotificationAudioFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAudioFieldTests.swift; sourceTree = "<group>"; };
@@ -593,6 +597,7 @@
 				B60AB63400317D2B88538725 /* Models */,
 				CBC0011B6F19A08B12BFA833 /* Networking */,
 				BDC0BAC80C8E5826A018AF3A /* Observers */,
+				CA46EA7FB8DCBE5C1016616B /* Speech */,
 				067DF7001F57A3B80531A669 /* Storage */,
 				80DF69FCDDFDF0AF0B35BEFA /* Synthesis */,
 			);
@@ -711,6 +716,14 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		CA46EA7FB8DCBE5C1016616B /* Speech */ = {
+			isa = PBXGroup;
+			children = (
+				3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */,
+			);
+			path = Speech;
+			sourceTree = "<group>";
+		};
 		CBC0011B6F19A08B12BFA833 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
@@ -766,6 +779,7 @@
 				19140503AECBE5CFA0098D31 /* SettingsTtsViewTests.swift */,
 				08F50167D8627C3771ECF996 /* SpecDetailViewTests.swift */,
 				897BFA2E5C2DEF0037749BF3 /* SpecsViewTests.swift */,
+				72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */,
 				31115AFC5C16685752DA91CC /* TTSObserverTests.swift */,
 			);
 			path = Tests;
@@ -1202,6 +1216,7 @@
 				0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */,
 				D5C633E7052DE44FC5546D4A /* SpecDetailViewTests.swift in Sources */,
 				FA37E2848563130A1D122C31 /* SpecsViewTests.swift in Sources */,
+				9A10DA461A4198E285AF30AD /* SttCommandTests.swift in Sources */,
 				55F2A42C0995BF5FE43DCE93 /* TTSObserverTests.swift in Sources */,
 				A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */,
 				FC91D653D1FEC78F2E2CAC7B /* nexusTests.swift in Sources */,
@@ -1237,6 +1252,7 @@
 				AA4C8647C6E33974DF124621 /* SettingsStore.swift in Sources */,
 				DD86EE57636DE2561FD89FE0 /* SpecSession.swift in Sources */,
 				EDDB858FEB42BE8AFE46F4BA /* SpecSummary.swift in Sources */,
+				53E975392F5F6625BCBB79CE /* SpeechController.swift in Sources */,
 				C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */,
 				D6D4A23D02F7A837A8339BB8 /* TTSObserver.swift in Sources */,
 				F51F1E61D18B0E5602C0F71A /* WavePlanStatus.swift in Sources */,

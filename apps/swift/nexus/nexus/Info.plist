@@ -26,5 +26,9 @@
 	<string>Fonts</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Nexus menu bar client.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nexus uses the microphone to dictate a spoken reply to the session that spoke the last notification, triggered by an AirPods double-press.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Nexus transcribes your spoken reply on-device to send it to the active Claude session.</string>
 </dict>
 </plist>
