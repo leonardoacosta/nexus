@@ -228,14 +228,20 @@ macos_swift_deploy_run() {
         return 1
     fi
 
-    # Defensive: assert no new PID overlaps with the killed set.
-    for new_pid in "${new_pids[@]}"; do
-        for old_pid in "${old_pids[@]}"; do
-            if [[ "$new_pid" == "$old_pid" ]]; then
-                _macos_swift_deploy_warn "new PID $new_pid was in the killed set — kernel reused a PID; re-verifying liveness"
-            fi
+    # Defensive: assert no new PID overlaps with the killed set. Guard on
+    # old_pids being non-empty — when no instance was running (e.g. the prior
+    # build crash-looped and already exited), old_pids is empty and bash 3.2
+    # under `set -u` errors on "${old_pids[@]}" ("unbound variable"), which
+    # previously aborted the relaunch step after a successful install.
+    if [[ ${#old_pids[@]} -gt 0 ]]; then
+        for new_pid in "${new_pids[@]}"; do
+            for old_pid in "${old_pids[@]}"; do
+                if [[ "$new_pid" == "$old_pid" ]]; then
+                    _macos_swift_deploy_warn "new PID $new_pid was in the killed set — kernel reused a PID; re-verifying liveness"
+                fi
+            done
         done
-    done
+    fi
 
     _macos_swift_deploy_info "Nexus.app running with NEW PID(s): ${new_pids[*]}"
 

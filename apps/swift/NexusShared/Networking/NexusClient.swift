@@ -65,6 +65,13 @@ public actor NexusClient {
 
     private let session: URLSession
     private let streamingSession: URLSession
+    /// Dedicated session for `URLSessionWebSocketTask` (PTY stream). MUST use
+    /// FINITE timeouts: `webSocketTask(with:)` throws an uncatchable ObjC
+    /// `NSInvalidArgumentException` at task-creation time if the session's
+    /// `timeoutIntervalForRequest` is `.infinity` (as `streamingSession` uses
+    /// for SSE). WS liveness is maintained by the protocol's own ping frames,
+    /// not the request timeout — so a long finite resource timeout is correct.
+    private let ptyWsSession: URLSession
     private let decoder: JSONDecoder
 
     // INTERIM (nx-4ohfs): default flipped .localhost -> .resolved so all
@@ -87,6 +94,17 @@ public actor NexusClient {
         streamCfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         streamCfg.httpMaximumConnectionsPerHost = 4
         self.streamingSession = URLSession(configuration: streamCfg)
+
+        // WS session — FINITE timeouts (see ptyWsSession doc). 30s handshake
+        // window; 24h max stream lifetime (re-established by the caller's
+        // reconnect loop if a session outlives it). `.infinity` here would
+        // crash the app at webSocketTask(with:) creation.
+        let wsCfg = URLSessionConfiguration.default
+        wsCfg.timeoutIntervalForRequest = 30
+        wsCfg.timeoutIntervalForResource = 86_400
+        wsCfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        wsCfg.httpMaximumConnectionsPerHost = 4
+        self.ptyWsSession = URLSession(configuration: wsCfg)
 
         self.decoder = JSONDecoder()
     }
@@ -818,11 +836,12 @@ public actor NexusClient {
             .appendingPathComponent(sessionId)
             .appendingPathComponent("stream")
 
-        // `streamingSession` is a clean URLSession (its only header config is
-        // .infinity timeouts + per-host caps); the SSE `Accept` header is set
-        // inside SSEDecoder on a throwaway session, NOT here — so nothing
-        // interferes with the WebSocket Sec-WebSocket-* upgrade handshake.
-        let webSocketTask = streamingSession.webSocketTask(with: url)
+        // Use the dedicated FINITE-timeout `ptyWsSession`. NEVER use
+        // `streamingSession` here — its `.infinity` request timeout makes
+        // `webSocketTask(with:)` throw an uncatchable ObjC NSException at
+        // creation time, crashing the whole app (the multiplex fan-out opens
+        // PTY streams eagerly on launch, so the crash is immediate).
+        let webSocketTask = ptyWsSession.webSocketTask(with: url)
         webSocketTask.resume()
         ptyLog.info(
             "consumePtyStream: WS opened sessionId=\(sessionId, privacy: .public)"
