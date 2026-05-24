@@ -48,6 +48,14 @@ export interface PtySource {
   /** Resize the PTY. */
   resize(cols: number, rows: number): void;
 
+  /**
+   * Return the current terminal geometry (`cols` x `rows`). Viewers use this
+   * to size their emulator grid to match the source, so cursor-positioning
+   * escapes land in the right cells. For tmux sources this reflects the live
+   * pane size; for node-pty it reflects the configured/last-resized dims.
+   */
+  geometry(): { cols: number; rows: number };
+
   /** Tear down resources. */
   close(): void;
 }
@@ -102,6 +110,8 @@ export class NodePtySource implements PtySource {
   private scrollback: RingBuffer;
   private listeners = new Set<(data: Uint8Array) => void>();
   private closed = false;
+  private _cols: number;
+  private _rows: number;
 
   constructor(
     shell: string,
@@ -110,6 +120,8 @@ export class NodePtySource implements PtySource {
   ) {
     const capacity = opts.scrollbackCapacity ?? DEFAULT_SCROLLBACK_CAPACITY;
     this.scrollback = new RingBuffer(capacity);
+    this._cols = opts.cols ?? 80;
+    this._rows = opts.rows ?? 24;
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pty = require("node-pty") as typeof NodePtyTypes;
@@ -129,8 +141,8 @@ export class NodePtySource implements PtySource {
     }
 
     this.term = pty.spawn(shell, args, {
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
+      cols: this._cols,
+      rows: this._rows,
       cwd: opts.cwd ?? process.cwd(),
       env: spawnEnv,
       // Request binary mode — node-pty may still deliver strings on some platforms
@@ -183,9 +195,15 @@ export class NodePtySource implements PtySource {
     if (this.closed) return;
     try {
       this.term.resize(cols, rows);
+      this._cols = cols;
+      this._rows = rows;
     } catch {
       // ignore if process is gone
     }
+  }
+
+  geometry(): { cols: number; rows: number } {
+    return { cols: this._cols, rows: this._rows };
   }
 
   close(): void {
@@ -263,6 +281,10 @@ export class MockPtySource implements PtySource {
     this._rows = rows;
     this._lastResize = { cols, rows };
     noopLog.debug({ cols, rows }, "mock-pty: resize");
+  }
+
+  geometry(): { cols: number; rows: number } {
+    return { cols: this._cols, rows: this._rows };
   }
 
   close(): void {

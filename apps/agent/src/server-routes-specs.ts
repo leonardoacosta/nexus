@@ -26,6 +26,7 @@ import {
   handleUpdateCommand,
 } from "./routes/commands";
 import { handleSendText } from "./routes/commands-send-text";
+import { handleResize } from "./routes/commands-resize";
 import { withCors } from "./server-origin";
 
 /**
@@ -176,6 +177,16 @@ export function tryHandleCommandRoute(
   if (url.pathname === "/commands/send-text" && request.method === "POST") {
     return handleSendText(request).then((r) => withCors(request, r)).catch((err) => {
       logger.error({ route: "/commands/send-text", method: "POST", err }, "route handler failed");
+      return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    });
+  }
+
+  // POST /commands/resize — viewer-driven take-over resize of a session PTY.
+  // Managed-gated server-side. Matched before /commands/:name so "resize" is
+  // not treated as a namespace. (pty-adaptive-geometry-fullscreen task 1.5)
+  if (url.pathname === "/commands/resize" && request.method === "POST") {
+    return handleResize(request).then((r) => withCors(request, r)).catch((err) => {
+      logger.error({ route: "/commands/resize", method: "POST", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
   }

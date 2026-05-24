@@ -41,8 +41,27 @@ interface SessionStream {
   viewers: Set<ServerWebSocket<WsData>>;
   interactiveWriter: ServerWebSocket<WsData> | null;
   unsubscribe: () => void;
+  /** Unsubscribe from source geometry-change notifications (tmux sources). */
+  unsubscribeGeometry: () => void;
   /** Rolling buffer of recent output for reconnect replay. */
   lastOutput: ReconnectBuffer;
+}
+
+/** Serialize a geometry control frame (sent as a WS TEXT frame). */
+function geometryFrame(cols: number, rows: number): string {
+  return JSON.stringify({ type: "geometry", cols, rows });
+}
+
+/**
+ * Narrow a PtySource that also supports geometry-change subscription
+ * (TmuxPtySource). node-pty / mock sources do not push geometry changes.
+ */
+function hasGeometryChange(
+  pty: PtySource,
+): pty is PtySource & {
+  onGeometryChange(cb: (geom: { cols: number; rows: number }) => void): () => void;
+} {
+  return typeof (pty as { onGeometryChange?: unknown }).onGeometryChange === "function";
 }
 
 /**
@@ -84,11 +103,32 @@ export class StreamManager {
       }
     });
 
+    // Subscribe to source-initiated geometry changes (a real user resizing the
+    // tmux pane, or tmux reflow). On change, push a `geometry` TEXT control
+    // frame to every viewer so lock-mode emulators re-size their grid and stay
+    // aligned. Non-tmux sources (node-pty / mock) do not push changes.
+    let unsubscribeGeometry: () => void = () => {};
+    if (hasGeometryChange(pty)) {
+      unsubscribeGeometry = pty.onGeometryChange((geom) => {
+        const frame = geometryFrame(geom.cols, geom.rows);
+        const stream = this.sessions.get(sessionId);
+        if (!stream) return;
+        for (const ws of stream.viewers) {
+          try {
+            ws.sendText(frame);
+          } catch {
+            // dead socket — cleaned up on close
+          }
+        }
+      });
+    }
+
     this.sessions.set(sessionId, {
       pty,
       viewers,
       interactiveWriter: null,
       unsubscribe,
+      unsubscribeGeometry,
       lastOutput,
     });
 
@@ -136,6 +176,18 @@ export class StreamManager {
     }
 
     stream.viewers.add(ws);
+
+    // Send the geometry control frame FIRST (TEXT) so the viewer sizes its
+    // emulator grid to the source's pane geometry BEFORE the scrollback bytes
+    // (BINARY) arrive — cursor-positioning escapes in scrollback then land in
+    // the right cells (fixes the jumble). pty-adaptive-geometry-fullscreen 1.4.
+    try {
+      const geom = stream.pty.geometry();
+      ws.sendText(geometryFrame(geom.cols, geom.rows));
+    } catch {
+      // best-effort — a missing geometry frame degrades to the viewer's
+      // default grid, not a crash.
+    }
 
     // Send scrollback buffer — each line gets exactly one newline (task 7.1)
     const scrollback = stream.pty.getScrollback();
@@ -215,6 +267,7 @@ export class StreamManager {
     }
 
     stream.unsubscribe();
+    stream.unsubscribeGeometry();
     stream.pty.close();
     stream.viewers.clear();
     stream.interactiveWriter = null;

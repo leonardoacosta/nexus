@@ -20,6 +20,7 @@ import { getCredentialPool } from "./routes/credentials";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
 import { initSendTextRoute } from "./routes/commands-send-text";
+import { initResizeRoute } from "./routes/commands-resize";
 import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
@@ -63,6 +64,11 @@ const sessionManager = createSessionManager({ db });
 // Wire SessionManager into the POST /commands/send-text route used by the
 // watchOS notification action handlers (scaffold-nexus-watch-target task 1.2).
 initSendTextRoute(sessionManager);
+
+// Wire SessionManager + StreamManager into the POST /commands/resize route
+// used by the take-over PTY viewer (pty-adaptive-geometry-fullscreen task 1.5).
+// streamManager is the running server's singleton (see ./server re-export).
+initResizeRoute(sessionManager, streamManager);
 
 // Startup recovery: load active sessions from DB, validate PIDs
 sessionManager.init().catch((err) => {

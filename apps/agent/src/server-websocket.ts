@@ -25,6 +25,7 @@ import { HealthCollector } from "./health-collector";
 import { StreamManager, type WsData } from "./terminal/stream-manager";
 import { getSessionById } from "./db/sessions";
 import { TmuxPtySource, isValidTmuxTarget } from "./terminal/tmux-pty-source";
+import { getTakeoverRecord, clearTakeover } from "./terminal/takeover-registry";
 
 // ── WebSocket keepalive constants ───────────────────────────────────────────
 const PING_INTERVAL_MS = 30_000;
@@ -80,6 +81,8 @@ export class ServerState {
           // Clean up viewer state before closing (task 1.6)
           this.streamManager.removeViewer(ws);
           if (this.streamManager.viewerCount(ws.data.sessionId) === 0) {
+            // Restore take-over geometry BEFORE endSession closes the PTY.
+            maybeRestoreTakeover(this, ws.data.sessionId);
             this.streamManager.endSession(ws.data.sessionId);
           }
           try {
@@ -101,6 +104,46 @@ export class ServerState {
     for (const t of this.pongDeadlines.values()) clearTimeout(t);
     this.pongDeadlines.clear();
   }
+}
+
+/**
+ * Auto-restore the take-over pane geometry when the LAST viewer of a session
+ * disconnects (normal close OR pong timeout). Reverts the tmux pane to the
+ * geometry recorded before the first take-over resize and restores the prior
+ * `window-size` option, then clears the take-over record.
+ *
+ * No-op when:
+ *   - other viewers remain (only the LAST disconnect restores), or
+ *   - the session was never resized (no take-over record) — a plain read-only
+ *     (lock-mode) viewer disconnecting MUST NOT resize the pane.
+ *
+ * pty-adaptive-geometry-fullscreen task 1.6.
+ */
+function maybeRestoreTakeover(state: ServerState, sessionId: string): void {
+  // Only the last viewer triggers restore.
+  if (state.streamManager.viewerCount(sessionId) !== 0) return;
+  const record = getTakeoverRecord(sessionId);
+  if (!record) return; // never resized — leave tmux untouched
+  const pty = state.streamManager.getPty(sessionId);
+  if (pty && typeof (pty as { restoreGeometry?: unknown }).restoreGeometry === "function") {
+    const tmuxPty = pty as TmuxPtySource;
+    try {
+      // Revert the explicit window size to the recorded original, then restore
+      // the prior window-size option (so tmux re-fits to real clients again).
+      tmuxPty.restoreGeometry(record.originalCols, record.originalRows);
+      tmuxPty.restoreWindowSize();
+    } catch (err) {
+      logger.warn(
+        { sessionId, error: err instanceof Error ? err.message : String(err) },
+        "take-over auto-restore threw — clearing record anyway",
+      );
+    }
+  }
+  clearTakeover(sessionId);
+  logger.debug(
+    { sessionId, cols: record.originalCols, rows: record.originalRows },
+    "take-over pane geometry auto-restored on last viewer disconnect",
+  );
 }
 
 /**
@@ -369,6 +412,9 @@ export function createWsHandlers(state: ServerState) {
       // Mirror the pong-timeout path: tear down the PTY session when the
       // last viewer disconnects normally (task 1.1 — PTY orphan fix).
       if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
+        // Restore take-over geometry BEFORE endSession closes the PTY
+        // (pty-adaptive-geometry-fullscreen task 1.6).
+        maybeRestoreTakeover(state, ws.data.sessionId);
         state.streamManager.endSession(ws.data.sessionId);
       }
 

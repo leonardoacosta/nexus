@@ -15,12 +15,22 @@
  *   - close(): kill the pipe-pane child + run `tmux pipe-pane -t <target>`
  *     (no command) to detach the pipe on the tmux side.
  *
- * Resize is a no-op — tmux owns the pane geometry; viewers cannot resize a
- * pane that real users are also looking at. Future work can wire this up
- * via `tmux refresh-client -C` once a single-viewer mode is defined.
+ * Geometry: `geometry()` returns the last-observed pane size, acquired via
+ * `tmux display-message -p -t <target> '#{pane_width}x#{pane_height}'`. The
+ * value is read once at construction and re-sampled cheaply on the pipe-pane
+ * read loop so a `geometry` control frame can be pushed to viewers when the
+ * real pane resizes. Viewers in lock mode size their emulator grid to this so
+ * cursor-positioning escapes (CUP) land in the right cells (fixes the jumble).
+ *
+ * Resize (take-over mode): `resize(cols, rows)` runs `tmux resize-window` and
+ * forces `window-size manual` for the take-over duration so the requested size
+ * sticks, recording the prior `window-size` option value so auto-restore can
+ * revert it on viewer detach.
  *
  * Spec: nx-omso0 — fix(agent): lazy-attach tmux PtySource on
  *   /sessions/<id>/stream upgrade.
+ * Spec: pty-adaptive-geometry-fullscreen (nx-3bai2) — geometry report +
+ *   viewer-driven resize + auto-restore.
  */
 
 import { logger } from "@nexus/core/node";
@@ -33,6 +43,13 @@ import { join } from "node:path";
 const DEFAULT_SCROLLBACK_CAPACITY = 10_000;
 const SCROLLBACK_LINES = 1000;
 const TMUX_TARGET_RE = /^[A-Za-z0-9_.:%@/-]+$/;
+const DEFAULT_GEOMETRY = { cols: 80, rows: 24 } as const;
+/**
+ * Minimum interval between geometry re-samples on the pipe-pane read loop.
+ * Each sample shells out to `tmux display-message`, so we throttle to avoid a
+ * spawn per output burst while still detecting real pane resizes within ~1s.
+ */
+const GEOMETRY_SAMPLE_INTERVAL_MS = 1000;
 
 class RingBuffer {
   private buf: string[];
@@ -92,6 +109,19 @@ export class TmuxPtySource implements PtySource {
   private tmpDir: string | null = null;
   private fifoPath: string | null = null;
 
+  /** Last-observed pane geometry, re-sampled on the read loop. */
+  private _geometry: { cols: number; rows: number } = { ...DEFAULT_GEOMETRY };
+  /** Wall-clock of the last geometry sample (throttle gate). */
+  private lastGeometrySampleAt = 0;
+  /** Subscribers notified when the observed pane geometry changes. */
+  private geometryListeners = new Set<(geom: { cols: number; rows: number }) => void>();
+  /**
+   * Prior value of tmux's `window-size` option for this target, captured the
+   * first time `resize()` forces `manual`. `null` means take-over has not
+   * mutated the option (so auto-restore must NOT touch it).
+   */
+  private priorWindowSize: string | null = null;
+
   constructor(
     private readonly target: string,
     opts: TmuxPtySourceOptions = {},
@@ -99,6 +129,9 @@ export class TmuxPtySource implements PtySource {
     const capacity = opts.scrollbackCapacity ?? DEFAULT_SCROLLBACK_CAPACITY;
     this.scrollback = new RingBuffer(capacity);
     this.seedScrollback();
+    // Acquire pane geometry once at attach so the first geometry frame is
+    // accurate. Best-effort — falls back to DEFAULT_GEOMETRY on failure.
+    this.sampleGeometry();
     this.startPipePane();
   }
 
@@ -140,6 +173,57 @@ export class TmuxPtySource implements PtySource {
         "tmux capture-pane threw — empty scrollback",
       );
     }
+  }
+
+  /**
+   * Sample the pane geometry via
+   * `tmux display-message -p -t <target> '#{pane_width}x#{pane_height}'`.
+   * Updates the cached value and, if it changed, notifies geometry listeners
+   * (so server-websocket can push a `geometry` control frame). Best-effort:
+   * on any failure the cached value is left untouched.
+   *
+   * Returns the cached geometry after the sample.
+   */
+  private sampleGeometry(): { cols: number; rows: number } {
+    this.lastGeometrySampleAt = Date.now();
+    try {
+      const proc = Bun.spawnSync(
+        [
+          "tmux",
+          "display-message",
+          "-p",
+          "-t",
+          this.target,
+          "#{pane_width}x#{pane_height}",
+        ],
+        { stdout: "pipe", stderr: "ignore" },
+      );
+      if (proc.exitCode !== 0) return this._geometry;
+      const out = proc.stdout.toString().trim();
+      const m = out.match(/^(\d+)x(\d+)$/);
+      if (!m) return this._geometry;
+      const cols = Number(m[1]);
+      const rows = Number(m[2]);
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+        return this._geometry;
+      }
+      if (cols !== this._geometry.cols || rows !== this._geometry.rows) {
+        this._geometry = { cols, rows };
+        for (const cb of this.geometryListeners) {
+          try {
+            cb(this._geometry);
+          } catch {
+            // subscriber threw — ignore
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug(
+        { target: this.target, error: err instanceof Error ? err.message : String(err) },
+        "tmux display-message (geometry) threw — keeping cached geometry",
+      );
+    }
+    return this._geometry;
   }
 
   /**
@@ -215,6 +299,13 @@ export class TmuxPtySource implements PtySource {
         const { value, done } = await reader.read();
         if (done) return;
         if (!value || value.byteLength === 0) continue;
+        // Re-sample pane geometry on output activity (throttled). A real user
+        // resizing the pane (or tmux's own reflow) changes the dims; detecting
+        // it here lets us push a fresh geometry frame to viewers so their grid
+        // stays aligned. Cheap: gated by GEOMETRY_SAMPLE_INTERVAL_MS.
+        if (Date.now() - this.lastGeometrySampleAt >= GEOMETRY_SAMPLE_INTERVAL_MS) {
+          this.sampleGeometry();
+        }
         // Record raw bytes' textual form in scrollback (line-split).
         try {
           const text = new TextDecoder("utf-8", { fatal: false }).decode(value);
@@ -281,12 +372,142 @@ export class TmuxPtySource implements PtySource {
   }
 
   /**
-   * tmux pane geometry is owned by tmux itself; viewer-driven resize is
-   * unsafe (would affect every real user attached to the same pane). No-op
-   * by design.
+   * Current pane geometry (last-observed). Viewers in lock mode size their
+   * emulator grid to this value.
    */
-  resize(_cols: number, _rows: number): void {
-    // intentionally empty
+  geometry(): { cols: number; rows: number } {
+    return { ...this._geometry };
+  }
+
+  /**
+   * Subscribe to geometry changes (detected on the read loop or after a
+   * viewer-driven resize). Returns an unsubscribe function. The callback fires
+   * AFTER the cached value updates, so `geometry()` reflects the new value.
+   */
+  onGeometryChange(
+    callback: (geom: { cols: number; rows: number }) => void,
+  ): () => void {
+    this.geometryListeners.add(callback);
+    return () => {
+      this.geometryListeners.delete(callback);
+    };
+  }
+
+  /**
+   * Take-over resize: drive the tmux WINDOW to the viewer's grid so the viewer
+   * can use its full frame. `tmux resize-window` only sticks when the window's
+   * `window-size` option is `manual` (the default is usually `latest`/`largest`,
+   * which auto-fits the largest attached client). So on the FIRST resize we
+   * record the prior `window-size` value and force `manual`; auto-restore later
+   * reverts both the geometry and the option (see `restoreWindowSize`).
+   *
+   * NOTE: `resize-window` (window-level) is used, not `resize-pane` — a Claude
+   * session is single-pane, so the pane follows the window, and resizing the
+   * window is what actually changes the renderable grid the TUI composes for.
+   */
+  resize(cols: number, rows: number): void {
+    if (this.closed) return;
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+      return;
+    }
+    // Capture the prior window-size option ONCE, before we force manual, so
+    // auto-restore can revert it. priorWindowSize !== null means take-over is
+    // already active for this source.
+    if (this.priorWindowSize === null) {
+      this.priorWindowSize = this.readWindowSizeOption() ?? "latest";
+      this.setWindowSizeOption("manual");
+    }
+    try {
+      const proc = Bun.spawnSync(
+        ["tmux", "resize-window", "-t", this.target, "-x", String(cols), "-y", String(rows)],
+        { stdout: "ignore", stderr: "pipe" },
+      );
+      if (proc.exitCode !== 0) {
+        logger.debug(
+          { target: this.target, cols, rows, err: proc.stderr.toString().trim() },
+          "tmux resize-window non-zero",
+        );
+        return;
+      }
+    } catch (err) {
+      logger.debug(
+        { target: this.target, error: err instanceof Error ? err.message : String(err) },
+        "tmux resize-window threw",
+      );
+      return;
+    }
+    // Re-sample so geometry() / listeners reflect the new size promptly.
+    this.sampleGeometry();
+  }
+
+  /**
+   * Auto-restore the `window-size` option to its pre-take-over value. Called by
+   * the teardown path when the last take-over viewer disconnects. No-op when
+   * take-over never mutated the option (`priorWindowSize === null`), so a
+   * never-resized session's disconnect leaves tmux untouched. After restoring,
+   * the record is cleared so a subsequent take-over re-captures cleanly.
+   *
+   * The pane geometry itself reverts naturally once `window-size` is back to
+   * `latest`/`largest` (tmux re-fits to the real attached clients). When the
+   * prior option was already `manual`, callers should pass the original
+   * geometry via `restoreGeometry` so the manual size is reset explicitly.
+   */
+  restoreWindowSize(): void {
+    if (this.priorWindowSize === null) return;
+    this.setWindowSizeOption(this.priorWindowSize);
+    this.priorWindowSize = null;
+  }
+
+  /** True when a take-over resize is currently active (option forced manual). */
+  isTakeOverActive(): boolean {
+    return this.priorWindowSize !== null;
+  }
+
+  /**
+   * Explicitly resize the window back to a recorded geometry. Used by
+   * auto-restore for the case where the prior `window-size` was already
+   * `manual` (so reverting the option alone would not change the dims).
+   */
+  restoreGeometry(cols: number, rows: number): void {
+    if (this.closed) return;
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+      return;
+    }
+    try {
+      Bun.spawnSync(
+        ["tmux", "resize-window", "-t", this.target, "-x", String(cols), "-y", String(rows)],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Read the current `window-size` window option (e.g. "latest"). */
+  private readWindowSizeOption(): string | null {
+    try {
+      const proc = Bun.spawnSync(
+        ["tmux", "show-options", "-w", "-v", "-t", this.target, "window-size"],
+        { stdout: "pipe", stderr: "ignore" },
+      );
+      if (proc.exitCode !== 0) return null;
+      const v = proc.stdout.toString().trim();
+      return v.length > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Set the `window-size` window option for this target. Best-effort. */
+  private setWindowSizeOption(value: string): void {
+    try {
+      Bun.spawnSync(
+        ["tmux", "set-option", "-w", "-t", this.target, "window-size", value],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+    } catch {
+      // best-effort
+    }
   }
 
   close(): void {
@@ -321,5 +542,6 @@ export class TmuxPtySource implements PtySource {
       this.fifoPath = null;
     }
     this.listeners.clear();
+    this.geometryListeners.clear();
   }
 }
