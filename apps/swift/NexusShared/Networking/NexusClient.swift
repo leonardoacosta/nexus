@@ -11,6 +11,7 @@
 // state actor lives in Observers/SessionObserver.swift.
 
 import Foundation
+import Network
 import OSLog
 
 /// PTY WebSocket transport logger (nx-gsk4h). `process:nexus` filter in
@@ -787,42 +788,167 @@ public actor NexusClient {
     /// emulator (SwiftTerm) for rendering.
     ///
     /// Transport (nx-gsk4h): the agent serves `/sessions/{id}/stream` as a
-    /// **WebSocket-only** endpoint (`apps/agent/src/terminal/stream-manager.ts`).
-    /// A plain `GET` with `Accept: text/event-stream` returns 500
-    /// "WebSocket upgrade failed", so this SSE consumer cannot actually attach
-    /// — the PtyViewer flips to `.disconnected`. KNOWN LIMITATION: a proper
-    /// `URLSessionWebSocketTask` client is needed, but the first attempt
-    /// crashed the app (uncatchable ObjC NSException from `webSocketTask(with:)`
-    /// on macOS 26.3). Reverted to SSE to keep the app stable; the WebSocket
-    /// re-attempt is tracked in nx-gsk4h. Until then, PTY terminal attach is
-    /// non-functional (everything else — sessions list, TTS, banner — works).
+    /// **WebSocket-only** endpoint (`apps/agent/src/terminal/stream-manager.ts`),
+    /// implemented here with Apple's **Network framework** (`NWConnection` +
+    /// `NWProtocolWebSocket`) rather than `URLSessionWebSocketTask`. The
+    /// `URLSession` API raises an UNCATCHABLE ObjC `NSException` at task
+    /// creation on macOS 26.3 when given an `http://` URL (it requires
+    /// `ws://`/`wss://`), and Swift `try/catch` cannot trap an ObjC exception,
+    /// so a single mis-call aborted the whole process. `NWConnection` has no
+    /// such creation footgun and is Apple's recommended robust WS client —
+    /// verified attaching + receiving PTY bytes against the live agent on
+    /// macOS 26.3 with no crash.
+    ///
+    /// Termination contract (mirrors the SSE consumers so
+    /// `NexusAggregateClient.multiplex` reconnects identically):
+    /// - `.failed(error)` -> throws `NexusClientError.transport(error)`
+    ///   (multiplex logs + backs off + retries).
+    /// - Clean close / `.cancelled` -> returns normally (multiplex
+    ///   re-subscribes after resetting backoff).
+    /// - Swift `Task` cancellation (PtyViewer.stop()) -> `conn.cancel()` and
+    ///   returns; multiplex observes `Task.isCancelled` and exits.
+    ///
+    /// Frame routing: only **binary** WS frames carry PTY bytes and reach
+    /// `handler`. **Text** frames are agent control messages (e.g.
+    /// `replay_done`) — logged, never forwarded. Binary bytes are delivered in
+    /// arrival order: the receive loop only re-arms `receiveMessage` AFTER the
+    /// per-message `await handler(...)` completes, so PTY output cannot
+    /// reorder or interleave.
     public func consumePtyStream(
         sessionId: String,
         handler: @Sendable @escaping (Data) async -> Void
     ) async throws {
-        let url = endpoint.baseURL
-            .appendingPathComponent("sessions")
-            .appendingPathComponent(sessionId)
-            .appendingPathComponent("stream")
+        // 1) Build the ws:// URL. Rewrite the endpoint's http/https scheme to
+        //    ws/wss; anything else (or a nil URL) is fatal — never hand a bad
+        //    scheme to NWConnection.
+        guard var comps = URLComponents(
+            url: endpoint.baseURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw NexusClientError.transport(PtyStreamError.badURL)
+        }
+        switch comps.scheme?.lowercased() {
+        case "http", "ws": comps.scheme = "ws"
+        case "https", "wss": comps.scheme = "wss"
+        default:
+            throw NexusClientError.transport(PtyStreamError.badScheme(comps.scheme))
+        }
+        let basePath = comps.percentEncodedPath
+        let escaped = sessionId.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? sessionId
+        comps.percentEncodedPath =
+            basePath.hasSuffix("/")
+                ? "\(basePath)sessions/\(escaped)/stream"
+                : "\(basePath)/sessions/\(escaped)/stream"
+        guard let wsURL = comps.url,
+              let scheme = wsURL.scheme?.lowercased(),
+              scheme == "ws" || scheme == "wss" else {
+            throw NexusClientError.transport(PtyStreamError.badURL)
+        }
 
-        // REVERTED to SSE 2026-05-24 (nx-gsk4h): the URLSessionWebSocketTask
-        // rewrite crashed the app — `webSocketTask(with:)` raises an
-        // UNCATCHABLE ObjC NSException on macOS 26.3 (`.infinity` request
-        // timeout was ruled out as the cause; the leading hypothesis is the
-        // endpoint's `http://` scheme being rejected — `webSocketTask` may
-        // require `ws://`/`wss://` on this OS). Swift `try/catch` cannot trap
-        // an ObjC exception, so the `NexusAggregateClient.multiplex` fan-out
-        // aborted the whole process. SSE hits the WS-only agent endpoint and
-        // gets HTTP 500, so PTY shows `.disconnected` (no terminal attach) —
-        // but the app STAYS UP. The proper WebSocket client (scheme fix +
-        // isolated runtime verification) is re-attempted under nx-gsk4h.
-        try await SSEDecoder.consume(
-            url: url,
-            session: streamingSession
-        ) { event in
-            if let data = event.data.data(using: .utf8) {
-                await handler(data)
+        // 2) NWConnection + WebSocket options. autoReplyPing keeps the
+        //    connection alive without manual pong handling.
+        let wsOpts = NWProtocolWebSocket.Options()
+        wsOpts.autoReplyPing = true
+        let params = NWParameters.tcp
+        params.defaultProtocolStack.applicationProtocols.insert(wsOpts, at: 0)
+        let conn = NWConnection(to: .url(wsURL), using: params)
+        let queue = DispatchQueue(label: "dev.leonardoacosta.nexus.pty.\(sessionId)")
+
+        // 3+6) Bridge the callback-driven connection to async/throws. `gate`
+        //    is a Sendable lock-guarded box that guarantees the continuation
+        //    resumes EXACTLY ONCE (failed+cancelled races otherwise
+        //    double-resume = fatal) and that `conn.cancel()` runs on every
+        //    exit path. NWConnection callbacks fire on `queue` (off the actor),
+        //    so all shared mutable state lives behind the lock in `gate`,
+        //    keeping the bridge data-race-safe without touching actor state.
+        let gate = PtyStreamGate(connection: conn)
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (cont: CheckedContinuation<Void, Error>) in
+                gate.arm(continuation: cont)
+
+                conn.stateUpdateHandler = { [weak conn] state in
+                    switch state {
+                    case .failed(let error):
+                        ptyLog.error(
+                            "PTY WS failed (sessionId=\(sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
+                        )
+                        gate.finish(throwing: NexusClientError.transport(error))
+                    case .cancelled:
+                        // Clean teardown (close or our own cancel) -> normal
+                        // return so multiplex re-subscribes.
+                        gate.finish(throwing: nil)
+                    case .ready:
+                        ptyLog.info(
+                            "PTY WS ready (sessionId=\(sessionId, privacy: .public))"
+                        )
+                    case .waiting(let error):
+                        ptyLog.debug(
+                            "PTY WS waiting (sessionId=\(sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
+                        )
+                    default:
+                        break
+                    }
+                    _ = conn
+                }
+
+                // Receive loop. Re-arm only AFTER handler completes so PTY
+                // bytes stay strictly ordered (no interleaving).
+                func receiveLoop() {
+                    conn.receiveMessage { data, context, _, error in
+                        if let error {
+                            gate.finish(throwing: NexusClientError.transport(error))
+                            return
+                        }
+                        // Classify frame: binary = PTY bytes -> handler; text
+                        // = agent control message -> log only.
+                        let isText: Bool = {
+                            guard let meta = context?.protocolMetadata(
+                                definition: NWProtocolWebSocket.definition
+                            ) as? NWProtocolWebSocket.Metadata else {
+                                return false  // default to binary if unknown
+                            }
+                            return meta.opcode == .text
+                        }()
+
+                        if let data, !data.isEmpty {
+                            if isText {
+                                let msg = String(decoding: data, as: UTF8.self)
+                                ptyLog.debug(
+                                    "PTY WS control frame (sessionId=\(sessionId, privacy: .public)): \(msg, privacy: .public)"
+                                )
+                                receiveLoop()
+                            } else {
+                                // Forward, then re-arm — ordered delivery.
+                                Task {
+                                    await handler(data)
+                                    receiveLoop()
+                                }
+                            }
+                        } else {
+                            // Empty frame (or close marker with no payload):
+                            // keep listening; terminal state arrives via
+                            // stateUpdateHandler.
+                            receiveLoop()
+                        }
+                    }
+                }
+                receiveLoop()
+
+                // 5) Start. If cancellation already raced ahead, finish() is a
+                //    no-op and start() cancels harmlessly.
+                conn.start(queue: queue)
             }
+        } onCancel: {
+            // Swift Task cancelled (e.g. PtyViewer.stop()). Cancel the
+            // connection; the .cancelled state resumes via the normal path.
+            // finish() here also covers the case where the state handler never
+            // fires (e.g. cancel before start completes).
+            conn.cancel()
+            gate.finish(throwing: nil)
         }
     }
 
@@ -871,6 +997,73 @@ public actor NexusClient {
             return data
         } catch {
             return nil
+        }
+    }
+}
+
+// MARK: - PTY WebSocket bridge (nx-gsk4h)
+
+/// Construction / scheme failures for the PTY WebSocket URL. Wrapped in
+/// `NexusClientError.transport` so the caller's reconnect loop treats them
+/// like any other transport failure.
+private enum PtyStreamError: Error {
+    case badURL
+    case badScheme(String?)
+}
+
+/// Single-resume + teardown guard for `consumePtyStream`'s continuation
+/// bridge. `NWConnection`'s `stateUpdateHandler`, the `receiveMessage`
+/// completion, and the task-cancellation handler all run on different threads
+/// (the connection's DispatchQueue, plus the Swift cancellation hop) and race
+/// to terminate the stream. Resuming a `CheckedContinuation` twice is a fatal
+/// crash, so every terminal signal funnels through `finish(throwing:)`, which
+/// an `NSLock` serializes into exactly one resume and exactly one
+/// `conn.cancel()`.
+///
+/// Marked `@unchecked Sendable`: all mutable state (`continuation`,
+/// `isFinished`) is accessed only while holding `lock`, so the class is
+/// data-race-safe despite the compiler being unable to prove it. The captured
+/// `NWConnection` is itself thread-safe (`cancel()` is callable from any
+/// thread). This keeps the actor (`NexusClient`) un-touched by the off-actor
+/// callbacks — the bridge owns all cross-thread state.
+private final class PtyStreamGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let connection: NWConnection
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var isFinished = false
+
+    init(connection: NWConnection) {
+        self.connection = connection
+    }
+
+    /// Install the continuation. Called once, before any callback can fire
+    /// (inside the `withCheckedThrowingContinuation` body, before `start`).
+    func arm(continuation: CheckedContinuation<Void, Error>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    /// Terminate the stream exactly once. `error == nil` resumes normally
+    /// (clean close / cancellation -> caller re-subscribes); a non-nil error
+    /// resumes throwing (caller backs off + retries). Subsequent calls are
+    /// no-ops. Always tears the connection down.
+    func finish(throwing error: Error?) {
+        lock.lock()
+        if isFinished {
+            lock.unlock()
+            return
+        }
+        isFinished = true
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+
+        connection.cancel()
+        if let error {
+            cont?.resume(throwing: error)
+        } else {
+            cont?.resume(returning: ())
         }
     }
 }
