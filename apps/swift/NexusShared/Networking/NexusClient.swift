@@ -11,6 +11,14 @@
 // state actor lives in Observers/SessionObserver.swift.
 
 import Foundation
+import OSLog
+
+/// PTY WebSocket transport logger (nx-gsk4h). `process:nexus` filter in
+/// Console.app surfaces the open → replay_done → close lifecycle.
+private let ptyLog = Logger(
+    subsystem: "dev.leonardoacosta.nexus.mac",
+    category: "NexusClient.pty"
+)
 
 /// Where to reach the agent. Default points at loopback; iOS / watchOS clients
 /// override via `NexusClient.init(endpoint:)` to hit `homelab:7400` over the
@@ -775,8 +783,32 @@ public actor NexusClient {
     }
 
     /// Consume `GET /sessions/{id}/stream` — agent PTY byte stream. The
-    /// handler receives raw bytes (post-SSE-frame, pre-ANSI). Callers feed
-    /// the bytes into a terminal emulator (SwiftTerm) for rendering.
+    /// handler receives raw PTY bytes; callers feed them into a terminal
+    /// emulator (SwiftTerm) for rendering.
+    ///
+    /// Transport (nx-gsk4h): the agent serves `/sessions/{id}/stream` as a
+    /// **WebSocket-only** endpoint (`apps/agent/src/terminal/stream-manager.ts`).
+    /// A plain `GET` with `Accept: text/event-stream` returns 500
+    /// "WebSocket upgrade failed", which the old SSE consumer swallowed —
+    /// the PtyViewer then flipped straight to `.disconnected` / `.error`.
+    /// We now drive a `URLSessionWebSocketTask`, which performs the
+    /// HTTP→WS upgrade automatically against the same `http(s)` URL.
+    ///
+    /// Frame protocol:
+    ///   - `.data`  → raw PTY output (`ws.sendBinary`); forwarded to `handler`.
+    ///   - `.string` → JSON control frame (`ws.sendText`, e.g.
+    ///                  `{"type":"replay_done"}`). Logged, never fed to the
+    ///                  terminal (it is NOT terminal output).
+    ///
+    /// The receive loop runs until `task.receive()` throws (peer close,
+    /// transport error, or task cancellation) and re-throws so the caller's
+    /// reconnect loop (`NexusAggregateClient.multiplex`) can back off and
+    /// retry — matching the SSE consumers' `async throws` contract.
+    ///
+    /// Cancellation: when the surrounding Swift `Task` is cancelled (e.g.
+    /// `PtyViewerModel.stop()` cancels `sseTask`), the loop observes
+    /// `Task.isCancelled` / `CancellationError`, sends a `.goingAway`
+    /// close, and returns.
     public func consumePtyStream(
         sessionId: String,
         handler: @Sendable @escaping (Data) async -> Void
@@ -785,12 +817,51 @@ public actor NexusClient {
             .appendingPathComponent("sessions")
             .appendingPathComponent(sessionId)
             .appendingPathComponent("stream")
-        try await SSEDecoder.consume(
-            url: url,
-            session: streamingSession
-        ) { event in
-            if let data = event.data.data(using: .utf8) {
+
+        // `streamingSession` is a clean URLSession (its only header config is
+        // .infinity timeouts + per-host caps); the SSE `Accept` header is set
+        // inside SSEDecoder on a throwaway session, NOT here — so nothing
+        // interferes with the WebSocket Sec-WebSocket-* upgrade handshake.
+        let webSocketTask = streamingSession.webSocketTask(with: url)
+        webSocketTask.resume()
+        ptyLog.info(
+            "consumePtyStream: WS opened sessionId=\(sessionId, privacy: .public)"
+        )
+
+        // Ensure the socket is torn down on ANY exit (throw, cancel, return)
+        // so we never leak a half-open connection back into URLSession's pool.
+        defer {
+            webSocketTask.cancel(with: .goingAway, reason: nil)
+        }
+
+        while !Task.isCancelled {
+            let message: URLSessionWebSocketTask.Message
+            do {
+                message = try await webSocketTask.receive()
+            } catch is CancellationError {
+                // PtyViewer.stop() cancelled us — clean exit, no rethrow.
+                return
+            } catch {
+                if Task.isCancelled { return }
+                // Peer close / transport failure — propagate so the caller's
+                // reconnect loop can back off and re-subscribe.
+                throw NexusClientError.transport(error)
+            }
+
+            switch message {
+            case .data(let data):
                 await handler(data)
+            case .string(let text):
+                // Control frame, e.g. {"type":"replay_done"}. Never feed JSON
+                // control text into the terminal — only log replay_done so
+                // production logs show the buffered-replay handshake landing.
+                if text.contains("replay_done") {
+                    ptyLog.info(
+                        "consumePtyStream: replay_done sessionId=\(sessionId, privacy: .public)"
+                    )
+                }
+            @unknown default:
+                break
             }
         }
     }

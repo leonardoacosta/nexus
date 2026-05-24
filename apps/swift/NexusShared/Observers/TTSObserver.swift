@@ -135,19 +135,35 @@ public final class TTSObserver: ObservableObject {
         // publishes a `VoiceOverrideChanged` SSE frame. We piggy-back on
         // the generic `/events/stream` consumer because the dispatch
         // happens via the same lifecycle bus.
+        //
+        // Reconnect (nx-gsk4h): `consumeEvents` returns when the agent
+        // restarts and the SSE pipe drops. Without a loop the side-channel
+        // dies silently — VoiceOverrideChanged frames stop refreshing the
+        // cache until app relaunch. Wrap it in the same backoff loop as the
+        // notification stream below.
         let voiceTask = Task { [weak self] in
             guard let self else { return }
-            await self.client.consumeEvents { event in
-                guard event.name == "VoiceOverrideChanged" else { return }
-                guard event.decodeVoiceOverrideChange() != nil else { return }
-                await self.refreshProjectVoiceCache()
+            await self.reconnectLoop(label: "voice") {
+                await self.client.consumeEvents { event in
+                    guard event.name == "VoiceOverrideChanged" else { return }
+                    guard event.decodeVoiceOverrideChange() != nil else { return }
+                    await self.refreshProjectVoiceCache()
+                }
             }
         }
         self.voiceEventTask = voiceTask
 
-        let task = Task { [client] in
-            await client.consumeNotifications { event in
-                await self.handle(event: event)
+        // Reconnect (nx-gsk4h): previously `consumeNotifications` was called
+        // ONCE — on agent restart the SSE `/events` connection drops, the
+        // consume call returns, the Task completes, and TTS was dead until
+        // app relaunch. Wrap in an exponential-backoff reconnect loop so the
+        // subscription survives agent restarts.
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.reconnectLoop(label: "notifications") {
+                await self.client.consumeNotifications { event in
+                    await self.handle(event: event)
+                }
             }
         }
         self.subscriptionTask = task
@@ -155,6 +171,55 @@ public final class TTSObserver: ObservableObject {
         // here so callers can `await observer.start()` and treat it like a
         // long-running daemon.
         _ = await task.value
+    }
+
+    /// Drive a streaming subscription with exponential backoff so it
+    /// survives agent restarts (nx-gsk4h). `consume` is expected to return
+    /// when the underlying SSE pipe drops (clean disconnect) or to keep
+    /// running until this Task is cancelled.
+    ///
+    /// Backoff: starts at 1s, doubles per consecutive short-lived return,
+    /// capped at 30s. Resets to 1s after a connection that lasted longer
+    /// than `longLivedThreshold` — so a flapping agent never pins us at the
+    /// 30s ceiling while a hard-down agent still backs off. The loop exits
+    /// promptly on cancellation (top-of-loop check + cancellation-aware
+    /// sleep), preserving `stop()` semantics.
+    private func reconnectLoop(
+        label: String,
+        consume: @escaping () async -> Void
+    ) async {
+        let baseBackoff: UInt64 = 1_000_000_000          // 1s
+        let maxBackoff: UInt64 = 30 * 1_000_000_000      // 30s
+        let longLivedThreshold: TimeInterval = 10        // 10s = "real" connection
+        var backoff = baseBackoff
+        var attempt = 0
+
+        while !Task.isCancelled {
+            let startedAt = Date()
+            await consume()
+            if Task.isCancelled { return }
+
+            let elapsed = Date().timeIntervalSince(startedAt)
+            if elapsed >= longLivedThreshold {
+                // The connection lived long enough to count as healthy —
+                // treat the drop as a one-off and reset the backoff so the
+                // next reconnect is immediate-ish (1s), not punished.
+                backoff = baseBackoff
+            }
+
+            attempt += 1
+            let backoffSeconds = backoff / 1_000_000_000
+            Self.logger.info(
+                "TTSObserver: reconnecting \(label, privacy: .public) stream (attempt \(attempt, privacy: .public), backoff \(backoffSeconds, privacy: .public)s)"
+            )
+
+            // Cancellation-aware sleep — `stop()` cancels this Task and the
+            // throw breaks the wait so we re-check `Task.isCancelled` and exit.
+            try? await Task.sleep(nanoseconds: backoff)
+            if Task.isCancelled { return }
+
+            backoff = min(maxBackoff, backoff * 2)
+        }
     }
 
     /// Cancel the subscription. Idempotent — second call is a no-op.
