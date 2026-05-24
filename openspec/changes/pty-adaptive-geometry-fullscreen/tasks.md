@@ -29,8 +29,8 @@ Swift-side (NexusShared + nexus-mac). Geometry consumption, grid lock, take-over
 
 Tests proving the spec assertions hold at runtime.
 
-- [ ] 3.1 Agent test: a tmux-backed stream emits a `geometry` control frame at attach with the pane's `cols`/`rows`. [beads:nx-tubsz]
-- [ ] 3.2 Agent test: `POST /commands/resize` on a managed session resizes the pane and records original geometry; a non-managed session is rejected; invalid dims are rejected. [beads:nx-ypn1e]
-- [ ] 3.3 Agent test: last take-over viewer disconnect restores original pane geometry; a never-resized viewer's disconnect does not resize. [beads:nx-mf7w1]
+- [x] 3.1 Agent test: a tmux-backed stream emits a `geometry` control frame at attach with the pane's `cols`/`rows`. [beads:nx-tubsz]
+- [x] 3.2 Agent test: `POST /commands/resize` on a managed session resizes the pane and records original geometry; a non-managed session is rejected; invalid dims are rejected. [beads:nx-ypn1e]
+- [x] 3.3 Agent test: last take-over viewer disconnect restores original pane geometry; a never-resized viewer's disconnect does not resize. [beads:nx-mf7w1]
 - [x] 3.4 Swift test in `apps/swift/NexusSharedTests/PtyAttachTests.swift`: a `geometry` control frame in lock mode sets the SwiftTerm grid to the reported size; `sizeChanged` forwards a resize only in take-over mode. [beads:nx-jsisz]
 - [ ] 3.5 Manual/UI verification: green-button fullscreen enters a fullscreen Space, and PTY output renders aligned (no jumble) in lock mode against a live homelab session — capture a screenshot to `docs/screenshots/`. [beads:nx-evx6k]
