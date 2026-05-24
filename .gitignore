@@ -75,3 +75,25 @@ apps/nexus-status/nexus-status
 # Fastlane — provisioning profiles + report
 apps/swift/fastlane/profiles/*.mobileprovision
 apps/swift/fastlane/report.xml
+apps/swift/fastlane/README.md
+
+# Xcode per-user state
+apps/swift/**/xcuserdata/
+apps/swift/**/xcshareddata/
+
+# wt CLI session state (per-session git worktrees + index)
+.worktrees/
+.worktrees-index.json
+.worktrees-index.json.lock
+
+# Compiled bun binaries (per-package)
+apps/nexus-emit/nexus-emit
+apps/nexus-statusline/nexus-statusline
+
+# LLVM coverage artifacts
+*.profraw
+
+# /apply session artifacts (transient, not project content)
+docs/apply/apply-*/
+docs/apply/active.txt
+docs/apply/last.txt
