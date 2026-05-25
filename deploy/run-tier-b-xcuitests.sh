@@ -35,6 +35,16 @@ SWIFT_DIR="$REPO_DIR/apps/swift"
 STUB_TS="$REPO_DIR/apps/agent/src/testing/stub-agent.ts"
 TEST_ENTITLEMENTS="$SWIFT_DIR/nexus/nexus/nexus-uitest.entitlements"
 DD="${NX_TIER_B_DERIVED_DATA:-/tmp/nx-tier-b-uibuild}"
+# SwiftPM clone/cache dir. MUST live OUTSIDE the override -derivedDataPath:
+# a custom DD relocates the SwiftPM cache, but the explicitly-built-modules
+# lookup for the cmark-gfm C target (via swift-markdown) then expects the
+# precompiled Darwin/Builtin `.pcm` artifacts under
+# "$DD/Build/Intermediates.noindex/ExplicitPrecompiledModules" where they are
+# never emitted — producing "_DarwinFoundation*.pcm not found" (bd:nx-j5bww).
+# Keeping the cloned-packages dir outside the DD restores the standard SwiftPM
+# layout and the explicit modules resolve. Both xcodebuild steps below MUST
+# pass the SAME SPM path so test-without-building finds the same checkouts.
+SPM="${NX_TIER_B_SPM_DIR:-/tmp/nx-tier-b-spm}"
 
 STUB_LOG=""
 STUB_PID=""
@@ -127,6 +137,7 @@ set +e
 xcodebuild build-for-testing \
   -project nexus.xcodeproj -scheme nexus-mac -configuration Debug \
   -derivedDataPath "$DD" \
+  -clonedSourcePackagesDirPath "$SPM" \
   CODE_SIGN_ENTITLEMENTS="$TEST_ENTITLEMENTS" \
   CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
 BUILD_RC=$?
@@ -160,6 +171,7 @@ xcodebuild test-without-building \
   -project nexus.xcodeproj -scheme nexus-mac \
   -only-testing:nexus-mac-UITests/IntegrationGateUITests \
   -configuration Debug -derivedDataPath "$DD" \
+  -clonedSourcePackagesDirPath "$SPM" \
   CODE_SIGN_ENTITLEMENTS="$TEST_ENTITLEMENTS" \
   CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
   2>&1 | tee "$TEST_LOG"
