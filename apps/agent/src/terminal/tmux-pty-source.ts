@@ -74,9 +74,26 @@ class RingBuffer {
   }
 }
 
+/**
+ * Injectable spawn adapter. The default binds the real `Bun.spawn` /
+ * `Bun.spawnSync`; tests inject a recording mock to assert exact tmux argv
+ * without spawning a live tmux. The shapes match Bun's signatures exactly so
+ * production behavior is byte-for-byte identical to calling `Bun.spawn*`
+ * directly.
+ */
+export interface SpawnFns {
+  spawn: typeof Bun.spawn;
+  spawnSync: typeof Bun.spawnSync;
+}
+
 export interface TmuxPtySourceOptions {
   /** Scrollback buffer capacity (default 10 000). */
   scrollbackCapacity?: number;
+  /**
+   * Injectable spawn adapter (default: real Bun functions). Tests pass a
+   * recording mock; production omits this so the real binaries run.
+   */
+  spawn?: SpawnFns;
 }
 
 /**
@@ -122,10 +139,18 @@ export class TmuxPtySource implements PtySource {
    */
   private priorWindowSize: string | null = null;
 
+  /**
+   * Spawn adapter — defaults to the real Bun functions. Stored as the FIRST
+   * constructor statement because `seedScrollback`/`sampleGeometry`/
+   * `startPipePane` run inside the constructor and must see the adapter.
+   */
+  private readonly spawn: SpawnFns;
+
   constructor(
     private readonly target: string,
     opts: TmuxPtySourceOptions = {},
   ) {
+    this.spawn = opts.spawn ?? { spawn: Bun.spawn, spawnSync: Bun.spawnSync };
     const capacity = opts.scrollbackCapacity ?? DEFAULT_SCROLLBACK_CAPACITY;
     this.scrollback = new RingBuffer(capacity);
     this.seedScrollback();
@@ -142,7 +167,7 @@ export class TmuxPtySource implements PtySource {
    */
   private seedScrollback(): void {
     try {
-      const proc = Bun.spawnSync(
+      const proc = this.spawn.spawnSync(
         [
           "tmux",
           "capture-pane",
@@ -187,7 +212,7 @@ export class TmuxPtySource implements PtySource {
   private sampleGeometry(): { cols: number; rows: number } {
     this.lastGeometrySampleAt = Date.now();
     try {
-      const proc = Bun.spawnSync(
+      const proc = this.spawn.spawnSync(
         [
           "tmux",
           "display-message",
@@ -244,7 +269,7 @@ export class TmuxPtySource implements PtySource {
     try {
       this.tmpDir = mkdtempSync(join(tmpdir(), "nexus-tmux-pipe-"));
       this.fifoPath = join(this.tmpDir, "pipe");
-      const mkfifo = Bun.spawnSync(["mkfifo", this.fifoPath], {
+      const mkfifo = this.spawn.spawnSync(["mkfifo", this.fifoPath], {
         stdout: "ignore",
         stderr: "pipe",
       });
@@ -258,7 +283,7 @@ export class TmuxPtySource implements PtySource {
       // Spawn the LOCAL reader first so the FIFO has a reader when tmux
       // opens the writer side. `cat` blocks on EOF — that's fine, close()
       // tears down the pipe-pane and kills this child.
-      const reader = Bun.spawn(["cat", this.fifoPath], {
+      const reader = this.spawn.spawn(["cat", this.fifoPath], {
         stdout: "pipe",
         stderr: "ignore",
         stdin: "ignore",
@@ -273,7 +298,7 @@ export class TmuxPtySource implements PtySource {
       // Now tell tmux to start writing pane output into the FIFO. Use
       // `cat >FIFO` so the tmux server's child shell writes through the
       // pipe. `-O` keeps the pipe open if pipe-pane is called again.
-      const setup = Bun.spawnSync(
+      const setup = this.spawn.spawnSync(
         ["tmux", "pipe-pane", "-O", "-t", this.target, `cat >${this.fifoPath}`],
         { stdout: "ignore", stderr: "pipe" },
       );
@@ -357,7 +382,7 @@ export class TmuxPtySource implements PtySource {
     const text = new TextDecoder().decode(data);
     if (text.length === 0) return;
     try {
-      const proc = Bun.spawn(["tmux", "send-keys", "-t", this.target, "-l", text], {
+      const proc = this.spawn.spawn(["tmux", "send-keys", "-t", this.target, "-l", text], {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
@@ -418,7 +443,7 @@ export class TmuxPtySource implements PtySource {
       this.setWindowSizeOption("manual");
     }
     try {
-      const proc = Bun.spawnSync(
+      const proc = this.spawn.spawnSync(
         ["tmux", "resize-window", "-t", this.target, "-x", String(cols), "-y", String(rows)],
         { stdout: "ignore", stderr: "pipe" },
       );
@@ -474,7 +499,7 @@ export class TmuxPtySource implements PtySource {
       return;
     }
     try {
-      Bun.spawnSync(
+      this.spawn.spawnSync(
         ["tmux", "resize-window", "-t", this.target, "-x", String(cols), "-y", String(rows)],
         { stdout: "ignore", stderr: "ignore" },
       );
@@ -486,7 +511,7 @@ export class TmuxPtySource implements PtySource {
   /** Read the current `window-size` window option (e.g. "latest"). */
   private readWindowSizeOption(): string | null {
     try {
-      const proc = Bun.spawnSync(
+      const proc = this.spawn.spawnSync(
         ["tmux", "show-options", "-w", "-v", "-t", this.target, "window-size"],
         { stdout: "pipe", stderr: "ignore" },
       );
@@ -501,7 +526,7 @@ export class TmuxPtySource implements PtySource {
   /** Set the `window-size` window option for this target. Best-effort. */
   private setWindowSizeOption(value: string): void {
     try {
-      Bun.spawnSync(
+      this.spawn.spawnSync(
         ["tmux", "set-option", "-w", "-t", this.target, "window-size", value],
         { stdout: "ignore", stderr: "ignore" },
       );
@@ -516,7 +541,7 @@ export class TmuxPtySource implements PtySource {
     // Detach the pipe on the tmux side. Issuing pipe-pane with no command
     // tears down the existing pipe for this target.
     try {
-      const proc = Bun.spawnSync(["tmux", "pipe-pane", "-t", this.target], {
+      const proc = this.spawn.spawnSync(["tmux", "pipe-pane", "-t", this.target], {
         stdout: "ignore",
         stderr: "ignore",
       });
