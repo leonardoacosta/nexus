@@ -164,28 +164,59 @@ struct AppNavigation: View {
     }
 
     private var ptyDetail: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Source the picker options from the SAME live aggregate session
+        // list the dashboard already renders (SessionsView binds the same
+        // `observer.activeSessions`). Replacing the prior free-text field
+        // (bd:nx-zqntf) removes the "paste a stale id" foot-gun: the picker
+        // can only offer sessions that are currently streaming. Selecting a
+        // row drives the unchanged attach flow — `PtyViewer(sessionId:)` —
+        // with the same label/meta/type the Sessions tab passes, so the
+        // header degradation + managed-gate behave identically.
+        let liveSessions = observer.activeSessions
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("PTY VIEWER")
                     .font(.system(.caption, design: .monospaced))
                     .tracking(2)
                     .foregroundStyle(.secondary)
-                TextField("session id", text: $ptySessionId)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 360)
+                Picker("Session", selection: $ptySessionId) {
+                    Text("Select a session").tag("")
+                    ForEach(liveSessions) { session in
+                        Text(Session.projectLabel(for: session))
+                            .tag(session.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 360)
+                .disabled(liveSessions.isEmpty)
+                .accessibilityIdentifier("pty-session-picker")
                 Spacer()
             }
             .padding(.horizontal, 14)
             .padding(.top, 8)
-            if ptySessionId.isEmpty {
+            // Picker selection may point at a session that has since dropped
+            // off the live list (agent restart, session ended). Resolve the
+            // current selection against the live list so a stale tag falls
+            // through to the empty-state prompt rather than attaching to a
+            // dead id.
+            if let session = liveSessions.first(where: { $0.id == ptySessionId }) {
+                PtyViewer(
+                    sessionId: session.id,
+                    sessionLabel: Session.projectLabel(for: session),
+                    sessionMeta: Session.metaLine(for: session),
+                    sessionType: session.sessionType
+                )
+            } else {
                 ContentUnavailableView(
-                    "Enter a session id",
+                    liveSessions.isEmpty ? "No live sessions" : "Select a session",
                     systemImage: "rectangle.on.rectangle",
-                    description: Text("Paste a Claude Code session id to subscribe to its PTY stream.")
+                    description: Text(
+                        liveSessions.isEmpty
+                            ? "No Claude Code sessions are currently streaming. They appear here once an agent reports an active session."
+                            : "Pick a live session above to subscribe to its PTY stream."
+                    )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                PtyViewer(sessionId: ptySessionId, sessionLabel: nil)
             }
         }
     }

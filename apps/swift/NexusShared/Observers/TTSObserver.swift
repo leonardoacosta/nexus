@@ -23,6 +23,9 @@
 import Foundation
 import os.log
 import UserNotifications
+#if os(macOS)
+import CoreAudio
+#endif
 
 /// Read-side seam for the user's ElevenLabs API key + voice id. Production
 /// code uses `LiveKeychainStore` which delegates to the static `Keychain`
@@ -207,6 +210,13 @@ public final class TTSObserver: ObservableObject {
         }
         Self.logger.info("TTSObserver: starting NotificationFired subscription")
 
+        // Startup mute check (bd:nx-8a4z3): a muted Mac makes every TTS clip
+        // inaudible with no on-screen explanation — the user hears nothing and
+        // assumes TTS is broken. Reading the system output mute state on
+        // startup lets us log a clear, greppable warning so silent TTS is
+        // explained, not mysterious. Best-effort: never blocks startup.
+        Self.warnIfSystemOutputMuted()
+
         // Bootstrap the project voice cache before the SSE pipe goes
         // live. Best-effort — empty map on transport failure keeps the
         // global Keychain voice as the fallback.
@@ -315,6 +325,102 @@ public final class TTSObserver: ObservableObject {
             voiceEventTask = nil
         }
     }
+
+    // MARK: - Startup mute check (bd:nx-8a4z3)
+
+    /// Read the macOS system default-output-device mute state and log a clear
+    /// warning when the system is muted, so silent TTS has a logged
+    /// explanation instead of looking broken. Best-effort and `nonisolated
+    /// static` (pure CoreAudio reads, no shared mutable state) so it can run
+    /// from `start()` without main-actor hops.
+    ///
+    /// On any failure path — no default device, mute property unsupported,
+    /// CoreAudio error — we log `debug` and return. Never blocks startup.
+    ///
+    /// macOS-only: NexusShared also builds for iOS/watchOS where the
+    /// CoreAudio default-output-device mute property does not apply, so the
+    /// whole body is gated behind `#if os(macOS)`. On other platforms this is
+    /// a no-op.
+    nonisolated static func warnIfSystemOutputMuted() {
+        #if os(macOS)
+        switch systemOutputMuted() {
+        case .muted:
+            logger.warning(
+                "TTSObserver: system output is muted — TTS will be inaudible until unmuted (System Settings -> Sound, or the menu-bar volume control)"
+            )
+        case .unmuted:
+            logger.debug("TTSObserver: system output mute check — not muted")
+        case .unknown(let reason):
+            logger.debug(
+                "TTSObserver: system output mute state unavailable (\(reason, privacy: .public)) — continuing"
+            )
+        }
+        #endif
+    }
+
+    #if os(macOS)
+    /// Result of a system-output mute probe. `unknown` carries a short reason
+    /// for the debug log so a query failure is diagnosable without being
+    /// noisy at warn level.
+    private enum OutputMuteState {
+        case muted
+        case unmuted
+        case unknown(reason: String)
+    }
+
+    /// Query the default output device's `kAudioDevicePropertyMute` via
+    /// CoreAudio. Returns `.unknown` (with a reason) on any error so the
+    /// caller degrades to a debug log rather than crashing or warning falsely.
+    /// `nonisolated` (pure CoreAudio reads, no shared mutable state) so the
+    /// nonisolated `warnIfSystemOutputMuted()` can call it without a hop.
+    private nonisolated static func systemOutputMuted() -> OutputMuteState {
+        // 1. Resolve the default output device id.
+        var deviceID = AudioDeviceID(0)
+        var deviceIDSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var defaultDeviceAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let deviceStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &defaultDeviceAddress,
+            0,
+            nil,
+            &deviceIDSize,
+            &deviceID
+        )
+        guard deviceStatus == noErr, deviceID != kAudioObjectUnknown else {
+            return .unknown(reason: "no default output device (status \(deviceStatus))")
+        }
+
+        // 2. Read the device's mute property on the output scope.
+        var muteAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(deviceID, &muteAddress) else {
+            // Some devices (e.g. aggregate/virtual outputs) don't expose a
+            // master mute property — not an error, just unknowable here.
+            return .unknown(reason: "device has no mute property")
+        }
+        var muted = UInt32(0)
+        var mutedSize = UInt32(MemoryLayout<UInt32>.size)
+        let muteStatus = AudioObjectGetPropertyData(
+            deviceID,
+            &muteAddress,
+            0,
+            nil,
+            &mutedSize,
+            &muted
+        )
+        guard muteStatus == noErr else {
+            return .unknown(reason: "mute read failed (status \(muteStatus))")
+        }
+        return muted != 0 ? .muted : .unmuted
+    }
+    #endif
 
     /// Pull the current per-project voice id map from the agent fleet.
     /// Falls back to an empty map on transport failure; the synth path
