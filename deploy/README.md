@@ -10,10 +10,13 @@ scope for this README.)
 
 ```
 deploy/
-├── install.sh                    # entry point — Linux install (Linux agent + git hooks)
-├── nexus-agent.service           # systemd user unit (Linux agent)
-├── hooks/                        # git-hook dispatchers for spec-aware automation
-└── hooks.d/post-merge/02-deploy  # rebuilds + fans out to every Mac in agents.toml
+├── install.sh                       # entry point — Linux install (agent + git hooks + self-deploy timer)
+├── nexus-agent.service              # systemd user unit (Linux agent)
+├── deploy-homelab.sh                # homelab self-deploy: pull origin/main, build, restart, verify, roll back
+├── nexus-homelab-deploy.service     # systemd --user oneshot that runs the self-deploy script
+├── nexus-homelab-deploy.timer       # systemd --user timer (OnBootSec=2min, OnUnitActiveSec=2min)
+├── hooks/                           # git-hook dispatchers for spec-aware automation
+└── hooks.d/post-merge/02-deploy     # rebuilds + fans out to every Mac in agents.toml
 ```
 
 The Mac side is now owned by the Swift app at `/Applications/Nexus.app`
@@ -40,6 +43,58 @@ systemctl --user daemon-reload
 systemctl --user enable --now nexus-agent
 journalctl --user -u nexus-agent -f
 ```
+
+### Homelab auto-deploy (self-deploy timer)
+
+The homelab is the PRIMARY agent host and pulls its own updates on a
+systemd `--user` timer — no manual `git pull`, no Mac-side post-push
+coupling. `deploy/install.sh` (Linux branch) installs this automatically;
+to (re)provision the timer alone without rebuilding the agent:
+
+```bash
+deploy/install.sh --homelab-deploy
+```
+
+This drops `deploy/deploy-homelab.sh` at the STABLE path
+`~/.local/bin/nexus-homelab-deploy` (deliberately decoupled from the repo
+checkout so the timer can run while the repo is mid-pull), installs the
+`nexus-homelab-deploy.{service,timer}` units, and enables the timer
+(`OnBootSec=2min`, `OnUnitActiveSec=2min`, `Persistent=true`).
+
+On each tick the script:
+
+1. `git fetch origin main`. If `HEAD == origin/main`, logs "already up to
+   date" and exits 0 — a cheap no-op (no rebuild, no restart).
+2. If behind: backs up the current `nexus-agent` binary, then
+   `git pull --ff-only`. The pull fires the existing post-merge hooks
+   (`02-deploy` rebuilds + installs + restarts the agent;
+   `03-migrate` runs `db:migrate` if `packages/db/` changed). The build is
+   fail-fast BEFORE the running binary is overwritten, so a broken build
+   can never corrupt the live agent.
+3. Health-checks the restarted agent (`systemctl --user is-active` AND
+   `HTTP 200` on `http://127.0.0.1:7400/sessions`, with retries to absorb
+   the post-restart Tailscale-IP probe).
+4. On health failure: restores the backed-up binary, restarts the agent,
+   re-checks, and exits non-zero. The agent is NEVER left down.
+
+Inspect:
+
+```bash
+systemctl --user status nexus-homelab-deploy.timer
+journalctl --user -u nexus-homelab-deploy.service -f   # timestamped deploy log
+systemctl --user list-timers nexus-homelab-deploy.timer
+```
+
+Force an immediate deploy (bypass the timer):
+
+```bash
+systemctl --user start nexus-homelab-deploy.service
+# or run the script directly:
+~/.local/bin/nexus-homelab-deploy
+```
+
+Overridable env (for non-default layouts): `NX_REPO`, `NX_BIN_DIR`,
+`NX_AGENT_URL`, `NX_SERVICE`.
 
 ## Mac listener install (audio dispatch side)
 

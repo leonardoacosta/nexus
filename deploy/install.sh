@@ -10,8 +10,9 @@ set -euo pipefail
 #             write systemd user unit, daemon-reload + enable
 #
 # Usage:
-#   deploy/install.sh                # build + install for current platform
-#   deploy/install.sh --no-build     # skip build; install pre-built binaries
+#   deploy/install.sh                  # build + install for current platform
+#   deploy/install.sh --no-build       # skip build; install pre-built binaries
+#   deploy/install.sh --homelab-deploy # install the self-deploy timer (Linux homelab)
 #
 # This script is the single entry point. The post-merge git hook
 # (deploy/hooks.d/post-merge/02-deploy) calls into it for managed deploys.
@@ -21,10 +22,12 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nexus"
 DO_BUILD=true
+DO_HOMELAB_DEPLOY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --no-build)  DO_BUILD=false ;;
+        --no-build)        DO_BUILD=false ;;
+        --homelab-deploy)  DO_HOMELAB_DEPLOY=true ;;
         *) ;;
     esac
 done
@@ -47,6 +50,39 @@ case "$OS" in
 esac
 
 info "Detected platform: $PLATFORM"
+
+# ── Standalone homelab-deploy fast path ─────────────────────────────
+#
+# `deploy/install.sh --homelab-deploy` installs ONLY the self-deploy
+# timer (no agent rebuild) and exits. Useful for re-provisioning the
+# timer without touching the running agent. The full Linux install path
+# also installs the timer (see install_linux) — this branch is the
+# narrow, no-build entry point. Linux only.
+
+if $DO_HOMELAB_DEPLOY; then
+    if [[ "$PLATFORM" != "linux" ]]; then
+        error "--homelab-deploy is Linux-only (the homelab runs the agent daemon)."
+    fi
+    SYSTEMD_DIR="$HOME/.config/systemd/user"
+    mkdir -p "$SYSTEMD_DIR" "$BIN_DIR"
+
+    info "Installing homelab self-deploy script to $BIN_DIR/nexus-homelab-deploy"
+    install -m 755 "$SCRIPT_DIR/deploy-homelab.sh" "$BIN_DIR/nexus-homelab-deploy"
+
+    info "Installing homelab self-deploy systemd units"
+    install -m 644 "$SCRIPT_DIR/nexus-homelab-deploy.service" "$SYSTEMD_DIR/nexus-homelab-deploy.service"
+    install -m 644 "$SCRIPT_DIR/nexus-homelab-deploy.timer"   "$SYSTEMD_DIR/nexus-homelab-deploy.timer"
+
+    systemctl --user daemon-reload || warn "systemctl daemon-reload failed (run manually)"
+    systemctl --user enable --now nexus-homelab-deploy.timer \
+        || warn "systemctl enable --now nexus-homelab-deploy.timer failed (run manually)"
+
+    echo ""
+    info "Homelab self-deploy timer installed. Inspect with:"
+    echo "  systemctl --user status nexus-homelab-deploy.timer"
+    echo "  journalctl --user -u nexus-homelab-deploy.service -f"
+    exit 0
+fi
 
 # ── Shared: build + install nexus-agent binary ──────────────────────
 #
@@ -103,6 +139,33 @@ mkdir -p "$CONFIG_DIR"
 
 # ── Platform branches ───────────────────────────────────────────────
 
+# Install the homelab self-deploy timer (Linux only). Idempotent.
+#
+# Drops deploy/deploy-homelab.sh at a STABLE path (~/.local/bin/) so the
+# timer can run it even while the repo checkout is mid-pull, copies the
+# service + timer units to ~/.config/systemd/user/, reloads systemd, and
+# enables the timer. The deploy script itself is a cheap no-op when the
+# repo is already at origin/main.
+install_homelab_deploy() {
+    local SYSTEMD_DIR="$HOME/.config/systemd/user"
+    mkdir -p "$SYSTEMD_DIR" "$BIN_DIR"
+
+    info "Installing homelab self-deploy script to $BIN_DIR/nexus-homelab-deploy"
+    install -m 755 "$SCRIPT_DIR/deploy-homelab.sh" "$BIN_DIR/nexus-homelab-deploy"
+
+    info "Installing homelab self-deploy systemd units"
+    install -m 644 "$SCRIPT_DIR/nexus-homelab-deploy.service" "$SYSTEMD_DIR/nexus-homelab-deploy.service"
+    install -m 644 "$SCRIPT_DIR/nexus-homelab-deploy.timer"   "$SYSTEMD_DIR/nexus-homelab-deploy.timer"
+
+    systemctl --user daemon-reload || warn "systemctl daemon-reload failed (run manually)"
+    systemctl --user enable --now nexus-homelab-deploy.timer \
+        || warn "systemctl enable --now nexus-homelab-deploy.timer failed (run manually)"
+
+    info "Homelab self-deploy timer enabled. Inspect with:"
+    echo "  systemctl --user status nexus-homelab-deploy.timer"
+    echo "  journalctl --user -u nexus-homelab-deploy.service -f"
+}
+
 install_linux() {
     local SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SYSTEMD_DIR"
@@ -112,6 +175,10 @@ install_linux() {
 
     systemctl --user daemon-reload || warn "systemctl daemon-reload failed (run manually)"
     systemctl --user enable nexus-agent || warn "systemctl enable failed (run manually)"
+
+    # Install the self-deploy timer alongside the agent on Linux hosts so the
+    # homelab keeps itself current with origin/main automatically.
+    install_homelab_deploy
 
     echo ""
     info "Linux install complete. Next steps:"

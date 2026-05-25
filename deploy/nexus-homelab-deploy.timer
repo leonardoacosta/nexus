@@ -1,0 +1,17 @@
+[Unit]
+Description=Nexus homelab self-deploy timer — periodically pull + deploy if behind origin/main
+
+[Timer]
+# Fire shortly after boot so a freshly-booted homelab catches up, then
+# poll on a fixed cadence. The deploy script is a cheap no-op when the
+# repo is already at origin/main, so a tight cadence is safe.
+OnBootSec=2min
+OnUnitActiveSec=2min
+# Run a missed timer on next boot (e.g. if the homelab was off).
+Persistent=true
+# Small jitter so concurrent timers don't stampede on shared resources.
+AccuracySec=15s
+Unit=nexus-homelab-deploy.service
+
+[Install]
+WantedBy=timers.target

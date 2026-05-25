@@ -1,0 +1,28 @@
+[Unit]
+Description=Nexus homelab self-deploy — pull origin/main, build, restart nexus-agent if behind
+# Wait for the network so `git fetch` against GitHub can resolve. The
+# deploy script itself fails soft on fetch errors, so this is best-effort.
+After=network-online.target
+Wants=network-online.target
+# Do not run if the agent unit itself is in a hard-failed state — the
+# deploy would restart it, but a failed agent usually needs a human.
+# (Advisory; the deploy script health-checks + rolls back regardless.)
+
+[Service]
+Type=oneshot
+# Run from the STABLE installed path, never the repo checkout — the repo
+# is mid-pull during a deploy, so executing the in-tree copy would be a
+# chicken-and-egg hazard.
+ExecStart=%h/.local/bin/nexus-homelab-deploy
+# Inherit the same machine-local secrets (POSTGRES_URL etc.) the agent
+# uses, so the post-merge migrate hook resolves the right DB.
+EnvironmentFile=-%h/.env
+# bun + git must be reachable; mirror the agent unit's PATH.
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# A deploy (fetch + build + restart + health retries) is bounded but not
+# instant; allow generous headroom before systemd kills it.
+TimeoutStartSec=900
+Nice=10
+
+[Install]
+WantedBy=default.target
