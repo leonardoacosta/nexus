@@ -672,3 +672,82 @@ A file `docs/plan/spine-migration/p5-parity-audit.md` SHALL list every web page 
 - **WHEN** P5.2's tasks are attempted
 - **THEN** the gate fails with "parity audit incomplete: 2 unchecked rows"
 
+### Requirement: Read-model endpoints expose UI-required fields
+
+Each of the four agent read-model endpoints SHALL serialize the additional fields its client needs, and the matching `packages/core` type MUST declare them so the contract is enforced at compile time.
+
+- `GET /failures` SHALL include `trace_id` and `stack_truncated` on every `ScriptError` entry.
+- `GET /notifications` SHALL include `severity` and a delivery-state field on every `NotificationEvent` entry.
+- `GET /specs` SHALL include `hasProposal`, `hasDesign`, and `hasTasks` as a tri-state on every `SpecSummary` entry.
+- `GET /projects` SHALL include `hidden` on every `ProjectAggregate` entry.
+
+#### Scenario: Failures endpoint returns trace correlation fields
+
+- **WHEN** a client requests `GET /failures` and at least one `ScriptError` is stored
+- **THEN** each entry SHALL contain a `trace_id` string and a `stack_truncated` boolean
+- **AND** the `packages/core` `ScriptError` type SHALL declare both fields so the JSON matches the contract
+
+#### Scenario: Specs endpoint reports artifact tri-state
+
+- **WHEN** a client requests `GET /specs`
+- **THEN** each `SpecSummary` SHALL report `hasProposal`, `hasDesign`, and `hasTasks` reflecting whether each artifact exists for that spec
+- **AND** the `packages/core` `SpecSummary` type SHALL declare the three fields
+
+### Requirement: NexusShared Swift models decode the new fields
+
+The NexusShared Swift models for the four read-model shapes MUST add the matching properties and Codable decoding so the dashboard, iOS, and watch clients consume the new fields without decode errors.
+
+#### Scenario: Swift models decode extended JSON
+
+- **WHEN** a NexusShared client decodes JSON from any of the four extended endpoints
+- **THEN** the corresponding Swift model (`ScriptError`, `Notification`, `SpecSummary`, `ProjectAggregate`) SHALL expose the new properties populated from the payload
+- **AND** decoding SHALL succeed for both payloads that include the new fields and legacy payloads that omit them
+
+### Requirement: PTY Viewer SHALL select a session from a live picker
+
+The PTY Viewer MUST replace its free-text session-id input with a picker populated from the aggregate live-session list so users select an existing session instead of typing an id.
+
+#### Scenario: picker lists live sessions
+- **WHEN** the PTY Viewer opens and the aggregate client reports live sessions
+- **THEN** the picker lists those live sessions instead of presenting a free-text field
+
+#### Scenario: selecting a session attaches
+- **WHEN** the user selects a session from the picker
+- **THEN** the viewer attaches to that session's PTY
+
+### Requirement: TTSObserver SHALL warn when the system is muted on startup
+
+TTSObserver MUST query the system mute state on startup and log a clear warning when the Mac is muted so silent TTS is explained to the user.
+
+#### Scenario: warning fires when muted
+- **WHEN** TTSObserver starts and the system audio is muted
+- **THEN** a clear warning is logged explaining that TTS will be inaudible
+
+#### Scenario: no warning when unmuted
+- **WHEN** TTSObserver starts and the system audio is not muted
+- **THEN** no mute warning is logged
+
+### Requirement: Install script SHALL locate and install the xcodebuild app product regardless of case
+
+The macOS install path MUST find the xcodebuild product whether it is named `nexus.app` or `Nexus.app` and copy it into place, and a post-commit hook MUST auto-redeploy the Swift app when `apps/swift/` changes so the installed bundle never goes stale.
+
+#### Scenario: install finds the lowercase product
+- **WHEN** `deploy/install.sh` runs on macOS and xcodebuild produced `nexus.app`
+- **THEN** the script locates the product via a case-insensitive match and installs it into the applications path
+
+#### Scenario: post-commit hook redeploys on Swift changes
+- **WHEN** a commit touches files under `apps/swift/`
+- **THEN** the `deploy/hooks.d/post-commit/04-swift-deploy` hook rebuilds and reinstalls the Swift app so the installed bundle is fresh
+
+### Requirement: Bundle-integrity test SHALL assert the intended menu-bar config and a fresh install SHALL render a populated dashboard
+
+The bundle-integrity test MUST assert the LSUIElement value declared in `project.yml` (menu-bar app intent), and a fresh install MUST render a populated dashboard or record whether remaining emptiness is a stale app vs the ATS cleartext block.
+
+#### Scenario: integrity test matches project.yml intent
+- **WHEN** `bundle-integrity.test.ts` runs against the built bundle
+- **THEN** the LSUIElement assertion matches the intentional value declared in `apps/swift/nexus/project.yml`
+
+#### Scenario: fresh install renders populated dashboard
+- **WHEN** the app is freshly installed and launched after the install fix
+- **THEN** the dashboard renders populated, or the determination of stale-app vs ATS -1022 cleartext block is recorded
+
