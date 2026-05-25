@@ -94,6 +94,9 @@ mock.module("../utils/exec", () => ({
 
 import { reconcileOnce } from "./process-watcher";
 import { handleSessionStart } from "../routes/sessions";
+import { processHookEvent } from "./process-hook-event";
+import { backfillSessionCwd } from "../db/sessions";
+import type { SessionManager } from "../session-manager";
 import { createDb, sessions, eq } from "@nexus/db";
 import type { Db } from "@nexus/db";
 
@@ -119,6 +122,10 @@ if (!hasPg) {
 
 const SCHEMA = `nx_pw_int_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
+// Mirrors packages/db/src/schema/sessions.ts + processWatcherState.ts. Keep in
+// sync with the production schema — reconcileOnce writes a process_watcher_state
+// row every tick, and the session_start hook path writes the git-origin +
+// sub-agent-tree columns.
 const DDL = `
   CREATE TABLE "sessions" (
     "id" text PRIMARY KEY NOT NULL,
@@ -142,7 +149,18 @@ const DDL = `
     "tmux_target" text,
     "spec" text,
     "credential_id" text,
-    "credential_fingerprint" text
+    "credential_fingerprint" text,
+    "git_provider" text,
+    "git_owner_repo" text,
+    "parent_session_id" text,
+    "child_role" text
+  );
+  CREATE TABLE "process_watcher_state" (
+    "id" serial PRIMARY KEY NOT NULL,
+    "observed_at" timestamp DEFAULT now() NOT NULL,
+    "live_pid_count" integer NOT NULL,
+    "tick_duration_ms" integer NOT NULL,
+    "error_text" text
   );
 `;
 
@@ -346,5 +364,125 @@ describe.skipIf(!hasPg)(
         }
       },
     );
+
+    // ── nx-cvyxt: empty-cwd backfill from the session_start hook ───────────
+    //
+    // The process-watcher inserts a row with cwd="" whenever a live `claude`
+    // PID doesn't match a tmux pane (cwd is hook-authoritative under the
+    // /proc-free invariant, nx-9jz0v). A subsequent session_start hook MUST
+    // backfill that row's cwd — but MUST NOT clobber a cwd that's already set.
+
+    /** Minimal no-op SessionManager for processHookEvent's linkage branch. */
+    function noopSessionManager(): SessionManager {
+      return {
+        handleWatcherEvent: () => {},
+        getAll: () => [],
+        getActive: () => [],
+        getById: () => null,
+        sweepIdle: () => {},
+        stop: () => {},
+        init: async () => {},
+        updateLinkage: () => {},
+        patch: () => {},
+      } as unknown as SessionManager;
+    }
+
+    async function insertRow(id: string, cwd: string | null): Promise<void> {
+      const now = new Date();
+      await db.insert(sessions).values({
+        id,
+        machine: "local",
+        status: "active",
+        startedAt: now,
+        lastActivity: now,
+        pid: 0,
+        cwd,
+        model: "claude",
+        sessionType: "managed",
+        tmuxTarget: null,
+        branch: null,
+        endedAt: null,
+        ccSessionId: null,
+        projectId: null,
+        tmuxSession: null,
+        spec: null,
+        credentialId: null,
+        credentialFingerprint: null,
+        rateLimitUtilization: null,
+        totalCostUsd: null,
+        rateLimitResetAt: null,
+        idleSince: null,
+      });
+    }
+
+    async function readCwd(id: string): Promise<string | null> {
+      const rows = await db
+        .select({ cwd: sessions.cwd })
+        .from(sessions)
+        .where(eq(sessions.id, id));
+      return rows[0]?.cwd ?? null;
+    }
+
+    test("backfillSessionCwd fills an empty-string cwd row", async () => {
+      await insertRow("bf-empty", "");
+      const touched = await backfillSessionCwd(db, "bf-empty", "/Users/x/dev/nx");
+      expect(touched).toBe(1);
+      expect(await readCwd("bf-empty")).toBe("/Users/x/dev/nx");
+    });
+
+    test("backfillSessionCwd fills a NULL cwd row", async () => {
+      await insertRow("bf-null", null);
+      const touched = await backfillSessionCwd(db, "bf-null", "/Users/x/dev/nx");
+      expect(touched).toBe(1);
+      expect(await readCwd("bf-null")).toBe("/Users/x/dev/nx");
+    });
+
+    test("backfillSessionCwd does NOT overwrite an existing cwd", async () => {
+      await insertRow("bf-existing", "/real/cwd/path");
+      const touched = await backfillSessionCwd(db, "bf-existing", "/different/hook/cwd");
+      expect(touched).toBe(0);
+      // The real cwd survives — a later differing hook value never clobbers it.
+      expect(await readCwd("bf-existing")).toBe("/real/cwd/path");
+    });
+
+    test("backfillSessionCwd is a no-op for a non-existent row", async () => {
+      const touched = await backfillSessionCwd(db, "bf-missing", "/x");
+      expect(touched).toBe(0);
+    });
+
+    test("session_start hook backfills an empty-cwd watcher row end-to-end", async () => {
+      // Simulate the watcher inserting a PID-only row with no cwd.
+      await insertRow("hook-empty", "");
+
+      await processHookEvent(
+        {
+          eventType: "session_start",
+          sessionId: "hook-empty",
+          payload: { session_id: "hook-empty", cwd: "/Users/x/dev/nx" },
+          source: "socket",
+          cwd: "/Users/x/dev/nx",
+        },
+        { sessionManager: noopSessionManager(), db },
+      );
+
+      expect(await readCwd("hook-empty")).toBe("/Users/x/dev/nx");
+    });
+
+    test("session_start hook does NOT overwrite a row that already has a cwd", async () => {
+      await insertRow("hook-existing", "/real/cwd/path");
+
+      await processHookEvent(
+        {
+          eventType: "session_start",
+          sessionId: "hook-existing",
+          payload: { session_id: "hook-existing", cwd: "/different/hook/cwd" },
+          source: "socket",
+          cwd: "/different/hook/cwd",
+        },
+        { sessionManager: noopSessionManager(), db },
+      );
+
+      expect(await readCwd("hook-existing")).toBe("/real/cwd/path");
+    });
   },
 );

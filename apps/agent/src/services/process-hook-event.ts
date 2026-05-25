@@ -31,7 +31,7 @@ import type { SessionManager } from "../session-manager";
 import { resolveGitOrigin } from "./git-project";
 import { resolveProject } from "./git-project-resolver";
 import { inspectAndEmitDrift } from "./schema-drift";
-import { updateSessionGitOrigin } from "../db/sessions";
+import { updateSessionGitOrigin, backfillSessionCwd } from "../db/sessions";
 
 const log = createLogger("agent:process-hook-event");
 
@@ -113,6 +113,29 @@ export async function processHookEvent(
       case "session_start": {
         if (!input.sessionId || !input.cwd) break;
         if (!db) break;
+        // nx-cvyxt: backfill the row's cwd FIRST. The process-watcher inserts
+        // a row with an empty cwd whenever a live `claude` PID doesn't match a
+        // tmux pane; cwd is hook-authoritative (the watcher is /proc-free under
+        // Yama=1, nx-9jz0v), so this session_start hook is the only source for
+        // that row's cwd. backfillSessionCwd is idempotent — it only writes
+        // when the current cwd is empty/null, so a real cwd is never clobbered
+        // by a later differing hook value.
+        try {
+          const filled = await backfillSessionCwd(db, input.sessionId, input.cwd);
+          if (filled > 0) {
+            log.info(
+              { sessionId: input.sessionId, cwd: input.cwd, source: input.source },
+              "process-hook-event: backfilled empty-cwd session row from hook",
+            );
+          }
+        } catch (err) {
+          // Fail-soft, consistent with the rest of this enrichment branch:
+          // a cwd backfill hiccup must not block git-origin resolution.
+          log.warn(
+            { err, sessionId: input.sessionId, source: input.source },
+            "process-hook-event: cwd backfill threw (non-fatal)",
+          );
+        }
         // session-row-enrichment-v1 § 1.5: use the new resolver which also
         // looks up projectId. Falls back to the narrower resolveGitOrigin
         // semantics when the resolver returns null (non-git / missing

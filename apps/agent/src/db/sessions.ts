@@ -194,6 +194,50 @@ export async function updateSessionGitOrigin(
 }
 
 /**
+ * Backfill a session row's `cwd` from a hook-supplied value — but ONLY when
+ * the row's current cwd is empty/null.
+ *
+ * Why this exists: the process-watcher creates a session row with an EMPTY
+ * cwd whenever it discovers a live `claude` PID that didn't match a tmux pane
+ * (see process-watcher.ts — "cwd is empty and enrichment is deferred to a
+ * later poll once a hook supplies cwd"). cwd is hook-authoritative: the
+ * watcher is intentionally /proc-free under Yama=1 user-instance systemd
+ * (nx-9jz0v), so the only source for that row's cwd is a subsequent CC
+ * `session_start` (or other cwd-carrying) hook.
+ *
+ * Idempotent + safe: the WHERE clause matches only rows whose cwd IS NULL or
+ * '', so a real cwd (set by tmux backfill or an earlier hook) is NEVER
+ * clobbered by a later differing hook value. Returns the number of rows
+ * touched (0 when the row already had a cwd or does not exist).
+ *
+ * Spec: re-scoped nx-cvyxt (empty-cwd backfill from the session_start hook).
+ */
+export async function backfillSessionCwd(
+  db: Db,
+  sessionId: string,
+  cwd: string,
+): Promise<number> {
+  // Never write a blank value — that would be a no-op at best and could
+  // mask a real cwd at worst if the predicate ever loosened.
+  if (!cwd.trim()) return 0;
+  // `.returning()` gives a driver-agnostic affected-row count: postgres-js
+  // does not populate the node-postgres `rowCount` field, so we count the
+  // returned ids instead (RETURNING only emits rows that actually matched
+  // the WHERE clause).
+  const updated = await db
+    .update(sessions)
+    .set({ cwd })
+    .where(
+      and(
+        eq(sessions.id, sessionId),
+        or(isNull(sessions.cwd), eq(sessions.cwd, "")),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return updated.length;
+}
+
+/**
  * Update a session's status (and optionally last_activity).
  * When the new status is "ended", `ended_at` is automatically set.
  */

@@ -33,8 +33,14 @@ mock.module("./git-project", () => ({
 const updateSessionGitOriginMock = mock(
   async (_db: Db, _id: string, _origin: { provider: string; ownerRepo: string }) => {},
 );
+// nx-cvyxt: the helper backfills empty-cwd rows via backfillSessionCwd.
+// Default mock returns 1 (one row touched); individual tests override it.
+const backfillSessionCwdMock = mock(
+  async (_db: Db, _id: string, _cwd: string) => 1 as number,
+);
 mock.module("../db/sessions", () => ({
   updateSessionGitOrigin: updateSessionGitOriginMock,
+  backfillSessionCwd: backfillSessionCwdMock,
 }));
 
 // ─── Mock SessionManager ───────────────────────────────────────────────────
@@ -81,6 +87,8 @@ describe("processHookEvent", () => {
     inspectAndEmitDriftMock.mockClear();
     resolveGitOriginMock.mockClear();
     updateSessionGitOriginMock.mockClear();
+    backfillSessionCwdMock.mockClear();
+    backfillSessionCwdMock.mockImplementation(async () => 1);
     ({ processHookEvent } = await import("./process-hook-event"));
   });
 
@@ -143,6 +151,78 @@ describe("processHookEvent", () => {
       ownerRepo: "leonardoacosta/nexus",
     });
     expect(result.driftOk).toBe(true);
+    expect(result.enrichmentOk).toBe(true);
+  });
+
+  test("session_start backfills the row cwd from the hook payload (nx-cvyxt)", async () => {
+    resolveGitOriginMock.mockImplementation(async () => null);
+
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-empty-cwd",
+        payload: { session_id: "sess-empty-cwd", cwd: "/Users/x/dev/nx" },
+        source: "socket",
+        cwd: "/Users/x/dev/nx",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    // The hook-supplied cwd is forwarded to the idempotent backfill writer.
+    expect(backfillSessionCwdMock).toHaveBeenCalledTimes(1);
+    expect(backfillSessionCwdMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-empty-cwd",
+      "/Users/x/dev/nx",
+    );
+  });
+
+  test("session_start skips cwd backfill when the hook carries no cwd", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-no-cwd",
+        payload: { session_id: "sess-no-cwd" },
+        source: "socket",
+        cwd: null,
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    // The early `!input.cwd` guard means we never attempt a backfill.
+    expect(backfillSessionCwdMock).not.toHaveBeenCalled();
+  });
+
+  test("session_start cwd backfill failure is non-fatal; git origin still resolves", async () => {
+    backfillSessionCwdMock.mockImplementation(async () => {
+      throw new Error("UPDATE failed");
+    });
+    resolveGitOriginMock.mockImplementation(async () => ({
+      provider: "github.com",
+      ownerRepo: "leonardoacosta/nexus",
+    }));
+
+    const sm = createMockSessionManager();
+    const result = await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-backfill-throws",
+        payload: { session_id: "sess-backfill-throws", cwd: "/x" },
+        source: "socket",
+        cwd: "/x",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    // Backfill threw but was swallowed — git-origin resolution still ran and
+    // the helper reports the branch as successful.
+    expect(backfillSessionCwdMock).toHaveBeenCalled();
+    expect(updateSessionGitOriginMock).toHaveBeenCalledWith(fakeDb, "sess-backfill-throws", {
+      provider: "github.com",
+      ownerRepo: "leonardoacosta/nexus",
+    });
     expect(result.enrichmentOk).toBe(true);
   });
 
