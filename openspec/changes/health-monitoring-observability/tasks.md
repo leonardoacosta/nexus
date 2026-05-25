@@ -9,8 +9,8 @@
 
 ## API Batch
 
-- [ ] [2.1] Add structured logging to `HealthCollector` (`apps/agent/src/health-collector.ts`) via `createLogger` so collection errors are surfaced, not swallowed [owner:api-engineer] [type:api] [beads:nx-qcrz]
-- [ ] [2.2] Fix `HealthScheduler` (`apps/agent/src/health-scheduler.ts`) to capture all disks instead of only `disk[0]` [owner:api-engineer] [type:api] [beads:nx-k7xa]
+- [x] [2.1] Add structured logging to `HealthCollector` (`apps/agent/src/health-collector.ts`) via `createLogger` so collection errors are surfaced, not swallowed [owner:api-engineer] [type:api] [beads:nx-qcrz]
+- [x] [2.2] Fix `HealthScheduler` (`apps/agent/src/health-scheduler.ts`) to capture all disks instead of only `disk[0]` [owner:api-engineer] [type:api] [beads:nx-k7xa]
 
 ## E2E Batch
 

@@ -1,5 +1,5 @@
 import type { HealthMetrics, ProcessInfo } from "@nexus/core";
-import { logger } from "@nexus/core/node";
+import { createLogger } from "@nexus/core/node";
 import si from "systeminformation";
 import os from "node:os";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
@@ -9,6 +9,35 @@ const DEFAULT_INTERVAL_MS = 5_000;
 // Docker backoff constants
 const DOCKER_BACKOFF_INITIAL_MS = 30_000;
 const DOCKER_BACKOFF_MAX_MS = 600_000;
+
+/**
+ * Named module logger — routes warn/error/fatal to the `script_errors` DB sink
+ * (when attached) in addition to stdout, matching the agent's other services
+ * (e.g. `cc-credential-manager`). Replaces the previous bare `logger` singleton
+ * + ad-hoc `logger.child` usage so collection failures are observable instead
+ * of being swallowed inside a coarse `Promise.all`.
+ */
+const log = createLogger("agent:health-collector");
+
+/**
+ * Run a single metric-collection step, logging (but not rethrowing) any
+ * failure so one failing source doesn't take down the whole collection cycle.
+ * Returns the resolved value on success, or `fallback` on error. The previous
+ * `Promise.all` approach rejected the entire tick on any single failure and
+ * surfaced no per-step granularity — this makes WHICH source failed visible.
+ */
+async function collectStep<T>(
+  step: string,
+  fn: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    log.warn({ err, step }, "health metric-collection step failed");
+    return fallback;
+  }
+}
 
 export class HealthCollector {
   private intervalMs: number;
@@ -25,6 +54,7 @@ export class HealthCollector {
 
   /** Start periodic collection. First collection happens immediately. */
   start(): void {
+    log.info({ intervalMs: this.intervalMs }, "health collector started");
     // Collect immediately, then on interval
     safeFireAndForget(this.tick(), "health-collector-tick");
     this.timer = setInterval(() => safeFireAndForget(this.tick(), "health-collector-tick"), this.intervalMs);
@@ -35,6 +65,7 @@ export class HealthCollector {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+      log.info("health collector stopped");
     }
   }
 
@@ -45,15 +76,68 @@ export class HealthCollector {
 
   /** Run a single collection cycle. */
   async collect(): Promise<HealthMetrics> {
+    // Each source is collected in isolation: a single failing source logs a
+    // `warn` (which source, with the error) and degrades to a safe fallback
+    // instead of rejecting the whole cycle. Each step projects the upstream
+    // systeminformation payload down to ONLY the fields the collector reads,
+    // so the fallback need not fabricate the full (large) upstream types.
+    // `collectDocker` already owns its own backoff + logging.
     const [cpuLoad, mem, disks, dockerContainers, netStats, procs] =
       await Promise.all([
-        si.currentLoad(),
-        si.mem(),
-        si.fsSize(),
+        collectStep(
+          "cpu",
+          async () => {
+            const r = await si.currentLoad();
+            return {
+              currentLoad: r.currentLoad,
+              cpus: r.cpus.map((c) => ({ load: c.load })),
+            };
+          },
+          { currentLoad: 0, cpus: [] as Array<{ load: number }> },
+        ),
+        collectStep(
+          "mem",
+          async () => {
+            const r = await si.mem();
+            return { total: r.total, used: r.used };
+          },
+          { total: 0, used: 0 },
+        ),
+        collectStep(
+          "disk",
+          async () => {
+            const r = await si.fsSize();
+            return r.map((d) => ({ mount: d.mount, size: d.size, used: d.used, use: d.use }));
+          },
+          [] as Array<{ mount: string; size: number; used: number; use: number }>,
+        ),
         this.collectDocker(),
-        si.networkStats(),
-        si.processes(),
+        collectStep(
+          "network",
+          async () => {
+            const r = await si.networkStats();
+            return r.map((n) => ({ iface: n.iface, rx_bytes: n.rx_bytes, tx_bytes: n.tx_bytes }));
+          },
+          [] as Array<{ iface: string; rx_bytes: number; tx_bytes: number }>,
+        ),
+        collectStep(
+          "processes",
+          async () => {
+            const r = await si.processes();
+            return { list: r.list };
+          },
+          { list: [] as si.Systeminformation.ProcessesProcessData[] },
+        ),
       ]);
+
+    // Surface empty results that usually indicate a degraded source — these
+    // were previously invisible because an empty array is not an error.
+    if (disks.length === 0) {
+      log.warn("disk collection returned no mounts");
+    }
+    if (cpuLoad.cpus.length === 0) {
+      log.warn("cpu collection returned no per-core data");
+    }
 
     const collectedAt = new Date().toISOString();
 
@@ -69,7 +153,9 @@ export class HealthCollector {
       ram: {
         total_bytes: mem.total,
         used_bytes: mem.used,
-        percent: round((mem.used / mem.total) * 100),
+        // Guard against the `total: 0` fallback (failed mem step) producing
+        // a NaN percent — a degraded source reports 0%, not NaN.
+        percent: mem.total > 0 ? round((mem.used / mem.total) * 100) : 0,
       },
       disk: disks.map((d) => ({
         mount: d.mount,
@@ -100,12 +186,19 @@ export class HealthCollector {
   }
 
   private async tick(): Promise<void> {
-    const childLogger = logger.child({ component: "health-collector", hostname: os.hostname(), intervalMs: this.intervalMs });
     try {
       this.latest = await this.collect();
-      childLogger.debug({ collectedAt: this.latest.collectedAt }, "health collection tick succeeded");
+      log.debug(
+        {
+          collectedAt: this.latest.collectedAt,
+          diskCount: this.latest.disk.length,
+        },
+        "health collection tick succeeded",
+      );
     } catch (err) {
-      childLogger.warn({ err }, "health collection tick failed");
+      // `collect()` now isolates each source, so reaching here means an
+      // unexpected failure outside the per-step boundaries (e.g. os.* calls).
+      log.error({ err }, "health collection tick failed unexpectedly");
     }
   }
 
@@ -131,7 +224,7 @@ export class HealthCollector {
       // Failure: double the backoff interval (cap at max) and set next check time
       this.dockerBackoffMs = Math.min(this.dockerBackoffMs * 2, DOCKER_BACKOFF_MAX_MS);
       this.dockerBackoffUntil = Date.now() + this.dockerBackoffMs;
-      logger.warn(
+      log.warn(
         { err, nextCheckMs: this.dockerBackoffMs },
         "docker collection failed — applying backoff",
       );

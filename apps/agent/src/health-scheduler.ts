@@ -1,3 +1,4 @@
+import type { HealthMetrics } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import type { HealthCollector } from "./health-collector";
 import { insertHealthSnapshot } from "./db/health";
@@ -5,6 +6,30 @@ import { getAgentId, logger } from "@nexus/core/node";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
+
+/**
+ * Aggregate the per-disk percent array into the single `disk_percent` summary
+ * column. Returns `null` when there are no disks.
+ *
+ * The aggregate is a capacity-weighted average (by `total_bytes`) so the
+ * largest mount dominates the headline figure. When every mount reports a
+ * `total_bytes` of 0 (an edge case for degraded / pseudo filesystems), it
+ * falls back to an UNWEIGHTED average across ALL disks rather than dropping
+ * disks 1..n by taking only `disk[0]` — multi-disk machines are never reduced
+ * to a single disk's value. The complete per-disk array is always preserved
+ * separately in the snapshot's `rawJson` field.
+ */
+export function aggregateDiskPercent(
+  disk: HealthMetrics["disk"],
+): number | null {
+  if (disk.length === 0) return null;
+  const totalBytes = disk.reduce((sum, d) => sum + d.total_bytes, 0);
+  const weighted =
+    totalBytes > 0
+      ? disk.reduce((sum, d) => sum + (d.percent * d.total_bytes) / totalBytes, 0)
+      : disk.reduce((sum, d) => sum + d.percent, 0) / disk.length;
+  return Math.round(weighted * 10) / 10;
+}
 
 /**
  * Periodically collects health metrics and persists them to the
@@ -50,26 +75,21 @@ export class HealthScheduler {
       return;
     }
 
-    // Weighted-average disk percent across all mounts (by total_bytes).
-    // Falls back to null if there are no disk entries.
-    let diskPercent: number | null = null;
-    if (metrics.disk.length > 0) {
-      const totalBytes = metrics.disk.reduce((sum, d) => sum + d.total_bytes, 0);
-      if (totalBytes > 0) {
-        diskPercent = metrics.disk.reduce(
-          (sum, d) => sum + (d.percent * d.total_bytes) / totalBytes,
-          0,
-        );
-        diskPercent = Math.round(diskPercent * 10) / 10;
-      } else {
-        diskPercent = metrics.disk[0]?.percent ?? null;
-      }
-    }
+    // `diskPercent` is a single-column summary; the FULL per-disk array is
+    // retained in `rawJson` below (no schema change needed for multi-disk
+    // capture). The summary aggregates across ALL mounts — it never reduces to
+    // a single disk, so multi-disk machines are represented fairly in the fast
+    // time-series column while every disk's detail survives in `rawJson`.
+    const diskPercent = aggregateDiskPercent(metrics.disk);
 
     const childLogger = logger.child({
       component: "health-scheduler",
       hostname: metrics.hostname,
       diskPercent,
+      // Per-disk detail so multi-disk machines are observable in logs, not
+      // just collapsed into the aggregate.
+      diskCount: metrics.disk.length,
+      diskMounts: metrics.disk.map((d) => d.mount),
       cpuPercent: metrics.cpu.overall_percent,
     });
 
@@ -82,6 +102,8 @@ export class HealthScheduler {
       ramPercent: metrics.ram.percent,
       diskPercent,
       dockerContainers: metrics.docker?.containers ?? null,
+      // Serializes the complete metrics payload, including the full
+      // `metrics.disk[]` array — this is where all disks (1..n) are retained.
       rawJson: JSON.stringify(metrics),
     };
 
