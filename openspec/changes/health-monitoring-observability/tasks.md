@@ -14,4 +14,4 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Regression tests: timestamp index present + used; collector logs on error; multi-disk capture [owner:e2e-engineer] [type:testing]
+- [x] [3.1] Regression tests: timestamp index present + used; collector logs on error; multi-disk capture [owner:e2e-engineer] [type:testing]

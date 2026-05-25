@@ -8,4 +8,4 @@
 - [x] [1.2] TTSObserver: on startup, query the system mute state and log a clear warning when the Mac is muted (so silent TTS is explained) [owner:ui-engineer] [type:ui] [beads:nx-8a4z3]
 
 ## E2E Batch
-- [ ] [2.1] Verify the picker lists live sessions and selecting one attaches; verify the mute-warning log fires when muted [owner:e2e-engineer] [type:testing]
+- [x] [2.1] Verify the picker lists live sessions and selecting one attaches; verify the mute-warning log fires when muted [owner:e2e-engineer] [type:testing]
