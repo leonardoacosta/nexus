@@ -13,22 +13,31 @@
 
 import { describe, expect, it, beforeEach, mock } from "bun:test";
 import type { Db } from "@nexus/db";
+import * as coreNode from "@nexus/core/node";
 
 // ─── Mocks (must be installed BEFORE importing the SUT) ───────────────────
+//
+// CRITICAL: spread the REAL @nexus/core/node barrel and override ONLY the
+// logger. Bun's `mock.module` is process-global, last-writer-wins, and
+// irreversible — a PARTIAL factory would strip every other export
+// (getAgentId, expandTilde, safeSpawn, ...) for the WHOLE suite and swap the
+// real pino `logger` for a `.child`-less stub that later throws in unrelated
+// siblings (e.g. HealthScheduler.tick()). `loggerMock` carries a chainable
+// `.child` plus the pino level methods so it is a drop-in replacement.
+
+const loggerMock = {
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  debug: mock(() => {}),
+  fatal: mock(() => {}),
+  child: () => loggerMock,
+};
 
 mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
+  ...coreNode,
+  logger: loggerMock,
+  createLogger: () => loggerMock,
 }));
 
 // ─── SUT imports (after mocks) ────────────────────────────────────────────

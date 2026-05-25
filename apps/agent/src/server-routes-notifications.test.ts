@@ -18,22 +18,32 @@
  */
 
 import { describe, expect, it, mock } from "bun:test";
+import * as coreNode from "@nexus/core/node";
 
 // ─── Mocks (must be installed BEFORE importing the SUT) ───────────────────
+//
+// CRITICAL: spread the REAL @nexus/core/node barrel and override ONLY what
+// this test intends to stub. Bun's `mock.module` is process-global,
+// last-writer-wins, and irreversible — a PARTIAL factory would strip every
+// other export (getAgentId, expandTilde, safeSpawn, ...) for the WHOLE suite,
+// and replace the real pino `logger` with a flat object whose missing `.child`
+// later throws in unrelated siblings (e.g. HealthScheduler.tick()). The
+// `loggerMock` therefore carries a chainable `.child` plus the standard pino
+// level methods so it is a drop-in replacement.
+
+const loggerMock = {
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  debug: mock(() => {}),
+  fatal: mock(() => {}),
+  child: () => loggerMock,
+};
 
 mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
+  ...coreNode,
+  logger: loggerMock,
+  createLogger: () => loggerMock,
   parseConfig: () => ({ ok: false as const, error: "stub" }),
   getAgentsConfigPath: () => "/tmp/nonexistent-agents.toml",
 }));

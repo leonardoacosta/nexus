@@ -18,6 +18,7 @@ import { describe, expect, it, mock, beforeEach, beforeAll, afterAll } from "bun
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import * as coreNode from "@nexus/core/node";
 
 // ─── Sentry mock ─────────────────────────────────────────────────────────────
 // Registered before router.ts is imported. When run in isolation this file
@@ -36,19 +37,27 @@ mock.module("@sentry/node", () => ({
   init: mock(() => {}),
 }));
 
+// CRITICAL: spread the REAL @nexus/core/node barrel and override ONLY the
+// logger (the warn channel is asserted on via warnLogMock). Bun's
+// `mock.module` is process-global, last-writer-wins, and irreversible — a
+// PARTIAL factory would strip every other export (expandTilde, safeSpawn,
+// resetAgentIdCache, ...) for the WHOLE suite and swap the real pino `logger`
+// for a `.child`-less stub that later throws in unrelated siblings (e.g.
+// HealthScheduler.tick()). `loggerMock` therefore carries a chainable `.child`
+// plus the pino level methods, with `warn` wired to the assertable warnLogMock.
+const loggerMock = {
+  warn: warnLogMock,
+  error: mock(() => {}),
+  info: mock(() => {}),
+  debug: mock(() => {}),
+  fatal: mock(() => {}),
+  child: () => loggerMock,
+};
+
 mock.module("@nexus/core/node", () => ({
-  createLogger: () => ({
-    warn: warnLogMock,
-    error: mock(() => {}),
-    info: mock(() => {}),
-    debug: mock(() => {}),
-  }),
-  logger: {
-    warn: warnLogMock,
-    error: mock(() => {}),
-    info: mock(() => {}),
-    debug: mock(() => {}),
-  },
+  ...coreNode,
+  createLogger: () => loggerMock,
+  logger: loggerMock,
   getAgentId: mock(() => "test-agent"),
 }));
 

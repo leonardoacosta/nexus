@@ -51,45 +51,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // static `import { ... } from "./health-scheduler"|"./health-collector"` is
 // allowed above those awaits.
 
-// 1) Self-heal `@nexus/core/node`.
+// Stub the db insert sink so we can capture the snapshot the scheduler builds.
 //
-// Three sibling suites (server-routes-notifications, routes/notification-settings,
-// notifications/router) install PARTIAL `mock.module("@nexus/core/node")` stubs
-// whose `logger` lacks `.child` (and which omit getAgentId/expandTilde). Bun's
-// module mocks are process-global, last-writer-wins, AND irreversible — so when
-// one of those runs before this file, `HealthScheduler.tick()`'s
-// `logger.child({...})` throws "logger.child is not a function", and the
-// collector's `createLogger` is also a partial stub.
-//
-// We can't recover the real barrel by re-importing `@nexus/core/node` (that
-// specifier is already the leaked stub). Instead we install a COMPLETE mock
-// rebuilt from the UNMOCKED leaf modules — `./logger`, `./config`, `./path`
-// (only the BARREL specifier is mocked, not the leaves). This restores the
-// real `getAgentId`/`resetAgentIdCache` (sharing one cache instance with
-// agent-registry), `expandTilde`, and a real `logger` — the inverse of the
-// partial-stub leak — for any test that runs while THIS file is the global
-// last-writer.
-//
-// Defense-in-depth: Bun evaluates every file body (registering all mock.module
-// factories) before any `it()` runs, and the LAST registration wins for the
-// whole process — so a partial-stub sibling that evaluates after us can still
-// strip `logger.child`. We therefore ALSO patch the live global `logger` in the
-// scheduler describe's `beforeEach` (see below). That patch is the actual
-// guarantee for the scheduler tick (which has no logger seam); this complete
-// mock guarantees the collector + agent-registry path when we win the race.
-// (The collector tests below additionally inject their own logger via the
-// HealthCollector seam, so they never depend on the global at all.)
-import * as coreLogger from "../../../packages/core/src/logger";
-import * as coreConfig from "../../../packages/core/src/config";
-import * as corePath from "../../../packages/core/src/path";
-
-mock.module("@nexus/core/node", () => ({
-  ...coreLogger,
-  ...coreConfig,
-  ...corePath,
-}));
-
-// 2) Stub the db insert sink so we can capture the snapshot the scheduler builds.
+// NOTE: this file no longer self-heals `@nexus/core/node`. The three sibling
+// suites that previously installed PARTIAL `mock.module("@nexus/core/node")`
+// stubs (server-routes-notifications, routes/notification-settings,
+// notifications/router) now SPREAD the real barrel and override only `logger`/
+// `createLogger` (see nx-85shz). The global `logger` therefore stays the real
+// pino instance (with a chainable `.child`) regardless of file ordering, so
+// `HealthScheduler.tick()`'s `logger.child({...})` no longer needs a guard.
+// The collector tests below already inject their own logger via the
+// `HealthCollector` seam, so they never touch the global at all.
 const insertMock = mock(
   (_db: unknown, _snapshot: { rawJson: string }) => Promise.resolve(),
 );
@@ -183,31 +155,9 @@ const multiDiskMetrics: HealthMetrics = {
 };
 
 describe("multi-disk capture: scheduler snapshot retains all disks (task 2.2 regression)", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     insertMock.mockReset();
     insertMock.mockImplementation(() => Promise.resolve());
-
-    // Defensive patch for Bun's whole-process last-writer mock semantics.
-    //
-    // `HealthScheduler.tick()` calls `logger.child({...})` on the module-global
-    // `logger` from `@nexus/core/node`. Bun evaluates EVERY test file's body
-    // (registering all `mock.module` calls) BEFORE any `it()` runs, and the
-    // last-registered factory wins for the whole process — so if a sibling
-    // suite that mocks `@nexus/core/node` with a `.child`-less `logger`
-    // (server-routes-notifications, routes/notification-settings,
-    // notifications/router) evaluates after us, our complete self-heal mock
-    // above loses the race and `logger.child` is undefined at tick time.
-    //
-    // We can't win that race from one file. Instead we read the CURRENT global
-    // `logger` (the same live object `health-scheduler.ts` holds) and ensure it
-    // exposes a chainable `.child` if a partial stub stripped it. This makes the
-    // tick robust to file ordering WITHOUT weakening any assertion — the test
-    // still drives the real tick → real snapshot construction → insert sink.
-    const { logger } = await import("@nexus/core/node");
-    const lg = logger as unknown as { child?: (bindings: unknown) => unknown };
-    if (typeof lg.child !== "function") {
-      lg.child = () => logger;
-    }
   });
 
   it("persists EVERY disk in rawJson and an aggregated (not disk[0]) diskPercent", async () => {
