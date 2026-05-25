@@ -30,28 +30,13 @@
 
 set -euo pipefail
 
-# Escape hatch (matches the pre-push hook's SKIP_* convention, e.g.
-# SKIP_DEPLOY / SKIP_BUNDLE_INTEGRITY). When set,
-# the runner logs an explicit, NON-failing skip and exits 0. Used by
-# deploy/selftest-pre-push-gate.sh case (c) to validate the GUI-present
-# clean path of the gate orchestration without spending minutes on the
-# full XCUITest suite (which is runtime-verified by tasks 2.2-2.4). A
-# skip is not a failure, so the dispatcher stays exit 0.
-if [[ "${SKIP_TIER_B_RUN:-0}" == "1" ]]; then
-    echo "Tier B: SKIP_TIER_B_RUN set — skipping XCUITest run (non-failing)"
-    exit 0
-fi
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT_DIR="$REPO_DIR/apps/swift"
 STUB_TS="$REPO_DIR/apps/agent/src/testing/stub-agent.ts"
 TEST_ENTITLEMENTS="$SWIFT_DIR/nexus/nexus/nexus-uitest.entitlements"
 DD="${NX_TIER_B_DERIVED_DATA:-/tmp/nx-tier-b-uibuild}"
 
-BUN="$(command -v bun || echo /opt/homebrew/bin/bun)"
-[[ -x "$BUN" ]] || { echo "Tier B: bun not found" >&2; exit 1; }
-
-STUB_LOG="$(mktemp -t nx-tier-b-stub.XXXXXX)"
+STUB_LOG=""
 STUB_PID=""
 # Additional temp logs (e.g. the xcodebuild test log used for the
 # perms-timeout SKIP detection in step 3) push their paths onto this
@@ -59,13 +44,41 @@ STUB_PID=""
 TEST_LOGS=()
 
 cleanup() {
-  [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
+  # Every command here is `|| true`-guarded: a cleanup hiccup must NEVER flip
+  # the script's exit code or bury the genuine failure (bd:nx-dr5f1). The
+  # array expansion uses the bash-3.2 nounset-safe `${arr[@]+...}` alternate
+  # form: under `set -u`, expanding an empty array as `"${TEST_LOGS[@]}"`
+  # raises `unbound variable` on bash 3.2 (bd:nx-sl8vz).
+  { [[ -n "${STUB_PID:-}" ]] && kill "$STUB_PID" 2>/dev/null; } || true
   rm -f "$STUB_LOG" 2>/dev/null || true
-  for log in "${TEST_LOGS[@]}"; do
+  for log in "${TEST_LOGS[@]+"${TEST_LOGS[@]}"}"; do
     rm -f "$log" 2>/dev/null || true
   done
 }
-trap cleanup EXIT
+
+# main() holds the full executing body of the gate. It is invoked only when
+# this file is run directly (see the run-if-main guard at the bottom). When the
+# file is *sourced* (e.g. by deploy/tests/tier-b-cleanup.test.sh, bd:nx-cqd7k)
+# only the function + variable definitions above load, so the test can call
+# cleanup() with an empty TEST_LOGS without launching the stub or xcodebuild.
+main() {
+  # Escape hatch (matches the pre-push hook's SKIP_* convention, e.g.
+  # SKIP_DEPLOY / SKIP_BUNDLE_INTEGRITY). When set, the runner logs an explicit,
+  # NON-failing skip and exits 0. Used by deploy/selftest-pre-push-gate.sh case
+  # (c) to validate the GUI-present clean path of the gate orchestration without
+  # spending minutes on the full XCUITest suite (which is runtime-verified by
+  # tasks 2.2-2.4). A skip is not a failure, so the dispatcher stays exit 0.
+  if [[ "${SKIP_TIER_B_RUN:-0}" == "1" ]]; then
+      echo "Tier B: SKIP_TIER_B_RUN set — skipping XCUITest run (non-failing)"
+      exit 0
+  fi
+
+  BUN="$(command -v bun || echo /opt/homebrew/bin/bun)"
+  [[ -x "$BUN" ]] || { echo "Tier B: bun not found" >&2; exit 1; }
+
+  STUB_LOG="$(mktemp -t nx-tier-b-stub.XXXXXX)"
+
+  trap cleanup EXIT
 
 # --- 1. start the stub outside the sandbox (non-loopback bind) -----------
 "$BUN" "$STUB_TS" >"$STUB_LOG" 2>&1 &
@@ -106,11 +119,22 @@ echo "Tier B: stub up at $NX_STUB_BASE_URL"
 cd "$SWIFT_DIR"
 xcodegen generate >/dev/null
 
+# Run under explicit RC capture (not bare `set -e`) so a build break gets a
+# clear failing-stage banner instead of an opaque abort (bd:nx-dr5f1). The
+# xcodebuild output is inherited (not swallowed), and we exit with the real
+# non-zero code so the gate fails for the right reason.
+set +e
 xcodebuild build-for-testing \
   -project nexus.xcodeproj -scheme nexus-mac -configuration Debug \
   -derivedDataPath "$DD" \
   CODE_SIGN_ENTITLEMENTS="$TEST_ENTITLEMENTS" \
   CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+BUILD_RC=$?
+set -e
+if [[ "$BUILD_RC" -ne 0 ]]; then
+  echo "Tier B FAILED at stage: build-for-testing" >&2
+  exit "$BUILD_RC"
+fi
 
 # --- 3. run the XCUITests with graceful perms-timeout SKIP (bd:nx-4p2ov) ---
 #
@@ -164,5 +188,16 @@ PERMS_SKIP
     exit 0
   fi
   # Any other failure: propagate so real test regressions still abort the push.
+  # Name the failing stage so a test regression is distinguishable from a build
+  # break and from the perms-timeout SKIP above (bd:nx-dr5f1).
+  echo "Tier B FAILED at stage: test-without-building" >&2
   exit "$TEST_RC"
+fi
+}
+
+# --- run-if-main guard (bd:nx-cqd7k) -------------------------------------
+# When executed directly, run the gate. When sourced (by the cleanup self-test),
+# only the function/variable definitions above load — main() is never invoked.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
 fi
