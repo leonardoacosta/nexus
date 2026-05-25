@@ -16,4 +16,4 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Regression tests: invalid transition rejected, buffer overflow bounded, channel-timeout fires, missing-handler surfaced [owner:e2e-engineer] [type:testing]
+- [x] [2.1] Regression tests: invalid transition rejected, buffer overflow bounded, channel-timeout fires, missing-handler surfaced [owner:e2e-engineer] [type:testing]

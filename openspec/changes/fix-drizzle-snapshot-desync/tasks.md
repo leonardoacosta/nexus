@@ -9,4 +9,4 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Add a regression guard/test: running `drizzle-kit generate` (or a snapshot-diff check) MUST NOT emit stale `CREATE TABLE` for the already-migrated tables; document the custom-SQL regen workflow [owner:db-engineer] [type:testing]
+- [x] [2.1] Add a regression guard/test: running `drizzle-kit generate` (or a snapshot-diff check) MUST NOT emit stale `CREATE TABLE` for the already-migrated tables; document the custom-SQL regen workflow [owner:db-engineer] [type:testing]

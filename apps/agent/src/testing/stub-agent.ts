@@ -190,6 +190,29 @@ export const HEALTH_FIXTURE: HealthMetrics = {
 // Stub server
 // ---------------------------------------------------------------------------
 
+/**
+ * A controlled `NotificationFired` payload the stub emits on `/events/stream`.
+ *
+ * Mirrors the agent's real `NotificationFired` SSE frame shape (see
+ * apps/agent/src/routes/events-sse.ts + the lifecycle bus). The Swift
+ * `SSEEvent.decodeNotification()` reads `body`/`channel`/`title`/`emoji` from
+ * either the envelope top-level OR a nested `payload` — this fixture writes
+ * them top-level (the canonical shape) and `body` is required non-empty.
+ *
+ * Spec: mac-tts-integration-test (task 1.1) — the deterministic
+ * `NotificationFired -> Swift TTS playback` round-trip harness drives this.
+ */
+export interface StubNotificationFired {
+  /** Required, non-empty — decodeNotification() drops empty-body frames. */
+  body: string;
+  /** "tts" exercises the synth/audio path; "desktop" is banner-only. */
+  channel?: string;
+  title?: string;
+  emoji?: string;
+  /** Project slug — primes the observer's per-project voice resolution. */
+  project?: string;
+}
+
 export interface StubAgentOptions {
   /**
    * Host to bind. Defaults to an auto-discovered non-loopback IPv4. Passing a
@@ -198,6 +221,23 @@ export interface StubAgentOptions {
   host?: string;
   /** Port to bind. Defaults to an OS-assigned ephemeral port (0). */
   port?: number;
+  /**
+   * Allow binding a loopback host. Defaults to false (the ATS `-1022` guard).
+   *
+   * The mac-tts-integration-test harness drives the SSE round-trip against a
+   * loopback stub — that test is NOT the client-transport ATS gate (it does
+   * not assert cleartext-policy faults), so the loopback exemption is exactly
+   * what we want. Setting this true disables the loopback throw so the SSE
+   * round-trip can run on `127.0.0.1` deterministically.
+   */
+  allowLoopback?: boolean;
+  /**
+   * When set, `GET /events/stream` emits a single `NotificationFired` SSE
+   * frame built from this fixture, then holds the connection open (a real
+   * SSE stream stays live; the client closes it). When unset, the stub does
+   * not register the SSE route and `/events/stream` 404s.
+   */
+  notificationFired?: StubNotificationFired;
 }
 
 export interface StubAgentHandle {
@@ -218,14 +258,41 @@ export interface StubAgentHandle {
  * refuses to bind there because macOS ATS would exempt it and produce a
  * false-green for the `-1022` client-transport fault.
  */
+/**
+ * Serialize a `NotificationFired` fixture into an SSE frame body.
+ *
+ * Emits the canonical agent wire shape:
+ *   `event: NotificationFired\ndata: <json>\n\n`
+ * The JSON carries `body`/`channel`/`title`/`emoji`/`project` top-level, which
+ * `SSEEvent.decodeNotification()` reads directly (it also accepts a nested
+ * `payload`, but top-level is the canonical form).
+ *
+ * Exported so the TS harness test can assert the emitted frame shape without
+ * standing up the HTTP server.
+ */
+export function encodeNotificationFiredFrame(n: StubNotificationFired): string {
+  const payload: Record<string, unknown> = {
+    id: "stub-notif-1",
+    body: n.body,
+    created_at: FIXED_NOW,
+  };
+  if (n.channel !== undefined) payload.channel = n.channel;
+  if (n.title !== undefined) payload.title = n.title;
+  if (n.emoji !== undefined) payload.emoji = n.emoji;
+  if (n.project !== undefined) payload.project = n.project;
+  return `event: NotificationFired\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
 export function startStubAgent(opts: StubAgentOptions = {}): StubAgentHandle {
   const host = opts.host ?? discoverNonLoopbackIPv4();
 
-  if (isLoopbackish(host)) {
+  if (isLoopbackish(host) && !opts.allowLoopback) {
     throw new Error(
       `stub-agent: refusing to bind loopback-ish host "${host}". macOS ATS ` +
         `exempts loopback / *.local from its cleartext policy, which would ` +
-        `false-green the -1022 transport fault. Bind a real LAN/Tailscale IPv4.`,
+        `false-green the -1022 transport fault. Bind a real LAN/Tailscale IPv4. ` +
+        `(Pass allowLoopback:true for the mac-tts SSE round-trip harness, which ` +
+        `is not the ATS client-transport gate.)`,
     );
   }
 
@@ -235,6 +302,27 @@ export function startStubAgent(opts: StubAgentOptions = {}): StubAgentHandle {
       headers: { "Content-Type": "application/json" },
     });
 
+  /** Build the SSE response that emits one NotificationFired frame then holds. */
+  const sseResponse = (n: StubNotificationFired): Response => {
+    const frame = encodeNotificationFiredFrame(n);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(frame));
+        // A real SSE connection stays open; the client closes it. We do NOT
+        // close the controller so the consumer keeps the pipe live (and the
+        // single emitted frame is the deterministic event under test).
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  };
+
   const server = Bun.serve({
     hostname: host,
     port: opts.port ?? 0,
@@ -242,6 +330,14 @@ export function startStubAgent(opts: StubAgentOptions = {}): StubAgentHandle {
       const url = new URL(req.url);
       const { pathname } = url;
       switch (pathname) {
+        case "/events/stream":
+          if (opts.notificationFired) {
+            return sseResponse(opts.notificationFired);
+          }
+          return new Response(JSON.stringify({ error: "not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
         case "/sessions":
           // The REAL client transport (NexusClient.fetchSessions) always
           // requests `/sessions?withFingerprint=true`. For that path we
