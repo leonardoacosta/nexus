@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] Add a `credential_swaps` table (schema + generated migration) to track per-session credential rotation history [owner:db-engineer] [type:db] [beads:nx-wce7]
+- [x] [1.1] Add a `credential_swaps` table (schema + generated migration) to track per-session credential rotation history [owner:db-engineer] [type:db] [beads:nx-wce7]
 
 ## API Batch
 

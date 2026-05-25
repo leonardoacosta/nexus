@@ -93,6 +93,17 @@ export {
   type NewProcessWatcherState,
 } from "./schema";
 
+// credential_swaps — per-session credential rotation history. One row per
+// swap (from_fingerprint -> to_fingerprint) with a reason, making pool
+// rotation auditable. Spec: openspec/changes/credential-pool-correctness.
+export {
+  credentialSwaps,
+  CREDENTIAL_SWAP_REASONS,
+  type CredentialSwap,
+  type NewCredentialSwap,
+  type CredentialSwapReason,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

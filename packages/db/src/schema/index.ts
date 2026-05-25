@@ -72,3 +72,10 @@ export {
   type ProcessWatcherState,
   type NewProcessWatcherState,
 } from "./processWatcherState";
+export {
+  credentialSwaps,
+  CREDENTIAL_SWAP_REASONS,
+  type CredentialSwap,
+  type NewCredentialSwap,
+  type CredentialSwapReason,
+} from "./credentialSwaps";
