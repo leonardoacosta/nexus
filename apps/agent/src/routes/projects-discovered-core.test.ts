@@ -55,7 +55,7 @@ describe("handleGetDiscoveredProjects", () => {
 
   // ── Test 3: readdirSync error (Spec 1, task 3.2 — error path) ────────────
 
-  it("returns { error: ... } when readdirSync throws", async () => {
+  it("returns HTTP 500 with { error: ... } when readdirSync throws", async () => {
     const db = makeDb([makeAgentRow({ projectsDir: "/home/user/nonexistent" })]);
 
     mockReaddirSync.mockImplementation(() => {
@@ -63,7 +63,9 @@ describe("handleGetDiscoveredProjects", () => {
     });
 
     const res = await handleGetDiscoveredProjects(db);
-    expect(res.status).toBe(200);
+    // A failed directory scan is a server-side failure, not an empty-but-
+    // healthy result (agent-route-hardening, task 1.2).
+    expect(res.status).toBe(500);
 
     const body = await res.json() as { error: string };
     expect(body.error).toContain("ENOENT");

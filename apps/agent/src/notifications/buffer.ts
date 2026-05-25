@@ -72,11 +72,21 @@ void (async function hydrateOnLoad() {
 /** Row shape returned from the `notifications` table. */
 export type NotificationRow = typeof notifications.$inferSelect;
 
-/** Insert a notification into the buffer, evicting the oldest entry if at capacity. */
+/** Insert a notification into the buffer, evicting the oldest entry if at capacity.
+ *
+ * Overflow policy: drop-oldest. When the in-memory ring buffer reaches
+ * `MAX_BUFFER_SIZE`, the oldest pending id is evicted (FIFO) to make room for
+ * the incoming one, and the eviction is logged at warn so unbounded pressure
+ * is observable rather than silent. The DB row is still inserted — only the
+ * in-memory pending-id tracking is bounded.
+ */
 export async function insertNotification(db: Db, row: NotificationRow): Promise<void> {
   if (pendingIds.length >= MAX_BUFFER_SIZE) {
     const dropped = pendingIds.shift();
-    log.warn({ dropped }, "notification buffer eviction");
+    log.warn(
+      { dropped, maxBufferSize: MAX_BUFFER_SIZE, size: pendingIds.length, policy: "drop-oldest" },
+      "notification buffer overflow — evicted oldest pending id (drop-oldest policy)",
+    );
   }
   pendingIds.push(row.id);
   await db.insert(notifications).values(row);

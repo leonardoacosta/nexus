@@ -340,8 +340,8 @@ export function findMatchingRule(notification: NotificationRow): NotificationRul
  * Channel dispatch map.
  *
  * Slack was removed by `remove-slack-channel` (spine-migration). Any caller
- * that still passes `channel: 'slack'` will be silently dropped by the
- * "No handler for channel" warn path below — see scenarios in
+ * that still passes `channel: 'slack'` is surfaced (NOT silently dropped) by
+ * `surfaceMissingHandler` below — see scenarios in
  * `openspec/changes/remove-slack-channel/specs/notification-store/spec.md`.
  */
 const CHANNEL_HANDLERS: Record<
@@ -351,6 +351,38 @@ const CHANNEL_HANDLERS: Record<
   desktop: sendDesktopNotification,
   tts: sendTtsNotification,
 };
+
+/**
+ * Surface a routing request for a channel that has no registered handler.
+ *
+ * Previously this was a silent skip with only a warn log + breadcrumb. A
+ * breadcrumb alone never produces a Sentry event — it only attaches context to
+ * a LATER captured error — so a misconfigured channel (e.g. a caller still
+ * passing the removed `slack` channel) vanished with no alert. We now:
+ *   1. log at warn (operator-visible in the agent log), AND
+ *   2. `captureException` on the existing Sentry path so the misroute surfaces
+ *      as its own event, with a breadcrumb attached for context.
+ *
+ * Shared by both `routeNotification` (serial) and `routeNotificationParallel`
+ * so the two dispatch paths cannot drift on how a missing handler is handled.
+ */
+function surfaceMissingHandler(
+  channel: NotificationChannel,
+  notificationId: string,
+): void {
+  log.warn({ channel, notificationId }, "No handler for channel");
+  addBreadcrumb({
+    category: "notification",
+    level: "warning",
+    message: "missing handler",
+    data: { channel, notificationId },
+  });
+  captureException(
+    new Error(
+      `no notification channel handler for "${channel}" (notificationId=${notificationId})`,
+    ),
+  );
+}
 
 /**
  * Route a notification to the appropriate channels based on rules.
@@ -380,13 +412,7 @@ export async function routeNotification(
   for (const channel of channels) {
     const handler = CHANNEL_HANDLERS[channel];
     if (handler === undefined) {
-      log.warn({ channel, notificationId: notification.id }, "No handler for channel");
-      addBreadcrumb({
-        category: "notification",
-        level: "warning",
-        message: "missing handler",
-        data: { channel, notificationId: notification.id },
-      });
+      surfaceMissingHandler(channel, notification.id);
       continue;
     }
     const { success } = await withChannelTimeout(channel, notification, handler);
@@ -419,13 +445,7 @@ export async function routeNotificationParallel(
 
   let knownChannels = rule.channels.filter((ch) => {
     if (CHANNEL_HANDLERS[ch] === undefined) {
-      log.warn({ channel: ch, notificationId: notification.id }, "No handler for channel");
-      addBreadcrumb({
-        category: "notification",
-        level: "warning",
-        message: "missing handler",
-        data: { channel: ch, notificationId: notification.id },
-      });
+      surfaceMissingHandler(ch, notification.id);
       return false;
     }
     return true;
@@ -466,10 +486,21 @@ export async function routeNotificationParallel(
         failed.push(channelName);
       }
     } else {
+      // The handler rejected — either the channel timed out (a hung handler
+      // tripped `withChannelTimeout`'s deadline) or it threw. Either way this
+      // channel is marked failed and pushed to `failed[]`; because we await a
+      // single `Promise.allSettled`, the rejection of ONE channel never blocks
+      // delivery on the others. The timeout itself already called
+      // `captureException` inside `withChannelTimeout`.
       failed.push(channelName);
+      const reason =
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
+      const timedOut = reason.includes("notification delivery timeout");
       log.error(
-        { channel: channelName, notificationId: notification.id, err: result.reason },
-        "channel delivery failed",
+        { channel: channelName, notificationId: notification.id, err: reason, timedOut },
+        timedOut
+          ? "channel delivery timed out — marked failed (other channels unaffected)"
+          : "channel delivery failed",
       );
     }
   }

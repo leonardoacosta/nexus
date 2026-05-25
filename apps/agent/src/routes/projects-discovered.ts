@@ -517,11 +517,17 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
     if (legacyCache && now < legacyCache.expiry) {
       const durationMs = Date.now() - start;
       const cached = legacyCache.data;
+      const isError = "error" in cached;
       const count = "projects" in cached ? cached.projects.length : 0;
       const cacheAge = now - legacyCache.computedAt;
-      log.info({ route, durationMs, count, fromCache: true }, "projects-discovered request");
+      log.info(
+        { route, durationMs, count, fromCache: true, isError },
+        "projects-discovered request",
+      );
+      // A cached scan failure is still a failure — serve it as HTTP 500 so a
+      // cache hit doesn't downgrade a readdir error to a 200.
       return new Response(JSON.stringify(cached), {
-        status: 200,
+        status: isError ? 500 : 200,
         headers: {
           "Content-Type": "application/json",
           "X-Cache-Age": String(cacheAge),
@@ -559,11 +565,14 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
     const { agent, projectsDir } = resolved;
     const scan = await scanProjects(projectsDir, db, LEGACY_SCAN_CAP);
     if (!scan.ok) {
+      // A failed directory scan (readdirSync threw) is a server-side failure,
+      // not an empty-but-healthy result. Return HTTP 500 so clients can
+      // distinguish a broken scan from a configured-but-empty directory.
       const errResp = { error: scan.error };
       const computedAt = Date.now();
       legacyCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
       return new Response(JSON.stringify(errResp), {
-        status: 200,
+        status: 500,
         headers: {
           "Content-Type": "application/json",
           "X-Cache-Age": "0",
@@ -616,8 +625,9 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
   if (paginatedCache && now < paginatedCache.expiry) {
     const cached = paginatedCache.data;
     if ("error" in cached) {
+      // Cached scan failure — serve as HTTP 500, same as the fresh-error path.
       return new Response(JSON.stringify(cached), {
-        status: 200,
+        status: 500,
         headers: {
           "Content-Type": "application/json",
           "X-Cache-Age": String(now - paginatedCache.computedAt),
@@ -641,11 +651,12 @@ export async function handleGetDiscoveredProjects(db: Db, url?: URL): Promise<Re
       const { agent, projectsDir } = resolved;
       const scan = await scanProjects(projectsDir, db, PAGINATED_SCAN_CAP);
       if (!scan.ok) {
+        // Failed directory scan (readdirSync threw) → HTTP 500, not 200.
         const errResp = { error: scan.error };
         const computedAt = Date.now();
         paginatedCache = { data: errResp, expiry: computedAt + CACHE_TTL_MS, computedAt };
         return new Response(JSON.stringify(errResp), {
-          status: 200,
+          status: 500,
           headers: {
             "Content-Type": "application/json",
             "X-Cache-Age": "0",

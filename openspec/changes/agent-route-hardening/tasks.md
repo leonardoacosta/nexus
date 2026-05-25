@@ -8,7 +8,7 @@
 ## API Batch
 
 - [ ] [1.1] Fix `readProcessCwd` to resolve legacy empty-cwd rows via a `/proc/<pid>/cwd` readlink fallback [owner:api-engineer] [type:api] [beads:nx-cvyxt]
-- [ ] [1.2] Make the projects-discovered route return HTTP 500 (not 200) when `readdirSync` throws [owner:api-engineer] [type:api] [beads:nx-kkpc]
+- [x] [1.2] Make the projects-discovered route return HTTP 500 (not 200) when `readdirSync` throws [owner:api-engineer] [type:api] [beads:nx-kkpc]
 
 ## UI Batch
 
