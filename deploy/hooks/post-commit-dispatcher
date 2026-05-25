@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# post-commit dispatcher
+# Runs all executable scripts in deploy/hooks.d/post-commit/ in sorted order.
+# A failing hook logs a warning but does NOT block subsequent hooks. post-commit
+# fires AFTER the commit is recorded, so it can never abort the commit — every
+# hook here is advisory by nature (fail-soft).
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+HOOKS_DIR="$REPO_DIR/deploy/hooks.d/post-commit"
+
+if [ ! -d "$HOOKS_DIR" ]; then
+    exit 0
+fi
+
+for hook in "$HOOKS_DIR"/*; do
+    [ -x "$hook" ] || continue
+    name="$(basename "$hook")"
+    if ! "$hook" "$@"; then
+        echo "Warning: post-commit hook '$name' failed (continuing)" >&2
+    fi
+done

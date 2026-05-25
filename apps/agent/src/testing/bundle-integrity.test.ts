@@ -64,10 +64,14 @@ describe.skipIf(!bundleBuilt)(
       expect(ats).toContain("NSAllowsArbitraryLoads");
     });
 
-    it("Info.plist contains LSUIElement (menu-bar agent guard)", async () => {
+    it("Info.plist contains LSUIElement set false (Dock + menu-bar app)", async () => {
       const uiElement = await plistKey("LSUIElement");
       expect(uiElement).not.toBeNull();
-      expect(uiElement).toBe("true");
+      // project.yml intentionally sets LSUIElement=false so Nexus.app is a
+      // .regular activation app (appears in Dock + Cmd-Tab) while still
+      // rendering its MenuBarExtra status item. A stale `true` here would
+      // assert the retired .accessory (pure menu-bar-only) topology.
+      expect(uiElement).toBe("false");
     });
   },
 );

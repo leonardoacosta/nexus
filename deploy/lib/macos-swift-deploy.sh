@@ -102,11 +102,14 @@ macos_swift_deploy_run() {
 
     # Note: the nexus-mac target sets PRODUCT_NAME=nexus, so xcodebuild
     # produces `nexus.app` (lowercase). The installed bundle name is
-    # `/Applications/Nexus.app` (capitalized). Search for either spelling
-    # under Build/Products/Release so we don't pick up Debug artefacts left
-    # over from a developer's prior run.
+    # `/Applications/Nexus.app` (capitalized). Match case-insensitively
+    # (`-iname`) so the locate step never misses the product on PRODUCT_NAME
+    # case drift — the original `-name 'Nexus.app'` matcher missed the real
+    # lowercase product and silently no-op'd the install (nx-5ws74). Scoped
+    # to Build/Products/Release so we don't pick up Debug artefacts left over
+    # from a developer's prior run.
     local app_path
-    app_path="$(find "$build_dir" -path '*/Build/Products/Release/*.app' -type d \( -name 'nexus.app' -o -name 'Nexus.app' \) -print -quit 2>/dev/null || true)"
+    app_path="$(find "$build_dir" -path '*/Build/Products/Release/*.app' -type d -iname 'nexus.app' -print -quit 2>/dev/null || true)"
     if [[ -z "$app_path" || ! -d "$app_path" ]]; then
         _macos_swift_deploy_warn "xcodebuild succeeded but {n,N}exus.app not found in $build_dir"
         rm -rf "$build_dir"

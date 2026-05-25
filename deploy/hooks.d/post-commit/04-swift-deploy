@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Nexus Swift Dashboard — post-commit deploy hook
+# Rebuilds and relaunches Nexus.app on macOS when a commit touched apps/swift/,
+# so the installed /Applications/Nexus.app never drifts stale (nx-2pzu2).
+#
+# Symmetry: this is the post-COMMIT counterpart to the post-MERGE
+# 04-swift-deploy. post-merge fires on `git pull`/merge (ORIG_HEAD..HEAD);
+# this fires on every local commit (HEAD~1..HEAD) so a developer working on
+# the Swift app sees their installed bundle refresh without a merge round-trip.
+#
+# Contract:
+#   - Fail-soft: logs a warning on build failure but NEVER blocks the commit
+#     (the commit already happened by the time post-commit runs) and never
+#     corrupts state — the shared lib only swaps /Applications/Nexus.app after
+#     a verified-good build.
+#   - Idempotent: a re-run with no new apps/swift/ change is a clean no-op.
+#   - No-op when apps/swift/ was not touched by the just-created commit.
+#   - bash-3.2-safe (system bash on macOS): no associative arrays, no
+#     ${var^^}, no mapfile.
+
+# ── Skip on non-macOS ───────────────────────────────────────────────
+# The Swift dashboard only builds/installs on macOS; on Linux this hook is a
+# no-op so the shared post-commit dispatcher can run uniformly everywhere.
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    exit 0
+fi
+
+# ── Detect whether the just-created commit touched apps/swift/ ───────
+# post-commit runs AFTER HEAD advances, so the new commit is HEAD itself.
+# Diff HEAD against its parent. On the root commit (no parent) fall back to
+# the empty tree so a first-ever commit that adds apps/swift/ still triggers.
+# `--force` bypasses the path check entirely (manual rebuild).
+
+if [[ "${1:-}" != "--force" ]]; then
+    parent="$(git rev-parse --verify --quiet HEAD~1 || true)"
+    if [[ -n "$parent" ]]; then
+        changed="$(git diff-tree -r --name-only HEAD~1 HEAD 2>/dev/null || true)"
+    else
+        # Root commit: list every path it introduced.
+        changed="$(git diff-tree -r --name-only --root HEAD 2>/dev/null || true)"
+    fi
+    if ! printf '%s\n' "$changed" | grep -qE '^apps/swift/'; then
+        printf '\033[1;33mswift-deploy: %s\033[0m\n' "no apps/swift/ changes in HEAD, skipping"
+        exit 0
+    fi
+fi
+
+# ── Source shared lib and invoke ────────────────────────────────────
+# Reuse deploy/lib/macos-swift-deploy.sh — the same build/install/relaunch
+# mechanics used by deploy/install.sh and the post-merge counterpart. The lib
+# is fail-soft by contract (warns + returns non-zero; never exits the caller).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+LIB_PATH="$REPO_ROOT/deploy/lib/macos-swift-deploy.sh"
+if [[ ! -f "$LIB_PATH" ]]; then
+    printf '\033[1;33mswift-deploy: %s\033[0m\n' "shared lib not found at $LIB_PATH; skipping" >&2
+    exit 0
+fi
+
+# shellcheck source=../../lib/macos-swift-deploy.sh
+source "$LIB_PATH"
+
+if ! macos_swift_deploy_run "$@"; then
+    printf '\033[1;33mswift-deploy: %s\033[0m\n' "rebuild failed (fail-soft); Nexus.app may be stale" >&2
+    exit 0  # Fail-soft: a stale app is recoverable; never break the commit.
+fi

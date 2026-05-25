@@ -69,10 +69,16 @@ xcodebuild \
 
 APP_PATH="$DERIVED/Build/Products/Release/nexus.app"
 
-# Assertion 1: the product is named nexus.app.
+# Assertion 1: the product is named nexus.app (case-insensitive locate so
+# PRODUCT_NAME case drift can't silently miss the bundle — nx-5ws74).
 if [[ ! -d "$APP_PATH" ]]; then
-    found="$(find "$DERIVED/Build/Products/Release" -maxdepth 1 -name '*.app' -print 2>/dev/null | head -1)"
-    fail "expected product 'nexus.app' at $APP_PATH; found instead: ${found:-<none>}"
+    located="$(find "$DERIVED/Build/Products/Release" -maxdepth 1 -type d -iname 'nexus.app' -print 2>/dev/null | head -1)"
+    if [[ -n "$located" ]]; then
+        APP_PATH="$located"
+    else
+        found="$(find "$DERIVED/Build/Products/Release" -maxdepth 1 -name '*.app' -print 2>/dev/null | head -1)"
+        fail "expected product 'nexus.app' at $APP_PATH; found instead: ${found:-<none>}"
+    fi
 fi
 info "product is nexus.app -> $APP_PATH"
 

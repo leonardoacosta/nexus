@@ -158,6 +158,7 @@ esac
 if [[ -d "$REPO_DIR/.git" ]]; then
     info "Installing git hook dispatchers"
     install -m 755 "$SCRIPT_DIR/hooks/post-merge-dispatcher" "$REPO_DIR/.git/hooks/post-merge"
+    install -m 755 "$SCRIPT_DIR/hooks/post-commit-dispatcher" "$REPO_DIR/.git/hooks/post-commit"
     install -m 755 "$SCRIPT_DIR/hooks/pre-push-dispatcher" "$REPO_DIR/.git/hooks/pre-push"
 else
     warn "Not a git repository — skipping hook installation"
