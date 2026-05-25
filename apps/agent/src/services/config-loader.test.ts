@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import * as nexusCore from "@nexus/core";
 
 // Mock @nexus/core logger before importing the module.
 const loggerMock = {
@@ -9,7 +10,10 @@ const loggerMock = {
   child: mock(() => loggerMock),
 };
 
+// Spread the real module so non-logger exports (narrowSessionStatus, etc.)
+// survive this process-global mock.module override.
 mock.module("@nexus/core", () => ({
+  ...nexusCore,
   logger: loggerMock,
   createLogger: () => loggerMock,
 }));
