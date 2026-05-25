@@ -33,14 +33,73 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import type { HealthMetrics } from "@nexus/core";
 import type { Db } from "@nexus/db";
+import type { Logger } from "@nexus/core/node";
+// Type-only imports (erased at runtime — they do NOT load the modules, so they
+// can sit above the mock.module calls without binding the leaked global logger).
+import type { HealthScheduler as HealthSchedulerT } from "./health-scheduler";
+import type { HealthCollector as HealthCollectorT, HealthSource } from "./health-collector";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// ── 1) Multi-disk capture: aggregateDiskPercent never collapses to disk[0] ───
+// ─── Module mocks (BEFORE importing any SUT) ─────────────────────────────────
+//
+// Ordering is load-bearing. `health-scheduler.ts` and `health-collector.ts`
+// bind `logger`/`createLogger` from `@nexus/core/node` at THEIR module-eval
+// time, and ES static imports hoist — so the mock.module calls below MUST run
+// before the SUTs are first evaluated. We therefore (a) install the mocks here,
+// then (b) load every SUT via top-level `await import(...)` further down. No
+// static `import { ... } from "./health-scheduler"|"./health-collector"` is
+// allowed above those awaits.
 
-// `aggregateDiskPercent` is a pure exported helper, so it can be imported and
-// asserted directly without any systeminformation mocking.
-import { aggregateDiskPercent } from "./health-scheduler";
+// 1) Self-heal `@nexus/core/node`.
+//
+// Three sibling suites (server-routes-notifications, routes/notification-settings,
+// notifications/router) install PARTIAL `mock.module("@nexus/core/node")` stubs
+// whose `logger` lacks `.child` (and which omit getAgentId/expandTilde). Bun's
+// module mocks are process-global, last-writer-wins, AND irreversible — so when
+// one of those runs before this file, `HealthScheduler.tick()`'s
+// `logger.child({...})` throws "logger.child is not a function", and the
+// collector's `createLogger` is also a partial stub.
+//
+// We can't recover the real barrel by re-importing `@nexus/core/node` (that
+// specifier is already the leaked stub). Instead we install a COMPLETE mock
+// rebuilt from the UNMOCKED leaf modules — `./logger`, `./config`, `./path`
+// (only the BARREL specifier is mocked, not the leaves). This restores the
+// real `getAgentId`/`resetAgentIdCache` (sharing one cache instance with
+// agent-registry), `expandTilde`, and a real `logger` — the inverse of the
+// partial-stub leak — for any test that runs while THIS file is the global
+// last-writer.
+//
+// Defense-in-depth: Bun evaluates every file body (registering all mock.module
+// factories) before any `it()` runs, and the LAST registration wins for the
+// whole process — so a partial-stub sibling that evaluates after us can still
+// strip `logger.child`. We therefore ALSO patch the live global `logger` in the
+// scheduler describe's `beforeEach` (see below). That patch is the actual
+// guarantee for the scheduler tick (which has no logger seam); this complete
+// mock guarantees the collector + agent-registry path when we win the race.
+// (The collector tests below additionally inject their own logger via the
+// HealthCollector seam, so they never depend on the global at all.)
+import * as coreLogger from "../../../packages/core/src/logger";
+import * as coreConfig from "../../../packages/core/src/config";
+import * as corePath from "../../../packages/core/src/path";
+
+mock.module("@nexus/core/node", () => ({
+  ...coreLogger,
+  ...coreConfig,
+  ...corePath,
+}));
+
+// 2) Stub the db insert sink so we can capture the snapshot the scheduler builds.
+const insertMock = mock(
+  (_db: unknown, _snapshot: { rawJson: string }) => Promise.resolve(),
+);
+mock.module("./db/health", () => ({
+  insertHealthSnapshot: insertMock,
+}));
+
+// Now (and only now) load the SUTs — after every mock above is installed.
+const { aggregateDiskPercent, HealthScheduler } = await import("./health-scheduler");
+const { HealthCollector } = await import("./health-collector");
 
 /** Build a disk entry with the four fields HealthMetrics["disk"] carries. */
 function disk(mount: string, total_bytes: number, percent: number) {
@@ -96,25 +155,14 @@ describe("multi-disk capture: aggregateDiskPercent (task 2.2 regression)", () =>
 
 // ── 1b) Multi-disk capture: scheduler retains ALL disks in rawJson ───────────
 
-// Mock the db insert sink so we can capture the snapshot the scheduler builds.
-const insertMock = mock(
-  (_db: unknown, _snapshot: { rawJson: string }) => Promise.resolve(),
-);
-mock.module("./db/health", () => ({
-  insertHealthSnapshot: insertMock,
-}));
-
-import { HealthScheduler } from "./health-scheduler";
-import type { HealthCollector } from "./health-collector";
-
 /** Minimal stub collector returning a fixed metrics payload. */
-function makeCollectorStub(latest: HealthMetrics | null): HealthCollector {
+function makeCollectorStub(latest: HealthMetrics | null): HealthCollectorT {
   return {
     getLatest: mock(() => latest),
     collect: mock(() => Promise.resolve(latest as HealthMetrics)),
     start: mock(() => {}),
     stop: mock(() => {}),
-  } as unknown as HealthCollector;
+  } as unknown as HealthCollectorT;
 }
 
 const multiDiskMetrics: HealthMetrics = {
@@ -135,9 +183,31 @@ const multiDiskMetrics: HealthMetrics = {
 };
 
 describe("multi-disk capture: scheduler snapshot retains all disks (task 2.2 regression)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     insertMock.mockReset();
     insertMock.mockImplementation(() => Promise.resolve());
+
+    // Defensive patch for Bun's whole-process last-writer mock semantics.
+    //
+    // `HealthScheduler.tick()` calls `logger.child({...})` on the module-global
+    // `logger` from `@nexus/core/node`. Bun evaluates EVERY test file's body
+    // (registering all `mock.module` calls) BEFORE any `it()` runs, and the
+    // last-registered factory wins for the whole process — so if a sibling
+    // suite that mocks `@nexus/core/node` with a `.child`-less `logger`
+    // (server-routes-notifications, routes/notification-settings,
+    // notifications/router) evaluates after us, our complete self-heal mock
+    // above loses the race and `logger.child` is undefined at tick time.
+    //
+    // We can't win that race from one file. Instead we read the CURRENT global
+    // `logger` (the same live object `health-scheduler.ts` holds) and ensure it
+    // exposes a chainable `.child` if a partial stub stripped it. This makes the
+    // tick robust to file ordering WITHOUT weakening any assertion — the test
+    // still drives the real tick → real snapshot construction → insert sink.
+    const { logger } = await import("@nexus/core/node");
+    const lg = logger as unknown as { child?: (bindings: unknown) => unknown };
+    if (typeof lg.child !== "function") {
+      lg.child = () => logger;
+    }
   });
 
   it("persists EVERY disk in rawJson and an aggregated (not disk[0]) diskPercent", async () => {
@@ -166,10 +236,19 @@ describe("multi-disk capture: scheduler snapshot retains all disks (task 2.2 reg
 
 // ── 2) Collector logging on error: failing source logs + degrades ────────────
 
-// We need a per-test view of the logger created via createLogger. Mock the
-// node logger barrel so HealthCollector's `createLogger("agent:health-collector")`
-// returns a spy whose warn/error calls we can assert. systeminformation is
-// mocked so we can force a single source to throw.
+// We need a per-test view of the logger + data source the collector uses.
+//
+// IMPORTANT: these tests do NOT rely on `mock.module` of shared modules to
+// observe the logger. The earlier approach (`mock.module("@nexus/core/node")`
+// with a partial stub) was process-global AND irreversible — it stripped
+// sibling exports (resetAgentIdCache, expandTilde) and overrode `getAgentId`
+// for the WHOLE suite, breaking agent-registry.test.ts in the full run (which
+// passed only in isolation). `HealthCollector` now takes an injectable
+// `{ source, logger }` seam (defaults = real systeminformation + real
+// createLogger), so we inject a throwing source + spy logger PER-TEST with zero
+// new global state. Mirrors the `__setGetProjectsForTesting` seam in
+// spec-watcher and `opts.spawn` in TmuxPtySource. (`HealthCollector` itself was
+// loaded via the top-level `await import` above, after the mocks.)
 
 type LogCall = { args: unknown[] };
 
@@ -187,16 +266,11 @@ const spyLogger = {
   },
   fatal: () => {},
   child: () => spyLogger,
-};
+} as unknown as Logger;
 
-mock.module("@nexus/core/node", () => ({
-  createLogger: () => spyLogger,
-  logger: spyLogger,
-  getAgentId: () => "test-agent",
-}));
-
-// systeminformation mock — defaults are healthy; individual tests override a
-// single source to reject so the collectStep degradation path is exercised.
+// In-memory data source — defaults are healthy; individual tests override a
+// single function to reject so the collectStep degradation path is exercised.
+// Shaped to satisfy `HealthSource` (the narrow subset the collector reads).
 const siMock = {
   currentLoad: mock(() =>
     Promise.resolve({ currentLoad: 42.5, cpus: [{ load: 40 }, { load: 45 }] }),
@@ -209,9 +283,14 @@ const siMock = {
   networkStats: mock(() => Promise.resolve([{ iface: "eth0", rx_bytes: 1, tx_bytes: 2 }])),
   processes: mock(() => Promise.resolve({ list: [] })),
 };
-mock.module("systeminformation", () => ({ default: siMock }));
+// Cast through unknown: the mocks return only the projected fields the
+// collector reads, not the full upstream systeminformation payloads.
+const siSource = siMock as unknown as HealthSource;
 
-const { HealthCollector } = await import("./health-collector");
+/** Construct a collector wired to the spy logger + in-memory source. */
+function makeCollector(): HealthCollectorT {
+  return new HealthCollector(undefined, { source: siSource, logger: spyLogger });
+}
 
 function resetSi(): void {
   siMock.currentLoad.mockImplementation(() =>
@@ -244,7 +323,7 @@ describe("collector logging on error (task 2.1 regression)", () => {
       Promise.reject(new Error("EACCES: fsSize permission denied")),
     );
 
-    const collector = new HealthCollector();
+    const collector = makeCollector();
     // collect() must NOT throw — the failure is isolated to the one source.
     const metrics = await collector.collect();
 
@@ -269,7 +348,7 @@ describe("collector logging on error (task 2.1 regression)", () => {
   it("an empty-disk result (degraded source) is surfaced as a warn, not silently dropped", async () => {
     siMock.fsSize.mockImplementation(() => Promise.resolve([]));
 
-    const collector = new HealthCollector();
+    const collector = makeCollector();
     const metrics = await collector.collect();
 
     expect(metrics.disk).toEqual([]);
@@ -287,7 +366,7 @@ describe("collector logging on error (task 2.1 regression)", () => {
       Promise.reject(new Error("currentLoad unavailable")),
     );
 
-    const collector = new HealthCollector();
+    const collector = makeCollector();
     const metrics = await collector.collect();
 
     // Degraded fallback: overall 0, no per-core data.
