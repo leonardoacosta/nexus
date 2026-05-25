@@ -1,6 +1,6 @@
 import type { Db } from "@nexus/db";
 import { credentials, ccProfileEvents } from "@nexus/db";
-import { eq, and, sql, asc, gt, gte, inArray } from "drizzle-orm";
+import { eq, and, sql, asc, gt, gte, lte, inArray } from "drizzle-orm";
 import { logger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import {
@@ -317,10 +317,45 @@ export class CredentialPool {
     return Sentry.startSpan(
       { name: "credential.lease", attributes: { type, leasedBy } },
       async () => {
-        // First, recover any expired cooldowns (outside transaction — best-effort)
-        await this.recoverExpiredCooldowns();
-
         const result = await this.db.transaction(async (tx) => {
+          // Recover expired cooldowns inside the lease transaction so
+          // cooldown-recovery and lease-selection are atomic. Running this
+          // outside the tx (the previous behaviour) opened a rotation race:
+          // a row recovered by the standalone UPDATE could be SELECT-FOR-UPDATE
+          // leased by a concurrent lease() call before this caller's select ran,
+          // double-leasing the same credential. Folding the recovery into the
+          // tx makes the recover-UPDATE + lease SELECT FOR UPDATE one unit.
+          const now = new Date();
+          const expired = await tx
+            .select()
+            .from(credentials)
+            .where(
+              and(
+                eq(credentials.status, "cooldown"),
+                lte(credentials.cooldownUntil, now),
+              ),
+            );
+
+          if (expired.length > 0) {
+            const recoveredIds = expired.map((c) => c.id);
+            await tx
+              .update(credentials)
+              .set({
+                status: "available",
+                leasedBy: null,
+                leasedAt: null,
+                cooldownUntil: null,
+              })
+              .where(inArray(credentials.id, recoveredIds));
+
+            for (const credential of expired) {
+              logger.info(
+                { id: credential.id, event: "credential.cooldown_exited" },
+                "credential recovered from cooldown",
+              );
+            }
+          }
+
           // Weighted round-robin: ORDER BY rate_limit_count ASC, leased_at ASC NULLS FIRST.
           // SAFE: static SQL fragment, no user input interpolated. Drizzle's asc()
           // helper does not support NULLS FIRST; the literal column name matches
@@ -350,7 +385,6 @@ export class CredentialPool {
           }
 
           const credential = rows[0]!;
-          const now = new Date();
 
           await tx
             .update(credentials)

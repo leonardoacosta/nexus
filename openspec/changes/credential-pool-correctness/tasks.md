@@ -9,8 +9,8 @@
 
 ## API Batch
 
-- [ ] [2.1] Fix cc-credential-manager to read `~/.claude/.credentials.json` (leading dot) so the Credentials feature works [owner:api-engineer] [type:api] [beads:nx-t2q5n]
-- [ ] [2.2] Move `recoverExpiredCooldowns()` inside the `lease()` transaction to remove the rotation race [owner:api-engineer] [type:api] [beads:nx-jz5f]
+- [x] [2.1] Fix cc-credential-manager to read `~/.claude/.credentials.json` (leading dot) so the Credentials feature works [owner:api-engineer] [type:api] [beads:nx-t2q5n]
+- [x] [2.2] Move `recoverExpiredCooldowns()` inside the `lease()` transaction to remove the rotation race [owner:api-engineer] [type:api] [beads:nx-jz5f]
 
 ## UI Batch
 
