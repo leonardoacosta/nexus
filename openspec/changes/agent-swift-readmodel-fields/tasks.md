@@ -14,6 +14,6 @@
 
 ## UI Batch
 
-- [ ] [2.1] Mirror all four field additions into the NexusShared Swift models + Codable decoding so the clients consume them [owner:ui-engineer] [type:ui]
+- [x] [2.1] Mirror all four field additions into the NexusShared Swift models + Codable decoding so the clients consume them [owner:ui-engineer] [type:ui]
 
 ## E2E Batch
