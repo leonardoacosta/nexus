@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] Add a timestamp index on `healthSnapshots` (`packages/db/src/schema/healthSnapshots.ts` + generated migration under `packages/db/drizzle`) for fast time-series queries [owner:db-engineer] [type:db] [beads:nx-lzdu]
+- [x] [1.1] Add a timestamp index on `healthSnapshots` (`packages/db/src/schema/healthSnapshots.ts` + generated migration under `packages/db/drizzle`) for fast time-series queries [owner:db-engineer] [type:db] [beads:nx-lzdu]
 
 ## API Batch
 
