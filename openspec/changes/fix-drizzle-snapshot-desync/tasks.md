@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] Reconcile the Drizzle meta snapshot (`packages/db/drizzle/meta/_journal.json` + the per-step `*_snapshot.json`) with the schema state produced by custom-SQL migrations `0025`/`0027`/`0028`/`0029`/`0032` so `drizzle-kit generate` yields a clean diff (no spurious `CREATE TABLE` for already-migrated tables) [owner:db-engineer] [type:db] [beads:nx-ciq0a]
+- [x] [1.1] Reconcile the Drizzle meta snapshot (`packages/db/drizzle/meta/_journal.json` + the per-step `*_snapshot.json`) with the schema state produced by custom-SQL migrations `0025`/`0027`/`0028`/`0029`/`0032` so `drizzle-kit generate` yields a clean diff (no spurious `CREATE TABLE` for already-migrated tables) [owner:db-engineer] [type:db] [beads:nx-ciq0a]
 
 ## E2E Batch
 
