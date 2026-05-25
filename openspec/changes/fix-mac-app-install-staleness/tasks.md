@@ -9,4 +9,4 @@
 - [ ] [1.3] Update the stale `bundle-integrity.test.ts` LSUIElement assertion to match the intentional `project.yml` value (menu-bar app config) [owner:devops-engineer] [type:testing] [beads:nx-9sigd]
 
 ## E2E Batch
-- [ ] [2.1] After a fresh install, verify the dashboard renders populated; diagnose whether any remaining emptiness is stale-app vs the ATS -1022 cleartext block (nx-p2zs5) and record the determination [owner:e2e-engineer] [type:testing] [beads:nx-tjp5p]
+- [ ] [2.1] [user] After a fresh install, verify the dashboard renders populated; diagnose whether any remaining emptiness is stale-app vs the ATS -1022 cleartext block (nx-p2zs5) and record the determination [owner:e2e-engineer] [type:testing] [beads:nx-tjp5p]

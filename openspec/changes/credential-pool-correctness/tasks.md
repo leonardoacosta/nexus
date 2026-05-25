@@ -16,4 +16,4 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Verify on the homelab agent that `GET /credentials` returns non-empty with an `activeFingerprint` after the dotted-path fix [owner:e2e-engineer] [type:testing] [beads:nx-hdhvk]
+- [ ] [3.1] [user] Verify on the homelab agent that `GET /credentials` returns non-empty with an `activeFingerprint` after the dotted-path fix [owner:e2e-engineer] [type:testing] [beads:nx-hdhvk]

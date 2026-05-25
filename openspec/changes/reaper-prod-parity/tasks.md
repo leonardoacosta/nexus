@@ -11,4 +11,4 @@
 
 ## E2E Batch
 
-- [ ] [1.1] Verify reaper cross-platform parity on the production homelab (Linux) and Mac: identical staleness/PID-liveness/merge_failed behavior; capture the evidence [owner:e2e-engineer] [type:testing] [beads:nx-stu14]
+- [ ] [1.1] [user] Verify reaper cross-platform parity on the production homelab (Linux) and Mac: identical staleness/PID-liveness/merge_failed behavior; capture the evidence [owner:e2e-engineer] [type:testing] [beads:nx-stu14]
