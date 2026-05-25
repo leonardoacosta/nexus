@@ -1004,6 +1004,93 @@ public actor NexusClient {
         }
     }
 
+    // MARK: - Interactive input channel (pty-raw-interactive-input, nx-bv9oz)
+
+    /// The agent's `WS /sessions/:id/interact` channel. Held while a managed
+    /// PTY viewer is attached so keystrokes write raw bytes straight to the
+    /// PTY (no tmux `send-keys` Enter append — see `sendText` for the old
+    /// auto-submitting path, still used by STT command injection).
+    private var interactChannel: PtyInteractChannel?
+
+    /// Open `WS /sessions/:id/interact` and claim the writer mutex. Mirrors
+    /// `consumePtyStream`'s NWConnection + NWProtocolWebSocket setup (http→ws
+    /// scheme rewrite, autoReplyPing) but WRITE-oriented: the connection is
+    /// kept open so `sendInteractiveInput` can push binary frames.
+    ///
+    /// If another client already holds the writer the agent closes the socket
+    /// with application code **4009** ("interactive session already held by
+    /// another client"); the channel surfaces that (and any other failure) as
+    /// a read-only flag rather than throwing — keystrokes degrade to a logged
+    /// no-op, the read-only PTY stream keeps flowing. Opening twice tears down
+    /// the previous channel first (idempotent re-open on retry).
+    public func openInteract(sessionId: String) {
+        interactChannel?.close()
+        guard let wsURL = Self.interactURL(base: endpoint.baseURL, sessionId: sessionId) else {
+            ptyLog.error(
+                "interact: bad ws URL (sessionId=\(sessionId, privacy: .public)) — input disabled"
+            )
+            interactChannel = nil
+            return
+        }
+        let channel = PtyInteractChannel(url: wsURL, sessionId: sessionId)
+        interactChannel = channel
+        channel.start()
+    }
+
+    /// Write raw keystroke bytes over the interact channel as a BINARY WS
+    /// frame. No-op (logged once) when the channel is absent or read-only
+    /// (4009 denied / connection failed). Crucially does NOT append Enter —
+    /// the agent's `pty.write(data)` path forwards the bytes verbatim, so each
+    /// character lands without auto-submitting.
+    public func sendInteractiveInput(_ bytes: Data) {
+        guard let channel = interactChannel else {
+            ptyLog.debug("interact: send dropped — no channel open")
+            return
+        }
+        channel.send(bytes)
+    }
+
+    /// True when the interact channel was denied (4009) or failed — keystrokes
+    /// are no-ops and the viewer should surface a read-only indicator.
+    public func isInteractReadOnly() -> Bool {
+        interactChannel?.isReadOnly ?? true
+    }
+
+    /// Tear down the interact channel (viewer detach / stop()). Idempotent.
+    public func closeInteract() {
+        interactChannel?.close()
+        interactChannel = nil
+    }
+
+    /// Build the `ws(s)://…/sessions/:id/interact` URL from an http(s) base —
+    /// the exact scheme-rewrite + path-join logic `consumePtyStream` uses,
+    /// factored out so both channels stay in lockstep. Returns nil on a bad
+    /// scheme / unconstructable URL (caller treats as "input disabled").
+    static func interactURL(base: URL, sessionId: String) -> URL? {
+        guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        switch comps.scheme?.lowercased() {
+        case "http", "ws": comps.scheme = "ws"
+        case "https", "wss": comps.scheme = "wss"
+        default: return nil
+        }
+        let basePath = comps.percentEncodedPath
+        let escaped = sessionId.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? sessionId
+        comps.percentEncodedPath =
+            basePath.hasSuffix("/")
+                ? "\(basePath)sessions/\(escaped)/interact"
+                : "\(basePath)/sessions/\(escaped)/interact"
+        guard let url = comps.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "ws" || scheme == "wss" else {
+            return nil
+        }
+        return url
+    }
+
     // MARK: - Lifecycle
 
     /// Drop in-flight transport before the owning aggregate replaces this
@@ -1162,5 +1249,172 @@ private final class PtyStreamGate: @unchecked Sendable {
         } else {
             cont?.resume(returning: ())
         }
+    }
+}
+
+// MARK: - Interactive input channel (pty-raw-interactive-input, nx-bv9oz)
+
+/// Write-oriented WebSocket channel for `WS /sessions/:id/interact`. Mirrors
+/// `consumePtyStream`'s `NWConnection` + `NWProtocolWebSocket` setup but instead
+/// of a receive loop that forwards PTY output, this channel KEEPS THE
+/// CONNECTION OPEN so `send(_:)` can push raw keystroke bytes as binary WS
+/// frames straight into the PTY (the agent's `pty.write(data)` path appends no
+/// Enter — fixes the auto-submit + redraw-jumble that `POST /commands/send-text`
+/// → tmux `send-keys` caused).
+///
+/// Failure model — never crash, degrade to read-only:
+///   - On open, the agent claims the writer mutex. If another client holds it
+///     the agent application-closes with code **4009**. That arrives EITHER as
+///     a received `.close` message carrying `NWProtocolWebSocket.Metadata`
+///     (whose `closeCode` we inspect) OR as the connection going
+///     `.failed`/`.cancelled`. Both paths flip `isReadOnly = true`.
+///   - Any other transport failure (`.failed`) is also treated as read-only.
+///   - `send(_:)` is a no-op once `isReadOnly` is set.
+///
+/// Marked `@unchecked Sendable`: `isReadOnlyFlag` is the only mutable state and
+/// is guarded by `lock`; the captured `NWConnection` is itself thread-safe.
+/// `NWConnection` callbacks fire on `queue` (off the actor), so the channel
+/// owns all cross-thread state and never touches `NexusClient`'s actor
+/// isolation directly.
+final class PtyInteractChannel: @unchecked Sendable {
+    private let connection: NWConnection
+    private let queue: DispatchQueue
+    private let sessionId: String
+    private let lock = NSLock()
+    private var isReadOnlyFlag = false
+    private var started = false
+
+    /// True once the channel was denied (4009) or failed. `send` becomes a
+    /// no-op; the viewer surfaces a read-only indicator.
+    var isReadOnly: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return isReadOnlyFlag
+    }
+
+    init(url: URL, sessionId: String) {
+        self.sessionId = sessionId
+        let wsOpts = NWProtocolWebSocket.Options()
+        wsOpts.autoReplyPing = true
+        let params = NWParameters.tcp
+        params.defaultProtocolStack.applicationProtocols.insert(wsOpts, at: 0)
+        self.connection = NWConnection(to: .url(url), using: params)
+        self.queue = DispatchQueue(
+            label: "dev.leonardoacosta.nexus.interact.\(sessionId)"
+        )
+    }
+
+    /// Open the connection and start watching for the 4009 denied-close (or any
+    /// transport failure). Idempotent — a second call is a no-op.
+    func start() {
+        lock.lock()
+        if started { lock.unlock(); return }
+        started = true
+        lock.unlock()
+
+        connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                ptyLog.info(
+                    "interact WS ready (sessionId=\(self.sessionId, privacy: .public))"
+                )
+            case .failed(let error):
+                // Transport failure (incl. the agent's 4009 application close
+                // surfacing as a connection failure) -> read-only.
+                ptyLog.error(
+                    "interact WS failed (sessionId=\(self.sessionId, privacy: .public)): \(String(describing: error), privacy: .public) — input read-only"
+                )
+                self.markReadOnly()
+            case .cancelled:
+                // Clean teardown (our close()) OR the agent's application close.
+                // Either way no more input flows.
+                self.markReadOnly()
+            case .waiting(let error):
+                ptyLog.debug(
+                    "interact WS waiting (sessionId=\(self.sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
+                )
+            default:
+                break
+            }
+        }
+
+        // Receive loop — we don't consume PTY OUTPUT here (the read-only stream
+        // channel owns that). We listen ONLY to catch the agent's application
+        // close frame (4009 writer-denied) so we can flip read-only with the
+        // precise reason. Binary/text data frames on the interact socket are
+        // the agent's "not the interactive writer" error replies; we log them.
+        receiveLoop()
+        connection.start(queue: queue)
+    }
+
+    private func receiveLoop() {
+        connection.receiveMessage { [weak self] data, context, _, error in
+            guard let self else { return }
+            if let error {
+                ptyLog.debug(
+                    "interact WS receive error (sessionId=\(self.sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
+                )
+                self.markReadOnly()
+                return
+            }
+            if let meta = context?.protocolMetadata(
+                definition: NWProtocolWebSocket.definition
+            ) as? NWProtocolWebSocket.Metadata {
+                if meta.opcode == .close {
+                    // Application close. The agent uses 4009 for writer-denied.
+                    ptyLog.warning(
+                        "interact WS closed by agent (sessionId=\(self.sessionId, privacy: .public), closeCode=\(String(describing: meta.closeCode), privacy: .public)) — input read-only"
+                    )
+                    self.markReadOnly()
+                    return
+                }
+                if meta.opcode == .text, let data, !data.isEmpty {
+                    // Agent control reply (e.g. {"type":"error","message":
+                    // "not the interactive writer"}). Treat as a denial signal.
+                    let msg = String(decoding: data, as: UTF8.self)
+                    ptyLog.warning(
+                        "interact WS agent error (sessionId=\(self.sessionId, privacy: .public)): \(msg, privacy: .public) — input read-only"
+                    )
+                    self.markReadOnly()
+                    return
+                }
+            }
+            // Benign frame — keep listening for the close.
+            self.receiveLoop()
+        }
+    }
+
+    /// Send raw keystroke bytes as a BINARY WS frame. No-op once read-only.
+    func send(_ bytes: Data) {
+        if isReadOnly { return }
+        let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
+        let context = NWConnection.ContentContext(
+            identifier: "interactInput",
+            metadata: [meta]
+        )
+        connection.send(
+            content: bytes,
+            contentContext: context,
+            isComplete: true,
+            completion: .contentProcessed { [weak self] error in
+                guard let self, let error else { return }
+                ptyLog.error(
+                    "interact WS send failed (sessionId=\(self.sessionId, privacy: .public)): \(String(describing: error), privacy: .public) — input read-only"
+                )
+                self.markReadOnly()
+            }
+        )
+    }
+
+    /// Tear the connection down. Idempotent.
+    func close() {
+        markReadOnly()
+        connection.cancel()
+    }
+
+    private func markReadOnly() {
+        lock.lock()
+        isReadOnlyFlag = true
+        lock.unlock()
     }
 }

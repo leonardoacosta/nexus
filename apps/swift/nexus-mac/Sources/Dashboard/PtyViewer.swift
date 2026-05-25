@@ -120,6 +120,17 @@ struct PtyViewer: View {
                 .help("Resize the session's terminal to fill this window (auto-restores on close)")
                 .accessibilityIdentifier("pty-viewer-takeover-toggle")
             }
+            // Read-only indicator — the interact channel was denied (4009:
+            // another client holds the writer mutex) so keystrokes don't reach
+            // the session. Non-fatal: the PTY output stream keeps flowing.
+            if model.inputReadOnly {
+                Label("read-only", systemImage: "keyboard.badge.ellipsis")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.orange)
+                    .help("Input unavailable — another client is attached to this session")
+                    .accessibilityIdentifier("pty-viewer-readonly")
+            }
             // Error state surfaces a retry button + warn copy. The badge
             // colour also flips red via `statusColor` so the user notices
             // without reading the status word.
@@ -255,6 +266,11 @@ final class PtyViewerModel: ObservableObject {
     /// representable can re-letterbox when it changes and the header can
     /// surface the size. nil until the first geometry frame arrives.
     @Published private(set) var reportedGeometry: (cols: Int, rows: Int)? = nil
+    /// True when the interact channel was denied (another client holds the
+    /// writer mutex → agent closed with 4009) or otherwise failed. Keystrokes
+    /// become no-ops; the header surfaces a read-only indicator. The PTY output
+    /// stream keeps flowing regardless (pty-raw-interactive-input, nx-bv9oz).
+    @Published private(set) var inputReadOnly: Bool = false
     let sessionId: String
     /// Mirror of PtyViewer.sessionType — used by the coordinator to gate
     /// input forwarding. `nil` is treated as non-managed.
@@ -292,12 +308,20 @@ final class PtyViewerModel: ObservableObject {
         self.sessionType = sessionType
     }
 
-    /// Forward keystrokes from the SwiftTerm delegate to the agent's
-    /// `POST /commands/send-text`. Non-UTF8 byte sequences are dropped with
-    /// a one-shot warn (see `loggedNonManagedSuppression` for the managed
-    /// counterpart). When `sessionType != "managed"` the call is a no-op
-    /// plus one-shot warn — non-managed (raw/ad_hoc) sessions don't have a
-    /// tmux target to forward into.
+    /// Forward keystrokes from the SwiftTerm delegate over the agent's raw
+    /// `WS /sessions/:id/interact` channel (pty-raw-interactive-input, nx-bv9oz).
+    /// Each keystroke is written as RAW BYTES — the agent's `pty.write(data)`
+    /// path appends NO Enter, so characters land without auto-submitting and the
+    /// TUI no longer redraw-jumbles. (The old `POST /commands/send-text` →
+    /// tmux `send-keys` path auto-submitted every char; `sendText` is kept for
+    /// STT command injection but is NOT used here.)
+    ///
+    /// When `sessionType != "managed"` the call is a no-op plus one-shot warn —
+    /// non-managed (raw/ad_hoc) sessions don't have a tmux target to forward
+    /// into. When the interact channel is read-only (another client holds the
+    /// writer mutex → agent closed with 4009) keystrokes become a logged no-op
+    /// + a non-fatal `inputReadOnly` indicator; the read-only stream keeps
+    /// flowing without crashing.
     func forwardInput(_ data: ArraySlice<UInt8>) {
         guard sessionType == "managed" else {
             if !loggedNonManagedSuppression {
@@ -308,25 +332,26 @@ final class PtyViewerModel: ObservableObject {
             }
             return
         }
-        guard let text = String(bytes: data, encoding: .utf8) else {
-            ptyLog.warning(
-                "PtyViewer: dropped non-UTF8 input (sessionId=\(self.sessionId, privacy: .public), bytes=\(data.count, privacy: .public))"
-            )
-            return
-        }
+        // Raw bytes — no UTF-8 round-trip, no Enter append. Control sequences
+        // (arrows, Ctrl-C, ESC) reach the PTY verbatim. Return key arrives as
+        // 0x0D from SwiftTerm and is forwarded as-is.
+        let bytes = Data(data)
         let sessionId = self.sessionId
-        let originAgent: String? = nil
-        Task { [client] in
-            do {
-                try await client.sendText(
-                    sessionId: sessionId,
-                    text: text,
-                    originAgent: originAgent
-                )
-            } catch {
-                ptyLog.error(
-                    "PtyViewer: sendText failed (sessionId=\(sessionId, privacy: .public)): \(String(describing: error), privacy: .public)"
-                )
+        Task { [weak self, client] in
+            await client.sendInteractiveInput(bytes, originAgent: nil)
+            // Surface read-only state if the channel was denied (4009) so the
+            // header can indicate that input isn't reaching the session.
+            let readOnly = await client.isInteractReadOnly(originAgent: nil)
+            if readOnly {
+                await MainActor.run {
+                    guard let self else { return }
+                    if !self.inputReadOnly {
+                        self.inputReadOnly = true
+                        ptyLog.warning(
+                            "PtyViewer: interact channel read-only (sessionId=\(sessionId, privacy: .public)) — keystrokes dropped (writer held elsewhere)"
+                        )
+                    }
+                }
             }
         }
     }
@@ -345,7 +370,16 @@ final class PtyViewerModel: ObservableObject {
         sseTask?.cancel()
         connectWatchdog?.cancel()
         status = .connecting
+        inputReadOnly = false
         let sid = self.sessionId
+        // Open the raw-input WS channel for managed sessions so keystrokes
+        // write raw bytes to the PTY (no auto-Enter). Non-managed sessions get
+        // no channel — `forwardInput`'s managed-gate drops their keystrokes.
+        // Best-effort: a 4009 writer-denied close flips the channel to
+        // read-only internally; `forwardInput` surfaces it on first keystroke.
+        if isManaged {
+            await client.openInteract(sessionId: sid, originAgent: nil)
+        }
         sseTask = Task { [weak self] in
             guard let self else { return }
             // Aggregate fans out to every agent (only the session owner
@@ -401,6 +435,12 @@ final class PtyViewerModel: ObservableObject {
         sseTask = nil
         connectWatchdog?.cancel()
         connectWatchdog = nil
+        // Close the raw-input WS channel so the agent releases the writer mutex
+        // (lets another client claim it) and tears down the connection. Fire-
+        // and-forget — stop() is sync (onDisappear / SwiftUI teardown).
+        let client = self.client
+        Task { await client.closeInteract(originAgent: nil) }
+        inputReadOnly = false
         // Revert to lock on teardown so a re-open starts clean and the agent's
         // auto-restore (fired on viewer detach) leaves the next viewer with the
         // correct pane geometry. No client-side resize needed — the agent owns

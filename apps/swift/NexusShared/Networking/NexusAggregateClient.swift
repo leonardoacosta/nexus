@@ -676,6 +676,43 @@ public actor NexusAggregateClient {
         try await client.requestResize(sessionId: sessionId, cols: cols, rows: rows)
     }
 
+    // MARK: - Interactive input channel (pty-raw-interactive-input, nx-bv9oz)
+
+    /// Open `WS /sessions/:id/interact` on the owning agent so keystrokes write
+    /// raw bytes straight to the PTY (no tmux `send-keys` Enter append). Routes
+    /// to `originAgent` when known, else the first client — same resolution as
+    /// `sendText`/`requestResize`. A 4009 writer-denied close is surfaced as a
+    /// read-only flag inside the channel (no throw, no crash); query it via
+    /// `isInteractReadOnly`.
+    public func openInteract(sessionId: String, originAgent: String? = nil) async {
+        let client = resolveClient(forAgent: originAgent)
+        await client.openInteract(sessionId: sessionId)
+    }
+
+    /// Write raw keystroke bytes over the interact channel as a BINARY frame.
+    /// No-op when the channel is closed or read-only. Routes to the owning
+    /// agent the same way `openInteract` does.
+    public func sendInteractiveInput(
+        _ bytes: Data,
+        originAgent: String? = nil
+    ) async {
+        let client = resolveClient(forAgent: originAgent)
+        await client.sendInteractiveInput(bytes)
+    }
+
+    /// True when the interact channel was denied (4009) or failed on the owning
+    /// agent — keystrokes are no-ops and the viewer should surface read-only.
+    public func isInteractReadOnly(originAgent: String? = nil) async -> Bool {
+        let client = resolveClient(forAgent: originAgent)
+        return await client.isInteractReadOnly()
+    }
+
+    /// Tear down the interact channel on the owning agent (viewer detach).
+    public func closeInteract(originAgent: String? = nil) async {
+        let client = resolveClient(forAgent: originAgent)
+        await client.closeInteract()
+    }
+
     // MARK: - session-start + spec linkage (specs-tab-start-on-spec)
 
     /// `POST /session/start` — fans out to every reachable agent but only

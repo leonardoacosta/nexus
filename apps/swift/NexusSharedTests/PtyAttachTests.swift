@@ -204,6 +204,118 @@ final class PtyAttachTests: XCTestCase {
         XCTAssertEqual((obj["cols"] as? NSNumber)?.intValue, 120)
         XCTAssertEqual((obj["rows"] as? NSNumber)?.intValue, 40)
     }
+
+    // MARK: - Task 3.x: raw interactive input over /interact WS
+    //
+    // pty-raw-interactive-input (nx-bv9oz). The production rewire routes
+    // keystrokes through `NexusAggregateClient.sendInteractiveInput` (raw bytes,
+    // BINARY WS frame, NO appended Enter) instead of `sendText`. The gate +
+    // routing decision logic lives in PtyViewerModel (nexus-mac, NOT linked by
+    // NexusSharedTests), so — same discipline as PtyInputForwarder above — we
+    // mirror the forwarder against an injected fake interact transport and pin
+    // the four behavioral contracts:
+    //
+    //   1. a managed keystroke writes RAW bytes with NO appended Enter and does
+    //      NOT call the sendText sink (the auto-Enter regression class).
+    //   2. the Return key (0x0D) is forwarded verbatim as a carriage return.
+    //   3. a non-managed session opens NO interact channel (and forwards nothing).
+    //   4. a 4009 writer-denied close degrades to read-only: subsequent sends
+    //      are no-ops and nothing crashes.
+
+    /// 1. A forwarded keystroke writes raw bytes over the interact transport
+    ///    with NO appended Enter, and never touches the sendText sink.
+    func testInteractForwardWritesRawBytesNoEnter() async throws {
+        let transport = FakeInteractTransport()
+        let sendTextSink = SendRecorder()
+        let forwarder = RawInputForwarder(
+            sessionType: "managed",
+            interact: transport,
+            sendText: { sid, text in
+                await sendTextSink.record(sessionId: sid, text: text)
+            }
+        )
+
+        await forwarder.forwardInput(bytes: Array("a".utf8))
+
+        let frames = await transport.frames
+        XCTAssertEqual(frames.count, 1, "managed keystroke must write exactly one interact frame")
+        XCTAssertEqual(Array(frames[0]), [0x61], "the byte 'a' must be written verbatim")
+        XCTAssertFalse(
+            Array(frames[0]).contains(0x0A) || Array(frames[0]).contains(0x0D),
+            "no LF (0x0A) or CR (0x0D) Enter may be appended to a plain keystroke"
+        )
+        let sendTextCalls = await sendTextSink.calls
+        XCTAssertEqual(sendTextCalls.count, 0, "interact path must NOT call sendText (no tmux send-keys)")
+    }
+
+    /// 2. The Return key arrives from SwiftTerm as a carriage return (0x0D) and
+    ///    is forwarded verbatim — Enter is an explicit keypress, not an append.
+    func testInteractForwardSendsCarriageReturnForReturnKey() async throws {
+        let transport = FakeInteractTransport()
+        let forwarder = RawInputForwarder(
+            sessionType: "managed",
+            interact: transport,
+            sendText: { _, _ in }
+        )
+
+        // SwiftTerm emits 0x0D for the Return key.
+        await forwarder.forwardInput(bytes: [0x0D])
+
+        let frames = await transport.frames
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(Array(frames[0]), [0x0D], "Return must reach the PTY as a single CR (0x0D)")
+    }
+
+    /// 3. A non-managed session never opens an interact channel and forwards no
+    ///    bytes (and still doesn't fall back to sendText).
+    func testNonManagedOpensNoInteractChannel() async throws {
+        let transport = FakeInteractTransport()
+        let sendTextSink = SendRecorder()
+
+        for nonManaged in ["raw", "ad_hoc", nil] as [String?] {
+            let forwarder = RawInputForwarder(
+                sessionType: nonManaged,
+                interact: transport,
+                sendText: { sid, text in
+                    await sendTextSink.record(sessionId: sid, text: text)
+                }
+            )
+            await forwarder.maybeOpen()
+            await forwarder.forwardInput(bytes: Array("ls".utf8))
+        }
+
+        let opened = await transport.openCount
+        XCTAssertEqual(opened, 0, "non-managed sessions must NOT open an interact channel")
+        let frames = await transport.frames
+        XCTAssertEqual(frames.count, 0, "non-managed keystrokes must be dropped")
+        let sendTextCalls = await sendTextSink.calls
+        XCTAssertEqual(sendTextCalls.count, 0, "non-managed must not fall back to sendText either")
+    }
+
+    /// 4. A 4009 writer-denied close degrades the channel to read-only:
+    ///    subsequent sends are no-ops and nothing crashes.
+    func testInteract4009DeniedDegradesToReadOnly() async throws {
+        let transport = FakeInteractTransport()
+        let forwarder = RawInputForwarder(
+            sessionType: "managed",
+            interact: transport,
+            sendText: { _, _ in }
+        )
+
+        await forwarder.maybeOpen()
+        // Agent claims writer-denied → application close 4009. The channel
+        // flips read-only (mirrors PtyInteractChannel.markReadOnly()).
+        await transport.simulateDeniedClose(code: 4009)
+
+        // Subsequent sends must be no-ops — no frames, no crash.
+        await forwarder.forwardInput(bytes: Array("a".utf8))
+        await forwarder.forwardInput(bytes: [0x0D])
+
+        let frames = await transport.frames
+        XCTAssertEqual(frames.count, 0, "read-only channel must drop all keystrokes")
+        let readOnly = await transport.isReadOnly
+        XCTAssertTrue(readOnly, "a 4009 denied-close must leave the channel read-only")
+    }
 }
 
 // MARK: - Test helpers
@@ -291,5 +403,75 @@ private final class PtyGeometryReconciler {
     func sizeChanged(newCols: Int, newRows: Int) {
         guard mode == .takeOver else { return }
         resizeCalls.append(GridSize(cols: newCols, rows: newRows))
+    }
+}
+
+// MARK: - Raw interactive input test helpers (pty-raw-interactive-input)
+
+/// Injected fake for the `/interact` WS transport. Mirrors the observable
+/// surface of `PtyInteractChannel` (open / send raw binary frame / read-only
+/// after a 4009 denied-close) so `RawInputForwarder` can be exercised without a
+/// live NWConnection. Actor-isolated so concurrent forwarders are race-free.
+private actor FakeInteractTransport {
+    private(set) var frames: [Data] = []
+    private(set) var openCount = 0
+    private(set) var isReadOnly = false
+
+    func open() { openCount += 1 }
+
+    /// Production `PtyInteractChannel.send` — no-op once read-only, else records
+    /// the raw binary frame verbatim.
+    func send(_ bytes: Data) {
+        if isReadOnly { return }
+        frames.append(bytes)
+    }
+
+    /// Production `PtyInteractChannel.markReadOnly` triggered by an agent
+    /// application close. The agent uses 4009 for writer-denied.
+    func simulateDeniedClose(code: Int) {
+        isReadOnly = true
+    }
+}
+
+/// Mirror of `PtyViewerModel`'s interact-channel forwarding lifted out of
+/// nexus-mac so the raw-input CONTRACT is unit-testable from NexusSharedTests.
+/// Decision logic is intentionally identical to `PtyViewer.swift` after the
+/// pty-raw-interactive-input rewire:
+///   - managed-gate: only `sessionType == "managed"` opens/forwards.
+///   - `maybeOpen()` mirrors `PtyViewerModel.start()`'s `if isManaged { openInteract }`.
+///   - `forwardInput` writes RAW bytes (no UTF-8 round-trip, no Enter append)
+///     via the interact transport — never `sendText`.
+/// Keep in lockstep with PtyViewer.swift.
+private final class RawInputForwarder {
+    let sessionType: String?
+    private let interact: FakeInteractTransport
+    /// Present only to PROVE the rewire never falls back to it. Production keeps
+    /// `sendText` for STT command injection, but the keystroke path must not use it.
+    private let sendText: @Sendable (String, String) async -> Void
+
+    init(
+        sessionType: String?,
+        interact: FakeInteractTransport,
+        sendText: @escaping @Sendable (String, String) async -> Void
+    ) {
+        self.sessionType = sessionType
+        self.interact = interact
+        self.sendText = sendText
+    }
+
+    var isManaged: Bool { sessionType == "managed" }
+
+    /// Mirror of `PtyViewerModel.start()` — open the interact channel only for
+    /// managed sessions.
+    func maybeOpen() async {
+        guard isManaged else { return }
+        await interact.open()
+    }
+
+    /// Mirror of `PtyViewerModel.forwardInput` (post-rewire): managed-gate, then
+    /// write RAW bytes over the interact transport. No Enter, no sendText.
+    func forwardInput(bytes: [UInt8]) async {
+        guard isManaged else { return }
+        await interact.send(Data(bytes))
     }
 }
