@@ -54,6 +54,28 @@ export interface HealthMetrics {
    * stopped.
    */
   socket_server_listening: boolean;
+  /**
+   * Liveness — Drizzle schema verification (every required hot-path table
+   * exists). False when one or more tables are missing on the connected
+   * database — the agent should NOT have started in that case (startup
+   * gate is in `apps/agent/src/db/database.ts:verifySchema`), but the field
+   * is surfaced here so dashboards can distinguish "PG up + schema OK"
+   * from "PG up + schema missing" without parsing logs.
+   *
+   * When false, `db_ok` is also forced to false so existing monitoring on
+   * `db_ok` catches the failure class (introduced after nx-dbame: 7-week
+   * silent outage on homelab — `db_ok:true` masked `relation "sessions"
+   * does not exist`). Optional / nullable so older agents that omit the
+   * field continue to decode on the Swift side.
+   */
+  schema_ok?: boolean;
+  /**
+   * Companion to `schema_ok` — list of required tables that were absent on
+   * the connected database. Empty / omitted when `schema_ok` is true.
+   * Surfaces in `GET /health` so an operator can copy the table list into
+   * the `drizzle-kit push` follow-up without re-running the probe.
+   */
+  schema_missing?: string[];
 }
 
 /** A single process entry for the top-N CPU/RAM lists. */

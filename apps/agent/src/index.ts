@@ -3,7 +3,7 @@ import { logger } from "@nexus/core/node";
 import { startServer, healthCollector, streamManager } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";
 import { createSessionManager } from "./session-manager";
-import { openDatabase } from "./db/database";
+import { openDatabase, verifySchema, SchemaIncompleteError } from "./db/database";
 import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { scheduleRetention } from "./db/retention";
@@ -47,6 +47,30 @@ try {
 } catch (err) {
   logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to open database — agent cannot start");
   process.exit(1);
+}
+
+// Schema verification gate — the agent MUST NOT bind :7400 with an empty /
+// half-migrated database (see nx-dbame: 7-week silent outage on homelab
+// where `db_ok:true` masked `relation "sessions" does not exist`). The probe
+// is a single `SELECT to_regclass(...)` per required table — cheap enough to
+// run on every startup. Set NEXUS_SKIP_SCHEMA_CHECK=1 to bypass (CI only).
+try {
+  await verifySchema(db);
+} catch (err) {
+  if (err instanceof SchemaIncompleteError) {
+    logger.fatal(
+      {
+        missingTables: err.missingTables,
+        host: err.host,
+        database: err.database,
+      },
+      err.message,
+    );
+    process.exit(1);
+  }
+  // Unexpected failures (network blip, dead pool) — re-throw so the existing
+  // unhandled-rejection plumbing surfaces them rather than silently masking.
+  throw err;
 }
 
 // Bootstrap ~/.config/nexus/audio/ early so the first notification dispatch

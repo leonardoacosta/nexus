@@ -220,6 +220,46 @@ case "$PLATFORM" in
     macos)  install_macos ;;
 esac
 
+# ── Env drift check ────────────────────────────────────────────────
+# Env drift check — added 2026-05-26 to prevent recurrence of nx-dbame silent
+# dropout (canonical /nexus DB silently rotated to /cortex; .env diverged from
+# secrets.env.example). Compares KEY SETS (not values) and POSTGRES_URL db-name
+# segments between the example template and the active ~/.env. Idempotent.
+check_env_drift() {
+    local example="$SCRIPT_DIR/secrets.env.example"
+    local target="$HOME/.env"
+    [[ -f "$example" ]] || { warn "[env-drift] missing template: $example"; return 0; }
+    [[ -f "$target"  ]] || { warn "[env-drift] no $target — copy from $example to populate"; return 0; }
+
+    local example_keys target_keys
+    example_keys=$(grep -E '^[A-Z_][A-Z0-9_]*=' "$example" | cut -d= -f1 | sort -u)
+    target_keys=$(grep -E '^[A-Z_][A-Z0-9_]*=' "$target" | cut -d= -f1 | sort -u)
+
+    local missing
+    missing=$(comm -23 <(printf '%s\n' "$example_keys") <(printf '%s\n' "$target_keys"))
+    if [[ -n "$missing" ]]; then
+        while IFS= read -r key; do
+            [[ -z "$key" ]] && continue
+            printf '\033[1;33m[WARN env-drift]\033[0m key missing from %s: %s — copy default from %s\n' "$target" "$key" "$example"
+        done <<< "$missing"
+    fi
+
+    # DB-name drift: warn if any *POSTGRES_URL* db-segment differs (silent-failure vector).
+    while IFS= read -r key; do
+        [[ -z "$key" ]] && continue
+        local ex_val tg_val ex_db tg_db
+        ex_val=$(grep -E "^${key}=" "$example" | head -1 | cut -d= -f2-)
+        tg_val=$(grep -E "^${key}=" "$target"  | head -1 | cut -d= -f2-)
+        [[ -z "$tg_val" ]] && continue
+        ex_db=$(printf '%s' "$ex_val" | sed -E 's|.*/([^/?]+).*|\1|')
+        tg_db=$(printf '%s' "$tg_val" | sed -E 's|.*/([^/?]+).*|\1|')
+        if [[ -n "$ex_db" && -n "$tg_db" && "$ex_db" != "$tg_db" ]]; then
+            printf '\033[1;33m[WARN env-drift]\033[0m %s db-segment differs: example=/%s target=/%s — verify intentional\n' "$key" "$ex_db" "$tg_db"
+        fi
+    done < <(grep -oE '^[A-Z_]*POSTGRES_URL[A-Z_]*' "$example" | sort -u)
+}
+check_env_drift
+
 # ── Install git hook dispatchers ───────────────────────────────────
 
 if [[ -d "$REPO_DIR/.git" ]]; then

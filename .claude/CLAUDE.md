@@ -52,7 +52,7 @@ Monorepo
 │       └── NexusShared/   Shared Swift framework (Models, Networking, Observers, Synthesis)
 └── packages/
     ├── core/              Shared TS types + session model + protocol contracts
-    └── db/                SQLite schema + drift detector
+    └── db/                Drizzle schema (PostgreSQL) + drift detector
 ```
 
 ### Spine
@@ -84,9 +84,25 @@ history.
 | ---- | ------- |
 | bun | Agent runtime + build (`bun build --compile`) |
 | pino | Structured logging across the agent |
-| sqlite | Persistence (`packages/db`) — sessions, hooks, notifications, schema drift |
+| postgres + drizzle-orm | Persistence (`packages/db`) — sessions, hooks, notifications, schema drift. Migrated from SQLite on 2026-04-03 (commit b0061761). |
+| drizzle-kit | Schema migrations (`pnpm --filter @nexus/db db:push`) |
 | xcodegen | Generates `apps/swift/nexus.xcodeproj` from `project.yml` |
 | ratatui | (legacy CLI dashboard, retired) |
+
+### Persistence — Canonical Postgres Target
+
+| Field | Value |
+| ----- | ----- |
+| Driver | `drizzle-orm/postgres-js` (Bun-compatible) |
+| Container | `homelab-postgres` (pgvector/pgvector:pg16) |
+| Host | `localhost:5436` (loopback on homelab) / `100.73.182.4:5436` (Tailscale) |
+| Database | `nexus` — multi-tenant container also hosts `cortex`, `immich`, `nova` |
+| User | `cortex` (shared role; schemas isolated by DB) |
+| Env var | `POSTGRES_URL` — see `deploy/secrets.env.example` for canonical form |
+| Migrations | `pnpm --filter @nexus/db db:push` against `POSTGRES_URL` |
+| Schema boundary | See `deploy/POSTGRES_SCHEMA_MAP.md` — Nexus writes ONLY to `nexus` DB |
+
+> **Anti-drift rule**: Homelab `~/.env` MUST match `deploy/secrets.env.example` for the `POSTGRES_URL` database segment. The 2026-05-26 outage (`nx-dbame`) was caused by `.env` silently drifting from `/nexus` to `/cortex`. `deploy/install.sh` warns on drift at install time; the agent's startup smoke test refuses to listen on :7400 if the schema is missing.
 
 ## Build / Run Commands
 

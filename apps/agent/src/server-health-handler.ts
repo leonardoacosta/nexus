@@ -12,6 +12,7 @@ import type { Db } from "@nexus/db";
 import { getAgentId, logger } from "@nexus/core/node";
 import type { HealthMetrics } from "@nexus/core";
 import { insertHealthSnapshot, pingDb } from "./db/health";
+import { checkSchemaForHealth } from "./db/database";
 import { lastWatcherTickMs } from "./services/process-watcher";
 import { isSocketServerListening } from "./services/socket-server";
 import { withCors } from "./server-origin";
@@ -36,6 +37,8 @@ export function stubbedHealthPayload(): HealthMetrics {
     db_ok: true,
     last_watcher_tick_ms: 0,
     socket_server_listening: true,
+    // Stubbed default — overridden by the live probe in handleHealthGet().
+    schema_ok: true,
   };
 }
 
@@ -82,6 +85,35 @@ export async function handleHealthGet(
       "health: db_ok probe threw — falling back to false",
     );
     payload.db_ok = false;
+  }
+
+  // schema_ok: false when any required table is missing. Flips db_ok to
+  // false as well so monitoring catches "connected but unusable" — the
+  // exact failure class that caused nx-dbame (7-week silent outage on
+  // homelab where db_ok:true masked `relation "sessions" does not exist`).
+  // Skipped when db is missing or the handshake already failed.
+  if (db && payload.db_ok) {
+    try {
+      const { schema_ok, missing } = await checkSchemaForHealth(db);
+      payload.schema_ok = schema_ok;
+      if (!schema_ok) {
+        payload.db_ok = false;
+        payload.schema_missing = missing.slice();
+        logger.warn(
+          { missingTables: missing },
+          "health: schema_ok=false — required tables missing, flipping db_ok to false",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "health: schema_ok probe threw — falling back to false + flipping db_ok",
+      );
+      payload.schema_ok = false;
+      payload.db_ok = false;
+    }
+  } else {
+    payload.schema_ok = false;
   }
 
   // last_watcher_tick_ms: -1 sentinel means watcher hasn't ticked yet.
