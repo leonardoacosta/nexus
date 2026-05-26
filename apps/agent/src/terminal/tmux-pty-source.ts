@@ -172,6 +172,12 @@ export class TmuxPtySource implements PtySource {
           "tmux",
           "capture-pane",
           "-p",
+          // `-e` preserves escape sequences in captured scrollback. Without it,
+          // tmux returns text pre-wrapped at the ORIGINAL pane's grid width with
+          // escapes stripped; when SwiftTerm re-renders into a differently sized
+          // grid the history looks jumbled. With `-e`, SwiftTerm replays the real
+          // escapes into its own grid so wrapping stays correct on resize.
+          "-e",
           "-S",
           `-${SCROLLBACK_LINES}`,
           "-E",

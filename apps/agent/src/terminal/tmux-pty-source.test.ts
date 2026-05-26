@@ -113,6 +113,9 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
       "tmux",
       "capture-pane",
       "-p",
+      // `-e` preserves escape sequences so SwiftTerm can re-render scrollback
+      // into its own grid (fixes jumbled history on grid-size mismatch).
+      "-e",
       "-S",
       "-1000",
       "-E",
