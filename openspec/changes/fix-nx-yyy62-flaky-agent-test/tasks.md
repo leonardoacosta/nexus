@@ -14,5 +14,5 @@ Gate flake-resilience + capture, and harden the identifiable timing fragilities.
 
 Prove the gate resilience + suite stability.
 
-- [ ] [2.1] Verify the gate retry logic with a controlled harness (do NOT do a real push): a stub test that fails-once-then-passes makes the wrapped step PROCEED + writes the flake log; a stub test that always fails makes it ABORT after 2 attempts. Paste the evidence. [owner:e2e-engineer] [type:testing] [beads:nx-5n6wo]
-- [ ] [2.2] Stability: run `NEXUS_HEAVY_TESTS=1 bun test` (in `apps/agent`) 20x and confirm 0 fail; if any single run flakes, confirm the captured test name lands in the flake log and harden that test too. Paste the run summary. [owner:e2e-engineer] [type:testing] [beads:nx-1p1d6]
+- [x] [2.1] Verify the gate retry logic with a controlled harness (do NOT do a real push): a stub test that fails-once-then-passes makes the wrapped step PROCEED + writes the flake log; a stub test that always fails makes it ABORT after 2 attempts. Paste the evidence. [owner:e2e-engineer] [type:testing] [beads:nx-5n6wo]
+- [x] [2.2] Stability: run `NEXUS_HEAVY_TESTS=1 bun test` (in `apps/agent`) 20x and confirm 0 fail; if any single run flakes, confirm the captured test name lands in the flake log and harden that test too. Paste the run summary. [owner:e2e-engineer] [type:testing] [beads:nx-1p1d6]

@@ -1,24 +1,16 @@
 /**
  * Spec Watcher Service — lifecycle entry point.
  *
- * Proactively polls openspec status across all registered projects,
- * detects state transitions (NewSpec, Removed, Progress, AllComplete,
- * HashChanged), and fires TTS notifications on transitions.
+ * Proactively polls openspec status across all registered projects, detects
+ * state transitions (NewSpec, Removed, Progress, AllComplete, HashChanged),
+ * and fires TTS notifications on transitions. Design: 60s poll interval,
+ * staggered batches of 4 projects (200ms inter-batch delay); only projects
+ * with an `openspec/` dir are polled. State is in-memory (per-project spec
+ * snapshots); the first tick populates initial state without emitting.
  *
- * Design: 60-second poll interval, staggered batches of 4 projects
- * with 200ms inter-batch delay. Only projects that have an `openspec/`
- * directory are polled.
- *
- * State is tracked in memory (per-project spec snapshots). The first
- * tick is used to populate initial state without emitting events.
- *
- * This module owns:
- *   - The shared projectState map
- *   - The polling loop (tick / schedule)
- *   - The SpecWatcherService lifecycle interface
- *
- * Re-exports all public symbols for backward-compatible consumer imports
- * of "./services/spec-watcher".
+ * This module owns the shared projectState map, the polling loop, and the
+ * SpecWatcherService lifecycle interface, and re-exports all public symbols
+ * for backward-compatible consumer imports of "./services/spec-watcher".
  */
 
 import type { Db } from "@nexus/db";
@@ -26,8 +18,8 @@ import { createLogger } from "@nexus/core/node";
 import { lifecycleBus } from "../lifecycle-bus";
 import { POLL_INTERVAL_MS, BATCH_SIZE, BATCH_DELAY_MS, COALESCE_DELAY_MS } from "./constants";
 import { parseSpecList as _parseSpecList, processProjectSpecs as _processProjectSpecs, eventToMessage, type SpecSnapshot, type SpecEvent } from "./parser";
-import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry, loadProjectRegistryFromDb as _loadProjectRegistryFromDb } from "./poller";
-import { startChangesFsWatchers as _startChangesFsWatchers } from "./watcher";
+import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry, loadProjectRegistryFromDb as _loadProjectRegistryFromDb, type ProjectPath } from "./poller";
+import { startChangesFsWatchers as _startChangesFsWatchers, refreshSingleSpec as _refreshSingleSpec } from "./watcher";
 import { sendSpecTtsNotification } from "./tts";
 
 const log = createLogger("agent:spec-watcher");
@@ -64,6 +56,18 @@ export function processProjectSpecs(
 /** Adapter: thread projectState into startChangesFsWatchers. */
 export function startChangesFsWatchers(): () => void {
   return _startChangesFsWatchers(projectState);
+}
+
+/**
+ * Adapter: thread projectState into refreshSingleSpec — the exact targeted
+ * refresh the debounced fs.watch callback invokes. Exposed so tests drive it
+ * deterministically (skipping the non-deterministic OS event + debounce timer).
+ */
+export function refreshSingleSpec(
+  project: ProjectPath,
+  specName: string,
+): Promise<void> {
+  return _refreshSingleSpec(project, specName, projectState);
 }
 
 // ---------------------------------------------------------------------------

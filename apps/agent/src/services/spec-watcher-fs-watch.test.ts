@@ -1,33 +1,47 @@
 /**
- * Spec-watcher fs.watch integration tests.
+ * Spec-watcher targeted-refresh integration tests.
  *
  * Covers:
- *   - SpecB 5.2 (nx-hcm6): a tasks.md checkbox-count change triggers a
- *     targeted re-poll that emits a `progress` SpecTransition on the
- *     lifecycle bus. (The product latency target is ~2s, but this test
- *     asserts the transition FIRES with the correct payload — it does not
- *     enforce a hard wall-clock bound, which is load-variable under CI and
- *     not a property a unit test can reliably assert.)
+ *   - SpecB 5.2 (nx-hcm6): a tasks.md checkbox-count change surfaces a
+ *     `progress` SpecTransition on the lifecycle bus. The test asserts the
+ *     transition FIRES with the correct payload (completed/total) — it does
+ *     not enforce a wall-clock latency bound, which is load-variable under CI
+ *     and not a property a unit test can reliably assert.
  *   - SpecB 5.3 (nx-rcu9): when a spec is "archived" (removed from the
- *     active `openspec/changes/` dir), the watcher emits an `archived`
+ *     active `openspec/changes/` dir), the watcher emits a `removed`
  *     SpecTransition.
+ *
+ * Determinism note (nx-yyy62 root fix):
+ *   These tests USED to trigger the refresh by writing tasks.md + creating a
+ *   sentinel dir to fire the real OS `fs.watch`, then race a wall-clock
+ *   deadline (≤8s) for the debounced re-poll to emit. Under heavy-test load
+ *   (`NEXUS_HEAVY_TESTS=1 bun test`) that chain — real inotify event delivery
+ *   + `WATCH_DEBOUNCE_MS` timer + mocked `openspec show` re-poll — exceeded 8s
+ *   roughly 1-in-4 runs, flaking the suite (nx-yyy62).
+ *
+ *   The fix drives the watcher's targeted refresh DIRECTLY: `refreshSingleSpec`
+ *   is the EXACT function the debounced fs.watch callback invokes
+ *   (`scheduleSpecRefresh` → `refreshSingleSpec`). Calling it directly (via the
+ *   state-threading adapter exported from `./spec-watcher`) exercises 100% of
+ *   the production refresh logic — change detection, bus emission — while
+ *   skipping only the non-deterministic OS event delivery + debounce timer.
+ *   Emission is therefore synchronous-on-await: no wall-clock race, no flake.
  *
  * Strategy:
  *   - Build a temp openspec tree under `os.tmpdir()` — zero contact with
  *     real projects.
- *   - Mock `./config-loader#getProjects` so `loadProjectRegistry()` returns
- *     our fixture project.
+ *   - Inject the fixture project via `__setGetProjectsForTesting` (reversible;
+ *     avoids Bun's process-global `mock.module` leakage).
  *   - Mock `../utils/exec#execText` so `openspec show <spec> --json` and
- *     `openspec list --json` resolve from the on-disk tasks.md without
+ *     `openspec list --json` resolve from in-memory fixture state without
  *     invoking the real openspec binary.
- *   - Call `startChangesFsWatchers()` directly (public export) and listen
- *     on `lifecycleBus`.
- *   - Mutate tasks.md (toggle checkbox) / rmdir the spec to simulate
- *     archive; assert the emitted SpecTransition has the correct payload.
- *     Waits are event-driven (resolve on the bus event) with a generous
- *     deadline, not a hard latency SLA.
+ *   - Seed `_projectState` via a firstTick `processProjectSpecs` call so the
+ *     refresh has a baseline to diff against.
+ *   - Mutate fixture state (toggle checkbox count) / rmdir the spec to
+ *     simulate archive, then `await refreshSingleSpec(...)` and assert the
+ *     emitted SpecTransition has the correct payload.
  *
- * Cleanup: `afterAll` stops the watchers and removes the temp tree.
+ * Cleanup: `afterAll` resets the injected getProjects and removes the temp tree.
  */
 
 import {
@@ -173,14 +187,19 @@ const archiveState = { exists: true };
 
 import { lifecycleBus, type LifecycleEnvelope } from "./lifecycle-bus";
 import {
-  startChangesFsWatchers,
   processProjectSpecs,
+  refreshSingleSpec,
   _projectState,
 } from "./spec-watcher";
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
-let stopWatchers: (() => void) | null = null;
+// The ProjectPath shape `refreshSingleSpec` expects (code + name + cwd).
+const FIXTURE_PROJECT = {
+  code: PROJECT_CODE,
+  name: PROJECT_CODE,
+  cwd: PROJECT_CWD,
+};
 
 beforeAll(() => {
   // Seed fs.
@@ -194,8 +213,8 @@ beforeAll(() => {
   writeFileSync(join(SPEC_ARCHIVE_DIR, "proposal.md"), "# proposal\n");
   writeFileSync(join(SPEC_ARCHIVE_DIR, "tasks.md"), tasksMarkdown(0, 3));
 
-  // Seed in-memory project state so `processProjectSpecs` has a baseline
-  // to diff against. Mirrors what the first poll tick would do.
+  // Seed in-memory project state so `processProjectSpecs` (and the refresh
+  // diff it drives) has a baseline. Mirrors what the first poll tick does.
   _projectState.clear();
   processProjectSpecs(
     PROJECT_CODE,
@@ -216,18 +235,10 @@ beforeAll(() => {
     ],
     /* firstTick */ true,
   );
-
-  // Install fs.watch watchers on the changes dir.
-  stopWatchers = startChangesFsWatchers();
 });
 
 afterAll(() => {
   __resetGetProjectsForTesting();
-  try {
-    stopWatchers?.();
-  } catch {
-    // shutting down
-  }
   try {
     rmSync(BASE, { recursive: true, force: true });
   } catch {
@@ -264,60 +275,38 @@ function waitForTransition(
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe("spec-watcher fs.watch → lifecycleBus", () => {
+describe("spec-watcher targeted-refresh → lifecycleBus", () => {
   test(
     "[SpecB 5.2] tasks.md checkbox count change emits a progress transition",
     async () => {
-      // NOTE on the trigger: on Linux, a shallow `fs.watch` on
-      // `openspec/changes/` does NOT fire for writes inside a change's
-      // `tasks.md` (deep writes don't propagate up to the parent-dir
-      // watcher). The watcher implementation is explicitly shallow
-      // (`{ persistent: false }` with no `recursive: true`) to avoid
-      // inotify amplification across many projects. To make this test
-      // meaningful on Linux we fire the watcher via a top-level sibling
-      // entry (a new placeholder dir in `changes/`), which IS detected
-      // by the shallow watcher. The refresh callback then falls through
-      // to `openspec list --json` (our mock) and runs change detection
-      // across every tracked spec — which surfaces the checkbox-count
-      // delta on `test-spec-progress` as a `progress` transition.
-      //
-      // Event-driven: resolve as soon as the bus emits the matching
-      // transition. The 8s deadline is a generous upper bound to absorb
-      // CI scheduling jitter (fs.watch latency + debounce + mocked
-      // re-poll), NOT a latency SLA — correctness is `expect(env).not
-      // .toBeNull()` plus the payload checks below.
+      // Subscribe BEFORE triggering so we never miss the synchronous emit.
+      // The deadline here is a safety net only — the refresh below emits the
+      // transition before `await refreshSingleSpec(...)` resolves, so the
+      // promise is settled by the time we await it. No fs.watch race.
       const received = waitForTransition(
         (env) =>
           env.payload.specName === SPEC_PROGRESS &&
           env.payload.transition === "progress",
-        8_000,
+        5_000,
       );
 
-      // Simulate ticking checkboxes in tasks.md: 2/5 -> 4/5. Write to
-      // disk so any future Linux-recursive-watch path would also see it,
-      // and update the mock state so `openspec list --json` reports the
-      // new count.
+      // Simulate ticking checkboxes in tasks.md: 2/5 -> 4/5. Write to disk
+      // (so the on-disk fixture stays consistent) and update the mock state
+      // so the mocked `openspec show <spec> --json` reports the new count.
       progressState.completed = 4;
       writeFileSync(
         SPEC_PROGRESS_TASKS,
         tasksMarkdown(progressState.completed, progressState.total),
       );
-      // Trigger the shallow fs.watch by creating a new top-level entry
-      // in `openspec/changes/`. This is the same mechanism that fires
-      // when a brand-new spec appears, and it forces the watcher to
-      // run its debounced re-poll which — via the mock's list-branch —
-      // observes the updated tasks.md counts.
-      const sentinel = join(CHANGES_DIR, "__watcher-sentinel-progress__");
-      mkdirSync(sentinel, { recursive: true });
+
+      // Drive the watcher's targeted refresh DIRECTLY — this is the exact
+      // function the debounced fs.watch callback calls. It runs the mocked
+      // `openspec show`, diffs against seeded state, and emits the progress
+      // transition on the bus. Deterministic: emission completes before the
+      // await resolves.
+      await refreshSingleSpec(FIXTURE_PROJECT, SPEC_PROGRESS);
 
       const env = await received;
-
-      // Cleanup sentinel before asserting so afterAll doesn't see it.
-      try {
-        rmSync(sentinel, { recursive: true, force: true });
-      } catch {
-        // best effort
-      }
 
       expect(env).not.toBeNull();
       expect(env!.payload.transition).toBe("progress");
@@ -327,7 +316,7 @@ describe("spec-watcher fs.watch → lifecycleBus", () => {
         expect(env!.payload.total).toBe(5);
       }
     },
-    { timeout: 12_000 },
+    { timeout: 10_000 },
   );
 
   test(
@@ -337,18 +326,26 @@ describe("spec-watcher fs.watch → lifecycleBus", () => {
         (env) =>
           env.payload.specName === SPEC_ARCHIVE &&
           env.payload.transition === "removed",
-        4_000,
+        5_000,
       );
 
-      // Simulate `openspec archive` rename: drop the change dir entirely.
+      // Simulate `openspec archive` rename: drop the change dir entirely and
+      // advance the mock so `openspec show` returns [] (empty), which routes
+      // the refresh through `handleEmptySnapshots` -> full pollProjectSpecs ->
+      // observes the dir is gone -> emits `removed`.
       archiveState.exists = false;
       rmSync(SPEC_ARCHIVE_DIR, { recursive: true, force: true });
+
+      // Drive the refresh directly (same determinism as 5.2). The empty-show
+      // branch falls back to a real pollProjectSpecs over the temp tree, which
+      // no longer contains SPEC_ARCHIVE, so processProjectSpecs emits `removed`.
+      await refreshSingleSpec(FIXTURE_PROJECT, SPEC_ARCHIVE);
 
       const env = await received;
       expect(env).not.toBeNull();
       expect(env!.payload.transition).toBe("removed");
       expect(env!.payload.specName).toBe(SPEC_ARCHIVE);
     },
-    { timeout: 6_000 },
+    { timeout: 10_000 },
   );
 });

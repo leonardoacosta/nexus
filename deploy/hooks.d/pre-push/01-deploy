@@ -110,51 +110,19 @@ GATE_START=$(date +%s)
 # set -u without a +-guard. The capture log lives OUTSIDE the repo at
 # $XDG_STATE_HOME (or ~/.local/state) so it never dirties the work tree.
 
+# The retry/flake-capture orchestration lives in a sourceable helper
+# (deploy/lib/tier-a-retry.sh) so it can be exercised in isolation by
+# deploy/tests/tier-a-retry.test.sh WITHOUT a real push or the real suite.
+# Behaviour here is identical to the prior inline block; the helper reads
+# REPO_DIR + FLAKE_LOG_DIR/FLAKE_LOG and calls our info()/warn().
 FLAKE_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nexus"
 FLAKE_LOG="$FLAKE_LOG_DIR/flake.log"
-
-run_tier_a_suite() {
-    # Runs the suite, teeing combined stdout+stderr to $1. Returns the
-    # suite's exit status (the pipe's first element via PIPESTATUS).
-    local _log="$1"
-    ( cd "$REPO_DIR" && NEXUS_HEAVY_TESTS=1 pnpm test ) >"$_log" 2>&1
-}
-
-capture_flake() {
-    # $1 = path to the first-attempt log. Extracts bun "(fail)" test lines
-    # and appends "<ISO-timestamp>  <failing test(s)>" to the flake log.
-    local _log="$1"
-    local _ts _fails
-    _ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    # bun prints failing tests as "(fail) <suite> > <name>" lines. Collapse
-    # to a single ' | '-joined line; fall back to a marker if none parsed.
-    _fails="$(grep -E '\(fail\)' "$_log" 2>/dev/null | sed -E 's/^[[:space:]]*//' | paste -sd '|' - 2>/dev/null)"
-    if [[ -z "$_fails" ]]; then
-        _fails="(no (fail) lines parsed from log: $_log)"
-    fi
-    mkdir -p "$FLAKE_LOG_DIR"
-    printf '%s\t%s\n' "$_ts" "$_fails" >>"$FLAKE_LOG"
-}
+# shellcheck source=../../lib/tier-a-retry.sh
+source "$DEPLOY_DIR/lib/tier-a-retry.sh"
 
 info "integration gate Tier A: running suite (turbo test, NEXUS_HEAVY_TESTS=1)..."
-TIER_A_LOG="$(mktemp -t nx-tier-a.XXXXXX)"
-if run_tier_a_suite "$TIER_A_LOG"; then
-    rm -f "$TIER_A_LOG"
-else
-    # First attempt failed. Capture the offender, then retry ONCE.
-    capture_flake "$TIER_A_LOG"
-    warn "Tier A: suite failed on first attempt — flake captured to $FLAKE_LOG; retrying once..."
-    TIER_A_LOG_RETRY="$(mktemp -t nx-tier-a-retry.XXXXXX)"
-    if run_tier_a_suite "$TIER_A_LOG_RETRY"; then
-        info "Tier A: retry passed — flake absorbed (first-attempt offender logged)"
-        rm -f "$TIER_A_LOG" "$TIER_A_LOG_RETRY"
-    else
-        # Failed BOTH times -> real regression. Surface the retry tail and abort.
-        tail -40 "$TIER_A_LOG_RETRY" >&2
-        rm -f "$TIER_A_LOG" "$TIER_A_LOG_RETRY"
-        fail "Tier A: turbo test failed on both attempts — aborting push"
-    fi
-fi
+run_tier_a_with_retry \
+    || fail "Tier A: turbo test failed on both attempts — aborting push"
 
 info "integration gate Tier A: bundle-integrity check..."
 "$DEPLOY_DIR/check-bundle-integrity.sh" \
