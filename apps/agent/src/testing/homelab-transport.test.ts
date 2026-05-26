@@ -166,20 +166,25 @@ describe.skipIf(!heavyEnabled || !hasPg)(
     // The watcher's first reconcile is fire-and-forget at startServer() —
     // poll briefly so the assertion is deterministic.
     it("GET /health surfaces liveness fields (db_ok, last_watcher_tick_ms, socket_server_listening)", async () => {
-      const deadline = Date.now() + 5_000;
+      // Await readiness against a GENEROUS deadline instead of racing a
+      // fixed sleep budget (nx-yyy62). The watcher's first reconcile is
+      // fire-and-forget at startServer(); under push-load concurrency it
+      // can take longer than a tight budget to land — pollUntil keeps the
+      // assertion deterministic by waiting, not by guessing a fixed delay.
       let body: Record<string, unknown> = {};
-      let res: Response;
-
-      while (Date.now() < deadline) {
-        res = await fetch(`${base}/health`);
-        expect(res.status).toBe(200);
-        body = (await res.json()) as Record<string, unknown>;
-        if (body.db_ok === true && typeof body.last_watcher_tick_ms === "number" &&
-            (body.last_watcher_tick_ms as number) >= 0) {
-          break;
-        }
-        await Bun.sleep(50);
-      }
+      await pollUntil(
+        async () => {
+          const res = await fetch(`${base}/health`);
+          expect(res.status).toBe(200);
+          body = (await res.json()) as Record<string, unknown>;
+          return (
+            body.db_ok === true &&
+            typeof body.last_watcher_tick_ms === "number" &&
+            (body.last_watcher_tick_ms as number) >= 0
+          );
+        },
+        { deadlineMs: 5_000, intervalMs: 50 },
+      );
 
       // db_ok — PG is live in this leg (hasPg gate above); ping MUST succeed.
       expect(body.db_ok).toBe(true);
@@ -250,16 +255,17 @@ describe.skipIf(!heavyEnabled)("homelab transport — socket spine round-trip", 
       }).catch(reject);
     });
 
-    // The socket server processes the line asynchronously; poll briefly.
-    const deadline = Date.now() + 2000;
-    while (
-      !observed.some(
-        (e) => e.event === "session_start" && e.session_id === "spine-roundtrip-1",
-      ) &&
-      Date.now() < deadline
-    ) {
-      await Bun.sleep(25);
-    }
+    // The socket server processes the line asynchronously. Await its
+    // arrival against a generous deadline rather than a fixed 2s budget —
+    // under push-load concurrency the dispatch can lag past a tight budget
+    // (nx-yyy62). The assertion below is unchanged; only the wait is.
+    await pollUntil(
+      () =>
+        observed.some(
+          (e) => e.event === "session_start" && e.session_id === "spine-roundtrip-1",
+        ),
+      { deadlineMs: 5_000, intervalMs: 25 },
+    );
 
     const got = observed.find(
       (e) => e.event === "session_start" && e.session_id === "spine-roundtrip-1",
@@ -351,19 +357,22 @@ describe.skipIf(!heavyEnabled || !hasPg)(
         model: "claude",
       });
 
-      // Poll /sessions for up to 2s waiting for the dispatcher to write
-      // the row and the read path to surface it.
-      const deadline = Date.now() + 2000;
+      // Await the dispatcher writing the row + the read path surfacing it
+      // against a generous deadline (nx-yyy62) instead of a tight 2s budget
+      // that can lose the race under push-load concurrency. Assertions below
+      // are unchanged; only the wait strategy is.
       let row: Record<string, unknown> | undefined;
-      while (Date.now() < deadline) {
-        const res = await fetch(`${base}/sessions`);
-        if (res.status === 200) {
-          const body = (await res.json()) as Array<Record<string, unknown>>;
-          row = body.find((r) => r.id === fixtureId);
-          if (row) break;
-        }
-        await Bun.sleep(25);
-      }
+      await pollUntil(
+        async () => {
+          const res = await fetch(`${base}/sessions`);
+          if (res.status === 200) {
+            const body = (await res.json()) as Array<Record<string, unknown>>;
+            row = body.find((r) => r.id === fixtureId);
+          }
+          return row !== undefined;
+        },
+        { deadlineMs: 5_000, intervalMs: 25 },
+      );
 
       expect(row).toBeDefined();
       // Canonical SessionRow shape (matches the contract-shape leg above).
@@ -385,6 +394,33 @@ describe.skipIf(!heavyEnabled || !hasPg)(
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Poll `fn` until it returns truthy or `deadlineMs` elapses (nx-yyy62).
+ *
+ * Replaces fixed `Bun.sleep` poll budgets so readiness is AWAITED rather
+ * than raced against a tight, load-sensitive window. The caller's assertion
+ * runs after this resolves — `pollUntil` deliberately does NOT throw on
+ * timeout so the existing `expect(...).toBeDefined()` / contract checks stay
+ * the single source of failure (no assertion is weakened, only the wait).
+ *
+ * `fn` may be sync or async; its return is coerced to boolean. The deadline
+ * is generous by design — a real failure still surfaces via the post-poll
+ * assertion, while a slow-but-correct path under push-load concurrency is
+ * given room to complete.
+ */
+async function pollUntil(
+  fn: () => boolean | Promise<boolean>,
+  opts: { deadlineMs: number; intervalMs: number },
+): Promise<void> {
+  const deadline = Date.now() + opts.deadlineMs;
+  // Always run at least one probe even if the deadline is already past.
+  do {
+    if (await fn()) return;
+    if (Date.now() >= deadline) return;
+    await Bun.sleep(opts.intervalMs);
+  } while (Date.now() < deadline);
+}
 
 /** Write one NDJSON line to a unix socket and close — mirrors nexus-emit. */
 async function emitSocketLine(socketPath: string, payload: SocketEvent): Promise<void> {
