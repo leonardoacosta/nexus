@@ -34,7 +34,7 @@ type Sql = ReturnType<typeof createDb>["client"];
 
 const hasPg = !!process.env.POSTGRES_URL;
 
-// Minimal DDL that creates ALL four required tables. The schema-verify probe
+// Minimal DDL that creates ALL required tables. The schema-verify probe
 // only checks for existence (`SELECT to_regclass(name)`), so the column set
 // can be a stripped-down placeholder — verifySchema doesn't read columns.
 function ddlForAllRequiredTables(): string {
@@ -56,6 +56,13 @@ function ddlForAllRequiredTables(): string {
       "channel" text NOT NULL,
       "title" text NOT NULL,
       "body" text NOT NULL
+    );
+    CREATE TABLE "credential_swaps" (
+      "id" text PRIMARY KEY NOT NULL,
+      "session_id" text NOT NULL,
+      "to_fingerprint" text NOT NULL,
+      "reason" text NOT NULL,
+      "created_at" timestamp DEFAULT now() NOT NULL
     );
   `;
 }
@@ -117,13 +124,18 @@ async function dropIsolatedDb(
 // ─── Sanity check: the constant the agent uses matches the docs ─────────────
 
 describe("REQUIRED_TABLES", () => {
-  it("lists the four hot-path tables nx-dbame called out", () => {
-    expect(REQUIRED_TABLES).toEqual([
-      "sessions",
-      "session_events",
-      "health_snapshots",
-      "notifications",
-    ]);
+  it("lists the hot-path tables nx-dbame called out", () => {
+    // The original four (nx-dbame) MUST stay covered.
+    expect(REQUIRED_TABLES).toContain("sessions");
+    expect(REQUIRED_TABLES).toContain("session_events");
+    expect(REQUIRED_TABLES).toContain("health_snapshots");
+    expect(REQUIRED_TABLES).toContain("notifications");
+  });
+
+  // nx-fbje2 — homelab DB drifted post D&D cleanup; ensure credential_swaps
+  // stays guarded so a future schema removal fails loud at startup.
+  it("guards credential_swaps so a future removal fails at startup [nx-fbje2]", () => {
+    expect(REQUIRED_TABLES).toContain("credential_swaps");
   });
 });
 

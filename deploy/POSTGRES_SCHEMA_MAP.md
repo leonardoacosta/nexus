@@ -49,11 +49,27 @@ deploy/secrets.env.example
 
 ## Migration Workflow
 
-```bash
-# From repo root on Mac, target homelab over Tailscale:
-POSTGRES_URL="postgres://cortex:cortexdev@100.73.182.4:5436/nexus" \
-  pnpm --filter @nexus/db db:push
+**UFW on homelab blocks port 5436 from Tailscale** — only `:7400` (nexus-agent) is allowed on `tailscale0`. Postgres is loopback-only. So `pnpm db:migrate` cannot run from Mac directly; it must run from inside the homelab container or be applied via `docker exec psql`.
 
+Pragmatic workflow:
+
+```bash
+# 1. On Mac — generate the migration file from schema diff (local, no DB needed)
+cd /Users/leonardoacosta/dev/nx
+pnpm --filter @nexus/db db:generate
+
+# 2. Commit + push the new ./drizzle/NNNN_*.sql migration
+
+# 3. Pull on homelab, then apply via docker exec
+ssh nyaptor@100.73.182.4 'cd ~/dev/nx && git pull && docker exec -i homelab-postgres psql -U cortex -d nexus < packages/db/drizzle/NNNN_*.sql'
+
+# 4. Record in drizzle.__drizzle_migrations (Drizzle does this automatically when running pnpm db:migrate;
+#    when applying SQL directly, insert manually using the sha256 of the file content + folderMillis)
+```
+
+Alternative: run `pnpm db:migrate` from a host that's actually on homelab (or inside a container with PG :5432 access). Future cleanup: `nx-k0kbr` (open UFW for 5436 on tailscale0) would restore the cleaner Mac-side workflow.
+
+```bash
 # Verify schema landed:
 ssh nyaptor@100.73.182.4 'docker exec homelab-postgres psql -U cortex -d nexus -c "\dt"'
 ```
@@ -82,6 +98,7 @@ The agent itself runs a startup schema smoke test (`verifySchema()`) that refuse
 | `nx-ktlnu` | closed | D&D table cleanup (92 dormant tables dropped, backups preserved) |
 | `nx-ebszb` | closed | Guardian + nx-postgres-test consolidation |
 | `nx-vmsd6` | closed (resolved by `nx-ktlnu`) | 112-table cohabitation investigation |
-| `nx-fbje2` | open P2 | `credential_swaps` schema drift between code and homelab DB |
+| `nx-fbje2` | closed | `credential_swaps` drift resolved by applying `0039_safe_may_parker.sql` |
+| `nx-zg9mr` | closed | `RemainOnExit` typo fixed |
 | `nx-vlo2p` | open P3 | `nova` orphan database — decide archive / keep / drop |
-| `nx-zg9mr` | open P3 | `RemainOnExit` typo in `restore-tailscale-routes.service` |
+| `nx-k0kbr` | open P3 | Open UFW for :5436 on tailscale0 to enable Mac-side drizzle-kit |

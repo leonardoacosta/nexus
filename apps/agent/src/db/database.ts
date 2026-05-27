@@ -21,6 +21,8 @@ export const REQUIRED_TABLES = [
   "session_events",
   "health_snapshots",
   "notifications",
+  // Added 2026-05-27 [nx-fbje2] — drift detector caught this missing post-D&D cleanup
+  "credential_swaps",
 ] as const;
 
 /** Env var that bypasses the schema check — intended ONLY for tests / CI. */
