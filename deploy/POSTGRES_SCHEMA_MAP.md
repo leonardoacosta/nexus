@@ -1,7 +1,9 @@
 # Homelab Postgres Schema Map
 
 > Authoritative ownership map for `homelab-postgres` (pgvector/pgvector:pg16, port 5436).
-> Created 2026-05-26 after `nx-dbame` outage to prevent recurrence of the silent-drift class.
+> Created 2026-05-26 after `nx-dbame` outage; updated 2026-05-27 after homelab PG consolidation
+> (`nx-ktlnu` D&D table cleanup + `nx-ebszb` guardian consolidation). `homelab-postgres` is now
+> the **sole** PG instance on homelab — `guardian-db` and `nx-postgres-test-1` decommissioned.
 
 ## Container Profile
 
@@ -19,17 +21,18 @@
 
 | Database | Owning App | Owning User | Purpose | Lifecycle |
 | --- | --- | --- | --- | --- |
-| `cortex` | Cortex CX stack (`~/dev/cx`, currently commented out in `cortex.yml`) | `cortex` | Stack-specific tables for CX services (CO/CW/CL) when active | Created at container init |
+| `cortex` | Cortex CX stack (`~/dev/cx`, dashboards disabled per `hl-51x`) | `cortex` | Stack-specific tables for CX services (CO/CW/CL) when active. ~7.7MB on disk despite "disabled" — retained for rollback. | Created at container init |
 | `immich` | Immich (`~/dev/hl/homelab/compose/photos.yml`) | `immich` (separate role) | Photo backup metadata | Created post-init |
-| `nexus` | Nexus agent (`~/dev/nx`, `apps/agent`) | `cortex` (shared role, isolated schema) | Sessions, events, health snapshots, notifications, hooks | Created post-init; schema applied via `drizzle-kit push` |
-| `nova` | **Unknown — orphan** | Unknown | No active service references this DB. See beads issue. | Created post-init, never adopted |
+| `nexus` | Nexus agent (`~/dev/nx`, `apps/agent`) | `cortex` (shared role, isolated schema) | Sessions, events, health snapshots, notifications, hooks. 20 tables, ~54MB live data (757 sessions, 24k snapshots, 1.8k notifications, 13k projects as of 2026-05-27). | Created post-init; schema applied via `drizzle-kit push` |
+| `nova` | **Unknown — orphan** | `cortex` | No active service references this DB. ~11MB on disk. See `nx-vlo2p`. | Created post-init, never adopted |
+| `guardian` | Guardian web (`~/dev/gd`, not yet deployed) | `guardian` (dedicated role) | Empty placeholder for future guardian-web deploy. Schema applied on first `db:push`. | Created 2026-05-27 during `nx-ebszb` consolidation |
 
 ## Schema Boundary Rules
 
 1. **Each app writes ONLY to its own database.** Cross-database writes are banned. If app A needs data from app B, expose it via API.
-2. **Drizzle schemas for Nexus live in `packages/db/src/schema/`.** Migrations target `nexus` DB only — never `cortex`, `immich`, or `nova`.
+2. **Drizzle schemas for Nexus live in `packages/db/src/schema/`.** Migrations target `nexus` DB only — never `cortex`, `immich`, `nova`, or `guardian`.
 3. **Adding a new app to the homelab?** Create a new database inside `homelab-postgres` via `CREATE DATABASE <app>` rather than spinning up a new container, unless workload isolation (memory, CPU, vacuum cadence) justifies it.
-4. **Role sharing is tolerated for dev convenience.** `cortex` user owns `cortex` + `nexus` DBs. Production-grade isolation would mint per-app roles; we accept the trade for now and revisit on multi-tenant scaling.
+4. **New apps get dedicated PG roles.** `guardian` was provisioned with its own role on 2026-05-27 — the precedent going forward. Legacy: `cortex` user owns `cortex` + `nexus` DBs (predates the rule). Migrating Nexus to a dedicated role is a future cleanup, not blocking.
 
 ## Connection Strings
 
@@ -57,10 +60,11 @@ ssh nyaptor@100.73.182.4 'docker exec homelab-postgres psql -U cortex -d nexus -
 
 ## Operational Notes
 
-- **Single-DB init artifact**: Container was originally provisioned with `POSTGRES_DB=cortex` (single DB). The `nexus`, `immich`, and `nova` databases were created via subsequent `CREATE DATABASE` calls — there is no init script that re-creates them if the volume is destroyed. Future-proofing: add a `docker-entrypoint-initdb.d/01-create-databases.sql` to the compose or migrate to `POSTGRES_MULTIPLE_DATABASES` pattern.
-- **Schema cohabitation in `nexus` DB**: As of 2026-05-26, the `nexus` database actually contains 112 tables — far more than the ~13 Drizzle migrations defined in `packages/db/src/schema/`. Likely cohabitation with Cortex tables (both apps share the `cortex` PG role). This violates the "each app writes only to its own database" boundary rule above. Needs investigation — could be intentional integration or accidental drift. **Do NOT run `drizzle-kit push --force` against the `nexus` database until this is resolved** — schema sync would ALTER tables Drizzle doesn't own.
-- **Terraform module `infra/modules/homelab-postgres`** (commit `69d34d5b`, 2026-04-06) defines `postgresql_database.nexus` + `postgresql_role.nexus` resources but was never applied (no `terraform.tfstate`). The reality drift was reconciled manually on 2026-05-26 — Terraform would now report state divergence if applied without a refresh.
-- **Backup strategy**: Currently none. The `cortex-postgres` named volume is a single point of failure for 4 databases. Snapshot via `pg_dumpall` or move to a backup-friendly volume backend is a P3 follow-up.
+- **Single-DB init artifact**: Container was originally provisioned with `POSTGRES_DB=cortex` (single DB). The `nexus`, `immich`, `nova`, and `guardian` databases were created via subsequent `CREATE DATABASE` calls — there is no init script that re-creates them if the volume is destroyed. Future-proofing: add a `docker-entrypoint-initdb.d/01-create-databases.sql` to the compose or migrate to `POSTGRES_MULTIPLE_DATABASES` pattern.
+- **Resolved 2026-05-27 — schema cohabitation cleanup**: Prior to today, the `nexus` database contained 112 tables — 21 Nexus + 91 dormant tables from a D&D/TTRPG campaign manager + better-auth schema. The D&D tables were empty (0 rows) and unreferenced. `nx-ktlnu` deleted all 92 with full backups at `~/backups/dd-{data,schema}-backup-20260527.sql` on homelab. `nexus` DB now holds 20 Drizzle tables + `drizzle.__drizzle_migrations`. **One table — `credential_swaps` — declared in `packages/db/src/schema/credentialSwaps.ts` but never migrated to homelab** (drift tracked in `nx-fbje2`); the code expects 21, the DB has 20.
+- **Consolidation 2026-05-27 (`nx-ebszb`)**: Decommissioned `guardian-db` (timescale/timescaledb-ha:pg16, was port 5437) and `nx-postgres-test-1` (postgres:16-alpine, was port 5433, exited 4wk). Guardian DB now lives in `homelab-postgres` as an empty placeholder. `guardian-pgdata` volume retained until 2026-05-28 as rollback surface; safe to delete after. `~/dev/gd/docker-compose.yml` updated and committed locally on homelab as `b7b2abe` (not pushed — Leo's call).
+- **Terraform module `infra/modules/homelab-postgres`** (commit `69d34d5b`, 2026-04-06) defines `postgresql_database.nexus` + `postgresql_role.nexus` resources but was never applied (no `terraform.tfstate`). Reality has now diverged further (D&D delete + guardian DB + guardian role exist beyond the module's spec). Treat the module as documentation only until someone reconciles it with current state.
+- **Backup strategy**: Currently none for live data. The `cortex-postgres` named volume is a single point of failure for 5 databases. The D&D and consolidation cleanups produced ad-hoc snapshots at `~/backups/` on homelab. A regular `pg_dumpall` cron job or volume-snapshot backend is a P3 follow-up.
 
 ## Drift Detection
 
@@ -70,6 +74,14 @@ The agent itself runs a startup schema smoke test (`verifySchema()`) that refuse
 
 ## Related Issues
 
-- `nx-dbame` — Original outage that triggered this doc
-- `nx-9dkx6` — Strategic systemd cycle fix (separate, but blocks any reboot)
-- Forthcoming beads — `nova` orphan investigation, CLAUDE.md update tracking
+| Issue | Status | Topic |
+| --- | --- | --- |
+| `nx-dbame` | closed | Original 2026-05-26 outage that triggered this doc |
+| `nx-ninsg` | closed | Agent startup schema verify (`verifySchema()` in `apps/agent/src/db/database.ts`) |
+| `nx-9dkx6` | closed | Systemd dependency cycle fix on homelab |
+| `nx-ktlnu` | closed | D&D table cleanup (92 dormant tables dropped, backups preserved) |
+| `nx-ebszb` | closed | Guardian + nx-postgres-test consolidation |
+| `nx-vmsd6` | closed (resolved by `nx-ktlnu`) | 112-table cohabitation investigation |
+| `nx-fbje2` | open P2 | `credential_swaps` schema drift between code and homelab DB |
+| `nx-vlo2p` | open P3 | `nova` orphan database — decide archive / keep / drop |
+| `nx-zg9mr` | open P3 | `RemainOnExit` typo in `restore-tailscale-routes.service` |
