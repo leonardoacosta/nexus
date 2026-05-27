@@ -49,9 +49,7 @@ deploy/secrets.env.example
 
 ## Migration Workflow
 
-**UFW on homelab blocks port 5436 from Tailscale** — only `:7400` (nexus-agent) is allowed on `tailscale0`. Postgres is loopback-only. So `pnpm db:migrate` cannot run from Mac directly; it must run from inside the homelab container or be applied via `docker exec psql`.
-
-Pragmatic workflow:
+**Canonical (Mac → homelab over Tailscale)**: UFW on homelab allows `:5436/tcp` on `tailscale0` (rule comment `PG from Tailscale peers for drizzle-kit (nx-k0kbr)`, shipped 2026-05-27). Tailscale ACLs gate which devices can reach homelab; the UFW allow is defense-in-depth on top of the ACL. Run `pnpm db:migrate` directly from Mac:
 
 ```bash
 # 1. On Mac — generate the migration file from schema diff (local, no DB needed)
@@ -60,24 +58,29 @@ pnpm --filter @nexus/db db:generate
 
 # 2. Commit + push the new ./drizzle/NNNN_*.sql migration
 
-# 3. Pull on homelab, then apply via docker exec
-ssh nyaptor@100.73.182.4 'cd ~/dev/nx && git pull && docker exec -i homelab-postgres psql -U cortex -d nexus < packages/db/drizzle/NNNN_*.sql'
+# 3. Apply directly from Mac against homelab Postgres over Tailscale
+POSTGRES_URL="postgres://cortex:cortexdev@100.73.182.4:5436/nexus" \
+  pnpm --filter @nexus/db db:migrate
 
-# 4. Record in drizzle.__drizzle_migrations (Drizzle does this automatically when running pnpm db:migrate;
-#    when applying SQL directly, insert manually using the sha256 of the file content + folderMillis)
+# Drizzle records the migration in drizzle.__drizzle_migrations automatically.
 ```
 
-Alternative: run `pnpm db:migrate` from a host that's actually on homelab (or inside a container with PG :5432 access). Future cleanup: `nx-k0kbr` (open UFW for 5436 on tailscale0) would restore the cleaner Mac-side workflow.
+**Fallback (no Tailscale, or UFW rule absent)**: apply via `docker exec` from inside the homelab. Use this if you're operating from a non-Tailscale host or the UFW rule has been removed:
 
 ```bash
-# Verify schema landed:
+ssh nyaptor@100.73.182.4 'cd ~/dev/nx && git pull && docker exec -i homelab-postgres psql -U cortex -d nexus < packages/db/drizzle/NNNN_*.sql'
+# When applying SQL directly, insert into drizzle.__drizzle_migrations manually using the sha256 of the file content + folderMillis.
+```
+
+```bash
+# Verify schema landed (either path):
 ssh nyaptor@100.73.182.4 'docker exec homelab-postgres psql -U cortex -d nexus -c "\dt"'
 ```
 
 ## Operational Notes
 
 - **Single-DB init artifact**: Container was originally provisioned with `POSTGRES_DB=cortex` (single DB). The `nexus`, `immich`, `nova`, and `guardian` databases were created via subsequent `CREATE DATABASE` calls — there is no init script that re-creates them if the volume is destroyed. Future-proofing: add a `docker-entrypoint-initdb.d/01-create-databases.sql` to the compose or migrate to `POSTGRES_MULTIPLE_DATABASES` pattern.
-- **Resolved 2026-05-27 — schema cohabitation cleanup**: Prior to today, the `nexus` database contained 112 tables — 21 Nexus + 91 dormant tables from a D&D/TTRPG campaign manager + better-auth schema. The D&D tables were empty (0 rows) and unreferenced. `nx-ktlnu` deleted all 92 with full backups at `~/backups/dd-{data,schema}-backup-20260527.sql` on homelab. `nexus` DB now holds 20 Drizzle tables + `drizzle.__drizzle_migrations`. **One table — `credential_swaps` — declared in `packages/db/src/schema/credentialSwaps.ts` but never migrated to homelab** (drift tracked in `nx-fbje2`); the code expects 21, the DB has 20.
+- **Resolved 2026-05-27 — schema cohabitation cleanup**: Prior to today, the `nexus` database contained 112 tables — 21 Nexus + 91 dormant tables from a D&D/TTRPG campaign manager + better-auth schema. The D&D tables were empty (0 rows) and unreferenced. `nx-ktlnu` deleted all 92 with full backups at `~/backups/dd-{data,schema}-backup-20260527.sql` on homelab. `nexus` DB now holds 21 Drizzle tables + `drizzle.__drizzle_migrations` after `nx-fbje2` applied the missing `0039_safe_may_parker.sql` (credential_swaps).
 - **Consolidation 2026-05-27 (`nx-ebszb`)**: Decommissioned `guardian-db` (timescale/timescaledb-ha:pg16, was port 5437) and `nx-postgres-test-1` (postgres:16-alpine, was port 5433, exited 4wk). Guardian DB now lives in `homelab-postgres` as an empty placeholder. `guardian-pgdata` volume retained until 2026-05-28 as rollback surface; safe to delete after. `~/dev/gd/docker-compose.yml` updated and committed locally on homelab as `b7b2abe` (not pushed — Leo's call).
 - **Terraform module `infra/modules/homelab-postgres`** (commit `69d34d5b`, 2026-04-06) defines `postgresql_database.nexus` + `postgresql_role.nexus` resources but was never applied (no `terraform.tfstate`). Reality has now diverged further (D&D delete + guardian DB + guardian role exist beyond the module's spec). Treat the module as documentation only until someone reconciles it with current state.
 - **Backup strategy**: Currently none for live data. The `cortex-postgres` named volume is a single point of failure for 5 databases. The D&D and consolidation cleanups produced ad-hoc snapshots at `~/backups/` on homelab. A regular `pg_dumpall` cron job or volume-snapshot backend is a P3 follow-up.
@@ -101,4 +104,4 @@ The agent itself runs a startup schema smoke test (`verifySchema()`) that refuse
 | `nx-fbje2` | closed | `credential_swaps` drift resolved by applying `0039_safe_may_parker.sql` |
 | `nx-zg9mr` | closed | `RemainOnExit` typo fixed |
 | `nx-vlo2p` | open P3 | `nova` orphan database — decide archive / keep / drop |
-| `nx-k0kbr` | open P3 | Open UFW for :5436 on tailscale0 to enable Mac-side drizzle-kit |
+| `nx-k0kbr` | closed | UFW :5436 on tailscale0 opened; Mac-side `pnpm db:migrate` verified end-to-end |
