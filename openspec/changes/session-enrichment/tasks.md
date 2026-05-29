@@ -21,4 +21,4 @@
 
 ## E2E Batch
 - [x] Agent integration test (`bun test`): drive a hook sequence through socket → dispatcher and assert the persisted `agentState` transitions (blocked → waiting → ready), plus branch capture on a real git working directory [beads:nx-8s85n]
-- [ ] Swift test: `SessionRow` renders the correct sigil per `agentState`, shows `branch` in the subtitle, and omits the agent-name label [beads:nx-mld93]
+- [x] Swift test: `SessionRow` renders the correct sigil per `agentState`, shows `branch` in the subtitle, and omits the agent-name label [beads:nx-mld93]
