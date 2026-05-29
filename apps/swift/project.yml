@@ -37,10 +37,12 @@ settings:
     # Stable signing identity (nx-n2o0a): an ad-hoc-signed build (no team) gets
     # an unstable code identity, so macOS never persists the notification grant
     # and banner posts fail UNErrorDomain Code=1 despite Settings showing "on".
-    # Pinning the Apple Development team gives the app a stable signed identity
-    # so the grant sticks across rebuilds. Solo personal project — team id is
-    # safe to commit (it also appears in the shipped bundle).
-    DEVELOPMENT_TEAM: 4RMU5SA5Z4
+    # Pinning the Developer Program team gives the app a stable signed identity
+    # (the existing "Mac Team Provisioning Profile: dev.leonardoacosta.nexus.mac"
+    # carries the Push + iCloud caps) so the grant sticks across rebuilds.
+    # NOTE: DX3Y367L2A is the TEAM (the cert's OU). The "(4RMU5SA5Z4)" suffix in
+    # the cert Common Name is an Apple-ID identifier, NOT the team — do not use it.
+    DEVELOPMENT_TEAM: DX3Y367L2A
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
