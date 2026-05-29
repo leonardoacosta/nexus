@@ -15,9 +15,9 @@
 - [x] Unit tests: hook→agentState mapping for all four transitions; branch resolution for git cwd, non-git cwd, and lookup failure (fail-soft null) [beads:nx-131wz]
 
 ## UI Batch
-- [ ] In `apps/swift/NexusShared/Models/Session.swift`, decode `agentState` (safe default when absent) [beads:nx-036vw]
-- [ ] In `apps/swift/nexus/nexus/SessionRow.swift`, drive the status sigil off `agentState` (3-state: blocked / waiting / ready), switch the subtitle from model to `branch`, and remove the trailing originAgent label [beads:nx-c9muh]
-- [ ] In `apps/swift/NexusShared/Networking/NexusAggregateClient.swift`, stop emitting the `"pinned"` sentinel as the agent name [beads:nx-70ep8]
+- [x] In `apps/swift/NexusShared/Models/Session.swift`, decode `agentState` (safe default when absent) [beads:nx-036vw]
+- [x] In `apps/swift/nexus/nexus/SessionRow.swift`, drive the status sigil off `agentState` (3-state: blocked / waiting / ready), switch the subtitle from model to `branch`, and remove the trailing originAgent label [beads:nx-c9muh]
+- [x] In `apps/swift/NexusShared/Networking/NexusAggregateClient.swift`, stop emitting the `"pinned"` sentinel as the agent name [beads:nx-70ep8]
 
 ## E2E Batch
 - [ ] Agent integration test (`bun test`): drive a hook sequence through socket → dispatcher and assert the persisted `agentState` transitions (blocked → waiting → ready), plus branch capture on a real git working directory [beads:nx-8s85n]
