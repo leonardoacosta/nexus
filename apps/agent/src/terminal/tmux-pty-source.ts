@@ -44,6 +44,44 @@ const DEFAULT_SCROLLBACK_CAPACITY = 10_000;
 const SCROLLBACK_LINES = 1000;
 const TMUX_TARGET_RE = /^[A-Za-z0-9_.:%@/-]+$/;
 const DEFAULT_GEOMETRY = { cols: 80, rows: 24 } as const;
+
+/**
+ * INSTRUMENTATION SPIKE (nx-f1l69) — attach-handshake / geometry race probe.
+ *
+ * Heuristic: does a string END cleanly on an escape-sequence boundary, or is
+ * it cut mid-CSI/OSC? A clean tail is the LAST byte not being inside an
+ * unterminated `ESC` / `ESC[` (CSI) / `ESC]` (OSC) sequence. Cheap scan from
+ * the end — we only need the trailing context, not a full parse.
+ *
+ * Returns true when the buffer is safe to hand to the emulator at this
+ * boundary (cause-(b) discriminator: a `false` here means the scrollback seed
+ * splits a sequence, so SwiftTerm sees a mid-escape boundary when live
+ * pipe-pane bytes take over).
+ */
+function endsOnEscapeBoundary(s: string): boolean {
+  if (s.length === 0) return true;
+  // Walk backwards to the last ESC (0x1b). If none, no pending sequence.
+  const lastEsc = s.lastIndexOf("\x1b");
+  if (lastEsc === -1) return true;
+  const tail = s.slice(lastEsc);
+  // Bare ESC at the very end — pending, not clean.
+  if (tail === "\x1b") return false;
+  const kind = tail[1];
+  if (kind === "[") {
+    // CSI: ESC [ params... final-byte (0x40..0x7e). Clean iff a final byte
+    // appears after the introducer.
+    return /\x1b\[[0-9;?]*[@-~]/.test(tail);
+  }
+  if (kind === "]") {
+    // OSC: ESC ] ... terminated by BEL (0x07) or ST (ESC \). Clean iff a
+    // terminator appears.
+    return /\x07/.test(tail) || /\x1b\\/.test(tail);
+  }
+  // Other ESC-prefixed forms (e.g. ESC ( charset, ESC =) are 2-3 bytes; if we
+  // have at least the second byte we treat the short forms as complete. The
+  // only ambiguous case is a trailing lone ESC, handled above.
+  return tail.length >= 2;
+}
 /**
  * Minimum interval between geometry re-samples on the pipe-pane read loop.
  * Each sample shells out to `tmux display-message`, so we throttle to avoid a
@@ -130,6 +168,16 @@ export class TmuxPtySource implements PtySource {
   private _geometry: { cols: number; rows: number } = { ...DEFAULT_GEOMETRY };
   /** Wall-clock of the last geometry sample (throttle gate). */
   private lastGeometrySampleAt = 0;
+  /**
+   * INSTRUMENTATION SPIKE (nx-f1l69) — cause (a) probe. Tracks whether the
+   * first geometry sample (at construction) has run and whether the first
+   * data byte has been emitted to listeners, so we can log the geometry-vs-
+   * first-data ORDERING. If first data is emitted before the construction-time
+   * geometry sample lands (or the geometry frame is still the DEFAULT 80x24),
+   * cursor-positioning escapes land in a wrong-sized grid.
+   */
+  private didEmitFirstData = false;
+  private geometrySampleCount = 0;
   /** Subscribers notified when the observed pane geometry changes. */
   private geometryListeners = new Set<(geom: { cols: number; rows: number }) => void>();
   /**
@@ -195,6 +243,24 @@ export class TmuxPtySource implements PtySource {
         return;
       }
       const text = proc.stdout.toString();
+      // INSTRUMENTATION SPIKE (nx-f1l69) — cause (b): the capture-pane `-e`
+      // seed is line-split here (and dropped empties), then re-joined with
+      // "\n" by stream-manager.addViewer before being handed to SwiftTerm as
+      // BINARY. If the raw capture does NOT end on an escape boundary, the
+      // seed can deliver SwiftTerm a mid-escape-sequence boundary right where
+      // the live pipe-pane stream takes over. `endsClean=false` is the
+      // smoking gun for cause (b).
+      logger.info(
+        {
+          target: this.target,
+          event: "scrollbackSeed",
+          bytes: Buffer.byteLength(text, "utf8"),
+          lines: text.split("\n").length,
+          endsClean: endsOnEscapeBoundary(text),
+          ts: Date.now(),
+        },
+        "nx-f1l69 scrollbackSeed",
+      );
       for (const line of text.split("\n")) {
         if (line.length > 0) this.scrollback.push(line);
       }
@@ -248,6 +314,23 @@ export class TmuxPtySource implements PtySource {
           }
         }
       }
+      // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a): pane dims at attach
+      // (sampleNo=1, from the constructor) and on each resample. `firstData`
+      // is the ordering signal — if `didEmitFirstData=true` when sampleNo=1
+      // fires, live bytes raced ahead of the initial geometry frame.
+      this.geometrySampleCount += 1;
+      logger.info(
+        {
+          target: this.target,
+          event: "paneDims",
+          sampleNo: this.geometrySampleCount,
+          cols,
+          rows,
+          firstDataAlreadyEmitted: this.didEmitFirstData,
+          ts: Date.now(),
+        },
+        "nx-f1l69 paneDims",
+      );
     } catch (err) {
       logger.debug(
         { target: this.target, error: err instanceof Error ? err.message : String(err) },
@@ -345,6 +428,27 @@ export class TmuxPtySource implements PtySource {
           }
         } catch {
           // ignore decode errors — still forward bytes to listeners
+        }
+        // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a): timestamp + dims at the
+        // moment the FIRST live pipe-pane bytes are emitted to listeners. Pair
+        // this `ts` against the `paneDims` sampleNo=1 `ts` and `scrollbackSeed`
+        // `ts` to reconstruct the geometry-vs-data ordering: if firstData here
+        // precedes the geometry frame reaching the viewer, escapes land in a
+        // wrong-sized grid.
+        if (!this.didEmitFirstData) {
+          this.didEmitFirstData = true;
+          logger.info(
+            {
+              target: this.target,
+              event: "firstData",
+              bytes: value.byteLength,
+              geometryCols: this._geometry.cols,
+              geometryRows: this._geometry.rows,
+              geometrySampled: this.geometrySampleCount > 0,
+              ts: Date.now(),
+            },
+            "nx-f1l69 firstData",
+          );
         }
         for (const cb of this.listeners) {
           try {

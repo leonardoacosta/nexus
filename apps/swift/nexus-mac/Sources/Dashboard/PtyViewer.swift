@@ -16,6 +16,7 @@
 
 import SwiftUI
 import NexusShared
+import Dispatch
 import os
 #if canImport(AppKit)
 import AppKit
@@ -25,6 +26,49 @@ import SwiftTerm
 #endif
 
 private let ptyLog = Logger(subsystem: "dev.priceless.nexus", category: "PtyViewer")
+
+/// INSTRUMENTATION SPIKE (nx-f1l69) — monotonic millisecond timestamp for
+/// correlating attach-handshake events across the agent (pino `ts`) and the
+/// Swift viewer. Uses the uptime clock (immune to wall-clock adjustment) so
+/// the geometry-vs-first-feed ORDERING is reliable even if NTP steps the
+/// system clock mid-attach. Logged as a bare integer for grep/awk.
+private func ptyMonoMs() -> UInt64 {
+    DispatchTime.now().uptimeNanoseconds / 1_000_000
+}
+
+/// INSTRUMENTATION SPIKE (nx-f1l69) — cause (b)/(c) heuristic: does a byte
+/// buffer END inside an unterminated `ESC[` (CSI) sequence? Cheap trailing
+/// scan from the end — if we hit a CSI introducer (ESC, then `[`) before any
+/// CSI final byte (0x40..0x7e), the buffer was cut mid-escape. Used to flag a
+/// feed chunk / pre-attach drop that lands on a mid-escape boundary.
+private func endsMidEscape(_ bytes: ArraySlice<UInt8>) -> Bool {
+    // Scan back up to 64 bytes — escape sequences are short; an unterminated
+    // CSI longer than that is pathological and not what we're probing for.
+    let window = 64
+    var i = bytes.endIndex
+    let lowerBound = bytes.startIndex
+    var scanned = 0
+    while i > lowerBound, scanned < window {
+        i = bytes.index(before: i)
+        scanned += 1
+        let b = bytes[i]
+        // CSI final byte (0x40..0x7e) closes a sequence → tail is clean.
+        if b >= 0x40 && b <= 0x7e && b != 0x5b {
+            // 0x5b is '[' — the CSI introducer's second byte, not a final.
+            return false
+        }
+        // ESC (0x1b): if the next byte is '[' we found an unterminated CSI.
+        if b == 0x1b {
+            let next = bytes.index(after: i)
+            if next < bytes.endIndex && bytes[next] == 0x5b {
+                return true
+            }
+            // Bare trailing ESC (or ESC + non-CSI) — treat as pending too.
+            return true
+        }
+    }
+    return false
+}
 
 struct PtyViewer: View {
     let sessionId: String
@@ -299,6 +343,19 @@ final class PtyViewerModel: ObservableObject {
     /// on every keystroke.
     private var loggedNonManagedSuppression = false
 
+    /// INSTRUMENTATION SPIKE (nx-f1l69) — attach-handshake / geometry race
+    /// probe state. Logging-only; no behavior change.
+    /// - `instrGeometryApplied`: has a geometry frame been APPLIED to SwiftTerm
+    ///   before the first feed? The key cause-(a) signal.
+    /// - `instrFirstFeedLogged`: one-shot guard for the firstFeed log line.
+    /// - `instrFeedCount`: total feeds seen — only the first N are logged at
+    ///   volume to keep the hot path quiet; boundary anomalies always log.
+    private var instrGeometryApplied = false
+    private var instrFirstFeedLogged = false
+    private var instrFeedCount = 0
+    /// Cap on per-feed logging so a high-volume stream doesn't flood the log.
+    private let instrMaxFeedLogs = 16
+
     #if canImport(SwiftTerm)
     private weak var terminal: TerminalView?
     #endif
@@ -360,7 +417,18 @@ final class PtyViewerModel: ObservableObject {
     func attach(view: TerminalView) {
         terminal = view
         if !preAttachBuffer.isEmpty {
-            view.feed(byteArray: ArraySlice(preAttachBuffer))
+            // INSTRUMENTATION SPIKE (nx-f1l69) — cause (c): the pre-attach
+            // buffer is drained into SwiftTerm in ONE feed at view-mount.
+            // `startsMidEscape` reuses the boundary heuristic against the
+            // FRONT of the buffer — if a 1MB drop earlier truncated a leading
+            // sequence, this is the buffer that carries the dangling escape
+            // into the first rendered screen.
+            let drained = ArraySlice(preAttachBuffer)
+            let tailMidEscape = endsMidEscape(drained) ? "true" : "false"
+            ptyLog.info(
+                "nx-f1l69 preAttachDrain bytes=\(self.preAttachBuffer.count, privacy: .public) tailMidEscape=\(tailMidEscape, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+            )
+            view.feed(byteArray: drained)
             preAttachBuffer.removeAll(keepingCapacity: false)
         }
     }
@@ -462,6 +530,14 @@ final class PtyViewerModel: ObservableObject {
     /// Spec: openspec/changes/pty-adaptive-geometry-fullscreen (task 2.3)
     func applyGeometry(cols: Int, rows: Int) async {
         guard cols > 0, rows > 0 else { return }
+        // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a): geometry frame RECEIVED.
+        // Pair the `recv` ts against the agent's `paneDims`/`firstData` ts and
+        // the `applied` ts below to see whether geometry lands before bytes.
+        let recvMode = geometryMode == .lock ? "lock" : "takeOver"
+        let recvFirstFeedDone = instrFirstFeedLogged ? "true" : "false"
+        ptyLog.info(
+            "nx-f1l69 geometry recv cols=\(cols, privacy: .public) rows=\(rows, privacy: .public) mode=\(recvMode, privacy: .public) firstFeedDone=\(recvFirstFeedDone, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+        )
         reportedGeometry = (cols: cols, rows: rows)
         guard geometryMode == .lock else { return }
         #if canImport(SwiftTerm)
@@ -470,6 +546,13 @@ final class PtyViewerModel: ObservableObject {
         // cheap. The representable re-letterboxes via updateNSView when the
         // published reportedGeometry changes.
         terminal?.getTerminal().resize(cols: cols, rows: rows)
+        // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a): geometry frame APPLIED
+        // to the SwiftTerm grid. `instrGeometryApplied` flips true here; the
+        // firstFeed log reads it to report whether geometry preceded bytes.
+        instrGeometryApplied = true
+        ptyLog.info(
+            "nx-f1l69 geometry applied grid=\(cols, privacy: .public)x\(rows, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+        )
         ptyLog.debug(
             "PtyViewer: locked grid to \(cols, privacy: .public)x\(rows, privacy: .public) (sessionId=\(self.sessionId, privacy: .public))"
         )
@@ -533,15 +616,60 @@ final class PtyViewerModel: ObservableObject {
         connectWatchdog = nil
         status = .streaming
         let bytes = [UInt8](data)
+        let slice = ArraySlice(bytes)
+
+        // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a) KEY SIGNAL: at the FIRST
+        // feed, has a geometry frame been applied to SwiftTerm yet? If
+        // `geometryApplied=false`, the very first cursor-positioning escapes
+        // land in the DEFAULT (un-resized) grid → the jumble. The `grid` here
+        // is the last-reported geometry (nil → "default").
+        instrFeedCount += 1
+        if !instrFirstFeedLogged {
+            instrFirstFeedLogged = true
+            let gridStr: String
+            if let geo = reportedGeometry {
+                gridStr = "\(geo.cols)x\(geo.rows)"
+            } else {
+                gridStr = "default"
+            }
+            let geometryAppliedStr = instrGeometryApplied ? "true" : "false"
+            ptyLog.info(
+                "nx-f1l69 firstFeed geometryApplied=\(geometryAppliedStr, privacy: .public) grid=\(gridStr, privacy: .public) bytes=\(bytes.count, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+            )
+        }
+        // Per-feed instrumentation, capped to the first N feeds (keeps the hot
+        // path quiet at volume). `midEscape=true` flags a chunk that does NOT
+        // end on an escape boundary — a re-assembly hazard if SwiftTerm sees it
+        // before the continuation arrives (cause (b) at the seed/live seam).
+        if instrFeedCount <= instrMaxFeedLogs {
+            let midEscapeStr = endsMidEscape(slice) ? "true" : "false"
+            ptyLog.debug(
+                "nx-f1l69 feed n=\(self.instrFeedCount, privacy: .public) bytes=\(bytes.count, privacy: .public) midEscape=\(midEscapeStr, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+            )
+        }
+
         #if canImport(SwiftTerm)
         if let terminal {
-            terminal.feed(byteArray: ArraySlice(bytes))
+            terminal.feed(byteArray: slice)
         } else {
             preAttachBuffer.append(contentsOf: bytes)
             // Cap the pre-attach buffer so a high-volume stream doesn't OOM
             // while waiting for the view to mount.
             if preAttachBuffer.count > 1_000_000 {
-                preAttachBuffer.removeFirst(preAttachBuffer.count - 1_000_000)
+                let dropCount = preAttachBuffer.count - 1_000_000
+                // INSTRUMENTATION SPIKE (nx-f1l69) — cause (c): the pre-attach
+                // buffer overflowed and we are about to DROP `dropCount` bytes
+                // from the FRONT. If the byte JUST BEFORE the drop boundary sits
+                // inside an unterminated ESC[ sequence, the retained tail begins
+                // mid-escape → SwiftTerm garbles the first rendered screen.
+                // Heuristic: scan the prefix that is being dropped; if it ends
+                // mid-escape, the retained portion inherits a dangling sequence.
+                let droppedPrefix = preAttachBuffer[preAttachBuffer.startIndex ..< preAttachBuffer.index(preAttachBuffer.startIndex, offsetBy: dropCount)]
+                let droppedEndsMidEscapeStr = endsMidEscape(droppedPrefix) ? "true" : "false"
+                ptyLog.info(
+                    "nx-f1l69 preAttachDrop bytesDropped=\(dropCount, privacy: .public) retained=\(1_000_000, privacy: .public) droppedEndsMidEscape=\(droppedEndsMidEscapeStr, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+                )
+                preAttachBuffer.removeFirst(dropCount)
             }
         }
         #else
