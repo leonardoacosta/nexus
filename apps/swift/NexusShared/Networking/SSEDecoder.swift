@@ -37,9 +37,19 @@ public enum SSEDecoder {
     /// built per call so we observe `didReceive data:` callbacks per TCP
     /// chunk and forward lines immediately. The delegate session is
     /// invalidated when the consume Task is cancelled or the stream ends.
+    /// `idleTimeout` (nx-e1j52): seconds of total stream silence — no
+    /// `didReceive data:` callback, not even the agent's 30s `: keepalive`
+    /// comment — after which the stream is force-finished with
+    /// `NexusClientError.idleTimeout`. This is the ONLY way the consumer
+    /// notices a dead-but-ESTABLISHED socket (agent restart behind a Tailscale
+    /// relay): with `timeoutIntervalFor{Request,Resource} = .infinity` set
+    /// intentionally for the long-lived stream, neither URLSession timeout nor
+    /// `didCompleteWithError` ever fires. Default 45 sits above the keepalive
+    /// cadence; tests inject a tiny value for determinism.
     public static func consume(
         url: URL,
         session: URLSession,
+        idleTimeout: TimeInterval = 45,
         handler: @Sendable @escaping (SSEEvent) async -> Void
     ) async throws {
         _ = session  // see implementation note above
@@ -66,6 +76,7 @@ public enum SSEDecoder {
         // URLSession's serial delegate queue) into the async caller's task.
         let lineStream = AsyncThrowingStream<String, Error> { continuation in
             let delegate = SSEStreamDelegate(
+                idleTimeout: idleTimeout,
                 onResponse: { status in
                     if !(200...299).contains(status) {
                         continuation.finish(throwing: NexusClientError.badStatus(status))
@@ -80,6 +91,18 @@ public enum SSEDecoder {
                     } else {
                         continuation.finish()
                     }
+                },
+                onIdleTimeout: {
+                    // No bytes for the idle window — the agent likely
+                    // restarted behind a relay that's holding the socket
+                    // ESTABLISHED. Finish the stream so `for try await`
+                    // throws, `consume()` throws, and `reconnectLoop`
+                    // re-dials. `continuation.onTermination` (below) cancels
+                    // the dataTask + invalidates the session.
+                    sseLogger.error(
+                        "SSEDecoder: idle timeout — forcing reconnect url=\(url.absoluteString, privacy: .public)"
+                    )
+                    continuation.finish(throwing: NexusClientError.idleTimeout)
                 }
             )
             let delegateQueue = OperationQueue()

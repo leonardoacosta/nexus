@@ -59,6 +59,12 @@ public enum NexusClientError: Error {
     case badStatus(Int)
     case decoding(Error)
     case transport(Error)
+    /// Streaming SSE consumer saw NO bytes for the idle window (nx-e1j52).
+    /// The agent emits a `: keepalive\n\n` comment every 30s, so a silent
+    /// stream means the relay is holding a half-open socket to a dead agent.
+    /// `SSEDecoder.consume` finishes the stream with this so the
+    /// `TTSObserver.reconnectLoop` re-dials instead of blocking forever.
+    case idleTimeout
 }
 
 public actor NexusClient {
