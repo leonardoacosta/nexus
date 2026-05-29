@@ -84,20 +84,41 @@ macos_swift_deploy_run() {
     # Use PIPESTATUS to recover the real status. Without this, silent
     # Swift compile failures (like nx-jmqyk, 2026-05-18) ship to
     # /Applications as missing-app + warn-only output.
+    #
+    # nx-n2o0a: signed-first with ssh-fallback. The SIGNED build (team
+    # DX3Y367L2A) lets macOS notification grants persist; over ssh the
+    # locked login-keychain makes signing fail (errSecInternalComponent),
+    # so fall back to the unsigned ad-hoc build to keep that path working.
     (cd "$swift_dir" && xcodebuild \
             -project nexus.xcodeproj \
             -scheme nexus-mac \
             -configuration Release \
             -derivedDataPath "$build_dir" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM=DX3Y367L2A \
+            CODE_SIGN_STYLE=Automatic \
             build 2>&1 | tail -20)
     local xcodebuild_rc="${PIPESTATUS[0]:-1}"
     if [[ "$xcodebuild_rc" -ne 0 ]]; then
-        _macos_swift_deploy_warn "xcodebuild failed (rc=$xcodebuild_rc) — Nexus.app not updated"
+        _macos_swift_deploy_warn "signed build failed (likely non-interactive/locked keychain) — falling back to unsigned ad-hoc build"
         rm -rf "$build_dir"
-        return 1
+        (cd "$swift_dir" && xcodebuild \
+                -project nexus.xcodeproj \
+                -scheme nexus-mac \
+                -configuration Release \
+                -derivedDataPath "$build_dir" \
+                CODE_SIGN_IDENTITY="" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO \
+                build 2>&1 | tail -20)
+        xcodebuild_rc="${PIPESTATUS[0]:-1}"
+        if [[ "$xcodebuild_rc" -ne 0 ]]; then
+            _macos_swift_deploy_warn "xcodebuild failed (rc=$xcodebuild_rc) — Nexus.app not updated"
+            rm -rf "$build_dir"
+            return 1
+        fi
+    else
+        _macos_swift_deploy_info "built SIGNED bundle (team DX3Y367L2A)"
     fi
 
     # Note: the nexus-mac target sets PRODUCT_NAME=nexus, so xcodebuild
