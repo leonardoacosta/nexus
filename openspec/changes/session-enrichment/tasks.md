@@ -4,8 +4,8 @@
 # Tasks — Session Enrichment
 
 ## DB Batch
-- [ ] Add `agentState` column to `packages/db/src/schema/sessions.ts` (text, nullable; allowed values `blocked|waiting|ready`), then regenerate + apply the migration via drizzle-kit (`pnpm --filter @nexus/db db:push`) [beads:nx-ojqb9]
-- [ ] Verify the existing `branch` column is selected in session reads (`sessionToRow` / session select in `apps/agent/src/db/sessions.ts`) [beads:nx-lak3e]
+- [x] Add `agentState` column to `packages/db/src/schema/sessions.ts` (text, nullable; allowed values `blocked|waiting|ready`), then regenerate + apply the migration via drizzle-kit (`pnpm --filter @nexus/db db:push`) [beads:nx-ojqb9]
+- [x] Verify the existing `branch` column is selected in session reads (`sessionToRow` / session select in `apps/agent/src/db/sessions.ts`) [beads:nx-lak3e]
 
 ## API Batch
 - [ ] Add `agentState` to the session domain type in `packages/core/src/types/session.ts` (union `"blocked" | "waiting" | "ready"`, nullable) [beads:nx-ug4x2]

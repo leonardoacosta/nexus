@@ -53,6 +53,12 @@ export const sessions = pgTable(
     /** Owner/repo path (e.g. "leonardoacosta/nexus") extracted from origin. */
     gitOwnerRepo: text("git_owner_repo"),
 
+    // Agent-state field — added by session-enrichment. Orthogonal to the
+    // lifecycle `status` axis. Nullable + no default (additive, backward-
+    // compatible: absence renders as today's behavior). One of
+    // `blocked` | `waiting` | `ready`, derived from the CC hook stream.
+    agentState: text("agent_state"),
+
     // Sub-agent tree fields — added by add-subagent-tree-columns.
     /**
      * Parent session id when this session was spawned by another agent
