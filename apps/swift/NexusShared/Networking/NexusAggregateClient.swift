@@ -119,7 +119,13 @@ public actor NexusAggregateClient {
         if let raw = SettingsStore.shared.dashboardEndpoint,
            !raw.isEmpty,
            let url = URL(string: raw) {
-            return ([NexusClient(endpoint: NexusEndpoint(baseURL: url))], ["pinned"])
+            // Surface the endpoint hostname as the agent name rather than the
+            // legacy "pinned" sentinel — the sentinel used to leak into the
+            // session row's originAgent label. Fall back to "localhost" when
+            // the URL carries no host (mirrors the no-agents branch below).
+            // Spec: openspec/changes/session-enrichment (task nx-70ep8).
+            let name = (url.host?.isEmpty == false) ? url.host! : "localhost"
+            return ([NexusClient(endpoint: NexusEndpoint(baseURL: url))], [name])
         }
         let agents = AgentRegistry.loadAgents()
         if !agents.isEmpty {

@@ -12,6 +12,22 @@
 
 import Foundation
 
+/// Orthogonal agent-activity axis derived from the CC lifecycle hook stream
+/// (apps/agent/src/services/socket-server/dispatcher.ts). Distinct from
+/// `Session.status` (the lifecycle/liveness axis). Nullable on the wire —
+/// absent on legacy / telemetry-stub rows, so the row falls back to a neutral
+/// sigil. Decoded unknown-tolerant: an unexpected string decodes to `nil`
+/// rather than throwing (matches the file's "unknown keys are ignored"
+/// contract). Spec: openspec/changes/session-enrichment (task nx-036vw).
+public enum AgentState: String, Codable, Sendable {
+    /// Mid-turn — running a tool (PreToolUse/PostToolUse/UserPromptSubmit/SubagentStart).
+    case blocked
+    /// Awaiting user input — permission prompt or idle-await Notification.
+    case waiting
+    /// Turn ended (Stop hook) — idle, awaiting the next prompt.
+    case ready
+}
+
 public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     public var id: String
     public var project: String?
@@ -29,6 +45,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     public var tmuxTarget: String?
     public var tmuxSession: String?
     public var branch: String?
+    /// Agent-activity state derived from the CC hook stream — `blocked`,
+    /// `waiting`, or `ready`. Nullable: absent on legacy rows; an unknown
+    /// wire string decodes to nil (see `AgentState` doc + the decoder below).
+    /// Drives the SessionRow status sigil. Orthogonal to `status`.
+    /// Spec: openspec/changes/session-enrichment (task nx-036vw).
+    public var agentState: AgentState?
     /// CC fingerprint signals — populated for real Claude Code rows, null on
     /// telemetry-ping stubs.
     public var pid: Int?
@@ -68,6 +90,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case tmuxTarget
         case tmuxSession
         case branch
+        case agentState
         case pid
         case cwd
         case ccSessionId
@@ -90,6 +113,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.tmuxTarget    = try c.decodeIfPresent(String.self, forKey: .tmuxTarget)
         self.tmuxSession   = try c.decodeIfPresent(String.self, forKey: .tmuxSession)
         self.branch        = try c.decodeIfPresent(String.self, forKey: .branch)
+        // Unknown-tolerant: decode the raw string then map via the failable
+        // initializer so an unexpected value (server-side extension) yields
+        // nil instead of throwing — mirrors the file's "unknown keys are
+        // ignored" contract.
+        let agentStateRaw  = try c.decodeIfPresent(String.self, forKey: .agentState)
+        self.agentState    = agentStateRaw.flatMap(AgentState.init(rawValue:))
         self.startedAt     = try Self.decodeFlexibleDate(c, .startedAt) ?? Date()
         let hb = (try? Self.decodeFlexibleDate(c, .lastHeartbeat))
             ?? (try? Self.decodeFlexibleDate(c, .lastActivity))
@@ -124,6 +153,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         tmuxTarget: String? = nil,
         tmuxSession: String? = nil,
         branch: String? = nil,
+        agentState: AgentState? = nil,
         pid: Int? = nil,
         cwd: String? = nil,
         ccSessionId: String? = nil,
@@ -146,6 +176,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.tmuxTarget = tmuxTarget
         self.tmuxSession = tmuxSession
         self.branch = branch
+        self.agentState = agentState
         self.pid = pid
         self.cwd = cwd
         self.ccSessionId = ccSessionId

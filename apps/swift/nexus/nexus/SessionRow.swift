@@ -58,8 +58,14 @@ struct SessionRow: View {
 
     private var metaLine: String {
         let project = session.project ?? session.projectId ?? "—"
-        let model   = session.model.map { "\($0)" } ?? "claude"
-        return "\(project) · \(model)"
+        // Subtitle is `project · branch`; falls back to `project` alone when
+        // the branch is nil/empty. The model name is intentionally dropped —
+        // it was identical on every row ("claude").
+        // Spec: openspec/changes/session-enrichment (task nx-c9muh).
+        if let branch = session.branch, !branch.isEmpty {
+            return "\(project) · \(branch)"
+        }
+        return project
     }
 
     private var ageString: String {
@@ -70,22 +76,59 @@ struct SessionRow: View {
         return "\(secs / 86400)d"
     }
 
+    // MARK: - Agent-state sigil tokens (nx-c9muh)
+
+    /// Tint for the sigil fill/stroke/glow per `agentState`. Drives the row's
+    /// primary "can this agent take a command right now?" signal.
+    /// - blocked  -> phosphor (busy, working a tool) — filled + glow
+    /// - waiting  -> amber    (needs user input / permission prompt)
+    /// - ready    -> phosphorDim (idle, awaiting the next prompt)
+    /// - nil      -> neutral hairline (legacy / unknown — today's default look)
+    private var stateColor: Color {
+        switch session.agentState {
+        case .blocked: return Color.nx.phosphor
+        case .waiting: return Color.nx.amber
+        case .ready:   return Color.nx.phosphorDim
+        case .none:    return Color.nx.hairlineStrong
+        }
+    }
+
+    /// Only the actively-working state gets the solid fill + glow treatment;
+    /// waiting/ready/neutral render as a hollow, colored outline so a row that
+    /// can't take a command doesn't read as "live".
+    private var stateFilled: Bool {
+        session.agentState == .blocked
+    }
+
     @ViewBuilder
     private var sigil: some View {
         let initial = String((session.project ?? "?").prefix(1)).uppercased()
-        let active  = session.status == "active"
+        let tint    = stateColor
+        let filled  = stateFilled
         ZStack {
             RoundedRectangle(cornerRadius: 3)
-                .stroke(active ? Color.nx.phosphor : Color.nx.hairlineStrong, lineWidth: 1)
+                .stroke(tint, lineWidth: 1)
                 .background(
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(active ? Color.nx.phosphor : Color.clear)
+                        .fill(filled ? tint : Color.clear)
                 )
                 .frame(width: 14, height: 14)
             Text(initial)
                 .font(.jbm(10, weight: .bold))
-                .foregroundStyle(active ? Color.nx.substrate : Color.nx.ink3)
+                .foregroundStyle(filled ? Color.nx.substrate : Color.nx.ink3)
         }
-        .shadow(color: active ? Color.nx.phosphor.opacity(0.4) : .clear, radius: 4)
+        .shadow(color: filled ? tint.opacity(0.4) : .clear, radius: 4)
+        .accessibilityLabel(accessibilityState)
+    }
+
+    /// VoiceOver string for the sigil — keeps the agent-state signal available
+    /// to assistive tech now that the textual "active" label is gone.
+    private var accessibilityState: String {
+        switch session.agentState {
+        case .blocked: return "Working"
+        case .waiting: return "Waiting for input"
+        case .ready:   return "Ready"
+        case .none:    return "Unknown state"
+        }
     }
 }
