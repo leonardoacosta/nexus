@@ -109,6 +109,7 @@ const SESSION_CRUD_DDL = `
     "credential_fingerprint" text,
     "git_provider" text,
     "git_owner_repo" text,
+    "agent_state" text,
     "parent_session_id" text,
     "child_role" text
   );
@@ -203,6 +204,7 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
       credentialFingerprint: null,
       gitProvider: null,
       gitOwnerRepo: null,
+      agentState: null,
       parentSessionId: null,
       childRole: null,
     };
@@ -268,6 +270,7 @@ function makeSessionRow(over: Partial<SessionRow> & { id: string }): SessionRow 
     credentialFingerprint: null,
     gitProvider: null,
     gitOwnerRepo: null,
+    agentState: null,
     parentSessionId: null,
     childRole: null,
     ...over,

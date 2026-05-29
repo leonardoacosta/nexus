@@ -62,6 +62,13 @@ type SessionDbBase = Pick<
 type SessionDbOverrides = {
   /** DB: text (unconstrained). Mapper must narrow at runtime or throw on unknown value. */
   status: SessionStatus;
+  /**
+   * DB: text | null (unconstrained). Mapper must narrow at runtime via
+   * `narrowAgentState`, preserving null. ORTHOGONAL to `status` — this is the
+   * CC-hook-derived agent activity axis (blocked|waiting|ready), not the
+   * lifecycle/liveness axis. session-enrichment.
+   */
+  agentState: AgentState | null;
   /** DB: text | null. Mapper must narrow at runtime; fallback to "ad_hoc" on null. */
   sessionType: SessionType;
   /** DB: string NOT NULL. Domain widens to nullable — safe (no cast required). */
@@ -141,6 +148,23 @@ export type Session = Omit<SessionDbBase, keyof SessionDbOverrides> &
 export type SessionStatus = "active" | "idle" | "ended" | "stale" | "errored";
 
 /**
+ * Valid values for `sessions.agent_state` (session-enrichment).
+ *
+ * ORTHOGONAL to `SessionStatus` — `status` is the lifecycle/liveness axis
+ * (active|idle|ended|stale|errored), `agentState` is the CC-hook-derived
+ * activity axis describing whether the agent can take a command right now:
+ *   - `blocked` — mid-turn / running a tool (PreToolUse, PostToolUse,
+ *     UserPromptSubmit, SubagentStart).
+ *   - `waiting` — awaiting user input (permission prompt / idle Notification).
+ *   - `ready`   — turn ended, awaiting next prompt (Stop).
+ *
+ * DB column is unconstrained `text | null`. The mapper MUST call
+ * `narrowAgentState()` rather than using `as AgentState` casts. `null` means
+ * "no hook observed yet" and renders as today's behavior on the dashboard.
+ */
+export type AgentState = "blocked" | "waiting" | "ready";
+
+/**
  * Valid values for `sessions.session_type`.
  *
  * DB column is unconstrained `text | null`. The mapper MUST call
@@ -166,6 +190,25 @@ const SESSION_STATUSES = new Set<SessionStatus>([
 ]);
 
 const SESSION_TYPES = new Set<SessionType>(["ad_hoc", "managed", "pooled"]);
+
+const AGENT_STATES = new Set<AgentState>(["blocked", "waiting", "ready"]);
+
+/**
+ * Narrow a raw DB string (or null) to `AgentState | null`.
+ *
+ * Null-preserving: `null`/`undefined` map to `null` (no hook observed yet),
+ * mirroring the additive, backward-compatible contract. Unknown non-null
+ * values also degrade to `null` rather than throwing — `agentState` is a soft
+ * display signal, so enum drift from an old agent version MUST NOT break a
+ * sessions query (unlike `status`, which throws because liveness is critical).
+ */
+export function narrowAgentState(
+  value: string | null | undefined,
+): AgentState | null {
+  if (value == null) return null;
+  if (AGENT_STATES.has(value as AgentState)) return value as AgentState;
+  return null;
+}
 
 /**
  * Narrow a raw DB string to `SessionStatus`.

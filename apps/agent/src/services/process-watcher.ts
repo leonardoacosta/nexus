@@ -72,6 +72,89 @@ const log = createLogger("agent:process-watcher");
 
 const DEFAULT_INTERVAL_MS = 30_000;
 
+// ---------------------------------------------------------------------------
+// Git branch resolver — session-enrichment
+// ---------------------------------------------------------------------------
+//
+// Replaces the hardcoded `branch: null` on new-session creation with a
+// fail-soft `git rev-parse --abbrev-ref HEAD` in the session's cwd. Memoised by
+// cwd for 30s, mirroring `git-project-resolver`'s cache: the watcher's 30s poll
+// cadence MUST NOT re-shell `git` on every tick. Negative results (non-git dir,
+// timeout, missing binary) are cached too so a flapping/foreign dir doesn't peg
+// CPU. NEVER throws — every failure mode returns `null` (no user-facing error).
+
+const BRANCH_CACHE_TTL_MS = 30_000;
+const BRANCH_RESOLVE_TIMEOUT_MS = 2_000;
+
+interface BranchCacheEntry {
+  value: string | null;
+  expiresAt: number;
+}
+
+const branchCache = new Map<string, BranchCacheEntry>();
+
+/** Clear cached branch lookups. Tests call this to isolate scenarios. */
+function clearBranchCache(): void {
+  branchCache.clear();
+}
+
+/**
+ * Resolve the current git branch for `cwd` via `git rev-parse --abbrev-ref HEAD`.
+ *
+ * Returns the branch name on success, or `null` for a non-git directory,
+ * empty/missing cwd, a detached HEAD (`HEAD`), a non-zero exit, a timeout, or a
+ * missing git binary. Memoised per-cwd for 30s (positive AND negative results).
+ * Never throws — fail-soft per the session-enrichment spec.
+ */
+async function resolveBranch(
+  cwd: string | null | undefined,
+): Promise<string | null> {
+  if (!cwd) return null;
+
+  const now = Date.now();
+  const cached = branchCache.get(cwd);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  let value: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const proc = Bun.spawn(
+      ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+      { stdout: "pipe", stderr: "pipe", stdin: "ignore" },
+    );
+    timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* already exited */
+      }
+    }, BRANCH_RESOLVE_TIMEOUT_MS);
+    const [stdout, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    if (exitCode === 0) {
+      const out = stdout.trim();
+      // `HEAD` means detached — treat as "no branch" (null), matching the
+      // git-project metadata resolver's detached-HEAD handling.
+      value = out.length > 0 && out !== "HEAD" ? out : null;
+    }
+  } catch (err) {
+    log.debug(
+      { err, cwd },
+      "process-watcher: branch resolution failed (non-git or git missing) — null",
+    );
+    value = null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  branchCache.set(cwd, { value, expiresAt: now + BRANCH_CACHE_TTL_MS });
+  return value;
+}
+
 /** Match a pgrep line whose command is the real `claude` binary. */
 function isClaudeCommand(cmd: string): boolean {
   // Reject helper procs whose command happens to contain the substring
@@ -653,6 +736,12 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
       }
     }
 
+    // session-enrichment: fail-soft, cwd-memoised git branch lookup. Skipped
+    // when cwd is blank (no dir to inspect). resolveBranch never throws —
+    // non-git dirs / failures return null, so `branch` stays null exactly as
+    // before for those cases.
+    const branch = cwd ? await resolveBranch(cwd) : null;
+
     try {
       await upsertSession(db, {
         id: sessionId,
@@ -661,7 +750,7 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         projectId: resolvedProject?.projectId ?? null,
         machine: "local",
         cwd,
-        branch: null,
+        branch,
         startedAt: now,
         lastHeartbeat: now,
         endedAt: null,
@@ -679,6 +768,10 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         credentialId: null,
         credentialFingerprint: null,
         sessionType: "managed",
+        // session-enrichment: no hook observed yet at discovery time. The
+        // hook-processing spine sets blocked/waiting/ready on the first
+        // lifecycle hook.
+        agentState: null,
         parentSessionId: null,
         childRole: null,
       });
@@ -998,4 +1091,6 @@ export const __testing = {
   listClaudeProcesses,
   listTmuxPanes,
   tmuxScan,
+  resolveBranch,
+  clearBranchCache,
 };

@@ -148,6 +148,9 @@ export function createSessionManager(
           credentialId: null,
           credentialFingerprint: null,
           sessionType: "ad_hoc",
+          // session-enrichment: agentState is hook-derived; a freshly-started
+          // session has no hook observed yet (the spine sets it on first hook).
+          agentState: null,
           parentSessionId: null,
           childRole: null,
         };
@@ -411,6 +414,7 @@ export function createSessionManager(
             credentialId: row.credentialId ?? null,
             credentialFingerprint: row.credentialFingerprint ?? null,
             sessionType: (row.sessionType as Session["sessionType"]) ?? "ad_hoc",
+            agentState: (row.agentState as Session["agentState"]) ?? null,
             parentSessionId: row.parentSessionId ?? null,
             childRole: row.childRole ?? null,
           };

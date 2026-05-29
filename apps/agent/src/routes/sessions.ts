@@ -369,6 +369,9 @@ export async function handleSessionStart(
         credentialId: null,
         credentialFingerprint: null,
         sessionType: "managed",
+        // session-enrichment: no CC hook observed yet for a freshly-spawned
+        // managed session — the hook-processing spine fills this in.
+        agentState: null,
         parentSessionId: null,
         childRole: null,
       });

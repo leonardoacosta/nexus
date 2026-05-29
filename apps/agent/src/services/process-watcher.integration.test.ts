@@ -152,6 +152,7 @@ const DDL = `
     "credential_fingerprint" text,
     "git_provider" text,
     "git_owner_repo" text,
+    "agent_state" text,
     "parent_session_id" text,
     "child_role" text
   );

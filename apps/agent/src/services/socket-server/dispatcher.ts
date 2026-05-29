@@ -100,6 +100,14 @@ export function createSocketEventDispatcher(
           session_id: event.session_id,
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+        // Agent-state spine (session-enrichment): Stop → `ready`. Persisted via
+        // the shared hook processor (deriveAgentState maps session_stop → ready).
+        deriveAndPersistAgentState(
+          event.event,
+          event.session_id,
+          event as unknown as Record<string, unknown>,
+          { sessionManager, db: db ?? null },
+        );
         lifecycleBus.emit("SessionStopped", {
           sessionId: event.session_id,
         });
@@ -114,6 +122,15 @@ export function createSocketEventDispatcher(
           timestamp: new Date().toISOString(),
         };
         sessionManager.handleWatcherEvent(watcherEvent);
+        // Agent-state spine (session-enrichment): a mid-turn tool hook
+        // (PreToolUse/PostToolUse/UserPromptSubmit/SubagentStart) reaches the
+        // agent as a heartbeat → `blocked`.
+        deriveAndPersistAgentState(
+          event.event,
+          event.session_id,
+          event as unknown as Record<string, unknown>,
+          { sessionManager, db: db ?? null },
+        );
         lifecycleBus.emit("SessionHeartbeat", {
           sessionId: event.session_id,
           timestamp: new Date().toISOString(),
@@ -151,6 +168,19 @@ export function createSocketEventDispatcher(
           },
           "socket: notification",
         );
+
+        // Agent-state spine (session-enrichment): a session-scoped Notification
+        // means the agent is awaiting user input (permission prompt / idle) →
+        // `waiting`. Project-level notifications with no session_id carry no
+        // per-session signal and are skipped by the sessionId guard below.
+        if (event.session_id) {
+          deriveAndPersistAgentState(
+            event.event,
+            event.session_id,
+            event as unknown as Record<string, unknown>,
+            { sessionManager, db: db ?? null },
+          );
+        }
 
         // Record in history for the `history` command.
         recordNotification(event.message, messageType, effectiveChannels);
@@ -280,6 +310,32 @@ export function createSocketEventDispatcher(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Fire-and-forget agent-state derivation + persistence for a session-scoped
+ * lifecycle event (session-enrichment). Routes through the shared
+ * `processHookEvent` spine, which maps the event name to a blocked/waiting/
+ * ready state (`deriveAgentState`) and persists it via `updateSessionAgentState`.
+ *
+ * The dispatcher is synchronous; this returns immediately and swallows any
+ * rejection so an agent-state hiccup never breaks the primary dispatch path.
+ */
+function deriveAndPersistAgentState(
+  eventType: string,
+  sessionId: string,
+  payload: Record<string, unknown>,
+  deps: { sessionManager: SessionManager; db: Db | null },
+): void {
+  processHookEvent(
+    { eventType, sessionId, payload, source: "socket" },
+    deps,
+  ).catch((err: unknown) => {
+    log.warn(
+      { err, eventType, sessionId },
+      "socket: processHookEvent(agent_state) rejected unexpectedly",
+    );
+  });
+}
 
 /**
  * Best-effort credential binding for a session.

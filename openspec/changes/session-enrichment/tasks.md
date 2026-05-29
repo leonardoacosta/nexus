@@ -8,11 +8,11 @@
 - [x] Verify the existing `branch` column is selected in session reads (`sessionToRow` / session select in `apps/agent/src/db/sessions.ts`) [beads:nx-lak3e]
 
 ## API Batch
-- [ ] Add `agentState` to the session domain type in `packages/core/src/types/session.ts` (union `"blocked" | "waiting" | "ready"`, nullable) [beads:nx-ug4x2]
-- [ ] In `apps/agent/src/services/socket-server/dispatcher.ts`, map ingested hooks to `agentState` and persist per session: PreToolUse/PostToolUse/UserPromptSubmit/SubagentStart → `blocked`; Notification-awaiting-input → `waiting`; Stop → `ready` [beads:nx-rwsju]
-- [ ] In `apps/agent/src/services/process-watcher.ts` (~line 664), replace the hardcoded `branch: null` with a fail-soft, cwd-memoized `git rev-parse --abbrev-ref HEAD` (reuse the existing project-resolver memoization pattern) [beads:nx-k9ujb]
-- [ ] In `apps/agent/src/routes/sessions.ts`, include `agentState` in the session payload returned to clients [beads:nx-hhudi]
-- [ ] Unit tests: hook→agentState mapping for all four transitions; branch resolution for git cwd, non-git cwd, and lookup failure (fail-soft null) [beads:nx-131wz]
+- [x] Add `agentState` to the session domain type in `packages/core/src/types/session.ts` (union `"blocked" | "waiting" | "ready"`, nullable) [beads:nx-ug4x2]
+- [x] In `apps/agent/src/services/socket-server/dispatcher.ts`, map ingested hooks to `agentState` and persist per session: PreToolUse/PostToolUse/UserPromptSubmit/SubagentStart → `blocked`; Notification-awaiting-input → `waiting`; Stop → `ready` [beads:nx-rwsju]
+- [x] In `apps/agent/src/services/process-watcher.ts` (~line 664), replace the hardcoded `branch: null` with a fail-soft, cwd-memoized `git rev-parse --abbrev-ref HEAD` (reuse the existing project-resolver memoization pattern) [beads:nx-k9ujb]
+- [x] In `apps/agent/src/routes/sessions.ts`, include `agentState` in the session payload returned to clients [beads:nx-hhudi]
+- [x] Unit tests: hook→agentState mapping for all four transitions; branch resolution for git cwd, non-git cwd, and lookup failure (fail-soft null) [beads:nx-131wz]
 
 ## UI Batch
 - [ ] In `apps/swift/NexusShared/Models/Session.swift`, decode `agentState` (safe default when absent) [beads:nx-036vw]

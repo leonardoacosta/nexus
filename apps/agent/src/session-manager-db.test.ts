@@ -257,6 +257,7 @@ describe("session-manager write-through (with mock DB)", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      agentState: null,
       parentSessionId: null,
       childRole: null,
     };
@@ -305,6 +306,7 @@ describe("session-manager PID validation", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      agentState: null,
       parentSessionId: null,
       childRole: null,
     };
@@ -360,6 +362,7 @@ describe("session-manager PID validation", () => {
       credentialId: null,
       credentialFingerprint: null,
       sessionType: "ad_hoc",
+      agentState: null,
       parentSessionId: null,
       childRole: null,
     };

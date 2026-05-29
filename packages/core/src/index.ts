@@ -1,5 +1,5 @@
-export type { Session, SessionStatus, SessionType, SessionRuntimeFields } from "./types/session";
-export { narrowSessionStatus, narrowSessionType } from "./types/session";
+export type { Session, SessionStatus, SessionType, AgentState, SessionRuntimeFields } from "./types/session";
+export { narrowSessionStatus, narrowSessionType, narrowAgentState } from "./types/session";
 export type { HealthMetrics, ProcessInfo, HealthProcessesResponse } from "./types/health";
 export type { Project, DiscoveredProject, DiscoveredProjectsResponse, ProjectLocation, CanonicalProject, GitMetadata, GitCommit } from "./types/project";
 export type { WatcherEvent, WatcherCommand } from "./types/ipc";

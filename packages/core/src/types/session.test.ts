@@ -46,6 +46,11 @@ const DB_COLUMN_KEYS = new Set([
   "spec",
   "credentialId",
   "credentialFingerprint",
+  "gitProvider",
+  "gitOwnerRepo",
+  "agentState",
+  "parentSessionId",
+  "childRole",
 ]);
 
 /**
@@ -56,6 +61,8 @@ const DB_COLUMNS_OMITTED_FROM_DOMAIN = new Set([
   "lastActivity",    // Renamed to `lastHeartbeat` in SessionRuntimeFields.
   "rateLimitResetAt", // Internal rate-limit bookkeeping — not surfaced.
   "idleSince",       // Internal idle tracking — not surfaced.
+  "gitProvider",     // Written directly via updateSessionGitOrigin; not on domain.
+  "gitOwnerRepo",    // Written directly via updateSessionGitOrigin; not on domain.
 ]);
 
 /**
@@ -95,6 +102,7 @@ type _AllSessionKeysAreExpected = Exclude<
   | "pid" | "cwd" | "branch" | "sessionType" | "model" | "rateLimitUtilization"
   | "totalCostUsd" | "ccSessionId" | "tmuxSession" | "tmuxTarget" | "spec"
   | "credentialId" | "credentialFingerprint"
+  | "agentState" | "parentSessionId" | "childRole"
   | "lastHeartbeat" | "project" | "command" | "agent" | "rateLimitType"
 > extends never
   ? true
@@ -131,8 +139,10 @@ describe("Session shape", () => {
   it("snapshot of all expected Session keys — update consciously when schema or domain changes", () => {
     expect(Array.from(EXPECTED_SESSION_KEYS).sort()).toEqual([
       "agent",
+      "agentState",
       "branch",
       "ccSessionId",
+      "childRole",
       "command",
       "credentialFingerprint",
       "credentialId",
@@ -142,6 +152,7 @@ describe("Session shape", () => {
       "lastHeartbeat",
       "machine",
       "model",
+      "parentSessionId",
       "pid",
       "project",
       "projectId",

@@ -123,6 +123,7 @@ export const SESSIONS_FIXTURE: SessionRow[] = [
     credentialFingerprint: null,
     gitProvider: null,
     gitOwnerRepo: null,
+    agentState: null,
     parentSessionId: null,
     childRole: null,
   },

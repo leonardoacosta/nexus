@@ -31,7 +31,12 @@ import type { SessionManager } from "../session-manager";
 import { resolveGitOrigin } from "./git-project";
 import { resolveProject } from "./git-project-resolver";
 import { inspectAndEmitDrift } from "./schema-drift";
-import { updateSessionGitOrigin, backfillSessionCwd } from "../db/sessions";
+import {
+  updateSessionGitOrigin,
+  backfillSessionCwd,
+  deriveAgentState,
+  updateSessionAgentState,
+} from "../db/sessions";
 
 const log = createLogger("agent:process-hook-event");
 
@@ -104,6 +109,36 @@ export async function processHookEvent(
         { err, eventType: input.eventType, source: input.source },
         "process-hook-event: schema-drift inspector threw (non-fatal)",
       );
+    }
+  }
+
+  // 1b. Agent-state derivation (session-enrichment). Runs on EVERY event so
+  //     the orthogonal blocked/waiting/ready axis tracks the live hook stream.
+  //     deriveAgentState returns null for events with no agent-state signal
+  //     (e.g. session_start, agent_spawn, telemetry) — those are skipped so a
+  //     previously-derived state is never clobbered with null. Best-effort:
+  //     a persist hiccup must not break the primary dispatch path, and it is
+  //     intentionally NOT folded into enrichmentOk (a distinct concern).
+  if (db && input.sessionId) {
+    const agentState = deriveAgentState(input.eventType);
+    if (agentState !== null) {
+      try {
+        await updateSessionAgentState(db, input.sessionId, agentState);
+        log.debug(
+          {
+            sessionId: input.sessionId,
+            eventType: input.eventType,
+            agentState,
+            source: input.source,
+          },
+          "process-hook-event: agent_state persisted",
+        );
+      } catch (err) {
+        log.warn(
+          { err, eventType: input.eventType, sessionId: input.sessionId, source: input.source },
+          "process-hook-event: agent_state persist threw (non-fatal)",
+        );
+      }
     }
   }
 

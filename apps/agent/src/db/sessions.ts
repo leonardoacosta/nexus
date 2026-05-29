@@ -12,8 +12,12 @@ import {
   gt,
   ne,
 } from "drizzle-orm";
-import type { Session } from "@nexus/core";
-import { narrowSessionStatus, narrowSessionType } from "@nexus/core";
+import type { Session, AgentState } from "@nexus/core";
+import {
+  narrowSessionStatus,
+  narrowSessionType,
+  narrowAgentState,
+} from "@nexus/core";
 
 /**
  * Drizzle predicate matching the "real CC session" fingerprint used by
@@ -89,6 +93,7 @@ export async function upsertSession(db: Db, session: Session): Promise<void> {
         credentialFingerprint: row.credentialFingerprint,
         gitProvider: row.gitProvider,
         gitOwnerRepo: row.gitOwnerRepo,
+        agentState: row.agentState,
         parentSessionId: row.parentSessionId,
         childRole: row.childRole,
       },
@@ -126,6 +131,8 @@ function rowToSession(row: SessionRow): Session {
     credentialId: row.credentialId ?? null,
     credentialFingerprint: row.credentialFingerprint ?? null,
     sessionType: narrowSessionType(row.sessionType),
+    // session-enrichment: null-preserving narrowing — unknown/absent → null.
+    agentState: narrowAgentState(row.agentState),
     parentSessionId: row.parentSessionId ?? null,
     childRole: row.childRole ?? null,
   };
@@ -156,6 +163,10 @@ function sessionToRow(session: Session): SessionRow {
     spec: session.spec ?? null,
     credentialId: session.credentialId ?? null,
     credentialFingerprint: session.credentialFingerprint ?? null,
+    // Agent-state field (session-enrichment). Round-tripped from the domain
+    // Session so an upsert never clobbers a previously-derived state with
+    // null. The hook-driven writer path is `updateSessionAgentState`.
+    agentState: session.agentState ?? null,
     // Git origin fields (add-git-project-resolver). Not surfaced on the
     // domain Session type; persisted directly via `updateSessionGitOrigin`
     // from `services/process-hook-event.ts`. Falling through as null here
@@ -258,6 +269,68 @@ export async function updateSessionStatus(
       ...(endedAt !== undefined ? { endedAt } : {}),
     })
     .where(eq(sessions.id, id));
+}
+
+/**
+ * Map a Claude Code lifecycle hook event name to the session `agentState`
+ * it implies (session-enrichment).
+ *
+ *   - PreToolUse | PostToolUse | UserPromptSubmit | SubagentStart → `blocked`
+ *     (mid-turn / running a tool).
+ *   - Notification (awaiting user input — permission prompt / idle)  → `waiting`.
+ *   - Stop  → `ready` (turn ended, awaiting next prompt).
+ *
+ * Returns `null` for any other event name — the caller MUST treat null as "this
+ * hook carries no agent-state signal" and skip the persist (do NOT clobber the
+ * existing state with null).
+ *
+ * Accepts the canonical CC hook names AND the agent's snake_case socket-event
+ * aliases so the dispatcher can pass either form:
+ *   - `session_heartbeat` ≡ a mid-turn tool hook (the dispatcher's view of the
+ *     PreToolUse/PostToolUse/UserPromptSubmit/SubagentStart stream) → `blocked`
+ *   - `notification`      ≡ `Notification` → `waiting`
+ *   - `session_stop`      ≡ `Stop`         → `ready`
+ */
+export function deriveAgentState(eventType: string): AgentState | null {
+  switch (eventType) {
+    case "PreToolUse":
+    case "PostToolUse":
+    case "UserPromptSubmit":
+    case "SubagentStart":
+    case "session_heartbeat":
+      return "blocked";
+    case "Notification":
+    case "notification":
+      return "waiting";
+    case "Stop":
+    case "session_stop":
+      return "ready";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Persist a session's `agent_state` column, keyed by session id
+ * (session-enrichment). Used by the hook-processing spine on every lifecycle
+ * hook that carries an agent-state signal (see `deriveAgentState`).
+ *
+ * Idempotent and cheap — a single targeted UPDATE. Does NOT touch
+ * `last_activity` or `status`: agentState is orthogonal to the liveness axis,
+ * and the heartbeat / status writers own those columns. Returns the number of
+ * rows touched (0 when the session id does not exist).
+ */
+export async function updateSessionAgentState(
+  db: Db,
+  id: string,
+  agentState: AgentState,
+): Promise<number> {
+  const updated = await db
+    .update(sessions)
+    .set({ agentState })
+    .where(eq(sessions.id, id))
+    .returning({ id: sessions.id });
+  return updated.length;
 }
 
 /**

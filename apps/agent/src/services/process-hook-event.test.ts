@@ -38,9 +38,37 @@ const updateSessionGitOriginMock = mock(
 const backfillSessionCwdMock = mock(
   async (_db: Db, _id: string, _cwd: string) => 1 as number,
 );
+// session-enrichment: the helper now also derives + persists agentState on
+// every event. Mock the persist writer and provide a faithful inline
+// `deriveAgentState` (mirrors the real pure mapping in ../db/sessions) so the
+// mocked module is self-contained — re-importing the real module here would
+// recurse through this same mock.
+const updateSessionAgentStateMock = mock(
+  async (_db: Db, _id: string, _state: string) => 1 as number,
+);
+function deriveAgentStateImpl(eventType: string): "blocked" | "waiting" | "ready" | null {
+  switch (eventType) {
+    case "PreToolUse":
+    case "PostToolUse":
+    case "UserPromptSubmit":
+    case "SubagentStart":
+    case "session_heartbeat":
+      return "blocked";
+    case "Notification":
+    case "notification":
+      return "waiting";
+    case "Stop":
+    case "session_stop":
+      return "ready";
+    default:
+      return null;
+  }
+}
 mock.module("../db/sessions", () => ({
   updateSessionGitOrigin: updateSessionGitOriginMock,
   backfillSessionCwd: backfillSessionCwdMock,
+  updateSessionAgentState: updateSessionAgentStateMock,
+  deriveAgentState: deriveAgentStateImpl,
 }));
 
 // ─── Mock SessionManager ───────────────────────────────────────────────────
@@ -89,6 +117,8 @@ describe("processHookEvent", () => {
     updateSessionGitOriginMock.mockClear();
     backfillSessionCwdMock.mockClear();
     backfillSessionCwdMock.mockImplementation(async () => 1);
+    updateSessionAgentStateMock.mockClear();
+    updateSessionAgentStateMock.mockImplementation(async () => 1);
     ({ processHookEvent } = await import("./process-hook-event"));
   });
 
@@ -295,6 +325,106 @@ describe("processHookEvent", () => {
     );
 
     expect(sm.linkageUpdates).toHaveLength(0);
+  });
+
+  test("persists agentState=blocked for a session_heartbeat (tool turn)", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_heartbeat",
+        sessionId: "sess-blocked",
+        payload: {},
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionAgentStateMock).toHaveBeenCalledTimes(1);
+    expect(updateSessionAgentStateMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-blocked",
+      "blocked",
+    );
+  });
+
+  test("persists agentState=waiting for a notification hook", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "notification",
+        sessionId: "sess-waiting",
+        payload: { message: "permission?" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionAgentStateMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-waiting",
+      "waiting",
+    );
+  });
+
+  test("persists agentState=ready for a session_stop hook", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_stop",
+        sessionId: "sess-ready",
+        payload: {},
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionAgentStateMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-ready",
+      "ready",
+    );
+  });
+
+  test("does NOT persist agentState for a non-signal event (session_start)", async () => {
+    resolveGitOriginMock.mockImplementation(async () => null);
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-start",
+        payload: {},
+        source: "socket",
+        cwd: "/x",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionAgentStateMock).not.toHaveBeenCalled();
+  });
+
+  test("skips agentState persist when no sessionId is present", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      { eventType: "session_stop", payload: {}, source: "socket" },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionAgentStateMock).not.toHaveBeenCalled();
+  });
+
+  test("agentState persist failure is non-fatal (helper still resolves)", async () => {
+    updateSessionAgentStateMock.mockImplementation(async () => {
+      throw new Error("UPDATE failed");
+    });
+    const sm = createMockSessionManager();
+    const result = await processHookEvent(
+      {
+        eventType: "session_stop",
+        sessionId: "sess-throws",
+        payload: {},
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    // The throw is swallowed; agentState is a distinct concern from
+    // enrichmentOk, which stays true (the per-event switch did not fail).
+    expect(updateSessionAgentStateMock).toHaveBeenCalled();
+    expect(result.enrichmentOk).toBe(true);
   });
 
   test("helper never throws when schema-drift inspector rejects", async () => {
