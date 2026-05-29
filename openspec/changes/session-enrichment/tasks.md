@@ -20,5 +20,5 @@
 - [x] In `apps/swift/NexusShared/Networking/NexusAggregateClient.swift`, stop emitting the `"pinned"` sentinel as the agent name [beads:nx-70ep8]
 
 ## E2E Batch
-- [ ] Agent integration test (`bun test`): drive a hook sequence through socket → dispatcher and assert the persisted `agentState` transitions (blocked → waiting → ready), plus branch capture on a real git working directory [beads:nx-8s85n]
+- [x] Agent integration test (`bun test`): drive a hook sequence through socket → dispatcher and assert the persisted `agentState` transitions (blocked → waiting → ready), plus branch capture on a real git working directory [beads:nx-8s85n]
 - [ ] Swift test: `SessionRow` renders the correct sigil per `agentState`, shows `branch` in the subtitle, and omits the agent-name label [beads:nx-mld93]
