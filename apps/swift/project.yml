@@ -34,9 +34,15 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     CODE_SIGN_STYLE: Automatic
+    # Stable signing identity (nx-n2o0a): an ad-hoc-signed build (no team) gets
+    # an unstable code identity, so macOS never persists the notification grant
+    # and banner posts fail UNErrorDomain Code=1 despite Settings showing "on".
+    # Pinning the Apple Development team gives the app a stable signed identity
+    # so the grant sticks across rebuilds. Solo personal project — team id is
+    # safe to commit (it also appears in the shipped bundle).
+    DEVELOPMENT_TEAM: 4RMU5SA5Z4
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    # DEVELOPMENT_TEAM: set per-machine in xcconfig or via Xcode UI
 
 # ──────────────────────────────────────────────────────────────────────
 # Shared framework — models, NexusClient, SSE/WS subscribers,
