@@ -8,14 +8,39 @@
  * (pipe-pane) and stdin (send-keys), exactly as it does for a real `claude`
  * window, but without the nondeterminism of a live model.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   AGENT_URL,
   assertAgentUp,
   createControlledSession,
   destroyControlledSession,
+  tmuxSendKeys,
   type ControlledSession,
 } from "./harness/session-harness";
+
+/**
+ * Stick-to-bottom proof (nx-2pekj regression guard). The `.wterm` host is the
+ * scroll container. Returns whether the live bottom is within the visible
+ * viewport — `scrollHeight - scrollTop - clientHeight` is small AND the grid
+ * actually overflows (so the assertion is meaningful, not trivially true on a
+ * short pane). Asserting text-in-DOM is NOT enough: the regression Leo hit had
+ * the rows in the DOM but scrolled out of view (viewport parked at the empty
+ * scrollback top).
+ */
+const viewportScrollState = (p: Page) =>
+  p.evaluate(() => {
+    const el = document.querySelector<HTMLElement>(".wterm");
+    if (!el) return { overflows: false, distFromBottom: 0, atBottom: false };
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const rowH =
+      parseFloat(getComputedStyle(el).getPropertyValue("--term-row-height")) ||
+      17;
+    return {
+      overflows: el.scrollHeight - el.clientHeight > rowH, // content > viewport
+      distFromBottom,
+      atBottom: distFromBottom <= rowH * 2,
+    };
+  });
 
 let sess: ControlledSession;
 
@@ -110,6 +135,54 @@ test("full journey: list -> attach -> render -> type -> live I/O -> persists", a
       .toContain(marker);
   });
 
+  const tailMarker = `nexus-tail-${Math.floor(Math.random() * 1e9)}`;
+
+  await test.step("(e) live content STAYS in the visible viewport — stick-to-bottom (nx-2pekj regression)", async () => {
+    // Emit a screenful+ of output so the grid OVERFLOWS the viewport, then a
+    // unique tail marker. The bug Leo hit: a fresh attach / new output parked
+    // the viewport at the empty scrollback TOP, so the latest line was in the
+    // DOM but invisible. We assert (1) the grid overflows (so the test is
+    // meaningful), (2) the viewport is pinned at the bottom, and (3) the tail
+    // marker is within the visible scroll band — not just present in the DOM.
+    tmuxSendKeys(sess.tmuxTarget, `seq 1 200; echo ${tailMarker}`);
+
+    // Wait for the tail marker to render at all.
+    await expect
+      .poll(async () => await gridText(page), {
+        timeout: 30_000,
+        message: "tail marker never rendered",
+      })
+      .toContain(tailMarker);
+
+    // The viewport must have auto-scrolled to the live bottom.
+    await expect
+      .poll(async () => await viewportScrollState(page), {
+        timeout: 10_000,
+        message:
+          "viewport did not stick to bottom — fresh output is scrolled out of view (the blank-terminal regression)",
+      })
+      .toMatchObject({ overflows: true, atBottom: true });
+
+    // And the tail marker's row must lie within the visible viewport band, not
+    // above the scrolled-out top. Geometric check on the rendered row.
+    const tailVisible = await page.evaluate((m) => {
+      const host = document.querySelector<HTMLElement>(".wterm");
+      if (!host) return false;
+      const rows = Array.from(host.querySelectorAll<HTMLElement>(".term-row"));
+      const row = rows.find((r) => (r.textContent ?? "").includes(m));
+      if (!row) return false;
+      const hb = host.getBoundingClientRect();
+      const rb = row.getBoundingClientRect();
+      // Row's vertical center is inside the host's visible rect.
+      const mid = rb.top + rb.height / 2;
+      return mid >= hb.top && mid <= hb.bottom;
+    }, tailMarker);
+    expect(
+      tailVisible,
+      "tail marker row is rendered but NOT inside the visible viewport",
+    ).toBe(true);
+  });
+
   await test.step("close the page, return home, session still listed + re-attachable (persistence)", async () => {
     // Simulate "close the page and come back": navigate away to home.
     await page.goto("/");
@@ -123,15 +196,26 @@ test("full journey: list -> attach -> render -> type -> live I/O -> persists", a
       timeout: 30_000,
     });
 
-    // On reconnect the agent replays its ring buffer — the earlier marker we
-    // typed should still be visible in the replayed scrollback, proving the
-    // session survived the page close with state intact.
+    // On reconnect the agent replays its ring buffer. We assert the MOST RECENT
+    // tail marker (emitted last, step e) survives — it is guaranteed within the
+    // replay window. The earlier `marker` was pushed out of the ring buffer by
+    // the 200-line burst in step (e), which is expected ring-buffer rotation,
+    // not a persistence failure.
     await expect
       .poll(async () => await gridText(page), {
         timeout: 30_000,
-        message: "replayed scrollback missing the earlier marker",
+        message: "replayed scrollback missing the tail marker",
       })
-      .toContain(marker);
+      .toContain(tailMarker);
+
+    // Re-attach must ALSO land at the live bottom (the regression also affected
+    // reconnect, not just first attach).
+    await expect
+      .poll(async () => await viewportScrollState(page), {
+        timeout: 10_000,
+        message: "re-attach did not stick to bottom",
+      })
+      .toMatchObject({ atBottom: true });
   });
 });
 

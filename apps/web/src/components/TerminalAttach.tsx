@@ -225,6 +225,39 @@ export function TerminalAttach({
       fitRaf = requestAnimationFrame(fitGrid);
     };
 
+    /**
+     * STICK-TO-BOTTOM (nx-2pekj regression fix). The `.wterm` host is the scroll
+     * container (its `overflow-y:auto` + the font-fitted `.term-grid` height).
+     * WTerm's built-in auto-scroll (`_doRender` -> `_scrollToBottom`) only fires
+     * when `_isScrolledToBottom()` was true at the moment of the write — but on a
+     * FRESH attach the scrollback arrives as MANY chunks: the first chunk grows
+     * the grid while `scrollTop` is still 0, so every subsequent chunk sees
+     * "not at bottom" and the viewport stays parked at the empty top. The user
+     * sees a blank terminal even though the rows ARE in the DOM (the bug Leo hit
+     * with cc-2164338-51c4d51e).
+     *
+     * We own the scroll explicitly: `stickToBottom` starts true; we pin the view
+     * to the live bottom after every render while it holds, and only release it
+     * when the USER scrolls up into history (re-arming when they return to the
+     * bottom). WTerm still runs its own scroll, but ours is authoritative and
+     * timing-robust (it runs after WTerm's async render settles).
+     */
+    let stickToBottom = true;
+    let scrollRaf: number | null = null;
+    const pinBottom = () => {
+      // Double-rAF: WTerm renders on setTimeout(0) -> rAF -> _doRender, so the
+      // grid height isn't final until the frame AFTER we're called. Wait one
+      // extra frame, then jump to the true bottom.
+      if (scrollRaf != null) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = requestAnimationFrame(() => {
+          scrollRaf = null;
+          if (!stickToBottom) return;
+          host.scrollTop = host.scrollHeight;
+        });
+      });
+    };
+
     const applyGeometry = (cols: number, rows: number) => {
       // Drives core.resize(cols, rows). Must precede the byte flush. This is
       // the ONLY thing that changes the grid's column count.
@@ -232,13 +265,16 @@ export function TerminalAttach({
       gridRowsRef.current = rows;
       term?.resize(cols, rows);
       scheduleFit();
+      pinBottom();
     };
 
     const feed = (bytes: Uint8Array) => {
       // Drives core.writeRaw(bytes) and schedules a render. New rows may widen
-      // the grid's intrinsic size, so re-fit after paint.
+      // the grid's intrinsic size, so re-fit after paint AND keep the viewport
+      // pinned to the live bottom (unless the user scrolled into history).
       term?.write(bytes);
       scheduleFit();
+      pinBottom();
     };
 
     // 1) Open the transport FIRST so we never miss the agent's opening
@@ -265,6 +301,22 @@ export function TerminalAttach({
     // Expose the live client to the toolbar's reflow button (writable-gated
     // resize) without re-subscribing on every render.
     clientRef.current = client;
+
+    /**
+     * RESIZE ON CLOSE (nx-p9gk4). React unmount cleanup does NOT fire on a real
+     * tab close or navigation away — so the WS sockets stayed open and the agent
+     * only noticed the dead viewer via its ~40s pong timeout, leaving the SHARED
+     * tmux pane stuck at the web client's (smaller) size for that whole window.
+     * A `pagehide` listener sends the SAME clean close we do on unmount, so the
+     * agent's existing clean-close restore path (maybeRestoreTakeover ->
+     * restoreWindowSize) resizes the pane back immediately. `pagehide` is the
+     * reliable signal for tab close + navigation (mobile Safari often skips
+     * `beforeunload`).
+     */
+    const onPageHide = () => {
+      client?.close();
+    };
+    window.addEventListener("pagehide", onPageHide);
 
     // 2) Load WASM + mount the renderer. `wasmPath` points at the Next-served
     //    public asset; the loader uses single-arg `fetch` + `instantiate`
@@ -313,6 +365,24 @@ export function TerminalAttach({
         // viewport and the grid's own (now font-fitted) height drives scroll.
         host.style.height = "";
 
+        // User-scroll listener: arms/disarms stick-to-bottom. Scrolling UP into
+        // history releases the pin (so we don't yank the user back down on the
+        // next live byte); scrolling back to within ~2 rows of the bottom
+        // re-arms it. Threshold scales with row height so it works at any font.
+        host.addEventListener(
+          "scroll",
+          () => {
+            const rowH =
+              parseFloat(
+                getComputedStyle(host).getPropertyValue("--term-row-height"),
+              ) || 17;
+            const distFromBottom =
+              host.scrollHeight - host.scrollTop - host.clientHeight;
+            stickToBottom = distFromBottom <= rowH * 2;
+          },
+          { passive: true },
+        );
+
         // Flush buffered frames: geometry FIRST, then bytes.
         if (pending.geometry) {
           applyGeometry(pending.geometry.cols, pending.geometry.rows);
@@ -324,6 +394,13 @@ export function TerminalAttach({
         }
         for (const b of pendingBytes) feed(b);
         pendingBytes.length = 0;
+
+        // A fresh attach MUST land at the live bottom (not the empty scrollback
+        // top). The per-feed pinBottom above can be defeated mid-flush by the
+        // first scrollback chunk growing the grid before scrollTop catches up,
+        // so force one authoritative pin after the whole burst settles.
+        stickToBottom = true;
+        pinBottom();
 
         // Our OWN observer: re-fit (font-size only) when the container resizes.
         // Unlike WTerm's autoResize this never changes the grid column count
@@ -363,6 +440,11 @@ export function TerminalAttach({
         cancelAnimationFrame(fitRaf);
         fitRaf = null;
       }
+      if (scrollRaf != null) {
+        cancelAnimationFrame(scrollRaf);
+        scrollRaf = null;
+      }
+      window.removeEventListener("pagehide", onPageHide);
       bridge?.dispose();
       client?.close();
       term?.destroy();
@@ -539,28 +621,38 @@ export function TerminalAttach({
               transform is purely cosmetic — it never feeds the grid, so the
               agent-geometry-as-authority invariant and WTerm's own scroll math
               (which read the untransformed host) are untouched.
+
+              `position:absolute; inset:0` PINS this layer (and the host) to the
+              surface's box. Without it, the host's `height:100%` resolved against
+              an auto-height flex chain and the `.wterm` element GREW to its full
+              content height (e.g. 3492px for 200 rows) instead of clamping to the
+              viewport — so `overflow-y:auto` never produced a scrollbar and a
+              fresh attach sat at the empty top with no way to reach the live
+              bottom. That was the blank-terminal regression (nx-2pekj). Pinning
+              gives the host a fixed height = a real scroll viewport.
             */}
             <div
               style={{
-                width: "100%",
-                height: "100%",
+                position: "absolute",
+                inset: 0,
                 transformOrigin: "0 0",
                 transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
               }}
             >
               {/*
                 The WTerm renderer mounts INTO this element (appends `.term-grid`
-                and applies the `.wterm` class + scrollback). It keeps its own
-                vertical scroll for scrollback history; horizontal is clipped
-                because the grid is font-fitted to width.
+                and applies the `.wterm` class + scrollback). It is the scroll
+                container: a fixed height (pinned via absolute inset:0) +
+                `overflow-y:auto` so the font-fitted grid scrolls for scrollback
+                history; horizontal is clipped because the grid is font-fitted to
+                width.
               */}
               <div
                 ref={hostRef}
                 tabIndex={0}
                 style={{
-                  width: "100%",
-                  height: "100%",
-                  minHeight: 0,
+                  position: "absolute",
+                  inset: 0,
                   overflowX: "hidden",
                   overflowY: "auto",
                   background: theme.bg,
