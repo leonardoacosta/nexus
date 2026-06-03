@@ -1,0 +1,19 @@
+# Next.js build output
+/.next/
+/out/
+/dist/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Next.js generated env typings
+next-env.d.ts
+
+# Turbo
+.turbo/
+
+# The committed ghostty-vt.wasm renderer asset is intentionally tracked
+# (the root .gitignore globs *.wasm to keep build-output wasm out). It is
+# kept in sync with the pinned @wterm/ghostty package by scripts/sync-wasm.mjs
+# on predev/prebuild, but committed so a fresh checkout serves it pre-install.
+!/public/ghostty-vt.wasm

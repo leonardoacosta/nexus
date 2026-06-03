@@ -1,0 +1,29 @@
+{
+  "name": "@nexus/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-wasm": "node scripts/sync-wasm.mjs",
+    "predev": "node scripts/sync-wasm.mjs",
+    "prebuild": "node scripts/sync-wasm.mjs",
+    "dev": "next dev --hostname 0.0.0.0 --port 7402",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0 --port 7402",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wterm/dom": "0.3.0",
+    "@wterm/ghostty": "0.3.0",
+    "next": "^16.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.7.0"
+  }
+}
