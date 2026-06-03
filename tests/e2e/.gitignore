@@ -1,0 +1,6 @@
+# Playwright ephemeral artifacts — traces, screenshots, the HTML report.
+# These are regenerated on every run and must not be versioned.
+test-results/
+playwright-report/
+playwright/.cache/
+.auth/

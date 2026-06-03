@@ -64,6 +64,11 @@ export function toWsUrl(base: string, path: string): string | null {
  * Build an HTTP(S) URL against the agent base for REST calls. Returns `null`
  * on an unconstructable base. Unlike `toWsUrl` this preserves the http/https
  * scheme (REST endpoints are plain HTTP).
+ *
+ * The `path` MAY include a query string (e.g. `/sessions?withFingerprint=true`).
+ * It is split off before assigning to `url.pathname`, because the WHATWG URL
+ * `pathname` setter percent-encodes `?` (yielding `/sessions%3F…`, which the
+ * agent 404s); the query is routed through `url.search` instead.
  */
 export function toHttpUrl(base: string, path: string): string | null {
   let url: URL;
@@ -73,7 +78,11 @@ export function toHttpUrl(base: string, path: string): string | null {
     return null;
   }
   const basePath = url.pathname.replace(/\/+$/, "");
-  const tail = path.startsWith("/") ? path : `/${path}`;
+  const qIdx = path.indexOf("?");
+  const rawPath = qIdx === -1 ? path : path.slice(0, qIdx);
+  const rawQuery = qIdx === -1 ? "" : path.slice(qIdx); // includes leading '?'
+  const tail = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
   url.pathname = `${basePath}${tail}`;
+  url.search = rawQuery;
   return url.toString();
 }

@@ -8,16 +8,20 @@
     "test": "bun run test:attach",
     "test:attach": "bun test ./attach-websocket.test.ts",
     "test:e2e": "bun run test",
+    "build:web": "NEXT_PUBLIC_NEXUS_AGENT_URL=http://${NEXUS_TS_HOST:-100.73.182.4}:7400 pnpm --filter @nexus/web build",
+    "test:playwright": "playwright test --config=playwright/playwright.config.ts",
+    "test:playwright:full": "pnpm run build:web && pnpm run test:playwright",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@nexus/agent": "workspace:*",
     "@nexus/core": "workspace:*",
     "@nexus/db": "workspace:*",
-    "@nexus/agent": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/bun": "^1.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

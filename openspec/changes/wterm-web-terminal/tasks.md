@@ -24,6 +24,6 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Playwright: attach to a live session, assert bytes render (expected text appears) and input round-trips (type -> echoed output) [owner:e2e-engineer] [beads:nx-64r21]
-- [ ] [4.2] GATE: renderer-throughput spike — stream busy output (`yes` / large `cat`) through `core.writeRaw`, measure frame timing, record pass/fail vs budget and the xterm.js fallback trade-off if it fails [owner:e2e-engineer] [beads:nx-7v884]
-- [ ] [4.3] Playwright: read-only path — attach while another writer holds the mutex; assert input disabled and 4009 handled with no error dialog [owner:e2e-engineer] [beads:nx-dwadn]
+- [x] [4.1] Playwright: attach to a live session, assert bytes render (expected text appears) and input round-trips (type -> echoed output) [owner:e2e-engineer] [beads:nx-64r21]
+- [x] [4.2] GATE: renderer-throughput spike — stream busy output (`yes` / large `cat`) through `core.writeRaw`, measure frame timing, record pass/fail vs budget and the xterm.js fallback trade-off if it fails [owner:e2e-engineer] [beads:nx-7v884]
+- [x] [4.3] Playwright: read-only path — attach while another writer holds the mutex; assert input disabled and 4009 handled with no error dialog [owner:e2e-engineer] [beads:nx-dwadn]
