@@ -16,11 +16,11 @@
 
 ## UI Batch
 
-- [ ] [3.1] Attach route `apps/web/src/app/attach/[session]/page.tsx`: mount `@wterm/ghostty` core + `@wterm/dom` renderer; load WASM via `fetch` + `instantiate` [owner:ui-engineer] [beads:nx-ubo1s]
-- [ ] [3.2] Wire stream -> render: `.bytes` -> `core.writeRaw`; `geometry` -> `core.resize(cols,rows)`; route `core.getResponse()` (DSR/DA) back to `/interact` [owner:ui-engineer] [beads:nx-40vav]
-- [ ] [3.3] Wire interactivity: `@wterm/dom` `onData` -> interact stdin; `ResizeObserver` `onResize` -> `{type:"resize"}`; suppress input + resize when read-only [owner:ui-engineer] [beads:nx-g08gz]
-- [ ] [3.4] Session entry + chrome: a way to reach `/attach/:session` (id input or link), connection-status UI, Nexus dashboard theme tokens [owner:ui-engineer] [beads:nx-wybls]
-- [ ] [3.5] Home/session-list page: render active sessions (from `GET /sessions`) with attach links + a "new session" action; survives page close/reopen (server-persisted) [owner:ui-engineer] [beads:nx-k4u1c]
+- [x] [3.1] Attach route `apps/web/src/app/attach/[session]/page.tsx`: mount `@wterm/ghostty` core + `@wterm/dom` renderer; load WASM via `fetch` + `instantiate` [owner:ui-engineer] [beads:nx-ubo1s]
+- [x] [3.2] Wire stream -> render: `.bytes` -> `core.writeRaw`; `geometry` -> `core.resize(cols,rows)`; route `core.getResponse()` (DSR/DA) back to `/interact` [owner:ui-engineer] [beads:nx-40vav]
+- [x] [3.3] Wire interactivity: `@wterm/dom` `onData` -> interact stdin; `ResizeObserver` `onResize` -> `{type:"resize"}`; suppress input + resize when read-only [owner:ui-engineer] [beads:nx-g08gz]
+- [x] [3.4] Session entry + chrome: a way to reach `/attach/:session` (id input or link), connection-status UI, Nexus dashboard theme tokens [owner:ui-engineer] [beads:nx-wybls]
+- [x] [3.5] Home/session-list page: render active sessions (from `GET /sessions`) with attach links + a "new session" action; survives page close/reopen (server-persisted) [owner:ui-engineer] [beads:nx-k4u1c]
 
 ## E2E Batch
 
