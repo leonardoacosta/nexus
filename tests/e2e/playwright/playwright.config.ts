@@ -52,6 +52,24 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Phone profile for the nx-2pekj phone-terminal journey: an iPhone-13-shaped
+    // viewport (390x844, DPR 3) with touch + mobile emulation, so the
+    // soft-keyboard bridge, pinch-zoom/pan, and the reflow button are exercised
+    // under the conditions they target. We layer that profile onto CHROMIUM
+    // (not the WebKit `devices["iPhone 13"]` default) because this CI host lacks
+    // the system libs WebKit needs (libicu74/libxml2/libflite1, no sudo) — the
+    // touch + viewport emulation is what the journey actually depends on, and
+    // Chromium provides both.
+    {
+      name: "mobile-chrome",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
   ],
   webServer: {
     // Production server, NOT `next dev`. In dev mode the Turbopack HMR

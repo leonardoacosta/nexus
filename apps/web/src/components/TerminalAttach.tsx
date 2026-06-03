@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WTerm } from "@wterm/dom";
 import { GhosttyCore } from "@wterm/ghostty";
 import "@wterm/dom/css";
 
 import type { AgentSessionClient, ConnectionStatus } from "~/lib";
 import { attachSession } from "~/lib";
+import {
+  attachMobileKeyboardBridge,
+  type MobileKeyboardBridge,
+} from "~/hooks/useMobileKeyboardBridge";
+import { usePinchZoomPan } from "~/hooks/usePinchZoomPan";
 
 import { StatusPill } from "./StatusPill";
+import { TerminalControls } from "./TerminalControls";
 import { theme } from "./theme";
 
 /**
@@ -64,6 +70,29 @@ import { theme } from "./theme";
  * itself read-only and `sendInput`/`sendResize` become no-ops. We also gate the
  * emission here and surface the state via the StatusPill, so a read-only attach
  * still renders live output but cannot type or resize the remote pane.
+ *
+ * PHONE HYBRID (nx-2pekj): three additions, all client-side, that never change
+ * the default desktop render (agent geometry stays the grid authority):
+ *
+ *   1. ZOOM/PAN. The font-fit (above) shrinks the whole pane to the phone width,
+ *      which on a wide pane bottoms out at the legibility floor (MIN_FONT_PX).
+ *      A pinch-zoom/pan layer (`usePinchZoomPan`) wraps the host in a CSS
+ *      `transform` so the user can magnify + pan a small pane. The transform is
+ *      purely visual — it never feeds the grid, so the authority invariant and
+ *      WTerm's own scroll math (which read the untransformed host) survive.
+ *
+ *   2. MOBILE KEYBOARD. WTerm's hidden textarea already forwards typed chars via
+ *      its `input` listener, but soft keyboards (a) don't raise on a synthetic
+ *      click and (b) send Enter/Backspace as `beforeinput` intents WTerm drops.
+ *      `attachMobileKeyboardBridge` raises the keyboard on tap and bridges the
+ *      edit intents to VT control bytes. See the hook for the full rationale.
+ *
+ *   3. OPT-IN REFLOW. A "Fit to my screen" button computes a comfortable phone
+ *      cols x rows (at a legible font for the live viewport) and calls
+ *      `client.sendResize(cols, rows)` ONCE — the ONLY path that resizes the
+ *      shared pane, and only on explicit tap. Gated to writable attaches; the
+ *      agent's reflowed geometry frame re-fits the grid (readable, no zoom).
+ *      Transient: a wider client reattaching snaps the pane back.
  */
 export function TerminalAttach({
   sessionId,
@@ -76,6 +105,22 @@ export function TerminalAttach({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
+  const [reflowPending, setReflowPending] = useState(false);
+
+  // Pinch-zoom/pan over the terminal pane (touch + trackpad). Identity transform
+  // == the default fit-width render; zooming is purely a visual overlay.
+  const { transform, zoomed, handlers, reset, zoomBy } = usePinchZoomPan();
+
+  // Live transport handle + the bridge, exposed to the toolbar callbacks (which
+  // live outside the mount effect). Refs so the effect can populate them and the
+  // callbacks read the latest without re-subscribing.
+  const clientRef = useRef<AgentSessionClient | null>(null);
+  const bridgeRef = useRef<MobileKeyboardBridge | null>(null);
+  // Latest measured px-per-cell at BASE_FONT_PX, and the live grid rows, so the
+  // reflow button can compute a phone-comfortable cols x rows. Mirrors the
+  // effect-local values without re-running the mount effect.
+  const cellWidthRef = useRef(0);
+  const gridRowsRef = useRef(24);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -84,6 +129,7 @@ export function TerminalAttach({
     let disposed = false;
     let term: WTerm | null = null;
     let client: AgentSessionClient | null = null;
+    let bridge: MobileKeyboardBridge | null = null;
     let fitObserver: ResizeObserver | null = null;
     let fitRaf: number | null = null;
 
@@ -150,6 +196,9 @@ export function TerminalAttach({
       const grid = host.querySelector<HTMLElement>(".term-grid");
       if (!grid) return;
       if (cellWidthAtBase <= 0) cellWidthAtBase = measureCellWidthAtBase(grid);
+      // Surface the measured cell width to the reflow callback (outside this
+      // effect) so it can size the phone pane in real columns.
+      cellWidthRef.current = cellWidthAtBase;
       if (cellWidthAtBase <= 0 || gridCols <= 0) return;
       // Available content width inside the `.wterm` padding (12px each side).
       const cs = getComputedStyle(host);
@@ -180,6 +229,7 @@ export function TerminalAttach({
       // Drives core.resize(cols, rows). Must precede the byte flush. This is
       // the ONLY thing that changes the grid's column count.
       gridCols = cols;
+      gridRowsRef.current = rows;
       term?.resize(cols, rows);
       scheduleFit();
     };
@@ -212,6 +262,9 @@ export function TerminalAttach({
         },
       },
     });
+    // Expose the live client to the toolbar's reflow button (writable-gated
+    // resize) without re-subscribing on every render.
+    clientRef.current = client;
 
     // 2) Load WASM + mount the renderer. `wasmPath` points at the Next-served
     //    public asset; the loader uses single-arg `fetch` + `instantiate`
@@ -275,8 +328,19 @@ export function TerminalAttach({
         // Our OWN observer: re-fit (font-size only) when the container resizes.
         // Unlike WTerm's autoResize this never changes the grid column count
         // and never touches the remote pane — it only adjusts the fit font-size.
+        // This is what makes orientationchange (portrait <-> landscape) smooth:
+        // the host's width changes, the observer fires, the font re-fits to the
+        // new width with NO grid/geometry change.
         fitObserver = new ResizeObserver(() => scheduleFit());
         fitObserver.observe(host);
+
+        // Phone keyboard bridge: raise the soft keyboard on tap + forward the
+        // Enter/Backspace edit intents WTerm drops. Gated read-only via the same
+        // transport check as onData. Exposed to the "Keyboard" toolbar button.
+        bridge = attachMobileKeyboardBridge(host, (data) => {
+          if (client && !client.isReadOnly()) client.sendInput(data);
+        });
+        bridgeRef.current = bridge;
 
         wterm.focus();
       } catch (err) {
@@ -299,12 +363,68 @@ export function TerminalAttach({
         cancelAnimationFrame(fitRaf);
         fitRaf = null;
       }
+      bridge?.dispose();
       client?.close();
       term?.destroy();
       term = null;
       client = null;
+      bridge = null;
+      clientRef.current = null;
+      bridgeRef.current = null;
     };
   }, [sessionId, agentBaseUrl]);
+
+  // ── Toolbar handlers (outside the mount effect; read live refs) ─────────────
+
+  /** Show the soft keyboard (the explicit "Keyboard" button). */
+  const handleRaiseKeyboard = useCallback(() => {
+    bridgeRef.current?.focusInput();
+  }, []);
+
+  /**
+   * Opt-in reflow: compute a phone-comfortable cols x rows at a LEGIBLE font for
+   * the live viewport and resize the SHARED pane ONCE. This is the only path
+   * that calls sendResize, and only on this explicit tap. Writable-gated.
+   *
+   * Sizing: pick a target font (14px desktop base — comfortable on a phone in
+   * the reflowed pane) and derive columns from the host's content width at that
+   * font using the measured px-per-cell-at-base. Rows scale with the host height
+   * so the pane fills the viewport without a huge scrollback jump.
+   */
+  const handleReflow = useCallback(() => {
+    const client = clientRef.current;
+    const host = hostRef.current;
+    if (!client || !host || client.isReadOnly()) return;
+
+    const cellW = cellWidthRef.current; // px per cell at 14px font
+    if (cellW <= 0) return;
+
+    const cs = getComputedStyle(host);
+    const padX =
+      (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const padY =
+      (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const availW = host.clientWidth - padX;
+    const availH = host.clientHeight - padY;
+    if (availW <= 0 || availH <= 0) return;
+
+    // px per cell / row at the comfortable target font (matches BASE_FONT_PX in
+    // the fit math; cellW was measured at that same base).
+    const rowH = Math.ceil(14 * 1.2);
+    // Clamp to a sane terminal range so a tiny/huge viewport can't ask the PTY
+    // for a degenerate geometry.
+    const cols = Math.max(20, Math.min(200, Math.floor(availW / cellW)));
+    const rows = Math.max(10, Math.min(80, Math.floor(availH / rowH)));
+
+    setReflowPending(true);
+    // Zooming would fight the freshly-reflowed pane — reset to fit-width so the
+    // agent's new geometry frame paints at a clean 1:1.
+    reset();
+    client.sendResize(cols, rows);
+    // The agent answers with a new geometry frame within a frame or two; clear
+    // the pending hint shortly after so the button label settles back.
+    window.setTimeout(() => setReflowPending(false), 1200);
+  }, [reset]);
 
   const readOnly = status === "read-only";
 
@@ -314,46 +434,60 @@ export function TerminalAttach({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          padding: "10px 16px",
+          gap: 10,
+          padding: "6px 12px",
           borderBottom: `1px solid ${theme.border}`,
           background: theme.surface,
+          // Keep clear of the iOS status bar / notch in landscape.
+          paddingLeft: "max(12px, env(safe-area-inset-left, 0px))",
+          paddingRight: "max(12px, env(safe-area-inset-right, 0px))",
         }}
       >
         <a
           href="/"
+          // 40px tap target (Apple/Android minimum) instead of a bare 13px link.
           style={{
+            display: "inline-flex",
+            alignItems: "center",
+            minHeight: 40,
+            padding: "0 8px",
+            marginLeft: -8,
             color: theme.accent,
             textDecoration: "none",
-            fontSize: 13,
+            fontSize: 14,
             fontFamily: theme.mono,
+            touchAction: "manipulation",
+            WebkitTapHighlightColor: "transparent",
           }}
         >
           ← Sessions
         </a>
         <span
           style={{
-            fontSize: 13,
+            fontSize: 12,
             color: theme.muted,
             fontFamily: theme.mono,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            minWidth: 0,
           }}
           title={sessionId}
         >
           {sessionId}
         </span>
-        <span style={{ flex: 1 }} />
+        <span style={{ flex: 1, minWidth: 4 }} />
         {readOnly && (
           <span
+            title="Another viewer is driving this pane — input and reflow are disabled"
             style={{
-              fontSize: 12,
+              fontSize: 11,
               color: theme.warn,
               fontFamily: theme.mono,
+              whiteSpace: "nowrap",
             }}
           >
-            input disabled — another viewer is driving
+            input disabled
           </span>
         )}
         <StatusPill status={status} />
@@ -378,24 +512,75 @@ export function TerminalAttach({
           <p style={{ margin: 0, color: theme.muted, fontSize: 13 }}>{error}</p>
         </div>
       ) : (
-        // The WTerm renderer mounts INTO this element (it appends a `.term-grid`
-        // child and applies the `.wterm` class + scrollback). It must be able
-        // to grow and scroll for the ResizeObserver to compute the grid.
-        <div
-          ref={hostRef}
-          tabIndex={0}
-          style={{
-            flex: 1,
-            minHeight: 0,
-            // No horizontal scroll: the grid is scaled to fit the width (see
-            // fitGrid). Vertical scroll stays for scrollback history.
-            overflowX: "hidden",
-            overflowY: "auto",
-            background: theme.bg,
-            // read-only is purely advisory here; the transport is the real gate.
-            cursor: readOnly ? "default" : "text",
-          }}
-        />
+        <>
+          {/*
+            Gesture surface: catches pinch/pan/wheel and clips the magnified
+            pane. When zoomed we set `touchAction:none` so the browser hands us
+            BOTH fingers (no native page pan/zoom stealing the gesture); at the
+            fit-width baseline we keep `pan-y` so one-finger vertical scrollback
+            still works natively. `overscroll-behavior:contain` stops a pan from
+            rubber-banding the whole page.
+          */}
+          <div
+            {...handlers}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              position: "relative",
+              overflow: "hidden",
+              background: theme.bg,
+              touchAction: zoomed ? "none" : "pan-y",
+              overscrollBehavior: "contain",
+            }}
+          >
+            {/*
+              Transform layer: the ONLY visual zoom/pan. `transform-origin: 0 0`
+              keeps the math in `usePinchZoomPan` simple (top-left anchored). The
+              transform is purely cosmetic — it never feeds the grid, so the
+              agent-geometry-as-authority invariant and WTerm's own scroll math
+              (which read the untransformed host) are untouched.
+            */}
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                transformOrigin: "0 0",
+                transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
+              }}
+            >
+              {/*
+                The WTerm renderer mounts INTO this element (appends `.term-grid`
+                and applies the `.wterm` class + scrollback). It keeps its own
+                vertical scroll for scrollback history; horizontal is clipped
+                because the grid is font-fitted to width.
+              */}
+              <div
+                ref={hostRef}
+                tabIndex={0}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  minHeight: 0,
+                  overflowX: "hidden",
+                  overflowY: "auto",
+                  background: theme.bg,
+                  cursor: readOnly ? "default" : "text",
+                }}
+              />
+            </div>
+          </div>
+
+          <TerminalControls
+            zoomed={zoomed}
+            onFitWidth={reset}
+            onZoomIn={() => zoomBy(1.5)}
+            onZoomOut={() => zoomBy(1 / 1.5)}
+            onRaiseKeyboard={handleRaiseKeyboard}
+            onReflow={handleReflow}
+            reflowDisabled={readOnly}
+            reflowPending={reflowPending}
+          />
+        </>
       )}
     </div>
   );
