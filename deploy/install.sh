@@ -166,6 +166,37 @@ install_homelab_deploy() {
     echo "  journalctl --user -u nexus-homelab-deploy.service -f"
 }
 
+# ── macOS GUI-session deploy agent (nx-tceo6) ────────────────────────
+# Installs + (re)loads dev.leonardoacosta.nexus.deploy into the user's GUI
+# launchd domain so the SSH-triggered git hook can kickstart a SIGNED build in
+# the Aqua session. Idempotent: bootout (tolerate not-loaded) then bootstrap.
+install_macos_deploy_agent() {
+    local label="dev.leonardoacosta.nexus.deploy"
+    local src="$SCRIPT_DIR/$label.plist"
+    local dst="$HOME/Library/LaunchAgents/$label.plist"
+    local uid; uid="$(id -u)"
+
+    if [[ ! -f "$src" ]]; then
+        warn "deploy LaunchAgent plist not found at $src — skipping GUI deploy agent install"
+        return 0
+    fi
+
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
+             "$HOME/Library/Application Support/Nexus"
+    install -m 644 "$src" "$dst"
+    chmod 755 "$SCRIPT_DIR/lib/macos-deploy-agent.sh" 2>/dev/null || true
+
+    info "Loading GUI deploy agent ($label) into gui/$uid"
+    launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+    if launchctl bootstrap "gui/$uid" "$dst" >/dev/null 2>&1; then
+        info "GUI deploy agent loaded. The SSH-triggered hook will kickstart it for signed builds."
+    else
+        warn "launchctl bootstrap gui/$uid $dst failed — load manually inside the GUI session:"
+        echo "  launchctl bootout gui/$uid/$label 2>/dev/null; launchctl bootstrap gui/$uid \"$dst\""
+    fi
+    echo "  log: ~/Library/Logs/nexus-deploy.log    marker: ~/Library/Application Support/Nexus/deploy-status.txt"
+}
+
 install_linux() {
     local SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SYSTEMD_DIR"
@@ -206,7 +237,14 @@ install_macos() {
 
     # macOS runs NO nexus-agent daemon under the spine model — it is a pure
     # Swift app + Tailnet member. The dashboard reads remote agents over the
-    # Tailnet. No launchd plist, no ~/Library/LaunchAgents, no launchctl.
+    # Tailnet.
+    #
+    # EXCEPTION (nx-tceo6): a GUI-session deploy LaunchAgent. The
+    # post-merge/post-commit git hook runs over SSH (homelab fan-out) in a
+    # NON-Aqua session where the team signing identity fails. The hook
+    # kickstarts this agent so the SIGNED build runs in the user's GUI session.
+    # Install it idempotently: bootout (ignore-not-loaded) then bootstrap.
+    install_macos_deploy_agent
 
     echo ""
     info "macOS install complete."

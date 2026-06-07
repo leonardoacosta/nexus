@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Nexus GUI-session deploy agent (nx-tceo6).
+
+      The post-merge/post-commit git hook runs over SSH (the homelab fan-out),
+      which lands in a NON-Aqua security session where the team signing identity
+      (8E12…/DX3Y367L2A) fails with errSecInternalComponent. That made the deploy
+      silently fall back to an ad-hoc/unsigned /Applications/Nexus.app with no
+      entitlements and zero macOS notification banners.
+
+      This agent runs the SIGNED build inside the user's GUI (Aqua) session,
+      where the already-unlocked login keychain signs cleanly. The headless
+      caller reaches it WITHOUT root via:
+          launchctl kickstart -k gui/$(id -u)/dev.leonardoacosta.nexus.deploy
+      then polls the completion marker the wrapper writes.
+
+      RunAtLoad=false / no KeepAlive: this is kickstart-triggered, one shot per
+      deploy. Install/refresh via deploy/install.sh (bootout then bootstrap).
+    -->
+    <key>Label</key>
+    <string>dev.leonardoacosta.nexus.deploy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/leonardoacosta/dev/nx/deploy/lib/macos-deploy-agent.sh</string>
+    </array>
+
+    <!-- kickstart-triggered, not launch-at-load, not kept alive. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- xcodebuild / xcodegen / bun live in homebrew + Xcode CLT paths.
+             A bare launchd job has a minimal PATH, so set one that finds them. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin</string>
+        <key>HOME</key>
+        <string>/Users/leonardoacosta</string>
+        <key>NX_REPO_DIR</key>
+        <string>/Users/leonardoacosta/dev/nx</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-deploy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-deploy.log</string>
+
+    <!-- Respawn guard in case a kickstart loops; harmless for one-shot use. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
