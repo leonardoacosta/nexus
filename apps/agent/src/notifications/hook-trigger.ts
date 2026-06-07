@@ -160,16 +160,21 @@ export async function evaluateAndDispatch(
   // One row per channel — mirrors the manager's existing single-channel
   // delivery model. Per-row failures are isolated (Promise.allSettled).
   const sends = filtered.map((draft) =>
-    manager.send({
-      id: randomUUID(),
-      channel: draft.channel as NotificationChannel,
-      title: draft.title,
-      body: draft.body,
-      project: draft.project,
-      agentId: null,
-      priority: draft.priority,
-      createdAt: new Date(),
-    }),
+    manager.send(
+      {
+        id: randomUUID(),
+        channel: draft.channel as NotificationChannel,
+        title: draft.title,
+        body: draft.body,
+        project: draft.project,
+        agentId: null,
+        priority: draft.priority,
+        createdAt: new Date(),
+      },
+      // nx-20caf: thread the CC custom session name through as a transport-only
+      // extra (no DB column) so it reaches the NotificationFired envelope.
+      draft.sessionName ? { sessionName: draft.sessionName } : undefined,
+    ),
   );
 
   const results = await Promise.allSettled(sends);

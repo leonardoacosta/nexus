@@ -19,6 +19,13 @@ export interface HookEventPayload {
   pid?: number;
   branch?: string;
   cc_session_id?: string;
+  /**
+   * CC custom session name — the `/rename` title persisted as `customTitle`
+   * in the transcript jsonl (nx-20caf). Snake_case to match `tool_name` /
+   * `hook_event_name`. Absent/empty when no custom title is set; downstream
+   * the notification machinery surfaces it as the camelCase `sessionName`.
+   */
+  session_name?: string;
   tmux_target?: string;
   machine?: string;
   tool_counts?: Record<string, number>;

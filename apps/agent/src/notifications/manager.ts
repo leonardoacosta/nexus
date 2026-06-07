@@ -25,6 +25,13 @@ import { writeAudio } from "./audio-store";
 export interface NotificationTransportExtras {
   items?: string[];
   logPath?: string;
+  /**
+   * CC custom session name (the `/rename` title) — transport-only, mirrors
+   * `items` / `logPath` so no schema migration is needed (nx-20caf). Surfaced
+   * on the `NotificationFired` envelope as `sessionName` for the Swift consumer
+   * + statusline. Undefined when no custom title was set (graceful degrade).
+   */
+  sessionName?: string;
 }
 
 /**
@@ -203,6 +210,9 @@ export class NotificationManager {
           message: notification.body, // back-compat alias
           items: extras?.items,
           logPath: extras?.logPath,
+          // nx-20caf: transport-only CC custom session name. Omitted (undefined)
+          // when the upstream payload had no custom title.
+          sessionName: extras?.sessionName,
           audioBase64: d.audioBase64,
           voiceUsed: d.voiceUsed,
         });

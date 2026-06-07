@@ -60,6 +60,14 @@ export interface NotificationDraft {
   body: string;
   project: string | null;
   priority: NotificationPriority;
+  /**
+   * CC custom session name (the `/rename` title) carried transport-only from
+   * the hook payload's snake_case `session_name` (nx-20caf). camelCase here to
+   * match `logPath` / `audioBase64` on the lifecycle/wire types. Undefined when
+   * the upstream payload had no custom title (or an empty string) — consumers
+   * must degrade gracefully to today's session-less behavior.
+   */
+  sessionName?: string;
 }
 
 /**
@@ -84,6 +92,16 @@ function prefixBody(project: string | null, message: string): string {
 
 function readToolName(payload: HookEventPayload): string {
   return payload.tool_name ?? payload.tool ?? "unknown";
+}
+
+/**
+ * Read the CC custom session name (nx-20caf). Snake_case `session_name` in,
+ * camelCase out. An absent or empty-string title yields `undefined` so the
+ * field is omitted from the draft and downstream wire (graceful degrade).
+ */
+function readSessionName(payload: HookEventPayload): string | undefined {
+  const name = payload.session_name;
+  return name && name.length > 0 ? name : undefined;
 }
 
 function readErrorMessage(payload: HookEventPayload): string {
@@ -122,12 +140,16 @@ const toolUseFailRule: HookRule = (payload) => {
 const permissionRequestRule: HookRule = (payload) => {
   const project = projectOf(payload);
   const tool = readToolName(payload);
+  const sessionName = readSessionName(payload);
   const title = `permission requested: ${tool}`;
   const body = prefixBody(project, `permission requested for ${tool}`);
 
+  // sessionName is transport-only: the primary spoken path lives in
+  // telemetry.sh (nx-20caf Path A). The agent body stays minimal and safe —
+  // we only thread the name so the lifecycle emit + Swift consumer can read it.
   return [
-    { channel: "desktop", title, body, project, priority: "normal" },
-    { channel: "tts", title, body, project, priority: "normal" },
+    { channel: "desktop", title, body, project, priority: "normal", sessionName },
+    { channel: "tts", title, body, project, priority: "normal", sessionName },
   ];
 };
 

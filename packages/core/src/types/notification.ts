@@ -42,6 +42,15 @@ export interface NotificationEvent {
   delivery_state: NotificationDeliveryState;
   /** ISO-8601 string on the wire (matches `/sessions` convention). */
   created_at: string;
+  /**
+   * CC custom session name — the `/rename` title persisted as `customTitle`
+   * in the transcript jsonl (nx-20caf). camelCase by the fixed wire contract
+   * (matches the lifecycle `NotificationFired` field name `sessionName`, not
+   * the snake_case wire convention used for the other fields here), so the
+   * Swift `NotificationEvent` decoder reads a single canonical key. Absent
+   * (undefined) when no custom title was set — consumers degrade gracefully.
+   */
+  sessionName?: string;
 }
 
 /** Meeting behavior when a notification arrives during an active meeting. */

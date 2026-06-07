@@ -83,6 +83,38 @@ describe("permission_request rule", () => {
       expect(d.body.startsWith("nx: ")).toBe(true);
     }
   });
+
+  // nx-20caf: CC custom session name (snake_case `session_name`) threads into
+  // the draft as camelCase `sessionName` on EVERY channel, omitted gracefully
+  // when the upstream payload has no custom title.
+  it("carries sessionName on both drafts when session_name is present", () => {
+    const drafts = hookRules.permission_request!(
+      payload({ tool_name: "Bash", session_name: "backend wave" }),
+    );
+    expect(drafts).not.toBeNull();
+    expect(drafts!.length).toBe(2);
+    for (const d of drafts!) {
+      expect(d.sessionName).toBe("backend wave");
+    }
+  });
+
+  it("yields undefined sessionName when session_name is absent", () => {
+    const drafts = hookRules.permission_request!(payload({ tool_name: "Edit" }));
+    expect(drafts).not.toBeNull();
+    for (const d of drafts!) {
+      expect(d.sessionName).toBeUndefined();
+    }
+  });
+
+  it("treats an empty-string session_name as undefined (graceful degrade)", () => {
+    const drafts = hookRules.permission_request!(
+      payload({ tool_name: "Edit", session_name: "" }),
+    );
+    expect(drafts).not.toBeNull();
+    for (const d of drafts!) {
+      expect(d.sessionName).toBeUndefined();
+    }
+  });
 });
 
 describe("hook_failure rule", () => {

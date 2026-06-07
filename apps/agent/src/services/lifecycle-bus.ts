@@ -207,6 +207,16 @@ export interface NotificationFiredPayload {
   audioBase64?: string;
   /** ElevenLabs voice id used for the synth call. Pairs with `audioBase64`. */
   voiceUsed?: string;
+  /**
+   * CC custom session name — the `/rename` title persisted as `customTitle`
+   * in the transcript jsonl (nx-20caf). Threaded transport-only through the
+   * NotificationManager `extras` mechanism (mirrors `items` / `logPath`), so
+   * no DB column is added. The Swift consumer + statusline read this to name
+   * the originating session in the banner / spoken text. Absent (undefined)
+   * when the upstream hook payload had no custom title — consumers MUST
+   * degrade gracefully to today's session-less rendering.
+   */
+  sessionName?: string;
 }
 
 /**

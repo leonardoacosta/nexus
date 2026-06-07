@@ -53,6 +53,9 @@ interface CapturedSend {
   channel: string;
   title: string;
   body: string;
+  // nx-20caf: capture the transport-only extras arg so tests can assert the
+  // custom session name is threaded through to manager.send().
+  extras?: { items?: string[]; logPath?: string; sessionName?: string };
 }
 
 function makeFakeManager(opts: { throwOn?: string } = {}): {
@@ -61,11 +64,11 @@ function makeFakeManager(opts: { throwOn?: string } = {}): {
 } {
   const sends: CapturedSend[] = [];
   const manager = {
-    send: mock(async (n: any) => {
+    send: mock(async (n: any, extras?: any) => {
       if (opts.throwOn && n.channel === opts.throwOn) {
         throw new Error(`send boom on ${n.channel}`);
       }
-      sends.push({ channel: n.channel, title: n.title, body: n.body });
+      sends.push({ channel: n.channel, title: n.title, body: n.body, extras });
       return n;
     }),
   } as unknown as NotificationManager;
@@ -202,6 +205,62 @@ describe("settings filter", () => {
     await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
 
     expect(sends).toHaveLength(1);
+  });
+});
+
+// ─── Session name threading (nx-20caf) ─────────────────────────────────────────
+
+describe("custom session name threading", () => {
+  it("threads sessionName into manager.send extras when session_name is present", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(
+      db,
+      manager,
+      "permission_request",
+      payload({ tool_name: "Bash", session_name: "backend wave" }),
+    );
+
+    // permission_request -> desktop + tts, BOTH carrying the session name.
+    expect(sends).toHaveLength(2);
+    for (const s of sends) {
+      expect(s.extras?.sessionName).toBe("backend wave");
+    }
+  });
+
+  it("passes undefined extras when session_name is absent", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(
+      db,
+      manager,
+      "permission_request",
+      payload({ tool_name: "Edit" }),
+    );
+
+    expect(sends).toHaveLength(2);
+    for (const s of sends) {
+      expect(s.extras).toBeUndefined();
+    }
+  });
+
+  it("treats an empty-string session_name as no session name", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(
+      db,
+      manager,
+      "permission_request",
+      payload({ tool_name: "Edit", session_name: "" }),
+    );
+
+    expect(sends).toHaveLength(2);
+    for (const s of sends) {
+      expect(s.extras).toBeUndefined();
+    }
   });
 });
 
