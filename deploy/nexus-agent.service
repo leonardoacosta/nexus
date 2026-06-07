@@ -1,19 +1,45 @@
 [Unit]
 Description=Nexus Agent — per-machine daemon for Claude Code session tracking
-# After=network-online.target alone is NOT sufficient: the agent's default
-# bind path discovers the Tailscale interface IP via `tailscale ip -4` and
-# falls into loopback-only "degraded mode" if tailscaled isn't yet
-# registered when the probe fires. systemd starts user services in parallel
-# with system services like tailscaled, so the race fires consistently on
-# slow boots. Ordering ourselves After=tailscaled.service makes systemd
-# wait until tailscaled has actually started before launching the agent;
-# the in-process retry-with-backoff loop (apps/agent/src/server.ts
-# discoverTailscaleIp) covers the residual handshake gap. Spec: bd:nx-ir43a.
+# Tailscale startup-race ordering. The agent's default bind path discovers the
+# Tailscale interface IP via `tailscale ip -4` and falls into loopback-only
+# "degraded mode" (127.0.0.1:7400 ONLY, no 100.x) if tailscaled isn't yet
+# registered when the probe fires. The Mac listener (Nexus.app SSE observer
+# over Tailscale) can then never connect -> zero notifications until a manual
+# `systemctl --user restart nexus-agent`. Confirmed on cold boot 2026-06-07.
+#
+# IMPORTANT: After=/Wants=tailscaled.service below is a SILENT NO-OP for this
+# unit. This is a systemd --user unit; tailscaled is a system-scope unit, and
+# a user-manager unit CANNOT order itself against a system-manager unit. The
+# ordering directive is simply ignored by the user manager — it does NOT make
+# us wait for tailscaled (the earlier nx-ir43a fix mistakenly believed it did).
+# The lines are kept because they are harmless and would become correct if this
+# unit were ever migrated to a system instance.
+#
+# The DURABLE fix is the ExecStartPre gate in [Service] below: it blocks the
+# agent start until `tailscale ip -4` succeeds (bounded to 60s), then always
+# exits 0 so a genuinely Tailscale-less machine (laptop on a flight) still
+# starts in degraded (loopback-only) mode rather than failing the unit. The
+# in-process retry-with-backoff loop (apps/agent/src/server.ts
+# discoverTailscaleIp) remains the residual-handshake backstop.
+# Spec: bd:nx-j7fmf (gate), bd:nx-ir43a (original in-process retry).
 After=network-online.target tailscaled.service
 Wants=network-online.target tailscaled.service
 
 [Service]
 Type=simple
+# Tailscale readiness gate (the durable fix for the cold-boot race — see the
+# [Unit] comment above and bd:nx-j7fmf). Block until `tailscale ip -4` resolves
+# an address, bounded to ~60s. ALWAYS exits 0: on a Tailscale-less machine we
+# still want the agent to come up (degraded/loopback-only) rather than fail the
+# unit. `command -v tailscale` guards against the binary being absent from the
+# unit's Environment=PATH (set below) — if tailscale isn't installed at all,
+# proceed immediately to degraded start.
+# NOTE: `$` is escaped as `$$` so systemd passes a literal `$` to bash rather
+# than attempting its own variable expansion (systemd strips unescaped `$i`).
+ExecStartPre=/usr/bin/env bash -c 'command -v tailscale >/dev/null 2>&1 || { echo "tailscale binary not found on PATH — starting in degraded (loopback-only) mode" >&2; exit 0; }; for i in $$(seq 1 60); do tailscale ip -4 >/dev/null 2>&1 && { echo "tailscale ip -4 ready after $${i}s — proceeding to dual-bind start" >&2; exit 0; }; sleep 1; done; echo "tailscale never registered in 60s — starting in degraded (loopback-only) mode" >&2; exit 0'
+# Accommodate the up-to-60s ExecStartPre wait plus agent boot. The systemd
+# default is 90s; set explicitly so the gate never trips a start timeout.
+TimeoutStartSec=120
 ExecStart=%h/.local/bin/nexus-agent
 # Restart always: systemd restarts the agent after any exit, including clean
 # shutdowns (status=0). RestartSec adds a 5-second backoff. StartLimitBurst
