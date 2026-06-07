@@ -15,9 +15,15 @@
 
 import Foundation
 
-/// Audio mixing behaviour for notification MP3 playback. macOS implements
-/// only `.mix` (full volume) and a soft `.duck` (90% volume) in the v1
-/// AudioPlayer; `.pause` and platform-native ducking are deferred.
+/// Audio mixing behaviour for notification MP3 playback (nx-lvyu9). macOS has
+/// no per-app output volume, so the AudioPlayer ducks the system output device
+/// volume around playback to make all three modes audibly distinct:
+///   - `.mix`   — full volume, no system change; TTS plays over other audio.
+///   - `.duck`  — system output dipped to ~40% for the clip, then restored.
+///   - `.pause` — system output dipped to ~15% (near-silence) for the clip,
+///                then restored. "Pause" is a UX label, not a transport pause —
+///                macOS can't pause other apps' playback without private APIs,
+///                so this is the deepest non-mute dip we can apply cheaply.
 public enum DuckingMode: String, Codable, Sendable, CaseIterable {
     case duck
     case mix

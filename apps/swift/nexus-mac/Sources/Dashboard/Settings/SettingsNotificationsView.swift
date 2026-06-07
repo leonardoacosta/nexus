@@ -4,9 +4,10 @@
 // Spec: openspec/changes/settings-tab-redesign (task 2.4, bd:nx-mu14j)
 //
 // All keys are @AppStorage-backed under the `notifications.*` namespace.
-// Existing keys (`notifications.sort`, `notifications.group`) are reused
-// verbatim so the redesign does not reset user preferences set by the
-// NotificationsView toolbar.
+// The existing `notifications.sort` key is reused verbatim so the redesign
+// does not reset user preferences set by the NotificationsView toolbar.
+// nx-2g2j4: the `notifications.group` toggle was removed — Project & Session
+// sort modes always group; Time never does.
 
 import SwiftUI
 import NexusShared
@@ -21,9 +22,6 @@ struct SettingsNotificationsView: View {
     /// `notifications.sort` key first introduced by notifications-overhaul.
     @AppStorage("notifications.sort")
     private var sortRaw: String = NotificationSortMode.time.rawValue
-
-    /// Default group-by toggle for the notification history list.
-    @AppStorage("notifications.group") private var groupOn: Bool = false
 
     /// Replay autoplay — when ON, clicking a notification row plays back
     /// the cached MP3 automatically. New key in this spec.
@@ -57,7 +55,6 @@ struct SettingsNotificationsView: View {
                             Text(mode.label).tag(mode)
                         }
                     }
-                    Toggle("Group by project by default", isOn: $groupOn)
                     Toggle("Autoplay replay on row click", isOn: $replayAutoplay)
                 }
 

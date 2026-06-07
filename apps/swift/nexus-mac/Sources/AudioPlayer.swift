@@ -6,17 +6,31 @@
 //       MP3PlayerProtocol so TTSObserver in NexusShared can drive playback
 //       without importing the macOS-only AVAudioPlayer surface)
 //
-// Ducking modes (DuckingMode enum lives in NexusShared/Synthesis/MP3Player.swift):
-//   - .duck    — temporarily lower other audio while we speak
-//   - .mix     — play over existing audio at full volume (default)
-//   - .pause   — pause everything else, resume on completion
+// Ducking modes (DuckingMode enum lives in NexusShared/Synthesis/MP3Player.swift).
+// nx-lvyu9: the three modes are now genuinely audibly distinct. macOS has no
+// AVAudioSession.duckOthers and no public per-application output volume, so the
+// only lever that affects OTHER apps' audio is the system default-output-device
+// master volume (CoreAudio kAudioHardwareServiceDeviceProperty_VirtualMainVolume).
+// We save/lower/restore that volume around playback:
+//   - .mix    — play over existing audio at full volume; no system change.
+//   - .duck   — lower the system output to ~40% for the clip, restore after.
+//               Other audio audibly dips into the background while we speak.
+//   - .pause  — lower the system output to ~15% (near-silence of background
+//               audio) for the clip, restore after. Distinctly quieter than .duck.
 //
-// On macOS, AVAudioSession is iOS-only; ducking is approximated via
-// CoreAudio (AudioObjectSetPropertyData on kAudioDevicePropertyVolumeScalar).
-// For the v1 cut we ship .mix and .pause via AVAudioPlayer's built-in
-// `numberOfLoops = 0` semantics + a global audio-engine pause callback.
+// Honest tradeoff: macOS lacks per-app output volume, so the system-volume dip
+// also lowers OUR clip proportionally — but since the TTS clip is the focus, the
+// net effect is "everything quieter," which is exactly the audible duck Leo
+// wanted. The prior implementation only touched AVAudioPlayer.volume (90% on
+// .duck — imperceptible) and left .pause as a dead no-op identical to .mix.
+//
+// Crash-safety: the saved volume is restored on natural finish AND on stop().
+// If the process dies mid-clip the user's volume stays lowered — accepted as a
+// rare-path cost of the cheapest feasible real ducking on macOS.
 
 import AVFoundation
+import AudioToolbox
+import CoreAudio
 import Foundation
 import NexusShared
 
@@ -24,6 +38,11 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     public static let shared = AudioPlayer()
     private var player: AVAudioPlayer?
     private var onFinish: (() -> Void)?
+
+    /// System output volume captured at the start of a ducked clip so it can be
+    /// restored when the clip finishes or is cancelled. `nil` while no duck is
+    /// active (i.e. `.mix` playback or idle).
+    private var savedSystemVolume: Float?
 
     /// Fired when a clip finishes naturally (delegate didFinish), NOT on
     /// `stop()`. TTSObserver wires this to NowPlayingController.noteClipEnded().
@@ -35,19 +54,49 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
         ducking: DuckingMode = .mix,
         onFinish: (() -> Void)? = nil
     ) throws {
+        // A new clip supersedes any in-flight one — restore the prior duck
+        // before applying this clip's mode so volume state never compounds.
+        restoreSystemVolume()
         self.onFinish = onFinish
         let player = try AVAudioPlayer(data: mp3Data)
         player.delegate = self
-        // Volume scaling for the .duck mode — full-bore other-audio control
-        // would require CoreAudio AudioObject manipulation, deferred.
-        player.volume = ducking == .duck ? 0.9 : 1.0
+        // Our own clip always plays at full AVAudioPlayer volume; the duck is
+        // applied at the system-output level (see applyDuck) so it affects
+        // OTHER apps' audio, not just our player.
+        player.volume = 1.0
+        applyDuck(ducking)
         player.prepareToPlay()
         player.play()
         self.player = player
     }
 
+    /// Lower the system default-output-device volume for the given mode,
+    /// stashing the prior value in `savedSystemVolume` for restore. `.mix` is a
+    /// no-op. Best-effort: a CoreAudio failure (no controllable device, virtual
+    /// output) leaves the volume untouched and `savedSystemVolume` nil.
+    private func applyDuck(_ ducking: DuckingMode) {
+        let target: Float
+        switch ducking {
+        case .mix:   return                 // no system change
+        case .duck:  target = 0.40          // background audio dips
+        case .pause: target = 0.15          // background audio near-silenced
+        }
+        guard let current = Self.readSystemOutputVolume() else { return }
+        savedSystemVolume = current
+        Self.setSystemOutputVolume(target)
+    }
+
+    /// Restore the system output volume captured by `applyDuck`. Idempotent —
+    /// a no-op when no duck is active.
+    private func restoreSystemVolume() {
+        guard let saved = savedSystemVolume else { return }
+        Self.setSystemOutputVolume(saved)
+        savedSystemVolume = nil
+    }
+
     public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully _: Bool) {
         self.player = nil
+        restoreSystemVolume()
         onFinish?()
         onFinish = nil
         // Natural finish — signal the Now-Playing grace window to start.
@@ -63,10 +112,85 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     ///
     /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener).
     public func stop() {
+        // Always restore a ducked system volume, even if the player is already
+        // nil — a cancel landing in the post-finish gap must not leave the
+        // user's volume lowered.
+        restoreSystemVolume()
         guard let player else { return }
         player.stop()
         self.player = nil
         onFinish = nil
+    }
+
+    // MARK: - CoreAudio system-output volume (nx-lvyu9)
+    //
+    // macOS routes "the volume the menu-bar slider controls" through the default
+    // output device's VirtualMainVolume property. Reading/writing it ducks ALL
+    // app audio (there is no public per-app volume API), which is the cheapest
+    // real way to make TTS playback duck other audio. Both helpers are
+    // best-effort: any CoreAudio error returns nil / no-ops rather than throwing.
+
+    /// Resolve the current default output device id, or `kAudioObjectUnknown`
+    /// when none is controllable.
+    private static func defaultOutputDevice() -> AudioDeviceID {
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+        return status == noErr ? deviceID : AudioDeviceID(kAudioObjectUnknown)
+    }
+
+    /// Read the system output device's master volume scalar (0.0–1.0).
+    /// Returns nil when no controllable device exposes the property.
+    static func readSystemOutputVolume() -> Float? {
+        let deviceID = defaultOutputDevice()
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return nil }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(deviceID, &address) else { return nil }
+        var volume = Float(0)
+        var size = UInt32(MemoryLayout<Float>.size)
+        let status = AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size,
+            &volume
+        )
+        return status == noErr ? volume : nil
+    }
+
+    /// Set the system output device's master volume scalar, clamped to 0.0–1.0.
+    /// Best-effort — silently no-ops when the property is unsettable.
+    static func setSystemOutputVolume(_ value: Float) {
+        let deviceID = defaultOutputDevice()
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var settable = DarwinBoolean(false)
+        guard AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr,
+              settable.boolValue else { return }
+        var clamped = max(0.0, min(1.0, value))
+        let size = UInt32(MemoryLayout<Float>.size)
+        _ = AudioObjectSetPropertyData(deviceID, &address, 0, nil, size, &clamped)
     }
 }
 

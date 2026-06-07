@@ -12,6 +12,9 @@
 
 import Foundation
 import Combine
+#if os(iOS)
+import UserNotifications
+#endif
 
 @MainActor
 public final class SessionObserver: ObservableObject {
@@ -117,6 +120,7 @@ public final class SessionObserver: ObservableObject {
         case "NotificationFired":
             if let ev = event.decodeNotification() {
                 prependNotification(ev)
+                postLocalNotification(for: ev)
             }
         default:
             break
@@ -154,6 +158,42 @@ public final class SessionObserver: ObservableObject {
         if notifications.count > notificationCap {
             notifications.removeLast(notifications.count - notificationCap)
         }
+    }
+
+    /// Post a real system notification for an inbound `NotificationFired` event
+    /// (nx-udamp). iOS-only: macOS posts its own banner via TTSObserver, so this
+    /// is a no-op there to avoid double-posting. The iOS app already wires the
+    /// UNUserNotificationCenter delegate, authorization, foreground presenter,
+    /// and tap routing (NexusAppDelegate) — this is the missing bridge that
+    /// schedules the request when an SSE event arrives while the app is running
+    /// or backgrounded with a live stream.
+    ///
+    /// Mirrors TTSObserver.postBanner: title = ev.title ?? "Nexus", body =
+    /// TTSObserver.renderBody (so multi-item bodies render as a bullet list),
+    /// default sound, badge increment, and userInfo carrying project + logPath
+    /// for the existing tap-to-open routing. NotificationEvent has no sessionId
+    /// in the wire contract, so only project + logPath are forwarded; the tap
+    /// handler already degrades gracefully when sessionId is absent.
+    private func postLocalNotification(for ev: NotificationEvent) {
+        #if os(iOS)
+        let content = UNMutableNotificationContent()
+        content.title = ev.title ?? "Nexus"
+        content.body = TTSObserver.renderBody(for: ev)
+        content.sound = .default
+        content.badge = NSNumber(value: notifications.count)
+        if let project = ev.project, !project.isEmpty {
+            content.userInfo["project"] = project
+        }
+        if let logPath = ev.logPath, !logPath.isEmpty {
+            content.userInfo[NotificationUserInfoKeys.logPath] = logPath
+        }
+        let request = UNNotificationRequest(
+            identifier: ev.id.uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+        #endif
     }
 
     private func recompute() {

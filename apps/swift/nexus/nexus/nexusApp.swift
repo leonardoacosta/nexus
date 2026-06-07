@@ -233,7 +233,8 @@ private extension nexusApp {
             "nx.tts.enabled",                  // SettingsStore.ttsEnabled
             "nx.notifications.bannerEnabled",  // SettingsTtsView + SettingsNotificationsView
             "notifications.sort",              // SettingsNotificationsView
-            "notifications.group",             // SettingsNotificationsView
+            // nx-2g2j4: "notifications.group" removed — grouping is now implied
+            // by the sort mode (Project/Session always group; Time never does).
             "notifications.replay.autoplay",   // SettingsNotificationsView (new)
             "nx.dashboard.refreshSeconds",     // SettingsDashboardView
             "nx.dashboard.defaultView",        // SettingsDashboardView

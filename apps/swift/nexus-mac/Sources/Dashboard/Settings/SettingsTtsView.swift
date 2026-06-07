@@ -164,7 +164,7 @@ struct SettingsTtsView: View {
             Picker("Ducking", selection: $model.ducking) {
                 Text("Mix").tag(DuckingMode.mix)
                 Text("Duck").tag(DuckingMode.duck)
-                Text("Pause others").tag(DuckingMode.pause)
+                Text("Quiet").tag(DuckingMode.pause)
             }
             .onChange(of: model.ducking) { _, _ in model.persistToggles() }
         }

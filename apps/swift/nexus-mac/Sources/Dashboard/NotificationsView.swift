@@ -36,7 +36,13 @@ enum NotificationSortMode: String, CaseIterable, Identifiable {
 struct NotificationsView: View {
     @StateObject private var model = NotificationsViewModel()
     @AppStorage("notifications.sort") private var sortRaw: String = NotificationSortMode.time.rawValue
-    @AppStorage("notifications.group") private var groupOn: Bool = false
+
+    /// Per-group collapse state for the grouped accordion (nx-2g2j4). A group
+    /// key present in this set is COLLAPSED; absence means expanded. Default-open
+    /// semantics: a freshly-seen group is expanded until the user collapses it.
+    /// Keyed off the stable `entry.group` string so state survives re-renders as
+    /// the history list mutates.
+    @State private var collapsedGroups: Set<String> = []
 
     private var sortMode: NotificationSortMode {
         NotificationSortMode(rawValue: sortRaw) ?? .time
@@ -44,6 +50,25 @@ struct NotificationsView: View {
 
     private func setSortMode(_ mode: NotificationSortMode) {
         sortRaw = mode.rawValue
+    }
+
+    /// Real per-group expand/collapse binding for the accordion (nx-2g2j4).
+    /// Default-open: a group is expanded unless its key is in `collapsedGroups`.
+    /// Toggling inserts/removes the key (animated), so the chevron actually
+    /// collapses and expands instead of being frozen by `.constant(true)`.
+    private func expansionBinding(for group: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedGroups.contains(group) },
+            set: { expanded in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if expanded {
+                        collapsedGroups.remove(group)
+                    } else {
+                        collapsedGroups.insert(group)
+                    }
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -132,8 +157,10 @@ struct NotificationsView: View {
 
     private var historyPane: some View {
         let sortedRows = NotificationsView.sorted(model.history, mode: sortMode)
-        let groupingAvailable = sortMode != .time
-        let groupingActive = groupingAvailable && groupOn
+        // nx-2g2j4: Project & Session always group; Time is not groupable.
+        // The standalone group toggle was removed — grouping is now implied by
+        // the sort mode.
+        let groupingActive = sortMode != .time
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -162,16 +189,9 @@ struct NotificationsView: View {
                 .labelsHidden()
                 .frame(width: 220)
 
-                // notifications-overhaul (task 3.6): group toggle. Only
-                // visible when the sort mode supports grouping.
-                if groupingAvailable {
-                    Toggle(isOn: $groupOn) {
-                        Image(systemName: "rectangle.3.group")
-                    }
-                    .toggleStyle(.button)
-                    .controlSize(.small)
-                    .help("Group rows by \(sortMode.label.lowercased())")
-                }
+                // nx-2g2j4: the standalone group toggle was removed. Project &
+                // Session sort modes always group; Time never does. Grouping is
+                // implied by the sort picker above.
 
                 Text("\(model.history.count)")
                     .font(.caption2.monospacedDigit())
@@ -198,7 +218,7 @@ struct NotificationsView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         let groups = NotificationsView.grouped(sortedRows, mode: sortMode)
                         ForEach(groups, id: \.group) { entry in
-                            DisclosureGroup(isExpanded: .constant(true)) {
+                            DisclosureGroup(isExpanded: expansionBinding(for: entry.group)) {
                                 ForEach(entry.rows) { ev in
                                     NotificationHistoryRow(event: ev, player: model.audioPlayer)
                                     Divider().padding(.leading, 14)
@@ -283,7 +303,7 @@ struct NotificationsView: View {
                 Picker("Ducking", selection: $model.ducking) {
                     Text("Mix").tag(DuckingMode.mix)
                     Text("Duck").tag(DuckingMode.duck)
-                    Text("Pause others").tag(DuckingMode.pause)
+                    Text("Quiet").tag(DuckingMode.pause)
                 }
             } label: {
                 HStack(spacing: 4) {
@@ -317,7 +337,7 @@ struct NotificationsView: View {
         switch mode {
         case .mix:   return "Mix"
         case .duck:  return "Duck"
-        case .pause: return "Pause"
+        case .pause: return "Quiet"
         }
     }
 }
