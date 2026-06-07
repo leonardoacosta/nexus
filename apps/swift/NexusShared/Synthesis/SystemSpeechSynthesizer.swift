@@ -20,6 +20,8 @@
 import Foundation
 import os.log
 
+#if os(macOS)
+
 public actor SystemSpeechSynthesizer {
     private static let logger = Logger(
         subsystem: "dev.leonardoacosta.nexus.mac",
@@ -202,3 +204,25 @@ private final class ResumeOnce: @unchecked Sendable {
         if shouldResume { cont.resume() }
     }
 }
+
+#else
+
+// iOS / non-macOS: `/usr/bin/say` and `Process` do not exist. iOS TTS is out
+// of scope here, so this is a compiling no-op stub that preserves the public
+// API surface (init, speak, stop, waitForIdle) callers depend on. TTSObserver
+// only routes to the speech-synth fallback on macOS, so on iOS these calls are
+// never reached in practice.
+public actor SystemSpeechSynthesizer {
+    public init() {}
+
+    /// No-op on iOS — there is no system `say` binary to drive.
+    public func speak(_ text: String, rate: Int = 175) {}
+
+    /// No-op on iOS — nothing is ever speaking.
+    public func stop() {}
+
+    /// No-op on iOS — the queue is always idle.
+    public func waitForIdle() async {}
+}
+
+#endif

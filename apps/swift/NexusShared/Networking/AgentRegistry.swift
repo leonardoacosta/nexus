@@ -52,8 +52,18 @@ public struct AgentDescriptor: Sendable, Equatable {
 public enum AgentRegistry {
     /// Default path: ~/.config/nexus/agents.toml.
     public static var defaultPath: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        #if os(macOS)
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/nexus/agents.toml")
+        #else
+        // iOS has no user home directory — `homeDirectoryForCurrentUser` is
+        // unavailable. Fall back to Application Support (sandboxed); the file
+        // typically won't exist there, so loadAgents() degrades to [] which
+        // is the intended localhost-only behavior on mobile clients.
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("nexus/agents.toml")
+        #endif
     }
 
     /// Parse `[[agents]]` records from agents.toml. Returns `[]` if the file
