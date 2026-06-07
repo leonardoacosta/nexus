@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1430"
-   version = "1.7">
+   version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES"
-      runPostActionsOnFailure = "NO">
+      buildImplicitDependencies = "YES">
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -16,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AD0EFA1F2956664EE93A475C"
-               BuildableName = "nexus-mac.app"
+               BuildableName = "nexus.app"
                BlueprintName = "nexus-mac"
                ReferencedContainer = "container:nexus.xcodeproj">
             </BuildableReference>
@@ -27,13 +26,12 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      onlyGenerateCoverageForSpecifiedTargets = "NO">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AD0EFA1F2956664EE93A475C"
-            BuildableName = "nexus-mac.app"
+            BuildableName = "nexus.app"
             BlueprintName = "nexus-mac"
             ReferencedContainer = "container:nexus.xcodeproj">
          </BuildableReference>
@@ -62,8 +60,7 @@
             </BuildableReference>
          </TestableReference>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "5116313D6600AC6539AFF054"
@@ -73,8 +70,6 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -91,13 +86,11 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AD0EFA1F2956664EE93A475C"
-            BuildableName = "nexus-mac.app"
+            BuildableName = "nexus.app"
             BlueprintName = "nexus-mac"
             ReferencedContainer = "container:nexus.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -110,13 +103,11 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AD0EFA1F2956664EE93A475C"
-            BuildableName = "nexus-mac.app"
+            BuildableName = "nexus.app"
             BlueprintName = "nexus-mac"
             ReferencedContainer = "container:nexus.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

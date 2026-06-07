@@ -20,6 +20,7 @@
 		150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */; };
 		17245C99759FEBBB9D99AFC9 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		174B26DFC4458341673382E2 /* ScriptError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2C93268B41859AEFAA71CA /* ScriptError.swift */; };
+		19F2EE9D2F7DEA4CD5B49F40 /* HealthKitPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCD730EAF96E22FBC5E39D5E /* HealthKitPushManager.swift */; };
 		1A54E8ACEB52F116BF7DDEB0 /* PtyAttachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39D5A03A9B3405B71BDDC5A /* PtyAttachTests.swift */; };
 		1B5F1633627E9B089B9F438F /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 9A22E58161A4A4C3279BD0B4 /* MarkdownUI */; };
 		1BAFA2038CD249707F7B77C5 /* CcProfileStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A4B1EA409AA9AEC96BD42D2 /* CcProfileStatusView.swift */; };
@@ -89,6 +90,7 @@
 		83D0027640627C437CFE9DE2 /* AttachScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846BA0A95ABC022E926B7E51 /* AttachScene.swift */; };
 		884F160CC005F0383EF3FBC5 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC6909C06ECAA94CA340E4E /* GlobalHotkeyManager.swift */; };
 		8AB3E21ED1CD8990C943405B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAA6C29B3B710A14FFD38CF /* Models.swift */; };
+		90B5B13B7613B0481AE9ABAD /* SSEIdleWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA516F3D5162415BE5A75C2 /* SSEIdleWatchdogTests.swift */; };
 		9149D4D4F28F32A213B21933 /* ActionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0EE128D4680A02B87E3651 /* ActionRow.swift */; };
 		92078DA331418A0E6A9A0DB8 /* SpawnHomelabSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 332165B2E191D7C8F049DC61 /* SpawnHomelabSession.swift */; };
 		927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */; };
@@ -144,6 +146,7 @@
 		DF922F4E4A0C773843B6AFA0 /* SendTextDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B696D33BC6C44412228D7C /* SendTextDispatcher.swift */; };
 		E0F4F0B3E6A812E4ADC698E4 /* ReaperNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E85554EEEE538FB89007B4 /* ReaperNotificationTests.swift */; };
 		E1D93764E977EB0D16A19470 /* SettingsAgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24DF09B4007851DB417A324F /* SettingsAgentsView.swift */; };
+		E55D7F1C26F6D68DD1920EC1 /* SessionRowSigilTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE0677EBCABE4AB6DFF69DC /* SessionRowSigilTests.swift */; };
 		E6BDF54CB91D8971AE88B65B /* CcProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0491406946C9544A414272 /* CcProfile.swift */; };
 		EC6858A1A1F56445BC1E06C7 /* AudioControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1E68D09477F24FF228D0BA /* AudioControlTests.swift */; };
 		ED0F4D60B1DEA3C0766768E2 /* NotificationReplayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327312239EBDF6F78197F4DA /* NotificationReplayButton.swift */; };
@@ -315,7 +318,9 @@
 		374BADBBD17FCCF7AD3FC7E1 /* TtsButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtsButton.swift; sourceTree = "<group>"; };
 		3923F629707730C5EE840D38 /* SessionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionObserver.swift; sourceTree = "<group>"; };
 		39C430AEEC725438D0A5B435 /* IntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationStatus.swift; sourceTree = "<group>"; };
+		3AA516F3D5162415BE5A75C2 /* SSEIdleWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEIdleWatchdogTests.swift; sourceTree = "<group>"; };
 		3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechController.swift; sourceTree = "<group>"; };
+		3AE0677EBCABE4AB6DFF69DC /* SessionRowSigilTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowSigilTests.swift; sourceTree = "<group>"; };
 		3BF654BB0375E595A1948E65 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateStateTests.swift; sourceTree = "<group>"; };
 		3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSnapshot.swift; sourceTree = "<group>"; };
@@ -426,6 +431,7 @@
 		F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsView.swift; sourceTree = "<group>"; };
 		FA0C0A15C297BEA453820EEB /* ProjectVoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVoicesView.swift; sourceTree = "<group>"; };
 		FC8713A6F0FF55E278958C07 /* ElevenLabsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsClient.swift; sourceTree = "<group>"; };
+		FCD730EAF96E22FBC5E39D5E /* HealthKitPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitPushManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -492,6 +498,7 @@
 				EBF82FA65C214FE1491DE3E4 /* LaunchAgentInstallerTests.swift */,
 				4AC6B83DC21187B1451A8146 /* nexusTests.swift */,
 				CA11900623305F1A30FFCA04 /* NotificationRingBufferTests.swift */,
+				3AE0677EBCABE4AB6DFF69DC /* SessionRowSigilTests.swift */,
 				031637B7BA75BA58C2D9E167 /* SSEEventParsingTests.swift */,
 				C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */,
 			);
@@ -527,6 +534,7 @@
 			children = (
 				CD68488306D376816B3EB751 /* App */,
 				F6E717DA55A8E7488268A9A7 /* Attach */,
+				C51D7A8D6C4AE0FE9B05E867 /* Health */,
 				93AD38BD1BF53866C80DF6DC /* Scenes */,
 			);
 			path = Sources;
@@ -634,6 +642,7 @@
 				485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */,
 				6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */,
 				1A9AF8C66BD065438059BCF0 /* SettingsStoreTests.swift */,
+				3AA516F3D5162415BE5A75C2 /* SSEIdleWatchdogTests.swift */,
 				06710683263B71F5965F745C /* SystemSpeechSynthesizerTests.swift */,
 				ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */,
 			);
@@ -721,6 +730,14 @@
 				1E7B82DF5B008BBF1832D3D6 /* AgentsConfigStore.swift */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		C51D7A8D6C4AE0FE9B05E867 /* Health */ = {
+			isa = PBXGroup;
+			children = (
+				FCD730EAF96E22FBC5E39D5E /* HealthKitPushManager.swift */,
+			);
+			path = Health;
 			sourceTree = "<group>";
 		};
 		CA46EA7FB8DCBE5C1016616B /* Speech */ = {
@@ -1016,25 +1033,32 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					28A55E9FB8D3A3D0BEB4B21D = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 					5116313D6600AC6539AFF054 = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 						TestTargetID = AD0EFA1F2956664EE93A475C;
 					};
 					63336FCB34A482E20BF70366 = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 					6EBEF5C23C2C88D0BE6248EA = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 					AD0EFA1F2956664EE93A475C = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 					B76B118DE3A471F78122ED49 = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 					D7B203F648362A33DFE749F4 = {
+						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -1086,6 +1110,7 @@
 			files = (
 				46F08D21D5272A2BE8333CE8 /* ApnsRegistrar.swift in Sources */,
 				83D0027640627C437CFE9DE2 /* AttachScene.swift in Sources */,
+				19F2EE9D2F7DEA4CD5B49F40 /* HealthKitPushManager.swift in Sources */,
 				3AF53DBE67B6F3E42BA65CB0 /* HealthSummaryScene.swift in Sources */,
 				63D3B543B76594E38988D323 /* NavigationState.swift in Sources */,
 				A6F122DECCB643B55D29998A /* NexusAppDelegate.swift in Sources */,
@@ -1183,6 +1208,7 @@
 				1A54E8ACEB52F116BF7DDEB0 /* PtyAttachTests.swift in Sources */,
 				8026FF5A9606000601041772 /* PtySessionPickerTests.swift in Sources */,
 				E0F4F0B3E6A812E4ADC698E4 /* ReaperNotificationTests.swift in Sources */,
+				90B5B13B7613B0481AE9ABAD /* SSEIdleWatchdogTests.swift in Sources */,
 				0572D733D77B83BFDBB9E450 /* SessionDecodingTests.swift in Sources */,
 				3E320883E4FA025DE7B1A1BE /* SessionRowTests.swift in Sources */,
 				5C7487DDB6C2CFBCBC57AD08 /* SettingsStoreTests.swift in Sources */,
@@ -1221,6 +1247,7 @@
 				D36F2DC82065BF8BDAD92310 /* ProjectVoicesViewTests.swift in Sources */,
 				7019694A6907843416E6F51A /* ProjectsViewTests.swift in Sources */,
 				9D1D4C4A9622D111E7607C11 /* SSEEventParsingTests.swift in Sources */,
+				E55D7F1C26F6D68DD1920EC1 /* SessionRowSigilTests.swift in Sources */,
 				ED709811569DA0C597C23129 /* SettingsAgentsViewTests.swift in Sources */,
 				7B29FDA887CE5571ECDEDEAB /* SettingsDiagnosticsViewTests.swift in Sources */,
 				0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */,
@@ -1480,6 +1507,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = DX3Y367L2A;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -1659,6 +1687,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = DX3Y367L2A;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
