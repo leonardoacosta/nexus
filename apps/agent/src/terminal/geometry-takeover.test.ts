@@ -9,11 +9,12 @@
  *       binary scrollback. We drive a fake viewer socket that captures every
  *       sendText / sendBinary call and assert the frame shape + ordering.
  *
- * 3.3 — The WS teardown path (createWsHandlers().close) restores the original
- *       pane geometry when the LAST take-over viewer disconnects, and leaves a
- *       never-resized session's pane untouched. We use a tmux-like spy PtySource
- *       (implements restoreGeometry / restoreWindowSize / onGeometryChange) so
- *       the restore is observable without spawning real tmux.
+ * 3.3 — The WS teardown path (createWsHandlers().close) UNSETS the tmux
+ *       window-size option (so tmux re-fits) when the LAST take-over viewer
+ *       disconnects, and leaves a never-resized session's pane untouched
+ *       (nx-cjhfv — replaces the old restore-recorded-geometry behavior). We use
+ *       a tmux-like spy PtySource (implements unsetWindowSize / onGeometryChange)
+ *       so the release is observable without spawning real tmux.
  *
  * No tmux subprocess and no DB are involved — these are pure unit tests against
  * the terminal + websocket lifecycle layers.
@@ -27,7 +28,7 @@ import {
   type ServerState,
 } from "../server-websocket";
 import {
-  recordOriginalGeometry,
+  markTakeover,
   __resetTakeoverRegistry,
   hasTakeover,
 } from "./takeover-registry";
@@ -126,14 +127,13 @@ class ScrollbackGeomPty implements PtySource {
 }
 
 /**
- * tmux-like spy source: records restore calls so the auto-restore teardown can
- * be observed. Implements `onGeometryChange` so StreamManager treats it as a
- * geometry-capable (tmux) source, and `restoreGeometry` / `restoreWindowSize`
- * so server-websocket's `maybeRestoreTakeover` recognises it and invokes them.
+ * tmux-like spy source: records release calls so the teardown can be observed.
+ * Implements `onGeometryChange` so StreamManager treats it as a geometry-capable
+ * (tmux) source, and `unsetWindowSize` so server-websocket's
+ * `maybeRestoreTakeover` recognises it and invokes it (nx-cjhfv).
  */
 class TmuxSpyPty implements PtySource {
-  restoreGeometryCalls: Array<{ cols: number; rows: number }> = [];
-  restoreWindowSizeCalls = 0;
+  unsetWindowSizeCalls = 0;
   private geom: { cols: number; rows: number };
   constructor(geom: { cols: number; rows: number } = { cols: 80, rows: 24 }) {
     this.geom = { ...geom };
@@ -154,11 +154,8 @@ class TmuxSpyPty implements PtySource {
   onGeometryChange(): () => void {
     return () => {};
   }
-  restoreGeometry(cols: number, rows: number): void {
-    this.restoreGeometryCalls.push({ cols, rows });
-  }
-  restoreWindowSize(): void {
-    this.restoreWindowSizeCalls += 1;
+  unsetWindowSize(): void {
+    this.unsetWindowSizeCalls += 1;
   }
   close(): void {}
 }
@@ -214,75 +211,72 @@ describe("geometry control frame at viewer attach (task 3.1)", () => {
   });
 });
 
-// ── 3.3: take-over auto-restore on last-viewer disconnect ─────────────────────
+// ── 3.3: take-over release (unset window-size) on last-viewer disconnect ──────
 
-describe("take-over auto-restore on last viewer disconnect (task 3.3)", () => {
+describe("take-over release on last viewer disconnect (task 3.3 / nx-cjhfv)", () => {
   afterEach(() => {
     __resetTakeoverRegistry();
   });
 
-  test("last take-over viewer disconnect restores original pane geometry", () => {
+  test("last take-over viewer disconnect UNSETS window-size (tmux re-fits)", () => {
     const { state, streamManager } = makeStubState();
     try {
       const handlers = createWsHandlers(state);
-      const sid = "restore-1";
+      const sid = "release-1";
       const pty = new TmuxSpyPty({ cols: 90, rows: 28 });
       streamManager.attach(sid, pty);
 
       // Simulate a take-over: a viewer attaches, then POST /commands/resize
-      // records the ORIGINAL geometry and resizes the pane. We replicate that
-      // server-side state directly: record original 90x28, then resize to a
-      // bigger grid.
+      // marks take-over active and resizes the pane to a bigger grid.
       const { ws } = makeFakeViewer(sid);
       state.allSockets.add(ws);
       streamManager.addViewer(ws);
-      const created = recordOriginalGeometry(sid, 90, 28);
+      const created = markTakeover(sid);
       expect(created).toBe(true);
       pty.resize(220, 64);
       expect(hasTakeover(sid)).toBe(true);
 
-      // Last viewer disconnects → teardown must restore the recorded original.
+      // Last viewer disconnects → teardown must UNSET window-size (no restore to
+      // a recorded geometry — tmux re-fits to whatever client is attached).
       handlers.close(ws);
 
-      expect(pty.restoreGeometryCalls).toEqual([{ cols: 90, rows: 28 }]);
-      expect(pty.restoreWindowSizeCalls).toBe(1);
-      // Record cleared after restore so a subsequent take-over re-captures clean.
+      expect(pty.unsetWindowSizeCalls).toBe(1);
+      // Flag cleared after release so a subsequent take-over re-marks clean.
       expect(hasTakeover(sid)).toBe(false);
     } finally {
       streamManager.shutdown();
     }
   });
 
-  test("never-resized viewer disconnect does NOT resize the pane", () => {
+  test("never-resized viewer disconnect does NOT touch the pane", () => {
     const { state, streamManager } = makeStubState();
     try {
       const handlers = createWsHandlers(state);
-      const sid = "restore-2";
+      const sid = "release-2";
       const pty = new TmuxSpyPty({ cols: 80, rows: 24 });
       streamManager.attach(sid, pty);
 
       // A plain read-only (lock-mode) viewer: attaches, never triggers a resize,
-      // so NO take-over record exists.
+      // so NO take-over flag exists.
       const { ws } = makeFakeViewer(sid);
       state.allSockets.add(ws);
       streamManager.addViewer(ws);
       expect(hasTakeover(sid)).toBe(false);
 
-      // Last viewer disconnects → no take-over record → must NOT touch tmux.
+      // Last viewer disconnects → no take-over flag → must NOT touch tmux.
       handlers.close(ws);
 
-      expect(pty.restoreGeometryCalls.length).toBe(0);
-      expect(pty.restoreWindowSizeCalls).toBe(0);
+      expect(pty.unsetWindowSizeCalls).toBe(0);
     } finally {
       streamManager.shutdown();
     }
   });
 
-  test("non-last viewer disconnect does NOT restore (only the last triggers)", () => {
+  test("non-last viewer disconnect does NOT release (only the last triggers)", () => {
     const { state, streamManager } = makeStubState();
     try {
       const handlers = createWsHandlers(state);
-      const sid = "restore-3";
+      const sid = "release-3";
       const pty = new TmuxSpyPty({ cols: 100, rows: 30 });
       streamManager.attach(sid, pty);
 
@@ -292,17 +286,17 @@ describe("take-over auto-restore on last viewer disconnect (task 3.3)", () => {
       state.allSockets.add(b.ws);
       streamManager.addViewer(a.ws);
       streamManager.addViewer(b.ws);
-      recordOriginalGeometry(sid, 100, 30);
+      markTakeover(sid);
       pty.resize(200, 50);
 
-      // First viewer leaves — one viewer remains, so NO restore yet.
+      // First viewer leaves — one viewer remains, so NO release yet.
       handlers.close(a.ws);
-      expect(pty.restoreGeometryCalls.length).toBe(0);
+      expect(pty.unsetWindowSizeCalls).toBe(0);
       expect(hasTakeover(sid)).toBe(true);
 
-      // Last viewer leaves — now restore fires.
+      // Last viewer leaves — now release fires.
       handlers.close(b.ws);
-      expect(pty.restoreGeometryCalls).toEqual([{ cols: 100, rows: 30 }]);
+      expect(pty.unsetWindowSizeCalls).toBe(1);
       expect(hasTakeover(sid)).toBe(false);
     } finally {
       streamManager.shutdown();

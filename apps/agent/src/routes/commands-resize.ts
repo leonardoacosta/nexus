@@ -27,7 +27,7 @@
 import { createLogger } from "@nexus/core/node";
 import type { SessionManager } from "../session-manager";
 import type { StreamManager } from "../terminal/stream-manager";
-import { recordOriginalGeometry } from "../terminal/takeover-registry";
+import { markTakeover } from "../terminal/takeover-registry";
 
 // Bounds match the interactive-resize validation in server-websocket.ts so the
 // two resize paths agree on what a valid grid is.
@@ -127,17 +127,16 @@ export async function handleResize(request: Request): Promise<Response> {
     return jsonError(409, `no active PTY for session: ${sessionId}`);
   }
 
-  // Record original geometry on the FIRST resize for this session (idempotent —
-  // subsequent resizes do not overwrite the captured original). We read the
-  // pre-resize geometry from the source so restore reverts to the real value.
-  const current = pty.geometry();
-  const firstResize = recordOriginalGeometry(sessionId, current.cols, current.rows);
+  // Mark take-over active on the FIRST resize for this session (idempotent).
+  // The flag drives the WS teardown path: on last-viewer disconnect it unsets
+  // the tmux window-size option so tmux re-fits to the attached client.
+  const firstResize = markTakeover(sessionId);
 
   // Apply the take-over resize.
   pty.resize(cols, rows);
 
   log.info(
-    { sessionId, cols, rows, firstResize, originalCols: current.cols, originalRows: current.rows },
+    { sessionId, cols, rows, firstResize },
     "take-over resize applied",
   );
 

@@ -22,7 +22,7 @@ import type { SessionManager } from "../session-manager";
 import type { StreamManager } from "../terminal/stream-manager";
 import type { PtySource } from "../terminal/pty-source";
 import {
-  getTakeoverRecord,
+  hasTakeover,
   __resetTakeoverRegistry,
 } from "../terminal/takeover-registry";
 import {
@@ -110,15 +110,12 @@ describe("POST /commands/resize", () => {
     // The pane was resized to the viewer's grid.
     expect(pty.resizeCalls).toEqual([{ cols: 200, rows: 60 }]);
 
-    // The ORIGINAL geometry (pre-resize, from pty.geometry()) was recorded so
-    // auto-restore can revert it later — NOT the requested 200x60.
-    const record = getTakeoverRecord(sid);
-    expect(record).toBeDefined();
-    expect(record!.originalCols).toBe(120);
-    expect(record!.originalRows).toBe(40);
+    // Take-over was marked so the WS teardown path unsets window-size on last
+    // viewer disconnect (no recorded geometry — tmux re-fits, nx-cjhfv).
+    expect(hasTakeover(sid)).toBe(true);
   });
 
-  test("original geometry record is idempotent across repeated resizes", async () => {
+  test("take-over flag is idempotent across repeated resizes", async () => {
     const sid = "cc-managed-2";
     const pty = new SpyPty({ cols: 100, rows: 30 });
     initResizeRoute(
@@ -134,10 +131,8 @@ describe("POST /commands/resize", () => {
       { cols: 150, rows: 50 },
       { cols: 180, rows: 55 },
     ]);
-    // ...but the original geometry is still the FIRST-captured value.
-    const record = getTakeoverRecord(sid);
-    expect(record!.originalCols).toBe(100);
-    expect(record!.originalRows).toBe(30);
+    // ...and the take-over flag remains set (idempotent).
+    expect(hasTakeover(sid)).toBe(true);
   });
 
   test("non-managed (ad_hoc) session is rejected with 409 and does NOT resize", async () => {
@@ -156,9 +151,9 @@ describe("POST /commands/resize", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("managed");
 
-    // Critical: no resize, no take-over record for a non-managed session.
+    // Critical: no resize, no take-over flag for a non-managed session.
     expect(pty.resizeCalls.length).toBe(0);
-    expect(getTakeoverRecord(sid)).toBeUndefined();
+    expect(hasTakeover(sid)).toBe(false);
   });
 
   test("invalid dims (cols=0) rejected with 400 before any gating", async () => {
@@ -177,7 +172,7 @@ describe("POST /commands/resize", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("range");
     expect(pty.resizeCalls.length).toBe(0);
-    expect(getTakeoverRecord(sid)).toBeUndefined();
+    expect(hasTakeover(sid)).toBe(false);
   });
 
   test("invalid dims (rows above max) rejected with 400", async () => {

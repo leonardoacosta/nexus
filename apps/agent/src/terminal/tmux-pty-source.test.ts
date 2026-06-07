@@ -179,26 +179,16 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     expect(rec.tmuxCalls("send-keys").length).toBe(0);
   });
 
-  // ── 1.4: resize path (window-size manual gate + restore) ──────────────────
+  // ── 1.4: resize path (window-size manual gate + unset release) ────────────
 
-  it("[1.4] first resize captures prior window-size, forces manual, resizes", () => {
+  it("[1.4] first resize forces manual and resizes (no prior-value read)", () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
     source.resize(100, 30);
 
-    // Prior window-size read once.
-    const show = rec.tmuxCalls("show-options");
-    expect(show.length).toBe(1);
-    expect(show[0]).toEqual([
-      "tmux",
-      "show-options",
-      "-w",
-      "-v",
-      "-t",
-      TARGET,
-      "window-size",
-    ]);
+    // No prior window-size read — release unsets rather than restoring a value.
+    expect(rec.tmuxCalls("show-options").length).toBe(0);
 
     // Forced manual.
     const setOpt = rec.tmuxCalls("set-option");
@@ -232,15 +222,14 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     source.close();
   });
 
-  it("[1.4] second resize does NOT re-capture window-size or re-force manual", () => {
+  it("[1.4] second resize does NOT re-force manual", () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
     source.resize(100, 30);
     source.resize(110, 35);
 
-    // show-options + set-option(manual) happen exactly once across two resizes.
-    expect(rec.tmuxCalls("show-options").length).toBe(1);
+    // set-option(manual) happens exactly once across two resizes.
     expect(rec.tmuxCalls("set-option").length).toBe(1);
     // But both resize-window calls fire.
     expect(rec.tmuxCalls("resize-window").length).toBe(2);
@@ -248,39 +237,39 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     source.close();
   });
 
-  it("[1.4] restoreWindowSize() reverts to the recorded prior value", () => {
+  it("[1.4] unsetWindowSize() UNSETS the option at session scope", () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
-    source.resize(100, 30); // captures prior = "latest" (mocked), sets manual
-    source.restoreWindowSize();
+    source.resize(100, 30); // forces manual
+    source.unsetWindowSize();
 
     const setOpt = rec.tmuxCalls("set-option");
-    // First set-option forced "manual"; second restores the recorded "latest".
+    // First set-option forced "manual"; second UNSETS via -u (no value).
+    // Unset uses session scope (no -w) — window-size is a session option and
+    // resize-window pins it there (verified live, nx-cjhfv).
     expect(setOpt.length).toBe(2);
     expect(setOpt[1]).toEqual([
       "tmux",
       "set-option",
-      "-w",
+      "-u",
       "-t",
       TARGET,
       "window-size",
-      "latest",
     ]);
     expect(source.isTakeOverActive()).toBe(false);
 
     source.close();
   });
 
-  it("[1.4] restoreWindowSize() on a never-resized source is a no-op", () => {
+  it("[1.4] unsetWindowSize() on a never-resized source is a no-op", () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
-    source.restoreWindowSize();
+    source.unsetWindowSize();
 
-    // No set-option / show-options / resize-window emitted.
+    // No set-option / resize-window emitted — never-resized leaves tmux alone.
     expect(rec.tmuxCalls("set-option").length).toBe(0);
-    expect(rec.tmuxCalls("show-options").length).toBe(0);
     expect(rec.tmuxCalls("resize-window").length).toBe(0);
 
     source.close();

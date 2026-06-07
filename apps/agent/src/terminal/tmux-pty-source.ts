@@ -24,8 +24,9 @@
  *
  * Resize (take-over mode): `resize(cols, rows)` runs `tmux resize-window` and
  * forces `window-size manual` for the take-over duration so the requested size
- * sticks, recording the prior `window-size` option value so auto-restore can
- * revert it on viewer detach.
+ * sticks. On last-viewer detach, `unsetWindowSize()` UNSETS the option (tmux
+ * `set-option -u`) so tmux re-fits the window to whatever client is attached,
+ * rather than restoring a recorded prior value/geometry (nx-cjhfv).
  *
  * Spec: nx-omso0 — fix(agent): lazy-attach tmux PtySource on
  *   /sessions/<id>/stream upgrade.
@@ -181,11 +182,11 @@ export class TmuxPtySource implements PtySource {
   /** Subscribers notified when the observed pane geometry changes. */
   private geometryListeners = new Set<(geom: { cols: number; rows: number }) => void>();
   /**
-   * Prior value of tmux's `window-size` option for this target, captured the
-   * first time `resize()` forces `manual`. `null` means take-over has not
-   * mutated the option (so auto-restore must NOT touch it).
+   * Whether `resize()` has forced `window-size manual` for this target. `false`
+   * means take-over has not mutated the option, so the release path must NOT
+   * touch it (a never-resized / read-only viewer disconnect leaves tmux alone).
    */
-  private priorWindowSize: string | null = null;
+  private takeOverActive = false;
 
   /**
    * Spawn adapter — defaults to the real Bun functions. Stored as the FIRST
@@ -530,11 +531,11 @@ export class TmuxPtySource implements PtySource {
 
   /**
    * Take-over resize: drive the tmux WINDOW to the viewer's grid so the viewer
-   * can use its full frame. `tmux resize-window` only sticks when the window's
+   * can use its full frame. `tmux resize-window` only sticks when the
    * `window-size` option is `manual` (the default is usually `latest`/`largest`,
    * which auto-fits the largest attached client). So on the FIRST resize we
-   * record the prior `window-size` value and force `manual`; auto-restore later
-   * reverts both the geometry and the option (see `restoreWindowSize`).
+   * force `manual`; on last-viewer detach the release path UNSETS the option
+   * (see `unsetWindowSize`) so tmux re-fits to whatever client is attached.
    *
    * NOTE: `resize-window` (window-level) is used, not `resize-pane` — a Claude
    * session is single-pane, so the pane follows the window, and resizing the
@@ -545,11 +546,10 @@ export class TmuxPtySource implements PtySource {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
       return;
     }
-    // Capture the prior window-size option ONCE, before we force manual, so
-    // auto-restore can revert it. priorWindowSize !== null means take-over is
-    // already active for this source.
-    if (this.priorWindowSize === null) {
-      this.priorWindowSize = this.readWindowSizeOption() ?? "latest";
+    // Force window-size=manual ONCE so resize-window sticks. takeOverActive
+    // marks that the release path must unset the option on last-viewer detach.
+    if (!this.takeOverActive) {
+      this.takeOverActive = true;
       this.setWindowSizeOption("manual");
     }
     try {
@@ -576,64 +576,39 @@ export class TmuxPtySource implements PtySource {
   }
 
   /**
-   * Auto-restore the `window-size` option to its pre-take-over value. Called by
-   * the teardown path when the last take-over viewer disconnects. No-op when
-   * take-over never mutated the option (`priorWindowSize === null`), so a
-   * never-resized session's disconnect leaves tmux untouched. After restoring,
-   * the record is cleared so a subsequent take-over re-captures cleanly.
+   * Release the take-over: UNSET the `window-size` option so tmux re-fits the
+   * window to whatever client is attached. Called by the teardown path when the
+   * last take-over viewer disconnects. No-op when take-over never forced the
+   * option (`takeOverActive === false`), so a never-resized / read-only viewer
+   * disconnect leaves tmux untouched (nx-cjhfv invariant).
    *
-   * The pane geometry itself reverts naturally once `window-size` is back to
-   * `latest`/`largest` (tmux re-fits to the real attached clients). When the
-   * prior option was already `manual`, callers should pass the original
-   * geometry via `restoreGeometry` so the manual size is reset explicitly.
+   * `window-size` is a SESSION-scope option: although `resize()` passes `-w`,
+   * tmux applies the pin at session scope (verified live — `show-options -t
+   * <session> -v window-size` shows `manual`). We unset at session scope (no
+   * `-w` flag, mirroring Leo's proven `tmux set-option -t 0 -u window-size`)
+   * so the pin can never survive release. Once unset the option inherits the
+   * global default (`latest`) and tmux re-fits to the attached client — no
+   * recorded geometry restore needed.
    */
-  restoreWindowSize(): void {
-    if (this.priorWindowSize === null) return;
-    this.setWindowSizeOption(this.priorWindowSize);
-    this.priorWindowSize = null;
-  }
-
-  /** True when a take-over resize is currently active (option forced manual). */
-  isTakeOverActive(): boolean {
-    return this.priorWindowSize !== null;
-  }
-
-  /**
-   * Explicitly resize the window back to a recorded geometry. Used by
-   * auto-restore for the case where the prior `window-size` was already
-   * `manual` (so reverting the option alone would not change the dims).
-   */
-  restoreGeometry(cols: number, rows: number): void {
-    if (this.closed) return;
-    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
-      return;
-    }
+  unsetWindowSize(): void {
+    if (!this.takeOverActive) return;
     try {
       this.spawn.spawnSync(
-        ["tmux", "resize-window", "-t", this.target, "-x", String(cols), "-y", String(rows)],
+        ["tmux", "set-option", "-u", "-t", this.target, "window-size"],
         { stdout: "ignore", stderr: "ignore" },
       );
     } catch {
       // best-effort
     }
+    this.takeOverActive = false;
   }
 
-  /** Read the current `window-size` window option (e.g. "latest"). */
-  private readWindowSizeOption(): string | null {
-    try {
-      const proc = this.spawn.spawnSync(
-        ["tmux", "show-options", "-w", "-v", "-t", this.target, "window-size"],
-        { stdout: "pipe", stderr: "ignore" },
-      );
-      if (proc.exitCode !== 0) return null;
-      const v = proc.stdout.toString().trim();
-      return v.length > 0 ? v : null;
-    } catch {
-      return null;
-    }
+  /** True when a take-over resize is currently active (option forced manual). */
+  isTakeOverActive(): boolean {
+    return this.takeOverActive;
   }
 
-  /** Set the `window-size` window option for this target. Best-effort. */
+  /** Set the `window-size` option for this target. Best-effort. */
   private setWindowSizeOption(value: string): void {
     try {
       this.spawn.spawnSync(

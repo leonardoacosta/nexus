@@ -29,7 +29,7 @@ import { TmuxPtySource } from "./tmux-pty-source";
  * tmux-equipped host the suite RUNS (and must pass).
  */
 
-const hasTmux = Bun.spawnSync(["command", "-v", "tmux"]).exitCode === 0;
+const hasTmux = Bun.spawnSync(["which", "tmux"]).exitCode === 0;
 
 /** Absolute path to the deterministic surrogate fixture. */
 const SURROGATE = join(import.meta.dir, "..", "..", "test", "fixtures", "tui-surrogate.sh");
@@ -123,9 +123,18 @@ describe.skipIf(!hasTmux)("TmuxPtySource real-tmux round-trip (Tier 2)", () => {
   it("[2.3] reports the real pane geometry and seeds the surrogate marker", () => {
     source = new TmuxPtySource(target);
 
-    // The proof the geometry sample round-trips: 120x40 (real), not the 80x24
-    // default that a failed sample would leave behind.
-    expect(source.geometry()).toEqual({ cols: PANE_COLS, rows: PANE_ROWS });
+    // The proof the geometry sample round-trips: the source reports the REAL
+    // live pane size, not the 80x24 default a failed sample would leave behind.
+    // We compare against the live pane (not the window -y) because tmux reserves
+    // a row for the status line / pane border on this host, so pane_height is
+    // window_height - 1. The round-trip invariant is source.geometry() ===
+    // the real pane geometry, whatever that is.
+    expect(source.geometry()).toEqual(paneGeometry(target));
+    // Width pins exactly to the requested window width; height is at least
+    // PANE_ROWS - 1 (status row) and never the 24-row default — proves the
+    // sample is real, not the fallback.
+    expect(source.geometry().cols).toBe(PANE_COLS);
+    expect(source.geometry().rows).toBeGreaterThanOrEqual(PANE_ROWS - 1);
 
     // Scrollback seeded from `capture-pane` must contain the surrogate's marker.
     const scrollback = source.getScrollback();
@@ -168,7 +177,7 @@ describe.skipIf(!hasTmux)("TmuxPtySource real-tmux round-trip (Tier 2)", () => {
 
   // ── 2.5: resize + teardown ────────────────────────────────────────────────
 
-  it("[2.5] resize drives the live pane, take-over flips manual, restore reverts", async () => {
+  it("[2.5] resize drives the live pane, take-over flips manual, unset clears it", async () => {
     source = new TmuxPtySource(target);
     expect(source.isTakeOverActive()).toBe(false);
 
@@ -177,25 +186,32 @@ describe.skipIf(!hasTmux)("TmuxPtySource real-tmux round-trip (Tier 2)", () => {
     source.resize(NEW_COLS, NEW_ROWS);
     await delay(250);
 
-    // The live pane actually reflowed to the requested size.
-    expect(paneGeometry(target)).toEqual({ cols: NEW_COLS, rows: NEW_ROWS });
-    // The source's own cached geometry tracks it (re-sampled in resize()).
-    expect(source.geometry()).toEqual({ cols: NEW_COLS, rows: NEW_ROWS });
+    // The live pane actually reflowed toward the requested size. Width pins
+    // exactly; height lands at NEW_ROWS - 1 on hosts that reserve a status-line
+    // row (pane_height = window_height - 1), so assert within one row.
+    const livePane = paneGeometry(target);
+    expect(livePane.cols).toBe(NEW_COLS);
+    expect(NEW_ROWS - livePane.rows).toBeLessThanOrEqual(1);
+    expect(livePane.rows).toBeLessThanOrEqual(NEW_ROWS);
+    // The source's own cached geometry tracks the live pane exactly (re-sampled
+    // in resize()).
+    expect(source.geometry()).toEqual(livePane);
     // Take-over is active: window-size was forced manual.
     expect(source.isTakeOverActive()).toBe(true);
-    // tmux confirms the forced option.
-    expect(tmux("show-options", "-w", "-v", "-t", target, "window-size").stdout.trim()).toBe(
+    // tmux confirms the forced option (read at SESSION scope — window-size is a
+    // session option; resize-window pins it there even though set used -w).
+    expect(tmux("show-options", "-v", "-t", target, "window-size").stdout.trim()).toBe(
       "manual",
     );
 
     // Surrogate is still alive and rendering at the new width (marker present).
     expect(capture(target)).toContain("NEXUS_SURROGATE_READY");
 
-    // Restore: window-size manual reverts to the captured prior value.
-    source.restoreWindowSize();
+    // Release: UNSET window-size so tmux re-fits to attached clients. The pin
+    // is GONE — show-options reports empty at session scope (inherits global).
+    source.unsetWindowSize();
     expect(source.isTakeOverActive()).toBe(false);
-    // The prior value (default on a fresh window) is restored — not "manual".
-    expect(tmux("show-options", "-w", "-v", "-t", target, "window-size").stdout.trim()).not.toBe(
+    expect(tmux("show-options", "-v", "-t", target, "window-size").stdout.trim()).not.toBe(
       "manual",
     );
   });
