@@ -42,5 +42,9 @@
     </dict>
     <key>NEXUS_ENDPOINT</key>
     <string>http://homelab:7400</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Nexus reads your heart-rate and HRV samples to mirror them to your own private homelab health store over your tailnet. Data never leaves hardware you own.</string>
+    <key>HEALTH_INGEST_ENDPOINT</key>
+    <string>http://homelab:8796/ingest</string>
 </dict>
 </plist>

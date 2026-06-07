@@ -28,6 +28,12 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                 }
             }
         }
+        // Apple HealthKit biometric push (mx src-health producer): request read
+        // auth + register background observers that POST samples to the homelab
+        // mx-health ingest. Distinct from the system-metrics "health" surface.
+        if #available(iOS 15.0, *) {
+            Task { await HealthKitPushManager.shared.bootstrap() }
+        }
         return true
     }
 

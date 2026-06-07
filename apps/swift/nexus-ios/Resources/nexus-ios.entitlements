@@ -10,5 +10,15 @@
          for App Store builds. -->
     <key>aps-environment</key>
     <string>development</string>
+    <!-- HealthKit biometric push (nx-fkmao / mx-4d0). REQUIRES the HealthKit
+         capability to be ADDED to the dev provisioning profile on the Apple
+         Developer portal before a device build will sign — the existing
+         nexus_ios_development profile carries PUSH_NOTIFICATIONS only. Add
+         "HealthKit" (+ Background Delivery) to the App ID, regenerate the
+         profile, then a signed device build picks these up. -->
+    <key>com.apple.developer.healthkit</key>
+    <true/>
+    <key>com.apple.developer.healthkit.background-delivery</key>
+    <true/>
 </dict>
 </plist>
