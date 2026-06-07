@@ -6,7 +6,7 @@ import type { Db } from "@nexus/db";
 import { projectVoiceOverrides } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import type { NotificationRow } from "./buffer";
-import { isUnspeakable } from "./speakability";
+import { isUnspeakable, stripBeadIds } from "./speakability";
 import { writeAudio } from "./audio-store";
 
 /**
@@ -98,6 +98,11 @@ async function synthesizeViaElevenLabs(
   apiKey: string,
 ): Promise<Uint8Array> {
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`;
+  // Sanitize bead-ID tokens out of the SPOKEN text only. The persisted row, the
+  // desktop/banner body, and the Mac history all keep `notification.body`
+  // untouched — this strip lives at the synthesis seam so IDs (e.g. `nx-2g2j4`)
+  // are never read aloud as gibberish while remaining visible everywhere else.
+  const spokenText = stripBeadIds(notification.body);
   const res = await fetchWithTimeout(url, {
     method: "POST",
     timeout: 8_000,
@@ -107,7 +112,7 @@ async function synthesizeViaElevenLabs(
       accept: "audio/mpeg",
     },
     body: JSON.stringify({
-      text: notification.body,
+      text: spokenText,
       model_id: "eleven_turbo_v2",
     }),
   });
