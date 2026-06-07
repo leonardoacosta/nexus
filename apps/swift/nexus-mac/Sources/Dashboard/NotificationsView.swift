@@ -20,7 +20,7 @@ import NexusShared
 enum NotificationSortMode: String, CaseIterable, Identifiable {
     case time    // newest -> oldest
     case project // alphabetical, nil-project last
-    case session // alphabetical by channel as a session proxy
+    case session // alphabetical by session name (nx-20caf), channel fallback
 
     var id: String { rawValue }
 
@@ -115,10 +115,12 @@ struct NotificationsView: View {
             }
         case .session:
             return events.sorted { lhs, rhs in
-                // Channel acts as a session proxy until a real session id
-                // ships on the wire (NotificationEvent has no sessionId).
-                let ls = lhs.channel ?? ""
-                let rs = rhs.channel ?? ""
+                // nx-20caf: prefer the real custom session name now that it
+                // ships on the wire (NotificationEvent.sessionName). Fall back
+                // to the channel proxy when the session name is absent — the
+                // pre-nx-20caf behaviour for agents that don't emit it.
+                let ls = lhs.sessionName?.isEmpty == false ? lhs.sessionName! : (lhs.channel ?? "")
+                let rs = rhs.sessionName?.isEmpty == false ? rhs.sessionName! : (rhs.channel ?? "")
                 if ls.isEmpty && rs.isEmpty {
                     return lhs.receivedAt > rhs.receivedAt
                 }
@@ -140,7 +142,11 @@ struct NotificationsView: View {
             switch mode {
             case .time: return ""
             case .project: return ev.project?.isEmpty == false ? ev.project! : "Misc"
-            case .session: return ev.channel?.isEmpty == false ? ev.channel! : "Misc"
+            // nx-20caf: group by the real custom session name when present,
+            // falling back to the channel proxy, then "Misc".
+            case .session:
+                if ev.sessionName?.isEmpty == false { return ev.sessionName! }
+                return ev.channel?.isEmpty == false ? ev.channel! : "Misc"
             }
         }
         var buckets: [String: [NotificationEvent]] = [:]
@@ -366,6 +372,14 @@ private struct NotificationHistoryRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                 HStack(spacing: 6) {
+                    // nx-20caf: custom session name chip when the agent emits
+                    // it. Same compact monospaced treatment as the channel /
+                    // project chips; hidden entirely when absent.
+                    if let sessionName = event.sessionName, !sessionName.isEmpty {
+                        Text(sessionName)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
                     if let channel = event.channel {
                         Text(channel)
                             .font(.caption2.monospaced())

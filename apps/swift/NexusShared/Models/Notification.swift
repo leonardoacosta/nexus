@@ -76,6 +76,14 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
     /// the row predates the column.
     public var voiceUsed: String?
 
+    /// Custom session name (CC `/rename` title, persisted as `customTitle`
+    /// in the transcript jsonl) threaded through the notification pipeline
+    /// (nx-20caf). Optional in the wire contract — older agents omit the
+    /// key and the field decodes as `nil`. When present, the banner names
+    /// the session (subtitle) and the Session sort/group keys on it instead
+    /// of the channel proxy.
+    public var sessionName: String?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case body
@@ -103,6 +111,9 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         // for back-compat with pre-overhaul agents.
         case audioAvailable
         case voiceUsed
+        // nx-20caf: optional custom session name (camelCase, mirrors
+        // logPath/audioBase64 spelling). Absent on older agents.
+        case sessionName
     }
 
     public init(
@@ -118,7 +129,8 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         items: [String]? = nil,
         logPath: String? = nil,
         audioAvailable: Bool? = nil,
-        voiceUsed: String? = nil
+        voiceUsed: String? = nil,
+        sessionName: String? = nil
     ) {
         self.id = id
         self.body = body
@@ -133,6 +145,7 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         self.logPath = logPath
         self.audioAvailable = audioAvailable
         self.voiceUsed = voiceUsed
+        self.sessionName = sessionName
     }
 
     public init(from decoder: Decoder) throws {
@@ -191,6 +204,10 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         // as nil — back-compat with pre-overhaul agents.
         self.audioAvailable = try c.decodeIfPresent(Bool.self, forKey: .audioAvailable)
         self.voiceUsed = try c.decodeIfPresent(String.self, forKey: .voiceUsed)
+
+        // nx-20caf: optional custom session name. Absent keys decode as nil
+        // — back-compat with agents that predate the customTitle wire-up.
+        self.sessionName = try c.decodeIfPresent(String.self, forKey: .sessionName)
     }
 
     /// Custom encoder — written to `created_at` (the canonical REST shape)
@@ -218,6 +235,8 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         // notifications-overhaul (task 3.1): round-trip on the same key.
         try c.encodeIfPresent(audioAvailable, forKey: .audioAvailable)
         try c.encodeIfPresent(voiceUsed, forKey: .voiceUsed)
+        // nx-20caf: round-trip on the canonical camelCase key.
+        try c.encodeIfPresent(sessionName, forKey: .sessionName)
     }
 
     private static func decodeDate(

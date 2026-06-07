@@ -178,6 +178,12 @@ public final class SessionObserver: ObservableObject {
         #if os(iOS)
         let content = UNMutableNotificationContent()
         content.title = ev.title ?? "Nexus"
+        // nx-20caf: surface the custom session name as the banner subtitle
+        // when present (UNNotification supports subtitle on iOS too). Mirrors
+        // TTSObserver.postBanner; nil/empty -> no subtitle, no change.
+        if let sessionName = ev.sessionName, !sessionName.isEmpty {
+            content.subtitle = sessionName
+        }
         content.body = TTSObserver.renderBody(for: ev)
         content.sound = .default
         content.badge = NSNumber(value: notifications.count)

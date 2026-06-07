@@ -146,6 +146,12 @@ targets:
         # the Dock entry; both coexist with .regular policy.
         LSUIElement: false
         ATSApplicationFontsPath: Fonts
+        # nx-20caf: capitalised display name so System Settings ->
+        # Notifications (and the Dock/Cmd-Tab label) read "Nexus" rather than
+        # the lowercase PRODUCT_NAME ("nexus"). CFBundleDisplayName is purely
+        # cosmetic and independent of PRODUCT_NAME / CFBundleName, so the
+        # built binary stays `nexus` and bundle identifiers are unchanged.
+        CFBundleDisplayName: Nexus
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         NSHumanReadableCopyright: "Nexus menu bar client."

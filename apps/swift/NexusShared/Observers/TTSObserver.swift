@@ -523,6 +523,14 @@ public final class TTSObserver: ObservableObject {
     private func postBanner(for event: NotificationEvent) async {
         let content = UNMutableNotificationContent()
         content.title = event.title ?? "Nexus"
+        // nx-20caf: when the custom session name is present, surface it as
+        // the banner subtitle (UNNotification supports a dedicated subtitle
+        // line on macOS) so the banner reads title / session name / body —
+        // without polluting the body text. Nil/empty -> no subtitle (no
+        // change for older agents that omit the field).
+        if let sessionName = event.sessionName, !sessionName.isEmpty {
+            content.subtitle = sessionName
+        }
         content.body = TTSObserver.renderBody(for: event)
         content.sound = .default
         // adopt-reaper-into-nx-cron task 3.3: stash the optional log path
