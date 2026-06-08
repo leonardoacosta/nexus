@@ -525,8 +525,11 @@ private struct BrandGlyph: View {
         case "gmail":            return "brand-gmail"
         case "sessions":         return "brand-claude"
         case "health":           return "brand-apple-health"
-        // No svgl logo — fall through to the monogram fallback:
-        // ado, snow, imessage, plaid.
+        case "ado":              return "brand-azure"
+        case "imessage":         return "brand-imessage"
+        case "snow":             return "brand-servicenow"
+        case "plaid":            return "brand-plaid"
+        // Any unmapped source falls through to the monogram fallback.
         default:                 return nil
         }
     }
