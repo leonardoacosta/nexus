@@ -155,6 +155,7 @@
 		DD5649BB1E98A992271F43AC /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DD5ADFE245F2EACAF32FABB3 /* SettingsNotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5274BF2DD45938CFBD12A3F1 /* SettingsNotificationsView.swift */; };
 		DD86EE57636DE2561FD89FE0 /* SpecSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */; };
+		DD91BA0DFC34799B18B86CEC /* BrandLogos.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8544CDA0360AED735450032E /* BrandLogos.xcassets */; };
 		DDA7BCBA04790129C650C84B /* SpecDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3AF8C2C6E2BB9ADB4D3FB4 /* SpecDetailView.swift */; };
 		DF922F4E4A0C773843B6AFA0 /* SendTextDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B696D33BC6C44412228D7C /* SendTextDispatcher.swift */; };
 		E0F4F0B3E6A812E4ADC698E4 /* ReaperNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E85554EEEE538FB89007B4 /* ReaperNotificationTests.swift */; };
@@ -384,6 +385,7 @@
 		80841AF19A238A5B1EB7C1D9 /* TTSObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSObserver.swift; sourceTree = "<group>"; };
 		82E8C108E1340EBB0A56B793 /* AggregateState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateState.swift; sourceTree = "<group>"; };
 		846BA0A95ABC022E926B7E51 /* AttachScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachScene.swift; sourceTree = "<group>"; };
+		8544CDA0360AED735450032E /* BrandLogos.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = BrandLogos.xcassets; sourceTree = "<group>"; };
 		85C8B46EABE340ECDF07493C /* Notification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notification.swift; sourceTree = "<group>"; };
 		85F7BD05CCA314D0CB836B8B /* AgentsConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsConfigStoreTests.swift; sourceTree = "<group>"; };
 		8831F4035517F727316B9E5A /* SessionDetailScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailScene.swift; sourceTree = "<group>"; };
@@ -551,6 +553,7 @@
 				632E1E5D8441BA5C9AD28F15 /* Dashboard */,
 				B0384CA9ED243F4F09451466 /* AppNavigation.swift */,
 				1387D70399F82E187F0A74D6 /* AudioPlayer.swift */,
+				8544CDA0360AED735450032E /* BrandLogos.xcassets */,
 				B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */,
 				40F32F03C3F1B40C9236EC65 /* NotificationActivationHandler.swift */,
 			);
@@ -1140,6 +1143,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B84A61BA3B3C80CE3693FEF6 /* Assets.xcassets in Resources */,
+				DD91BA0DFC34799B18B86CEC /* BrandLogos.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
