@@ -20,6 +20,9 @@ struct NexusIOSApp: App {
     @StateObject private var sourceIndex = SourceIndexObserver(
         client: NexusClient(endpoint: Self.defaultEndpoint())
     )
+    @StateObject private var triage = TriageObserver(
+        client: NexusClient(endpoint: Self.defaultEndpoint())
+    )
     @StateObject private var navigation = NavigationState()
 
     var body: some Scene {
@@ -27,6 +30,7 @@ struct NexusIOSApp: App {
             RootScene()
                 .environmentObject(observer)
                 .environmentObject(sourceIndex)
+                .environmentObject(triage)
                 .environmentObject(navigation)
                 .onAppear {
                     observer.startStreams()

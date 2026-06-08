@@ -11,9 +11,14 @@ import NexusShared
 struct RootScene: View {
     @EnvironmentObject private var observer: SessionObserver
     @EnvironmentObject private var sourceIndex: SourceIndexObserver
+    @EnvironmentObject private var triage: TriageObserver
     @EnvironmentObject private var navigation: NavigationState
 
     var body: some View {
+        // Tab order Leo approved: Sources, Comms, Calendar, Finance, Health,
+        // Sessions. Each archetype tab hosts its scene in a NavigationStack so
+        // row -> DetailScene pushes work. The existing SessionListScene /
+        // HealthSummaryScene remain in the repo (not primary tabs).
         TabView {
             NavigationStack {
                 SourcesScene(observer: sourceIndex)
@@ -24,19 +29,38 @@ struct RootScene: View {
             }
 
             NavigationStack {
-                SessionListScene()
-                    .navigationTitle("Sessions")
+                CommsScene(observer: triage)
             }
             .tabItem {
-                Label("Sessions", systemImage: "terminal")
+                Label("Comms", systemImage: "tray.full")
             }
 
             NavigationStack {
-                HealthSummaryScene()
-                    .navigationTitle("Health")
+                CalendarScene(observer: triage)
             }
             .tabItem {
-                Label("Health", systemImage: "waveform.path.ecg")
+                Label("Calendar", systemImage: "calendar")
+            }
+
+            NavigationStack {
+                FinanceScene(observer: triage)
+            }
+            .tabItem {
+                Label("Finance", systemImage: "creditcard")
+            }
+
+            NavigationStack {
+                HealthMetricsScene(observer: triage)
+            }
+            .tabItem {
+                Label("Health", systemImage: "heart")
+            }
+
+            NavigationStack {
+                SessionsArchetypeScene(observer: triage)
+            }
+            .tabItem {
+                Label("Sessions", systemImage: "terminal")
             }
         }
         .sheet(item: Binding(
