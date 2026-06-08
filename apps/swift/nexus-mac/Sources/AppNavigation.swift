@@ -17,6 +17,7 @@ import SwiftUI
 import NexusShared
 
 enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
+    case sources
     case sessions
     case specs
     case projects
@@ -32,6 +33,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
 
     var label: String {
         switch self {
+        case .sources:       return "Sources"
         case .sessions:      return "Sessions"
         case .specs:         return "Specs"
         case .projects:      return "Projects"
@@ -47,6 +49,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
+        case .sources:       return "square.stack.3d.up"
         case .sessions:      return "terminal"
         case .specs:         return "doc.text"
         case .projects:      return "folder"
@@ -150,6 +153,7 @@ struct AppNavigation: View {
     @ViewBuilder
     private var detailView: some View {
         switch selection {
+        case .sources:       SourceIndexView()
         case .sessions:      SessionsView(observer: observer)
         case .specs:         SpecsView(sessionObserver: observer)
         case .projects:      ProjectsView(sessionObserver: observer)

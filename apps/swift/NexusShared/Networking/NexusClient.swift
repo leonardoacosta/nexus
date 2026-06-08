@@ -603,6 +603,26 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /sources` — the mx aggregator's source-index payload: the registry
+    /// fan-out over mx/v1/source.proto (per-source health + counts + MINE +
+    /// capabilities) plus the cross-source MINE inbox preview.
+    ///
+    /// Spec: mx-bzzb [nx-ui] Shell / source index view (epic mx-rkir).
+    ///
+    /// ENDPOINT NOT YET SHIPPED (Wave-4): the Nexus agent's source-index
+    /// aggregator does not exist at time of writing, so this 404s today. The
+    /// view renders graceful empty / error states until it lands (clone of the
+    /// HealthView loading pattern); a 404 surfaces an empty `SourceIndex` so
+    /// older agents don't hard-fail the dashboard, mirroring `fetchIntegrations`.
+    public func fetchSourceIndex() async throws -> SourceIndex {
+        let url = endpoint.baseURL.appendingPathComponent("sources")
+        do {
+            return try await getJSON(url: url)
+        } catch NexusClientError.badStatus(404) {
+            return SourceIndex(sources: [], inbox: [])
+        }
+    }
+
     /// `GET /notifications` — historical notification rows persisted by the
     /// agent (severity + delivery_state shipped in agent-payload-completeness).
     /// Returned newest-first by the agent; callers prepend on mount so the

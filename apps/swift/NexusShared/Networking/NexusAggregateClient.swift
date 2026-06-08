@@ -494,6 +494,39 @@ public actor NexusAggregateClient {
         return Array(merged.values)
     }
 
+    /// Source index merged across agents. Sources are deduped by `id`
+    /// (registry slug), preferring the response from a SERVING agent so one
+    /// agent reporting a source DOWN doesn't shadow a healthy peer's row.
+    /// Inbox preview rows are deduped by `id` and sorted newest-first.
+    ///
+    /// Spec: mx-bzzb [nx-ui] Shell / source index view (epic mx-rkir).
+    public func fetchSourceIndex() async -> SourceIndex {
+        let (perAgent, _) = await fanOut("fetchSourceIndex") { client in
+            try await client.fetchSourceIndex()
+        }
+        var mergedSources: [String: SourceStatus] = [:]
+        for payload in perAgent {
+            for source in payload.sources {
+                // Prefer a SERVING row over a DOWN/unknown one when the same
+                // source slug appears from multiple agents.
+                if let existing = mergedSources[source.id],
+                   existing.health == .serving,
+                   source.health != .serving {
+                    continue
+                }
+                mergedSources[source.id] = source
+            }
+        }
+        var mergedInbox: [String: BallInCourtItem] = [:]
+        for payload in perAgent {
+            for item in payload.inbox { mergedInbox[item.id] = item }
+        }
+        let inbox = mergedInbox.values.sorted {
+            ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
+        }
+        return SourceIndex(sources: Array(mergedSources.values), inbox: inbox)
+    }
+
     /// Best-effort settings patch — applied to every agent (the primary
     /// owns notification policy, but mirroring to all is harmless and keeps
     /// peers consistent). Fire-and-forget.
