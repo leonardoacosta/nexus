@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Nexus GUI-session iOS deploy agent (nx-tceo6 iOS Aqua bridge).
+
+      A signed iOS DEVICE build over a plain SSH session lands in a NON-Aqua
+      security session (managername=Background) where the team signing identity
+      (8E12…/DX3Y367L2A) fails with errSecInternalComponent. This agent runs the
+      SIGNED iOS build + `devicectl device install` inside the user's GUI (Aqua)
+      session, where the already-unlocked login keychain signs cleanly.
+
+      The headless caller reaches it WITHOUT root (uid 501 == console user) via:
+          launchctl bootstrap gui/501 <this plist>
+          launchctl setenv NX_IOS_DEVICE_UDID <UDID>
+          launchctl kickstart -k gui/501/dev.leonardoacosta.nexus.ios-deploy
+      then polls the completion marker the wrapper writes.
+
+      RunAtLoad=false / no KeepAlive: kickstart-triggered, one shot per deploy.
+      Install/refresh via deploy/ios-deploy.sh --install (bootout then bootstrap).
+    -->
+    <key>Label</key>
+    <string>dev.leonardoacosta.nexus.ios-deploy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/leonardoacosta/dev/nx/deploy/lib/ios-deploy-agent.sh</string>
+    </array>
+
+    <!-- kickstart-triggered, not launch-at-load, not kept alive. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- A bare launchd job has a minimal PATH; point it at homebrew + the
+             Xcode CLT so xcodegen / xcodebuild / xcrun / devicectl resolve. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin</string>
+        <key>HOME</key>
+        <string>/Users/leonardoacosta</string>
+        <key>NX_REPO_DIR</key>
+        <string>/Users/leonardoacosta/dev/nx</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-ios-deploy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-ios-deploy.log</string>
+
+    <!-- Respawn guard in case a kickstart loops; harmless for one-shot use. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

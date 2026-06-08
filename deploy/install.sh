@@ -197,6 +197,41 @@ install_macos_deploy_agent() {
     echo "  log: ~/Library/Logs/nexus-deploy.log    marker: ~/Library/Application Support/Nexus/deploy-status.txt"
 }
 
+# ── iOS GUI-session device deploy agent (nx-tceo6 iOS Aqua bridge) ───
+# Sibling of install_macos_deploy_agent for iOS DEVICE installs. A signed iOS
+# build over plain SSH lands in a non-Aqua session where the team identity
+# fails (errSecInternalComponent); this agent runs the signed build +
+# `devicectl device install` in the Aqua session. The SSH-side
+# deploy/ios-deploy.sh kickstarts it (gui/501, no sudo) and polls the marker.
+install_ios_deploy_agent() {
+    local label="dev.leonardoacosta.nexus.ios-deploy"
+    local src="$SCRIPT_DIR/launchagents/$label.plist"
+    local dst="$HOME/Library/LaunchAgents/$label.plist"
+    local uid; uid="$(id -u)"
+
+    if [[ ! -f "$src" ]]; then
+        warn "iOS deploy LaunchAgent plist not found at $src — skipping iOS deploy agent install"
+        return 0
+    fi
+
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
+             "$HOME/Library/Application Support/Nexus"
+    install -m 644 "$src" "$dst"
+    chmod 755 "$SCRIPT_DIR/lib/ios-deploy-agent.sh" \
+              "$SCRIPT_DIR/lib/ios-device-deploy.sh" \
+              "$SCRIPT_DIR/ios-deploy.sh" 2>/dev/null || true
+
+    info "Loading GUI iOS deploy agent ($label) into gui/$uid"
+    launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+    if launchctl bootstrap "gui/$uid" "$dst" >/dev/null 2>&1; then
+        info "GUI iOS deploy agent loaded. deploy/ios-deploy.sh will kickstart it for signed device installs."
+    else
+        warn "launchctl bootstrap gui/$uid $dst failed — load manually inside the GUI session:"
+        echo "  launchctl bootout gui/$uid/$label 2>/dev/null; launchctl bootstrap gui/$uid \"$dst\""
+    fi
+    echo "  log: ~/Library/Logs/nexus-ios-deploy.log    marker: ~/Library/Application Support/Nexus/ios-deploy-status.txt"
+}
+
 install_linux() {
     local SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SYSTEMD_DIR"
@@ -245,6 +280,10 @@ install_macos() {
     # kickstarts this agent so the SIGNED build runs in the user's GUI session.
     # Install it idempotently: bootout (ignore-not-loaded) then bootstrap.
     install_macos_deploy_agent
+
+    # iOS device deploy Aqua bridge (nx-tceo6). Loads the GUI LaunchAgent so
+    # deploy/ios-deploy.sh can kickstart signed iOS device installs over SSH.
+    install_ios_deploy_agent
 
     echo ""
     info "macOS install complete."
