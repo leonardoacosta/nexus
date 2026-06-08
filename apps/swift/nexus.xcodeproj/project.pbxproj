@@ -35,6 +35,7 @@
 		2F4511F8432A2F20634CF42C /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		2FF6FA5BB943BF786EDAA66C /* NexusWatchAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE273DB369C38A05DB36ABEE /* NexusWatchAppDelegate.swift */; };
 		308B831B7BC40C8B46F9EFA8 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0384CA9ED243F4F09451466 /* AppNavigation.swift */; };
+		31A3324E5C24B4E15D7EAFCE /* TriageObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A751B48F5414144A65155543 /* TriageObserver.swift */; };
 		330834207334556FB46ADEC0 /* PtyViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 561095874ED05EE3F7DBEE0E /* PtyViewer.swift */; };
 		3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F8967872A72450315AC519 /* AutostartInstaller.swift */; };
 		395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */; };
@@ -53,6 +54,7 @@
 		47EB0ECEA7ECD56D782CB91F /* MP3Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198582267EBBB219B7D96556 /* MP3Player.swift */; };
 		49E6F51BAF32E7CB435154C6 /* SessionObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3923F629707730C5EE840D38 /* SessionObserver.swift */; };
 		49EA3D1F02E4BA847C026CB2 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910FFCDAA0AD2FCA24472FAC /* AggregateStateTests.swift */; };
+		4BEB608CB505F9F87F097D04 /* TriageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DCE17269484CDDB258A764 /* TriageItem.swift */; };
 		4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92DE47387ED686498A455137 /* FailuresView.swift */; };
 		5224ED8142D833BD558692C7 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1387D70399F82E187F0A74D6 /* AudioPlayer.swift */; };
 		53E975392F5F6625BCBB79CE /* SpeechController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */; };
@@ -99,6 +101,7 @@
 		927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */; };
 		99FFD3710F74FF6E815E2769 /* TTSNotificationFiredRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798B57E251FF27441C76EFCA /* TTSNotificationFiredRoundTripTests.swift */; };
 		9A10DA461A4198E285AF30AD /* SttCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */; };
+		9B40BD395261E3CEFEDE88B3 /* TriageItem+Sample.swift in Sources */ = {isa = PBXBuildFile; fileRef = B882EBF665D0522196F57B4F /* TriageItem+Sample.swift */; };
 		9D1D4C4A9622D111E7607C11 /* SSEEventParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031637B7BA75BA58C2D9E167 /* SSEEventParsingTests.swift */; };
 		9FE3932290A918E3C331297C /* SpecsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA2250911C4813370B4DC79 /* SpecsView.swift */; };
 		A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */; };
@@ -360,6 +363,7 @@
 		706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAccordionRow.swift; sourceTree = "<group>"; };
 		71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailuresViewTests.swift; sourceTree = "<group>"; };
 		72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SttCommandTests.swift; sourceTree = "<group>"; };
+		75DCE17269484CDDB258A764 /* TriageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageItem.swift; sourceTree = "<group>"; };
 		7641866D5AA2BF9E803F3337 /* SourcesScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesScene.swift; sourceTree = "<group>"; };
 		777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbe.swift; sourceTree = "<group>"; };
 		798B57E251FF27441C76EFCA /* TTSNotificationFiredRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSNotificationFiredRoundTripTests.swift; sourceTree = "<group>"; };
@@ -387,6 +391,7 @@
 		9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusUITests.swift; sourceTree = "<group>"; };
 		A04AFE6B178D2BA94B85748B /* Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Network.swift; sourceTree = "<group>"; };
 		A06DFD96E27531E259E3A5BF /* SettingsAgentsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAgentsViewTests.swift; sourceTree = "<group>"; };
+		A751B48F5414144A65155543 /* TriageObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageObserver.swift; sourceTree = "<group>"; };
 		AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NexusShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB2C93268B41859AEFAA71CA /* ScriptError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptError.swift; sourceTree = "<group>"; };
 		ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActivationHandlerTests.swift; sourceTree = "<group>"; };
@@ -397,6 +402,7 @@
 		B213F5631650836B0CE90CEB /* nexus-watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3D26019595C89D3AA34964F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B3E127C0C98FB3DCF20776D6 /* PayloadDecodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadDecodeTests.swift; sourceTree = "<group>"; };
+		B882EBF665D0522196F57B4F /* TriageItem+Sample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TriageItem+Sample.swift"; sourceTree = "<group>"; };
 		B9B696D33BC6C44412228D7C /* SendTextDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendTextDispatcher.swift; sourceTree = "<group>"; };
 		BAAA6C29B3B710A14FFD38CF /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		BC1E68D09477F24FF228D0BA /* AudioControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioControlTests.swift; sourceTree = "<group>"; };
@@ -719,6 +725,8 @@
 				03867DDBEA04CD56980E1A93 /* SourceStatus.swift */,
 				5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */,
 				061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */,
+				75DCE17269484CDDB258A764 /* TriageItem.swift */,
+				B882EBF665D0522196F57B4F /* TriageItem+Sample.swift */,
 				3282DDBA27541EC2851EDFC3 /* WavePlanStatus.swift */,
 			);
 			path = Models;
@@ -731,6 +739,7 @@
 				D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */,
 				3923F629707730C5EE840D38 /* SessionObserver.swift */,
 				63A464086226E8599A7BC301 /* SourceIndexObserver.swift */,
+				A751B48F5414144A65155543 /* TriageObserver.swift */,
 				80841AF19A238A5B1EB7C1D9 /* TTSObserver.swift */,
 			);
 			path = Observers;
@@ -1310,6 +1319,9 @@
 				53E975392F5F6625BCBB79CE /* SpeechController.swift in Sources */,
 				C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */,
 				D6D4A23D02F7A837A8339BB8 /* TTSObserver.swift in Sources */,
+				9B40BD395261E3CEFEDE88B3 /* TriageItem+Sample.swift in Sources */,
+				4BEB608CB505F9F87F097D04 /* TriageItem.swift in Sources */,
+				31A3324E5C24B4E15D7EAFCE /* TriageObserver.swift in Sources */,
 				F51F1E61D18B0E5602C0F71A /* WavePlanStatus.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

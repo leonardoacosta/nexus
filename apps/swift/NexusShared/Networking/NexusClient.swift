@@ -623,6 +623,38 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /triage` — the mx aggregator's unified cross-source item feed: the
+    /// `Core` spine + `TriagePayload` oneof of five family bodies (comms /
+    /// calendar / finance / health / sessions), one `TriageItem` per row.
+    ///
+    /// Spec: mx-rkir [nx-ui] — the six archetype pages all consume this feed.
+    ///
+    /// ENDPOINT NOT YET SHIPPED: the Nexus agent's triage aggregator does not
+    /// exist at time of writing, so this 404s today. A 404 surfaces an empty
+    /// array (mirroring `fetchSourceIndex` / `fetchIntegrations`) so older
+    /// agents don't hard-fail the dashboard; the views fall back to
+    /// `TriageItem.sampleData` via `TriageObserver` (with an `isSampleData`
+    /// caption). `source` / `kind` optionally filter the feed server-side.
+    public func fetchTriage(
+        source: String? = nil,
+        kind: String? = nil
+    ) async throws -> [TriageItem] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("triage"),
+            resolvingAgainstBaseURL: false
+        )!
+        var items: [URLQueryItem] = []
+        if let source, !source.isEmpty { items.append(URLQueryItem(name: "source", value: source)) }
+        if let kind, !kind.isEmpty { items.append(URLQueryItem(name: "kind", value: kind)) }
+        if !items.isEmpty { comps.queryItems = items }
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            return try await getJSON(url: url)
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
     /// `GET /notifications` — historical notification rows persisted by the
     /// agent (severity + delivery_state shipped in agent-payload-completeness).
     /// Returned newest-first by the agent; callers prepend on mount so the
