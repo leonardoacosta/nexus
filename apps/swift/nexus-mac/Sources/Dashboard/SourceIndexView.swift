@@ -8,9 +8,14 @@
 //     sources) + Sources section (own surfaces), each row carrying a health
 //     dot (SERVING/DEGRADED/NOT_SERVING) + reason + relative last-sync +
 //     item-count + MINE badge + capability cues (search affordance / LIVE).
-//   • middle pane — cross-source MINE inbox preview ("Ball in Court").
-//   • detail pane — "Select an item" empty state (READ-ONLY: the only action
-//     is "Open in source" via Core.url).
+//     Backed by SourceIndexObserver (`/sources`) — UNCHANGED.
+//   • middle pane — driven by the sidebar selection over the live `/triage`
+//     feed (TriageObserver): no selection shows MINE (ball_in_court == mine);
+//     a selected source shows that source's items. Rows are selectable
+//     (List(selection:)) and drive the detail pane.
+//   • detail pane — renders the selected TriageItem via TriageDetailView
+//     (Core spine + per-family body), or a "Select an item" empty state
+//     (READ-ONLY: the only action is "Open in source" via Core.url).
 //   • footer — CLI-style per-source status line.
 //
 // HIG-native + adaptive: uses SwiftUI semantic colors (.green/.orange/.red,
@@ -26,19 +31,31 @@ import NexusShared
 
 struct SourceIndexView: View {
     @StateObject private var observer: SourceIndexObserver
+    /// Live `/triage` feed driving the middle + detail panes (the sidebar still
+    /// reads `observer` / `/sources`). Bug-2 (middle list reacts to the sidebar
+    /// selection) + bug-3 (detail renders the selected item) are both resolved
+    /// against this feed.
+    @StateObject private var triage: TriageObserver
+    /// Sidebar selection (nil = MINE / Ball-in-court view). Bound to the sidebar
+    /// `List(selection:)` AND read by the middle pane — fixes bug 2.
     @State private var selectedSourceID: String?
+    /// Middle-list selection — bound to the middle `List(selection:)` and
+    /// resolved into a `TriageItem` for the detail pane — fixes bug 3.
+    @State private var selectedItemID: String?
 
-    /// Default-constructs its own observer (the live path). `View` body /
+    /// Default-constructs its own observers (the live path). `View` body /
     /// property init runs on the main actor, so the @MainActor-isolated
-    /// `SourceIndexObserver()` is reachable here. The `#Preview` injects a
-    /// mock-seeded observer via the explicit initializer.
+    /// observers are reachable here. The `#Preview` injects mock-seeded
+    /// observers via the explicit initializer.
     init() {
         _observer = StateObject(wrappedValue: SourceIndexObserver())
+        _triage = StateObject(wrappedValue: TriageObserver())
     }
 
-    /// Injection seam for previews / tests (mock-seeded observer).
-    init(observer: SourceIndexObserver) {
+    /// Injection seam for previews / tests (mock-seeded observers).
+    init(observer: SourceIndexObserver, triage: TriageObserver = TriageObserver()) {
         _observer = StateObject(wrappedValue: observer)
+        _triage = StateObject(wrappedValue: triage)
     }
 
     var body: some View {
@@ -46,19 +63,63 @@ struct SourceIndexView: View {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
         } content: {
-            inboxPane
-                .navigationSplitViewColumnWidth(min: 300, ideal: 330, max: 420)
+            contentPane
+                // No `max` cap: the middle list fills the available width so
+                // there is no dead gap between it and the detail pane (bug 1).
+                .navigationSplitViewColumnWidth(min: 320, ideal: 420)
         } detail: {
             detailPane
+                .navigationSplitViewColumnWidth(min: 360, ideal: 520)
         }
         .navigationTitle("Sources")
         .accessibilityIdentifier("source-index-view")
         .task {
             observer.startPolling()
+            triage.startPolling()
         }
+        // Clear the item selection whenever the source filter changes, so a
+        // stale detail from the previous source never lingers.
+        .onChange(of: selectedSourceID) { _, _ in selectedItemID = nil }
         .onDisappear {
             observer.stopPolling()
+            triage.stopPolling()
         }
+    }
+
+    // MARK: - Middle-pane data (driven by the sidebar selection)
+
+    /// The triage items shown in the middle list: MINE when no source is
+    /// selected, else that source's items. THIS is the binding that makes the
+    /// middle list react to the sidebar (bug 2).
+    private var contentItems: [TriageItem] {
+        if let sourceID = selectedSourceID {
+            return triage.items.filter { $0.source == sourceID }
+        }
+        return triage.mine
+    }
+
+    /// Header title for the middle pane — the selected source's display name,
+    /// or "Ball in Court" for the MINE view.
+    private var contentTitle: String {
+        guard let sourceID = selectedSourceID else { return "Ball in Court" }
+        return observer.index.sources.first { $0.id == sourceID }?.displayName ?? sourceID
+    }
+
+    private var contentSubtitle: String {
+        let n = contentItems.count
+        let noun = n == 1 ? "item" : "items"
+        if selectedSourceID == nil {
+            return "\(n) \(noun) where ball_in_court == MINE · all aggregated sources"
+        }
+        return "\(n) \(noun)"
+    }
+
+    /// Resolve the middle-list selection into a full TriageItem for the detail
+    /// pane (bug 3). Scoped to the currently-shown items so a selection can
+    /// never resolve to an item outside the visible list.
+    private var selectedItem: TriageItem? {
+        guard let id = selectedItemID else { return nil }
+        return contentItems.first { $0.id == id }
     }
 
     // MARK: - Sidebar
@@ -135,14 +196,14 @@ struct SourceIndexView: View {
         }
     }
 
-    // MARK: - Middle pane (cross-source MINE inbox preview)
+    // MARK: - Middle pane (selection-driven triage list)
 
-    private var inboxPane: some View {
+    private var contentPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Ball in Court")
+                Text(contentTitle)
                     .font(.title2.bold())
-                Text("\(observer.index.mineHeroCount) items where ball_in_court == MINE · all aggregated sources")
+                Text(contentSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -152,27 +213,34 @@ struct SourceIndexView: View {
 
             Divider()
 
-            if observer.index.inbox.isEmpty {
+            if contentItems.isEmpty {
                 ContentUnavailableView(
-                    "Nothing owed",
+                    selectedSourceID == nil ? "Nothing owed" : "No items",
                     systemImage: "tray",
-                    description: Text("No items are currently in your court across the aggregated sources.")
+                    description: Text(
+                        selectedSourceID == nil
+                            ? "No items are currently in your court across the aggregated sources."
+                            : "This source has no items in the current feed."
+                    )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    ForEach(observer.index.inbox) { item in
-                        InboxPreviewRow(item: item)
+                // `selection:` + per-row `.tag(item.id)` makes rows selectable
+                // and drives the detail pane (bug 3).
+                List(selection: $selectedItemID) {
+                    ForEach(contentItems) { item in
+                        TriageListRow(item: item)
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                            .tag(item.id)
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.inset)
             }
 
             Divider()
             statusFooter
         }
-        .accessibilityIdentifier("source-index-inbox")
+        .accessibilityIdentifier("source-index-content")
     }
 
     private var statusFooter: some View {
@@ -205,13 +273,17 @@ struct SourceIndexView: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        ContentUnavailableView {
-            Label("Select an item", systemImage: "rectangle.split.1x2")
-        } description: {
-            Text("Choose a triage item from the Ball in Court list to view its detail. The only action is \u{201C}Open in source\u{201D} via the read-only Core.url deep link.")
+        if let item = selectedItem {
+            TriageDetailView(item: item)
+        } else {
+            ContentUnavailableView {
+                Label("Select an item", systemImage: "rectangle.split.1x2")
+            } description: {
+                Text("Choose a triage item from the list to view its detail. The only action is \u{201C}Open in source\u{201D} via the read-only Core.url deep link.")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("source-index-detail-empty")
         }
-        .frame(minWidth: 320, minHeight: 240)
-        .accessibilityIdentifier("source-index-detail-empty")
     }
 
     private func footerColor(for health: SourceHealth) -> Color {
@@ -343,10 +415,10 @@ private struct SourceSidebarRow: View {
     }()
 }
 
-// MARK: - Inbox preview row
+// MARK: - Triage list row (middle pane, selectable)
 
-private struct InboxPreviewRow: View {
-    let item: BallInCourtItem
+private struct TriageListRow: View {
+    let item: TriageItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -355,17 +427,17 @@ private struct InboxPreviewRow: View {
                 .frame(width: 3, height: 34)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(item.author.isEmpty ? "—" : item.author)
+                    Text(item.author?.displayName ?? "—")
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                     Spacer(minLength: 6)
-                    if let ts = item.lastActivityAt {
+                    if let ts = item.lastActivityAt ?? item.createdAt {
                         Text(Self.relative.localizedString(for: ts, relativeTo: Date()))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(item.title)
+                Text(item.title.isEmpty ? "(untitled)" : item.title)
                     .font(.system(size: 13))
                     .lineLimit(2)
                 HStack(spacing: 6) {
@@ -374,15 +446,13 @@ private struct InboxPreviewRow: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
-                    if let kind = item.producesKind, !kind.isEmpty {
-                        Text(kind)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(item.kind.rawValue)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
-        .accessibilityIdentifier("inbox-row-\(item.id)")
+        .accessibilityIdentifier("triage-row-\(item.id)")
     }
 
     private var lineColor: Color {
@@ -451,12 +521,325 @@ private struct MineBadge: View {
     }
 }
 
+// MARK: - Universal triage detail (macOS-native; mirrors iOS DetailScene)
+//
+// macOS-native equivalent of nexus-ios/Sources/Scenes/DetailScene.swift. The
+// iOS chrome (BallChip / OutlinePill / PriorityChip / Avatar / KindGlyph /
+// TriageFormat) is internal to the nexus-ios target and not reachable from this
+// macOS target, so this view + its small local chrome mirror that logic rather
+// than importing it. READ-ONLY: the only action is the Core.url deep link.
+
+struct TriageDetailView: View {
+    let item: TriageItem
+
+    var body: some View {
+        List {
+            coreSection
+            payloadSection
+            if let url = item.url, let link = URL(string: url) {
+                Section {
+                    Link(destination: link) {
+                        Label("Open in \(item.source)", systemImage: "arrow.up.right.square")
+                    }
+                    .accessibilityIdentifier("detail-open-in-source")
+                }
+            }
+        }
+        .listStyle(.inset)
+        .navigationTitle(item.title.isEmpty ? "Detail" : item.title)
+        .accessibilityIdentifier("triage-detail-view")
+    }
+
+    // MARK: Core spine (always)
+
+    private var coreSection: some View {
+        Section("Core") {
+            HStack(spacing: 8) {
+                Image(systemName: DetailGlyph.symbol(for: item.kind))
+                    .foregroundStyle(.blue)
+                Text("\(item.source.uppercased()) · \(item.kind.rawValue)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Text(item.title.isEmpty ? "(untitled)" : item.title)
+                .font(.headline)
+
+            HStack {
+                Text("Ball in court").foregroundStyle(.secondary)
+                Spacer()
+                DetailBallChip(ball: item.ballInCourt)
+            }
+
+            if let author = item.author {
+                LabeledContent("Author") {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(author.displayName)
+                        if let h = author.handle {
+                            Text(h).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            if !item.participants.isEmpty {
+                LabeledContent("Participants",
+                               value: item.participants.map(\.displayName).joined(separator: ", "))
+                    .lineLimit(2)
+            }
+            if let created = item.createdAt {
+                LabeledContent("Created", value: Self.ago(created))
+            }
+            if let last = item.lastActivityAt {
+                LabeledContent("Last activity", value: Self.ago(last))
+            }
+            if !item.stillPresentUpstream {
+                Label(
+                    "May have been resolved upstream — last seen \(Self.ago(item.lastSeenAt))",
+                    systemImage: "clock.arrow.circlepath"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    // MARK: Payload body (varies by case)
+
+    @ViewBuilder
+    private var payloadSection: some View {
+        switch item.payload {
+        case .comms(let b):    commsBody(b)
+        case .calendar(let b): calendarBody(b)
+        case .finance(let b):  financeBody(b)
+        case .health(let b):   healthBody(b)
+        case .session(let b):  sessionBody(b)
+        case .unknown:         EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func commsBody(_ b: CommsBody) -> some View {
+        Section("Message") {
+            if let s = b.summary { Text(s) }
+            if let body = b.body, body != b.summary {
+                Text(body).font(.callout).foregroundStyle(.secondary)
+            }
+            HStack {
+                if b.priority != .normal && b.priority != .low {
+                    DetailPill(text: b.priority.label, tint: b.priority == .urgent ? .red : .orange, filled: true)
+                }
+                DetailPill(text: b.suggestedDisposition.label, tint: .blue)
+                if let up = b.upstreamState { DetailPill(text: up) }
+            }
+            if let ev = b.dispositionEvidence {
+                Label(ev, systemImage: "lightbulb")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func calendarBody(_ b: CalendarBody) -> some View {
+        Section("Event") {
+            if b.allDay {
+                LabeledContent("When", value: "All-day · \(b.startDate ?? "")")
+            } else {
+                LabeledContent("When", value: Self.timeRange(b.startTime, b.endTime))
+            }
+            if let loc = b.location { LabeledContent("Location", value: loc) }
+            if let rsvp = b.selfResponseStatus { LabeledContent("Your RSVP", value: rsvp) }
+            if let status = b.eventStatus, status.lowercased() == "cancelled" {
+                Label("Cancelled", systemImage: "xmark.circle").foregroundStyle(.red)
+            }
+            if !b.recurrenceRules.isEmpty {
+                Label("Recurring", systemImage: "repeat").font(.caption).foregroundStyle(.secondary)
+            }
+            if let url = b.conferenceUrl, let link = URL(string: url) {
+                Link(destination: link) { Label("Join", systemImage: "video") }
+            }
+        }
+        if !b.attendees.isEmpty {
+            Section("Attendees") {
+                ForEach(b.attendees) { a in
+                    HStack {
+                        Text(a.displayName ?? a.email)
+                        if a.isSelf { DetailPill(text: "you", tint: .blue) }
+                        if a.organizer { DetailPill(text: "organizer") }
+                        Spacer()
+                        Text(a.responseStatus ?? "—").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func financeBody(_ b: FinanceBody) -> some View {
+        Section("Transaction") {
+            LabeledContent("Amount") {
+                Text(Self.amount(b))
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(b.isInflow ? .green : .primary)
+            }
+            if let m = b.merchantName { LabeledContent("Merchant", value: m) }
+            if let c = b.categoryPrimary { LabeledContent("Category", value: c) }
+            if b.pending { DetailPill(text: "pending", tint: .orange) }
+            if let acct = b.accountName {
+                LabeledContent("Account", value: "\(acct) ••••\(b.accountMask ?? "")")
+            }
+            if let inst = b.institution { LabeledContent("Institution", value: inst) }
+        }
+    }
+
+    @ViewBuilder
+    private func healthBody(_ b: HealthBody) -> some View {
+        Section("Metric") {
+            LabeledContent("Value") {
+                Text("\(Self.trim(b.value)) \(b.unit)")
+                    .font(.body.monospacedDigit())
+            }
+            if let mn = b.min, let avg = b.avg, let mx = b.max {
+                LabeledContent("min / avg / max",
+                               value: "\(Self.trim(mn)) / \(Self.trim(avg)) / \(Self.trim(mx))")
+            }
+            if let dev = b.sourceDevice { LabeledContent("Device", value: dev) }
+            if let s = b.periodStart, let e = b.periodEnd {
+                LabeledContent("Window", value: "\(Self.ago(s)) … \(Self.ago(e))")
+            }
+            if let reason = b.anomalyReason {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sessionBody(_ b: SessionBody) -> some View {
+        Section("Session") {
+            LabeledContent("Status", value: b.status)
+            if let st = b.agentState { LabeledContent("Agent state", value: st) }
+            if let m = b.machine { LabeledContent("Machine", value: m) }
+            if let model = b.model { LabeledContent("Model", value: model) }
+            if let br = b.branch { LabeledContent("Branch", value: br) }
+            if let cost = b.totalCostUsd {
+                LabeledContent("Cost") {
+                    Text(String(format: "$%.2f", cost)).font(.body.monospacedDigit())
+                }
+            }
+            if let spec = b.spec { LabeledContent("Spec", value: spec) }
+        }
+    }
+
+    // MARK: Local formatting (mirrors TriageFormat / FinanceFormat)
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    static func ago(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return relative.localizedString(for: date, relativeTo: Date())
+    }
+
+    static func timeRange(_ start: Date?, _ end: Date?) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        switch (start, end) {
+        case let (s?, e?):  return "\(f.string(from: s))–\(f.string(from: e))"
+        case let (s?, nil): return f.string(from: s)
+        default:            return ""
+        }
+    }
+
+    static func amount(_ b: FinanceBody) -> String {
+        let mag = abs(b.amount)
+        let sign = b.isInflow ? "+" : "−"
+        return String(format: "%@$%.2f", sign, mag)
+    }
+
+    static func trim(_ v: Double) -> String {
+        if v == v.rounded() { return String(Int(v)) }
+        return String(format: "%.1f", v)
+    }
+}
+
+// MARK: - Detail chrome (macOS-local; mirrors iOS TriageShared)
+
+private enum DetailGlyph {
+    static func symbol(for kind: TriageKind) -> String {
+        switch kind {
+        case .email:         return "envelope"
+        case .chatMessage:   return "bubble.left.and.bubble.right"
+        case .ticket:        return "ticket"
+        case .workItem:      return "checklist"
+        case .codeReview:    return "arrow.triangle.pull"
+        case .calendarEvent: return "calendar"
+        case .financeTxn:    return "creditcard"
+        case .healthMetric:  return "heart"
+        case .codeSession:   return "terminal"
+        default:             return "circle"
+        }
+    }
+}
+
+private struct DetailBallChip: View {
+    let ball: BallInCourt
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color, in: Capsule())
+            .accessibilityLabel("ball in court \(label)")
+    }
+
+    private var label: String {
+        switch ball {
+        case .mine:    return "MINE"
+        case .theirs:  return "THEIRS"
+        case .unclear: return "UNCLEAR"
+        }
+    }
+
+    private var color: Color {
+        switch ball {
+        case .mine:    return .blue
+        case .theirs:  return .gray
+        case .unclear: return .orange
+        }
+    }
+}
+
+private struct DetailPill: View {
+    let text: String
+    var tint: Color = .secondary
+    var filled: Bool = false
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(filled ? Color.white : tint)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background {
+                if filled {
+                    RoundedRectangle(cornerRadius: 4).fill(tint)
+                } else {
+                    RoundedRectangle(cornerRadius: 4).stroke(tint.opacity(0.5), lineWidth: 1)
+                }
+            }
+    }
+}
+
 // MARK: - Preview (mock data — endpoint unshipped)
 
 #if DEBUG
 #Preview("Source Index (mock)") {
-    SourceIndexView(observer: .preview)
-        .frame(width: 920, height: 640)
+    SourceIndexView(observer: .preview, triage: .previewTriage)
+        .frame(width: 1040, height: 660)
 }
 
 extension SourceIndexObserver {
@@ -466,6 +849,15 @@ extension SourceIndexObserver {
     static var preview: SourceIndexObserver {
         let obs = SourceIndexObserver()
         obs.setIndexForPreview(.sampleData)
+        return obs
+    }
+}
+
+extension TriageObserver {
+    /// Sample triage feed for the middle + detail panes in `#Preview`.
+    static var previewTriage: TriageObserver {
+        let obs = TriageObserver()
+        obs.setItemsForPreview(TriageItem.sampleData, isSample: true)
         return obs
     }
 }
