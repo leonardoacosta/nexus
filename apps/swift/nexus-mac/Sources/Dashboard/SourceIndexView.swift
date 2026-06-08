@@ -112,7 +112,13 @@ struct SourceIndexView: View {
     /// middle list react to the sidebar (bug 2).
     private var contentItems: [TriageItem] {
         if let sourceID = selectedSourceID {
-            return triage.items.filter { $0.source == sourceID }
+            // Namespace-aware: the sidebar id is the BARE registry name ("gmail"),
+            // but multi-account sources stamp item.source as account-namespaced
+            // ("gmail:personal"/"gmail:priceless"). Match the bare id OR any
+            // "<id>:<account>" variant. Bare sources still match exactly.
+            return triage.items.filter {
+                $0.source == sourceID || $0.source.hasPrefix(sourceID + ":")
+            }
         }
         return triage.mine
     }
