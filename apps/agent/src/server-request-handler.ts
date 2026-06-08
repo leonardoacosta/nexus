@@ -66,6 +66,7 @@ import { handleStatusline } from "./routes/statusline";
 import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
+import { handleGetTriage } from "./routes/triage";
 import { handleFailures } from "./routes/failures-route";
 import { handleCron } from "./routes/cron-routes";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
@@ -151,6 +152,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/recommend" },
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
+  { method: "GET", path: "/triage" },
   { method: "GET", path: "/failures" },
   { method: "GET", path: "/cron" },
   // Project detail
@@ -623,6 +625,15 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         logger.error({ route: "/sources", method: "GET", err }, "route handler failed");
         // Fail-soft even on an unexpected throw: empty index, not 500.
         return withCors(request, new Response(JSON.stringify({ sources: [], inbox: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Triage feed passthrough (no DB; proxies the mx gateway :8799) ─────
+    if (url.pathname === "/triage" && request.method === "GET") {
+      return handleGetTriage(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/triage", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty feed, not 500.
+        return withCors(request, new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
