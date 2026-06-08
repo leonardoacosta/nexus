@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nx — Source Index detail redesign</title>
+<style>
+  /* Native macOS dark, refined utility. SF system stack; system semantic
+     colors. No marketing slop — information-first triage. */
+  :root {
+    --bg: #1c1c1e; --bg-2: #242426; --bg-3: #2c2c2e; --bg-sel: #0a3d8f;
+    --ink: #f2f2f7; --ink-2: #aeaeb2; --ink-3: #8e8e93; --hair: #ffffff14;
+    --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453b; --gray: #8e8e93;
+    --mono: ui-monospace,"SF Mono",Menlo,monospace;
+    --sf: -apple-system,"SF Pro Text",system-ui,sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background:#111; color: var(--ink); font-family: var(--sf); font-size:13px; padding:28px; line-height:1.4; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:15px; font-weight:600; margin-bottom:3px; }
+  .sub { color: var(--ink-3); font-size:12px; margin-bottom:18px; }
+
+  .win { display:grid; grid-template-columns: 318px 1fr; border:1px solid var(--hair); border-radius:12px; overflow:hidden; background:var(--bg); box-shadow:0 24px 60px #0008; }
+  .pane { min-height:560px; }
+  .list { border-right:1px solid var(--hair); background:var(--bg); }
+  .list-hd { padding:13px 16px 10px; border-bottom:1px solid var(--hair); display:flex; align-items:baseline; gap:8px; }
+  .list-hd .logo { width:17px; height:17px; border-radius:4px; }
+  .list-hd b { font-size:15px; font-weight:700; }
+  .list-hd .n { color: var(--ink-3); font-size:11px; }
+
+  .row { display:flex; gap:10px; padding:10px 14px 10px 13px; border-bottom:1px solid #ffffff09; cursor:default; position:relative; }
+  .row.sel { background: var(--bg-sel); }
+  .row .bar { width:3px; border-radius:2px; flex:0 0 3px; background:transparent; }
+  .row.mine .bar { background: var(--blue); }
+  .row .body { flex:1; min-width:0; }
+  .row .l1 { display:flex; align-items:baseline; gap:8px; }
+  .row .subj { font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .row.sel .subj { color:#fff; }
+  .row .when { color: var(--ink-3); font-size:11px; flex:0 0 auto; }
+  .row.sel .when { color:#cfe0ff; }
+  .row .l2 { display:flex; align-items:center; gap:6px; margin-top:2px; }
+  .row .who { color: var(--ink-2); font-size:12px; white-space:nowrap; }
+  .row.sel .who { color:#dce8ff; }
+  .row .prev { color: var(--ink-3); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row.sel .prev { color:#a9c4f4; }
+  .dot { width:6px; height:6px; border-radius:50%; flex:0 0 6px; }
+
+  /* DETAIL */
+  .detail { padding:0; display:flex; flex-direction:column; }
+  .banner { display:flex; align-items:center; gap:9px; padding:11px 20px; font-weight:600; font-size:13px; border-bottom:1px solid var(--hair); }
+  .banner.resolved { background:#30d15818; color:var(--green); }
+  .banner.mine { background:#0a84ff20; color:#5aa9ff; }
+  .banner.waiting { background:#8e8e9320; color:var(--ink-2); }
+  .banner .ic { width:16px; height:16px; }
+
+  .dhead { display:flex; gap:12px; padding:18px 20px 14px; align-items:flex-start; }
+  .av { width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#3a3a3c,#48484a); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:15px; color:var(--ink); flex:0 0 38px; }
+  .dhead .meta { flex:1; min-width:0; }
+  .dhead .subj { font-size:18px; font-weight:700; letter-spacing:-0.01em; line-height:1.25; }
+  .dhead .line { display:flex; align-items:center; gap:7px; margin-top:5px; color:var(--ink-2); font-size:12px; }
+  .dhead .line .logo { width:14px; height:14px; border-radius:3px; }
+  .dhead .line .src { display:flex; align-items:center; gap:5px; }
+
+  .context { margin:2px 20px 0; padding:11px 13px; background:var(--bg-3); border-left:3px solid var(--gray); border-radius:0 8px 8px 0; color:var(--ink-2); font-size:12.5px; font-style:italic; }
+  .context b { font-style:normal; color:var(--ink); font-weight:600; }
+
+  .msg { margin:16px 20px 0; }
+  .msg .lbl { font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:6px; font-weight:600; }
+  .bubble { background:var(--bg-2); border:1px solid var(--hair); border-radius:10px; padding:12px 14px; font-size:14px; color:var(--ink); }
+
+  /* conversation thread — the past messages of this channel/DM/group */
+  .thread { margin:16px 20px 0; }
+  .thread .lbl { font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:11px; font-weight:600; }
+  .msgs { display:flex; flex-direction:column; gap:9px; }
+  .bub { max-width:80%; padding:8px 12px; border-radius:15px; font-size:13.5px; line-height:1.36; }
+  .bub .nm { font-size:10.5px; color:var(--ink-3); margin-bottom:2px; }
+  .bub.in { align-self:flex-start; background:var(--bg-3); border-bottom-left-radius:4px; }
+  .bub.out { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .bub.out .nm { color:#cfe0ff; }
+  .bub .t { font-size:9.5px; opacity:.55; margin-top:3px; }
+  .bub.out .t { text-align:right; }
+  .more { display:block; text-align:center; margin-top:11px; font-size:12px; color:var(--blue); }
+
+  .metarow { display:flex; flex-wrap:wrap; gap:6px 18px; margin:16px 20px 0; padding-top:14px; border-top:1px solid var(--hair); }
+  .metarow .kv { font-size:12px; color:var(--ink-3); }
+  .metarow .kv b { color:var(--ink-2); font-weight:500; }
+  .parts { display:flex; align-items:center; gap:-6px; }
+  .parts .pp { width:22px; height:22px; border-radius:50%; background:#3a3a3c; border:1.5px solid var(--bg); margin-left:-6px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--ink-2); }
+  .parts .pp:first-child { margin-left:0; }
+
+  .spacer { flex:1; }
+  .actions { display:flex; gap:10px; align-items:center; padding:14px 20px; border-top:1px solid var(--hair); }
+  .btn { display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; border:1px solid transparent; cursor:default; }
+  .btn.primary { background:var(--blue); color:#fff; }
+  .btn.primary .logo { width:15px; height:15px; filter:brightness(0) invert(1); }
+  .btn.ghost { background:transparent; color:var(--ink-2); border-color:var(--hair); }
+  .kbd { font-family:var(--mono); font-size:10px; color:var(--ink-3); margin-left:auto; }
+
+  /* annotations */
+  .notes { margin-top:22px; display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .note { border:1px solid var(--hair); border-radius:10px; padding:14px 16px; background:var(--bg); }
+  .note h3 { font-size:12px; color:var(--blue); margin-bottom:8px; letter-spacing:0.02em; }
+  .note ul { list-style:none; }
+  .note li { font-size:12px; color:var(--ink-2); padding:3px 0 3px 16px; position:relative; }
+  .note li::before { content:"–"; position:absolute; left:0; color:var(--ink-3); }
+  .note li s { color:var(--ink-3); }
+  .legend { color:var(--ink-3); font-size:11px; margin-top:14px; }
+  . logo { object-fit:contain; }
+  img.logo { object-fit:contain; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>nx · Source Index — detail redesign</h1>
+  <div class="sub">Native macOS, information-first triage. Read-only mesh → "Open in source" is the action. Sample: Teams.</div>
+
+  <div class="win">
+    <!-- LIST: redundancy removed -->
+    <div class="pane list">
+      <div class="list-hd">
+        <img class="logo" src="https://svgl.app/library/teams.svg" alt="" />
+        <b>Teams</b><span class="n">34 items · 12 in your court</span>
+      </div>
+
+      <!-- subject leads; author + preview secondary; MINE = blue bar -->
+      <div class="row mine sel">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">Decus Direct Modernisation — Weekly Update</span><span class="when">56m</span></div>
+          <div class="l2"><span class="who">Leonardo Acosta</span><span class="prev">· “Pushed the v2 rollout to Thursday, can you…”</span></div>
+        </div>
+      </div>
+      <div class="row mine">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">BnB Internal SE Stand Up</span><span class="when">1h</span></div>
+          <div class="l2"><span class="who">Therese Lay</span><span class="prev">· “Blocked on the APIM cert, need a hand”</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">Dev Chat</span><span class="when">1h</span></div>
+          <div class="l2"><span class="who">Srinivasa Rao Tadepalli</span><span class="prev">· “cool thanks”</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">PIPS → Velocity Feed Stand Up</span><span class="when">3h</span></div>
+          <div class="l2"><span class="who">Durgaslnivas Nalla</span><span class="prev">· “recording posted in the channel”</span></div>
+        </div>
+      </div>
+      <div class="row mine">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">Decus Pipeline Sync</span><span class="when">2d</span></div>
+          <div class="l2"><span class="who">David Carter</span><span class="prev">· “any update on the lookup migration?”</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="l1"><span class="subj">Fireball Daily Stand Up</span><span class="when">3d</span></div>
+          <div class="l2"><span class="who">Akshay Ladi</span><span class="prev">· “no blockers today”</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAIL: status → who/what → why → message → meta → action -->
+    <div class="pane detail">
+      <div class="banner resolved">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg>
+        Likely resolved — no action needed
+      </div>
+
+      <div class="dhead">
+        <div class="av">SR</div>
+        <div class="meta">
+          <div class="subj">Dev Chat</div>
+          <div class="line">
+            <span class="src"><img class="logo" src="https://svgl.app/library/teams.svg" alt=""/> Teams</span>
+            · <span>Srinivasa Rao Tadepalli</span>
+            · <span>56m ago</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="thread">
+        <div class="lbl">Conversation</div>
+        <div class="msgs">
+          <div class="bub in"><div class="nm">Srinivasa Rao Tadepalli</div>Hey Leo — did the lookup migration land?<div class="t">9:02 AM</div></div>
+          <div class="bub out"><div class="nm">You</div>Yep, merged this morning — running clean in prod.<div class="t">9:14 AM</div></div>
+          <div class="bub in"><div class="nm">Srinivasa Rao Tadepalli</div>Perfect, I’ll point the velocity feed at it today.<div class="t">9:15 AM</div></div>
+          <div class="bub in"><div class="nm">Srinivasa Rao Tadepalli</div>cool thanks<div class="t">56m ago</div></div>
+        </div>
+        <a class="more">View 24 earlier messages in Teams →</a>
+      </div>
+
+      <div class="context">
+        <b>Why it’s here:</b> their last message reads like a thank-you (“cool thanks”) — the thread looks closed, so this is informational only.
+      </div>
+
+      <div class="metarow">
+        <span class="kv">Participants <b>You, Srinivasa, +2</b></span>
+        <span class="kv">Started <b>Jun 6</b></span>
+        <span class="kv">Last activity <b>56m ago</b></span>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="actions">
+        <a class="btn primary"><img class="logo" src="https://svgl.app/library/teams.svg" alt=""/> Open in Teams</a>
+        <a class="btn ghost">Copy link</a>
+        <a class="btn ghost">Copy text</a>
+        <span class="kbd">↵ open · ⌘C copy</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>LIST — redundancy removed</h3>
+      <ul>
+        <li><s>Author printed twice</s> → author shown once, as secondary</li>
+        <li><s>“teams · CHAT_MESSAGE” on every row</s> → dropped (column is already Teams)</li>
+        <li><b>Subject leads</b> (bold) + a real message <b>preview</b> for scannability</li>
+        <li>Blue left-bar marks only <b>“in your court”</b> rows — the eye finds your work</li>
+        <li>Header shows <b>“12 in your court”</b> so the count means something</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>DETAIL — importance, context, action</h3>
+      <ul>
+        <li><b>Status banner first</b> — answers “do I act?” before anything else (color = disposition)</li>
+        <li><s>Empty Author/Created/Last-activity labels</s> → suppressed; only filled values, in one compact row</li>
+        <li><b>Conversation thread</b> — the channel/DM/group’s recent messages as bubbles, ABOVE the callout, with “View N earlier in source”</li>
+        <li><b>“Why it’s here”</b> sits UNDER the thread — read the conversation, then mx’s computed take (<code>disposition_evidence</code>)</li>
+        <li>Identity merged into one header line (no label ladder)</li>
+        <li><b>Primary action</b>: real “Open in Teams” button (read-only mesh) + Copy link/text + key hints</li>
+      </ul>
+    </div>
+  </div>
+  <div class="legend">Read-only contract honored — no Reply/Resolve that would write back through mx. The only mutations are local (copy) or hand-off (open in source). Status/“why” are computed read-state (ball_in_court + suggested_disposition + disposition_evidence).</div>
+</div>
+</body>
+</html>
