@@ -17,12 +17,16 @@ struct NexusIOSApp: App {
     @StateObject private var observer = SessionObserver(
         client: NexusClient(endpoint: Self.defaultEndpoint())
     )
+    @StateObject private var sourceIndex = SourceIndexObserver(
+        client: NexusClient(endpoint: Self.defaultEndpoint())
+    )
     @StateObject private var navigation = NavigationState()
 
     var body: some Scene {
         WindowGroup {
             RootScene()
                 .environmentObject(observer)
+                .environmentObject(sourceIndex)
                 .environmentObject(navigation)
                 .onAppear {
                     observer.startStreams()

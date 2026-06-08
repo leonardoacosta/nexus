@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00C57774390D8460E7BCFC52 /* SourcesScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641866D5AA2BF9E803F3337 /* SourcesScene.swift */; };
 		016C56D9684218C9F486EC35 /* NotifyButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F16E8714DDBB28908DEE41D /* NotifyButton.swift */; };
 		024ABA850972482882E59423 /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58206A090C96AC1CD08BC7D /* SessionsView.swift */; };
 		025E2C0CBD6A642DD5ED472A /* SettingsDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899EAA27132F0989904D5A65 /* SettingsDiagnosticsView.swift */; };
@@ -359,6 +360,7 @@
 		706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAccordionRow.swift; sourceTree = "<group>"; };
 		71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailuresViewTests.swift; sourceTree = "<group>"; };
 		72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SttCommandTests.swift; sourceTree = "<group>"; };
+		7641866D5AA2BF9E803F3337 /* SourcesScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesScene.swift; sourceTree = "<group>"; };
 		777EF4DEDF428751D02A4AD1 /* ProcessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessProbe.swift; sourceTree = "<group>"; };
 		798B57E251FF27441C76EFCA /* TTSNotificationFiredRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSNotificationFiredRoundTripTests.swift; sourceTree = "<group>"; };
 		79A88982005CBC2421EC5B93 /* ApnsRegistrar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApnsRegistrar.swift; sourceTree = "<group>"; };
@@ -663,6 +665,7 @@
 				5592F30E8101D234FB6B4159 /* RootScene.swift */,
 				8831F4035517F727316B9E5A /* SessionDetailScene.swift */,
 				2961F8489D19EAFAD0D4F457 /* SessionListScene.swift */,
+				7641866D5AA2BF9E803F3337 /* SourcesScene.swift */,
 			);
 			path = Scenes;
 			sourceTree = "<group>";
@@ -1127,6 +1130,7 @@
 				21C247527E7607CC8F7140BC /* RootScene.swift in Sources */,
 				D70940C619FEA76DE9A1129E /* SessionDetailScene.swift in Sources */,
 				7E20A55440A77EBEB02F157F /* SessionListScene.swift in Sources */,
+				00C57774390D8460E7BCFC52 /* SourcesScene.swift in Sources */,
 				5C301654F84FCC5A12E518D6 /* SshTerminalSession.swift in Sources */,
 				6845A3D065AC8B9D78542251 /* TerminalHostView.swift in Sources */,
 			);

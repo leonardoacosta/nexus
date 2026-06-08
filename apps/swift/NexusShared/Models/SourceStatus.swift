@@ -325,3 +325,72 @@ public struct SourceIndex: Equatable, Hashable, Decodable, Sendable {
         aggregatedSources.map(\.footerFragment).joined(separator: " | ")
     }
 }
+
+// MARK: - Sample data
+
+extension SourceIndex {
+    /// Representative sample of the Source Index (mirrors the wireframe content):
+    /// ~8 aggregated sources with mixed SERVING/DEGRADED/NOT_SERVING + MINE counts,
+    /// plus sessions/health/plaid as own-surfaces, and a populated ball-in-court inbox.
+    ///
+    /// Used by the macOS `#Preview` and by the iOS `SourcesScene` as a stand-in while
+    /// the live `/sources` aggregate endpoint is unbuilt (returns empty). Always
+    /// rendered with a visible "Sample data" caption so it is never mistaken for live
+    /// state.
+    public static let sampleData: SourceIndex = {
+        let now = Date()
+        func ago(_ s: TimeInterval) -> Date { now.addingTimeInterval(-s) }
+
+        let sources: [SourceStatus] = [
+            SourceStatus(id: "teams", displayName: "Teams", producesKind: "CHAT_MESSAGE",
+                         inAggregate: true, health: .serving, lastSyncAt: ago(180),
+                         itemCount: 42, mineCount: 6, canSearch: true, canStream: true),
+            SourceStatus(id: "ado", displayName: "Azure DevOps", producesKind: "WORK_ITEM",
+                         inAggregate: true, health: .notServing,
+                         healthReason: "INTERACTIVE_REQUIRED", itemCount: nil, mineCount: 0,
+                         canSearch: true),
+            SourceStatus(id: "outlook", displayName: "Outlook", producesKind: "EMAIL",
+                         inAggregate: true, health: .serving, lastSyncAt: ago(60),
+                         itemCount: 18, mineCount: 3, canSearch: true),
+            SourceStatus(id: "gmail", displayName: "Gmail", producesKind: "EMAIL",
+                         inAggregate: true, health: .degraded,
+                         healthReason: "token expires in 2d", lastSyncAt: ago(120),
+                         itemCount: 31, mineCount: 5, canSearch: true),
+            SourceStatus(id: "gcal", displayName: "Google Calendar", producesKind: "CALENDAR_EVENT",
+                         inAggregate: true, health: .serving, lastSyncAt: ago(300),
+                         itemCount: 9, mineCount: 2),
+            SourceStatus(id: "outlook-calendar", displayName: "Outlook Calendar",
+                         producesKind: "CALENDAR_EVENT", inAggregate: true, health: .serving,
+                         lastSyncAt: ago(300), itemCount: 6, mineCount: 1),
+            SourceStatus(id: "snow", displayName: "ServiceNow", producesKind: "TICKET",
+                         inAggregate: true, health: .degraded,
+                         healthReason: "credential degraded", itemCount: 7, mineCount: 0,
+                         canSearch: true),
+            SourceStatus(id: "imessage", displayName: "iMessage", producesKind: "CHAT_MESSAGE",
+                         inAggregate: true, health: .serving, lastSyncAt: ago(12),
+                         itemCount: 14, mineCount: 0, canStream: true),
+            SourceStatus(id: "sessions", displayName: "Claude Sessions", producesKind: "CODE_SESSION",
+                         inAggregate: false, health: .serving, itemCount: 5, canStream: true),
+            SourceStatus(id: "health", displayName: "Health", producesKind: "HEALTH_METRIC",
+                         inAggregate: false, health: .serving, itemCount: 2),
+            SourceStatus(id: "plaid", displayName: "Plaid", producesKind: "FINANCE_TXN",
+                         inAggregate: false, health: .degraded,
+                         healthReason: "re-auth bank link", itemCount: 23),
+        ]
+        let inbox: [BallInCourtItem] = [
+            BallInCourtItem(id: "1", author: "Priya Nair",
+                            title: "Can you sign off the Q3 migration runbook before EOD?",
+                            source: "teams", producesKind: "CHAT_MESSAGE", lastActivityAt: ago(180)),
+            BallInCourtItem(id: "2", author: "accounts@vendor.io",
+                            title: "Re: Renewal quote — awaiting your PO number",
+                            source: "outlook", producesKind: "EMAIL", lastActivityAt: ago(1320)),
+            BallInCourtItem(id: "3", author: "Dana Whitcomb",
+                            title: "Reply needed: school pickup swap on Thursday?",
+                            source: "gmail", producesKind: "EMAIL", lastActivityAt: ago(3600)),
+            BallInCourtItem(id: "4", author: "Design review",
+                            title: "RSVP needsAction — tomorrow 10:00",
+                            source: "gcal", producesKind: "CALENDAR_EVENT", lastActivityAt: ago(7200)),
+        ]
+        return SourceIndex(sources: sources, inbox: inbox)
+    }()
+}

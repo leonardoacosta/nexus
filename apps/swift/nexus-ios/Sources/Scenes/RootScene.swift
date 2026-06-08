@@ -10,10 +10,19 @@ import NexusShared
 
 struct RootScene: View {
     @EnvironmentObject private var observer: SessionObserver
+    @EnvironmentObject private var sourceIndex: SourceIndexObserver
     @EnvironmentObject private var navigation: NavigationState
 
     var body: some View {
         TabView {
+            NavigationStack {
+                SourcesScene(observer: sourceIndex)
+                    .navigationTitle("Sources")
+            }
+            .tabItem {
+                Label("Sources", systemImage: "square.grid.2x2")
+            }
+
             NavigationStack {
                 SessionListScene()
                     .navigationTitle("Sessions")
