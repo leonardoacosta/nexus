@@ -270,9 +270,17 @@ actor HealthKitPushManager {
         }
     }
 
-    /// Build the single-metric Health Auto Export envelope and POST it. Quantity
-    /// samples push their value in the stream's unit; category samples push their
-    /// enum value as `qty`.
+    /// Max samples per POST. High-frequency types (heart_rate, step_count) can have
+    /// hundreds of thousands of historical samples; one giant body would exceed the
+    /// homelab's 32 MiB ingest cap, so the initial backfill is chunked. Re-push is
+    /// idempotent (the homelab synthesizes a stable key from metric+date+source), so
+    /// a partial-batch failure just re-sends safely next wake.
+    private static let pushChunkSize = 5_000
+
+    /// Encode each sample once, then POST in chunks. Quantity samples push their
+    /// value in the stream's unit; category samples push their enum value as `qty`.
+    /// Returns true only if EVERY chunk got a 2xx (so the anchor advances only when
+    /// all of this batch is durably stored).
     private func push(stream: Stream, samples: [HKSample]) async -> Bool {
         let data: [[String: Any]] = samples.compactMap { sample in
             guard let value = self.value(of: sample, in: stream) else { return nil }
@@ -284,11 +292,28 @@ actor HealthKitPushManager {
         }
         guard !data.isEmpty else { return true } // nothing extractable — treat as handled
 
+        var pushed = 0
+        var index = 0
+        while index < data.count {
+            let chunk = Array(data[index ..< min(index + Self.pushChunkSize, data.count)])
+            if await postChunk(stream: stream, chunk: chunk) {
+                pushed += chunk.count
+                index += chunk.count
+            } else {
+                log.error("ingest chunk failed for \(stream.exportName, privacy: .public) at \(index)/\(data.count)")
+                return false
+            }
+        }
+        log.info("pushed \(pushed) \(stream.exportName, privacy: .public) sample(s)")
+        return true
+    }
+
+    private func postChunk(stream: Stream, chunk: [[String: Any]]) async -> Bool {
         let envelope: [String: Any] = [
             "data": ["metrics": [[
                 "name": stream.exportName,
                 "units": stream.unitString,
-                "data": data,
+                "data": chunk,
             ]]]
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: envelope) else {
@@ -307,10 +332,7 @@ actor HealthKitPushManager {
         do {
             let (_, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if (200...299).contains(code) {
-                log.info("pushed \(data.count) \(stream.exportName, privacy: .public) sample(s)")
-                return true
-            }
+            if (200...299).contains(code) { return true }
             log.error("ingest returned \(code) for \(stream.exportName, privacy: .public)")
             return false
         } catch {
