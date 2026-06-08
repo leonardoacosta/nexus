@@ -68,6 +68,13 @@ export interface NotificationDraft {
    * must degrade gracefully to today's session-less behavior.
    */
   sessionName?: string;
+  /**
+   * CC session id (transcript uuid) carried transport-only from the hook
+   * payload's `session_id` (mx-7i4k). Surfaced downstream as `userInfo.sessionId`
+   * on the iOS alert push so a banner tap deep-links to the originating
+   * session's detail view. Undefined for non-session events.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -102,6 +109,16 @@ function readToolName(payload: HookEventPayload): string {
 function readSessionName(payload: HookEventPayload): string | undefined {
   const name = payload.session_name;
   return name && name.length > 0 ? name : undefined;
+}
+
+/**
+ * Read the CC session id (mx-7i4k). Prefer the explicit `cc_session_id`, fall
+ * back to `session_id`. Empty/absent yields `undefined` so the field is omitted
+ * from the draft and downstream wire (graceful degrade — non-session events).
+ */
+function readSessionId(payload: HookEventPayload): string | undefined {
+  const id = payload.cc_session_id ?? payload.session_id;
+  return id && id.length > 0 ? id : undefined;
 }
 
 function readErrorMessage(payload: HookEventPayload): string {
@@ -141,15 +158,18 @@ const permissionRequestRule: HookRule = (payload) => {
   const project = projectOf(payload);
   const tool = readToolName(payload);
   const sessionName = readSessionName(payload);
+  const sessionId = readSessionId(payload);
   const title = `permission requested: ${tool}`;
   const body = prefixBody(project, `permission requested for ${tool}`);
 
   // sessionName is transport-only: the primary spoken path lives in
   // telemetry.sh (nx-20caf Path A). The agent body stays minimal and safe —
   // we only thread the name so the lifecycle emit + Swift consumer can read it.
+  // sessionId (mx-7i4k) rides alongside so the iOS banner tap deep-links to the
+  // originating session's detail view.
   return [
-    { channel: "desktop", title, body, project, priority: "normal", sessionName },
-    { channel: "tts", title, body, project, priority: "normal", sessionName },
+    { channel: "desktop", title, body, project, priority: "normal", sessionName, sessionId },
+    { channel: "tts", title, body, project, priority: "normal", sessionName, sessionId },
   ];
 };
 

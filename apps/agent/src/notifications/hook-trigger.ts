@@ -173,7 +173,10 @@ export async function evaluateAndDispatch(
       },
       // nx-20caf: thread the CC custom session name through as a transport-only
       // extra (no DB column) so it reaches the NotificationFired envelope.
-      draft.sessionName ? { sessionName: draft.sessionName } : undefined,
+      // mx-7i4k: also thread the CC session id for iOS tap-to-session deep-link.
+      draft.sessionName || draft.sessionId
+        ? { sessionName: draft.sessionName, sessionId: draft.sessionId }
+        : undefined,
     ),
   );
 

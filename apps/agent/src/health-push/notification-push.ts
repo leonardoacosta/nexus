@@ -84,12 +84,14 @@ export class NotificationPushSubscriber {
       const userInfo: Record<string, unknown> = {
         notificationId: p.id,
       };
-      // sessionId is what the iOS tap-router (NexusAppDelegate) keys on. We use
-      // the notification id as the session anchor only when no explicit session
-      // is carried; the NotificationFired payload has no sessionId field today,
-      // so the iOS app falls back to opening the app (graceful).
+      // sessionId is what the iOS tap-router (NexusAppDelegate) keys on to
+      // deep-link the banner tap to the originating session's detail view
+      // (mx-7i4k). Present for session-originated notifications; absent for
+      // non-session ones (e.g. reaper stale-heartbeat), in which case the iOS
+      // app falls back to opening its default view (graceful).
       if (p.project) userInfo.project = p.project;
       if (p.sessionName) userInfo.sessionName = p.sessionName;
+      if (p.sessionId) userInfo.sessionId = p.sessionId;
 
       let ok = 0;
       for (const t of tokens) {
@@ -113,7 +115,7 @@ export class NotificationPushSubscriber {
       }
       if (ok > 0) {
         log.info(
-          `alert push sent to ${ok}/${tokens.length} device(s) (id=${p.id} title="${title}")`,
+          `alert push sent to ${ok}/${tokens.length} device(s) (id=${p.id} title="${title}" sessionId=${p.sessionId ?? "none"})`,
         );
       }
     } catch (e) {

@@ -63,6 +63,30 @@ struct RootScene: View {
                 Label("Sessions", systemImage: "terminal")
             }
         }
+        // mx-7i4k: deep-link a notification-banner tap straight to the
+        // originating session's detail. NexusAppDelegate.didReceive posts
+        // `.nexusOpenSessionDetail` (object: sessionId) from `userInfo.sessionId`;
+        // we observe it here at the always-mounted root (the previous observer
+        // lived in SessionListScene, which RootScene's tab layout never mounts,
+        // so the post went nowhere). Setting `selectedSessionId` presents the
+        // detail sheet below, reusing the existing `.sheet(item:)` +
+        // SessionIdBox pattern. SessionDetailScene's Attach CTA then drives
+        // `attachingSessionId` -> the attach sheet, completing the chain.
+        .onReceive(NotificationCenter.default.publisher(
+            for: .nexusOpenSessionDetail
+        )) { note in
+            if let id = note.object as? String {
+                navigation.selectedSessionId = id
+            }
+        }
+        .sheet(item: Binding(
+            get: { navigation.selectedSessionId.map(SessionIdBox.init) },
+            set: { navigation.selectedSessionId = $0?.id }
+        )) { box in
+            NavigationStack {
+                SessionDetailScene(sessionId: box.id)
+            }
+        }
         .sheet(item: Binding(
             get: { navigation.attachingSessionId.map(SessionIdBox.init) },
             set: { navigation.attachingSessionId = $0?.id }

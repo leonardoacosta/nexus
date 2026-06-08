@@ -217,6 +217,16 @@ export interface NotificationFiredPayload {
    * degrade gracefully to today's session-less rendering.
    */
   sessionName?: string;
+  /**
+   * CC session id (the transcript/session uuid) of the originating Claude
+   * Code session. Threaded transport-only alongside `sessionName` (mx-7i4k)
+   * so the iOS alert push can carry it in `userInfo.sessionId`; the
+   * `NexusAppDelegate` tap-router keys on this to deep-link the banner tap
+   * straight to that session's detail view. Absent (undefined) for
+   * non-session notifications (e.g. reaper stale-heartbeat) — consumers MUST
+   * degrade gracefully to opening the app's default view.
+   */
+  sessionId?: string;
 }
 
 /**

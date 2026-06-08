@@ -32,6 +32,14 @@ export interface NotificationTransportExtras {
    * + statusline. Undefined when no custom title was set (graceful degrade).
    */
   sessionName?: string;
+  /**
+   * CC session id (transcript uuid) of the originating session. Threaded
+   * transport-only (no DB column), mirrors `sessionName`. Surfaced on the
+   * `NotificationFired` envelope as `sessionId` so the iOS alert push carries
+   * it in `userInfo.sessionId` for tap-to-session deep-linking (mx-7i4k).
+   * Undefined for non-session notifications.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -213,6 +221,9 @@ export class NotificationManager {
           // nx-20caf: transport-only CC custom session name. Omitted (undefined)
           // when the upstream payload had no custom title.
           sessionName: extras?.sessionName,
+          // mx-7i4k: transport-only CC session id for iOS tap-to-session
+          // deep-linking. Omitted for non-session notifications.
+          sessionId: extras?.sessionId,
           audioBase64: d.audioBase64,
           voiceUsed: d.voiceUsed,
         });

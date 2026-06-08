@@ -55,7 +55,7 @@ interface CapturedSend {
   body: string;
   // nx-20caf: capture the transport-only extras arg so tests can assert the
   // custom session name is threaded through to manager.send().
-  extras?: { items?: string[]; logPath?: string; sessionName?: string };
+  extras?: { items?: string[]; logPath?: string; sessionName?: string; sessionId?: string };
 }
 
 function makeFakeManager(opts: { throwOn?: string } = {}): {
@@ -226,10 +226,12 @@ describe("custom session name threading", () => {
     expect(sends).toHaveLength(2);
     for (const s of sends) {
       expect(s.extras?.sessionName).toBe("backend wave");
+      // mx-7i4k: sessionId rides alongside (payload() default session_id).
+      expect(s.extras?.sessionId).toBe("sess-1");
     }
   });
 
-  it("passes undefined extras when session_name is absent", async () => {
+  it("threads sessionId even when session_name is absent (mx-7i4k)", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
@@ -240,13 +242,16 @@ describe("custom session name threading", () => {
       payload({ tool_name: "Edit" }),
     );
 
+    // session_name absent -> sessionName undefined, but the session_id still
+    // threads through for iOS tap-to-session deep-linking.
     expect(sends).toHaveLength(2);
     for (const s of sends) {
-      expect(s.extras).toBeUndefined();
+      expect(s.extras?.sessionName).toBeUndefined();
+      expect(s.extras?.sessionId).toBe("sess-1");
     }
   });
 
-  it("treats an empty-string session_name as no session name", async () => {
+  it("treats an empty-string session_name as no session name (sessionId still threads)", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
@@ -255,6 +260,25 @@ describe("custom session name threading", () => {
       manager,
       "permission_request",
       payload({ tool_name: "Edit", session_name: "" }),
+    );
+
+    expect(sends).toHaveLength(2);
+    for (const s of sends) {
+      expect(s.extras?.sessionName).toBeUndefined();
+      expect(s.extras?.sessionId).toBe("sess-1");
+    }
+  });
+
+  it("passes undefined extras when both session_name and session_id are absent", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(
+      db,
+      manager,
+      "permission_request",
+      // override session_id to empty so neither transport field is present.
+      payload({ tool_name: "Edit", session_id: "" }),
     );
 
     expect(sends).toHaveLength(2);
