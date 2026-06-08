@@ -136,6 +136,85 @@ export class ApnsSender {
       );
     });
   }
+
+  /**
+   * Send a VISIBLE alert push (lock-screen banner / Notification Center) to one
+   * device token. Unlike `sendHealthFlush` (silent/background), this carries an
+   * `aps.alert` dictionary so iOS renders it without any app-side handling —
+   * the iOS `didReceiveRemoteNotification` no longer needs to recognise it.
+   *
+   * Critical header differences from the silent path:
+   *   - apns-push-type: alert   (not background)
+   *   - apns-priority: 10       (deliver immediately; background uses 5)
+   *
+   * `userInfo` keys are merged into the top-level JSON alongside `aps` so the
+   * iOS `NexusAppDelegate` tap router can read `sessionId` / `notificationId`.
+   *
+   * Resolves with the APNs HTTP status + optional reason — same contract as
+   * `sendHealthFlush`. 410 / Unregistered / BadDeviceToken means the caller
+   * should prune the token.
+   */
+  async sendAlert(
+    deviceToken: string,
+    payload: {
+      title: string;
+      body: string;
+      userInfo?: Record<string, unknown>;
+    },
+    nowSec: number = Math.floor(Date.now() / 1000),
+  ): Promise<{ status: number; reason?: string }> {
+    const token = this.providerToken(nowSec);
+    const client = connect(this.cfg.host);
+
+    return await new Promise((resolve) => {
+      let settled = false;
+      const done = (r: { status: number; reason?: string }) => {
+        if (settled) return;
+        settled = true;
+        client.close();
+        resolve(r);
+      };
+
+      client.on("error", (e) => done({ status: 0, reason: e.message }));
+
+      const req = client.request({
+        ":method": "POST",
+        ":path": `/3/device/${deviceToken}`,
+        authorization: `bearer ${token}`,
+        "apns-topic": this.cfg.bundleId,
+        "apns-push-type": "alert",
+        "apns-priority": "10", // user-visible alerts deliver immediately
+      });
+
+      let status = 0;
+      let body = "";
+      req.on("response", (h) => {
+        status = Number(h[":status"]) || 0;
+      });
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        let reason: string | undefined;
+        if (body) {
+          try {
+            reason = (JSON.parse(body) as { reason?: string }).reason;
+          } catch {
+            reason = body;
+          }
+        }
+        done({ status, reason });
+      });
+
+      req.end(
+        JSON.stringify({
+          aps: {
+            alert: { title: payload.title, body: payload.body },
+            sound: "default",
+          },
+          ...(payload.userInfo ?? {}),
+        }),
+      );
+    });
+  }
 }
 
 /** Lazily-built singleton; null when the key file is absent (path inert). */

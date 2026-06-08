@@ -7,6 +7,7 @@ import { openDatabase, verifySchema, SchemaIncompleteError } from "./db/database
 import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
 import { getHealthPushScheduler } from "./health-push/health-push-scheduler";
+import { getNotificationPushSubscriber } from "./health-push/notification-push";
 import { scheduleRetention } from "./db/retention";
 import { scheduleProjectCleanup } from "./db/project-registry";
 import { scheduleProjectDiscovery } from "./routes/projects-discovered";
@@ -127,6 +128,14 @@ healthScheduler.start();
 // Inert when no APNs key / no registered device tokens.
 const healthPushScheduler = getHealthPushScheduler();
 healthPushScheduler.start();
+
+// Visible iOS alert-push subscriber — fans every `NotificationFired` lifecycle
+// event out to all registered iOS tokens as an `aps.alert` push (lock-screen
+// banner / Notification Center). Distinct from the SILENT health-flush path
+// above (mx-e6h8): before this, notification text only reached SSE listeners
+// and never surfaced as a phone banner. Inert when no APNs key / no tokens.
+const notificationPushSubscriber = getNotificationPushSubscriber(lifecycleBus);
+notificationPushSubscriber.start();
 
 // Retention cleanup — prunes old snapshots/events every 24h
 const stopRetention = scheduleRetention(db);
