@@ -36,6 +36,7 @@ import {
   handleMeetingStatus,
 } from "./routes/notifications";
 import { handleNotificationAudio } from "./routes/notifications-audio";
+import { handleApnsRegister } from "./routes/apns-register";
 import {
   handleListVoices,
   handlePutVoice,
@@ -371,6 +372,15 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/notifications/send" && request.method === "POST") {
         return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // POST /apns/register — the Nexus iOS app registers its APNs device token
+      // so the health-push scheduler can send silent flush pushes (Wave 2).
+      if (url.pathname === "/apns/register" && request.method === "POST") {
+        return handleApnsRegister(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/apns/register", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

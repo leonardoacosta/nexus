@@ -6,6 +6,7 @@ import { createSessionManager } from "./session-manager";
 import { openDatabase, verifySchema, SchemaIncompleteError } from "./db/database";
 import { upsertSelfInRegistry } from "./db/agent-registry";
 import { HealthScheduler } from "./health-scheduler";
+import { getHealthPushScheduler } from "./health-push/health-push-scheduler";
 import { scheduleRetention } from "./db/retention";
 import { scheduleProjectCleanup } from "./db/project-registry";
 import { scheduleProjectDiscovery } from "./routes/projects-discovered";
@@ -120,6 +121,12 @@ logger.info({ queryWindowHours: 24 }, "Project discovery query window configured
 // Health snapshot scheduler — persists metrics to PostgreSQL every 30s
 const healthScheduler = new HealthScheduler(healthCollector, db);
 healthScheduler.start();
+
+// HealthKit silent-push scheduler — wakes the Nexus iOS app on a guaranteed
+// cadence to flush biometric samples to the homelab mx-health ingest (Wave 2).
+// Inert when no APNs key / no registered device tokens.
+const healthPushScheduler = getHealthPushScheduler();
+healthPushScheduler.start();
 
 // Retention cleanup — prunes old snapshots/events every 24h
 const stopRetention = scheduleRetention(db);
