@@ -66,6 +66,11 @@ actor HealthKitPushManager {
 
     private var streams: [Stream] = []
 
+    /// Guards one-time observer registration per PROCESS. iOS launches a fresh
+    /// process for each background wake, so this resets naturally; within a single
+    /// process we register HKObserverQuery once (re-registering would leak queries).
+    private var observersRegistered = false
+
     // MARK: - Type catalog
     //
     // HealthKit has no "all identifiers" API, so the catalog is enumerated. These
@@ -142,10 +147,24 @@ actor HealthKitPushManager {
         }
         await buildStreams()
         log.info("HealthKit push: \(self.streams.count) streams registered")
-        for stream in streams {
-            registerObserver(for: stream)
-            await flush(stream)
+        if !observersRegistered {
+            for stream in streams { registerObserver(for: stream) }
+            observersRegistered = true
         }
+        for stream in streams { await flush(stream) }
+    }
+
+    /// flushAll is the shared entry point for the BACKGROUND triggers
+    /// (BGTaskScheduler + silent APNS push). It ensures the stream catalog is built
+    /// (a background-launched process may not have run a full bootstrap yet) then
+    /// flushes every stream's new samples. It does NOT register observers — that is
+    /// bootstrap's job, guarded to run once per process.
+    func flushAll() async {
+        if streams.isEmpty {
+            guard HKHealthStore.isHealthDataAvailable() else { return }
+            await buildStreams()
+        }
+        for stream in streams { await flush(stream) }
     }
 
     /// Request READ authorization for EVERY type in the catalog (we never write —

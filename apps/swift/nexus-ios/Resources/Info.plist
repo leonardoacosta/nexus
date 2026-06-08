@@ -23,6 +23,13 @@
     <key>UIBackgroundModes</key>
     <array>
         <string>remote-notification</string>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>dev.leonardoacosta.nexus.ios.health.refresh</string>
+        <string>dev.leonardoacosta.nexus.ios.health.processing</string>
     </array>
     <key>CFBundleURLTypes</key>
     <array>
