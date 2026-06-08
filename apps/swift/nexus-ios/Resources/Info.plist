@@ -52,6 +52,6 @@
     <key>NSHealthShareUsageDescription</key>
     <string>Nexus reads your Health data — including metrics recorded by third-party devices like WHOOP and Oura — and mirrors it to your own private homelab health store over your tailnet. Data never leaves hardware you own.</string>
     <key>HEALTH_INGEST_ENDPOINT</key>
-    <string>http://homelab:8796/ingest</string>
+    <string>http://homelab:8798/ingest</string>
 </dict>
 </plist>

@@ -379,7 +379,7 @@ actor HealthKitPushManager {
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "http://homelab:8796/ingest")!
+        return URL(string: "http://homelab:8798/ingest")!
     }
 
     private static func ingestToken() -> String? {
