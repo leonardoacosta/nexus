@@ -154,7 +154,7 @@ private struct Sparkline: View {
 #Preview("Health Metrics (sample)") {
     NavigationStack {
         HealthMetricsScene(observer: {
-            let o = TriageObserver(); o.setItemsForPreview(.sampleData, isSample: true); return o
+            let o = TriageObserver(); o.setItemsForPreview(TriageItem.sampleData, isSample: true); return o
         }())
     }
 }

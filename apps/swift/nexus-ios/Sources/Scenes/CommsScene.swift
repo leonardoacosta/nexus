@@ -131,7 +131,7 @@ private struct CommsRow: View {
 #Preview("Comms (sample)") {
     NavigationStack {
         CommsScene(observer: {
-            let o = TriageObserver(); o.setItemsForPreview(.sampleData, isSample: true); return o
+            let o = TriageObserver(); o.setItemsForPreview(TriageItem.sampleData, isSample: true); return o
         }())
     }
 }

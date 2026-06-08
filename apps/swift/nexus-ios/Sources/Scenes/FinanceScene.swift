@@ -131,7 +131,7 @@ private struct FinanceRow: View {
 #Preview("Finance (sample)") {
     NavigationStack {
         FinanceScene(observer: {
-            let o = TriageObserver(); o.setItemsForPreview(.sampleData, isSample: true); return o
+            let o = TriageObserver(); o.setItemsForPreview(TriageItem.sampleData, isSample: true); return o
         }())
     }
 }

@@ -138,7 +138,7 @@ private struct CalendarRow: View {
 #Preview("Calendar (sample)") {
     NavigationStack {
         CalendarScene(observer: {
-            let o = TriageObserver(); o.setItemsForPreview(.sampleData, isSample: true); return o
+            let o = TriageObserver(); o.setItemsForPreview(TriageItem.sampleData, isSample: true); return o
         }())
     }
 }

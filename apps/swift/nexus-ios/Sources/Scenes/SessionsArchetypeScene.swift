@@ -156,7 +156,7 @@ private struct RateBar: View {
 #Preview("Sessions (sample)") {
     NavigationStack {
         SessionsArchetypeScene(observer: {
-            let o = TriageObserver(); o.setItemsForPreview(.sampleData, isSample: true); return o
+            let o = TriageObserver(); o.setItemsForPreview(TriageItem.sampleData, isSample: true); return o
         }())
     }
 }
