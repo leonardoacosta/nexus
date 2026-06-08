@@ -67,6 +67,7 @@ import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
 import { handleGetTriage } from "./routes/triage";
+import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
 import { handleCron } from "./routes/cron-routes";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
@@ -153,6 +154,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
   { method: "GET", path: "/triage" },
+  { method: "GET", path: "/thread" },
   { method: "GET", path: "/failures" },
   { method: "GET", path: "/cron" },
   // Project detail
@@ -634,6 +636,16 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         logger.error({ route: "/triage", method: "GET", err }, "route handler failed");
         // Fail-soft even on an unexpected throw: empty feed, not 500.
         return withCors(request, new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Thread passthrough (no DB; proxies the mx gateway :8799) ──────────
+    // On-demand conversation history for a single comms item (mx-rkir.1).
+    if (url.pathname === "/thread" && request.method === "GET") {
+      return handleGetThread(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/thread", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty thread, not 500.
+        return withCors(request, new Response('{"messages":[]}', { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
