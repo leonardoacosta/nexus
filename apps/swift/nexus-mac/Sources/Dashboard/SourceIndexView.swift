@@ -59,17 +59,23 @@ struct SourceIndexView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        // HSplitView (not NavigationSplitView) — this view is mounted as the
+        // `detail` of AppNavigation's OWN NavigationSplitView. A NESTED
+        // NavigationSplitView does NOT expand to fill its parent's detail pane
+        // (its columns collapse to intrinsic widths, leaving a dead gap on the
+        // right). HSplitView is the established multi-pane-detail pattern inside
+        // AppNavigation (see SessionsView) — it fills the parent edge-to-edge
+        // and provides resizable dividers (bug 1).
+        HSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
-        } content: {
+                // Sidebar keeps a max cap so it stays a true sidebar column.
+                .frame(minWidth: 220, idealWidth: 248, maxWidth: 300, maxHeight: .infinity)
             contentPane
-                // No `max` cap: the middle list fills the available width so
-                // there is no dead gap between it and the detail pane (bug 1).
-                .navigationSplitViewColumnWidth(min: 320, ideal: 420)
-        } detail: {
+                // maxWidth/maxHeight .infinity so the middle pane FILLS the
+                // available space — no dead gap between it and the detail pane.
+                .frame(minWidth: 300, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
             detailPane
-                .navigationSplitViewColumnWidth(min: 360, ideal: 520)
+                .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Sources")
         .accessibilityIdentifier("source-index-view")
