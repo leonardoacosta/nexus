@@ -19,9 +19,11 @@ export interface DeviceToken {
 }
 
 function storePath(): string {
+  // ~/.config/nexus is in the agent service's ReadWritePaths sandbox allowlist
+  // (~/.nexus is NOT — writing there gives EROFS under the hardened unit).
   return (
     process.env.HEALTH_PUSH_TOKEN_PATH ??
-    join(homedir(), ".nexus", "apns-device-tokens.json")
+    join(homedir(), ".config", "nexus", "apns-device-tokens.json")
   );
 }
 
