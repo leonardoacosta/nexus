@@ -65,6 +65,7 @@ import {
 import { handleStatusline } from "./routes/statusline";
 import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
+import { handleGetSources } from "./routes/sources";
 import { handleFailures } from "./routes/failures-route";
 import { handleCron } from "./routes/cron-routes";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
@@ -149,6 +150,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/hooks" },
   { method: "GET", path: "/recommend" },
   { method: "GET", path: "/environment" },
+  { method: "GET", path: "/sources" },
   { method: "GET", path: "/failures" },
   { method: "GET", path: "/cron" },
   // Project detail
@@ -612,6 +614,15 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       return handleEnvironment().then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/environment", method: "GET", err }, "route handler failed");
         return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Source Index passthrough (no DB; proxies the mx gateway :8799) ────
+    if (url.pathname === "/sources" && request.method === "GET") {
+      return handleGetSources().then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/sources", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty index, not 500.
+        return withCors(request, new Response(JSON.stringify({ sources: [], inbox: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
