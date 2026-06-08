@@ -42,6 +42,18 @@ struct SourceIndexView: View {
     /// Middle-list selection — bound to the middle `List(selection:)` and
     /// resolved into a `TriageItem` for the detail pane — fixes bug 3.
     @State private var selectedItemID: String?
+    /// Sidebar sort order (applied WITHIN each section — Triage + Sources).
+    /// Default alpha (case-insensitive `displayName`); itemCount sorts by the
+    /// pill count descending (most first).
+    @State private var sortMode: SortMode = .alpha
+
+    /// How the sidebar source rows are ordered within each section.
+    enum SortMode: String, CaseIterable, Identifiable {
+        case alpha
+        case itemCount
+        var id: String { rawValue }
+        var label: String { self == .alpha ? "Name" : "Count" }
+    }
 
     /// Default-constructs its own observers (the live path). `View` body /
     /// property init runs on the main actor, so the @MainActor-isolated
@@ -132,6 +144,37 @@ struct SourceIndexView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
+        VStack(spacing: 0) {
+            sortHeader
+            Divider()
+            sidebarList
+        }
+    }
+
+    /// Inline sort control above the List. A `Menu` button (NOT a `.toolbar` —
+    /// this view is nested in AppNavigation's detail, where a toolbar attaches
+    /// oddly) toggling alpha ⇄ itemCount, default alpha.
+    private var sortHeader: some View {
+        HStack(spacing: 6) {
+            Text("Sort")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Sort", selection: $sortMode) {
+                ForEach(SortMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("source-index-sort-picker")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var sidebarList: some View {
         List(selection: $selectedSourceID) {
             Section {
                 MineHeroCell(
@@ -179,7 +222,7 @@ struct SourceIndexView: View {
 
     @ViewBuilder
     private var triageSection: some View {
-        let rows = observer.index.aggregatedSources
+        let rows = sorted(observer.index.aggregatedSources)
         if !rows.isEmpty {
             Section("Triage") {
                 ForEach(rows) { source in
@@ -192,7 +235,7 @@ struct SourceIndexView: View {
 
     @ViewBuilder
     private var ownSurfacesSection: some View {
-        let rows = observer.index.ownSurfaceSources
+        let rows = sorted(observer.index.ownSurfaceSources)
         if !rows.isEmpty {
             Section("Sources") {
                 ForEach(rows) { source in
@@ -201,6 +244,31 @@ struct SourceIndexView: View {
                 }
             }
         }
+    }
+
+    /// Sort source rows WITHIN a section by the active `sortMode`:
+    /// `.alpha` → `displayName` case-insensitive ascending; `.itemCount` → the
+    /// count shown in the pill (mineCount for aggregated, itemCount for
+    /// own-surface) DESCENDING (most first). Stable tie-break on displayName.
+    private func sorted(_ rows: [SourceStatus]) -> [SourceStatus] {
+        switch sortMode {
+        case .alpha:
+            return rows.sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        case .itemCount:
+            return rows.sorted {
+                let a = pillCount($0), b = pillCount($1)
+                if a != b { return a > b }
+                return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        }
+    }
+
+    /// The count rendered in the row's `HealthCountPill` — mineCount for
+    /// aggregated sources, itemCount for own-surface (matching the row).
+    private func pillCount(_ source: SourceStatus) -> Int {
+        source.inAggregate ? source.mineCount : (source.itemCount ?? 0)
     }
 
     // MARK: - Middle pane (selection-driven triage list)
@@ -340,29 +408,24 @@ private struct SourceSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Brand glyph to the LEFT of the name. Real SVG logo when svgl
+            // ships one for the source; a neutral monogram fallback otherwise
+            // (so a missing asset never blanks/crashes the row).
+            BrandGlyph(sourceID: source.id, displayName: source.displayName)
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(source.displayName)
-                        .font(.callout)
-                        .lineLimit(1)
-                    if source.canStream {
-                        LiveBadge()
-                    }
-                }
+                Text(source.displayName)
+                    .font(.callout)
+                    .lineLimit(1)
                 Text(subtitle)
                     .font(.system(size: 10.5))
                     .foregroundStyle(subtitleColor)
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if source.canSearch {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.blue)
-                    .accessibilityHidden(true)
-            }
             // Single color-coded pill: health = capsule color, count = digits.
             // Aggregated sources show mineCount; own-surface sources itemCount.
+            // (The LIVE badge + search magnifier cues were removed — the pill
+            // is now the only trailing chrome.)
             HealthCountPill(
                 health: source.health,
                 count: source.inAggregate ? source.mineCount : (source.itemCount ?? 0)
@@ -372,30 +435,26 @@ private struct SourceSidebarRow: View {
         .accessibilityIdentifier("source-row-\(source.id)")
     }
 
-    /// Subtitle keeps the kind · synced-ago line for serving rows and the
-    /// reason (no bare status token) for degraded / not-serving rows — the
-    /// pill color now conveys health.
+    /// Subtitle = "synced Xs ago" for serving rows (the produces-kind token was
+    /// dropped) and the `reason` (no bare status token) for degraded /
+    /// not-serving rows — the pill color conveys health.
     private var subtitle: String {
         switch source.health {
         case .degraded, .notServing:
             if let reason = source.healthReason, !reason.isEmpty {
                 return reason
             }
-            // No reason supplied — fall back to the kind/sync line.
+            // No reason supplied — fall back to the synced-ago line.
             return Self.servingSubtitle(for: source)
         default:
             return Self.servingSubtitle(for: source)
         }
     }
 
-    /// "kind · synced Xm ago" line shown for SERVING rows.
+    /// "synced Xm ago" line shown for SERVING rows (relative `lastSyncAt`).
     private static func servingSubtitle(for source: SourceStatus) -> String {
-        var parts: [String] = []
-        if let kind = source.producesKind, !kind.isEmpty { parts.append(kind) }
-        if let sync = source.lastSyncAt {
-            parts.append("synced \(relative.localizedString(for: sync, relativeTo: Date()))")
-        }
-        return parts.joined(separator: " · ")
+        guard let sync = source.lastSyncAt else { return "" }
+        return "synced \(relative.localizedString(for: sync, relativeTo: Date()))"
     }
 
     private var subtitleColor: Color {
@@ -411,6 +470,66 @@ private struct SourceSidebarRow: View {
         f.unitsStyle = .abbreviated
         return f
     }()
+}
+
+// MARK: - Brand glyph (left-of-name source logo)
+
+/// Renders a brand logo to the LEFT of a source name. Uses a real SVG from the
+/// `BrandLogos` asset catalog (sourced from svgl.app, "Preserves Vector Data")
+/// when one ships for the source, falling back to a neutral monogram tile for
+/// sources svgl has no logo for (ado / snow / imessage / plaid). NSImage
+/// existence is checked first so a missing asset NEVER blanks or crashes the
+/// row — the monogram always renders as a guaranteed glyph.
+private struct BrandGlyph: View {
+    let sourceID: String
+    let displayName: String
+
+    private static let dim: CGFloat = 18
+
+    var body: some View {
+        if let asset = Self.brandAssetName(for: sourceID),
+           NSImage(named: asset) != nil {
+            Image(asset)
+                .resizable()
+                .scaledToFit()
+                .frame(width: Self.dim, height: Self.dim)
+                .accessibilityHidden(true)
+        } else {
+            // Neutral monogram fallback — rounded tile + first initial.
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.secondary.opacity(0.18))
+                .frame(width: Self.dim, height: Self.dim)
+                .overlay(
+                    Text(initial)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                )
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var initial: String {
+        let s = displayName.isEmpty ? sourceID : displayName
+        return String(s.prefix(1)).uppercased()
+    }
+
+    /// Map a registry source slug to its `BrandLogos.xcassets` imageset name.
+    /// Returns nil for sources with no svgl logo so `BrandGlyph` renders the
+    /// monogram fallback instead.
+    static func brandAssetName(for sourceID: String) -> String? {
+        switch sourceID {
+        case "teams":            return "brand-teams"
+        case "outlook",
+             "outlook-calendar": return "brand-outlook"
+        case "gcal":             return "brand-google-calendar"
+        case "gmail":            return "brand-gmail"
+        case "sessions":         return "brand-claude"
+        case "health":           return "brand-apple-health"
+        // No svgl logo — fall through to the monogram fallback:
+        // ado, snow, imessage, plaid.
+        default:                 return nil
+        }
+    }
 }
 
 // MARK: - Triage list row (middle pane, selectable)
@@ -469,21 +588,6 @@ private struct TriageListRow: View {
 }
 
 // MARK: - Shared chrome
-
-private struct LiveBadge: View {
-    var body: some View {
-        Text("LIVE")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(.red)
-            .padding(.horizontal, 3)
-            .padding(.vertical, 0.5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(Color.red, lineWidth: 1)
-            )
-            .accessibilityLabel("live")
-    }
-}
 
 private struct MineBadge: View {
     let count: Int
