@@ -67,6 +67,20 @@ public enum NexusClientError: Error {
     case idleTimeout
 }
 
+/// Wire envelope for `GET /thread` — `{ "messages": [...] }`. A missing
+/// `messages` key (or empty body) decodes to an empty array so `fetchThread`
+/// degrades to `[]` instead of throwing.
+struct ThreadEnvelope: Decodable {
+    let messages: [CommsMessage]
+
+    enum CodingKeys: String, CodingKey { case messages }
+
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        self.messages = (try? c?.decode([CommsMessage].self, forKey: .messages)) ?? []
+    }
+}
+
 public actor NexusClient {
     public let endpoint: NexusEndpoint
 
@@ -122,6 +136,29 @@ public actor NexusClient {
         comps.queryItems = [URLQueryItem(name: "hours", value: String(hours))]
         guard let url = comps.url else { throw NexusClientError.badStatus(0) }
         return try await getJSON(url: url)
+    }
+
+    /// `GET /thread?source=<src>&id=<coreId>` — the on-demand conversation
+    /// thread for one comms item, oldest -> newest. The mesh wraps the rows in
+    /// `{ "messages": [...] }`. A 404 (source has no thread endpoint yet) or an
+    /// absent/empty body resolves to `[]` so the caller renders an empty state
+    /// rather than surfacing an error — every source's thread is best-effort.
+    public func fetchThread(source: String, id: String) async throws -> [CommsMessage] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("thread"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [
+            URLQueryItem(name: "source", value: source),
+            URLQueryItem(name: "id", value: id),
+        ]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: ThreadEnvelope = try await getJSON(url: url)
+            return envelope.messages
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
     }
 
     /// `PATCH /notifications/settings` — toggle TTS / provider / etc.

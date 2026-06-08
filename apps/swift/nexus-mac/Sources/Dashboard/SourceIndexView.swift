@@ -483,8 +483,7 @@ private struct SourceSidebarRow: View {
 private struct BrandGlyph: View {
     let sourceID: String
     let displayName: String
-
-    private static let dim: CGFloat = 18
+    var dim: CGFloat = 18
 
     var body: some View {
         if let asset = Self.brandAssetName(for: sourceID),
@@ -492,13 +491,13 @@ private struct BrandGlyph: View {
             Image(asset)
                 .resizable()
                 .scaledToFit()
-                .frame(width: Self.dim, height: Self.dim)
+                .frame(width: dim, height: dim)
                 .accessibilityHidden(true)
         } else {
             // Neutral monogram fallback — rounded tile + first initial.
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color.secondary.opacity(0.18))
-                .frame(width: Self.dim, height: Self.dim)
+                .frame(width: dim, height: dim)
                 .overlay(
                     Text(initial)
                         .font(.system(size: 10, weight: .bold))
@@ -537,17 +536,25 @@ private struct BrandGlyph: View {
 
 // MARK: - Triage list row (middle pane, selectable)
 
+// Redesigned per docs/nx-ui/nx-detail-redesign.html (LIST column): the SUBJECT
+// leads (bold) with a relative time trailing; the author shows ONCE plus a
+// message preview (summary) as secondary; the blue leading bar marks ONLY rows
+// where ball_in_court == mine; the per-row source/kind stamp is DROPPED (the
+// column header already names the source).
 private struct TriageListRow: View {
     let item: TriageItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
+            // Blue leading bar ONLY for "in your court" rows; transparent
+            // otherwise (keeps the text aligned across rows).
             RoundedRectangle(cornerRadius: 2)
-                .fill(lineColor)
+                .fill(item.ballInCourt == .mine ? Color.blue : Color.clear)
                 .frame(width: 3, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(item.author?.displayName ?? "—")
+                // L1: subject leads (bold) + relative time trailing.
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.title.isEmpty ? "(untitled)" : item.title)
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                     Spacer(minLength: 6)
@@ -557,30 +564,25 @@ private struct TriageListRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(item.title.isEmpty ? "(untitled)" : item.title)
-                    .font(.system(size: 13))
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(item.source)
-                        .font(.system(size: 10, weight: .semibold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
-                    Text(item.kind.rawValue)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                // L2: author ONCE + message preview (summary) as secondary.
+                HStack(spacing: 5) {
+                    if let who = item.author?.displayName, !who.isEmpty {
+                        Text(who)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
+                    if let preview = item.payload.comms?.summary, !preview.isEmpty {
+                        Text("· \(preview)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
         .accessibilityIdentifier("triage-row-\(item.id)")
-    }
-
-    private var lineColor: Color {
-        switch item.ballInCourt {
-        case .mine:    return .blue
-        case .theirs:  return .gray
-        case .unclear: return .orange
-        }
     }
 
     private static let relative: RelativeDateTimeFormatter = {
@@ -659,112 +661,197 @@ private struct FooterCountPill: View {
 // macOS target, so this view + its small local chrome mirror that logic rather
 // than importing it. READ-ONLY: the only action is the Core.url deep link.
 
+// Redesigned per docs/nx-ui/nx-detail-redesign.html. For comms-kind items
+// (email / chat / ticket / work_item / code_review) the layout is, top-to-bottom:
+// STATUS BANNER → IDENTITY HEADER → CONVERSATION THREAD → "WHY IT'S HERE" callout
+// → COMPACT METADATA row → ACTIONS. Non-comms payloads (calendar / finance /
+// health / session) keep their existing per-family body render under the same
+// header + actions chrome. READ-ONLY: the only mutations are local (copy) or a
+// hand-off (Open in source via Core.url).
 struct TriageDetailView: View {
     let item: TriageItem
 
+    /// Whether to show the conversation thread (comms families only).
+    private var isComms: Bool {
+        switch item.kind {
+        case .email, .chatMessage, .ticket, .workItem, .codeReview: return true
+        default: return false
+        }
+    }
+
     var body: some View {
-        List {
-            coreSection
-            payloadSection
-            if let url = item.url, let link = URL(string: url) {
-                Section {
-                    Link(destination: link) {
-                        Label("Open in \(item.source)", systemImage: "arrow.up.right.square")
-                    }
-                    .accessibilityIdentifier("detail-open-in-source")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                StatusBanner(item: item)
+
+                identityHeader
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 4)
+
+                if isComms {
+                    ConversationThread(item: item)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
+                    whyCallout
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                } else {
+                    // Non-comms payloads keep their structured per-family body.
+                    payloadBody
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
                 }
+
+                compactMetadata
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
             }
         }
-        .listStyle(.inset)
+        .safeAreaInset(edge: .bottom) { actionsBar }
         .navigationTitle(item.title.isEmpty ? "Detail" : item.title)
         .accessibilityIdentifier("triage-detail-view")
     }
 
-    // MARK: Core spine (always)
+    // MARK: Identity header (one line: avatar + author + source + relative time)
 
-    private var coreSection: some View {
-        Section("Core") {
-            HStack(spacing: 8) {
-                Image(systemName: DetailGlyph.symbol(for: item.kind))
-                    .foregroundStyle(.blue)
-                Text("\(item.source.uppercased()) · \(item.kind.rawValue)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            Text(item.title.isEmpty ? "(untitled)" : item.title)
-                .font(.headline)
-
-            HStack {
-                Text("Ball in court").foregroundStyle(.secondary)
-                Spacer()
-                DetailBallChip(ball: item.ballInCourt)
-            }
-
-            if let author = item.author {
-                LabeledContent("Author") {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(author.displayName)
-                        if let h = author.handle {
-                            Text(h).font(.caption2).foregroundStyle(.secondary)
-                        }
+    private var identityHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            DetailAvatar(name: item.author?.displayName ?? item.source)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title.isEmpty ? "(untitled)" : item.title)
+                    .font(.system(size: 18, weight: .bold))
+                    .lineLimit(2)
+                HStack(spacing: 7) {
+                    BrandGlyph(sourceID: item.source, displayName: item.source, dim: 14)
+                    Text(item.source.capitalized)
+                        .foregroundStyle(.secondary)
+                    if let who = item.author?.displayName, !who.isEmpty {
+                        Text("· \(who)").foregroundStyle(.secondary)
+                    }
+                    if let ts = item.lastActivityAt ?? item.createdAt {
+                        Text("· \(Self.ago(ts))").foregroundStyle(.secondary)
                     }
                 }
+                .font(.system(size: 12))
+                .lineLimit(1)
             }
-            if !item.participants.isEmpty {
-                LabeledContent("Participants",
-                               value: item.participants.map(\.displayName).joined(separator: ", "))
-                    .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .accessibilityIdentifier("detail-identity-header")
+    }
+
+    // MARK: "Why it's here" callout (disposition_evidence, fallback summary)
+
+    @ViewBuilder
+    private var whyCallout: some View {
+        if let why = item.payload.comms?.dispositionEvidence ?? item.payload.comms?.summary,
+           !why.isEmpty {
+            HStack(alignment: .top, spacing: 0) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.gray.opacity(0.6))
+                    .frame(width: 3)
+                (Text("Why it's here:  ").font(.system(size: 12.5, weight: .semibold))
+                    + Text(why).font(.system(size: 12.5).italic()))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 11)
             }
-            if let created = item.createdAt {
-                LabeledContent("Created", value: Self.ago(created))
-            }
-            if let last = item.lastActivityAt {
-                LabeledContent("Last activity", value: Self.ago(last))
-            }
-            if !item.stillPresentUpstream {
-                Label(
-                    "May have been resolved upstream — last seen \(Self.ago(item.lastSeenAt))",
-                    systemImage: "clock.arrow.circlepath"
-                )
-                .font(.caption)
-                .foregroundStyle(.orange)
-            }
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("detail-why-callout")
         }
     }
 
-    // MARK: Payload body (varies by case)
+    // MARK: Compact metadata row (only NON-empty values)
 
-    @ViewBuilder
-    private var payloadSection: some View {
-        switch item.payload {
-        case .comms(let b):    commsBody(b)
-        case .calendar(let b): calendarBody(b)
-        case .finance(let b):  financeBody(b)
-        case .health(let b):   healthBody(b)
-        case .session(let b):  sessionBody(b)
-        case .unknown:         EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private func commsBody(_ b: CommsBody) -> some View {
-        Section("Message") {
-            if let s = b.summary { Text(s) }
-            if let body = b.body, body != b.summary {
-                Text(body).font(.callout).foregroundStyle(.secondary)
-            }
-            HStack {
-                if b.priority != .normal && b.priority != .low {
-                    DetailPill(text: b.priority.label, tint: b.priority == .urgent ? .red : .orange, filled: true)
+    private var compactMetadata: some View {
+        let parts = item.participants.isEmpty
+            ? nil
+            : item.participants.map(\.displayName).joined(separator: ", ")
+        return VStack(alignment: .leading, spacing: 0) {
+            Divider().padding(.bottom, 12)
+            // Wrapping flow of "Label value" chips — only filled values appear.
+            FlowMetaRow {
+                if let parts { MetaKV(label: "Participants", value: parts) }
+                if let created = item.createdAt { MetaKV(label: "Started", value: Self.ago(created)) }
+                if let last = item.lastActivityAt { MetaKV(label: "Last activity", value: Self.ago(last)) }
+                if !item.stillPresentUpstream {
+                    MetaKV(label: "Upstream", value: "may be resolved · last seen \(Self.ago(item.lastSeenAt))")
                 }
-                DetailPill(text: b.suggestedDisposition.label, tint: .blue)
-                if let up = b.upstreamState { DetailPill(text: up) }
-            }
-            if let ev = b.dispositionEvidence {
-                Label(ev, systemImage: "lightbulb")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
+        .accessibilityIdentifier("detail-meta-row")
+    }
+
+    // MARK: Actions bar (primary Open in source + Copy link / Copy text)
+
+    private var actionsBar: some View {
+        HStack(spacing: 10) {
+            if let url = item.url, let link = URL(string: url) {
+                Link(destination: link) {
+                    HStack(spacing: 7) {
+                        BrandGlyph(sourceID: item.source, displayName: item.source, dim: 15)
+                        Text("Open in \(item.source.capitalized)")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 8))
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("detail-open-in-source")
+
+                Button("Copy link") {
+                    copyToPasteboard(url)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("detail-copy-link")
+            }
+            Button("Copy text") {
+                copyToPasteboard(copyableText)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("detail-copy-text")
+
+            Spacer(minLength: 0)
+            Text("↵ open · ⌘C copy")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .background(.bar)
+        .overlay(Divider(), alignment: .top)
+    }
+
+    private var copyableText: String {
+        let lines = [item.title, item.payload.comms?.summary, item.payload.comms?.body]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return lines.joined(separator: "\n\n")
+    }
+
+    private func copyToPasteboard(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+
+    // MARK: Non-comms payload body (calendar / finance / health / session)
+
+    @ViewBuilder
+    private var payloadBody: some View {
+        List {
+            switch item.payload {
+            case .calendar(let b): calendarBody(b)
+            case .finance(let b):  financeBody(b)
+            case .health(let b):   healthBody(b)
+            case .session(let b):  sessionBody(b)
+            case .comms, .unknown: EmptyView()
+            }
+        }
+        .listStyle(.inset)
+        .frame(minHeight: 280)
+        .scrollDisabled(true)
     }
 
     @ViewBuilder
@@ -896,53 +983,6 @@ struct TriageDetailView: View {
 
 // MARK: - Detail chrome (macOS-local; mirrors iOS TriageShared)
 
-private enum DetailGlyph {
-    static func symbol(for kind: TriageKind) -> String {
-        switch kind {
-        case .email:         return "envelope"
-        case .chatMessage:   return "bubble.left.and.bubble.right"
-        case .ticket:        return "ticket"
-        case .workItem:      return "checklist"
-        case .codeReview:    return "arrow.triangle.pull"
-        case .calendarEvent: return "calendar"
-        case .financeTxn:    return "creditcard"
-        case .healthMetric:  return "heart"
-        case .codeSession:   return "terminal"
-        default:             return "circle"
-        }
-    }
-}
-
-private struct DetailBallChip: View {
-    let ball: BallInCourt
-
-    var body: some View {
-        Text(label)
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color, in: Capsule())
-            .accessibilityLabel("ball in court \(label)")
-    }
-
-    private var label: String {
-        switch ball {
-        case .mine:    return "MINE"
-        case .theirs:  return "THEIRS"
-        case .unclear: return "UNCLEAR"
-        }
-    }
-
-    private var color: Color {
-        switch ball {
-        case .mine:    return .blue
-        case .theirs:  return .gray
-        case .unclear: return .orange
-        }
-    }
-}
-
 private struct DetailPill: View {
     let text: String
     var tint: Color = .secondary
@@ -961,6 +1001,235 @@ private struct DetailPill: View {
                     RoundedRectangle(cornerRadius: 4).stroke(tint.opacity(0.5), lineWidth: 1)
                 }
             }
+    }
+}
+
+// MARK: - Status banner (disposition-driven; first thing the eye lands on)
+
+/// Color + label by the comms disposition / ball-in-court (per the redesign):
+/// resolved → green "Likely resolved — no action needed", inbox/mine → blue
+/// "Your move", waiting → gray "Waiting on them", open → blue. Non-comms items
+/// fall back to the ball-in-court read.
+private struct StatusBanner: View {
+    let item: TriageItem
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: spec.symbol)
+                .font(.system(size: 13, weight: .bold))
+            Text(spec.label)
+                .font(.system(size: 13, weight: .semibold))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(spec.tint)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(spec.tint.opacity(0.14))
+        .overlay(Divider(), alignment: .bottom)
+        .accessibilityIdentifier("detail-status-banner")
+        .accessibilityLabel(spec.label)
+    }
+
+    private struct Spec { let label: String; let symbol: String; let tint: Color }
+
+    private var spec: Spec {
+        if let d = item.payload.comms?.suggestedDisposition {
+            switch d {
+            case .resolved:
+                return Spec(label: "Likely resolved — no action needed", symbol: "checkmark", tint: .green)
+            case .waiting:
+                return Spec(label: "Waiting on them", symbol: "hourglass", tint: .gray)
+            case .inbox, .open:
+                return item.ballInCourt == .mine
+                    ? Spec(label: "Your move", symbol: "arrow.turn.up.right", tint: .blue)
+                    : Spec(label: "Open", symbol: "tray", tint: .blue)
+            }
+        }
+        // Non-comms: read off ball-in-court.
+        switch item.ballInCourt {
+        case .mine:    return Spec(label: "Your move", symbol: "arrow.turn.up.right", tint: .blue)
+        case .theirs:  return Spec(label: "Waiting on them", symbol: "hourglass", tint: .gray)
+        case .unclear: return Spec(label: "Needs a look", symbol: "questionmark.circle", tint: .blue)
+        }
+    }
+}
+
+// MARK: - Conversation thread (on-demand /thread fetch -> message bubbles)
+
+/// Fetches the item's thread on appear (and on item change) via
+/// `NexusClient.fetchThread`, rendering message bubbles: incoming = gray
+/// leading, outgoing (`self`) = blue trailing. Loading + empty states. A
+/// "View earlier in <source>" deep-link (Core.url) sits at the top. Renders
+/// ANY source's messages — independent of Stage 2.
+private struct ConversationThread: View {
+    let item: TriageItem
+
+    @State private var messages: [CommsMessage] = []
+    @State private var phase: Phase = .loading
+
+    private enum Phase: Equatable { case loading, loaded, empty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("Conversation")
+                .font(.system(size: 10.5, weight: .semibold))
+                .kerning(0.6)
+                .textCase(.uppercase)
+                .foregroundStyle(.tertiary)
+
+            switch phase {
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading conversation…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("detail-thread-loading")
+            case .empty:
+                Text("No earlier messages available for this item.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("detail-thread-empty")
+            case .loaded:
+                if let url = item.url, let link = URL(string: url) {
+                    Link(destination: link) {
+                        Text("View earlier in \(item.source.capitalized) →")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("detail-thread-earlier-link")
+                }
+                ForEach(messages) { msg in
+                    MessageBubble(message: msg)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("detail-conversation-thread")
+        .task(id: item.id) { await load() }
+    }
+
+    private func load() async {
+        phase = .loading
+        // Qualify: the nexus-mac target compiles its OWN pre-XcodeGen
+        // `nexus/nexus/NexusClient.swift` (an actor without /thread), so an
+        // unqualified `NexusClient()` would resolve to that one. Use the
+        // NexusShared client that carries `fetchThread`.
+        let client = NexusShared.NexusClient()
+        let result = (try? await client.fetchThread(source: item.source, id: item.id)) ?? []
+        messages = result
+        phase = result.isEmpty ? .empty : .loaded
+    }
+}
+
+/// One conversation bubble. `self` (outgoing) renders blue + trailing; incoming
+/// renders gray + leading, both with the sender name + relative time.
+private struct MessageBubble: View {
+    let message: CommsMessage
+
+    var body: some View {
+        HStack {
+            if message.isSelf { Spacer(minLength: 40) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.isSelf ? "You" : message.author)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(message.isSelf ? Color.white.opacity(0.75) : .secondary)
+                Text(message.text)
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(message.isSelf ? .white : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let ts = message.ts {
+                    Text(Self.relative.localizedString(for: ts, relativeTo: Date()))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(message.isSelf ? Color.white.opacity(0.55) : Color.secondary)
+                        .frame(maxWidth: .infinity, alignment: message.isSelf ? .trailing : .leading)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(
+                message.isSelf ? Color.blue : Color.secondary.opacity(0.16),
+                in: RoundedRectangle(cornerRadius: 14)
+            )
+            .frame(maxWidth: 360, alignment: message.isSelf ? .trailing : .leading)
+            if !message.isSelf { Spacer(minLength: 40) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(message.isSelf ? "You" : message.author): \(message.text)")
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+}
+
+// MARK: - Detail avatar (initials monogram)
+
+private struct DetailAvatar: View {
+    let name: String
+
+    var body: some View {
+        Text(monogram)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(
+                LinearGradient(colors: [Color(white: 0.36), Color(white: 0.28)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: Circle()
+            )
+            .accessibilityHidden(true)
+    }
+
+    private var monogram: String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first.map(String.init) }.joined().uppercased()
+        return letters.isEmpty ? "?" : letters
+    }
+}
+
+// MARK: - Compact metadata chip + wrapping row
+
+private struct MetaKV: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        (Text("\(label)  ").font(.system(size: 12)).foregroundStyle(.tertiary)
+            + Text(value).font(.system(size: 12)).foregroundStyle(.secondary))
+            .lineLimit(1)
+    }
+}
+
+/// Minimal wrapping layout for the metadata chips (only filled values are
+/// passed in, so empties are suppressed before this ever sees them).
+private struct FlowMetaRow: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        let hGap: CGFloat = 18, vGap: CGFloat = 6
+        for sv in subviews {
+            let s = sv.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > maxWidth { x = 0; y += rowH + vGap; rowH = 0 }
+            x += s.width + hGap
+            rowH = max(rowH, s.height)
+        }
+        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        let hGap: CGFloat = 18, vGap: CGFloat = 6
+        for sv in subviews {
+            let s = sv.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + s.width > bounds.maxX { x = bounds.minX; y += rowH + vGap; rowH = 0 }
+            sv.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + hGap
+            rowH = max(rowH, s.height)
+        }
     }
 }
 

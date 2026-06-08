@@ -136,6 +136,7 @@
 		C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */; };
 		CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */; };
 		CE8EA1EBE08190D8CD58943B /* HealthMetricsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688CE97B4A7C0E18066AF6E4 /* HealthMetricsScene.swift */; };
+		D09953FEFC90DB68D6A6E014 /* CommsMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C2568BDA318EAA7D351F79 /* CommsMessage.swift */; };
 		D0F784EFEEDCC3FA27A860C0 /* TriageShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34D688E43CEFE5F44BE0953 /* TriageShared.swift */; };
 		D1B25E27984FCD6A9442A0C2 /* HealthSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */; };
 		D1EDA0FE8AF902AD35250D5C /* CredentialsUsageBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */; };
@@ -458,6 +459,7 @@
 		F0B6FA9ADE337E941DB0ADB5 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardNavigationCoordinator.swift; sourceTree = "<group>"; };
 		F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
+		F8C2568BDA318EAA7D351F79 /* CommsMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommsMessage.swift; sourceTree = "<group>"; };
 		F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsView.swift; sourceTree = "<group>"; };
 		FA0C0A15C297BEA453820EEB /* ProjectVoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVoicesView.swift; sourceTree = "<group>"; };
 		FC8713A6F0FF55E278958C07 /* ElevenLabsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsClient.swift; sourceTree = "<group>"; };
@@ -738,6 +740,7 @@
 			children = (
 				82E8C108E1340EBB0A56B793 /* AggregateState.swift */,
 				CE0491406946C9544A414272 /* CcProfile.swift */,
+				F8C2568BDA318EAA7D351F79 /* CommsMessage.swift */,
 				1A1FC35BEFA043E53A32AFC2 /* GitMetadata.swift */,
 				E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */,
 				3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */,
@@ -1325,6 +1328,7 @@
 				458A85E0C9EE76D32DDB8873 /* AgentsConfigStore.swift in Sources */,
 				AA4B77ABFB54B52F627F6D8A /* AggregateState.swift in Sources */,
 				E6BDF54CB91D8971AE88B65B /* CcProfile.swift in Sources */,
+				D09953FEFC90DB68D6A6E014 /* CommsMessage.swift in Sources */,
 				FC165B57A2DFA0DB6EAF8B34 /* ElevenLabsClient.swift in Sources */,
 				F95CC095C27794741B55CD04 /* GitMetadata.swift in Sources */,
 				927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */,
