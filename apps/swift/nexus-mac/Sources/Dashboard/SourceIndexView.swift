@@ -71,11 +71,12 @@ struct SourceIndexView: View {
                 // Sidebar keeps a max cap so it stays a true sidebar column.
                 .frame(minWidth: 220, idealWidth: 248, maxWidth: 300, maxHeight: .infinity)
             contentPane
-                // maxWidth/maxHeight .infinity so the middle pane FILLS the
-                // available space — no dead gap between it and the detail pane.
-                .frame(minWidth: 300, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                // CAPPED: the source-items list is bounded so it never grabs
+                // more than ~420pt — the detail pane absorbs the remaining width.
+                .frame(minWidth: 300, idealWidth: 360, maxWidth: 420, maxHeight: .infinity)
             detailPane
-                .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+                // Flexible: takes ALL remaining width after sidebar + list caps.
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Sources")
         .accessibilityIdentifier("source-index-view")
@@ -250,23 +251,24 @@ struct SourceIndexView: View {
     }
 
     private var statusFooter: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             if observer.index.aggregatedSources.isEmpty {
                 Text("aggregate status pending")
+                    .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
             } else {
-                // Color-coded per-source fragments, mirroring the wireframe's
-                // green/red/orange CLI footer.
-                ForEach(Array(observer.index.aggregatedSources.enumerated()), id: \.element.id) { idx, source in
-                    if idx > 0 {
-                        Text(" | ").foregroundStyle(.tertiary)
+                // Per-source: name + a small color-coded count pill (health =
+                // pill color, count = digits). No status word — the color says it.
+                ForEach(observer.index.aggregatedSources) { source in
+                    HStack(spacing: 3) {
+                        Text(source.id)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        FooterCountPill(health: source.health, count: source.itemCount ?? source.mineCount)
                     }
-                    Text(source.footerFragment)
-                        .foregroundStyle(footerColor(for: source.health))
                 }
             }
         }
-        .font(.system(.caption2, design: .monospaced))
         .lineLimit(1)
         .truncationMode(.tail)
         .padding(.horizontal, 12)
@@ -289,15 +291,6 @@ struct SourceIndexView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("source-index-detail-empty")
-        }
-    }
-
-    private func footerColor(for health: SourceHealth) -> Color {
-        switch health {
-        case .serving:    return .green
-        case .degraded:   return .orange
-        case .notServing: return .red
-        case .unknown:    return .secondary
         }
     }
 }
@@ -352,7 +345,6 @@ private struct SourceSidebarRow: View {
                     Text(source.displayName)
                         .font(.callout)
                         .lineLimit(1)
-                    HealthDot(health: source.health)
                     if source.canStream {
                         LiveBadge()
                     }
@@ -369,41 +361,41 @@ private struct SourceSidebarRow: View {
                     .foregroundStyle(.blue)
                     .accessibilityHidden(true)
             }
-            trailingCount
+            // Single color-coded pill: health = capsule color, count = digits.
+            // Aggregated sources show mineCount; own-surface sources itemCount.
+            HealthCountPill(
+                health: source.health,
+                count: source.inAggregate ? source.mineCount : (source.itemCount ?? 0)
+            )
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("source-row-\(source.id)")
     }
 
-    /// Aggregated rows show the MINE badge; own-surface rows show a plain
-    /// item-count pill (per the wireframe: sessions/health/plaid carry no
-    /// MINE badge).
-    @ViewBuilder
-    private var trailingCount: some View {
-        if source.inAggregate {
-            MineBadge(count: source.mineCount)
-        } else if let n = source.itemCount {
-            Text("\(n)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-    }
-
+    /// Subtitle keeps the kind · synced-ago line for serving rows and the
+    /// reason (no bare status token) for degraded / not-serving rows — the
+    /// pill color now conveys health.
     private var subtitle: String {
         switch source.health {
         case .degraded, .notServing:
             if let reason = source.healthReason, !reason.isEmpty {
-                return "\(source.health.footerToken) · \(reason)"
+                return reason
             }
-            return source.health.footerToken
+            // No reason supplied — fall back to the kind/sync line.
+            return Self.servingSubtitle(for: source)
         default:
-            var parts: [String] = []
-            if let kind = source.producesKind, !kind.isEmpty { parts.append(kind) }
-            if let sync = source.lastSyncAt {
-                parts.append("synced \(Self.relative.localizedString(for: sync, relativeTo: Date()))")
-            }
-            return parts.joined(separator: " · ")
+            return Self.servingSubtitle(for: source)
         }
+    }
+
+    /// "kind · synced Xm ago" line shown for SERVING rows.
+    private static func servingSubtitle(for source: SourceStatus) -> String {
+        var parts: [String] = []
+        if let kind = source.producesKind, !kind.isEmpty { parts.append(kind) }
+        if let sync = source.lastSyncAt {
+            parts.append("synced \(relative.localizedString(for: sync, relativeTo: Date()))")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var subtitleColor: Color {
@@ -478,26 +470,6 @@ private struct TriageListRow: View {
 
 // MARK: - Shared chrome
 
-private struct HealthDot: View {
-    let health: SourceHealth
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .accessibilityLabel(health.footerToken)
-    }
-
-    private var color: Color {
-        switch health {
-        case .serving:    return .green
-        case .degraded:   return .orange
-        case .notServing: return .red
-        case .unknown:    return .gray
-        }
-    }
-}
-
 private struct LiveBadge: View {
     var body: some View {
         Text("LIVE")
@@ -524,6 +496,51 @@ private struct MineBadge: View {
             .padding(.horizontal, 4)
             .background(count == 0 ? Color.gray.opacity(0.6) : Color.blue, in: Capsule())
             .accessibilityLabel("\(count) in your court")
+    }
+}
+
+/// Color-coded count pill: the capsule background encodes source HEALTH
+/// (serving→green, degraded→orange, notServing→red, unknown→gray) and the
+/// monospaced-digit text is the COUNT. Unifies the old HealthDot + count badge
+/// into one badge — the color now conveys health, so no status word is needed.
+private struct HealthCountPill: View {
+    let health: SourceHealth
+    let count: Int
+
+    var body: some View {
+        Text("\(count)")
+            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Self.color(for: health), in: Capsule())
+            .accessibilityLabel("\(count) items, \(health.footerToken)")
+    }
+
+    static func color(for health: SourceHealth) -> Color {
+        switch health {
+        case .serving:    return .green
+        case .degraded:   return .orange
+        case .notServing: return .red
+        case .unknown:    return .gray
+        }
+    }
+}
+
+/// Compact footer variant of the color-coded count pill (smaller type/padding
+/// to sit on the one-line CLI-style status footer). Same color logic.
+private struct FooterCountPill: View {
+    let health: SourceHealth
+    let count: Int
+
+    var body: some View {
+        Text("\(count)")
+            .font(.system(size: 9, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(HealthCountPill.color(for: health), in: Capsule())
+            .accessibilityLabel("\(count) items, \(health.footerToken)")
     }
 }
 
