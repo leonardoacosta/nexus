@@ -29,6 +29,10 @@ import UIKit
 
 private let attachLog = Logger(subsystem: "dev.priceless.nexus", category: "AttachSceneIOS")
 
+/// Diagnostic PTY logger (mx-rkir.6/.8) — `.notice` so it streams via
+/// `devicectl device console`; grep tag `NXPTY`.
+private let nxptyLog = Logger(subsystem: "dev.priceless.nexus", category: "pty")
+
 struct AttachScene: View {
     let sessionId: String
 
@@ -117,11 +121,13 @@ struct AttachScene: View {
         guard resolved == nil else { return }
         guard let match = observer.sessions.first(where: { $0.id == sessionId }) else {
             attachLog.debug("nx-rkir8 resolveOnce: row not present yet for id=\(sessionId, privacy: .public) (keep Connecting…)")
+            nxptyLog.notice("NXPTY attach.render branch=connecting sid=\(sessionId, privacy: .public) resolved=false tmux=nil sessionType=nil")
             return
         }
         resolved = match
-        let branch = match.tmuxTarget == nil ? "not-attachable" : "terminal"
+        let branch = match.tmuxTarget == nil ? "notAttachable" : "terminal"
         attachLog.debug("nx-rkir8 resolveOnce FROZEN branch=\(branch, privacy: .public) id=\(match.id, privacy: .public) tmux=\(match.tmuxTarget ?? "nil", privacy: .public) status=\(match.status, privacy: .public)")
+        nxptyLog.notice("NXPTY attach.render branch=\(branch, privacy: .public) sid=\(match.id, privacy: .public) resolved=true tmux=\(match.tmuxTarget ?? "nil", privacy: .public) sessionType=\(match.sessionType ?? "nil", privacy: .public)")
     }
 
     @ViewBuilder

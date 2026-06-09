@@ -37,6 +37,10 @@ import SwiftTerm
 
 private let ptySessionLog = Logger(subsystem: "dev.priceless.nexus", category: "PtySessionIOS")
 
+/// Diagnostic PTY logger (mx-rkir.6/.8) — `.notice` so it streams via
+/// `devicectl device console`; grep tag `NXPTY`.
+private let nxptyLog = Logger(subsystem: "dev.priceless.nexus", category: "pty")
+
 @MainActor
 final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     @Binding var status: AttachStatus
@@ -98,6 +102,7 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
 
         let initialTerm = view.getTerminal()
         ptySessionLog.debug("nx-rkir6 connect sid=\(session.id, privacy: .public) managed=\(self.isManaged, privacy: .public) bounds=\(view.bounds.width, privacy: .public)x\(view.bounds.height, privacy: .public) grid=\(initialTerm.cols, privacy: .public)x\(initialTerm.rows, privacy: .public)")
+        nxptyLog.notice("NXPTY connect sid=\(session.id, privacy: .public) managed=\(self.isManaged, privacy: .public) tmux=\(tmuxTarget, privacy: .public) bounds=\(Int(view.bounds.width), privacy: .public)x\(Int(view.bounds.height), privacy: .public) grid=\(initialTerm.cols, privacy: .public)x\(initialTerm.rows, privacy: .public)")
 
         // Drain anything that arrived before the view mounted.
         if !preAttachBuffer.isEmpty {
@@ -110,6 +115,10 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         // 4009 writer-denied close flips the channel read-only internally.
         if isManaged {
             await client.openInteract(sessionId: session.id, originAgent: session.agent)
+            let readOnly = await client.isInteractReadOnly(originAgent: session.agent)
+            nxptyLog.notice("NXPTY interact opened sid=\(session.id, privacy: .public) readOnly=\(readOnly, privacy: .public)")
+        } else {
+            nxptyLog.notice("NXPTY interact skipped sid=\(session.id, privacy: .public) reason=non-managed")
         }
 
         let sid = session.id
@@ -191,6 +200,7 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         let sid = sessionId
         let origin = originAgent
         ptySessionLog.debug("nx-rkir6 requestResize(\(reason, privacy: .public)) grid=\(cols, privacy: .public)x\(rows, privacy: .public) sid=\(sid, privacy: .public)")
+        nxptyLog.notice("NXPTY requestResize cols=\(cols, privacy: .public) rows=\(rows, privacy: .public) reason=\(reason, privacy: .public) sid=\(sid, privacy: .public)")
         Task { [client] in
             do {
                 try await client.requestResize(sessionId: sid, cols: cols, rows: rows, originAgent: origin)
@@ -214,6 +224,9 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
 
     private func feed(data: Data) async {
         connectWatchdog?.cancel(); connectWatchdog = nil
+        if !sawFirstByte {
+            nxptyLog.notice("NXPTY firstByte len=\(data.count, privacy: .public) sid=\(self.sessionId, privacy: .public)")
+        }
         sawFirstByte = true
         status = .connected
         let bytes = [UInt8](data)
@@ -238,6 +251,7 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     /// phone's cols/rows anyway, so there is nothing to adopt.
     private func applyGeometry(cols: Int, rows: Int) async {
         ptySessionLog.debug("nx-rkir6 applyGeometry(NO-OP, phone owns grid) agent-reported=\(cols, privacy: .public)x\(rows, privacy: .public) phone=\(self.lastPushedCols, privacy: .public)x\(self.lastPushedRows, privacy: .public)")
+        nxptyLog.notice("NXPTY geometry server cols=\(cols, privacy: .public) rows=\(rows, privacy: .public) phone=\(self.lastPushedCols, privacy: .public)x\(self.lastPushedRows, privacy: .public)")
         // Intentionally a no-op for local-grid sizing — see take-over rationale
         // above. Kept as a delegate sink so the stream's .geometry events are
         // consumed without forcing the desktop grid onto the phone.
@@ -260,7 +274,7 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         guard isManaged else { return }
         let payload = Data(data)
         let origin = originAgent
-        ptySessionLog.debug("nx-rkir6 send bytes=\(payload.count, privacy: .public)")
+        nxptyLog.notice("NXPTY send bytes=\(payload.count, privacy: .public) managed=\(self.isManaged, privacy: .public) sid=\(self.sessionId, privacy: .public)")
         Task { [client] in
             await client.sendInteractiveInput(payload, originAgent: origin)
         }

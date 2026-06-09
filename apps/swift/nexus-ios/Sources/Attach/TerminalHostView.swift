@@ -22,6 +22,10 @@ import SwiftTerm
 
 private let ptyHostLog = Logger(subsystem: "dev.priceless.nexus", category: "PtyHostIOS")
 
+/// Diagnostic PTY logger (mx-rkir.6/.8) — `.notice` so it streams via
+/// `devicectl device console`; grep tag `NXPTY`.
+private let nxptyLog = Logger(subsystem: "dev.priceless.nexus", category: "pty")
+
 /// SwiftTerm `TerminalView` subclass that reports EVERY settled layout pass.
 ///
 /// ROOT-CAUSE FIX (mx-rkir.6): a bare `TerminalView` built with `TerminalView()`
@@ -60,6 +64,7 @@ final class PhoneTerminalView: SwiftTerm.TerminalView {
         let cellW = cols > 0 ? optimal.width / CGFloat(cols) : 0
         let cellH = rows > 0 ? optimal.height / CGFloat(rows) : 0
         ptyHostLog.debug("nx-rkir6 layout bounds=\(b.width, privacy: .public)x\(b.height, privacy: .public) cellW=\(cellW, privacy: .public) cellH=\(cellH, privacy: .public) grid=\(cols, privacy: .public)x\(rows, privacy: .public)")
+        nxptyLog.notice("NXPTY layout bounds=\(Int(b.width), privacy: .public)x\(Int(b.height), privacy: .public) cell=\(String(format: "%.1f", cellW), privacy: .public)x\(String(format: "%.1f", cellH), privacy: .public) computedGrid=\(cols, privacy: .public)x\(rows, privacy: .public)")
         onSettledLayout?(cols, rows, b)
     }
 }

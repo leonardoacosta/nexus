@@ -16,6 +16,12 @@
 
 import SwiftUI
 import NexusShared
+import os
+
+/// Diagnostic PTY logger (mx-rkir.6/.8). `.notice` level so the lines stream via
+/// `xcrun devicectl device console` (debug/info are NOT captured on-device).
+/// Grep tag `NXPTY` in every message; subsystem/category fixed for filtering.
+private let nxptyLog = Logger(subsystem: "dev.priceless.nexus", category: "pty")
 
 struct SessionsArchetypeScene: View {
     @EnvironmentObject private var observer: SessionObserver
@@ -95,7 +101,10 @@ struct SessionsArchetypeScene: View {
     /// open Attach if the tapped row is still in the most recent fetch.
     private func handleTap(_ session: Session) {
         let stillLive = observer.sessions.contains { $0.id == session.id }
+        let derived = SessionDisplayStatus.derive(from: session)
+        nxptyLog.notice("NXPTY tap sid=\(session.id, privacy: .public) stillLive=\(stillLive, privacy: .public) status=\(derived.accessibilityLabel, privacy: .public)")
         guard stillLive else {
+            nxptyLog.notice("NXPTY tap->staleToast sid=\(session.id, privacy: .public)")
             staleToast = "session ended — \(repoTail(for: session))"
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -103,6 +112,7 @@ struct SessionsArchetypeScene: View {
             }
             return
         }
+        nxptyLog.notice("NXPTY tap->attach sid=\(session.id, privacy: .public)")
         navigation.attachingSessionId = session.id
     }
 
