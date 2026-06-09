@@ -63,20 +63,20 @@ struct RootScene: View {
                 Label("Sessions", systemImage: "terminal")
             }
         }
-        // mx-7i4k: deep-link a notification-banner tap straight to the
-        // originating session's detail. NexusAppDelegate.didReceive posts
+        // mx-7i4k + mx-rkir.3: deep-link a notification-banner tap straight to
+        // the originating session's LIVE PTY. NexusAppDelegate.didReceive posts
         // `.nexusOpenSessionDetail` (object: sessionId) from `userInfo.sessionId`;
         // we observe it here at the always-mounted root (the previous observer
         // lived in SessionListScene, which RootScene's tab layout never mounts,
-        // so the post went nowhere). Setting `selectedSessionId` presents the
-        // detail sheet below, reusing the existing `.sheet(item:)` +
-        // SessionIdBox pattern. SessionDetailScene's Attach CTA then drives
-        // `attachingSessionId` -> the attach sheet, completing the chain.
+        // so the post went nowhere). Setting `attachingSessionId` presents the
+        // EXISTING attach sheet below — Leo wants the tap to land on the live
+        // terminal, not the metadata detail. SessionDetailScene stays reachable
+        // from the session list (its Attach CTA also sets `attachingSessionId`).
         .onReceive(NotificationCenter.default.publisher(
             for: .nexusOpenSessionDetail
         )) { note in
             if let id = note.object as? String {
-                navigation.selectedSessionId = id
+                navigation.attachingSessionId = id
             }
         }
         .sheet(item: Binding(

@@ -1,6 +1,7 @@
 // TerminalHostView — SwiftTerm UIView bridge.
 //
 // Spec: openspec/changes/scaffold-nexus-ios-target (task 1.4)
+// bd:mx-rkir.3 — live PTY attach (no longer a stub).
 //
 // SwiftTerm is added as an SPM dependency in apps/swift/project.yml.
 // This file imports it via `#if canImport(SwiftTerm)` so the source tree
@@ -20,6 +21,11 @@ import SwiftTerm
 struct TerminalHostView: UIViewRepresentable {
     let session: Session
     let tmuxTarget: String
+    /// Shared aggregate transport from the app's SessionObserver — the live
+    /// PTY attach reuses the same client (and resolved endpoint) the rest of
+    /// the iOS app talks to. Threaded in (not constructed) so we never spin up
+    /// a second endpoint-resolution path.
+    let client: NexusAggregateClient
     @Binding var status: AttachStatus
 
     func makeUIView(context: Context) -> TerminalView {
@@ -37,8 +43,12 @@ struct TerminalHostView: UIViewRepresentable {
 
     func updateUIView(_ uiView: TerminalView, context: Context) {}
 
+    static func dismantleUIView(_ uiView: TerminalView, coordinator: SshTerminalSession) {
+        coordinator.disconnect()
+    }
+
     func makeCoordinator() -> SshTerminalSession {
-        SshTerminalSession(statusBinding: $status)
+        SshTerminalSession(statusBinding: $status, client: client)
     }
 }
 
@@ -50,6 +60,7 @@ struct TerminalHostView: UIViewRepresentable {
 struct TerminalHostView: View {
     let session: Session
     let tmuxTarget: String
+    let client: NexusAggregateClient
     @Binding var status: AttachStatus
 
     var body: some View {
