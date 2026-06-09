@@ -99,12 +99,12 @@ actor HealthKitMedBridge {
             log.info("HKMedicationDoseEvent type unavailable at runtime; med bridge disabled")
             return
         }
-        do {
-            try await requestAuthorization()
-        } catch {
-            log.error("med-bridge authorization failed: \(error.localizedDescription, privacy: .public)")
-            return
-        }
+        // NOTE: medication read-auth is NOT requested via
+        // store.requestAuthorization(read:) — that call throws an uncatchable
+        // ObjC NSInvalidArgumentException for the medication types and crashed
+        // the app on launch (mx-rkir.10). The med catalog + dose queries below
+        // drive their own consent prompt on iOS 26. requestAuthorization() is now
+        // an inert no-op retained for call-site stability.
         await pushMedicationCatalog()
         if !observerRegistered {
             registerDoseObserver(doseType)
@@ -130,19 +130,25 @@ actor HealthKitMedBridge {
         HKObjectType.medicationDoseEventType()
     }
 
-    /// HKUserAnnotatedMedication authorizeable type (an HKObjectType, NOT a
-    /// sample type — it has its own non-anchored HKUserAnnotatedMedicationQuery).
-    private static var annotatedMedType: HKObjectType {
-        HKObjectType.userAnnotatedMedicationType()
-    }
-
-    /// Request READ auth for both medication types. We never write — the iOS 26.4
-    /// SDK exposes no medication WRITE API (both types have `init NS_UNAVAILABLE`
-    /// and there is no builder), so `toShare` is empty. One sheet covers both.
+    /// Medication-type auth is NOT requestable through `requestAuthorization(read:)`.
+    ///
+    /// CRASH FIX (mx-rkir.10): HealthKit REJECTS read-auth for
+    /// HKMedicationDoseEvent and HKUserAnnotatedMedication when routed through
+    /// `requestAuthorization(toShare:read:)` and throws a SYNCHRONOUS ObjC
+    /// `NSInvalidArgumentException` ("Authorization to read the following types is
+    /// disallowed: …MedicationDoseEvent, …UserAnnotatedMedicationConcept") that a
+    /// Swift `do/catch` CANNOT trap → the app terminated on every launch (signal 6).
+    ///
+    /// On iOS 26 the dedicated medication queries (HKUserAnnotatedMedicationQuery
+    /// and the HKAnchoredObjectQuery over the dose type) drive their OWN consent
+    /// flow — they prompt on first run — so there is nothing to route through the
+    /// general read-auth API. This method is therefore intentionally inert: the
+    /// med catalog / dose queries below self-authorize. Kept as a no-op so the
+    /// bootstrap() call site stays stable.
     func requestAuthorization() async throws {
-        var read: Set<HKObjectType> = [Self.annotatedMedType]
-        if let dose = Self.doseEventType { read.insert(dose) }
-        try await store.requestAuthorization(toShare: [], read: read)
+        // Intentionally empty. Do NOT pass the medication types to
+        // store.requestAuthorization(read:) — it throws an uncatchable
+        // NSInvalidArgumentException (see doc-comment above).
     }
 
     // MARK: - Medication catalog (HKUserAnnotatedMedicationQuery, one-shot)
