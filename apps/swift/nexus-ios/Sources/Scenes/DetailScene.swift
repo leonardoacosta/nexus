@@ -164,7 +164,9 @@ struct DetailScene: View {
             case .finance(let b): financeBody(b)
             case .health(let b): healthBody(b)
             case .session(let b): sessionBody(b)
-            case .comms, .unknown: EmptyView()
+            // src-meds: MEDICATION items render in the dedicated Meds tab
+            // (MedicationGroupScene / History), not the generic DetailScene.
+            case .comms, .medication, .unknown: EmptyView()
             }
         }
         .listStyle(.insetGrouped)

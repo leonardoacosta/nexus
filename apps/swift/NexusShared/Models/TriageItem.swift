@@ -102,6 +102,7 @@ public enum TriageKind: String, Codable, Sendable, CaseIterable {
     case note             = "NOTE"
     case media            = "MEDIA"
     case observability    = "OBSERVABILITY"
+    case medication       = "MEDICATION"
     case unknown          = "UNKNOWN"
 
     /// Tolerant decode — maps both the SCREAMING_SNAKE proto form and a
@@ -118,6 +119,7 @@ public enum TriageKind: String, Codable, Sendable, CaseIterable {
         case "financeTxn":    self = .financeTxn
         case "healthMetric":  self = .healthMetric
         case "codeSession":   self = .codeSession
+        case "medication":    self = .medication
         default:              self = .unknown
         }
     }
@@ -657,6 +659,59 @@ public struct SessionBody: Equatable, Hashable, Sendable, Decodable {
     }
 }
 
+/// `MedicationBody` — family #6 (src-meds, mx-t66o). The gRPC source emits
+/// `Kind=MEDICATION` carrying a served dose/adherence signal. Read-only here;
+/// the CRUD round-trips through the meds sidecar (NexusClient+Meds), NOT triage.
+public struct MedicationBody: Equatable, Hashable, Sendable, Decodable {
+    public var medicationName: String
+    public var group: String?
+    public var status: String          // taken | skipped | missed
+    public var scheduledTime: Date?
+    public var loggedTime: Date?
+    public var dose: String?
+    public var unit: String?
+
+    enum CodingKeys: String, CodingKey {
+        case medicationName, medication_name
+        case group
+        case status
+        case scheduledTime, scheduled_time
+        case loggedTime, logged_time
+        case dose, unit
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.medicationName = WireDecode.string(c, .medicationName, .medication_name) ?? ""
+        self.group = WireDecode.nonEmpty(c, .group)
+        self.status = WireDecode.string(c, .status) ?? "taken"
+        self.scheduledTime = WireDecode.date(c, .scheduledTime, .scheduled_time)
+        self.loggedTime = WireDecode.date(c, .loggedTime, .logged_time)
+        self.dose = WireDecode.nonEmpty(c, .dose)
+        self.unit = WireDecode.nonEmpty(c, .unit)
+    }
+
+    public init(
+        medicationName: String,
+        group: String? = nil,
+        status: String,
+        scheduledTime: Date? = nil,
+        loggedTime: Date? = nil,
+        dose: String? = nil,
+        unit: String? = nil
+    ) {
+        self.medicationName = medicationName
+        self.group = group
+        self.status = status
+        self.scheduledTime = scheduledTime
+        self.loggedTime = loggedTime
+        self.dose = dose
+        self.unit = unit
+    }
+
+    public var isMissed: Bool { status.lowercased() == "missed" }
+}
+
 // MARK: - Payload oneof
 
 /// `TriagePayload` — the per-family body oneof. Exactly one arm is set, keyed by
@@ -668,6 +723,7 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
     case finance(FinanceBody)
     case health(HealthBody)
     case session(SessionBody)
+    case medication(MedicationBody)
     case unknown
 
     /// Decode the payload from a `payload` container, preferring an explicit
@@ -686,6 +742,7 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
             if let b = try? nested.decode(FinanceBody.self, forKey: .finance) { return .finance(b) }
             if let b = try? nested.decode(HealthBody.self, forKey: .health) { return .health(b) }
             if let b = try? nested.decode(CalendarBody.self, forKey: .calendar) { return .calendar(b) }
+            if let b = try? nested.decode(MedicationBody.self, forKey: .medication) { return .medication(b) }
         }
         // 2) Flattened / kind-keyed: decode the body straight off the item
         //    container, choosing the arm by Core.kind.
@@ -704,6 +761,8 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
             if let b = try? HealthBody(from: decoder) { return .health(b) }
         case .codeSession:
             if let b = try? SessionBody(from: decoder) { return .session(b) }
+        case .medication:
+            if let b = try? MedicationBody(from: decoder) { return .medication(b) }
         case .note, .media, .observability, .unknown:
             break
         }
@@ -712,7 +771,7 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
 
     private enum PayloadCodingKeys: String, CodingKey { case payload }
     private enum ArmCodingKeys: String, CodingKey {
-        case comms, sessions, finance, health, calendar
+        case comms, sessions, finance, health, calendar, medication
     }
 
     // Convenience accessors for the views.
@@ -721,6 +780,7 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
     public var finance: FinanceBody?   { if case .finance(let b) = self { return b }; return nil }
     public var health: HealthBody?     { if case .health(let b) = self { return b }; return nil }
     public var session: SessionBody?   { if case .session(let b) = self { return b }; return nil }
+    public var medication: MedicationBody? { if case .medication(let b) = self { return b }; return nil }
 }
 
 // MARK: - TriageItem (Core spine + payload)

@@ -23,6 +23,11 @@ struct NexusIOSApp: App {
     @StateObject private var triage = TriageObserver(
         client: NexusClient(endpoint: Self.defaultEndpoint())
     )
+    // src-meds (mx-ieau): the Meds tab talks to the meds CRUD sidecar (:8802),
+    // whose host NexusClient+Meds derives from the resolved dashboard endpoint.
+    @StateObject private var meds = MedsObserver(
+        client: NexusClient(endpoint: Self.defaultEndpoint())
+    )
     @StateObject private var navigation = NavigationState()
 
     var body: some Scene {
@@ -31,6 +36,7 @@ struct NexusIOSApp: App {
                 .environmentObject(observer)
                 .environmentObject(sourceIndex)
                 .environmentObject(triage)
+                .environmentObject(meds)
                 .environmentObject(navigation)
                 .onAppear {
                     observer.startStreams()

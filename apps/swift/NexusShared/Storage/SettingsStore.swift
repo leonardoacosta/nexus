@@ -59,6 +59,37 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.dashboardEndpoint) }
     }
 
+    // MARK: - Meds sidecar (src-meds, mx-jc0k)
+
+    // The meds CRUD sidecar is a SEPARATE homelab service. By default
+    // NexusClient+Meds derives the host from `NexusEndpoint.resolved` and hits
+    // it on `medsPort` (8802). Set a full `medsBaseURL` to override the entire
+    // URL (host + port + scheme) — e.g. when the sidecar runs elsewhere.
+    /// Full base-URL override for the meds sidecar (e.g.
+    /// `http://100.73.182.4:8802`). When nil, the host is derived from the
+    /// dashboard endpoint and `medsPort` is appended.
+    public var medsBaseURL: String? {
+        get { defaults.string(forKey: Keys.medsBaseURL) }
+        set { defaults.set(newValue, forKey: Keys.medsBaseURL) }
+    }
+
+    /// Port the meds sidecar listens on. Defaults to 8802; overridable so a
+    /// relocated sidecar does not need a full-URL override.
+    public var medsPort: Int {
+        get {
+            let v = defaults.integer(forKey: Keys.medsPort)
+            return v == 0 ? 8802 : v
+        }
+        set { defaults.set(newValue, forKey: Keys.medsPort) }
+    }
+
+    /// Optional bearer token for the meds sidecar. When set, requests carry
+    /// `Authorization: Bearer <token>`; when nil, no auth header (tailnet-trust).
+    public var medsToken: String? {
+        get { defaults.string(forKey: Keys.medsToken) }
+        set { defaults.set(newValue, forKey: Keys.medsToken) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -67,5 +98,8 @@ public final class SettingsStore: @unchecked Sendable {
         static let elevenLabsVoiceId     = "nx.tts.elevenlabs.voiceId"
         static let processProbeFallback  = "nx.menubar.fallback.processProbe"
         static let dashboardEndpoint     = "nexus.dashboard.endpoint"
+        static let medsBaseURL           = "nexus.meds.baseURL"
+        static let medsPort              = "nexus.meds.port"
+        static let medsToken             = "nexus.meds.token"
     }
 }

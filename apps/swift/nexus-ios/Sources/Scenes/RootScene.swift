@@ -12,6 +12,7 @@ struct RootScene: View {
     @EnvironmentObject private var observer: SessionObserver
     @EnvironmentObject private var sourceIndex: SourceIndexObserver
     @EnvironmentObject private var triage: TriageObserver
+    @EnvironmentObject private var meds: MedsObserver
     @EnvironmentObject private var navigation: NavigationState
 
     var body: some View {
@@ -54,6 +55,17 @@ struct RootScene: View {
             }
             .tabItem {
                 Label("Health", systemImage: "heart")
+            }
+
+            NavigationStack {
+                // src-meds (mx-ieau + mx-jc0k): medication group manager. The
+                // adherence/misses triage is the landing surface; the per-dose
+                // logbook (History) + add-med form hang off its toolbar menu.
+                // Writes round-trip through the meds CRUD sidecar (:8802).
+                MedicationGroupScene(observer: meds)
+            }
+            .tabItem {
+                Label("Meds", systemImage: "pills")
             }
 
             NavigationStack {
