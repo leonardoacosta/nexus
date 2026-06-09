@@ -33,6 +33,16 @@ public final class MedsObserver: ObservableObject {
 
     public let client: NexusClient
 
+    /// Two-way HealthKit save hook (src-meds mx-aw88). After a group `take`
+    /// succeeds against the mx sidecar, MedsObserver invokes this with the
+    /// taken members so the iOS app's HealthKitMedBridge can mirror "taken" dose
+    /// events back into Apple Health. NexusShared can't reference the iOS-target
+    /// bridge directly, so the app wires it at bootstrap via `onGroupTaken`.
+    /// Each tuple is (medId, hkMedId?, effectiveDose); members with a nil/empty
+    /// hkMedId are nx-local-only and the bridge skips them for HK write.
+    public typealias TakenMember = (medId: String, hkMedId: String?, dose: String)
+    public var onGroupTaken: (@Sendable ([TakenMember]) async -> Void)?
+
     private var pollTask: Task<Void, Never>?
     private let pollInterval: UInt64
 
@@ -115,13 +125,36 @@ public final class MedsObserver: ObservableObject {
             let resolved = try await self.client.resolveLastGroup()
             guard let group = resolved.group else { return false }
             _ = try await self.client.takeGroup(group.id)
+            await self.mirrorTakeToHealthKit(group)
             return true
         }
     }
 
     @discardableResult
     public func takeGroup(_ groupId: String) async -> Bool {
-        await mutate { _ = try await self.client.takeGroup(groupId); return true }
+        await mutate {
+            _ = try await self.client.takeGroup(groupId)
+            await self.mirrorTakeToHealthKit(self.groups.first { $0.id == groupId })
+            return true
+        }
+    }
+
+    /// Feed the just-taken group's active members to the HealthKit save hook
+    /// (mx-aw88). Resolves each member's `hkMedId` off the medications catalog
+    /// (loaded lazily; the bridge skips members with no hk_med_id). No-op when
+    /// the app hasn't wired `onGroupTaken` (e.g. macOS / watch consumers).
+    private func mirrorTakeToHealthKit(_ group: MedGroup?) async {
+        guard let hook = onGroupTaken, let group else { return }
+        if medications.isEmpty { await loadMedications() }
+        let byMedId = Dictionary(
+            medications.map { ($0.id, $0.hkMedId) },
+            uniquingKeysWith: { first, _ in first })
+        let taken: [TakenMember] = group.activeMembers.map { member in
+            (medId: member.medId,
+             hkMedId: byMedId[member.medId] ?? nil,
+             dose: member.effectiveDose)
+        }
+        await hook(taken)
     }
 
     @discardableResult

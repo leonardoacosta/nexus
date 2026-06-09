@@ -1,0 +1,433 @@
+// HealthKitMedBridge — reads Apple Health's MEDICATION data (the user's med
+// list + their logged dose events) and PUSHES it to the mx meds-ingest sidecar
+// over the Tailnet, so Apple-Health-defined meds and the doses logged in the
+// Health app round-trip into the mx src-meds store.
+//
+// Capability: src-meds (mx-t66o). Beads: mx-aw88. The meds-ingest routes live
+// on the SAME homelab :8802 server as the meds CRUD sidecar (see
+// NexusShared/Networking/NexusClient+Meds.swift `medsBaseURL()`), so this
+// bridge derives its base URL the same way.
+//
+// ARCHITECTURE: mirrors HealthKitPushManager (the biometric producer, mx-4d0):
+//   - requests HealthKit auth,
+//   - runs an HKAnchoredObjectQuery over HKMedicationDoseEvent + registers an
+//     HKObserverQuery with background delivery (event-driven background wakes),
+//   - encodes + chunks + POSTs a JSON envelope to the ingest,
+//   - persists the anchor in UserDefaults, advancing ONLY on a 2xx.
+// It additionally runs a one-shot HKUserAnnotatedMedicationQuery (NOT an
+// anchored query — that type is not an HKSample) to push the med catalog.
+//
+// iOS 26 ONLY. HKMedicationDoseEvent / HKUserAnnotatedMedication are
+// API_AVAILABLE(ios(26.0)). The whole bridge is gated behind `if #available
+// (iOS 26.0, *)`; on older OSes it no-ops cleanly (mirroring the producer's
+// isHealthDataAvailable guard).
+//
+// ──────────────────────────────────────────────────────────────────────────
+// READ-ONLY by SDK design (the mx-aw88 design's open question, RESOLVED):
+//
+// The iOS 26.4 SDK exposes NO write path for medications. Both
+// HKMedicationDoseEvent AND HKUserAnnotatedMedication declare
+// `- (instancetype)init NS_UNAVAILABLE;` and there is no builder, factory, or
+// `+save…` API anywhere in HealthKit.framework/Headers (verified against
+// iPhoneOS26.4.sdk). A third-party app can therefore:
+//   - READ the user's annotated med list (push to mx),  ✅
+//   - READ logged dose events (push to mx),             ✅
+//   - CREATE an HKUserAnnotatedMedication,              ❌ (no initializer)
+//   - WRITE / save an HKMedicationDoseEvent back to HK, ❌ (no initializer).
+//
+// So the "two-way save" the design hoped for is NOT possible on iOS 26.4: the
+// Health app is the sole writer of medication data. nx-created meds (via the
+// add-med form) stay mx-local; only Apple-Health-defined meds + their
+// Health-app-logged doses round-trip INTO mx. `saveDoseEvents(forGroup:)`
+// below is the wiring seam kept for the take-group path, but it is an
+// intentional no-op that logs the limitation rather than inventing a
+// non-existent symbol. If Apple ships a dose-event write API in a later SDK,
+// fill in `saveDoseEvents` and call the HKHealthStore.save path there.
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Depends on NexusShared for the meds base-URL derivation (NexusClient.
+// medsBaseURL) + the meds-token knob (SettingsStore) — the SAME homelab :8802
+// host the meds CRUD sidecar uses. HealthKit + Foundation otherwise.
+
+import Foundation
+import HealthKit
+import NexusShared
+import os.log
+
+@available(iOS 26.0, *)
+actor HealthKitMedBridge {
+    static let shared = HealthKitMedBridge()
+
+    private let store = HKHealthStore()
+    private let log = Logger(subsystem: "dev.leonardoacosta.nexus.ios", category: "healthkit-meds")
+
+    private let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 120
+        cfg.waitsForConnectivity = false
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg)
+    }()
+
+    /// RFC3339 with the numeric GMT offset (matches the mx ingest's logged_at /
+    /// scheduled_at parsing, and the rfc3339 helper in NexusClient+Meds).
+    private let rfc3339: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    /// RxNorm coding system URL — `relatedCodings` entries with this `system`
+    /// carry the numeric RxNorm `code` mx reconciles on.
+    private static let rxnormSystem = "http://www.nlm.nih.gov/research/umls/rxnorm"
+
+    /// Guards one-time observer registration per PROCESS (mirrors the producer).
+    private var observerRegistered = false
+
+    // MARK: - Lifecycle
+
+    /// Bootstrap on app launch: request auth, push the med catalog, register a
+    /// background observer for dose events, then do an initial anchored flush.
+    /// Safe to call repeatedly.
+    func bootstrap() async {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            log.info("HealthKit unavailable; med bridge disabled")
+            return
+        }
+        guard let doseType = Self.doseEventType else {
+            log.info("HKMedicationDoseEvent type unavailable at runtime; med bridge disabled")
+            return
+        }
+        do {
+            try await requestAuthorization()
+        } catch {
+            log.error("med-bridge authorization failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        await pushMedicationCatalog()
+        if !observerRegistered {
+            registerDoseObserver(doseType)
+            observerRegistered = true
+        }
+        await flushDoseEvents()
+    }
+
+    /// flushAll — shared entry point for the BACKGROUND triggers (BGTaskScheduler
+    /// + silent APNS), mirroring HealthKitPushManager.flushAll. Refreshes the med
+    /// catalog (cheap, idempotent on the mx side) then flushes new dose events.
+    /// Does NOT register observers (that is bootstrap's once-per-process job).
+    func flushAll() async {
+        guard HKHealthStore.isHealthDataAvailable(), Self.doseEventType != nil else { return }
+        await pushMedicationCatalog()
+        await flushDoseEvents()
+    }
+
+    // MARK: - Type resolution (iOS 26 SDK)
+
+    /// HKMedicationDoseEvent sample type (an HKSampleType, anchored-queryable).
+    private static var doseEventType: HKSampleType? {
+        HKObjectType.medicationDoseEventType()
+    }
+
+    /// HKUserAnnotatedMedication authorizeable type (an HKObjectType, NOT a
+    /// sample type — it has its own non-anchored HKUserAnnotatedMedicationQuery).
+    private static var annotatedMedType: HKObjectType {
+        HKObjectType.userAnnotatedMedicationType()
+    }
+
+    /// Request READ auth for both medication types. We never write — the iOS 26.4
+    /// SDK exposes no medication WRITE API (both types have `init NS_UNAVAILABLE`
+    /// and there is no builder), so `toShare` is empty. One sheet covers both.
+    func requestAuthorization() async throws {
+        var read: Set<HKObjectType> = [Self.annotatedMedType]
+        if let dose = Self.doseEventType { read.insert(dose) }
+        try await store.requestAuthorization(toShare: [], read: read)
+    }
+
+    // MARK: - Medication catalog (HKUserAnnotatedMedicationQuery, one-shot)
+
+    /// Query the user's annotated med list and POST each to
+    /// `/meds/ingest/medications`. mx recons by hk_med_id + rxnorm (idempotent).
+    private func pushMedicationCatalog() async {
+        let meds = await fetchAnnotatedMedications()
+        guard !meds.isEmpty else { return }
+        let payload: [[String: Any]] = meds.map { $0.ingestPayload }
+        if await postMedications(payload) {
+            log.info("pushed \(payload.count) annotated medication(s)")
+        } else {
+            log.error("medication catalog push failed")
+        }
+    }
+
+    /// One element of the `/meds/ingest/medications` body, decoded off an
+    /// annotated med + its concept.
+    private struct AnnotatedMed {
+        let hkMedID: String
+        let name: String
+        let rxnorm: String?
+
+        var ingestPayload: [String: Any] {
+            var d: [String: Any] = ["hk_med_id": hkMedID, "name": name]
+            if let rxnorm { d["rxnorm"] = rxnorm }
+            // dose/unit are not surfaced on HKMedicationConcept (only generalForm
+            // + codings); mx treats them as optional, so we omit them here.
+            return d
+        }
+    }
+
+    private func fetchAnnotatedMedications() async -> [AnnotatedMed] {
+        await withCheckedContinuation { continuation in
+            var collected: [AnnotatedMed] = []
+            let query = HKUserAnnotatedMedicationQuery(
+                predicate: nil,
+                limit: HKObjectQueryNoLimit
+            ) { _, medOrNil, done, _ in
+                if let med = medOrNil {
+                    let concept = med.medication
+                    // Prefer the user's nickname; fall back to the concept's
+                    // display text. hk_med_id is the stable cross-device concept
+                    // identity (archived as a base64 key — see stableKey).
+                    let name = med.nickname?.isEmpty == false
+                        ? med.nickname!
+                        : concept.displayText
+                    collected.append(AnnotatedMed(
+                        hkMedID: Self.stableKey(for: concept.identifier),
+                        name: name,
+                        rxnorm: Self.rxnorm(from: concept.relatedCodings)
+                    ))
+                }
+                if done {
+                    continuation.resume(returning: collected)
+                }
+            }
+            store.execute(query)
+        }
+    }
+
+    // MARK: - Dose events (HKAnchoredObjectQuery + observer)
+
+    /// Register the background observer + enable hourly background delivery for
+    /// dose events (mirrors HealthKitPushManager.registerObserver).
+    private func registerDoseObserver(_ type: HKSampleType) {
+        let observer = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            guard let self else { completionHandler(); return }
+            if let error {
+                Task { await self.logObserverError(error) }
+                completionHandler()
+                return
+            }
+            Task {
+                await self.flushDoseEvents()
+                completionHandler()
+            }
+        }
+        store.execute(observer)
+        store.enableBackgroundDelivery(for: type, frequency: .hourly) { [weak self] success, error in
+            guard let self else { return }
+            Task { await self.logBackgroundDelivery(success: success, error: error) }
+        }
+    }
+
+    /// Fetch dose events newer than the persisted anchor, push them, advance the
+    /// anchor only on a 2xx (so a failed push retries next wake).
+    private func flushDoseEvents() async {
+        guard let type = Self.doseEventType else { return }
+        let anchor = loadAnchor()
+        let (samples, newAnchor) = await fetchDoseSamples(type: type, anchor: anchor)
+        guard !samples.isEmpty else { return }
+        let payload = samples.compactMap { Self.dosePayload(from: $0, rfc3339: rfc3339) }
+        guard !payload.isEmpty else {
+            // Nothing extractable (e.g. NotInteracted slots filtered out) — still
+            // advance so we don't re-scan them every wake.
+            if let newAnchor { saveAnchor(newAnchor) }
+            return
+        }
+        if await postDoses(payload), let newAnchor {
+            saveAnchor(newAnchor)
+            log.info("pushed \(payload.count) dose event(s)")
+        }
+    }
+
+    private func fetchDoseSamples(type: HKSampleType, anchor: HKQueryAnchor?) async -> ([HKMedicationDoseEvent], HKQueryAnchor?) {
+        await withCheckedContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { _, samplesOrNil, _, newAnchor, _ in
+                let doses = (samplesOrNil ?? []).compactMap { $0 as? HKMedicationDoseEvent }
+                continuation.resume(returning: (doses, newAnchor))
+            }
+            store.execute(query)
+        }
+    }
+
+    /// Map an HKMedicationDoseEvent to a `/meds/ingest/doses` body element.
+    /// Returns nil for non-take/skip statuses (NotInteracted / NotLogged /
+    /// Snoozed / NotificationNotSent) — mx only tracks taken|skipped.
+    static func dosePayload(from dose: HKMedicationDoseEvent, rfc3339: ISO8601DateFormatter) -> [String: Any]? {
+        let status: String
+        switch dose.logStatus {
+        case .taken: status = "taken"
+        case .skipped: status = "skipped"
+        default: return nil // NotInteracted / Snoozed / NotificationNotSent / NotLogged
+        }
+
+        // doseQuantity is NS_REFINED_FOR_SWIFT (NSNumber? -> Double?). Fall back to
+        // the scheduled quantity when the as-taken amount is absent.
+        let qty = dose.doseQuantity ?? dose.scheduledDoseQuantity
+        let unit = dose.unit.unitString
+
+        var d: [String: Any] = [
+            "hk_dose_uuid": dose.uuid.uuidString,
+            "hk_med_id": stableKey(for: dose.medicationConceptIdentifier),
+            "status": status,
+            "dose": qty.map { Self.trimmed($0) } ?? "",
+            "unit": unit,
+            // endDate is the moment the dose was logged/taken (HKSample timeline).
+            "logged_at": rfc3339.string(from: dose.endDate),
+        ]
+        // scheduledDate is non-null only for scheduled (vs as-needed) doses.
+        if let scheduled = dose.scheduledDate {
+            d["scheduled_at"] = rfc3339.string(from: scheduled)
+        }
+        return d
+    }
+
+    /// Render a dose quantity without a trailing ".0" for whole numbers
+    /// ("2.0" -> "2", "0.5" -> "0.5"), matching how nx stores `dose` strings.
+    static func trimmed(_ value: Double) -> String {
+        if value == value.rounded() { return String(Int(value)) }
+        return String(value)
+    }
+
+    // MARK: - Stable cross-device key for a concept identifier
+
+    /// HKHealthConceptIdentifier exposes only `domain` publicly — no string/UUID
+    /// accessor. It IS NSSecureCoding, and the docs guarantee the identifier is
+    /// "stable across devices", so we archive it and base64-encode the bytes for
+    /// a deterministic, comparable key. mx treats hk_med_id as an opaque stable
+    /// string (it dedups doses by hk_dose_uuid and recons meds by hk_med_id +
+    /// rxnorm), so an opaque base64 key is sufficient and consistent between the
+    /// med-catalog push (concept.identifier) and the dose push
+    /// (dose.medicationConceptIdentifier) for the SAME medication.
+    static func stableKey(for identifier: HKHealthConceptIdentifier) -> String {
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: identifier, requiringSecureCoding: true) {
+            return data.base64EncodedString()
+        }
+        // Fallback: domain (lossy, but never crashes). In practice the archive
+        // path always succeeds for an NSSecureCoding type.
+        return identifier.domain.rawValue
+    }
+
+    // MARK: - Two-way save (wiring seam — NO-OP on iOS 26.4)
+
+    /// Take-group hook: AFTER the mx sidecar `takeGroup` succeeds, the caller
+    /// (MedsObserver.takeGroup) invokes this so Apple Health's adherence/refill/
+    /// interaction tracking would stay consistent. On iOS 26.4 this is an
+    /// intentional NO-OP: there is no public initializer or save API for
+    /// HKMedicationDoseEvent (the Health app is the sole writer of medication
+    /// data — verified against iPhoneOS26.4.sdk). Only members that map to an
+    /// HKUserAnnotatedMedication (have a non-empty hk_med_id) would be eligible
+    /// for a HK write if Apple ever ships one; nx-local-only meds are skipped.
+    ///
+    /// Kept as a real method so the call site is wired and ready: when a write
+    /// API lands, construct + `store.save(…)` the "taken" dose events here, using
+    /// the same hk_dose_uuid logic so a later re-import dedups (no double count).
+    func saveDoseEvents(forGroup members: [MedicationWriteMember]) async {
+        let eligible = members.filter { !($0.hkMedID ?? "").isEmpty }
+        guard !eligible.isEmpty else { return }
+        log.info("""
+            HK dose-event write requested for \(eligible.count, privacy: .public) member(s) but \
+            iOS 26.4 exposes no HKMedicationDoseEvent write API; skipping HK write \
+            (the mx sidecar take already succeeded).
+            """)
+        // No store.save — see method/file header. Intentionally inert.
+    }
+
+    /// Minimal value type for the take-group write hook so the bridge stays
+    /// self-contained (no dependency on NexusShared's MedGroupMember). `hkMedID`
+    /// is the Medication.hkMedId surfaced by the mx side (nil for nx-local meds).
+    struct MedicationWriteMember: Sendable {
+        let medID: String
+        let hkMedID: String?
+        let dose: String
+        init(medID: String, hkMedID: String?, dose: String) {
+            self.medID = medID
+            self.hkMedID = hkMedID
+            self.dose = dose
+        }
+    }
+
+    // MARK: - Codings
+
+    /// Extract the numeric RxNorm code from a concept's clinical codings.
+    static func rxnorm(from codings: Set<HKClinicalCoding>) -> String? {
+        codings.first { $0.system == rxnormSystem }?.code
+    }
+
+    // MARK: - Ingest POSTs
+
+    /// POST `[{...}]` to `/meds/ingest/medications`. Returns true on 2xx.
+    private func postMedications(_ body: [[String: Any]]) async -> Bool {
+        await postArray(path: "meds/ingest/medications", body: body)
+    }
+
+    /// POST `[{...}]` to `/meds/ingest/doses`. Returns true on 2xx.
+    private func postDoses(_ body: [[String: Any]]) async -> Bool {
+        await postArray(path: "meds/ingest/doses", body: body)
+    }
+
+    private func postArray(path: String, body: [[String: Any]]) async -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            log.error("failed to encode \(path, privacy: .public) body")
+            return false
+        }
+        var request = URLRequest(url: NexusClient.medsBaseURL().appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = SettingsStore.shared.medsToken, !token.isEmpty {
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = data
+        do {
+            let (_, response) = try await session.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if (200...299).contains(code) { return true }
+            log.error("\(path, privacy: .public) ingest returned \(code)")
+            return false
+        } catch {
+            log.error("\(path, privacy: .public) ingest POST failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    // MARK: - Anchor persistence (UserDefaults, meds-scoped)
+
+    private static let anchorKey = "healthkit.meds.anchor.doseEvents"
+
+    private func loadAnchor() -> HKQueryAnchor? {
+        guard let data = UserDefaults.standard.data(forKey: Self.anchorKey) else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
+    }
+
+    private func saveAnchor(_ anchor: HKQueryAnchor) {
+        guard let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) else { return }
+        UserDefaults.standard.set(data, forKey: Self.anchorKey)
+    }
+
+    // MARK: - Logging helpers (off the query callbacks)
+
+    private func logObserverError(_ error: Error) {
+        log.error("dose observer error: \(error.localizedDescription, privacy: .public)")
+    }
+
+    private func logBackgroundDelivery(success: Bool, error: Error?) {
+        if let error {
+            log.error("dose background delivery failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}

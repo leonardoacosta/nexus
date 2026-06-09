@@ -44,6 +44,13 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             Task { await HealthKitPushManager.shared.bootstrap() }
             scheduleHealthBackgroundTasks()
         }
+        // src-meds HealthKit medication bridge (mx-aw88): reads the user's Apple
+        // Health med list + logged dose events and pushes them to the mx
+        // meds-ingest (:8802). iOS 26 only (HKMedicationDoseEvent /
+        // HKUserAnnotatedMedication); no-ops cleanly on older OSes.
+        if #available(iOS 26.0, *) {
+            Task { await HealthKitMedBridge.shared.bootstrap() }
+        }
         return true
     }
 
@@ -87,6 +94,9 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         scheduleHealthBackgroundTasks() // always reschedule so the chain continues
         let work = Task {
             await HealthKitPushManager.shared.flushAll()
+            if #available(iOS 26.0, *) {
+                await HealthKitMedBridge.shared.flushAll()
+            }
             task.setTaskCompleted(success: true)
         }
         task.expirationHandler = { work.cancel() }
@@ -131,6 +141,9 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if #available(iOS 15.0, *) {
             Task {
                 await HealthKitPushManager.shared.flushAll()
+                if #available(iOS 26.0, *) {
+                    await HealthKitMedBridge.shared.flushAll()
+                }
                 completionHandler(.newData)
             }
         } else {

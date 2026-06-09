@@ -40,10 +40,28 @@ struct NexusIOSApp: App {
                 .environmentObject(navigation)
                 .onAppear {
                     observer.startStreams()
+                    wireHealthKitMedSave()
                 }
                 .onOpenURL { url in
                     navigation.handle(deepLink: url)
                 }
+        }
+    }
+
+    /// Wire the meds two-way HealthKit save hook (src-meds mx-aw88): after a
+    /// group take succeeds against the mx sidecar, mirror "taken" dose events
+    /// into Apple Health via HealthKitMedBridge. On iOS 26.4 the bridge's write
+    /// is a no-op (no HKMedicationDoseEvent write API — the Health app is the
+    /// sole writer), but the call site is wired and ready for a future SDK.
+    private func wireHealthKitMedSave() {
+        if #available(iOS 26.0, *) {
+            meds.onGroupTaken = { members in
+                let writeMembers = members.map {
+                    HealthKitMedBridge.MedicationWriteMember(
+                        medID: $0.medId, hkMedID: $0.hkMedId, dose: $0.dose)
+                }
+                await HealthKitMedBridge.shared.saveDoseEvents(forGroup: writeMembers)
+            }
         }
     }
 
