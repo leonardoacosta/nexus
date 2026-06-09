@@ -31,12 +31,28 @@ struct TerminalHostView: UIViewRepresentable {
     func makeUIView(context: Context) -> TerminalView {
         let view = TerminalView()
         view.terminalDelegate = context.coordinator
+        // FIX A (mx-rkir.6): without first-responder the system keyboard +
+        // SwiftTerm's built-in TerminalAccessory (esc/ctrl/tab/arrows/~|/-)
+        // never appear, so you can't type. SwiftTerm routes every keystroke
+        // through terminalDelegate.send(source:data:) → SshTerminalSession
+        // forwards it to /interact. Enable interaction + claim focus, and
+        // add a tap recognizer so tapping the terminal re-focuses it after
+        // the keyboard is dismissed.
+        view.isUserInteractionEnabled = true
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(SshTerminalSession.handleFocusTap)
+        )
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
         Task { @MainActor in
             await context.coordinator.connect(
                 session: session,
                 tmuxTarget: tmuxTarget,
                 view: view
             )
+            // Claim focus once wired so the keyboard + accessory present.
+            _ = view.becomeFirstResponder()
         }
         return view
     }

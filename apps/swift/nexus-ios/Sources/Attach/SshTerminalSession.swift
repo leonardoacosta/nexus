@@ -118,6 +118,35 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
                 self.status = .failed("Stream connect timeout — session may have ended")
             }
         }
+
+        // FIX B (mx-rkir.6): the PHONE drives the size. tmux is sized for the
+        // Mac window (~200 cols); if the phone renders that desktop-width grid
+        // it smears on scroll/redraw. Force an initial resize to the phone's
+        // natural grid (SwiftTerm computes cols/rows from its bounds + font)
+        // so tmux reflows narrow. Layout-triggered `sizeChanged` then keeps it
+        // in sync on rotation / keyboard show. Managed-gated (no tmux pane to
+        // resize otherwise).
+        if isManaged {
+            forcePhoneResize(view: view)
+        }
+    }
+
+    /// Push SwiftTerm's current natural grid (derived from its bounds + font)
+    /// to the agent so tmux reflows to the PHONE width. SwiftTerm recomputes
+    /// cols/rows on layout; a 0.3s nudge after attach covers the case where
+    /// the view hasn't laid out yet when `connect` runs.
+    private func forcePhoneResize(view: TerminalView) {
+        Task { [weak self, weak view] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, let view else { return }
+            let term = view.getTerminal()
+            let cols = term.cols
+            let rows = term.rows
+            guard self.isManaged, cols > 0, rows > 0 else { return }
+            let sid = self.sessionId
+            let origin = self.originAgent
+            try? await self.client.requestResize(sessionId: sid, cols: cols, rows: rows, originAgent: origin)
+        }
     }
 
     func disconnect() {
@@ -144,11 +173,26 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         }
     }
 
-    /// Pin the SwiftTerm grid to the agent-reported pane geometry so ANSI
-    /// cursor escapes land in the right cells (lock mode — no tmux mutation).
+    /// Agent-reported pane geometry (echo of our own resize). FIX B
+    /// (mx-rkir.6): on iOS the PHONE owns its grid — adopting the agent's
+    /// desktop-width geometry (~200 cols) is exactly what smeared the render
+    /// on a ~50-col phone. We deliberately do NOT resize the local SwiftTerm
+    /// grid here; SwiftTerm sizes itself from its bounds + font, and we drive
+    /// tmux to the phone via `forcePhoneResize` / `sizeChanged`. After the
+    /// phone-driven resize lands, the agent's geometry frame should report the
+    /// phone's cols/rows anyway, so there is nothing to adopt.
     private func applyGeometry(cols: Int, rows: Int) async {
-        guard cols > 0, rows > 0 else { return }
-        terminal?.getTerminal().resize(cols: cols, rows: rows)
+        // Intentionally a no-op for local-grid sizing — see take-over rationale
+        // above. Kept as a delegate sink so the stream's .geometry events are
+        // consumed without forcing the desktop grid onto the phone.
+    }
+
+    // MARK: - Focus
+
+    /// Tap-to-refocus (FIX A, mx-rkir.6): re-present the keyboard + accessory
+    /// after a dismissal. Wired from TerminalHostView's tap recognizer.
+    @objc func handleFocusTap() {
+        _ = terminal?.becomeFirstResponder()
     }
 
     // MARK: - TerminalViewDelegate
