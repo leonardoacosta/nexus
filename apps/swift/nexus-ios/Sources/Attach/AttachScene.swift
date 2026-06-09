@@ -2,6 +2,19 @@
 //
 // Spec: openspec/changes/scaffold-nexus-ios-target (task 1.4)
 // bd:mx-rkir.3 — a notification tap opens the LIVE tmux PTY (not a stub).
+// bd:mx-rkir.8 — ACTIVE sessions never render the terminal (idle ones do).
+//   ROOT CAUSE: the session was resolved REACTIVELY every render via a
+//   computed `observer.sessions.first(where:)`. `observer.sessions` is
+//   @Published and republishes on EVERY SSE heartbeat. ACTIVE sessions
+//   heartbeat constantly → the array replaces → the computed `session`
+//   recomputes → with `.id(session.id)` SwiftUI tore down + reconnected the
+//   PTY (or momentarily resolved nil → flipped to "Connecting…"/"not
+//   attachable") on every beat → the terminal never stayed up. IDLE/ENDED
+//   sessions don't update → stable → rendered fine.
+//   FIX: snapshot the resolution ONCE into @State on first appearance, freeze
+//   it, and render the terminal branch from the stable snapshot so heartbeat
+//   republishes neither recompute it nor change `.id`. The terminal mounts
+//   exactly once per AttachScene presentation.
 //
 // Wires the SwiftTerm `TerminalView` into a SwiftUI host. The transport is
 // the agent's WebSocket PTY (NexusShared.NexusAggregateClient) — the SAME
@@ -9,9 +22,12 @@
 
 import SwiftUI
 import NexusShared
+import os
 #if canImport(UIKit)
 import UIKit
 #endif
+
+private let attachLog = Logger(subsystem: "dev.priceless.nexus", category: "AttachSceneIOS")
 
 struct AttachScene: View {
     let sessionId: String
@@ -21,34 +37,32 @@ struct AttachScene: View {
 
     @State private var status: AttachStatus = .idle
 
-    private var session: Session? {
-        observer.sessions.first(where: { $0.id == sessionId })
-    }
-
-    /// The session list hasn't produced THIS session yet. On a cold-launch
-    /// (notification tap before sessions load) we must show a loading state and
-    /// attach once the row arrives — NOT the static "not attachable" error.
-    private var isResolving: Bool {
-        session == nil && observer.sessions.isEmpty
-    }
+    /// One-time snapshot of the resolved session. Set ONCE — on first
+    /// appearance (warm-launch) or the first heartbeat that carries the row in
+    /// (cold-launch) — then FROZEN. Subsequent @Published republishes of
+    /// `observer.sessions` (constant on ACTIVE sessions) never overwrite it, so
+    /// the terminal branch + its `.id` stay stable and the PTY mounts once.
+    @State private var resolved: Session?
 
     var body: some View {
         NavigationStack {
             Group {
-                if let session, let tmuxTarget = session.tmuxTarget {
-                    // Session resolved AND attachable — render the live PTY.
+                if let resolved, let tmuxTarget = resolved.tmuxTarget {
+                    // Session resolved AND attachable — render the live PTY from
+                    // the FROZEN snapshot. `.id` is keyed on the snapshot id (set
+                    // once) so heartbeat republishes do NOT rebuild the host.
                     TerminalHostView(
-                        session: session,
+                        session: resolved,
                         tmuxTarget: tmuxTarget,
                         client: observer.client,
                         status: $status
                     )
                     .ignoresSafeArea(edges: .bottom)
-                    .id(session.id) // re-attach if the session row identity changes
-                } else if isResolving || (session == nil) {
-                    // Cold-launch / mid-load: sessions not in yet. Show loading
-                    // and let `.task`/observer refresh resolve the row; the view
-                    // re-renders into the terminal branch when it arrives.
+                    .id(resolved.id)
+                } else if resolved == nil {
+                    // Cold-launch / mid-load: the row hasn't arrived yet. Show
+                    // loading; the resolve-once path (.task / .onChange) flips us
+                    // into the terminal branch when the row FIRST lands.
                     ContentUnavailableView {
                         Label("Connecting…", systemImage: "terminal")
                     } description: {
@@ -57,8 +71,9 @@ struct AttachScene: View {
                         ProgressView()
                     }
                 } else {
-                    // Session loaded but genuinely has no tmux target — graceful
-                    // unavailable (the only legit non-attachable case).
+                    // Snapshot resolved but the session genuinely has no tmux
+                    // target — graceful unavailable (the only legit
+                    // non-attachable case).
                     ContentUnavailableView(
                         "Session not attachable",
                         systemImage: "exclamationmark.triangle",
@@ -66,7 +81,7 @@ struct AttachScene: View {
                     )
                 }
             }
-            .navigationTitle(session?.project ?? "Attach")
+            .navigationTitle(resolved?.project ?? "Attach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -79,18 +94,41 @@ struct AttachScene: View {
         }
         // Cold-launch race: the tap may open this sheet before the polling loop
         // has fetched sessions. Ensure streams are running and force a refresh
-        // so the session row lands and the terminal branch renders.
+        // so the session row lands. Resolve ONCE here (warm path) and via
+        // .onChange below (cold path), then freeze.
         .task {
+            resolveOnce()
             observer.startStreams()
             await observer.refreshSessions()
+            resolveOnce()
         }
+        // Cold-launch: the row arrives on a later heartbeat. Resolve the FIRST
+        // time it appears, then freeze — later republishes are short-circuited
+        // by the `resolved != nil` guard in resolveOnce().
+        .onChange(of: observer.sessions) {
+            resolveOnce()
+        }
+    }
+
+    /// Resolve the session snapshot exactly once. After `resolved` is set it is
+    /// never overwritten — this is the freeze that makes the terminal branch
+    /// immune to ACTIVE-session heartbeat republishes.
+    private func resolveOnce() {
+        guard resolved == nil else { return }
+        guard let match = observer.sessions.first(where: { $0.id == sessionId }) else {
+            attachLog.debug("nx-rkir8 resolveOnce: row not present yet for id=\(sessionId, privacy: .public) (keep Connecting…)")
+            return
+        }
+        resolved = match
+        let branch = match.tmuxTarget == nil ? "not-attachable" : "terminal"
+        attachLog.debug("nx-rkir8 resolveOnce FROZEN branch=\(branch, privacy: .public) id=\(match.id, privacy: .public) tmux=\(match.tmuxTarget ?? "nil", privacy: .public) status=\(match.status, privacy: .public)")
     }
 
     @ViewBuilder
     private var statusBadge: some View {
         switch status {
         case .idle:
-            if isResolving { ProgressView() } else { Text("idle").font(.caption2) }
+            if resolved == nil { ProgressView() } else { Text("idle").font(.caption2) }
         case .connecting:  ProgressView()
         case .connected:   Image(systemName: "circle.fill").foregroundStyle(.green)
         case .failed(let msg):
