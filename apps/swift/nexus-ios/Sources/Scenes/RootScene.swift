@@ -83,14 +83,15 @@ struct RootScene: View {
                 navigation.attachingSessionId = id
             }
         }
-        .sheet(item: Binding(
-            get: { navigation.selectedSessionId.map(SessionIdBox.init) },
-            set: { navigation.selectedSessionId = $0?.id }
-        )) { box in
-            NavigationStack {
-                SessionDetailScene(sessionId: box.id)
-            }
-        }
+        // mx-rkir.7 FIX 1 (regression): SwiftUI honors only ONE `.sheet(item:)`
+        // per view — the previous file had TWO (selectedSessionId ->
+        // SessionDetailScene, and attachingSessionId -> AttachScene), so the
+        // second was silently dropped and tapping a session presented nothing.
+        // The list tap AND the `.nexusOpenSessionDetail` deep-link both want
+        // the live PTY now, so the vestigial selectedSessionId/SessionDetailScene
+        // sheet is removed, leaving the attachingSessionId -> AttachScene sheet
+        // as the sole `.sheet(item:)`, which now fires reliably. SessionDetailScene
+        // stays in the repo (still reachable from SessionListScene).
         .sheet(item: Binding(
             get: { navigation.attachingSessionId.map(SessionIdBox.init) },
             set: { navigation.attachingSessionId = $0?.id }

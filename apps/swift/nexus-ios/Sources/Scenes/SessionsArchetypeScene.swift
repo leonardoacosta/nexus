@@ -222,7 +222,19 @@ private struct SessionRow: View {
                 .font(.headline)
                 .lineLimit(1)
 
-            // Row 2: {status dot} [cwd] > [branch] [git status]
+            // Row 2 (mx-rkir.7 FIX 3): session-name subtitle, between the bold
+            // project (Row 1) and the status/cwd/branch line (Row 3). Uses the
+            // tmux session name (`Session.tmuxSession`) when present; omitted
+            // entirely when absent. Styled as a secondary subtitle (smaller,
+            // secondary color) so it reads distinctly from the project title.
+            if let name = sessionName {
+                Text(name)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            // Row 3: {status dot} [cwd] > [branch] [git status]
             HStack(spacing: 6) {
                 Circle()
                     .fill(display.color)
@@ -249,10 +261,41 @@ private struct SessionRow: View {
         .padding(.vertical, 2)
     }
 
-    /// Abbreviate $HOME -> ~ and truncate the head visually (truncationMode).
+    /// Human session name for the subtitle (mx-rkir.7 FIX 3). `tmuxSession` is
+    /// the tmux session name carried on the Session model; omit the subtitle
+    /// when it is absent or empty.
+    private var sessionName: String? {
+        guard let name = session.tmuxSession, !name.isEmpty else { return nil }
+        return name
+    }
+
+    /// Abbreviate a REMOTE session cwd by PATH PATTERN, not by the iOS device
+    /// sandbox home. mx-rkir.7 FIX 2: `abbreviatingWithTildeInPath` uses the
+    /// device's own NSHomeDirectory, which never matches a remote cwd like
+    /// `/Users/leonardoacosta/dev/mx` or `/home/nyaptor/dev/nx`, so it left the
+    /// full absolute path. Instead, collapse a leading `/Users/<user>/` or
+    /// `/home/<user>/` to `~/` (and exact `/Users/<user>` or `/home/<user>` to
+    /// `~`). Non-home absolute paths pass through unchanged.
     private var abbreviatedCwd: String? {
         guard let cwd = session.cwd, !cwd.isEmpty else { return nil }
-        return (cwd as NSString).abbreviatingWithTildeInPath
+        return SessionRow.abbreviateHomePath(cwd)
+    }
+
+    /// `^/(Users|home)/<user>/` -> `~/`; exact `/(Users|home)/<user>` -> `~`.
+    static func abbreviateHomePath(_ path: String) -> String {
+        if let prefixRange = path.range(
+            of: #"^/(?:Users|home)/[^/]+/"#,
+            options: .regularExpression
+        ) {
+            return "~/" + path[prefixRange.upperBound...]
+        }
+        if path.range(
+            of: #"^/(?:Users|home)/[^/]+$"#,
+            options: .regularExpression
+        ) != nil {
+            return "~"
+        }
+        return path
     }
 }
 
