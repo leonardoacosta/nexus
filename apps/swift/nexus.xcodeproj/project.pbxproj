@@ -19,6 +19,7 @@
 		0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19140503AECBE5CFA0098D31 /* SettingsTtsViewTests.swift */; };
 		0F2FEFBCE39EA1750F1F14DC /* NotificationActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917572BCCC40D2AA573C6468 /* NotificationActivation.swift */; };
 		10171FAA5BF30FECFF75501F /* nexusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF435A18F0E9DD92003C3A76 /* nexusApp.swift */; };
+		134A9BDD2509A812E3964924 /* NotificationsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A532A469108B79B09D86A5DA /* NotificationsScene.swift */; };
 		150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */; };
 		17245C99759FEBBB9D99AFC9 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		174B26DFC4458341673382E2 /* ScriptError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2C93268B41859AEFAA71CA /* ScriptError.swift */; };
@@ -164,6 +165,7 @@
 		E55D7F1C26F6D68DD1920EC1 /* SessionRowSigilTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE0677EBCABE4AB6DFF69DC /* SessionRowSigilTests.swift */; };
 		E6BDF54CB91D8971AE88B65B /* CcProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0491406946C9544A414272 /* CcProfile.swift */; };
 		EC6858A1A1F56445BC1E06C7 /* AudioControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1E68D09477F24FF228D0BA /* AudioControlTests.swift */; };
+		ECD63FAF20BFAA9FD949530C /* NotificationDetailScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1E6751C81C20E38024F839 /* NotificationDetailScene.swift */; };
 		ED0F4D60B1DEA3C0766768E2 /* NotificationReplayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327312239EBDF6F78197F4DA /* NotificationReplayButton.swift */; };
 		ED709811569DA0C597C23129 /* SettingsAgentsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A06DFD96E27531E259E3A5BF /* SettingsAgentsViewTests.swift */; };
 		EDDB858FEB42BE8AFE46F4BA /* SpecSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */; };
@@ -404,6 +406,7 @@
 		9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusUITests.swift; sourceTree = "<group>"; };
 		A04AFE6B178D2BA94B85748B /* Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Network.swift; sourceTree = "<group>"; };
 		A06DFD96E27531E259E3A5BF /* SettingsAgentsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAgentsViewTests.swift; sourceTree = "<group>"; };
+		A532A469108B79B09D86A5DA /* NotificationsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsScene.swift; sourceTree = "<group>"; };
 		A751B48F5414144A65155543 /* TriageObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageObserver.swift; sourceTree = "<group>"; };
 		AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NexusShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB2C93268B41859AEFAA71CA /* ScriptError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptError.swift; sourceTree = "<group>"; };
@@ -419,6 +422,7 @@
 		B882EBF665D0522196F57B4F /* TriageItem+Sample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TriageItem+Sample.swift"; sourceTree = "<group>"; };
 		B9B696D33BC6C44412228D7C /* SendTextDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendTextDispatcher.swift; sourceTree = "<group>"; };
 		BAAA6C29B3B710A14FFD38CF /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		BC1E6751C81C20E38024F839 /* NotificationDetailScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDetailScene.swift; sourceTree = "<group>"; };
 		BC1E68D09477F24FF228D0BA /* AudioControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioControlTests.swift; sourceTree = "<group>"; };
 		BE273DB369C38A05DB36ABEE /* NexusWatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusWatchAppDelegate.swift; sourceTree = "<group>"; };
 		BFA25DA13C7B0A5769320CA4 /* ProcessTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessTableView.swift; sourceTree = "<group>"; };
@@ -692,6 +696,8 @@
 				3F1D9D7786302019EB91E73E /* FinanceScene.swift */,
 				688CE97B4A7C0E18066AF6E4 /* HealthMetricsScene.swift */,
 				C1C554612A3F1669167A5A69 /* HealthSummaryScene.swift */,
+				BC1E6751C81C20E38024F839 /* NotificationDetailScene.swift */,
+				A532A469108B79B09D86A5DA /* NotificationsScene.swift */,
 				5592F30E8101D234FB6B4159 /* RootScene.swift */,
 				8831F4035517F727316B9E5A /* SessionDetailScene.swift */,
 				2961F8489D19EAFAD0D4F457 /* SessionListScene.swift */,
@@ -1169,6 +1175,8 @@
 				63D3B543B76594E38988D323 /* NavigationState.swift in Sources */,
 				A6F122DECCB643B55D29998A /* NexusAppDelegate.swift in Sources */,
 				6EF01A0287987E6B63E81C81 /* NexusIOSApp.swift in Sources */,
+				ECD63FAF20BFAA9FD949530C /* NotificationDetailScene.swift in Sources */,
+				134A9BDD2509A812E3964924 /* NotificationsScene.swift in Sources */,
 				21C247527E7607CC8F7140BC /* RootScene.swift in Sources */,
 				D70940C619FEA76DE9A1129E /* SessionDetailScene.swift in Sources */,
 				7E20A55440A77EBEB02F157F /* SessionListScene.swift in Sources */,

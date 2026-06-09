@@ -66,6 +66,18 @@ struct RootScene: View {
             .tabItem {
                 Label("Sessions", systemImage: "terminal")
             }
+
+            NavigationStack {
+                // mx-rkir.9: Notifications list + full-detail subview. iOS
+                // banners truncate; this lets Leo read the full notification
+                // in-app. Binds to SessionObserver.notifications (already an
+                // EnvironmentObject) + backfills from GET /notifications. With
+                // 7 tabs this lands under the More overflow — acceptable.
+                NotificationsScene()
+            }
+            .tabItem {
+                Label("Notifications", systemImage: "bell")
+            }
         }
         // mx-7i4k + mx-rkir.3: deep-link a notification-banner tap straight to
         // the originating session's LIVE PTY. NexusAppDelegate.didReceive posts
