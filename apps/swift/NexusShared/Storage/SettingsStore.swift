@@ -90,6 +90,39 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.medsToken) }
     }
 
+    // MARK: - Plaid control sidecar (src-finance, mx-dhhj)
+
+    // The Plaid control sidecar is a SEPARATE homelab service (port 8801),
+    // distinct from the agent API (:7400) and the meds sidecar (:8802). By
+    // default NexusClient+Plaid derives the host from `NexusEndpoint.resolved`
+    // and hits it on `plaidControlPort` (8801). Set a full `plaidControlBaseURL`
+    // to override the entire URL (host + port + scheme). Mirrors the meds knobs.
+    /// Full base-URL override for the Plaid control sidecar (e.g.
+    /// `http://100.73.182.4:8801`). When nil, the host is derived from the
+    /// dashboard endpoint and `plaidControlPort` is appended.
+    public var plaidControlBaseURL: String? {
+        get { defaults.string(forKey: Keys.plaidControlBaseURL) }
+        set { defaults.set(newValue, forKey: Keys.plaidControlBaseURL) }
+    }
+
+    /// Port the Plaid control sidecar listens on. Defaults to 8801; overridable
+    /// so a relocated sidecar does not need a full-URL override.
+    public var plaidControlPort: Int {
+        get {
+            let v = defaults.integer(forKey: Keys.plaidControlPort)
+            return v == 0 ? 8801 : v
+        }
+        set { defaults.set(newValue, forKey: Keys.plaidControlPort) }
+    }
+
+    /// Optional bearer token for the Plaid control sidecar. When set, requests
+    /// carry `Authorization: Bearer <token>`; when nil, no auth header
+    /// (tailnet-trust).
+    public var plaidControlToken: String? {
+        get { defaults.string(forKey: Keys.plaidControlToken) }
+        set { defaults.set(newValue, forKey: Keys.plaidControlToken) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -101,5 +134,8 @@ public final class SettingsStore: @unchecked Sendable {
         static let medsBaseURL           = "nexus.meds.baseURL"
         static let medsPort              = "nexus.meds.port"
         static let medsToken             = "nexus.meds.token"
+        static let plaidControlBaseURL   = "nexus.plaid.baseURL"
+        static let plaidControlPort      = "nexus.plaid.port"
+        static let plaidControlToken     = "nexus.plaid.token"
     }
 }

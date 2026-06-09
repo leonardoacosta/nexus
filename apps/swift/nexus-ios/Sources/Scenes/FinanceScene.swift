@@ -11,6 +11,7 @@ import NexusShared
 
 struct FinanceScene: View {
     @ObservedObject var observer: TriageObserver
+    @State private var showAddBank = false
 
     var body: some View {
         List {
@@ -34,6 +35,17 @@ struct FinanceScene: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Finance")
         .navigationDestination(for: TriageItem.self) { DetailScene(item: $0) }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showAddBank = true } label: {
+                    Label("Add Bank", systemImage: "plus")
+                }
+                .accessibilityIdentifier("finance-add-bank")
+            }
+        }
+        .sheet(isPresented: $showAddBank) {
+            AddBankScene()
+        }
         .accessibilityIdentifier("finance-scene")
         .task { observer.startPolling() }
         .onDisappear { observer.stopPolling() }
