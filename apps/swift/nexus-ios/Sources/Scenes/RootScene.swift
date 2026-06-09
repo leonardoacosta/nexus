@@ -57,7 +57,11 @@ struct RootScene: View {
             }
 
             NavigationStack {
-                SessionsArchetypeScene(observer: triage)
+                // mx-rkir.4: Sessions tab now renders from the rich Session
+                // model via SessionObserver (EnvironmentObject), not the thin
+                // TriageObserver. Tap -> navigation.attachingSessionId -> the
+                // AttachScene sheet below (live PTY), not DetailScene.
+                SessionsArchetypeScene()
             }
             .tabItem {
                 Label("Sessions", systemImage: "terminal")
