@@ -109,30 +109,48 @@ export async function handleResize(request: Request): Promise<Response> {
   }
 
   const session = sessionManager.getById(sessionId);
-  if (!session) {
-    return jsonError(404, `session not found: ${sessionId}`);
-  }
 
   // Authoritative managed gate. Take-over mutates tmux state shared with the
   // real user, so it is only safe for sessions Nexus itself manages.
-  if (session.sessionType !== "managed") {
+  //
+  // `getById` is a read-through cache that returns null on a cache MISS while it
+  // populates the Map async (process-watcher-discovered sessions live only in
+  // the DB until first touched). A hard 404 here was the first half of
+  // mx-rkir.12: the phone's resize POST raced ahead of any session touch and
+  // got 404, so the take-over never fired and tmux stayed 317 cols. We therefore
+  // enforce the managed gate ONLY when the session is resolvable in-cache; an
+  // unresolved session falls through to the deferred path below, where the
+  // stream-attach handler (which loads + validates the DB row) re-applies it.
+  if (session && session.sessionType !== "managed") {
     return jsonError(
       409,
       `take-over resize requires a managed session (got sessionType="${session.sessionType}")`,
     );
   }
 
+  // Record the requested geometry as the FIRST step (before any PTY check) so a
+  // resize POST that lands BEFORE the phone's /stream WS attaches the PtySource
+  // is not lost — `addViewer` re-applies the pending geometry on attach. This is
+  // the second half of the mx-rkir.12 fix: the POST and the WS attach race, and
+  // either order must end with the pane reflowed to the phone width.
+  const firstResize = markTakeover(sessionId, { cols, rows });
+
   const pty = streamManager.getPty(sessionId);
   if (!pty) {
-    return jsonError(409, `no active PTY for session: ${sessionId}`);
+    // Deferred take-over: no live PTY yet (no stream WS attached). The geometry
+    // is recorded; the stream-attach path will apply it. Return 200 so the
+    // client treats the request as accepted rather than retrying against a 409.
+    log.info(
+      { sessionId, cols, rows, firstResize, deferred: true },
+      "take-over resize recorded (deferred — no active PTY, will apply on stream attach)",
+    );
+    return new Response(
+      JSON.stringify({ ok: true, sessionId, cols, rows, deferred: true }),
+      { status: 202, headers: { "Content-Type": "application/json" } },
+    );
   }
 
-  // Mark take-over active on the FIRST resize for this session (idempotent).
-  // The flag drives the WS teardown path: on last-viewer disconnect it unsets
-  // the tmux window-size option so tmux re-fits to the attached client.
-  const firstResize = markTakeover(sessionId);
-
-  // Apply the take-over resize.
+  // Apply the take-over resize immediately (PTY is live).
   pty.resize(cols, rows);
 
   log.info(

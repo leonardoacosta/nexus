@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { logger } from "@nexus/core/node";
 import type { PtySource } from "./pty-source";
+import { getTakeoverGeometry } from "./takeover-registry";
 
 export interface WsData {
   sessionId: string;
@@ -176,6 +177,28 @@ export class StreamManager {
     }
 
     stream.viewers.add(ws);
+
+    // Re-apply a PENDING take-over resize that landed before this PTY attached.
+    // The phone POSTs `/commands/resize` and opens `/sessions/:id/stream` near-
+    // simultaneously; when the POST wins the race the resize route records the
+    // geometry but cannot apply it (no PTY yet). On attach we re-fire it here so
+    // the pane reflows to the phone width immediately — the core mx-rkir.12 fix.
+    // No-op for ordinary lock-mode viewers (no take-over record).
+    const pending = getTakeoverGeometry(sessionId);
+    if (pending) {
+      try {
+        stream.pty.resize(pending.cols, pending.rows);
+        logger.info(
+          { sessionId, cols: pending.cols, rows: pending.rows },
+          "take-over resize applied on stream attach (deferred-resize replay)",
+        );
+      } catch (err) {
+        logger.warn(
+          { sessionId, error: err instanceof Error ? err.message : String(err) },
+          "deferred take-over resize on attach threw",
+        );
+      }
+    }
 
     // Send the geometry control frame FIRST (TEXT) so the viewer sizes its
     // emulator grid to the source's pane geometry BEFORE the scrollback bytes

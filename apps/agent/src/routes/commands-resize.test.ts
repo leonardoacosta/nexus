@@ -23,6 +23,7 @@ import type { StreamManager } from "../terminal/stream-manager";
 import type { PtySource } from "../terminal/pty-source";
 import {
   hasTakeover,
+  getTakeoverGeometry,
   __resetTakeoverRegistry,
 } from "../terminal/takeover-registry";
 import {
@@ -207,18 +208,43 @@ describe("POST /commands/resize", () => {
     expect(pty.resizeCalls.length).toBe(0);
   });
 
-  test("unknown session returns 404", async () => {
+  test("unresolved session (cache miss) + no PTY defers with 202 and records geometry", async () => {
+    // mx-rkir.12: `getById` returns null on a read-through cache MISS for a
+    // process-watcher-discovered session that lives only in the DB. The phone's
+    // resize POST can land in that window AND before its /stream WS attaches the
+    // PTY. We must NOT 404/409 — we record the geometry and defer (202) so the
+    // stream-attach path re-applies it once the PTY is live.
     initResizeRoute(
       makeSessionManagerStub({}),
       makeStreamManagerStub({}),
     );
 
     const res = await handleResize(
-      makeRequest({ sessionId: "does-not-exist", cols: 120, rows: 40 }),
+      makeRequest({ sessionId: "cc-deferred-1", cols: 57, rows: 54 }),
     );
 
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("session not found");
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ok: boolean; deferred: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.deferred).toBe(true);
+
+    // Geometry recorded so addViewer can replay it on attach.
+    expect(hasTakeover("cc-deferred-1")).toBe(true);
+    expect(getTakeoverGeometry("cc-deferred-1")).toEqual({ cols: 57, rows: 54 });
+  });
+
+  test("managed session with no PTY yet defers with 202 (resize replayed on attach)", async () => {
+    const sid = "cc-managed-deferred";
+    initResizeRoute(
+      makeSessionManagerStub({ [sid]: { id: sid, sessionType: "managed" } }),
+      makeStreamManagerStub({}), // no PTY attached
+    );
+
+    const res = await handleResize(
+      makeRequest({ sessionId: sid, cols: 57, rows: 54 }),
+    );
+
+    expect(res.status).toBe(202);
+    expect(getTakeoverGeometry(sid)).toEqual({ cols: 57, rows: 54 });
   });
 });

@@ -592,6 +592,25 @@ export class TmuxPtySource implements PtySource {
    */
   unsetWindowSize(): void {
     if (!this.takeOverActive) return;
+    // STEP 1 — re-fit the window to the largest attached client BEFORE unsetting.
+    // `set-option -u window-size` alone leaves the option back at the `latest`
+    // default, but tmux does NOT immediately re-fit a `latest` window — it only
+    // re-sizes on the next client activity/size-change. Verified live: after a
+    // take-over shrank the window to 57x and the phone disconnected, the desktop
+    // window stayed stranded at 57 (wsz=latest) until the user manually resized
+    // his terminal. `resize-window -A` actively re-fits the window to the
+    // largest/aggressive client (the desktop @ 317) right now, so the user's
+    // pane snaps back the moment the phone detaches (mx-rkir.12 auto-restore).
+    try {
+      this.spawn.spawnSync(
+        ["tmux", "resize-window", "-A", "-t", this.target],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+    } catch {
+      // best-effort
+    }
+    // STEP 2 — unset the option so it inherits the global `latest` default and
+    // tmux keeps auto-fitting to the attached client(s) thereafter.
     try {
       this.spawn.spawnSync(
         ["tmux", "set-option", "-u", "-t", this.target, "window-size"],

@@ -241,7 +241,7 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
-    source.resize(100, 30); // forces manual
+    source.resize(100, 30); // forces manual + one resize-window
     source.unsetWindowSize();
 
     const setOpt = rec.tmuxCalls("set-option");
@@ -256,6 +256,21 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
       "-t",
       TARGET,
       "window-size",
+    ]);
+
+    // Release ALSO actively re-fits the window to the largest attached client
+    // BEFORE unsetting (mx-rkir.12): `set-option -u` alone leaves `latest` but
+    // tmux does not re-fit until the next client size-change, so the user's pane
+    // stayed stranded at the take-over width. `resize-window -A` snaps it back.
+    const resizeWin = rec.tmuxCalls("resize-window");
+    // [0] = the take-over resize (100x30); [1] = the release refit (-A).
+    expect(resizeWin.length).toBe(2);
+    expect(resizeWin[1]).toEqual([
+      "tmux",
+      "resize-window",
+      "-A",
+      "-t",
+      TARGET,
     ]);
     expect(source.isTakeOverActive()).toBe(false);
 
