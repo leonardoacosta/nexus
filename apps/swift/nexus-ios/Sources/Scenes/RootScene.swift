@@ -113,18 +113,10 @@ struct RootScene: View {
         // second was silently dropped and tapping a session presented nothing.
         // The list tap AND the `.nexusOpenSessionDetail` deep-link both want
         // the live PTY now, so the vestigial selectedSessionId/SessionDetailScene
-        // sheet is removed. SessionDetailScene stays in the repo (still
-        // reachable from SessionListScene).
-        //
-        // mx-rkir.11: the live PTY now presents via `.fullScreenCover` instead
-        // of `.sheet`. A card sheet's reduced/animated bounds fed wrong dims to
-        // the phone-drives-resize path (mx-rkir.6) and its drag-to-dismiss
-        // gesture competed with the terminal pan + keyboard focus. Full-screen
-        // gives the terminal the REAL screen bounds (so cols/rows compute
-        // correctly) and removes the sheet drag, leaving AttachScene's own
-        // "Close" toolbar button as the dismissal. This stays the SOLE
-        // sheet/cover on this view — do NOT reintroduce a second one.
-        .fullScreenCover(item: Binding(
+        // sheet is removed, leaving the attachingSessionId -> AttachScene sheet
+        // as the sole `.sheet(item:)`, which now fires reliably. SessionDetailScene
+        // stays in the repo (still reachable from SessionListScene).
+        .sheet(item: Binding(
             get: { navigation.attachingSessionId.map(SessionIdBox.init) },
             set: { navigation.attachingSessionId = $0?.id }
         )) { box in

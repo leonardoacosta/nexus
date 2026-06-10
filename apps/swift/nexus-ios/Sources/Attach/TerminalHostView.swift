@@ -97,24 +97,6 @@ struct TerminalHostView: UIViewRepresentable {
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
 
-        // SCROLL LOCK (mx-rkir.11): SwiftTerm's `TerminalView` IS a UIScrollView
-        // (see SwiftTerm/iOS/iOSTerminalView.swift: `open class TerminalView:
-        // UIScrollView`). These are tmux ALT-SCREEN TUI sessions (the claude-code
-        // UI): scrolling SwiftTerm's local scrollback exposes stale buffer rows
-        // that tmux is actively redrawing over → colored noise/garble. Pin the
-        // view to the LIVE screen by disabling the scroll view: the user can no
-        // longer drag into stale scrollback, and the rubber-band bounce can't
-        // momentarily reveal it. SwiftTerm still updates `contentOffset`
-        // PROGRAMMATICALLY on each feed (it pins to the bottom/live region), so
-        // the live pane keeps rendering full-bleed — only USER scroll is killed.
-        view.isScrollEnabled = false
-        view.bounces = false
-        view.alwaysBounceVertical = false
-        view.alwaysBounceHorizontal = false
-        view.showsVerticalScrollIndicator = false
-        view.showsHorizontalScrollIndicator = false
-        view.contentInsetAdjustmentBehavior = .never
-
         // POST-LAYOUT SIZING (mx-rkir.6): drive tmux from the SETTLED grid, not
         // a racy timer. PhoneTerminalView reports cols/rows on every non-zero
         // layout (first layout, rotation, keyboard show/hide).
@@ -132,16 +114,7 @@ struct TerminalHostView: UIViewRepresentable {
                 view: view
             )
             // Claim focus once wired so the keyboard + accessory present.
-            // mx-rkir.11: in the fullScreenCover the view is reliably in the
-            // window by now (the card-sheet's animated/partial bounds no longer
-            // race focus). Only a view that's actually in the window hierarchy
-            // can become first responder, so guard on `window != nil` and retry
-            // once on the next runloop if the cover is still animating in.
-            if view.window != nil {
-                _ = view.becomeFirstResponder()
-            } else {
-                DispatchQueue.main.async { _ = view.becomeFirstResponder() }
-            }
+            _ = view.becomeFirstResponder()
         }
         return view
     }
