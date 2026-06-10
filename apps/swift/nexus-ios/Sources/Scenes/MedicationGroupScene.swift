@@ -37,6 +37,7 @@ struct MedicationGroupScene: View {
             case .error(let message) where observer.adherence.isEmpty:
                 Section { ErrorRow(message: message) { Task { await observer.refresh() } } }
             default:
+                medicationsSection
                 adherenceSection
                 groupsSection
             }
@@ -67,11 +68,33 @@ struct MedicationGroupScene: View {
             NewGroupSheet(observer: observer)
         }
         .task { observer.startPolling() }
+        .task { await observer.loadMedications() }
         .onDisappear { observer.stopPolling() }
-        .refreshable { await observer.refresh() }
+        .refreshable {
+            await observer.refresh()
+            await observer.loadMedications()
+        }
     }
 
     // MARK: - Sections
+
+    /// The Apple-Health-imported med catalog (decision a / mx-aw88 ingest). Loads
+    /// via `loadMedications()` (archived: false); empty until the HealthKit med
+    /// bridge has pushed a catalog AND Leo granted the medications-read prompt.
+    private var medicationsSection: some View {
+        Section("Medications") {
+            if observer.medications.isEmpty {
+                ContentUnavailableView(
+                    "No medications",
+                    systemImage: "pills",
+                    description: Text("Medications imported from Apple Health appear here."))
+            } else {
+                ForEach(observer.medications) { med in
+                    MedicationRow(medication: med)
+                }
+            }
+        }
+    }
 
     private var adherenceSection: some View {
         Group {
@@ -244,6 +267,35 @@ private struct AdherenceRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("meds-adherence-\(adherence.groupId)")
+    }
+}
+
+private struct MedicationRow: View {
+    let medication: Medication
+
+    private var doseText: String {
+        [medication.defaultDose, medication.unit]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(medication.name).font(.body)
+                if !doseText.isEmpty {
+                    Text(doseText).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if medication.hkMedId != nil {
+                Image(systemName: "heart.fill")
+                    .font(.caption)
+                    .foregroundStyle(.pink)
+                    .accessibilityLabel("Imported from Apple Health")
+            }
+        }
+        .accessibilityIdentifier("meds-medication-row-\(medication.id)")
     }
 }
 

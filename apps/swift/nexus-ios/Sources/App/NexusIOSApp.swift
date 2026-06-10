@@ -14,6 +14,24 @@ import UIKit
 @main
 struct NexusIOSApp: App {
     @UIApplicationDelegateAdaptor(NexusAppDelegate.self) private var delegate
+
+    /// Persist the iOS default endpoint into `SettingsStore.dashboardEndpoint`
+    /// on first launch (mirrors macOS `nexusApp.init`). iOS injects its endpoint
+    /// via the `NexusClient(endpoint:)` constructor, but STATIC consumers of
+    /// `NexusEndpoint.resolved` — notably `HealthKitMedBridge`'s meds-ingest POST,
+    /// which has no `NexusClient` instance — read `dashboardEndpoint`. Unset, it
+    /// collapsed to `.localhost`, so the catalog/dose ingest POSTed to
+    /// `http://localhost:8802` and silently failed (mx `/meds/medications` empty).
+    /// Seeding it here — BEFORE `NexusAppDelegate` bootstraps the HealthKit med
+    /// bridge — makes `.resolved` return `homelab:7400` for every static consumer.
+    /// Honors the Info.plist `NEXUS_ENDPOINT` override via `defaultEndpoint()`.
+    init() {
+        if SettingsStore.shared.dashboardEndpoint == nil {
+            SettingsStore.shared.dashboardEndpoint =
+                Self.defaultEndpoint().baseURL.absoluteString
+        }
+    }
+
     @StateObject private var observer = SessionObserver(
         client: NexusClient(endpoint: Self.defaultEndpoint())
     )
