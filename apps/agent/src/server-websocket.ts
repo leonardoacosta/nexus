@@ -320,6 +320,13 @@ export function createWsHandlers(state: ServerState) {
       if (ws.data.mode === "interact") {
         // Try to claim the writer mutex
         const claimed = state.streamManager.claimWriter(ws);
+        // NXPTY-DIAG (mx-rkir.13): surface interact-open + writer-claim outcome
+        // so we can see whether an iOS interact WS actually opens + holds the
+        // writer mutex (vs a silent 4009 denial dropping all keystrokes).
+        logger.info(
+          { sessionId: ws.data.sessionId, claimed },
+          "NXPTY interact open: writer-claim result",
+        );
         if (!claimed) {
           ws.close(4009, "interactive session already held by another client");
           state.allSockets.delete(ws);
@@ -335,6 +342,23 @@ export function createWsHandlers(state: ServerState) {
 
     message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
       const { sessionId, mode } = ws.data;
+
+      // NXPTY-DIAG (mx-rkir.13): every frame on the interact socket — byte
+      // count, frame kind, and whether THIS socket holds the writer mutex.
+      // This is the definitive "did the iOS keystroke frame ARRIVE at the
+      // agent" signal; pair it with the iOS NXPTY send log.
+      if (mode === "interact") {
+        const byteLen = typeof msg === "string" ? Buffer.byteLength(msg) : msg.length;
+        logger.info(
+          {
+            sessionId,
+            bytes: byteLen,
+            kind: typeof msg === "string" ? "text" : "binary",
+            isWriter: state.streamManager.isWriter(ws),
+          },
+          "NXPTY interact frame RECEIVED",
+        );
+      }
 
       if (mode !== "interact") {
         // Stream-only clients may send a reconnect frame to replay buffered output.
@@ -395,7 +419,19 @@ export function createWsHandlers(state: ServerState) {
       const pty = state.streamManager.getPty(sessionId);
       if (pty) {
         const data = msg instanceof Uint8Array ? msg : new Uint8Array(msg);
+        // NXPTY-DIAG (mx-rkir.13): confirm the binary keystroke bytes reach
+        // pty.write() (and thus tmux send-keys). `hasPty=false` would mean the
+        // frame arrived but no PTY is attached for the session.
+        logger.info(
+          { sessionId, bytes: data.length, hasPty: true },
+          "NXPTY interact binary -> pty.write()",
+        );
         pty.write(data);
+      } else {
+        logger.info(
+          { sessionId, bytes: msg instanceof Uint8Array ? msg.length : msg.byteLength, hasPty: false },
+          "NXPTY interact binary DROPPED — no PTY attached",
+        );
       }
     },
 

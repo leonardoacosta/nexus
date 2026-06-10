@@ -492,13 +492,26 @@ export class TmuxPtySource implements PtySource {
     if (this.closed) return;
     const text = new TextDecoder().decode(data);
     if (text.length === 0) return;
+    const argv = ["tmux", "send-keys", "-t", this.target, "-l", text];
     try {
-      const proc = this.spawn.spawn(["tmux", "send-keys", "-t", this.target, "-l", text], {
+      const proc = this.spawn.spawn(argv, {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
       });
-      void proc.exited;
+      // NXPTY-DIAG (mx-rkir.13): log the exact send-keys argv + exit code so we
+      // can confirm a received keystroke actually reaches the tmux pane. JSON-
+      // stringify the literal text so control bytes (0x0d / 0x0c) are visible.
+      logger.info(
+        { target: this.target, bytes: data.length, literal: JSON.stringify(text) },
+        "NXPTY tmux send-keys spawned",
+      );
+      void proc.exited.then((code) => {
+        logger.info(
+          { target: this.target, exitCode: code, argv: argv.map((a) => JSON.stringify(a)) },
+          "NXPTY tmux send-keys exited",
+        );
+      });
     } catch (err) {
       logger.debug(
         { target: this.target, error: err instanceof Error ? err.message : String(err) },

@@ -114,8 +114,17 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         // write raw bytes (no tmux send-keys Enter append). Best-effort: a
         // 4009 writer-denied close flips the channel read-only internally.
         if isManaged {
-            await client.openInteract(sessionId: session.id, originAgent: session.agent)
-            let readOnly = await client.isInteractReadOnly(originAgent: session.agent)
+            // mx-rkir.13: route the interact channel exactly like the proven
+            // macOS PtyViewer — `originAgent: nil` so openInteract + every
+            // sendInteractiveInput + closeInteract deterministically resolve to
+            // the SAME NexusClient (clients.first). Passing `session.agent` here
+            // risked open/send landing on different clients (or a client whose
+            // session isn't the writer), so iOS bytes were written to a
+            // NexusClient whose interactChannel was never opened -> dropped
+            // client-side. The read-only PTY *stream* still fans out to all
+            // agents via consumePtyStream, so render was unaffected.
+            await client.openInteract(sessionId: session.id, originAgent: nil)
+            let readOnly = await client.isInteractReadOnly(originAgent: nil)
             nxptyLog.notice("NXPTY interact opened sid=\(session.id, privacy: .public) readOnly=\(readOnly, privacy: .public)")
         } else {
             nxptyLog.notice("NXPTY interact skipped sid=\(session.id, privacy: .public) reason=non-managed")
@@ -205,8 +214,9 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
             do {
                 try await client.requestResize(sessionId: sid, cols: cols, rows: rows, originAgent: origin)
                 // Client-side redraw: Ctrl-L repaints the pane at the new size so
-                // stale wide content doesn't smear.
-                await client.sendInteractiveInput(Data([0x0c]), originAgent: origin)
+                // stale wide content doesn't smear. originAgent: nil to hit the
+                // SAME interact channel keystrokes use (mx-rkir.13).
+                await client.sendInteractiveInput(Data([0x0c]), originAgent: nil)
             } catch {
                 ptySessionLog.error("nx-rkir6 requestResize FAILED grid=\(cols, privacy: .public)x\(rows, privacy: .public): \(String(describing: error), privacy: .public)")
             }
@@ -218,8 +228,8 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         connectWatchdog?.cancel(); connectWatchdog = nil
         connected = false
         let client = self.client
-        let origin = originAgent
-        Task { await client.closeInteract(originAgent: origin) }
+        // originAgent: nil — close the same channel open()/send() used.
+        Task { await client.closeInteract(originAgent: nil) }
     }
 
     private func feed(data: Data) async {
@@ -273,10 +283,11 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         // terminal never blocks on the network.
         guard isManaged else { return }
         let payload = Data(data)
-        let origin = originAgent
         nxptyLog.notice("NXPTY send bytes=\(payload.count, privacy: .public) managed=\(self.isManaged, privacy: .public) sid=\(self.sessionId, privacy: .public)")
         Task { [client] in
-            await client.sendInteractiveInput(payload, originAgent: origin)
+            // originAgent: nil — same client the interact channel was opened on
+            // (clients.first), matching macOS. See connect() for rationale.
+            await client.sendInteractiveInput(payload, originAgent: nil)
         }
     }
 
