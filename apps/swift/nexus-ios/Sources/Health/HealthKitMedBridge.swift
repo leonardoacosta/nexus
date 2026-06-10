@@ -138,46 +138,40 @@ actor HealthKitMedBridge {
         HKObjectType.userAnnotatedMedicationType()
     }
 
-    /// Request READ consent for the medication types via PER-OBJECT authorization.
+    /// Request READ consent for the ANNOTATED-MEDICATION type via per-object auth.
     ///
-    /// ROOT CAUSE (mx-rkir.10 → this fix): HKUserAnnotatedMedication and
-    /// HKMedicationDoseEvent are PER-OBJECT authorization types (like vision
-    /// prescriptions), NOT standard read types. Apple's docs are explicit:
-    /// "Using the [requestAuthorization(toShare:read:)] method to request read
-    /// access to any data types that require per-object authorization fails with
-    /// an invalid argument error." That is exactly the synchronous, uncatchable
-    /// ObjC NSInvalidArgumentException ("Authorization to read the following types
-    /// is disallowed: …MedicationDoseEvent, …UserAnnotatedMedicationConcept") that
-    /// crashed the app on launch (signal 6). The prior fix removed the auth call
-    /// entirely on the assumption the queries self-prompt — they do NOT: with auth
-    /// status NotDetermined the queries return empty WITHOUT a prompt, so consent
-    /// could never be granted (no "Medications" prompt, empty catalog, and the app
-    /// never appeared under Settings → Health → Data Access).
+    /// The two medication types authorize DIFFERENTLY, and getting this wrong
+    /// throws an UNCATCHABLE ObjC `NSInvalidArgumentException` (signal 6) — Swift
+    /// `do/catch` does NOT trap it, so a wrong call crashes the app on launch:
     ///
-    /// `requestPerObjectReadAuthorization(for:predicate:)` is the correct API: it
-    /// "displays an authorization sheet that asks for permission to read the
-    /// samples that match the predicate and object type." NO special
-    /// `com.apple.developer.healthkit.access` entitlement is required (that key
-    /// gates FHIR `health-records` only) — the base HealthKit capability suffices.
+    ///   • `HKUserAnnotatedMedicationType` (a bare `HKObjectType`) is a PER-OBJECT
+    ///     auth type (like vision prescriptions). `requestPerObjectReadAuthorization`
+    ///     displays the sheet and works. This is what surfaces the med catalog and
+    ///     is the ONLY type we need consent for to import `/meds/medications`.
     ///
-    /// NOTE: per Apple, this "always asks for permission, regardless of whether
-    /// they previously granted it", so we gate it to fire ONCE per install via a
-    /// UserDefaults flag to avoid re-prompting on every launch.
+    ///   • `HKMedicationDoseEventType` (an `HKSampleType`) is NOT a per-object type
+    ///     AND was rejected by standard `requestAuthorization(read:)` too. Calling
+    ///     EITHER auth API for it throws: device-captured
+    ///     "Per-Object authorization to read HKMedicationDoseEventType… is
+    ///     disallowed" (mx-rkir.10 follow-up crash). So we request NO explicit auth
+    ///     for the dose type — the anchored dose query reads whatever the granted
+    ///     annotated-medication consent exposes (dose events are linked to the
+    ///     consented medications).
+    ///
+    /// NO `com.apple.developer.healthkit.access` entitlement is required (that key
+    /// gates FHIR `health-records` only). Per Apple per-object auth re-prompts on
+    /// every call, so we gate to ONCE per install via a UserDefaults flag.
+    ///
+    /// IMPORTANT: this method is `nonisolated` and runs the throwing per-object call
+    /// directly — DO NOT add the dose type back here; that re-introduces the crash.
     func requestAuthorization() async throws {
         guard !UserDefaults.standard.bool(forKey: Self.medAuthRequestedKey) else { return }
-        // Per-object auth prompts even when status is undetermined; errors are
-        // benign (user cancel / no matching samples) — surface, don't crash.
-        do {
-            try await store.requestPerObjectReadAuthorization(
-                for: Self.annotatedMedType, predicate: nil)
-            if let dose = Self.doseEventType {
-                try await store.requestPerObjectReadAuthorization(for: dose, predicate: nil)
-            }
-            UserDefaults.standard.set(true, forKey: Self.medAuthRequestedKey)
-            log.info("requested per-object medication read authorization")
-        } catch {
-            log.error("per-object medication auth request failed: \(error.localizedDescription, privacy: .public)")
-        }
+        // ONLY the per-object annotated-medication type. The dose type is
+        // intentionally omitted (it crashes on either auth API — see doc above).
+        try await store.requestPerObjectReadAuthorization(
+            for: Self.annotatedMedType, predicate: nil)
+        UserDefaults.standard.set(true, forKey: Self.medAuthRequestedKey)
+        log.info("requested per-object annotated-medication read authorization")
     }
 
     private static let medAuthRequestedKey = "healthkit.meds.perObjectAuthRequested"
