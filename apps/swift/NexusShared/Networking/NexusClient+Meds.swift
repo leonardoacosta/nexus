@@ -23,8 +23,30 @@ extension NexusClient {
 
     /// Resolve the meds sidecar base URL. Order:
     ///   1) `SettingsStore.medsBaseURL` (full override) if parseable.
-    ///   2) Host of `NexusEndpoint.resolved.baseURL` + `:medsPort` over http.
+    ///   2) Host of THIS client instance's `endpoint.baseURL` + `:medsPort`
+    ///      over http. Using the instance endpoint (not `NexusEndpoint.resolved`)
+    ///      matches every other observer: iOS/watch inject `homelab:7400` via
+    ///      `NexusClient(endpoint:)` but never persist it to
+    ///      `SettingsStore.dashboardEndpoint`, so `.resolved` collapses to
+    ///      localhost on those targets (mx-rkir bug: meds derived
+    ///      `http://localhost:8802` → transport failure).
     ///   3) `http://localhost:<medsPort>` fallback.
+    public func medsBaseURL() -> URL {
+        let store = SettingsStore.shared
+        if let raw = store.medsBaseURL, !raw.isEmpty, let url = URL(string: raw) {
+            return url
+        }
+        let port = store.medsPort
+        let host = endpoint.baseURL.host ?? "localhost"
+        return URL(string: "http://\(host):\(port)")
+            ?? URL(string: "http://localhost:\(port)")!
+    }
+
+    /// Static fallback for callers that have no `NexusClient` instance (e.g.
+    /// `HealthKitMedBridge`, the fire-and-forget HK ingest producer). Mirrors
+    /// the instance derivation but resolves the host from `NexusEndpoint.resolved`
+    /// as a LAST RESORT. The instance `medsBaseURL()` is the canonical path used
+    /// by every Meds-tab read/write.
     public static func medsBaseURL() -> URL {
         let store = SettingsStore.shared
         if let raw = store.medsBaseURL, !raw.isEmpty, let url = URL(string: raw) {
@@ -37,7 +59,7 @@ extension NexusClient {
     }
 
     private func medsURL(_ path: String, query: [URLQueryItem] = []) -> URL {
-        let base = Self.medsBaseURL()
+        let base = medsBaseURL()
         var comps = URLComponents(
             url: base.appendingPathComponent(path),
             resolvingAgainstBaseURL: false
