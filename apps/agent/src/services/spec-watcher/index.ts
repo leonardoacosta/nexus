@@ -3,7 +3,8 @@
  *
  * Proactively polls openspec status across all registered projects, detects
  * state transitions (NewSpec, Removed, Progress, AllComplete, HashChanged),
- * and fires TTS notifications on transitions. Design: 60s poll interval,
+ * and emits `SpecTransition` lifecycle events on transitions (dashboard-only,
+ * no TTS). Design: 60s poll interval,
  * staggered batches of 4 projects (200ms inter-batch delay); only projects
  * with an `openspec/` dir are polled. State is in-memory (per-project spec
  * snapshots); the first tick populates initial state without emitting.
@@ -16,11 +17,10 @@
 import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import { lifecycleBus } from "../lifecycle-bus";
-import { POLL_INTERVAL_MS, BATCH_SIZE, BATCH_DELAY_MS, COALESCE_DELAY_MS } from "./constants";
-import { parseSpecList as _parseSpecList, processProjectSpecs as _processProjectSpecs, eventToMessage, type SpecSnapshot, type SpecEvent } from "./parser";
+import { POLL_INTERVAL_MS, BATCH_SIZE, BATCH_DELAY_MS } from "./constants";
+import { parseSpecList as _parseSpecList, processProjectSpecs as _processProjectSpecs, type SpecSnapshot, type SpecEvent } from "./parser";
 import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry, loadProjectRegistryFromDb as _loadProjectRegistryFromDb, type ProjectPath } from "./poller";
 import { startChangesFsWatchers as _startChangesFsWatchers, refreshSingleSpec as _refreshSingleSpec } from "./watcher";
-import { sendSpecTtsNotification } from "./tts";
 
 const log = createLogger("agent:spec-watcher");
 
@@ -103,7 +103,8 @@ function delay(ms: number): Promise<void> {
  * Start the spec watcher service.
  *
  * Polls all registered projects every 60s, detects spec state transitions,
- * and fires TTS notifications. First tick populates initial state silently.
+ * and emits `SpecTransition` lifecycle events (no TTS). First tick populates
+ * initial state silently.
  *
  * Also installs per-project `fs.watch` watchers on `openspec/changes/` so
  * edits to proposals/tasks update the in-memory state within ~300ms
@@ -179,11 +180,6 @@ export function startSpecWatcher(db?: Db): SpecWatcherService {
           total: "total" in ev ? ev.total : undefined,
         });
       }
-
-      await delay(COALESCE_DELAY_MS);
-
-      const combined = allEvents.map(eventToMessage).join(". ");
-      await sendSpecTtsNotification(combined);
     }
   }
 

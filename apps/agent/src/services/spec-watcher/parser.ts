@@ -224,22 +224,3 @@ function appendProgressEvents(
     });
   }
 }
-
-// ---------------------------------------------------------------------------
-// TTS message formatting
-// ---------------------------------------------------------------------------
-
-export function eventToMessage(event: SpecEvent): string {
-  switch (event.type) {
-    case "new_spec":
-      return `New spec ${event.name} in ${event.project}`;
-    case "removed":
-      return `${event.project}: ${event.name} archived`;
-    case "progress":
-      return `${event.project}: ${event.name} progress ${event.completed}/${event.total}`;
-    case "all_complete":
-      return `${event.project}: ${event.name} all tasks complete`;
-    case "hash_changed":
-      return `Spec ${event.name} in ${event.project} was modified -- needs re-review`;
-  }
-}
