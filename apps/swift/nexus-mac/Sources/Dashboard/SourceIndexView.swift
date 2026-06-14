@@ -852,6 +852,7 @@ struct TriageDetailView: View {
             case .finance(let b):  financeBody(b)
             case .health(let b):   healthBody(b)
             case .session(let b):  sessionBody(b)
+            case .medication(let b): medicationBody(b)
             case .comms, .unknown: EmptyView()
             }
         }
@@ -949,6 +950,26 @@ struct TriageDetailView: View {
                 }
             }
             if let spec = b.spec { LabeledContent("Spec", value: spec) }
+        }
+    }
+
+    @ViewBuilder
+    private func medicationBody(_ b: MedicationBody) -> some View {
+        Section("Medication") {
+            LabeledContent("Name", value: b.medicationName)
+            LabeledContent("Status") {
+                if b.isMissed {
+                    Label(b.status, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                } else {
+                    Text(b.status)
+                }
+            }
+            if let g = b.group { LabeledContent("Group", value: g) }
+            if let dose = b.dose {
+                LabeledContent("Dose", value: "\(dose)\(b.unit.map { " \($0)" } ?? "")")
+            }
+            if let st = b.scheduledTime { LabeledContent("Scheduled", value: Self.ago(st)) }
+            if let lt = b.loggedTime { LabeledContent("Logged", value: Self.ago(lt)) }
         }
     }
 
