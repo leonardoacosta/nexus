@@ -105,3 +105,4 @@ The agent itself runs a startup schema smoke test (`verifySchema()`) that refuse
 | `nx-zg9mr` | closed | `RemainOnExit` typo fixed |
 | `nx-vlo2p` | open P3 | `nova` orphan database — decide archive / keep / drop |
 | `nx-k0kbr` | closed | UFW :5436 on tailscale0 opened; Mac-side `pnpm db:migrate` verified end-to-end |
+| `nx-f060f` | closed | CC API error text capture + real OTel exporter; added `stop_reason`/`error_details` columns to sessions; NOTE: `drizzle-kit push` during this work pruned 4 rogue `migration-console_*` tables from the `nexus` DB (not in schema map, no refs found — likely orphaned by another app that violated boundary rule #1). Use `db:generate` + `db:migrate` (the documented canonical path) instead of `push` to prevent future co-tenant collateral. |
