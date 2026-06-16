@@ -25,6 +25,11 @@ export const sessions = pgTable(
     startedAt: timestamp("started_at", { mode: "date" }).notNull(),
     lastActivity: timestamp("last_activity", { mode: "date" }).notNull(),
     endedAt: timestamp("ended_at", { mode: "date" }),
+    // Stop-reason fields — added by nx-f060f. Nullable + additive
+    // (backward-compatible: absence renders as today's behavior). Populated
+    // on session stop alongside `ended_at` via `recordSessionStop`.
+    stopReason: text("stop_reason"),
+    errorDetails: text("error_details"),
     pid: integer("pid"),
     cwd: text("cwd"),
 

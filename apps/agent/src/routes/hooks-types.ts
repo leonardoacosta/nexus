@@ -55,6 +55,13 @@ export interface HookEventPayload {
   error?: string;
   /** Alias for `error` consumed by notification rules. */
   error_message?: string;
+  /**
+   * `session_stop` crash error text (nx-f060f). Free-form detail captured by
+   * the CC Stop hook (e.g. "API Error: 529 Overloaded"). Read by the
+   * `session_stop` notification rule to build a per-reason body, and persisted
+   * to `sessions.error_details`.
+   */
+  error_details?: string;
   /** tool_use_fail: command line that failed */
   command?: string;
 

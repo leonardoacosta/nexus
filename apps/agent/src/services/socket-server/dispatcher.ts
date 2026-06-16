@@ -10,11 +10,16 @@ import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { credentials, eq } from "@nexus/db";
-import type { SocketEvent } from "../../types/socket-events";
+import { recordSessionStop } from "../../db/sessions";
+import type { SocketEvent, SessionStopEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
 import { isUnspeakable } from "../../notifications/speakability";
 import { processHookEvent } from "../process-hook-event";
+import { evaluateAndDispatch } from "../../notifications/hook-trigger";
+import type { NotificationManager } from "../../notifications/manager";
+import type { HookEventPayload } from "../../routes/hooks-types";
+import { getTracer } from "../../otel";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
 
 const log = createLogger("agent:socket-server");
@@ -27,9 +32,31 @@ const log = createLogger("agent:socket-server");
 export function createSocketEventDispatcher(
   deps: SocketDispatchDeps,
 ): SocketEventHandler {
-  const { sessionManager, lifecycleBus, db } = deps;
+  const { sessionManager, lifecycleBus, db, getNotificationManager } = deps;
 
   return function dispatchEvent(event: SocketEvent): void {
+    getTracer().startActiveSpan(
+      "hook.dispatch",
+      {
+        attributes: {
+          "hook.event": event.event,
+          // `session_id` is present on every session-scoped event; absent on
+          // project-level ones (telemetry, deploy_status). `?? ""` keeps the
+          // attribute a defined string (the logger mixin reads the active span).
+          "session.id": "session_id" in event ? (event.session_id ?? "") : "",
+        },
+      },
+      (span) => {
+        try {
+          dispatchEventInner(event);
+        } finally {
+          span.end();
+        }
+      },
+    );
+  };
+
+  function dispatchEventInner(event: SocketEvent): void {
     switch (event.event) {
       case "session_start": {
         const watcherEvent: WatcherEvent = {
@@ -108,6 +135,30 @@ export function createSocketEventDispatcher(
           event as unknown as Record<string, unknown>,
           { sessionManager, db: db ?? null },
         );
+
+        // Persist stop-reason fields (nx-f060f). Fire-and-forget keyed UPDATE —
+        // mirrors the `updateSessionGitOrigin` idiom in process-hook-event.ts:184.
+        if (db) {
+          recordSessionStop(db, event.session_id, {
+            stopReason: event.stop_reason,
+            errorDetails: event.error_details,
+          }).catch((err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: recordSessionStop rejected (best-effort)",
+            );
+          });
+        }
+
+        // Revive the dormant notification path (nx-f060f D1). A crash stop
+        // (crash_flag or stop_reason ∈ CRASH_STOP_REASONS) fires a desktop
+        // notification whose body carries the captured error text. Map the
+        // SessionStopEvent wire fields onto the HookEventPayload shape the rule
+        // reads, then hand off to the shared trigger orchestrator (suppression
+        // + settings filter + manager.send live there). Fire-and-forget — the
+        // orchestrator never throws, but we .catch the lazy-manager edge.
+        dispatchStopNotification(event);
+
         lifecycleBus.emit("SessionStopped", {
           sessionId: event.session_id,
         });
@@ -304,7 +355,42 @@ export function createSocketEventDispatcher(
         log.warn({ event }, "socket: unknown event type");
       }
     }
-  };
+  }
+
+  /**
+   * Fire the session_stop crash notification (nx-f060f D1). Resolves the
+   * shared NotificationManager singleton lazily (it is created asynchronously
+   * by `initNotificationRoutes`, so it may be null until then) and hands the
+   * mapped payload to the trigger orchestrator. No-ops when the DB or manager
+   * accessor is absent (unit-test wiring) or the manager is not yet ready.
+   *
+   * The non-crash case is filtered inside `sessionStopRule` itself
+   * (`isCrashStop` returns null), so a normal stop produces no notification.
+   */
+  function dispatchStopNotification(event: SessionStopEvent): void {
+    if (!db || !getNotificationManager) return;
+    const manager = getNotificationManager();
+    if (!manager) return;
+
+    // Map the SessionStopEvent wire shape onto the HookEventPayload the rule
+    // reads. `stop_reason` drives the crash predicate (CRASH_STOP_REASONS);
+    // `error_details` flows into the per-reason body.
+    const payload: HookEventPayload = {
+      event: "session_stop",
+      session_id: event.session_id,
+      stop_reason: event.stop_reason,
+      error_details: event.error_details,
+    };
+
+    evaluateAndDispatch(db, manager, "session_stop", payload).catch(
+      (err: unknown) => {
+        log.warn(
+          { err, sessionId: event.session_id },
+          "socket: session_stop notification dispatch rejected (best-effort)",
+        );
+      },
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

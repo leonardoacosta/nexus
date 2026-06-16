@@ -2,6 +2,7 @@ export { openDatabase } from "./database";
 export {
   insertSession,
   updateSessionStatus,
+  recordSessionStop,
   queryActiveSessions,
   queryRecentSessions,
   getSessionById,

@@ -147,6 +147,11 @@ function sessionToRow(session: Session): SessionRow {
     startedAt: session.startedAt,
     lastActivity: session.lastHeartbeat,
     endedAt: session.endedAt ?? null,
+    // Stop-reason fields (nx-f060f). Not surfaced on the domain Session type;
+    // persisted directly via `recordSessionStop` from the dispatcher. Falling
+    // through as null here is correct — the writer path owns these fields.
+    stopReason: null,
+    errorDetails: null,
     pid: session.pid ?? null,
     cwd: session.cwd ?? null,
     branch: session.branch ?? null,
@@ -269,6 +274,31 @@ export async function updateSessionStatus(
       ...(endedAt !== undefined ? { endedAt } : {}),
     })
     .where(eq(sessions.id, id));
+}
+
+/**
+ * Record a session stop: set `ended_at = now` and persist the stop-reason
+ * fields (nx-f060f). Mirrors the targeted-UPDATE idiom of
+ * `updateSessionGitOrigin` / `updateSessionStatus` — a single keyed write that
+ * bypasses the in-memory Session type (which does not surface these fields).
+ *
+ * `stopReason` / `errorDetails` are written directly from `opts`; both are
+ * nullable, so an absent value writes `null` (the default column state) rather
+ * than clobbering nothing — the dispatcher always supplies them on a stop.
+ */
+export async function recordSessionStop(
+  db: Db,
+  sessionId: string,
+  opts: { stopReason?: string; errorDetails?: string },
+): Promise<void> {
+  await db
+    .update(sessions)
+    .set({
+      endedAt: new Date(),
+      stopReason: opts.stopReason ?? null,
+      errorDetails: opts.errorDetails ?? null,
+    })
+    .where(eq(sessions.id, sessionId));
 }
 
 /**

@@ -125,6 +125,34 @@ function readErrorMessage(payload: HookEventPayload): string {
   return payload.error_message ?? payload.error ?? "";
 }
 
+/**
+ * Read the `session_stop` crash error text (nx-f060f). Mirrors
+ * `readErrorMessage` but reads the dedicated `error_details` field carried by
+ * the CC Stop hook. Empty/absent yields `""` so the rule degrades to the
+ * generic "session stopped with <reason>" body.
+ */
+function readErrorDetails(payload: HookEventPayload): string {
+  return payload.error_details ?? "";
+}
+
+/**
+ * Per-reason title for a crash stop (nx-f060f). `api_error` reads as "api
+ * error" (the most common rate-limit / overload case the user wants to spot at
+ * a glance); every other reason falls back to the generic "crashed".
+ */
+function crashTitle(reason: string): string {
+  switch (reason) {
+    case "api_error":
+      return "session: api error";
+    case "timeout":
+      return "session: timed out";
+    case "oom":
+      return "session: out of memory";
+    default:
+      return "session crashed";
+  }
+}
+
 function readHookName(payload: HookEventPayload): string {
   return payload.hook_name ?? payload.handler ?? "unknown";
 }
@@ -193,8 +221,14 @@ const sessionStopRule: HookRule = (payload) => {
 
   const project = projectOf(payload);
   const reason = payload.stop_reason ?? "crash";
-  const title = `session crashed`;
-  const body = prefixBody(project, `session stopped with ${reason}`);
+  const details = readErrorDetails(payload);
+  const title = crashTitle(reason);
+  // Per-reason classified body: include the captured error text when present
+  // (e.g. "api_error: API Error: 529 Overloaded"), else the generic form.
+  const message = details
+    ? `${reason}: ${details}`
+    : `session stopped with ${reason}`;
+  const body = prefixBody(project, message);
 
   return [
     { channel: "desktop", title, body, project, priority: "high" },

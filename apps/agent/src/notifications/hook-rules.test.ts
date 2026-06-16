@@ -153,6 +153,27 @@ describe("session_stop rule", () => {
     expect(hookRules.session_stop!(payload({ stop_reason: "user" }))).toBeNull();
     expect(hookRules.session_stop!(payload({}))).toBeNull();
   });
+
+  it("includes the captured error text in the body for api_error (nx-f060f)", () => {
+    const drafts = hookRules.session_stop!(
+      payload({
+        stop_reason: "api_error",
+        error_details: "API Error: 529 Overloaded",
+        crash_flag: true,
+      }),
+    );
+    expect(channels(drafts)).toEqual(["desktop"]);
+    // Per-reason classified body carries the verbatim error text.
+    expect(drafts![0]!.body).toContain("API Error: 529 Overloaded");
+    expect(drafts![0]!.body).toContain("api_error");
+    // Title is specialized for the api_error reason.
+    expect(drafts![0]!.title).toContain("api error");
+  });
+
+  it("falls back to the generic body when error_details is absent", () => {
+    const drafts = hookRules.session_stop!(payload({ stop_reason: "crash" }));
+    expect(drafts![0]!.body).toContain("session stopped with crash");
+  });
 });
 
 describe("session_summary rule", () => {

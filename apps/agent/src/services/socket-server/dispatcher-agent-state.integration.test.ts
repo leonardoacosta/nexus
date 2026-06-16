@@ -68,6 +68,8 @@ const DDL = `
     "total_cost_usd" double precision,
     "rate_limit_reset_at" timestamp,
     "idle_since" timestamp,
+    "stop_reason" text,
+    "error_details" text,
     "cc_session_id" text,
     "tmux_session" text,
     "tmux_target" text,
@@ -125,6 +127,8 @@ function makeSeedRow(id: string): SessionRow {
     startedAt: now,
     lastActivity: now,
     endedAt: null,
+    stopReason: null,
+    errorDetails: null,
     pid: null,
     cwd: "/tmp/x",
     branch: null,
@@ -240,6 +244,32 @@ describe.skipIf(!hasPg)(
       // 3. Stop -> ready (turn ended, awaiting next prompt).
       dispatch({ event: "session_stop", session_id: sessionId });
       expect(await readAgentStateWhenSettled(sessionId, "ready")).toBe("ready");
+    });
+
+    it("persists stop_reason + error_details on a crash session_stop (nx-f060f)", async () => {
+      const sessionId = "sess-stop-reason";
+      await insertSession(db, makeSeedRow(sessionId));
+
+      // A crash stop carries the reason + captured error text on the wire.
+      dispatch({
+        event: "session_stop",
+        session_id: sessionId,
+        stop_reason: "api_error",
+        error_details: "API Error: 529 Overloaded",
+      });
+
+      // recordSessionStop is fire-and-forget — poll for the columns to settle.
+      let row: SessionRow | null = null;
+      for (let attempt = 0; attempt < 25; attempt++) {
+        row = await getSessionById(db, sessionId);
+        if (row?.stopReason === "api_error") break;
+        await Bun.sleep(20);
+      }
+      expect(row).not.toBeNull();
+      expect(row!.stopReason).toBe("api_error");
+      expect(row!.errorDetails).toBe("API Error: 529 Overloaded");
+      // ended_at is stamped by recordSessionStop.
+      expect(row!.endedAt).not.toBeNull();
     });
 
     it("a project-level notification with no session_id does not clobber a prior state", async () => {

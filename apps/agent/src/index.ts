@@ -1,3 +1,4 @@
+import "./otel";
 import "./instrument";
 import { logger } from "@nexus/core/node";
 import { startServer, healthCollector, streamManager } from "./server";
@@ -21,6 +22,7 @@ import {
 import { getCredentialPool } from "./routes/credentials";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
+import { getNotificationManager } from "./routes/notifications";
 import { initSendTextRoute } from "./routes/commands-send-text";
 import { initResizeRoute } from "./routes/commands-resize";
 import { stopConfigLoader } from "./services/config-loader";
@@ -165,7 +167,16 @@ try {
 // notification router, and command handler.
 let socketServer: SocketServer | null = null;
 
-const socketEventHandler = createSocketEventDispatcher({ sessionManager, lifecycleBus, db });
+const socketEventHandler = createSocketEventDispatcher({
+  sessionManager,
+  lifecycleBus,
+  db,
+  // Lazy accessor for the shared NotificationManager singleton (nx-f060f).
+  // `initNotificationRoutes` (fire-and-forget inside startServer above) creates
+  // it asynchronously, so it may be null right now — the dispatcher resolves it
+  // at session_stop dispatch time, by which point startup has long settled.
+  getNotificationManager,
+});
 
 startSocketServer({
   onEvent: socketEventHandler,

@@ -106,6 +106,8 @@ export const SESSIONS_FIXTURE: SessionRow[] = [
     startedAt: new Date(FIXED_NOW),
     lastActivity: new Date(FIXED_NOW),
     endedAt: null,
+    stopReason: null,
+    errorDetails: null,
     pid: 4242,
     cwd: "/tmp/stub",
     branch: null,

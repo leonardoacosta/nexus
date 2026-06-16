@@ -28,6 +28,19 @@ export interface SessionStartEvent {
 export interface SessionStopEvent {
   event: "session_stop";
   session_id: string;
+  /**
+   * Why the session stopped. Sent today on the wire by the CC Stop hook but
+   * previously untyped; one of {error, api_error, crash, timeout, oom} marks a
+   * crash (see `notifications/hook-rules.ts` CRASH_STOP_REASONS). Persisted to
+   * `sessions.stop_reason` via `recordSessionStop` (nx-f060f).
+   */
+  stop_reason?: string;
+  /**
+   * Free-form error text captured by the CC hook (e.g. "API Error: 529
+   * Overloaded"). Persisted to `sessions.error_details` and surfaced in the
+   * crash notification body (nx-f060f).
+   */
+  error_details?: string;
 }
 
 export interface SessionHeartbeatEvent {
