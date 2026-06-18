@@ -123,11 +123,34 @@ export class NotificationPushSubscriber {
     }
   }
 
-  /** Concise banner title: prefer the CC session name, then project, then the
-   *  notification's own title, then a generic fallback. */
+  /** Concise banner title composed from the notification's project + session. */
   private title(p: NotificationFiredPayload): string {
-    return p.sessionName || p.project || p.title || "Nexus";
+    return composeTitle(p.project, p.sessionName, p.title);
   }
+}
+
+/**
+ * Compose a banner title as `project · session` (MIDDOT U+00B7) when both are
+ * present, degrading gracefully otherwise.
+ *
+ * Surfacing BOTH fields is the point: the old single-winner `a || b || c` chain
+ * hid one of project/session whenever both were set. With the composed form a
+ * banner reads e.g. `oo · fix-login-flow`, giving the user project context AND
+ * the specific session in one glance.
+ *
+ * Fallback ladder when not both present: session, then project, then the
+ * caller-supplied fallback, then a generic "Nexus". Empty/whitespace-only
+ * inputs are treated as absent.
+ */
+export function composeTitle(
+  project?: string,
+  session?: string,
+  fallback?: string,
+): string {
+  const p = project?.trim() || undefined;
+  const s = session?.trim() || undefined;
+  if (p && s) return `${p} · ${s}`;
+  return s || p || fallback || "Nexus";
 }
 
 let _subscriber: NotificationPushSubscriber | null = null;

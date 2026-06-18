@@ -9,9 +9,9 @@ _No database changes — notification payloads already carry `project`, `session
 
 ## API Batch
 
-- [ ] 1.1 Add `composeTitle(project?, session?, fallback?)` helper in the agent push module (next to `title()` in `apps/agent/src/health-push/notification-push.ts`). Rule: `project && session -> "${project} · ${session}"`, else `session || project || fallback || "Nexus"`. Trim inputs; treat empty/whitespace as absent. [owner:api-engineer] [beads:nx-r5amo]
-- [ ] 1.2 Replace the `a || b || c` chain in `title()` (`notification-push.ts:128`) with a call to `composeTitle(p.project, p.sessionName, p.title)`. Confirm the body computation (`p.body || p.message || title`, ~:83) still reads sensibly with the new longer title. [owner:api-engineer] [beads:nx-yxsc0]
-- [ ] 1.3 Add a bun unit test asserting all four cases of `composeTitle`: both present (`oo · fix-login-flow`), session-only, project-only, neither (`Nexus`). This is the runtime evidence for the title rule until APNS provisioning (`nx-gsgvk`) lands. [owner:test-writer] [beads:nx-3grhw]
+- [x] 1.1 Add `composeTitle(project?, session?, fallback?)` helper in the agent push module (next to `title()` in `apps/agent/src/health-push/notification-push.ts`). Rule: `project && session -> "${project} · ${session}"`, else `session || project || fallback || "Nexus"`. Trim inputs; treat empty/whitespace as absent. [owner:api-engineer] [beads:nx-r5amo]
+- [x] 1.2 Replace the `a || b || c` chain in `title()` (`notification-push.ts:128`) with a call to `composeTitle(p.project, p.sessionName, p.title)`. Confirm the body computation (`p.body || p.message || title`, ~:83) still reads sensibly with the new longer title. [owner:api-engineer] [beads:nx-yxsc0]
+- [x] 1.3 Add a bun unit test asserting all four cases of `composeTitle`: both present (`oo · fix-login-flow`), session-only, project-only, neither (`Nexus`). This is the runtime evidence for the title rule until APNS provisioning (`nx-gsgvk`) lands. [owner:test-writer] [beads:nx-3grhw]
 
 ## UI Batch
 
