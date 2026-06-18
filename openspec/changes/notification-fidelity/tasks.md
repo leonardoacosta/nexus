@@ -26,4 +26,4 @@ _No database changes — notification payloads already carry `project`, `session
 ## E2E Batch
 
 - [x] 3.1 Swift test (or a documented manual check) asserting `NotificationEvent.displayTitle` returns `oo · fix-login-flow` for both-present and degrades correctly for the three fallback cases — keeping the Swift rule in lockstep with the bun test in 1.3. [owner:swift-engineer] [beads:nx-j9v6h]
-- [ ] 3.2 Manual verification note: with `nx.notifications.bannerEnabled` off, fire a notification and confirm no macOS banner posts while TTS still plays; with it on, confirm the banner posts with a `project · session` title. Capture the launch-log `authorizationStatus` line as evidence the grant re-check fires. [owner:swift-engineer] [beads:nx-0pk9c]
+- [ ] 3.2 [user] Manual verification (on-device, requires Mac rebuild): with `nx.notifications.bannerEnabled` off, fire a notification and confirm no macOS banner posts while TTS still plays; with it on, confirm the banner posts with a `project · session` title. Capture the launch-log `authorizationStatus` line as evidence the grant re-check fires. [owner:user] [beads:nx-0pk9c]
