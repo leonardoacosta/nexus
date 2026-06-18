@@ -84,6 +84,26 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
     /// of the channel proxy.
     public var sessionName: String?
 
+    /// Banner / list display title. Mirrors the agent's
+    /// `composeTitle(project, session, fallback)` rule (notification-fidelity
+    /// API batch, `apps/agent/src/health-push/notification-push.ts`): both
+    /// `project` and `sessionName` present (trimmed non-empty) ->
+    /// `"\(project) · \(sessionName)"` (MIDDOT U+00B7, spaces around it);
+    /// else `sessionName`, else `project`, else `title`, else `"Nexus"`.
+    /// MUST stay in lockstep with the bun `composeTitle` test (task 1.3).
+    public var displayTitle: String {
+        let p = (project ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = (sessionName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !p.isEmpty, !s.isEmpty {
+            return "\(p) · \(s)"
+        }
+        if !s.isEmpty { return s }
+        if !p.isEmpty { return p }
+        let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        return "Nexus"
+    }
+
     public enum CodingKeys: String, CodingKey {
         case id
         case body

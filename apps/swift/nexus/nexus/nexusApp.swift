@@ -118,6 +118,15 @@ struct nexusApp: App {
                     "NexusApp: UN authorization granted=\(granted, privacy: .public)"
                 )
             }
+            // notification-fidelity (task 2.7): re-check the live grant state
+            // AFTER the request resolves and log it. Log-only — no re-prompt,
+            // no UI. Surfaces a reset/denied grant (e.g. after a re-sign) in
+            // the launch trace so a silent "no banners" regression is visible.
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                Self.appLogger.info(
+                    "NexusApp: UN settings authorizationStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alertStyle=\(settings.alertStyle.rawValue, privacy: .public)"
+                )
+            }
         }
 
         // Build TTSObserver with a freshly-constructed aggregate client

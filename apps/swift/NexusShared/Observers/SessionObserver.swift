@@ -176,8 +176,15 @@ public final class SessionObserver: ObservableObject {
     /// handler already degrades gracefully when sessionId is absent.
     private func postLocalNotification(for ev: NotificationEvent) {
         #if os(iOS)
+        // notification-fidelity (task 2.4): banner gate. Early-return when the
+        // user toggled banners off. Same raw-UserDefaults precedent as
+        // TTSObserver.postBanner — .object(forKey:) as? Bool ?? true (NOT
+        // .bool(forKey:), which would suppress on fresh install).
+        guard UserDefaults.standard.object(forKey: "nx.notifications.bannerEnabled") as? Bool ?? true else {
+            return
+        }
         let content = UNMutableNotificationContent()
-        content.title = ev.title ?? "Nexus"
+        content.title = ev.displayTitle
         // nx-20caf: surface the custom session name as the banner subtitle
         // when present (UNNotification supports subtitle on iOS too). Mirrors
         // TTSObserver.postBanner; nil/empty -> no subtitle, no change.

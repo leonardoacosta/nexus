@@ -39,7 +39,7 @@ struct NotificationDetailScene: View {
                     Text(emoji).font(.largeTitle)
                 }
 
-                Text(event.title ?? "Notification")
+                Text(event.displayTitle)
                     .font(.title2.bold())
                     .textSelection(.enabled)
                     .accessibilityIdentifier("notification-detail-title")

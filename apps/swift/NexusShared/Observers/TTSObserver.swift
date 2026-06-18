@@ -521,8 +521,22 @@ public final class TTSObserver: ObservableObject {
     // MARK: - Stage helpers
 
     private func postBanner(for event: NotificationEvent) async {
+        // notification-fidelity (task 2.3): banner gate. Early-return when the
+        // user toggled banners off. Read raw UserDefaults with the
+        // .object(forKey:) as? Bool ?? true precedent (NOT .bool(forKey:),
+        // which defaults absent -> false and would suppress on fresh install).
+        // Mirrors resolveDucking()'s raw-UserDefaults read below. The audio /
+        // TTS stage is NOT gated — only the visual banner.
+        guard UserDefaults.standard.object(forKey: "nx.notifications.bannerEnabled") as? Bool ?? true else {
+            Self.logger.info(
+                "TTSObserver: banner suppressed (nx.notifications.bannerEnabled=false) id=\(event.id.uuidString, privacy: .public)"
+            )
+            return
+        }
         let content = UNMutableNotificationContent()
-        content.title = event.title ?? "Nexus"
+        // notification-fidelity (task 2.2): title from displayTitle
+        // (project · session ladder) instead of the bare event.title.
+        content.title = event.displayTitle
         // nx-20caf: when the custom session name is present, surface it as
         // the banner subtitle (UNNotification supports a dedicated subtitle
         // line on macOS) so the banner reads title / session name / body —

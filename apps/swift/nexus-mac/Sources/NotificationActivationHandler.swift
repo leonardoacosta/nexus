@@ -84,6 +84,14 @@ public final class NotificationActivationHandler: NSObject, UNUserNotificationCe
         withCompletionHandler completionHandler:
             @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        // notification-fidelity (task 2.5): foreground gate. Defense-in-depth
+        // for any already-posted request — when the banner toggle is off,
+        // present nothing even if a request slipped past the poster gate.
+        // Same raw-UserDefaults precedent as TTSObserver.postBanner.
+        guard UserDefaults.standard.object(forKey: "nx.notifications.bannerEnabled") as? Bool ?? true else {
+            completionHandler([])
+            return
+        }
         completionHandler([.banner, .sound])
     }
 
