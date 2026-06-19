@@ -45,7 +45,10 @@ import {
 import {
   handleGetNotificationSettings,
   handlePatchNotificationSettings,
+  handleGetRoutingRules,
+  handlePutRoutingRules,
 } from "./routes/notification-settings";
+import { handlePresenceReport } from "./routes/presence-report";
 import {
   handleAnalyticsHealth,
   handleAnalyticsNotifications,
@@ -126,6 +129,10 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/meeting/start" },
   { method: "POST", path: "/meeting/end" },
   { method: "GET", path: "/meeting/status" },
+  // context-aware-routing: presence ingest + routing-rule CRUD.
+  { method: "POST", path: "/presence/report" },
+  { method: "GET", path: "/notifications/routing-rules" },
+  { method: "PUT", path: "/notifications/routing-rules" },
   // Credentials (delegated to server-routes-credentials.ts)
   { method: "GET", path: "/credentials" },
   { method: "POST", path: "/credentials" },
@@ -412,6 +419,28 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/notifications/settings" && request.method === "PATCH") {
         return handlePatchNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/notifications/settings", method: "PATCH", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // ── context-aware-routing: presence ingest + routing-rule CRUD ─────
+      if (url.pathname === "/presence/report" && request.method === "POST") {
+        return handlePresenceReport(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/presence/report", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/notifications/routing-rules" && request.method === "GET") {
+        return handleGetRoutingRules(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/routing-rules", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/notifications/routing-rules" && request.method === "PUT") {
+        return handlePutRoutingRules(db, request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/routing-rules", method: "PUT", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

@@ -15,7 +15,18 @@ export type {
   NotificationRule,
   AnalyticsNotificationRow,
   AnalyticsNotificationsResponse,
+  Action,
+  DeliveryTarget,
+  DeliveryMode,
+  InterruptionLevel,
+  RedactLevel,
 } from "./types/notification";
+export type {
+  Confidence,
+  Source,
+  PresenceField,
+  PresenceVector,
+} from "./types/presence";
 export type { SpecSummary } from "./types/spec";
 export type {
   FailuresResponse,

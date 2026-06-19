@@ -54,6 +54,9 @@ mock.module("./router", () => ({
   })),
   setRoutingRules: mock(() => {}),
   getRoutingRules: mock(() => []),
+  // context-aware-routing: null = presence routing off, use the legacy path.
+  decidePresenceRoute: mock(() => null),
+  actionToChannels: mock(() => []),
 }));
 
 // ─── Capture lifecycle emissions ───────────────────────────────────────────

@@ -38,6 +38,9 @@ mock.module("./router", () => ({
   }),
   routeNotification: async () => [],
   findMatchingRule: () => ({ meeting_behavior: "allow", channels: ["desktop"] }),
+  // context-aware-routing: null = presence routing off, use the legacy path.
+  decidePresenceRoute: () => null,
+  actionToChannels: () => [],
 }));
 
 let NotificationManager: typeof import("./manager").NotificationManager;

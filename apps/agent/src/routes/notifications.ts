@@ -1,11 +1,20 @@
 import { createHash } from "node:crypto";
 import type { Db } from "@nexus/db";
-import { notifications as notificationsTable } from "@nexus/db";
+import {
+  notifications as notificationsTable,
+  notificationSettings,
+  eq,
+} from "@nexus/db";
 import { desc } from "drizzle-orm";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
+import { HeldQueue } from "../notifications/held-queue";
+import {
+  getPresenceContext,
+  DEFAULT_PRESENCE_USER,
+} from "../notifications/presence-context";
 import { audioExists } from "../notifications/audio-store";
 
 const log = createLogger("agent:routes:notifications");
@@ -94,11 +103,48 @@ function isDuplicate(
   return false;
 }
 
+/** Reads the live `presence_aware_routing` flag from notification_settings. */
+async function readPresenceAwareRouting(db: Db): Promise<boolean> {
+  try {
+    const row = await db.query.notificationSettings.findFirst({
+      where: eq(notificationSettings.id, 1),
+    });
+    return row?.presenceAwareRouting ?? false;
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "presence: failed to read presence_aware_routing flag (defaulting off)",
+    );
+    return false;
+  }
+}
+
 /** Initialize notification routes with a database connection. */
 export async function initNotificationRoutes(db: Db): Promise<void> {
   await withSingletonLock(() => {
     meetingState = new MeetingState();
-    manager = new NotificationManager(db, meetingState);
+
+    // Presence-aware routing (context-aware-routing, Phase 1). The presence
+    // context binds the meeting-state so meeting transitions feed `inMeeting`;
+    // the durable held queue replaces the in-memory meeting buffer.
+    const presenceContext = getPresenceContext();
+    presenceContext.bindMeetingState(meetingState);
+    const heldQueue = new HeldQueue(db, DEFAULT_PRESENCE_USER);
+
+    manager = new NotificationManager(db, meetingState, {
+      context: presenceContext,
+      heldQueue,
+      presenceAwareRouting: () => readPresenceAwareRouting(db),
+    });
+
+    // Rehydrate pending holds on boot: flush anything already due (coalesced
+    // summary) and schedule the rest. Survives agent restart — the data-loss
+    // bug the in-memory buffer had.
+    void heldQueue.hydrate().then((flushedNow) => {
+      if (flushedNow.length > 0 && manager) {
+        void manager.flushHeldBatch(flushedNow);
+      }
+    });
   });
 }
 
@@ -210,6 +256,8 @@ export function handleMeetingStart(): Response {
   }
 
   manager.startMeeting();
+  // Feed the presence vector's inMeeting field from the meeting-state machine.
+  getPresenceContext().syncMeetingState();
   return jsonResponse({ status: "meeting started", ...manager.getMeetingState().status() });
 }
 
@@ -220,6 +268,8 @@ export async function handleMeetingEnd(): Promise<Response> {
   }
 
   const flushed = await manager.endMeeting();
+  // Sync the presence vector now the meeting is over (inMeeting -> false).
+  getPresenceContext().syncMeetingState();
   return jsonResponse({ status: "meeting ended", flushed });
 }
 

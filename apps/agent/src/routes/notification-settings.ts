@@ -18,22 +18,36 @@
  */
 
 import type { Db } from "@nexus/db";
-import { notificationSettings, eq } from "@nexus/db";
+import { notificationSettings, routingRules, eq } from "@nexus/db";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { DEFAULT_PRESENCE_USER } from "../notifications/presence-context";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SETTINGS_ROW_ID = 1;
-const ALLOWED_KEYS = new Set(["tts_enabled", "banner_enabled", "ducking_mode"]);
+// context-aware-routing adds three presence-routing keys to the allow-list.
+const ALLOWED_KEYS = new Set([
+  "tts_enabled",
+  "banner_enabled",
+  "ducking_mode",
+  "presence_aware_routing",
+  "unknown_noncritical_mode",
+  "unknown_critical_mode",
+]);
 const DUCKING_MODES = new Set(["full", "half", "mute"]);
+const FAIL_MODES = new Set(["fail-safe", "fail-open"]);
 
 type DuckingMode = "full" | "half" | "mute";
+type FailMode = "fail-safe" | "fail-open";
 
 interface SettingsResponse {
   id: number;
   tts_enabled: boolean;
   banner_enabled: boolean;
   ducking_mode: DuckingMode;
+  presence_aware_routing: boolean;
+  unknown_noncritical_mode: FailMode;
+  unknown_critical_mode: FailMode;
   updated_at: string;
 }
 
@@ -42,6 +56,9 @@ interface SettingsRow {
   ttsEnabled: boolean;
   bannerEnabled: boolean;
   duckingMode: DuckingMode;
+  presenceAwareRouting: boolean;
+  unknownNoncriticalMode: FailMode;
+  unknownCriticalMode: FailMode;
   updatedAt: Date;
 }
 
@@ -58,6 +75,9 @@ function toResponse(row: SettingsRow): SettingsResponse {
     tts_enabled: row.ttsEnabled,
     banner_enabled: row.bannerEnabled,
     ducking_mode: row.duckingMode,
+    presence_aware_routing: row.presenceAwareRouting,
+    unknown_noncritical_mode: row.unknownNoncriticalMode,
+    unknown_critical_mode: row.unknownCriticalMode,
     updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -159,6 +179,9 @@ export async function handlePatchNotificationSettings(
     ttsEnabled: boolean;
     bannerEnabled: boolean;
     duckingMode: DuckingMode;
+    presenceAwareRouting: boolean;
+    unknownNoncriticalMode: FailMode;
+    unknownCriticalMode: FailMode;
   }> = {};
 
   if ("tts_enabled" in patch) {
@@ -194,6 +217,38 @@ export async function handlePatchNotificationSettings(
     update.duckingMode = dm as DuckingMode;
   }
 
+  if ("presence_aware_routing" in patch) {
+    if (typeof patch.presence_aware_routing !== "boolean") {
+      return jsonResponse(
+        { error: "presence_aware_routing must be a boolean" },
+        400,
+      );
+    }
+    update.presenceAwareRouting = patch.presence_aware_routing;
+  }
+
+  if ("unknown_noncritical_mode" in patch) {
+    const m = patch.unknown_noncritical_mode;
+    if (typeof m !== "string" || !FAIL_MODES.has(m)) {
+      return jsonResponse(
+        { error: "unknown_noncritical_mode must be one of: fail-safe, fail-open" },
+        400,
+      );
+    }
+    update.unknownNoncriticalMode = m as FailMode;
+  }
+
+  if ("unknown_critical_mode" in patch) {
+    const m = patch.unknown_critical_mode;
+    if (typeof m !== "string" || !FAIL_MODES.has(m)) {
+      return jsonResponse(
+        { error: "unknown_critical_mode must be one of: fail-safe, fail-open" },
+        400,
+      );
+    }
+    update.unknownCriticalMode = m as FailMode;
+  }
+
   // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
   // SELECT the current row, merge the candidate patch, and if every field
   // matches the existing value, return 200 WITHOUT issuing an UPDATE and
@@ -214,7 +269,13 @@ export async function handlePatchNotificationSettings(
   const changed =
     (update.ttsEnabled !== undefined && update.ttsEnabled !== current.ttsEnabled) ||
     (update.bannerEnabled !== undefined && update.bannerEnabled !== current.bannerEnabled) ||
-    (update.duckingMode !== undefined && update.duckingMode !== current.duckingMode);
+    (update.duckingMode !== undefined && update.duckingMode !== current.duckingMode) ||
+    (update.presenceAwareRouting !== undefined &&
+      update.presenceAwareRouting !== current.presenceAwareRouting) ||
+    (update.unknownNoncriticalMode !== undefined &&
+      update.unknownNoncriticalMode !== current.unknownNoncriticalMode) ||
+    (update.unknownCriticalMode !== undefined &&
+      update.unknownCriticalMode !== current.unknownCriticalMode);
 
   if (!changed) {
     // No-op: return current row, do NOT UPDATE, do NOT emit.
@@ -244,4 +305,144 @@ export async function handlePatchNotificationSettings(
   });
 
   return jsonResponse(toResponse(row));
+}
+
+// ── /notifications/routing-rules — ordered routing-rule CRUD ──────────────
+//
+// context-aware-routing (Phase 1). The rules engine reads these in `priority`
+// order (first-match-wins). The wire contract is an ARRAY whose index IS the
+// priority — the client sends rules in the order it wants them evaluated and
+// the handler stamps `priority = index`, so a drag-reorder is just a re-PUT in
+// the new order. A PUT REPLACES the whole set (delete-then-insert) so reorders
+// and deletions are expressed atomically without per-row diffing.
+
+interface RoutingRuleWire {
+  id: string;
+  priority: number;
+  condition: Record<string, unknown>;
+  action: Record<string, unknown>;
+  enabled: boolean;
+}
+
+function ruleToWire(row: {
+  id: string;
+  priority: number;
+  condition: Record<string, unknown>;
+  action: Record<string, unknown>;
+  enabled: boolean;
+}): RoutingRuleWire {
+  return {
+    id: row.id,
+    priority: row.priority,
+    condition: row.condition,
+    action: row.action,
+    enabled: row.enabled,
+  };
+}
+
+/** GET /notifications/routing-rules — return the rules ordered by priority. */
+export async function handleGetRoutingRules(db: Db): Promise<Response> {
+  const rows = await db
+    .select()
+    .from(routingRules)
+    .where(eq(routingRules.userId, DEFAULT_PRESENCE_USER))
+    .orderBy(routingRules.priority);
+
+  return jsonResponse({ rules: rows.map(ruleToWire) });
+}
+
+/**
+ * PUT /notifications/routing-rules — replace the rule set.
+ *
+ * Body: `{ rules: Array<{ id, condition, action, enabled }> }`. The array index
+ * becomes the persisted `priority`. The whole set is replaced (delete-all +
+ * insert) so a reorder is a single atomic PUT. Broadcasts `SettingsChanged` so
+ * SSE subscribers re-read without polling.
+ */
+export async function handlePutRoutingRules(
+  db: Db,
+  request: Request,
+): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid JSON body" }, 400);
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return jsonResponse({ error: "body must be a JSON object" }, 400);
+  }
+
+  const rules = (body as Record<string, unknown>).rules;
+  if (!Array.isArray(rules)) {
+    return jsonResponse({ error: "rules must be an array" }, 400);
+  }
+
+  // Validate + project each incoming rule before touching the DB.
+  const toInsert: {
+    id: string;
+    userId: string;
+    priority: number;
+    condition: Record<string, unknown>;
+    action: Record<string, unknown>;
+    enabled: boolean;
+  }[] = [];
+
+  for (const [i, raw] of rules.entries()) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return jsonResponse(
+        { error: "each rule must be an object", detail: `index ${i}` },
+        400,
+      );
+    }
+    const r = raw as Record<string, unknown>;
+    if (typeof r.id !== "string" || r.id.length === 0) {
+      return jsonResponse(
+        { error: "each rule needs a non-empty string id", detail: `index ${i}` },
+        400,
+      );
+    }
+    if (r.condition !== undefined && (typeof r.condition !== "object" || r.condition === null)) {
+      return jsonResponse(
+        { error: "rule.condition must be an object", detail: `index ${i}` },
+        400,
+      );
+    }
+    if (r.action !== undefined && (typeof r.action !== "object" || r.action === null)) {
+      return jsonResponse(
+        { error: "rule.action must be an object", detail: `index ${i}` },
+        400,
+      );
+    }
+    toInsert.push({
+      id: r.id,
+      userId: DEFAULT_PRESENCE_USER,
+      priority: i, // index IS the priority — first-match-wins, top to bottom.
+      condition: (r.condition as Record<string, unknown>) ?? {},
+      action: (r.action as Record<string, unknown>) ?? {},
+      enabled: typeof r.enabled === "boolean" ? r.enabled : true,
+    });
+  }
+
+  // Replace the whole set: delete-all then insert in submission order.
+  await db.delete(routingRules).where(eq(routingRules.userId, DEFAULT_PRESENCE_USER));
+  if (toInsert.length > 0) {
+    await db.insert(routingRules).values(toInsert);
+  }
+
+  // Broadcast settings change so clients re-read the rules. Reuse the existing
+  // SettingsChanged event — no new SSE channel (design decision). We read the
+  // current settings row to populate the payload; if it's missing we still
+  // emit with the column defaults so subscribers refresh.
+  const settings = await db.query.notificationSettings.findFirst({
+    where: eq(notificationSettings.id, SETTINGS_ROW_ID),
+  });
+  lifecycleBus.emit("SettingsChanged", {
+    ttsEnabled: settings?.ttsEnabled ?? true,
+    bannerEnabled: settings?.bannerEnabled ?? true,
+    duckingMode: settings?.duckingMode ?? "full",
+  });
+
+  return jsonResponse({ rules: toInsert.map(ruleToWire) });
 }

@@ -45,6 +45,8 @@ mock.module("@nexus/core/node", () => ({
 import {
   handleGetNotificationSettings,
   handlePatchNotificationSettings,
+  handleGetRoutingRules,
+  handlePutRoutingRules,
 } from "./notification-settings";
 import { lifecycleBus } from "../services/lifecycle-bus";
 import type { SettingsChangedPayload } from "../services/lifecycle-bus";
@@ -56,6 +58,9 @@ interface FakeRow {
   ttsEnabled: boolean;
   bannerEnabled: boolean;
   duckingMode: "full" | "half" | "mute";
+  presenceAwareRouting: boolean;
+  unknownNoncriticalMode: "fail-safe" | "fail-open";
+  unknownCriticalMode: "fail-open" | "fail-safe";
   updatedAt: Date;
 }
 
@@ -65,6 +70,9 @@ function defaultRow(): FakeRow {
     ttsEnabled: true,
     bannerEnabled: true,
     duckingMode: "full",
+    presenceAwareRouting: false,
+    unknownNoncriticalMode: "fail-safe",
+    unknownCriticalMode: "fail-open",
     updatedAt: new Date("2026-04-26T00:00:00.000Z"),
   };
 }
@@ -235,6 +243,9 @@ describe("PATCH /notifications/settings — partial update semantics", () => {
       ttsEnabled: true,
       bannerEnabled: true,
       duckingMode: "half",
+      presenceAwareRouting: false,
+      unknownNoncriticalMode: "fail-safe",
+      unknownCriticalMode: "fail-open",
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
     const { db, rows } = makeFakeDb(initial);
@@ -331,5 +342,206 @@ describe("PATCH /notifications/settings — lifecycle bus emission", () => {
     );
     expect(res.status).toBe(400);
     expect(received).toHaveLength(0);
+  });
+});
+
+// ── context-aware-routing: new settings keys ──────────────────────────────
+
+describe("PATCH /notifications/settings — presence-routing keys", () => {
+  it("accepts presence_aware_routing boolean", async () => {
+    const { db, rows } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { presence_aware_routing: true }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.presence_aware_routing).toBe(true);
+    expect(rows[0]!.presenceAwareRouting).toBe(true);
+  });
+
+  it("rejects non-boolean presence_aware_routing with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { presence_aware_routing: "yes" }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a valid unknown_noncritical_mode enum", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { unknown_noncritical_mode: "fail-open" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.unknown_noncritical_mode).toBe("fail-open");
+  });
+
+  it("rejects an invalid unknown_noncritical_mode enum with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { unknown_noncritical_mode: "nope" }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an invalid unknown_critical_mode enum with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { unknown_critical_mode: "nope" }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("no-op PATCH of an unchanged presence key does not emit", async () => {
+    let received = 0;
+    const handler = () => {
+      received += 1;
+    };
+    lifecycleBus.removeAllListeners();
+    lifecycleBus.on("SettingsChanged", handler);
+
+    const { db } = makeFakeDb(); // presenceAwareRouting defaults to false
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { presence_aware_routing: false }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toBe(0);
+    lifecycleBus.removeAllListeners();
+  });
+});
+
+// ── context-aware-routing: routing_rules CRUD ─────────────────────────────
+
+interface FakeRule {
+  id: string;
+  userId: string;
+  priority: number;
+  condition: Record<string, unknown>;
+  action: Record<string, unknown>;
+  enabled: boolean;
+  updatedAt: Date;
+}
+
+function makeRoutingRulesDb(initial: FakeRule[] = []): {
+  db: Db;
+  rules: FakeRule[];
+} {
+  const rules: FakeRule[] = [...initial];
+
+  const db = {
+    query: {
+      notificationSettings: {
+        findFirst: mock(async () => defaultRow()),
+      },
+    },
+    select: mock(() => ({
+      from: mock(() => ({
+        where: mock(() => ({
+          orderBy: mock(async () =>
+            [...rules].sort((a, b) => a.priority - b.priority),
+          ),
+        })),
+        orderBy: mock(async () =>
+          [...rules].sort((a, b) => a.priority - b.priority),
+        ),
+      })),
+    })),
+    delete: mock(() => ({
+      where: mock(async () => {
+        rules.length = 0;
+      }),
+    })),
+    insert: mock(() => ({
+      values: mock(async (vals: FakeRule[] | FakeRule) => {
+        const arr = Array.isArray(vals) ? vals : [vals];
+        for (const v of arr) rules.push({ ...v, updatedAt: new Date() });
+      }),
+    })),
+  } as unknown as Db;
+
+  return { db, rules };
+}
+
+describe("GET /notifications/routing-rules", () => {
+  it("returns rules ordered by priority", async () => {
+    const { db } = makeRoutingRulesDb([
+      { id: "r2", userId: "u", priority: 2, condition: {}, action: {}, enabled: true, updatedAt: new Date() },
+      { id: "r1", userId: "u", priority: 1, condition: {}, action: {}, enabled: true, updatedAt: new Date() },
+    ]);
+    const res = await handleGetRoutingRules(db);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rules: { id: string; priority: number }[] };
+    expect(body.rules.map((r) => r.id)).toEqual(["r1", "r2"]);
+  });
+});
+
+describe("PUT /notifications/routing-rules", () => {
+  it("replaces the rule set in the given order and persists priority", async () => {
+    const { db, rules } = makeRoutingRulesDb([
+      { id: "old", userId: "u", priority: 0, condition: {}, action: {}, enabled: true, updatedAt: new Date() },
+    ]);
+
+    const res = await handlePutRoutingRules(
+      db,
+      new Request("http://127.0.0.1:7400/notifications/routing-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: [
+            { id: "b", condition: { inMeeting: true }, action: { digest: true }, enabled: true },
+            { id: "a", condition: { macActive: true }, action: { tts: true }, enabled: true },
+          ],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // Persisted in submission order with priority 0,1.
+    const byPriority = [...rules].sort((x, y) => x.priority - y.priority);
+    expect(byPriority.map((r) => r.id)).toEqual(["b", "a"]);
+    expect(byPriority[0]!.priority).toBe(0);
+    expect(byPriority[1]!.priority).toBe(1);
+    // Old rule was removed (replace, not append).
+    expect(rules.find((r) => r.id === "old")).toBeUndefined();
+  });
+
+  it("emits SettingsChanged after a rule reorder", async () => {
+    let received = 0;
+    lifecycleBus.removeAllListeners();
+    lifecycleBus.on("SettingsChanged", () => {
+      received += 1;
+    });
+    const { db } = makeRoutingRulesDb();
+    const res = await handlePutRoutingRules(
+      db,
+      new Request("http://127.0.0.1:7400/notifications/routing-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: [] }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toBe(1);
+    lifecycleBus.removeAllListeners();
+  });
+
+  it("rejects a non-array rules field with 400", async () => {
+    const { db } = makeRoutingRulesDb();
+    const res = await handlePutRoutingRules(
+      db,
+      new Request("http://127.0.0.1:7400/notifications/routing-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: "nope" }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 });

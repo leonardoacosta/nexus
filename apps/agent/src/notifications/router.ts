@@ -1,5 +1,11 @@
-import type { NotificationChannel, NotificationRule } from "@nexus/core";
+import type {
+  Action,
+  NotificationChannel,
+  NotificationRule,
+  PresenceVector,
+} from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
+import { evaluateRules } from "./rules-engine";
 import { captureException, addBreadcrumb } from "@sentry/node";
 import { fetchWithTimeout } from "@nexus/core";
 import type { Db } from "@nexus/db";
@@ -511,4 +517,64 @@ export async function routeNotificationParallel(
   }
 
   return { delivered, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Presence-aware routing (context-aware-routing, Phase 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a rules-engine `Action` to the concrete `NotificationChannel[]` the
+ * existing fan-out understands. Phase 1 keeps `NotificationChannel` as
+ * `desktop | tts`: `banner` -> `desktop`, `tts` -> `tts`. Targets / digest /
+ * hold are handled by the manager (held-queue), not the channel layer.
+ */
+export function actionToChannels(action: Action): NotificationChannel[] {
+  const channels: NotificationChannel[] = [];
+  if (action.banner) channels.push("desktop");
+  if (action.tts) channels.push("tts");
+  return channels;
+}
+
+/**
+ * The presence-routing decision for one notification.
+ *
+ * `hold` is set when the winning Action carries a `holdUntil` — the manager
+ * routes it to the durable held queue instead of delivering now. `channels` is
+ * the immediate fan-out set (empty when held or digest-only). `action` is the
+ * full winning Action for downstream metadata (deliverTo, redact, etc.).
+ */
+export interface PresenceRouteDecision {
+  hold: boolean;
+  holdUntil: string | null;
+  channels: NotificationChannel[];
+  action: Action;
+}
+
+/**
+ * Decide how to route a notification under the presence-aware engine.
+ *
+ * HARD PARITY CONTRACT: when `presenceAwareRouting` is `false` (the default),
+ * this function does NOT consult the rules engine or the vector at all — the
+ * caller MUST fall back to the byte-identical legacy `routeNotificationParallel`
+ * path. This function only produces a decision when the flag is ON; it returns
+ * `null` when the flag is off to make the "use the legacy path" branch explicit
+ * and untestably-divergent from today's behaviour.
+ */
+export function decidePresenceRoute(
+  presenceAwareRouting: boolean,
+  vector: PresenceVector,
+): PresenceRouteDecision | null {
+  if (!presenceAwareRouting) return null;
+
+  const action = evaluateRules(vector);
+  const channels = actionToChannels(action);
+  const hold = action.holdUntil !== null;
+
+  log.debug(
+    { hold, holdUntil: action.holdUntil, channels, deliverTo: action.deliverTo },
+    "router: presence-aware decision",
+  );
+
+  return { hold, holdUntil: action.holdUntil, channels, action };
 }

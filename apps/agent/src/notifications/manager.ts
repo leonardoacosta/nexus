@@ -10,9 +10,17 @@ import {
 } from "./buffer";
 import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
-import { routeNotification, findMatchingRule, routeNotificationParallel } from "./router";
+import {
+  routeNotification,
+  findMatchingRule,
+  routeNotificationParallel,
+  decidePresenceRoute,
+} from "./router";
 import { lifecycleBus } from "../services/lifecycle-bus";
 import { writeAudio } from "./audio-store";
+import type { PresenceContext } from "./presence-context";
+import type { HeldQueue } from "./held-queue";
+import type { PresenceHold } from "@nexus/db";
 
 /**
  * Transient transport-only fields threaded through the `NotificationFired`
@@ -46,13 +54,30 @@ export interface NotificationTransportExtras {
  * Notification manager — orchestrates the lifecycle:
  * check meeting state -> buffer or route -> flush on meeting end.
  */
+/**
+ * Optional presence-routing collaborators (context-aware-routing, Phase 1).
+ *
+ * Strictly opt-in: when omitted, the manager runs the byte-identical legacy
+ * meeting-state buffer path. When wired AND `presenceAwareRouting` returns
+ * true, `send()` consults the rules engine and routes meeting-holds through the
+ * durable `HeldQueue` instead of the in-memory buffer.
+ */
+export interface PresenceWiring {
+  context: PresenceContext;
+  heldQueue: HeldQueue;
+  /** Reads the live `presence_aware_routing` flag (from notification_settings). */
+  presenceAwareRouting: () => Promise<boolean> | boolean;
+}
+
 export class NotificationManager {
   private meetingState: MeetingState;
   private db: Db;
+  private presence: PresenceWiring | null;
 
-  constructor(db: Db, meetingState?: MeetingState) {
+  constructor(db: Db, meetingState?: MeetingState, presence?: PresenceWiring) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
+    this.presence = presence ?? null;
   }
 
   /** Get the meeting state instance. */
@@ -98,8 +123,49 @@ export class NotificationManager {
       voiceUsed: notification.voiceUsed ?? null,
     };
 
-    // Always persist to buffer first
+    // Always persist to the notifications table first
     await insertNotification(this.db, row);
+
+    // ── Presence-aware path (context-aware-routing, Phase 1) ──────────────
+    // Opt-in + flag-gated. When the flag is OFF (or no presence wiring),
+    // `decidePresenceRoute` short-circuits and we fall through to the
+    // byte-identical legacy meeting-state buffer path below.
+    if (this.presence) {
+      const enabled = await this.presence.presenceAwareRouting();
+      const decision = decidePresenceRoute(
+        enabled,
+        this.presence.context.vector(),
+      );
+      if (decision) {
+        if (decision.hold && decision.holdUntil) {
+          // Durable meeting-hold: persist to presence_holds and schedule the
+          // flush. The notification row stays queued until the held batch
+          // flushes (coalesced summary) — see flushHeldBatch().
+          await this.presence.heldQueue.hold({
+            id: row.id,
+            payload: {
+              title: row.title,
+              body: row.body ?? undefined,
+              project: row.project ?? undefined,
+            },
+            holdUntil: new Date(decision.holdUntil),
+            reason: "rule-2-meeting",
+          });
+          this.presence.heldQueue.scheduleFlush(
+            row.id,
+            new Date(decision.holdUntil),
+          );
+          logger.info(
+            { id: row.id, holdUntil: decision.holdUntil },
+            "notification held (presence rule-2 meeting hold)",
+          );
+          return row;
+        }
+        // Deliver now per the engine's channel decision.
+        await this.deliverNotification(row, extras);
+        return row;
+      }
+    }
 
     // Check meeting state
     if (this.meetingState.active) {
@@ -155,6 +221,73 @@ export class NotificationManager {
     }
 
     return delivered;
+  }
+
+  /**
+   * Flush a batch of held notifications into ONE coalesced summary
+   * (context-aware-routing, Phase 1, Rule 2).
+   *
+   * Bedtime guard: if the flush lands while `isBedtime` is true AND the Mac is
+   * NOT active, the summary is delivered SILENTLY — banner only, no TTS — so a
+   * meeting that ran into bedtime does not speak into a dark room. Otherwise the
+   * summary delivers banner + TTS.
+   *
+   * Returns the coalesced summary row that was delivered, or null when the
+   * batch was empty.
+   */
+  async flushHeldBatch(
+    holds: PresenceHold[],
+    extras?: NotificationTransportExtras,
+  ): Promise<NotificationRow | null> {
+    if (holds.length === 0) return null;
+
+    // Coalesce into a single summary. One held item keeps its own title;
+    // multiple collapse into an "N updates" summary with each as a bullet.
+    const items = holds.map((h) => h.payload.title);
+    const summaryTitle =
+      holds.length === 1
+        ? holds[0]!.payload.title
+        : `${holds.length} updates while you were in a meeting`;
+    const summaryBody =
+      holds.length === 1
+        ? holds[0]!.payload.body ?? holds[0]!.payload.title
+        : items.join("; ");
+
+    // Bedtime + idle Mac → silent (no TTS) per the Rule 2 flush guard.
+    let silent = false;
+    if (this.presence) {
+      const v = this.presence.context.vector();
+      const isBedtime = v.isBedtime.confidence !== "unknown" && v.isBedtime.value === true;
+      const macIdle = v.macActive.confidence === "unknown" || v.macActive.value !== true;
+      silent = isBedtime && macIdle;
+    }
+
+    const summaryId = `held-summary-${holds[0]!.id}-${Date.now()}`;
+    const summaryRow: NotificationRow = {
+      id: summaryId,
+      channel: silent ? "desktop" : "tts",
+      title: summaryTitle,
+      body: summaryBody,
+      project: holds[0]!.payload.project ?? null,
+      agentId: null,
+      priority: "normal",
+      status: "queued",
+      sentAt: null,
+      severity: "info",
+      deliveryState: "pending",
+      audioPath: null,
+      voiceUsed: null,
+      createdAt: new Date(),
+    } as NotificationRow;
+
+    await insertNotification(this.db, summaryRow);
+    await this.deliverNotification(summaryRow, { ...extras, items });
+
+    logger.info(
+      { count: holds.length, summaryId, silent },
+      "notification held-batch flushed (coalesced summary)",
+    );
+    return summaryRow;
   }
 
   /** Deliver a single notification via the router using parallel channel delivery. */

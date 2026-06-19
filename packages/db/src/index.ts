@@ -13,6 +13,10 @@ export {
   asc,
   inArray,
   notInArray,
+  lte,
+  gte,
+  lt,
+  gt,
   sql,
   max,
 } from "drizzle-orm";
@@ -102,6 +106,22 @@ export {
   type CredentialSwap,
   type NewCredentialSwap,
   type CredentialSwapReason,
+} from "./schema";
+
+// presence_holds + routing_rules — presence-aware notification routing
+// (openspec/changes/context-aware-routing). presence_holds is the durable
+// meeting-hold queue (replaces the in-memory buffer); routing_rules is the
+// ordered, drag-reorderable priority rule list consumed by the rules engine.
+export {
+  presenceHolds,
+  type PresenceHold,
+  type NewPresenceHold,
+  type PresenceHoldPayload,
+  routingRules,
+  type RoutingRule,
+  type NewRoutingRule,
+  type RoutingRuleCondition,
+  type RoutingRuleAction,
 } from "./schema";
 
 // Relations (used by drizzle's relational query API)

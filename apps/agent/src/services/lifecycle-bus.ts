@@ -262,6 +262,33 @@ export interface ProcessWatcherStalledPayload {
   livePidCount: number;
 }
 
+/**
+ * Emitted by `presence-context.ts` on every merge of reported presence fields
+ * into the per-user vector (openspec/changes/context-aware-routing).
+ *
+ * `vector` is the post-merge snapshot (fields read through the TTL lens, so
+ * stale fields already appear as `unknown`). `changed` lists the field keys
+ * that this merge actually updated, so subscribers can react narrowly without
+ * diffing the whole vector.
+ */
+export interface PresenceChangedPayload {
+  /** Post-merge presence vector snapshot. */
+  vector: import("@nexus/core").PresenceVector;
+  /** Field keys updated by this merge. */
+  changed: (keyof import("@nexus/core").PresenceVector)[];
+}
+
+/**
+ * Emitted by the held-queue when a held notification flushes at its
+ * `holdUntil` (openspec/changes/context-aware-routing). Carries only the
+ * notification id — subscribers refetch detail as needed (mirrors the lean
+ * projection convention used by `HookEventReceived`).
+ */
+export interface PresenceHoldReleasedPayload {
+  /** Notification id of the flushed hold. */
+  id: string;
+}
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -282,6 +309,8 @@ export interface LifecycleEventMap {
   RemoteSessionEnded: RemoteSessionEndedPayload;
   VoiceOverrideChanged: VoiceOverrideChangedPayload;
   ProcessWatcherStalled: ProcessWatcherStalledPayload;
+  PresenceChanged: PresenceChangedPayload;
+  PresenceHoldReleased: PresenceHoldReleasedPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;

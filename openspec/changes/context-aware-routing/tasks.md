@@ -13,16 +13,16 @@
 
 ## API Batch
 
-- [ ] Add `PresenceField<T>`, `Confidence`, `Source`, and `PresenceVector` (Phase 1 fields: macActive, macLocked, macHost, inMeeting, meetingEndsAt, isBedtime) to `packages/core/src/types/presence.ts` [beads:nx-3zluj]
-- [ ] Add the closed `Action` interface (banner, ding, tts, deliverTo, deliveryMode, interruptionLevel, collapseId, stopPropagation, holdUntil, digest, redact) and extend `NotificationRule` with `condition`/`action` in `packages/core/src/types/notification.ts` [beads:nx-m86ir]
-- [ ] Implement the `presence-context.ts` singleton in `apps/agent/src/notifications/presence-context.ts` — per-user vector, per-field TTL (mac ~30s), merge-on-report, `unknown`-past-TTL reads, emits `PresenceChanged`; feed `inMeeting` from the existing meeting-state [beads:nx-bbbu8]
-- [ ] Implement the rules engine in `apps/agent/src/notifications/rules-engine.ts` — priority-ordered first-match-wins producing an `Action`; ship Rule 1 (active Mac, not in meeting -> banner+tts to macHost, beats bedtime) and Rule 2 (in meeting -> hold); terminal fallback to dashboard+digest; staleness policy (fail-safe non-critical, fail-open critical) [beads:nx-jj41k]
-- [ ] Wire `apps/agent/src/notifications/router.ts` to call the rules engine; gate on `presence_aware_routing` and return the legacy project/`meeting_behavior` result when disabled (byte-identical fallback) [beads:nx-8042w]
-- [ ] Implement `apps/agent/src/notifications/held-queue.ts` — DB-backed read/write to `presence_holds`, reload pending holds on boot, schedule flush at `holdUntil`, mark released + emit `PresenceHoldReleased`; remove the in-memory buffer path [beads:nx-kvby7]
-- [ ] Update `apps/agent/src/notifications/manager.ts` to route through the presence-hold path, coalesce a held batch into one summary on flush, and apply the bedtime+idle silent guard [beads:nx-3hmy9]
-- [ ] Add `PresenceChanged` and `PresenceHoldReleased` to `LifecycleEventMap` in `apps/agent/src/services/lifecycle-bus.ts` (with payload interfaces) [beads:nx-etrke]
-- [ ] Add `POST /presence/report` handler in `apps/agent/src/routes/presence-report.ts` — validate body, merge into the vector, 400 on bad shape; register the route on the agent server [beads:nx-ep9al]
-- [ ] Extend `apps/agent/src/routes/notification-settings.ts` to accept the three new settings keys and CRUD `routing_rules` (ordered), broadcasting `SettingsChanged` [beads:nx-t605y]
+- [x] Add `PresenceField<T>`, `Confidence`, `Source`, and `PresenceVector` (Phase 1 fields: macActive, macLocked, macHost, inMeeting, meetingEndsAt, isBedtime) to `packages/core/src/types/presence.ts` [beads:nx-3zluj]
+- [x] Add the closed `Action` interface (banner, ding, tts, deliverTo, deliveryMode, interruptionLevel, collapseId, stopPropagation, holdUntil, digest, redact) and extend `NotificationRule` with `condition`/`action` in `packages/core/src/types/notification.ts` [beads:nx-m86ir]
+- [x] Implement the `presence-context.ts` singleton in `apps/agent/src/notifications/presence-context.ts` — per-user vector, per-field TTL (mac ~30s), merge-on-report, `unknown`-past-TTL reads, emits `PresenceChanged`; feed `inMeeting` from the existing meeting-state [beads:nx-bbbu8]
+- [x] Implement the rules engine in `apps/agent/src/notifications/rules-engine.ts` — priority-ordered first-match-wins producing an `Action`; ship Rule 1 (active Mac, not in meeting -> banner+tts to macHost, beats bedtime) and Rule 2 (in meeting -> hold); terminal fallback to dashboard+digest; staleness policy (fail-safe non-critical, fail-open critical) [beads:nx-jj41k]
+- [x] Wire `apps/agent/src/notifications/router.ts` to call the rules engine; gate on `presence_aware_routing` and return the legacy project/`meeting_behavior` result when disabled (byte-identical fallback) [beads:nx-8042w]
+- [x] Implement `apps/agent/src/notifications/held-queue.ts` — DB-backed read/write to `presence_holds`, reload pending holds on boot, schedule flush at `holdUntil`, mark released + emit `PresenceHoldReleased`; remove the in-memory buffer path [beads:nx-kvby7]
+- [x] Update `apps/agent/src/notifications/manager.ts` to route through the presence-hold path, coalesce a held batch into one summary on flush, and apply the bedtime+idle silent guard [beads:nx-3hmy9]
+- [x] Add `PresenceChanged` and `PresenceHoldReleased` to `LifecycleEventMap` in `apps/agent/src/services/lifecycle-bus.ts` (with payload interfaces) [beads:nx-etrke]
+- [x] Add `POST /presence/report` handler in `apps/agent/src/routes/presence-report.ts` — validate body, merge into the vector, 400 on bad shape; register the route on the agent server [beads:nx-ep9al]
+- [x] Extend `apps/agent/src/routes/notification-settings.ts` to accept the three new settings keys and CRUD `routing_rules` (ordered), broadcasting `SettingsChanged` [beads:nx-t605y]
 
 ## UI Batch
 
@@ -32,9 +32,9 @@
 
 ## E2E Batch
 
-- [ ] `apps/agent/src/notifications/presence-context.test.ts` — field merge, TTL -> unknown, `PresenceChanged` emission, meeting-state -> inMeeting [beads:nx-ukdgx]
-- [ ] `apps/agent/src/notifications/rules-engine.test.ts` — first-match-wins, Rule 1 active-Mac (incl. active-at-night beats bedtime), Rule 2 meeting-hold with AND-gate + 60m cap, flag-off legacy parity, terminal fallback [beads:nx-p6u1v]
-- [ ] `apps/agent/src/notifications/held-queue.test.ts` — persist, restart reload, flush at holdUntil, released marker + `PresenceHoldReleased` [beads:nx-9631m]
-- [ ] `apps/agent/src/routes/presence-report.test.ts` — valid merge, invalid-shape 400, vector reflects report [beads:nx-s04l8]
-- [ ] Extend `apps/agent/src/routes/notification-settings.test.ts` — new keys accepted + validated, rule reorder persists, `SettingsChanged` broadcast, no-op short-circuit [beads:nx-d9lfj]
+- [x] `apps/agent/src/notifications/presence-context.test.ts` — field merge, TTL -> unknown, `PresenceChanged` emission, meeting-state -> inMeeting [beads:nx-ukdgx]
+- [x] `apps/agent/src/notifications/rules-engine.test.ts` — first-match-wins, Rule 1 active-Mac (incl. active-at-night beats bedtime), Rule 2 meeting-hold with AND-gate + 60m cap, flag-off legacy parity, terminal fallback [beads:nx-p6u1v]
+- [x] `apps/agent/src/notifications/held-queue.test.ts` — persist, restart reload, flush at holdUntil, released marker + `PresenceHoldReleased` [beads:nx-9631m]
+- [x] `apps/agent/src/routes/presence-report.test.ts` — valid merge, invalid-shape 400, vector reflects report [beads:nx-s04l8]
+- [x] Extend `apps/agent/src/routes/notification-settings.test.ts` — new keys accepted + validated, rule reorder persists, `SettingsChanged` broadcast, no-op short-circuit [beads:nx-d9lfj]
 - [ ] `apps/swift/nexus-mac/Tests/SettingsRoutingViewTests.swift` — simulator selects the correct winning rule; toggle persists through SettingsStore [beads:nx-dimqx]

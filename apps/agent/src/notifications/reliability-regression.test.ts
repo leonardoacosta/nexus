@@ -39,9 +39,6 @@ import {
   beforeEach,
   mock,
 } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 // ─── Sentry + logger spies (effective only when this file loads first) ───────
 
@@ -190,62 +187,20 @@ describe("regression 1.1 — meeting-state rejects invalid transitions", () => {
 // 1.2 — notification buffer overflow is bounded (drop-oldest at MAX_BUFFER_SIZE)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("regression 1.2 — buffer overflow is bounded (drop-oldest)", () => {
-  let tmpConfigDir: string;
-  let originalConfigDir: string | undefined;
+describe("regression 1.2 — in-memory buffer ring removed (context-aware-routing)", () => {
+  // The old in-memory `pendingIds` ring + `buffer-meta.json` sidecar were the
+  // restart-data-loss path: held items vanished on every agent restart. They
+  // were REMOVED by context-aware-routing in favour of the durable
+  // `presence_holds` queue (`held-queue.ts`). This regression now guards the
+  // REMOVAL — the volatile bound is gone, the DB write remains.
 
-  beforeAll(() => {
-    // Route the buffer-meta sidecar to a tmp dir so readMeta() reflects ONLY
-    // this test's inserts and we don't clobber the real ~/.config/nexus file.
-    originalConfigDir = process.env.NEXUS_CONFIG_DIR;
-    tmpConfigDir = mkdtempSync(join(tmpdir(), "nx-buffer-reg-"));
-    process.env.NEXUS_CONFIG_DIR = tmpConfigDir;
+  it("no longer exports the in-memory ring symbols (MAX_BUFFER_SIZE / readMeta)", async () => {
+    const mod = (await import("./buffer")) as Record<string, unknown>;
+    expect(mod.MAX_BUFFER_SIZE).toBeUndefined();
+    expect(mod.readMeta).toBeUndefined();
   });
 
-  afterAll(() => {
-    if (originalConfigDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
-    else process.env.NEXUS_CONFIG_DIR = originalConfigDir;
-    try {
-      rmSync(tmpConfigDir, { recursive: true, force: true });
-    } catch {
-      // best-effort
-    }
-  });
-
-  it("exports the MAX_BUFFER_SIZE cap", async () => {
-    const { MAX_BUFFER_SIZE } = await import("./buffer");
-    expect(MAX_BUFFER_SIZE).toBe(1000);
-    expect(MAX_BUFFER_SIZE).toBeGreaterThan(0);
-  });
-
-  it("the persisted buffer count never exceeds MAX_BUFFER_SIZE after overflow", async () => {
-    const { insertNotification, readMeta, MAX_BUFFER_SIZE } = await import("./buffer");
-    const db = {
-      insert: () => ({ values: () => Promise.resolve() }),
-    } as unknown as import("@nexus/db").Db;
-
-    // Insert well past the cap. With the drop-oldest fix, every insert above
-    // MAX_BUFFER_SIZE shifts the oldest id then pushes the new one, so
-    // pendingIds.length (mirrored to the sidecar `count`) plateaus AT the cap
-    // and never grows unbounded. Pre-fix this grew without limit.
-    const overflow = MAX_BUFFER_SIZE + 200;
-    for (let i = 0; i < overflow; i++) {
-      await insertNotification(db, makeRow(`evict-${i}`));
-    }
-
-    const meta = await readMeta();
-    expect(meta).not.toBeNull();
-    // Observable bound — independent of any logger/mock.
-    expect(meta!.count).toBeLessThanOrEqual(MAX_BUFFER_SIZE);
-    // We inserted past the cap, so the buffer must be saturated AT the cap
-    // (the ring is full; eviction is happening 1:1 with insertion).
-    expect(meta!.count).toBe(MAX_BUFFER_SIZE);
-    // The high-water mark recorded that pressure reached the cap, never above.
-    expect(meta!.watermark).toBeLessThanOrEqual(MAX_BUFFER_SIZE);
-    expect(meta!.watermark).toBe(MAX_BUFFER_SIZE);
-  });
-
-  it("still persists the DB row on the overflow path (degrade, not drop the write)", async () => {
+  it("insertNotification still persists the DB row (no in-memory tracking)", async () => {
     const { insertNotification } = await import("./buffer");
     const insertCalls: unknown[] = [];
     const db = {
@@ -257,8 +212,6 @@ describe("regression 1.2 — buffer overflow is bounded (drop-oldest)", () => {
       }),
     } as unknown as import("@nexus/db").Db;
 
-    // Even when the in-memory ring is full, the DB row is still inserted —
-    // only the in-memory pending-id tracking is bounded.
     await insertNotification(db, makeRow(`persist-${Date.now()}`));
     expect(insertCalls.length).toBe(1);
   });

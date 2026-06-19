@@ -69,11 +69,71 @@ export interface Notification {
   sent_at?: Date;
 }
 
-/** Per-project routing rule for notification delivery. */
+/**
+ * Surfaces a presence-routing `Action` can deliver to. Distinct from
+ * `NotificationChannel` (which stays `desktop | tts` this phase): a delivery
+ * target is a *device class*, not a render channel. `phone`/`watch` are
+ * reachable only in later phases but the closed shape is fixed now so rules
+ * persisted in `routing_rules` don't churn.
+ */
+export type DeliveryTarget = "mac" | "phone" | "watch" | "dashboard";
+
+/** How an `Action` fans out across its `deliverTo` targets. */
+export type DeliveryMode = "ladder" | "simultaneous";
+
+/** iOS-style interruption level driving Focus/Sleep behaviour. */
+export type InterruptionLevel =
+  | "passive"
+  | "active"
+  | "timeSensitive"
+  | "critical";
+
+/** Redaction level for spoken / room-audible delivery (privacy). */
+export type RedactLevel = "full" | "titlesOnly" | "generic";
+
+/**
+ * The closed action a routing rule emits on match
+ * (openspec/changes/context-aware-routing, Phase 1). Produced by the rules
+ * engine; consumed by the manager + held-queue.
+ *
+ * Disambiguation: `stopPropagation` is the CC Stop-hook PIPELINE control (does
+ * the parent session continue) — NOT channel fan-out. Channel routing is
+ * `deliverTo[]`. The two are orthogonal.
+ */
+export interface Action {
+  banner: boolean;
+  ding: boolean;
+  tts: boolean;
+  deliverTo: DeliveryTarget[];
+  deliveryMode: DeliveryMode;
+  interruptionLevel: InterruptionLevel;
+  /** Cross-device dedup key — same notification = same id. */
+  collapseId: string;
+  /** CC Stop-hook pipeline control. NOT channel fan-out. */
+  stopPropagation: boolean;
+  /** ISO-8601 timestamp to hold until (meeting buffer / snooze / digest), or null. */
+  holdUntil: string | null;
+  digest: boolean;
+  redact: RedactLevel;
+}
+
+/**
+ * Per-project routing rule for notification delivery.
+ *
+ * `condition`/`action` are the presence-aware extension
+ * (openspec/changes/context-aware-routing). They are OPTIONAL so every existing
+ * `{ project, channels, meeting_behavior }` rule remains valid — the rules
+ * engine consumes `condition`/`action` only when `presence_aware_routing` is
+ * on; the legacy fields drive the flag-off fallback unchanged.
+ */
 export interface NotificationRule {
   project?: string;
   channels: NotificationChannel[];
   meeting_behavior: MeetingBehavior;
+  /** Presence-vector predicate (jsonb in `routing_rules`). */
+  condition?: Record<string, unknown>;
+  /** Closed action emitted on match (jsonb in `routing_rules`). */
+  action?: Action;
 }
 
 /**
