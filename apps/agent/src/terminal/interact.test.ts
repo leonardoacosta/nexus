@@ -150,25 +150,30 @@ describe("WebSocket interact: mutex", () => {
   // Each test uses its own session ID — the PTY orphan fix tears down the session
   // when the last viewer disconnects, so shared sessions cause cross-test interference.
 
-  it("[4.3] second interactive client is rejected with 4009", async () => {
-    const sid = "test-interact-mutex-reject";
+  it("[4.3] second interactive client EVICTS the prior holder (symmetric last-open-wins)", async () => {
+    // ios-session-navigation: the newest interact opener WINS the writer mutex;
+    // the prior holder is evicted with 4009 (not the new opener refused).
+    const sid = "test-interact-mutex-evict";
     const pty = new MockPtySource({ intervalMs: 0 });
     streamManager.attach(sid, pty);
 
-    // First writer connects
-    const { ws: writer1, opened: open1 } = await connectWs(`/sessions/${sid}/interact`);
+    // First writer connects and holds the mutex.
+    const { ws: writer1, opened: open1, closed: closed1 } = await connectWs(
+      `/sessions/${sid}/interact`,
+    );
     await open1;
 
     await delay(20);
 
-    // Second writer tries to connect
-    const { ws: writer2, closed: closed2 } = await connectWs(`/sessions/${sid}/interact`);
+    // Second writer opens — it should SUCCEED, and writer1 should be evicted 4009.
+    const { ws: writer2, opened: open2 } = await connectWs(`/sessions/${sid}/interact`);
+    await open2; // the new opener is NOT refused
 
-    const closeResult = await closed2;
-    expect(closeResult.code).toBe(4009);
-    expect(closeResult.reason).toContain("already held");
+    const evicted = await closed1;
+    expect(evicted.code).toBe(4009);
+    expect(evicted.reason).toContain("reclaimed");
 
-    writer1.close();
+    writer2.close();
     await delay(20);
   });
 

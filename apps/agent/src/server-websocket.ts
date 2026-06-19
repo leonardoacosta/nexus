@@ -318,7 +318,11 @@ export function createWsHandlers(state: ServerState) {
       state.startPingTimer();
 
       if (ws.data.mode === "interact") {
-        // Try to claim the writer mutex
+        // Claim the writer mutex — SYMMETRIC last-open-wins. The new opener
+        // WINS: any prior holder is evicted (closed 4009) inside claimWriter.
+        // claimWriter returns false ONLY when no stream is registered for the
+        // session, so the new opener is closed 4009 only in that case — never
+        // for writer contention (that's the prior holder's eviction now).
         const claimed = state.streamManager.claimWriter(ws);
         // NXPTY-DIAG (mx-rkir.13): surface interact-open + writer-claim outcome
         // so we can see whether an iOS interact WS actually opens + holds the
@@ -328,7 +332,8 @@ export function createWsHandlers(state: ServerState) {
           "NXPTY interact open: writer-claim result",
         );
         if (!claimed) {
-          ws.close(4009, "interactive session already held by another client");
+          // Only reachable when the session has no registered stream.
+          ws.close(4009, "interactive session not available");
           state.allSockets.delete(ws);
           return;
         }

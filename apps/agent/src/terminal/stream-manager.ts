@@ -249,16 +249,34 @@ export class StreamManager {
   }
 
   /**
-   * Try to claim interactive writer for a session.
-   * Returns true if acquired, false if already held by another socket.
+   * Claim interactive writer for a session — SYMMETRIC last-open-wins.
+   *
+   * The newest client to open the interact channel WINS the writer mutex; any
+   * prior holder is EVICTED (not the new opener refused). Eviction closes the
+   * prior socket with code 4009 — the macOS (PtyInteractChannel.markReadOnly)
+   * and web (agent-ws-client.ts keys off 4009) clients already flip to
+   * read-only on that close, so no new control frame is needed.
+   *
+   * Returns true when the writer is acquired (always, when the session exists),
+   * false ONLY when the session has no registered stream (can't claim an
+   * unregistered stream).
    */
   claimWriter(ws: ServerWebSocket<WsData>): boolean {
     const { sessionId } = ws.data;
     const stream = this.sessions.get(sessionId);
     if (!stream) return false;
 
-    if (stream.interactiveWriter !== null && stream.interactiveWriter !== ws) {
-      return false;
+    const prior = stream.interactiveWriter;
+    if (prior !== null && prior !== ws) {
+      // Evict the prior holder — last open wins. Reuse the existing 4009 close
+      // (same code the writer-mutex denial used) so existing clients keep their
+      // read-only fallback with no protocol change.
+      try {
+        prior.close(4009, "interactive writer reclaimed by another client");
+      } catch {
+        // dead socket — close handler / cleanup will reconcile state
+      }
+      logger.debug({ sessionId }, "stream-manager: prior interactive writer evicted (last-open-wins)");
     }
 
     stream.interactiveWriter = ws;

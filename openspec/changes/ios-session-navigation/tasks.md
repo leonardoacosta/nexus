@@ -14,10 +14,10 @@ _No database changes._
 
 ## API Batch
 
-- [ ] 1.1 `claimWriter` symmetric last-open-wins in `apps/agent/src/terminal/stream-manager.ts:255-267`: when `interactiveWriter` is a different live socket, close it `4009` ("interactive writer reclaimed") and reassign to the new socket, returning `true` instead of `return false`. Keep the `!stream` branch returning false (unregistered stream). [owner:api-engineer] [beads:nx-21zcj]
-- [ ] 1.2 `apps/agent/src/server-websocket.ts:320-335`: confirm the interact-open handler no longer closes the NEW opener `4009` now that `claimWriter` returns true on contention; only the evicted prior holder is closed. Adjust the log/close branch as needed. [owner:api-engineer] [beads:nx-7w8xl]
-- [ ] 1.3 `apps/web/src/lib/agent-ws-client.ts:392`: confirm an evicted web client flips to read-only on the `4009` close (existing handling); add/adjust only if the eviction path differs from the prior denial path. [owner:api-engineer] [beads:nx-qohvt]
-- [ ] 1.4 Bun unit test for `claimWriter`: a second socket opening on a held session evicts the prior holder (prior gets `4009`), the new socket wins the writer, and a `!stream` open still returns false. This is the runtime evidence for the reclaim rule. [owner:test-writer] [beads:nx-vyew2]
+- [x] 1.1 `claimWriter` symmetric last-open-wins in `apps/agent/src/terminal/stream-manager.ts:255-267`: when `interactiveWriter` is a different live socket, close it `4009` ("interactive writer reclaimed") and reassign to the new socket, returning `true` instead of `return false`. Keep the `!stream` branch returning false (unregistered stream). [owner:api-engineer] [beads:nx-21zcj]
+- [x] 1.2 `apps/agent/src/server-websocket.ts:320-335`: confirm the interact-open handler no longer closes the NEW opener `4009` now that `claimWriter` returns true on contention; only the evicted prior holder is closed. Adjust the log/close branch as needed. [owner:api-engineer] [beads:nx-7w8xl]
+- [x] 1.3 `apps/web/src/lib/agent-ws-client.ts:392`: confirm an evicted web client flips to read-only on the `4009` close (existing handling); add/adjust only if the eviction path differs from the prior denial path. [owner:api-engineer] [beads:nx-qohvt]
+- [x] 1.4 Bun unit test for `claimWriter`: a second socket opening on a held session evicts the prior holder (prior gets `4009`), the new socket wins the writer, and a `!stream` open still returns false. This is the runtime evidence for the reclaim rule. [owner:test-writer] [beads:nx-vyew2]
 
 ## UI Batch
 
