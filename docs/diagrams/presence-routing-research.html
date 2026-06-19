@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Context-Aware Notification Routing · Presence Detection Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<style>
+:root{
+  --bb-navy:#002855;--navy:#051630;--navy-2:#052147;
+  --red:#ba2031;--gold:#886200;--gold-2:#c79a1e;
+  --surface:#EFF3F4;--paper:#ffffff;
+  --ink:#333333;--ink-2:#5d6b79;--ink-3:#8b97a4;
+  --line:#d6dde2;--line-2:#c2ccd3;--link:#0058be;
+  --ok:#107C10;--warn:#886200;--fail:#ba2031;--info:#0058be;
+  --ok-dim:#e6efe8;--warn-dim:#fdf0c9;--fail-dim:#f6e3e5;--info-dim:#e2ecf8;
+  --font-serif:'PT Serif',Georgia,serif;
+  --font-sans:'Work Sans',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Code',Consolas,ui-monospace,monospace;
+  --wrap-max:1180px;
+}
+*{box-sizing:border-box}*{box-shadow:none !important}
+button{border-radius:0;font-family:inherit;cursor:pointer}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--font-sans);font-size:14px;line-height:1.55;text-wrap:pretty;-webkit-font-smoothing:antialiased;overflow-wrap:break-word}
+.sheet{max-width:var(--wrap-max);margin:0 auto;background:var(--paper);border:1px solid var(--line)}
+.cover{padding:72px 64px 0;display:flex;flex-direction:column;min-height:560px;border-bottom:1px solid var(--line)}
+.cover .mark{display:flex;align-items:center;gap:12px;margin-bottom:52px}
+.cover .mark .glyph{width:40px;height:40px;border:2px solid var(--bb-navy);display:flex;align-items:center;justify-content:center;color:var(--bb-navy);font-size:22px}
+.cover .mark .wm{font-family:var(--font-serif);font-weight:700;font-size:22px;color:var(--bb-navy);letter-spacing:-.01em}
+.cover .mark .wm small{display:block;font-family:var(--font-sans);font-weight:600;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3);margin-top:1px}
+.kicker{font-family:var(--font-sans);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.28em;color:var(--red)}
+.cover .rule{width:64px;height:2px;background:var(--red);margin:18px 0 26px}
+.cover h1{font-family:var(--font-serif);font-weight:700;font-size:46px;line-height:1.04;letter-spacing:-.01em;color:var(--bb-navy);margin:0 0 16px;max-width:18ch}
+.cover .sub{font-family:var(--font-serif);font-style:italic;font-size:20px;color:var(--ink-2);margin:0;max-width:52ch}
+.cover .meta{margin-top:auto;padding:22px 0 26px;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.cover .meta .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--ink-3)}
+.cover .meta .v{font-size:13px;font-weight:500;color:var(--bb-navy);margin-top:4px;font-family:var(--font-mono)}
+.cover .meta .v.draft{color:var(--red)}
+.doc{display:grid;grid-template-columns:236px 1fr;gap:0}
+.rail{border-right:1px solid var(--line);padding:30px 20px 60px}
+.rail-wrap{position:sticky;top:18px}
+.rail .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.2em;color:var(--ink-3);margin:0 0 12px}
+.rail a{display:block;font-size:12.5px;color:var(--ink-2);text-decoration:none;padding:5px 0 5px 14px;border-left:2px solid transparent;letter-spacing:-.01em;transition:color .15s,border-color .15s}
+.rail a .n{font-family:var(--font-mono);color:var(--red);font-weight:600;font-size:11px;margin-right:8px}
+.rail a:hover{color:var(--bb-navy)}
+.rail a.active{color:var(--bb-navy);border-left-color:var(--red);font-weight:500}
+.main{padding:34px 56px 30px;min-width:0}
+.toc-head h2{font-family:var(--font-serif);font-size:26px;color:var(--bb-navy);margin:0 0 6px;border-bottom:2px solid var(--bb-navy);padding-bottom:10px}
+.toc{margin:14px 0 8px}
+.toc-row{display:flex;align-items:baseline;gap:10px;padding:7px 0;letter-spacing:-.01em}
+.toc-row .tn{font-family:var(--font-mono);color:var(--red);font-weight:600;min-width:30px;font-size:12px}
+.toc-row .tt{font-family:var(--font-serif);font-size:15px;color:var(--bb-navy)}
+.toc-row .led{flex:1;border-bottom:1px dotted var(--line-2);transform:translateY(-3px)}
+.toc-row .pg{font-family:var(--font-mono);font-size:11px;color:var(--ink-2)}
+.sec{padding-top:30px;margin-top:30px;border-top:1px solid var(--line);scroll-margin-top:14px}
+.sec:first-of-type{border-top:0}
+.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+.sec-h .sn{font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--red)}
+.sec-h h2{font-family:var(--font-serif);font-size:25px;letter-spacing:-.01em;color:var(--bb-navy);margin:0}
+.sec-sub{color:var(--ink-2);margin:0 0 18px;max-width:80ch;font-size:14px}
+.main p{max-width:82ch}
+.main h3{font-family:var(--font-serif);font-size:16px;color:var(--bb-navy);margin:24px 0 8px}
+strong{color:var(--bb-navy);font-weight:600}
+code.c{font-family:var(--font-mono);font-size:12px;color:var(--bb-navy);background:#f1f5f7;border:1px solid var(--line);padding:.5px 5px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);margin:4px 0}
+.kpi{padding:16px 18px;border-right:1px solid var(--line)}
+.kpi:last-child{border-right:0}
+.kpi .v{font-family:var(--font-serif);font-weight:700;font-size:30px;color:var(--bb-navy);line-height:1;letter-spacing:-.02em}
+.kpi .l{font-family:var(--font-sans);font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-3);margin-top:8px}
+.tbl{border:1px solid var(--line);overflow-x:auto;margin:14px 0}
+.tbl-cap{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-2);padding:10px 14px;border-bottom:1px solid var(--line);background:#f7fafb}
+.tbl-cap b{color:var(--bb-navy)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;line-height:1.5}
+thead th{background:var(--bb-navy);color:#fff;font-family:var(--font-sans);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:9px 12px;white-space:nowrap}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:nth-child(even){background:#f7fafb}
+tbody tr:last-child td{border-bottom:0}
+td code,.mono{font-family:var(--font-mono);font-size:11px;color:var(--bb-navy)}
+td small{display:block;color:var(--ink-2);font-size:11px;margin-top:3px;line-height:1.4}
+td .sig{font-weight:600;color:var(--bb-navy)}
+.star{color:var(--red);font-weight:700}
+.pill{display:inline-block;font-family:var(--font-mono);font-size:10px;font-weight:600;padding:2px 7px;white-space:nowrap;border:1px solid;letter-spacing:.02em}
+.pill.ok{color:var(--ok);background:var(--ok-dim);border-color:#bcd6bc}
+.pill.warn{color:var(--warn);background:var(--warn-dim);border-color:#e7d49a}
+.pill.fail{color:var(--fail);background:var(--fail-dim);border-color:#e3b7bc}
+.pill.info{color:var(--info);background:var(--info-dim);border-color:#b9cde9}
+.pill.none{color:var(--ink-2);background:#eef1f3;border-color:var(--line)}
+.tag{display:inline-block;font-family:var(--font-mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:1px 6px;vertical-align:middle}
+.tag.ver{color:var(--ok);border:1px solid #bcd6bc;background:var(--ok-dim)}
+.tag.cor{color:var(--red);border:1px solid #e3b7bc;background:var(--fail-dim)}
+.tag.add{color:var(--info);border:1px solid #b9cde9;background:var(--info-dim)}
+.ascii{border:1px solid var(--line);border-left:3px solid var(--red);background:var(--paper);margin:16px 0}
+.ascii .ah{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:#f7fafb;font-family:var(--font-mono);font-size:11px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.1em}
+.ascii .ah i{color:var(--red)}
+.ascii pre{margin:0;padding:18px 16px;overflow-x:auto;font-family:var(--font-mono);font-size:12px;line-height:1.5;color:var(--navy-2);background:var(--paper)}
+.ascii pre .hl{color:var(--red);font-weight:600}
+.ascii pre .dim{color:var(--ink-3)}
+.ascii pre .gold{color:var(--gold)}
+.ascii pre .blue{color:var(--link)}
+.ascii pre .ok{color:var(--ok)}
+figure.code{margin:16px 0;border:1px solid #1f2430;background:#0b0e14}
+figure.code .code-head{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:#11151d;border-bottom:1px solid #1f2430}
+figure.code .code-file{font-family:var(--font-mono);font-size:11.5px;color:#c5ccd6;display:flex;align-items:center;gap:7px}
+figure.code .code-file i{color:var(--gold-2)}
+figure.code .code-copy{font-family:var(--font-mono);font-size:10.5px;color:#8b95a3;background:transparent;border:1px solid #2a313d;padding:3px 9px;cursor:pointer;display:flex;align-items:center;gap:5px}
+figure.code .code-copy:hover{color:#fff;border-color:#3a4350}
+figure.code pre{margin:0;padding:14px 16px;overflow-x:auto}
+figure.code code{font-family:var(--font-mono);font-size:12px;line-height:1.6;background:transparent}
+.callouts{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.callout{display:flex;gap:11px;padding:11px 14px;border:1px solid var(--line);border-left-width:3px;background:var(--paper)}
+.callout i{font-size:17px;margin-top:1px;flex-shrink:0}
+.callout .c-body{min-width:0;font-size:13px}
+.callout .c-title{display:block;color:var(--bb-navy);margin-bottom:2px}
+.callout.info{border-left-color:var(--info)}.callout.info i{color:var(--info)}
+.callout.warning{border-left-color:var(--warn)}.callout.warning i{color:var(--warn)}
+.callout.danger{border-left-color:var(--fail)}.callout.danger i{color:var(--fail)}
+.callout.success{border-left-color:var(--ok)}.callout.success i{color:var(--ok)}
+.qnum{font-family:var(--font-mono);color:var(--red);font-weight:700;margin-right:6px}
+.phase{border:1px solid var(--line);border-left:3px solid var(--red);background:var(--paper);margin:14px 0}
+.phase .ph-head{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.phase .ph-n{font-family:var(--font-sans);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:#fff;background:var(--bb-navy);padding:4px 9px}
+.phase .ph-t{font-family:var(--font-serif);font-size:17px;color:var(--bb-navy)}
+.phase .ph-t .sub{font-family:var(--font-sans);font-size:12px;font-style:italic;color:var(--ink-2);margin-left:8px}
+.phase .ph-body{padding:14px 16px;font-size:13px}
+.phase ul{margin:6px 0;padding-left:0;list-style:none}
+.phase li{position:relative;padding-left:16px;margin:5px 0}
+.phase li::before{content:'\25AA';position:absolute;left:0;color:var(--red);font-size:8px;top:5px}
+.phase .slugs{margin-top:10px;padding-top:10px;border-top:1px dotted var(--line-2);font-size:11.5px;color:var(--ink-2)}
+.phase .slugs code{font-family:var(--font-mono);color:var(--bb-navy);background:#f1f5f7;border:1px solid var(--line);padding:.5px 5px;font-size:10.5px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 2px;font-size:11px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .sw{width:11px;height:11px;border:1px solid;display:inline-block}
+.footer{background:var(--navy);color:#aeb9c6;padding:18px 64px;display:flex;align-items:center;justify-content:space-between;font-size:11px;flex-wrap:wrap;gap:10px}
+.footer .l b{color:#fff}.footer .l{color:#9fb0c2}
+.footer .c{text-transform:uppercase;letter-spacing:.12em;font-size:10px;color:#7e8b9c}
+.footer .r{font-family:var(--font-mono);color:#7e8b9c}
+@media (max-width:920px){
+ .doc{grid-template-columns:1fr}
+ .rail{border-right:0;border-bottom:1px solid var(--line);padding:14px 18px;position:sticky;top:0;background:var(--paper);z-index:5}
+ .rail-wrap{position:static}.rail .lbl{display:none}
+ .rail-wrap nav{display:flex;gap:4px;overflow-x:auto}
+ .rail a{border-left:0;border-bottom:2px solid transparent;padding:6px 8px;white-space:nowrap}
+ .rail a.active{border-left:0;border-bottom-color:var(--red)}
+ .main{padding:24px 22px}.cover{padding:48px 28px 0}.cover h1{font-size:34px}
+ .kpis,.cover .meta{grid-template-columns:repeat(2,1fr)}.footer{padding:16px 24px}
+}
+@media (prefers-reduced-motion:no-preference){
+ .sec,.kpi,.phase,.callout,.tbl,.ascii{animation:fadeUp .4s ease-out both}
+ @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="cover">
+    <div class="mark">
+      <div class="glyph"><i class="ph-bold ph-broadcast"></i></div>
+      <div class="wm">Nexus<small>Session Monitor · nx</small></div>
+    </div>
+    <span class="kicker">Notifications · Presence &amp; Routing</span>
+    <div class="rule"></div>
+    <h1>Context-Aware Notification Routing</h1>
+    <p class="sub">Presence detection across macOS, iOS &amp; watchOS — a signal catalog, a presence vector, and a rules engine to deliver the right notification to the surface where the human actually is.</p>
+    <div class="meta">
+      <div><div class="k">Document</div><div class="v">Exploration</div></div>
+      <div><div class="k">Method</div><div class="v">8-agent research</div></div>
+      <div><div class="k">Status</div><div class="v draft">Decisions locked</div></div>
+      <div><div class="k">Date</div><div class="v">2026-06-19</div></div>
+    </div>
+  </header>
+  <div class="doc">
+    <aside class="rail">
+      <div class="rail-wrap">
+        <p class="lbl">Contents</p>
+        <nav id="rail-nav">
+          <a href="#s1"><span class="n">1</span>Signal Catalog</a>
+          <a href="#s2"><span class="n">2</span>Presence Vector</a>
+          <a href="#s3"><span class="n">3</span>Rules Engine</a>
+          <a href="#s4"><span class="n">4</span>Settings Screen</a>
+          <a href="#s5"><span class="n">5</span>Architecture</a>
+          <a href="#s6"><span class="n">6</span>Trade-offs</a>
+          <a href="#s7"><span class="n">7</span>Phased Path</a>
+          <a href="#s8"><span class="n">8</span>Decisions</a>
+        </nav>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="toc-head">
+        <span class="kicker">Table of</span>
+        <h2>Contents</h2>
+      </div>
+      <p class="sec-sub" style="margin-top:14px">
+        nx fires TTS + banner notifications when Claude Code sessions reach checkpoints across a peer-to-peer Tailscale fleet. Today it fans out by <em>project</em> + a <em>manual</em> meeting toggle only. This document explores layering a <strong>presence vector</strong> (per-device context) under a <strong>priority rules engine</strong> so a notification reaches the right surface — Mac banner, room-audible TTS, phone, or wrist — and stops where it should.
+        Findings were produced by 8 parallel research agents and hardened by an adversarial critique pass; claims are tagged <span class="tag ver">verified</span> (code-grounded) or <span class="tag cor">corrected</span> (the critique overturned the first draft).
+      </p>
+      <div class="kpis">
+        <div class="kpi"><div class="v">30+</div><div class="l">Signals catalogued</div></div>
+        <div class="kpi"><div class="v">12</div><div class="l">Presence-vector fields</div></div>
+        <div class="kpi"><div class="v">8</div><div class="l">Routing rules</div></div>
+        <div class="kpi"><div class="v">4</div><div class="l">Rollout phases</div></div>
+      </div>
+      <div class="toc">
+        <div class="toc-row"><span class="tn">1</span><span class="tt">Signal Catalog — mac / iOS / watch / cross-cutting</span><span class="led"></span><span class="pg">p.1</span></div>
+        <div class="toc-row"><span class="tn">2</span><span class="tt">The Presence Vector</span><span class="led"></span><span class="pg">p.2</span></div>
+        <div class="toc-row"><span class="tn">3</span><span class="tt">Routing Rules Engine</span><span class="led"></span><span class="pg">p.3</span></div>
+        <div class="toc-row"><span class="tn">4</span><span class="tt">Settings Screen Design</span><span class="led"></span><span class="pg">p.4</span></div>
+        <div class="toc-row"><span class="tn">5</span><span class="tt">Architecture &amp; Data Flow</span><span class="led"></span><span class="pg">p.5</span></div>
+        <div class="toc-row"><span class="tn">6</span><span class="tt">Trade-offs &amp; Risks</span><span class="led"></span><span class="pg">p.6</span></div>
+        <div class="toc-row"><span class="tn">7</span><span class="tt">Recommended Phased Path</span><span class="led"></span><span class="pg">p.7</span></div>
+        <div class="toc-row"><span class="tn">8</span><span class="tt">Decisions (resolved 2026-06-19)</span><span class="led"></span><span class="pg">p.8</span></div>
+      </div>
+      <section class="sec" id="s1">
+        <div class="sec-h"><span class="sn">1</span><h2>Signal Catalog</h2></div>
+        <p class="sec-sub"><span class="star">&#9733;</span> = recommended for v1 (high-value, low-cost, no new permission). <em>Pushable</em> = reaches the agent event-driven, vs only readable while an app is foregrounded.</p>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--ok-dim);border-color:#bcd6bc"></span> permission-free / reliable / pushable</span>
+          <span><span class="sw" style="background:var(--warn-dim);border-color:#e7d49a"></span> prompt or caveat</span>
+          <span><span class="sw" style="background:var(--fail-dim);border-color:#e3b7bc"></span> entitlement / wrong-signal / not wired</span>
+        </div>
+        <div class="tbl">
+          <div class="tbl-cap"><b>macOS</b> — <code class="mono">PresenceObserver.swift</code> (NexusShared) + Bun agent CLI fallback</div>
+          <table>
+            <thead><tr><th>Signal</th><th>Detects</th><th>API</th><th>Permission</th><th>Reliability</th><th>Push</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sig">Idle <span class="star">&#9733;</span></span></td><td>secs since HID input</td><td><code>CGEventSourceSecondsSinceLastEventType</code> / <code>ioreg HIDIdleTime</code></td><td><span class="pill ok">none</span></td><td><span class="pill ok">very high</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Lock / unlock <span class="star">&#9733;</span></span></td><td>screen locked</td><td><code>com.apple.screenIsLocked</code> DistNote + <code>CGSession…OnConsole</code></td><td><span class="pill ok">none</span></td><td><span class="pill ok">instant</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Active console <span class="star">&#9733;</span></span></td><td>is THIS the live Mac</td><td><code>kCGSSessionOnConsoleKey</code></td><td><span class="pill ok">none</span></td><td><span class="pill ok">high</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Camera in-use</span></td><td>video call active</td><td>CMIO <code>…IsRunningSomewhere</code></td><td><span class="pill ok">none</span></td><td><span class="pill warn">false-positives</span><small><span class="tag cor">corrected</span> Photo Booth, Continuity, QR all trip it</small></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Mic in-use</span></td><td>any call / audio</td><td>CoreAudio <code>IsRunningSomewhere</code></td><td><span class="pill ok">none</span></td><td><span class="pill warn">noisy</span><small><span class="tag cor">corrected</span> fires on Siri / dictation / system audio</small></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Calendar busy-now</span></td><td>scheduled meeting</td><td>EventKit <code>events(matching:)</code></td><td><span class="pill warn">TCC</span></td><td><span class="pill warn">med</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Focus / DND / Sleep</span></td><td>intent / bedtime</td><td><code>~/Library/DoNotDisturb/DB/*.json</code> + FSEvents</td><td><span class="pill warn">un-sandboxed</span></td><td><span class="pill warn">format drifts</span><small>fail-open on parse error</small></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Wi-Fi SSID</span></td><td>home proxy</td><td><code>CWWiFiClient.ssid()</code></td><td><span class="pill fail">Location auth</span><small><span class="tag cor">corrected</span> needs full Location Services, not a light prompt</small></td><td><span class="pill ok">high</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Gateway-MAC</span></td><td>home (Ethernet desks)</td><td><code>arp</code> / <code>route</code></td><td><span class="pill ok">none</span></td><td><span class="pill ok">high (fixed)</span></td><td><span class="pill ok">yes</span></td></tr>
+              <tr><td><span class="sig">Now Playing</span></td><td>don't-mute media</td><td>MediaRemote (private)</td><td><span class="pill ok">none</span></td><td><span class="pill fail">degraded</span><small><span class="tag cor">corrected</span> private API restricted macOS 15.4+; CoreAudio fallback can't tell media from a ding</small></td><td><span class="pill ok">yes</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callouts">
+          <div class="callout warning"><i class="ph ph-warning"></i><div class="c-body"><strong class="c-title"><code class="c">inMeeting</code> is a composite — AND-gate mandatory <span class="tag cor">corrected</span></strong>Use <code class="c">(camera &cup; mic) &cap; (meetingApp &cup; calendarBusy)</code>. Camera-alone is <em>not</em> safe to hard-hold on. The two starred meeting primitives are permission-free, but the AND-gate needs the app/calendar signal to suppress false positives.</div></div>
+        </div>
+        <div class="tbl">
+          <div class="tbl-cap"><b>iOS</b> — <code class="mono">nexus-ios</code> event-driven reporter (never a poller)</div>
+          <table>
+            <thead><tr><th>Signal</th><th>Detects</th><th>API</th><th>Permission</th><th>Reality</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sig">Home / away geofence <span class="star">&#9733;</span></span></td><td>at home</td><td><code>CLCircularRegion</code> + <code>CLVisit</code> + SLC</td><td><span class="pill warn">Always-location</span></td><td>Relaunches app; minutes-of-latency; <strong>auth silently downgrades to While-Using at ~2wk re-prompt</strong>, killing background wakes <span class="tag cor">corrected</span></td></tr>
+              <tr><td><span class="sig">Bedtime (schedule) <span class="star">&#9733;</span></span></td><td>planned sleep</td><td><code>HKSleepSchedule</code>, on-device eval</td><td><span class="pill warn">HealthKit</span></td><td>Forward-looking; <strong>HK still needs Apple-portal profile regen to sign on-device</strong> <span class="tag cor">corrected</span></td></tr>
+              <tr><td><span class="sig">Bedtime (sleep sample)</span></td><td><em>was</em> asleep</td><td><code>HKObserverQuery .sleepAnalysis</code></td><td><span class="pill warn">HealthKit</span></td><td><strong>Post-hoc only</strong> — throttled <code class="c">.hourly</code>, written hours late on wake <span class="tag ver">verified</span></td></tr>
+              <tr><td><span class="sig">Focus on / off</span></td><td>interruption pref</td><td><code>INFocusStatusCenter</code></td><td><span class="pill fail">Comms entitlement + prompt</span></td><td><strong>Boolean only</strong>, and only if user <em>shared</em> Focus &rarr; frequently <code class="c">unauthorized</code> <span class="tag cor">corrected</span></td></tr>
+              <tr><td><span class="sig">Locked vs unlocked</span></td><td>"phone in hand"</td><td><code>isProtectedDataAvailable</code></td><td><span class="pill ok">none</span></td><td><strong class="star">WRONG signal</strong> — true from first-unlock until reboot; does NOT track per-moment lock <span class="tag cor">corrected</span></td></tr>
+              <tr><td><span class="sig">Motion / activity</span></td><td>still / walking / driving</td><td><code>CMMotionActivity</code></td><td><span class="pill warn">Motion prompt</span></td><td>Coprocessor log; query on wake</td></tr>
+              <tr><td><span class="sig">Silent-push pull</span></td><td>agent queries context</td><td><code>content-available:1</code></td><td><span class="pill ok">aps</span></td><td><strong>NOT wired</strong> — only <code class="c">health-flush</code> kind exists; throttled to a few/hr, ~0 in Low-Power <span class="tag ver">verified</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callouts">
+          <div class="callout danger"><i class="ph ph-cell-signal-slash"></i><div class="c-body"><strong class="c-title">iOS hard constraint — no background polling</strong>Only CoreLocation, Focus-change, HKObserver, and (future) silent-push <em>relaunch</em> a suspended app. Everything else is sampled opportunistically <em>during</em> one of those wakes. Stale &gt; TTL &rArr; <code class="c">unknown</code>, never last-value-forever.</div></div>
+        </div>
+        <div class="tbl">
+          <div class="tbl-cap"><b>watchOS</b> — push-driven, stateless · the last-resort surface</div>
+          <table>
+            <thead><tr><th>Lever</th><th>Detail</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sig">interruptionLevel</span></td><td>The one programmable lever. <strong>But <code class="c">.timeSensitive</code> does NOT guarantee breakthrough</strong> <span class="tag cor">corrected</span> — gated by the per-app Time-Sensitive allowance + the active Focus's breakthrough setting. Only <strong><code class="c">.critical</code> is unconditional, and it needs the Critical Alerts entitlement</strong> (special Apple approval) — a real Rule-0 blocker not in the first draft.</td></tr>
+              <tr><td><span class="sig">Native vs mirrored</span></td><td><span class="tag cor">corrected</span> A push to the watch's <strong>own APNs token</strong> is a <em>native</em> notification delivered independently — it does NOT wait for the phone to sleep, and will <strong>double-buzz</strong> alongside a phone push unless deduped by <code class="c">apns-collapse-id</code>/thread-id. Post-delivery <code class="c">ack_cancels_all</code> doesn't prevent the simultaneous buzz.</td></tr>
+              <tr><td><span class="sig">watchOnWrist</span></td><td><span class="tag cor">corrected</span> <strong>Effectively always <code class="c">unknown</code></strong> — the only proxy (<code class="c">applicationState == .active</code>) needs the watch app foregrounded, which it never is. <strong>Drop this field</strong>; no rule may depend on it.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tbl">
+          <div class="tbl-cap"><b>Cross-cutting</b> — agent-held, derived / manual</div>
+          <table>
+            <thead><tr><th>Signal</th><th>Detects</th><th>Source</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sig">is_bedtime <span class="star">&#9733;</span></span></td><td>bedtime</td><td><code>manual_window OR os_sleep_focus</code></td><td>OS Focus preferred when present — NOT the lagged HK sleep sample</td></tr>
+              <tr><td><span class="sig">severity <span class="star">&#9733;</span></span></td><td>event importance</td><td>hook-type + project floor + content</td><td>drives critical-bypass (Rule 0)</td></tr>
+              <tr><td><span class="sig">quiet / work hours</span></td><td>time windows</td><td>manual schedule + day-mask</td><td>OS Focus overrides; user's anchor TZ</td></tr>
+              <tr><td><span class="sig">presence_override</span></td><td>detection-wrong escape</td><td>manual pin w/ TTL</td><td>"at-desk" / "away" — the escape hatch</td></tr>
+              <tr><td><span class="sig">staleness / confidence <span class="star">&#9733;</span></span></td><td>trust the vector?</td><td>per-field timestamp + TTL</td><td>fail-safe (non-crit) / fail-open (crit)</td></tr>
+              <tr><td><span class="sig">global_mute / snooze</span></td><td>kill switch</td><td>manual</td><td>distinct from OS DND</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="sec" id="s2">
+        <div class="sec-h"><span class="sn">2</span><h2>The Presence Vector</h2></div>
+        <p class="sec-sub">The canonical per-user state object the agent holds, <strong>fleet-merged</strong> across Macs. Every field carries source + <code class="c">updatedAt</code> (drives staleness) + confidence. Past-TTL &rArr; <code class="c">unknown</code>, never a stale truth.</p>
+        <figure class="code">
+          <figcaption class="code-head"><span class="code-file"><i class="ph ph-file-ts"></i> packages/core/src/types/presence.ts</span><button class="code-copy" onclick="copyCode(this)"><i class="ph ph-copy"></i> Copy</button></figcaption>
+          <pre><code class="language-typescript">type Confidence = "high" | "low" | "unknown";
+
+interface PresenceField&lt;T&gt; {
+  value: T | null;
+  source: Source;          // mac-observer | ios-geofence | ios-focus | ios-hk
+                           // | watch-relay | agent-cli | manual | derived
+  updatedAt: string;       // ISO-8601 — drives staleness
+  confidence: Confidence;
+}
+
+interface PresenceVector {
+  userId: string;
+
+  // -- Mac (TTL ~30s) --
+  macActive:    PresenceField&lt;boolean&gt;;   // onConsole &amp;&amp; idle &lt; threshold
+  macLocked:    PresenceField&lt;boolean&gt;;   // com.apple.screenIsLocked
+  macHost:      PresenceField&lt;string&gt;;    // WHICH mac is live — cross-machine delivery
+  inMeeting:    PresenceField&lt;boolean&gt;;   // (camera U mic) n (app U calendar) — AND-gated
+  meetingEndsAt:PresenceField&lt;string&gt;;    // EventKit when known, else null -> cap now+60m
+  macFocus:     PresenceField&lt;"none"|"work"|"sleep"|"dnd"|"custom"&gt;;
+  macSSID:      PresenceField&lt;string&gt;;
+
+  // -- Phone (TTL ~2min) --
+  phonePresent: PresenceField&lt;boolean&gt;;   // reachable + recent wake
+  phoneHome:    PresenceField&lt;boolean&gt;;   // geofence — HIGH stale-rate (Sec 6)
+  phoneActiveRecently: PresenceField&lt;boolean&gt;; // [corrected] replaces phoneLocked
+  phoneFocusOn: PresenceField&lt;boolean&gt;;   // boolean only, often unauthorized
+  isBedtime:    PresenceField&lt;boolean&gt;;   // manual schedule OR shared Sleep focus
+
+  // -- Watch (TTL ~2min) --
+  watchPaired:  PresenceField&lt;boolean&gt;;   // durable eligibility (watchOnWrist DROPPED)
+
+  // -- Intent (derived / manual) --
+  isWorkHours:  PresenceField&lt;boolean&gt;;
+  override:     PresenceField&lt;"at-desk"|"away"|null&gt;; // manual pin, TTL'd
+}</code></pre>
+        </figure>
+        <div class="callouts">
+          <div class="callout info"><i class="ph ph-git-fork"></i><div class="c-body"><strong class="c-title">Two gaps the critique surfaced this must answer</strong><code class="c">macHost</code> is now first-class because <strong>cross-machine delivery</strong> — a notification from a session on Mac A while you're at Mac B — is the <em>core</em> "right surface" promise and was unspecified. Fleet-merge also needs a <strong>tie-breaker</strong> (most-recent-heartbeat wins) when two Macs both report <code class="c">onConsole</code>.</div></div>
+        </div>
+      </section>
+      <section class="sec" id="s3">
+        <div class="sec-h"><span class="sn">3</span><h2>Routing Rules Engine</h2></div>
+        <p class="sec-sub">Model choice: <strong>priority-ordered <code class="c">condition &rarr; action</code>, first-match-wins.</strong> It maps 1:1 to how the rules were stated, is deterministic and drag-reorderable, and critical-bypass is just rule 0. The decision table survives as the test harness.</p>
+        <div class="tbl">
+          <div class="tbl-cap">Model trade-off</div>
+          <table>
+            <thead><tr><th>Model</th><th>Verdict</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td>Decision table keyed by vector</td><td><span class="pill warn">test oracle only</span></td><td>2<sup>N</sup> cells, can't express time / rate / timers</td></tr>
+              <tr><td>Embedded DSL / scripting</td><td><span class="pill fail">reject</span></td><td>YAGNI, unsafe, un-renderable in a settings UI</td></tr>
+              <tr><td><strong>Priority-ordered rule list</strong></td><td><span class="pill ok">choose</span></td><td>1:1 with stated rules; first-match deterministic; critical = rule 0; table = test harness</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Action shape (closed struct)</h3>
+        <figure class="code">
+          <figcaption class="code-head"><span class="code-file"><i class="ph ph-file-ts"></i> Action</span><button class="code-copy" onclick="copyCode(this)"><i class="ph ph-copy"></i> Copy</button></figcaption>
+          <pre><code class="language-typescript">interface Action {
+  banner: boolean; ding: boolean; tts: boolean;
+  deliverTo: ("mac"|"phone"|"watch"|"dashboard")[];
+  deliveryMode: "ladder" | "simultaneous";
+  interruptionLevel: "passive"|"active"|"timeSensitive"|"critical";
+  collapseId: string;          // [added] cross-device dedup — same notif = same id
+  stopPropagation: boolean;    // CC Stop-hook PIPELINE — NOT channel fan-out
+  holdUntil: string | null;    // meeting buffer / snooze / digest — MUST be DB-backed
+  digest: boolean;
+  redact: "full"|"titlesOnly"|"generic"; // privacy (room TTS)
+}</code></pre>
+        </figure>
+        <div class="callouts">
+          <div class="callout info"><i class="ph ph-arrows-split"></i><div class="c-body"><strong class="c-title">Disambiguation the vision conflates</strong><code class="c">stopPropagation</code> = the CC Stop-hook pipeline (does the parent session continue). Channel routing = <code class="c">deliverTo[]</code>. They're orthogonal.</div></div>
+        </div>
+        <h3>The 8 rules — resolved per Q1&ndash;Q4 (active Mac beats bedtime)</h3>
+        <div class="ascii">
+          <div class="ah"><i class="ph ph-list-numbers"></i> first-match-wins · top &rarr; bottom</div>
+<pre><span class="hl"># Rule 0 — CRITICAL  (Q4: severity = error/failure hook OR exit-code/keyword)</span>
+when: severity==critical AND NOT global_kill
+  &rarr; all channels · simultaneous · interruptionLevel:<span class="gold">timeSensitive</span> · collapseId · escalate
+  <span class="dim"># Q4b: .timeSensitive — NO Critical Alerts entitlement; you whitelist nx in Sleep Focus</span>
+
+<span class="hl"># Rule 1 — Active on Mac  (Q1: beats bedtime — TTS at your desk even at 2am)</span>
+when: mac_active AND NOT in_meeting
+  &rarr; banner+tts · deliverTo:[macHost]
+
+<span class="hl"># Rule 2 — In meeting -&gt; HOLD, post-meeting summary  (held queue DB-backed)</span>
+when: mac_present AND in_meeting
+  &rarr; digest · holdUntil:(meeting_ends_at ?? now+60m)+2m &rarr; summary banner+tts
+  <span class="dim"># Q2: hold iff (camera OR mic) AND (app OR calendar); buffer configurable</span>
+  <span class="dim"># GUARD: if flush lands inside bedtime AND mac idle -&gt; deliver silent, no TTS</span>
+
+<span class="hl"># Rule 3 — BEDTIME  (Q1: only when Mac NOT active)</span>
+when: is_bedtime AND NOT mac_active
+  &rarr; banner · ding:false · tts:false · deliverTo:[phone] · <span class="gold">passive</span> · redact:generic
+
+<span class="hl"># Rule 4 — Mac off/locked + phone home -&gt; speak into the room</span>
+when: (NOT mac_active OR mac_locked) AND phone_present AND phone_home
+  &rarr; tts · deliverTo:[macHost]
+  <span class="dim"># Q5: phone_home from agent-side Tailscale/LAN + phone SSID — no Always-location</span>
+
+<span class="hl"># Rule 5 — Mac off + phone away</span>
+when: (NOT mac_active OR mac_locked) AND phone_present AND NOT phone_home
+  &rarr; banner · tts:false · deliverTo:[phone] · active
+
+<span class="hl"># Rule 6 — phone active recently   (phone_active_recently replaces phoneLocked)</span>
+when: phone_present AND phone_active_recently
+  &rarr; banner+ding · deliverTo:[phone] · active
+
+<span class="hl"># Rule 7 — phone idle -&gt; buzz the wrist   (Q3: simultaneous fan-out)</span>
+when: phone_present AND NOT phone_active_recently
+  &rarr; banner+ding · deliverTo:[phone,watch] · <span class="hl">simultaneous</span> · <span class="gold">timeSensitive</span> · <span class="blue">collapseId</span>
+  <span class="dim"># shared collapseId dedups; ack on one device withdraws the other</span>
+
+<span class="hl"># Rule 8 — terminal fallback  (vector all-unknown / nothing reachable)</span>
+when: true
+  &rarr; deliverTo:[dashboard] · digest    <span class="dim"># nothing silently dropped; unacked tray</span></pre>
+        </div>
+        <div class="callouts">
+          <div class="callout warning"><i class="ph ph-scales"></i><div class="c-body"><strong class="c-title">Staleness split — the fail-open / fail-safe resolution</strong>For any field a matched rule depends on that is <code class="c">unknown</code>: <strong>non-critical &rArr; fail-safe</strong> (demote to silent/digest), <strong>critical &rArr; Rule 0 already fired everywhere</strong> (fail-open). Per-severity, not global. This is why Rule 4 (depends on the often-<code class="c">unknown</code> <code class="c">phone_home</code>) degrades to digest instead of blasting TTS into a room nx can't confirm is occupied.</div></div>
+        </div>
+      </section>
+      <section class="sec" id="s4">
+        <div class="sec-h"><span class="sn">4</span><h2>Settings Screen Design</h2></div>
+        <p class="sec-sub">A new <code class="c">Routing</code> tab in <code class="c">nexus-mac</code> SettingsView, matching the existing enum-case + detail-pane pattern (<code class="c">SettingsTtsView</code>). Named sections are <strong>sugar that compile into rules</strong>; the rule list is the power surface; the simulator makes the decision-table test visible.</p>
+        <div class="ascii">
+          <div class="ah"><i class="ph ph-app-window"></i> nexus-mac · Settings -&gt; Routing (wireframe)</div>
+<pre>+- Settings ----------------------------------------------------------------+
+| General      +------------------------------------------------------+     |
+| TTS          |  Notification Routing &amp; Presence                     |     |
+| Notif...     |                                                      |     |
+| <span class="hl">Routing   &lt;--</span> |  <span class="dim">PRESENCE SOURCES</span>                                    |     |
+| Agents       |   Mac idle / lock / console ............ [<span class="ok">ON </span>]       |     |
+| Dashboard    |   Meeting detect (camera+mic+app) ...... [<span class="ok">ON </span>]       |     |
+| Diagnostics  |   Calendar busy (EventKit) ............. [OFF] grant |     |
+|              |   Focus / Sleep (DND) .................. [<span class="ok">ON </span>]       |     |
+|              |   iPhone location (home geofence) ...... [OFF] set  |     |
+|              |   Bedtime from Health schedule ......... [OFF] grant |     |
+|              |                                                      |     |
+|              |  <span class="dim">WHEN PRESENCE IS UNKNOWN</span>                             |     |
+|              |   Non-critical: (o) Fail-safe — silent/digest        |     |
+|              |   Critical:     [x] Fail-open — deliver everywhere   |     |
+|              |                                                      |     |
+|              |  <span class="dim">ROUTING RULES</span>           (drag to reorder)  [+ Add]  |     |
+|              |   0 <span class="hl">! critical</span> -&gt; all · simultaneous · timeSensit. |     |
+|              |   1 = mac active, clear -&gt; banner+TTS (mac)       :   |     |
+|              |   2 = in meeting -&gt; HOLD +2m -&gt; summary (mac)     :   |     |
+|              |   3 = bedtime -&gt; silent (phone, passive)          :   |     |
+|              |   4 = mac off + phone home -&gt; TTS (room)          :   |     |
+|              |   5 = mac off + phone away -&gt; banner (phone)      :   |     |
+|              |   6 = phone active -&gt; banner+ding (phone)         :   |     |
+|              |   7 = phone idle -&gt; banner+ding (phone+watch)     :   |     |
+|              |                                                      |     |
+|              |  <span class="dim">SIMULATOR</span>  (which rule wins?)                       |     |
+|              |   mac:[locked v] meeting:[no v] phone:[home,idle v]  |     |
+|              |   bedtime:[no v] -&gt; <span class="blue">Rule 7: banner+ding phone+watch</span>  |     |
+|              |                                                      |     |
+|              |  <span class="dim">SCHEDULES</span>   Bedtime 23:30-07:00 [MTWTFSS] · Work   |     |
+|              |   [x] Prefer OS Sleep/Focus over manual schedule     |     |
+|              |  <span class="dim">PER-PROJECT</span>   nx [normal v][mute] · pay-prod [<span class="hl">CRIT v</span>]|     |
+|              |  <span class="dim">GLOBAL</span>   Mute [OFF] · Snooze [30m v] · Pin (o)auto  |     |
+|              +------------------------------------------------------+     |
++---------------------------------------------------------------------------+</pre>
+        </div>
+        <p>Persistence: local UI state in <code class="c">SettingsStore</code> (UserDefaults, app-group); rules POST to the agent via the existing <code class="c">/notifications/settings</code> PATCH seam (extended payload) &rarr; <code class="c">SettingsChanged</code> SSE &rarr; live cache update. Per-project floors reuse the <code class="c">ProjectVoicesView</code> pattern.</p>
+      </section>
+      <section class="sec" id="s5">
+        <div class="sec-h"><span class="sn">5</span><h2>Architecture &amp; Data Flow</h2></div>
+        <p class="sec-sub">Per-device reporters push context to a new agent-held presence store; the router reads the vector at dispatch time and fans out to the resolved channels. Detection is per-platform; routing is central.</p>
+        <div class="ascii">
+          <div class="ah"><i class="ph ph-flow-arrow"></i> reporters -&gt; agent presence store -&gt; channel fan-out</div>
+<pre> <span class="dim">REPORTERS</span>                          <span class="dim">AGENT (apps/agent)</span>                 <span class="dim">DELIVERY</span>
+ ---------                          ------------------                 --------
+ mac: PresenceObserver.swift --+    presence-context.ts <span class="hl">(NEW,</span>          mac banner+TTS
+   camera/mic, lock, Focus DB,  |      <span class="hl">mirrors meeting-state but</span>        <span class="blue">(macHost-routed --</span>
+   EventKit, SSID               +-->   <span class="hl">DB-BACKED held queue)</span>            <span class="blue">cross-machine!)</span>
+ mac: Bun CLI fallback --------+    per-user PresenceVector, TTL'd
+   (ioreg/pmset/pgrep/arp)          lifecycle-bus: PresenceChanged     APNs -&gt; iOS
+                                       |                               (collapseId)
+ ios: PresenceReporter -------->    manager.send()
+   CLLocationManager,                 +- meeting buffer <span class="ok">(EXISTS)</span>       APNs -&gt; watch token
+   INFocusStatus, HKSchedule          +- presence hold <span class="hl">(NEW, durable)</span>  (collapseId, <span class="gold">timeSensitive</span>
+   POST /presence/report <span class="hl">(NEW)</span>        +- router.findMatchingRule(   -- same logical notif,
+   + future silent-push pull              vector, event)               no double-buzz)
+                                       |- rules -&gt; Action -&gt; resolve
+                                       +- ack on any device -&gt;
+                                          withdraw siblings by collapseId</pre>
+        </div>
+        <div class="callouts">
+          <div class="callout danger"><i class="ph ph-warning-octagon"></i><div class="c-body"><strong class="c-title">Honest constraints</strong>iOS can't poll in background (event-driven only). Apple — not nx — arbitrates the final watch-vs-phone delivery. Presence socket down &rArr; router ignores presence rules and falls back to today's <code class="c">meeting_behavior</code> buffering (never a hard failure).</div></div>
+          <div class="callout danger"><i class="ph ph-database"></i><div class="c-body"><strong class="c-title">Held queue MUST be DB-backed</strong><code class="c">meeting-state.ts</code> is in-memory and loses buffered notifications on every agent restart (systemd reload, post-merge deploy fan-out, OOM). Inheriting that for a 60m-2h presence-hold window is a data-loss bug — the held/digest queue must persist, not just a <code class="c">holdReason</code> column.</div></div>
+        </div>
+      </section>
+      <section class="sec" id="s6">
+        <div class="sec-h"><span class="sn">6</span><h2>Trade-offs &amp; Risks</h2></div>
+        <p class="sec-sub">Critique-hardened. The highest-impact risks are the unreliable presence signals (<code class="c">phone_home</code>, iOS lock) and Apple's hard delivery constraints.</p>
+        <div class="tbl">
+          <div class="tbl-cap">Risk register</div>
+          <table>
+            <thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead>
+            <tbody>
+              <tr><td><strong><code class="c">phone_home</code> frequently <code class="c">unknown</code></strong> — geofence latency + auth downgrade; Rule 4 most failure-prone</td><td><span class="pill fail">high</span></td><td>per-severity fail-safe; <code class="c">presence_override</code> pin; gateway-MAC for fixed; never block on fresh query</td></tr>
+              <tr><td><strong>No clean iOS lock signal</strong> (<code class="c">isProtectedDataAvailable</code> != screen lock)</td><td><span class="pill fail">high</span></td><td>replaced with <code class="c">phone_active_recently</code> (foreground recency); accept it's coarse</td></tr>
+              <tr><td><strong><code class="c">.timeSensitive</code> != guaranteed Sleep breakthrough</strong>; only <code class="c">.critical</code> is, needs Critical Alerts entitlement</td><td><span class="pill fail">high</span></td><td>escalate entitlement to Q4; don't promise unconditional critical until granted</td></tr>
+              <tr><td><strong>Native watch push double-buzzes</strong> alongside phone</td><td><span class="pill warn">med</span></td><td>shared <code class="c">apns-collapse-id</code>; push the right single token; ack-withdraw is cleanup, not prevention</td></tr>
+              <tr><td><strong>Held queue lost on restart</strong></td><td><span class="pill warn">med</span></td><td>DB-back the held/digest queue (not just the <code class="c">holdReason</code> column)</td></tr>
+              <tr><td>Meeting flush coincides with bedtime -&gt; TTS at 23:31</td><td><span class="pill warn">med</span></td><td>flush path re-evaluates rules; bedtime guard applies to flushed items too</td></tr>
+              <tr><td><strong>macOS notification grant is GUI-only + resets on re-sign</strong> (project memory)</td><td><span class="pill warn">med</span></td><td>Phase 1 "zero new prompts" true for <em>detection</em> but still depends on this brittle grant</td></tr>
+              <tr><td>Meeting false-positive (mic noisy, camera = Photo Booth)</td><td><span class="pill warn">med</span></td><td>AND-gate mandatory: <code class="c">(cam U mic) n (app U calendar)</code></td></tr>
+              <tr><td>Fleet-merge ambiguity (two Macs <code class="c">onConsole</code>)</td><td><span class="pill info">low</span></td><td>most-recent-heartbeat tie-break; <code class="c">macHost</code> routes delivery</td></tr>
+              <tr><td>Always-location battery + 2wk auth downgrade</td><td><span class="pill info">low</span></td><td>detect downgrade, surface re-grant nudge; gateway-MAC reduces geofence reliance</td></tr>
+              <tr><td>Room-TTS privacy (project / bead names aloud)</td><td><span class="pill info">low</span></td><td><code class="c">redact</code> modes; bedtime forces <code class="c">generic</code>; never speak bead ids (existing memory)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="sec" id="s7">
+        <div class="sec-h"><span class="sn">7</span><h2>Recommended Phased Path</h2></div>
+        <p class="sec-sub">Phase 1 slimmed per the critique: ship the rules engine on signals the agent <em>already</em> has, before building the full detection stack.</p>
+        <div class="phase">
+          <div class="ph-head"><span class="ph-n">Phase 1</span><span class="ph-t">Rules engine on existing signals<span class="sub">true MVP · zero new permission prompts</span></span></div>
+          <div class="ph-body">
+            <ul>
+              <li><strong>Detection:</strong> only idle + lock + existing meeting-state. No new observer, no camera/mic/Focus-DB/SSID yet.</li>
+              <li><strong>Spine:</strong> <code class="c">presence-context.ts</code> (DB-backed held queue from day one); extend <code class="c">router.findMatchingRule()</code> to read the vector; extend <code class="c">manager.send()</code> with presence-hold parallel to <code class="c">meeting_behavior</code>; add <code class="c">PresenceChanged</code>/<code class="c">PresenceHoldReleased</code> to <code class="c">lifecycle-bus.ts</code>.</li>
+              <li><strong>Contract:</strong> add <code class="c">Action</code>/<code class="c">PresenceVector</code> types to <code class="c">packages/core/src/types/notification.ts</code>.</li>
+              <li><strong>Schema:</strong> <code class="c">notification_settings.presenceAwareRouting</code> + held-queue table (migration in <code class="c">packages/db/src/migrations/</code>).</li>
+              <li><strong>UI:</strong> <code class="c">SettingsNotificationRoutingView.swift</code> + enum case in <code class="c">SettingsView.swift</code> — rules list + simulator + fail-open/safe toggle.</li>
+              <li><strong>Rules shipped:</strong> 1, 2. <span class="tag cor">corrected</span> <strong>Defer Rule 0</strong> until severity is defined (Q4) — shipping critical-bypass without a <code class="c">critical</code> definition is incoherent.</li>
+            </ul>
+            <div class="slugs">epic <code>[CAPABILITY] context-aware-routing</code> · features <code>presence-vector-spine</code>, <code>routing-rules-engine-v1</code></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-head"><span class="ph-n">Phase 1.5</span><span class="ph-t">Full mac PresenceObserver<span class="sub">camera/mic + Focus-DB + SSID</span></span></div>
+          <div class="ph-body">
+            <ul>
+              <li>AND-gated meeting detection, Focus-DB parser (fail-open), SSID/gateway-MAC, Bun CLI fallback.</li>
+              <li><span class="tag add">Q5</span> <strong>Agent-side <code class="c">phone_home</code></strong> — homelab agent reads <code class="c">tailscale status --json</code>: phone peer with a LAN-range direct endpoint = home; public/DERP = away. <strong>No iOS permission</strong> — lands here, not Phase 2.</li>
+              <li>Adds Rule 4 (room-TTS) + cross-machine <code class="c">macHost</code> delivery.</li>
+            </ul>
+            <div class="slugs">features <code>mac-presence-observer</code>, <code>cross-machine-delivery</code>, <code>tailscale-home-detection</code></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-head"><span class="ph-n">Phase 2</span><span class="ph-t">iOS presence reporting<span class="sub">bedtime + Focus + SSID corroborator</span></span></div>
+          <div class="ph-body">
+            <ul>
+              <li><span class="tag add">Q5</span> <strong>No Always-location.</strong> <code class="c">PresenceReporter</code> in <code class="c">nexus-ios</code> — HK <em>schedule</em> eval (not sample) for bedtime, <code class="c">INFocusStatus</code> change, and a <strong>When-In-Use SSID corroborator</strong> (on foreground / <code class="c">NWPathMonitor</code> change) that confirms the agent's Tailscale <code class="c">phone_home</code>.</li>
+              <li><strong>Net-new</strong> <code class="c">content-available</code> context-query branch in <code class="c">NexusAppDelegate</code> (<code class="c">health-flush</code> is the only kind today <span class="tag ver">verified</span>); new <code class="c">POST /presence/report</code> route (clone <code class="c">ApnsRegistrar</code>).</li>
+              <li>Entitlements: When-In-Use location (SSID) + HealthKit portal regen. <strong>Geofencing + Always-location deferred / dropped</strong> — agent-side Tailscale covers home/away (Phase 1.5).</li>
+              <li>Adds Rules 3 (bedtime), 5, 6.</li>
+            </ul>
+            <div class="slugs">features <code>ios-presence-reporter</code>, <code>bedtime-suppression</code>, <code>ssid-home-corroborator</code></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-head"><span class="ph-n">Phase 3</span><span class="ph-t">Watch delivery + escalation + critical<span class="sub">last-resort surface</span></span></div>
+          <div class="ph-body">
+            <ul>
+              <li>Watch-token push w/ <code class="c">collapseId</code>; <code class="c">ack_cancels_all</code> withdraw-on-ack; un-acked terminal behavior. <span class="tag add">Q3</span> Default is <strong>simultaneous fan-out</strong> (trial) rather than a ladder.</li>
+              <li><span class="tag add">Q4b</span> Critical via <code class="c">.timeSensitive</code> + a one-time per-device Sleep-Focus allow-list — <strong>no Critical Alerts entitlement</strong>. Adds Rule 7 + Rule 0.</li>
+            </ul>
+            <div class="slugs">features <code>watch-delivery</code>, <code>simultaneous-fanout</code>, <code>timesensitive-critical</code></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-head"><span class="ph-n">Phase 4</span><span class="ph-t">Full policy surface<span class="sub">rate · digest · privacy</span></span></div>
+          <div class="ph-body">
+            <ul>
+              <li>Rate/burst/digest, per-project floors, battery budgets, <code class="c">redact</code> modes, simulator polish, override pin.</li>
+            </ul>
+            <div class="slugs">features <code>rate-and-digest</code>, <code>presence-privacy-redaction</code>, <code>routing-simulator</code></div>
+          </div>
+        </div>
+      </section>
+      <section class="sec" id="s8">
+        <div class="sec-h"><span class="sn">8</span><h2>Decisions <span style="font-family:var(--font-sans);font-size:14px;font-style:italic;color:var(--ink-2);letter-spacing:0">&mdash; resolved 2026-06-19</span></h2></div>
+        <p class="sec-sub">All six open questions answered by Leo. These are now binding for the Phase 1 spec; the rules (Sec 3) and phase plan (Sec 7) above already reflect them.</p>
+        <div class="callouts">
+          <div class="callout success"><i class="ph ph-moon-stars"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q1</span>Active Mac beats bedtime</strong>Room-TTS wins when you're demonstrably at your desk &mdash; Rule 1 (<code class="c">mac_active</code>) fires even at 2am. Bedtime (Rule 3) only suppresses when the Mac is <em>not</em> active (you're away / idle).</div></div>
+          <div class="callout success"><i class="ph ph-video-camera"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q2</span>AND-gate, buffer configurable</strong>Hold only when <code class="c">(camera OR mic) AND (meeting-app OR calendar-busy)</code> &mdash; camera-alone never hard-holds. The 2-min post-meeting buffer is user-adjustable.</div></div>
+          <div class="callout success"><i class="ph ph-broadcast"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q3</span>Simultaneous fan-out (trial)</strong>Non-critical fans out to all eligible surfaces at once; ack on one device withdraws the others via <code class="c">collapseId</code>. Trying this before falling back to an escalation ladder.</div></div>
+          <div class="callout success"><i class="ph ph-siren"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q4</span>Critical = error hooks + exit-code/keyword</strong>An event is <code class="c">critical</code> when a Stop/error hook fires <em>or</em> an exit-code / keyword heuristic (FATAL, blocked, payment) trips. Per-project floor + explicit tag deferred to Phase 4.</div></div>
+          <div class="callout success"><i class="ph ph-bell-ringing"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q4b</span><code class="c">.timeSensitive</code>, no entitlement</strong>Critical ships with <code class="c">interruptionLevel: .timeSensitive</code>; you whitelist nx in <strong>Sleep Focus &rarr; Allowed</strong> + enable Time-Sensitive per device. <strong>No Critical Alerts application</strong> &mdash; no Apple review, near-unconditional reach because it's your fleet.</div></div>
+          <div class="callout success"><i class="ph ph-shield-check"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q5</span>Tailscale home detection + SSID, no Always-location</strong><code class="c">phone_home</code> derives from the agent reading <code class="c">tailscale status</code> (LAN-direct peer = home) corroborated by a When-In-Use phone SSID on foreground. <strong>Zero iOS location permission; geofencing dropped.</strong> Most-recent source wins on conflict.</div></div>
+          <div class="callout success"><i class="ph ph-users-three"></i><div class="c-body"><strong class="c-title"><span class="qnum">Q6</span>Single-user, fleet-merged</strong>Vector keyed to one user (you), merged across your Macs to pick the live host. No multi-tenant presence merging built &mdash; matches the P2P Tailscale fleet.</div></div>
+        </div>
+        <div class="callouts" style="margin-top:14px">
+          <div class="callout info"><i class="ph ph-arrow-right"></i><div class="c-body"><strong class="c-title">Next</strong>Phase 1 is unblocked. Scaffold with <code class="c">/feature context-aware-routing</code> &mdash; Rules 1 &amp; 2 on idle + lock + meeting-state, DB-backed held queue, <code class="c">Routing</code> settings tab.</div></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <footer class="footer">
+    <div class="l"><b>Nexus</b> · Context-Aware Notification Routing</div>
+    <div class="c">Internal Exploration · Pre-Spec</div>
+    <div class="r">nx · 2026-06-19</div>
+  </footer>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
+<script>
+  if (window.hljs){ document.querySelectorAll('figure.code code').forEach(function(b){ try{ hljs.highlightElement(b); }catch(e){} }); }
+  function copyCode(btn){
+    var code = btn.closest('figure.code').querySelector('code');
+    navigator.clipboard.writeText(code.innerText).then(function(){
+      var prev = btn.innerHTML; btn.innerHTML = '<i class="ph ph-check"></i> Copied';
+      setTimeout(function(){ btn.innerHTML = prev; }, 1400);
+    });
+  }
+  var links = Array.prototype.slice.call(document.querySelectorAll('#rail-nav a'));
+  var secs = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  var spy = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        var id = '#' + e.target.id;
+        links.forEach(function(a){ a.classList.toggle('active', a.getAttribute('href') === id); });
+      }
+    });
+  }, { rootMargin: '-10% 0px -75% 0px', threshold: 0 });
+  secs.forEach(function(s){ if(s) spy.observe(s); });
+</script>
+</body>
+</html>
