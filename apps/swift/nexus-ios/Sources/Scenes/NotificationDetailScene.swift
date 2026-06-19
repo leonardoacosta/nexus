@@ -9,9 +9,9 @@
 // the live session by matching the notification's sessionName against the
 // observer's sessions (`tmuxSession`, the same field the Sessions tab uses for
 // its name subtitle). When a match exists we surface an "Open session" button
-// that sets `navigation.attachingSessionId`, reusing RootScene's single
-// AttachScene `.sheet` (mx-rkir.3/.7) to open the live PTY. When no session
-// matches, the button is omitted — we do NOT invent a sessionId.
+// that selects the Sessions tab and appends the id to RootScene's sessionPath,
+// pushing AttachScene (live PTY). When no session matches, the button is
+// omitted — we do NOT invent a sessionId.
 
 import SwiftUI
 import NexusShared
@@ -68,11 +68,14 @@ struct NotificationDetailScene: View {
 
                 if let sessionId = resolvedSessionId {
                     Button {
-                        // Reuse RootScene's existing AttachScene sheet
-                        // (mx-rkir.3/.7) — set the binding and dismiss this
-                        // pushed detail so the sheet presents over the tab.
-                        navigation.attachingSessionId = sessionId
+                        // ios-session-navigation (UI 2.5): cross-tab push —
+                        // select the Sessions tab (whose stack carries the
+                        // .navigationDestination), then append the id to push
+                        // AttachScene. Pop this notification detail first so the
+                        // Notifications stack is left clean.
                         dismiss()
+                        navigation.selectedTab = .sessions
+                        navigation.sessionPath.append(sessionId)
                     } label: {
                         Label("Open session", systemImage: "terminal")
                             .frame(maxWidth: .infinity)

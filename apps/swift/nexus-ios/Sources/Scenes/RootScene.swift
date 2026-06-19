@@ -1,9 +1,13 @@
 // RootScene — iOS root container.
 //
-// Spec: openspec/changes/scaffold-nexus-ios-target (task 1.3)
+// Spec: openspec/changes/ios-session-navigation (UI 2.2, 2.6)
 //
-// Lightweight TabView wrapping SessionListScene + a placeholder Settings
-// route. Real settings parity ships via swift-dashboard-feature-parity.
+// TabView (selection-bound to navigation.selectedTab) wrapping each archetype
+// scene in its own NavigationStack. The Sessions tab's stack is bound to
+// navigation.sessionPath ([String] of session ids); appending an id pushes
+// AttachScene(sessionId:) via .navigationDestination. A notification-banner
+// tap (APNS) or a cross-tab Attach button selects the Sessions tab, then
+// appends to sessionPath — no modal sheet.
 
 import SwiftUI
 import NexusShared
@@ -15,12 +19,19 @@ struct RootScene: View {
     @EnvironmentObject private var meds: MedsObserver
     @EnvironmentObject private var navigation: NavigationState
 
+    /// Cold-launch buffer: if an APNS tap fires `.nexusOpenSessionDetail`
+    /// before the Sessions stack has mounted, stash the id here and replay it
+    /// on `.onAppear` so the push is never dropped.
+    @State private var pendingSessionId: String?
+    @State private var didAppear = false
+
     var body: some View {
         // Tab order Leo approved: Sources, Comms, Calendar, Finance, Health,
-        // Sessions. Each archetype tab hosts its scene in a NavigationStack so
-        // row -> DetailScene pushes work. The existing SessionListScene /
-        // HealthSummaryScene remain in the repo (not primary tabs).
-        TabView {
+        // Meds, Sessions, Notifications. Each archetype tab hosts its scene in a
+        // NavigationStack so row -> push works. Each tab is `.tag`ed with its
+        // RootTab case so `selection: $navigation.selectedTab` can switch tabs
+        // for cross-tab deep links.
+        TabView(selection: $navigation.selectedTab) {
             NavigationStack {
                 SourcesScene(observer: sourceIndex)
                     .navigationTitle("Sources")
@@ -28,6 +39,7 @@ struct RootScene: View {
             .tabItem {
                 Label("Sources", systemImage: "square.grid.2x2")
             }
+            .tag(RootTab.sources)
 
             NavigationStack {
                 CommsScene(observer: triage)
@@ -35,6 +47,7 @@ struct RootScene: View {
             .tabItem {
                 Label("Comms", systemImage: "tray.full")
             }
+            .tag(RootTab.comms)
 
             NavigationStack {
                 CalendarScene(observer: triage)
@@ -42,6 +55,7 @@ struct RootScene: View {
             .tabItem {
                 Label("Calendar", systemImage: "calendar")
             }
+            .tag(RootTab.calendar)
 
             NavigationStack {
                 FinanceScene(observer: triage)
@@ -49,6 +63,7 @@ struct RootScene: View {
             .tabItem {
                 Label("Finance", systemImage: "creditcard")
             }
+            .tag(RootTab.finance)
 
             NavigationStack {
                 HealthMetricsScene(observer: triage)
@@ -56,6 +71,7 @@ struct RootScene: View {
             .tabItem {
                 Label("Health", systemImage: "heart")
             }
+            .tag(RootTab.health)
 
             NavigationStack {
                 // src-meds (mx-ieau + mx-jc0k): medication group manager. The
@@ -67,65 +83,65 @@ struct RootScene: View {
             .tabItem {
                 Label("Meds", systemImage: "pills")
             }
+            .tag(RootTab.meds)
 
-            NavigationStack {
-                // mx-rkir.4: Sessions tab now renders from the rich Session
-                // model via SessionObserver (EnvironmentObject), not the thin
-                // TriageObserver. Tap -> navigation.attachingSessionId -> the
-                // AttachScene sheet below (live PTY), not DetailScene.
+            NavigationStack(path: $navigation.sessionPath) {
+                // ios-session-navigation (UI 2.2): the Sessions tab's stack is
+                // driven by navigation.sessionPath. A row tap (or a deep link)
+                // appends a session id, which pushes AttachScene(sessionId:)
+                // (live PTY) via the .navigationDestination below — no sheet.
                 SessionsArchetypeScene()
+                    .navigationDestination(for: String.self) { sessionId in
+                        AttachScene(sessionId: sessionId)
+                    }
             }
             .tabItem {
                 Label("Sessions", systemImage: "terminal")
             }
+            .tag(RootTab.sessions)
 
             NavigationStack {
                 // mx-rkir.9: Notifications list + full-detail subview. iOS
                 // banners truncate; this lets Leo read the full notification
-                // in-app. Binds to SessionObserver.notifications (already an
-                // EnvironmentObject) + backfills from GET /notifications. With
-                // 7 tabs this lands under the More overflow — acceptable.
+                // in-app. Binds to SessionObserver.notifications + backfills
+                // from GET /notifications.
                 NotificationsScene()
             }
             .tabItem {
                 Label("Notifications", systemImage: "bell")
             }
+            .tag(RootTab.notifications)
         }
-        // mx-7i4k + mx-rkir.3: deep-link a notification-banner tap straight to
-        // the originating session's LIVE PTY. NexusAppDelegate.didReceive posts
-        // `.nexusOpenSessionDetail` (object: sessionId) from `userInfo.sessionId`;
-        // we observe it here at the always-mounted root (the previous observer
-        // lived in SessionListScene, which RootScene's tab layout never mounts,
-        // so the post went nowhere). Setting `attachingSessionId` presents the
-        // EXISTING attach sheet below — Leo wants the tap to land on the live
-        // terminal, not the metadata detail. SessionDetailScene stays reachable
-        // from the session list (its Attach CTA also sets `attachingSessionId`).
+        // mx-7i4k + mx-rkir.3 / ios-session-navigation (UI 2.6): deep-link a
+        // notification-banner tap (APNS) straight to the originating session's
+        // LIVE PTY. NexusAppDelegate.didReceive posts `.nexusOpenSessionDetail`
+        // (object: sessionId). We observe it at the always-mounted root: select
+        // the Sessions tab, then push by appending to sessionPath. If we fire
+        // before the body has appeared (cold launch), buffer the id and replay
+        // on `.onAppear` so the push is not dropped.
         .onReceive(NotificationCenter.default.publisher(
             for: .nexusOpenSessionDetail
         )) { note in
-            if let id = note.object as? String {
-                navigation.attachingSessionId = id
+            guard let id = note.object as? String else { return }
+            if didAppear {
+                pushSession(id)
+            } else {
+                pendingSessionId = id
             }
         }
-        // mx-rkir.7 FIX 1 (regression): SwiftUI honors only ONE `.sheet(item:)`
-        // per view — the previous file had TWO (selectedSessionId ->
-        // SessionDetailScene, and attachingSessionId -> AttachScene), so the
-        // second was silently dropped and tapping a session presented nothing.
-        // The list tap AND the `.nexusOpenSessionDetail` deep-link both want
-        // the live PTY now, so the vestigial selectedSessionId/SessionDetailScene
-        // sheet is removed, leaving the attachingSessionId -> AttachScene sheet
-        // as the sole `.sheet(item:)`, which now fires reliably. SessionDetailScene
-        // stays in the repo (still reachable from SessionListScene).
-        .sheet(item: Binding(
-            get: { navigation.attachingSessionId.map(SessionIdBox.init) },
-            set: { navigation.attachingSessionId = $0?.id }
-        )) { box in
-            AttachScene(sessionId: box.id)
+        .onAppear {
+            didAppear = true
+            if let id = pendingSessionId {
+                pendingSessionId = nil
+                pushSession(id)
+            }
         }
     }
-}
 
-/// Small wrapper to use String as `Identifiable` for `.sheet(item:)`.
-struct SessionIdBox: Identifiable {
-    let id: String
+    /// Select the Sessions tab, then append the id so AttachScene pushes onto
+    /// the Sessions stack (the only stack carrying the .navigationDestination).
+    private func pushSession(_ id: String) {
+        navigation.selectedTab = .sessions
+        navigation.sessionPath.append(id)
+    }
 }

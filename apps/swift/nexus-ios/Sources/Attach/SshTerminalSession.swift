@@ -110,26 +110,13 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
             preAttachBuffer.removeAll(keepingCapacity: false)
         }
 
-        // Open the raw-input WS channel for managed sessions so keystrokes
-        // write raw bytes (no tmux send-keys Enter append). Best-effort: a
-        // 4009 writer-denied close flips the channel read-only internally.
-        if isManaged {
-            // mx-rkir.13: route the interact channel exactly like the proven
-            // macOS PtyViewer — `originAgent: nil` so openInteract + every
-            // sendInteractiveInput + closeInteract deterministically resolve to
-            // the SAME NexusClient (clients.first). Passing `session.agent` here
-            // risked open/send landing on different clients (or a client whose
-            // session isn't the writer), so iOS bytes were written to a
-            // NexusClient whose interactChannel was never opened -> dropped
-            // client-side. The read-only PTY *stream* still fans out to all
-            // agents via consumePtyStream, so render was unaffected.
-            await client.openInteract(sessionId: session.id, originAgent: nil)
-            let readOnly = await client.isInteractReadOnly(originAgent: nil)
-            nxptyLog.notice("NXPTY interact opened sid=\(session.id, privacy: .public) readOnly=\(readOnly, privacy: .public)")
-        } else {
-            nxptyLog.notice("NXPTY interact skipped sid=\(session.id, privacy: .public) reason=non-managed")
-        }
-
+        // ios-session-navigation (UI 2.8): establish the OUTPUT stream
+        // subscription FIRST, then open the interact (writer) channel. The
+        // writer claim must never race an unregistered stream — opening
+        // interact before consumePtyStream has registered the session's stream
+        // could land the `claimWriter` call against a stream the agent hasn't
+        // yet seen (the agent returns false for a `!stream` open). Subscribing
+        // first guarantees the stream is registered before we claim the writer.
         let sid = session.id
         streamTask = Task { [weak self] in
             guard let self else { return }
@@ -151,6 +138,28 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
                     self.status = .failed("PTY stream disconnected")
                 }
             }
+        }
+
+        // Open the raw-input WS channel for managed sessions so keystrokes
+        // write raw bytes (no tmux send-keys Enter append). Best-effort: a
+        // 4009 writer-denied close flips the channel read-only internally.
+        // Opened AFTER the output stream subscription above (UI 2.8) so the
+        // writer claim never races an unregistered stream.
+        if isManaged {
+            // mx-rkir.13: route the interact channel exactly like the proven
+            // macOS PtyViewer — `originAgent: nil` so openInteract + every
+            // sendInteractiveInput + closeInteract deterministically resolve to
+            // the SAME NexusClient (clients.first). Passing `session.agent` here
+            // risked open/send landing on different clients (or a client whose
+            // session isn't the writer), so iOS bytes were written to a
+            // NexusClient whose interactChannel was never opened -> dropped
+            // client-side. The read-only PTY *stream* still fans out to all
+            // agents via consumePtyStream, so render was unaffected.
+            await client.openInteract(sessionId: session.id, originAgent: nil)
+            let readOnly = await client.isInteractReadOnly(originAgent: nil)
+            nxptyLog.notice("NXPTY interact opened sid=\(session.id, privacy: .public) readOnly=\(readOnly, privacy: .public)")
+        } else {
+            nxptyLog.notice("NXPTY interact skipped sid=\(session.id, privacy: .public) reason=non-managed")
         }
 
         // Watchdog: still .connecting after the budget ⇒ stale session id.

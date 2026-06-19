@@ -1,14 +1,14 @@
 // SessionsArchetypeScene (mx-rkir.4) — the iOS Sessions tab, re-sourced from
 // the rich NexusShared.Session model via SessionObserver (the same /sessions
-// data the macOS SessionsView + the legacy SessionListScene consume), NOT the
+// data the macOS SessionsView consumes), NOT the
 // thin TriageItem/SessionBody.
 //
 // Row layout (drops the meaningless local/claude badges):
 //   Row 1: [Project Name]              — stripped of org prefix, bold.
 //   Row 2: {status dot} [cwd] > [branch] [git status]
-// Tap -> sets navigation.attachingSessionId -> RootScene's existing
-// `.sheet(item:){ AttachScene(sessionId:) }` opens the LIVE PTY (mx-rkir.3),
-// NOT the metadata DetailScene. Mirrors the macOS stale-tap guard.
+// Tap -> appends to navigation.sessionPath -> RootScene's Sessions-tab
+// NavigationStack pushes AttachScene(sessionId:) (LIVE PTY, mx-rkir.3).
+// Mirrors the macOS stale-tap guard.
 //
 // Status taxonomy: see SessionDisplayStatus below. We derive the BEST mapping
 // from the fields Session actually carries (status / agentState / sessionType /
@@ -113,7 +113,9 @@ struct SessionsArchetypeScene: View {
             return
         }
         nxptyLog.notice("NXPTY tap->attach sid=\(session.id, privacy: .public)")
-        navigation.attachingSessionId = session.id
+        // ios-session-navigation (UI 2.4): already on the Sessions tab — push
+        // AttachScene by appending to the Sessions-stack path (no tab switch).
+        navigation.sessionPath.append(session.id)
     }
 
     private func staleToastView(_ message: String) -> some View {

@@ -37,7 +37,6 @@ struct AttachScene: View {
     let sessionId: String
 
     @EnvironmentObject private var observer: SessionObserver
-    @Environment(\.dismiss) private var dismiss
 
     @State private var status: AttachStatus = .idle
 
@@ -49,51 +48,53 @@ struct AttachScene: View {
     @State private var resolved: Session?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let resolved, let tmuxTarget = resolved.tmuxTarget {
-                    // Session resolved AND attachable — render the live PTY from
-                    // the FROZEN snapshot. `.id` is keyed on the snapshot id (set
-                    // once) so heartbeat republishes do NOT rebuild the host.
-                    TerminalHostView(
-                        session: resolved,
-                        tmuxTarget: tmuxTarget,
-                        client: observer.client,
-                        status: $status
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-                    .id(resolved.id)
-                } else if resolved == nil {
-                    // Cold-launch / mid-load: the row hasn't arrived yet. Show
-                    // loading; the resolve-once path (.task / .onChange) flips us
-                    // into the terminal branch when the row FIRST lands.
-                    ContentUnavailableView {
-                        Label("Connecting…", systemImage: "terminal")
-                    } description: {
-                        Text("Resolving session over the Tailnet.")
-                    } actions: {
-                        ProgressView()
-                    }
-                } else {
-                    // Snapshot resolved but the session genuinely has no tmux
-                    // target — graceful unavailable (the only legit
-                    // non-attachable case).
-                    ContentUnavailableView(
-                        "Session not attachable",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text("This session has no tmux target.")
-                    )
+        // ios-session-navigation (UI 2.3): this view is PUSHED onto the
+        // Sessions-tab NavigationStack — it no longer wraps its own
+        // NavigationStack (that double-wrapped the bar) and no longer carries a
+        // modal `Close` button. A back-pop is the dismissal; the pushed-view
+        // teardown (TerminalHostView.dismantleUIView -> coordinator.disconnect)
+        // releases the writer + closes the interact channel exactly once when
+        // the host UIView leaves the hierarchy on pop (see UI 2.8 note below).
+        Group {
+            if let resolved, let tmuxTarget = resolved.tmuxTarget {
+                // Session resolved AND attachable — render the live PTY from
+                // the FROZEN snapshot. `.id` is keyed on the snapshot id (set
+                // once) so heartbeat republishes do NOT rebuild the host.
+                TerminalHostView(
+                    session: resolved,
+                    tmuxTarget: tmuxTarget,
+                    client: observer.client,
+                    status: $status
+                )
+                .ignoresSafeArea(edges: .bottom)
+                .id(resolved.id)
+            } else if resolved == nil {
+                // Cold-launch / mid-load: the row hasn't arrived yet. Show
+                // loading; the resolve-once path (.task / .onChange) flips us
+                // into the terminal branch when the row FIRST lands.
+                ContentUnavailableView {
+                    Label("Connecting…", systemImage: "terminal")
+                } description: {
+                    Text("Resolving session over the Tailnet.")
+                } actions: {
+                    ProgressView()
                 }
+            } else {
+                // Snapshot resolved but the session genuinely has no tmux
+                // target — graceful unavailable (the only legit
+                // non-attachable case).
+                ContentUnavailableView(
+                    "Session not attachable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("This session has no tmux target.")
+                )
             }
-            .navigationTitle(resolved?.project ?? "Attach")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    statusBadge
-                }
+        }
+        .navigationTitle(resolved?.project ?? "Attach")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                statusBadge
             }
         }
         // Cold-launch race: the tap may open this sheet before the polling loop
