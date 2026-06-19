@@ -9,6 +9,15 @@ import { pgTable, integer, boolean, text, timestamp } from "drizzle-orm/pg-core"
  * `ducking_mode` is stored as `text` constrained at the application layer to
  * `"full" | "half" | "mute"` rather than a `pgEnum` to keep migrations cheap
  * (adding a new mode is a code change, not an `ALTER TYPE`).
+ *
+ * The presence-routing columns (`presence_aware_routing`,
+ * `unknown_noncritical_mode`, `unknown_critical_mode`) belong to
+ * openspec/changes/context-aware-routing. They gate the additive presence
+ * layer (default off -> legacy single-toggle behavior) and pick the staleness
+ * fail policy when the presence vector is `unknown` past its TTL: non-critical
+ * defaults to `fail-safe` (don't interrupt), critical to `fail-open` (deliver
+ * anyway). Stored as `text` narrowed at the application layer, same rationale
+ * as `ducking_mode`.
  */
 export const notificationSettings = pgTable("notification_settings", {
   id: integer("id").primaryKey().default(1),
@@ -18,6 +27,17 @@ export const notificationSettings = pgTable("notification_settings", {
     .$type<"full" | "half" | "mute">()
     .notNull()
     .default("full"),
+  presenceAwareRouting: boolean("presence_aware_routing")
+    .notNull()
+    .default(false),
+  unknownNoncriticalMode: text("unknown_noncritical_mode")
+    .$type<"fail-safe" | "fail-open">()
+    .notNull()
+    .default("fail-safe"),
+  unknownCriticalMode: text("unknown_critical_mode")
+    .$type<"fail-open" | "fail-safe">()
+    .notNull()
+    .default("fail-open"),
   updatedAt: timestamp("updated_at", { mode: "date" })
     .notNull()
     .defaultNow(),

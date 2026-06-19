@@ -79,3 +79,16 @@ export {
   type NewCredentialSwap,
   type CredentialSwapReason,
 } from "./credentialSwaps";
+export {
+  presenceHolds,
+  type PresenceHold,
+  type NewPresenceHold,
+  type PresenceHoldPayload,
+} from "./presenceHolds";
+export {
+  routingRules,
+  type RoutingRule,
+  type NewRoutingRule,
+  type RoutingRuleCondition,
+  type RoutingRuleAction,
+} from "./routingRules";
