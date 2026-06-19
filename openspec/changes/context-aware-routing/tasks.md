@@ -26,9 +26,9 @@
 
 ## UI Batch
 
-- [ ] Extend `apps/swift/NexusShared/Storage/SettingsStore.swift` with the routing payload model (presence-source toggles, fail modes, ordered rules) and PATCH/SSE sync through the existing settings path [beads:nx-rwulm]
-- [ ] Create `apps/swift/nexus-mac/Sources/Dashboard/Settings/SettingsRoutingView.swift` — presence-source toggles, unknown-presence fail-mode picker, editable/reorderable rules list, and a what-wins simulator [beads:nx-tis8m]
-- [ ] Register the `Routing` tab as a new enum case in `apps/swift/nexus-mac/Sources/Dashboard/SettingsView.swift` [beads:nx-g2yws]
+- [x] Extend `apps/swift/NexusShared/Storage/SettingsStore.swift` with the routing payload model (presence-source toggles, fail modes, ordered rules) and PATCH/SSE sync through the existing settings path [beads:nx-rwulm]
+- [x] Create `apps/swift/nexus-mac/Sources/Dashboard/Settings/SettingsRoutingView.swift` — presence-source toggles, unknown-presence fail-mode picker, editable/reorderable rules list, and a what-wins simulator [beads:nx-tis8m]
+- [x] Register the `Routing` tab as a new enum case in `apps/swift/nexus-mac/Sources/Dashboard/SettingsView.swift` [beads:nx-g2yws]
 
 ## E2E Batch
 
@@ -37,4 +37,4 @@
 - [x] `apps/agent/src/notifications/held-queue.test.ts` — persist, restart reload, flush at holdUntil, released marker + `PresenceHoldReleased` [beads:nx-9631m]
 - [x] `apps/agent/src/routes/presence-report.test.ts` — valid merge, invalid-shape 400, vector reflects report [beads:nx-s04l8]
 - [x] Extend `apps/agent/src/routes/notification-settings.test.ts` — new keys accepted + validated, rule reorder persists, `SettingsChanged` broadcast, no-op short-circuit [beads:nx-d9lfj]
-- [ ] `apps/swift/nexus-mac/Tests/SettingsRoutingViewTests.swift` — simulator selects the correct winning rule; toggle persists through SettingsStore [beads:nx-dimqx]
+- [x] `apps/swift/nexus-mac/Tests/SettingsRoutingViewTests.swift` — simulator selects the correct winning rule; toggle persists through SettingsStore [beads:nx-dimqx]

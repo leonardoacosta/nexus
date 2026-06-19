@@ -15,6 +15,7 @@ import NexusShared
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case tts
     case notifications
+    case routing
     case agents
     case dashboard
     case diagnostics
@@ -25,6 +26,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .tts:           return "TTS & Audio"
         case .notifications: return "Notifications"
+        case .routing:       return "Routing"
         case .agents:        return "Agents"
         case .dashboard:     return "Dashboard"
         case .diagnostics:   return "Diagnostics"
@@ -36,6 +38,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .tts:           return "speaker.wave.2"
         case .notifications: return "bell.badge"
+        case .routing:       return "arrow.triangle.branch"
         case .agents:        return "network"
         case .dashboard:     return "slider.horizontal.3"
         case .diagnostics:   return "waveform.path.ecg"
@@ -84,6 +87,7 @@ struct SettingsView: View {
         switch category {
         case .tts:           SettingsTtsView()
         case .notifications: SettingsNotificationsView()
+        case .routing:       SettingsRoutingView()
         case .agents:        SettingsAgentsView()
         case .dashboard:     SettingsDashboardView()
         case .diagnostics:   SettingsDiagnosticsView()

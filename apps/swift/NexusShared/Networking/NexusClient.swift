@@ -169,6 +169,89 @@ public actor NexusClient {
                    body: body)
     }
 
+    // MARK: - Presence routing (context-aware-routing, nx-rwulm)
+
+    /// Wire echo of `GET|PATCH /notifications/settings` (the presence-routing
+    /// subset). snake_case keys decode straight off the agent's response.
+    public struct NotificationSettingsResponse: Decodable, Sendable {
+        public var presenceAwareRouting: Bool
+        public var unknownNoncriticalMode: PresenceFailMode
+        public var unknownCriticalMode: PresenceFailMode
+
+        public enum CodingKeys: String, CodingKey {
+            case presenceAwareRouting = "presence_aware_routing"
+            case unknownNoncriticalMode = "unknown_noncritical_mode"
+            case unknownCriticalMode = "unknown_critical_mode"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.presenceAwareRouting =
+                (try? c.decode(Bool.self, forKey: .presenceAwareRouting)) ?? false
+            self.unknownNoncriticalMode =
+                (try? c.decode(PresenceFailMode.self, forKey: .unknownNoncriticalMode)) ?? .failSafe
+            self.unknownCriticalMode =
+                (try? c.decode(PresenceFailMode.self, forKey: .unknownCriticalMode)) ?? .failOpen
+        }
+    }
+
+    /// `GET /notifications/settings` — typed read of the presence-routing
+    /// subset (the Routing pane reads this on appear to reflect a fleet-peer
+    /// edit that arrived via `SettingsChanged`). Returns `nil` on transport /
+    /// non-2xx so the pane keeps its last-known-good UserDefaults copy.
+    public func fetchNotificationSettings() async -> NotificationSettingsResponse? {
+        let url = endpoint.baseURL.appendingPathComponent("notifications/settings")
+        return try? await getJSON(url: url)
+    }
+
+    /// Wire shape of one `/notifications/routing-rules` row. `condition` /
+    /// `action` are opaque JSON maps the agent round-trips; the Routing pane
+    /// works in the richer `RoutingRule` model and only sends id + the flat
+    /// predicate/action maps it owns, so reorders persist losslessly.
+    public struct RoutingRuleWire: Codable, Sendable {
+        public var id: String
+        public var priority: Int
+        public var condition: [String: Bool]
+        public var action: [String: String]
+        public var enabled: Bool
+    }
+
+    private struct RoutingRulesEnvelope: Codable, Sendable {
+        var rules: [RoutingRuleWire]
+    }
+
+    /// `GET /notifications/routing-rules` — rules in `priority` order.
+    /// Returns `nil` on transport / non-2xx (pane keeps its local copy);
+    /// returns `[]` when the agent has no rules yet.
+    public func fetchRoutingRules() async -> [RoutingRuleWire]? {
+        let url = endpoint.baseURL.appendingPathComponent("notifications/routing-rules")
+        do {
+            let env: RoutingRulesEnvelope = try await getJSON(url: url)
+            return env.rules
+        } catch {
+            return nil
+        }
+    }
+
+    /// `PUT /notifications/routing-rules` — replace the whole rule set. The
+    /// array INDEX becomes the persisted `priority`, so a drag-reorder is a
+    /// single atomic PUT. Broadcasts `SettingsChanged` server-side. Returns
+    /// the persisted body (best-effort; nil on transport failure).
+    @discardableResult
+    public func putRoutingRules(_ rules: [RoutingRuleWire]) async -> Data? {
+        let url = endpoint.baseURL.appendingPathComponent("notifications/routing-rules")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONEncoder().encode(RoutingRulesEnvelope(rules: rules))
+        do {
+            let (data, _) = try await session.data(for: req)
+            return data
+        } catch {
+            return nil
+        }
+    }
+
     /// `POST /notifications/send` — fire a test notification or replay one.
     @discardableResult
     public func postNotification(_ body: [String: Any]) async -> Data? {
