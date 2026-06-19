@@ -23,6 +23,8 @@ import { getCredentialPool } from "./routes/credentials";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { handleCommand } from "./services/command-handler";
 import { getNotificationManager } from "./routes/notifications";
+import { evaluateAndDispatch } from "./notifications/hook-trigger";
+import type { HookEventPayload } from "./routes/hooks-types";
 import { initSendTextRoute } from "./routes/commands-send-text";
 import { initResizeRoute } from "./routes/commands-resize";
 import { stopConfigLoader } from "./services/config-loader";
@@ -193,15 +195,41 @@ startSocketServer({
 
 // ── Token stream lifecycle ─────────────────────────────────────────────────
 // Watches per-session transcripts for token usage and persists cost data.
-const tokenStreamLifecycle = new TokenStreamLifecycle(db);
+// The api-error sink (add-api-error-notification, nx-9cz4h) reuses the existing
+// notification path: it maps the api-error text onto a synthetic `notification`
+// HookEventPayload carrying `reason: "api_error"` and hands it to the shared
+// `evaluateAndDispatch` orchestrator (suppression + settings filter +
+// manager.send all live there — no new transport). Mirrors the dispatcher's
+// `dispatchStopNotification` lazy-manager pattern.
+const tokenStreamLifecycle = new TokenStreamLifecycle(
+  db,
+  (sessionId, project, text) => {
+    const manager = getNotificationManager();
+    if (!manager) return; // manager not yet initialized — drop (best-effort)
+    const payload: HookEventPayload = {
+      event: "notification",
+      session_id: sessionId,
+      project: project ?? undefined,
+      reason: "api_error",
+      error_message: text,
+    };
+    evaluateAndDispatch(db, manager, "api_error", payload).catch((err) => {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err), sessionId },
+        "api-error notification dispatch rejected (best-effort)",
+      );
+    });
+  },
+);
 
 lifecycleBus.on("SessionStarted", async (envelope) => {
-  const { sessionId, cwd } = envelope.payload;
+  const { sessionId, cwd, project } = envelope.payload;
   try {
     await tokenStreamLifecycle.startWatcher({
       id: sessionId,
       cwd: cwd ?? "",
       ccSessionId: sessionId,
+      project: project ?? null,
     });
   } catch (err) {
     logger.warn(

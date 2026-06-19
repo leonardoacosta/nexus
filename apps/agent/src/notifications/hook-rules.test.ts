@@ -26,15 +26,20 @@ function channels(drafts: NotificationDraft[] | null): string[] {
 }
 
 describe("hook-rules registry", () => {
-  it("exposes exactly the five canonical rules", () => {
+  it("exposes exactly the six canonical rules", () => {
     const keys = Object.keys(hookRules).sort();
+    // add-api-error-notification (nx-nsjif): the registry grew from 5 to 6 with
+    // the synthetic `api_error` routing key. Six entries is asserted exactly —
+    // a seventh is a deliberate change requiring a spec update.
     expect(keys).toEqual([
+      "api_error",
       "hook_failure",
       "permission_request",
       "session_stop",
       "session_summary",
       "tool_use_fail",
     ]);
+    expect(keys).toHaveLength(6);
   });
 });
 
@@ -173,6 +178,87 @@ describe("session_stop rule", () => {
   it("falls back to the generic body when error_details is absent", () => {
     const drafts = hookRules.session_stop!(payload({ stop_reason: "crash" }));
     expect(drafts![0]!.body).toContain("session stopped with crash");
+  });
+
+  // add-api-error-notification (nx-nsjif): sessionStopRule ceded `api_error` to
+  // apiErrorRule. A bare api_error stop (no crash_flag) must NOT fire here.
+  it("no longer fires for stop_reason api_error (ceded to apiErrorRule)", () => {
+    expect(
+      hookRules.session_stop!(payload({ stop_reason: "api_error" })),
+    ).toBeNull();
+  });
+
+  // ...but it still owns the other crash reasons. oom is the canonical retained
+  // case (nx-nsjif).
+  it("still fires for stop_reason oom", () => {
+    const drafts = hookRules.session_stop!(payload({ stop_reason: "oom" }));
+    expect(channels(drafts)).toEqual(["desktop"]);
+    expect(drafts![0]!.body).toContain("oom");
+  });
+
+  it("still fires for stop_reason error, crash, timeout", () => {
+    for (const reason of ["error", "crash", "timeout"]) {
+      const drafts = hookRules.session_stop!(payload({ stop_reason: reason }));
+      expect(channels(drafts)).toEqual(["desktop"]);
+    }
+  });
+});
+
+// ─── api_error rule (add-api-error-notification, nx-4elo3) ──────────────────────
+
+describe("api_error rule", () => {
+  it("fires desktop + tts with severity error for a mid-session emit", () => {
+    // Mid-session emit: the tail-watcher's onApiError maps the api-error text
+    // onto error_message + reason="api_error".
+    const drafts = hookRules.api_error!(
+      payload({
+        reason: "api_error",
+        error_message: "API Error: 529 Overloaded",
+      }),
+    );
+    expect(channels(drafts)).toEqual(["desktop", "tts"]);
+    for (const d of drafts!) {
+      expect(d.severity).toBe("error");
+      expect(d.priority).toBe("high");
+      expect(d.body).toContain("529 Overloaded");
+      expect(d.body.startsWith("nx: ")).toBe(true);
+      expect(d.title).toContain("api error");
+      // mx-7i4k: session id threads through for iOS deep-link.
+      expect(d.sessionId).toBe("sess-test");
+    }
+  });
+
+  it("fires desktop + tts with severity error for an api_error crash stop", () => {
+    // Crash-stop path: the CC Stop hook reports stop_reason="api_error" and the
+    // captured text rides on error_details.
+    const drafts = hookRules.api_error!(
+      payload({
+        stop_reason: "api_error",
+        error_details: "API Error: 503 Service Unavailable",
+      }),
+    );
+    expect(channels(drafts)).toEqual(["desktop", "tts"]);
+    for (const d of drafts!) {
+      expect(d.severity).toBe("error");
+      expect(d.body).toContain("503 Service Unavailable");
+    }
+  });
+
+  it("returns null for a non-api event (no api-error draft)", () => {
+    // A benign session_stop / generic payload must produce no api-error draft.
+    expect(hookRules.api_error!(payload({ stop_reason: "oom" }))).toBeNull();
+    expect(hookRules.api_error!(payload({ crash_flag: true }))).toBeNull();
+    expect(hookRules.api_error!(payload({}))).toBeNull();
+  });
+
+  it("degrades to a bare api-error body when no error text is present", () => {
+    const drafts = hookRules.api_error!(payload({ reason: "api_error" }));
+    expect(channels(drafts)).toEqual(["desktop", "tts"]);
+    for (const d of drafts!) {
+      // "nx: api error" — project-prefixed bare body, no trailing ": <text>".
+      expect(d.body).toBe("nx: api error");
+      expect(d.severity).toBe("error");
+    }
   });
 });
 

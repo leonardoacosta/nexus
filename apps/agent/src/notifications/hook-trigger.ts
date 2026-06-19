@@ -14,6 +14,7 @@
  *   hook_failure         : key = `hook_failure:<hook_name>`      window = 30s
  *   session_stop crash   : key = `session_stop:<session_id>`     window = 30s
  *   session_summary      : key = `session_summary:<session_id>`  window = 30s
+ *   api_error            : key = `api_error:<session_id>`        window = 30s
  *
  * The spec describes session_stop / session_summary suppression as "per
  * session (effectively infinite)". We use the same 30s window for all keys —
@@ -61,6 +62,12 @@ function suppressionKey(
       return `session_stop:${payload.session_id ?? "unknown"}`;
     case "session_summary":
       return `session_summary:${payload.session_id ?? "unknown"}`;
+    case "api_error":
+      // Per-session key (add-api-error-notification, nx-avasg). A multi-minute
+      // 529 outage emits many api-error lines on one session; the 30s window
+      // collapses them to one delivered notification. Concurrent sessions key
+      // independently so each alerts once.
+      return `api_error:${payload.session_id ?? "unknown"}`;
     case "permission_request":
       return null; // never suppress — always fire
     default:
@@ -170,6 +177,11 @@ export async function evaluateAndDispatch(
         agentId: null,
         priority: draft.priority,
         createdAt: new Date(),
+        // add-api-error-notification (nx-06bbb): thread the draft's optional
+        // severity onto the manager arg, which already accepts `severity` and
+        // defaults a missing value to "info". `apiErrorRule` sets "error" so
+        // the Swift dashboard surfaces api-error rows with error urgency.
+        ...(draft.severity ? { severity: draft.severity } : {}),
       },
       // nx-20caf: thread the CC custom session name through as a transport-only
       // extra (no DB column) so it reaches the NotificationFired envelope.

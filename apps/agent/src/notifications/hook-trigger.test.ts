@@ -155,6 +155,44 @@ describe("suppression cache", () => {
 
     expect(sends).toHaveLength(1); // first call only
   });
+
+  // add-api-error-notification (nx-43gyj): a multi-minute 529 outage emits many
+  // api-error lines on ONE session; the per-session `api_error:<session_id>` key
+  // collapses them to a single delivered notification inside the window.
+  it("collapses three rapid api_error evaluations on one session to one delivery", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    const apiErr = (text: string) =>
+      payload({ reason: "api_error", error_message: text, session_id: "sess-1" });
+
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("API Error: 529 Overloaded"));
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("API Error: 529 Overloaded"));
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("API Error: 529 Overloaded"));
+
+    // apiErrorRule emits desktop + tts. Only the FIRST evaluation survives
+    // suppression, so exactly 2 sends (1 delivery × 2 channels) land.
+    expect(sends).toHaveLength(2);
+    expect(sends.map((s) => s.channel).sort()).toEqual(["desktop", "tts"]);
+  });
+
+  it("delivers independently for two distinct sessions in the same window (keys do not collide)", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    const apiErr = (sessionId: string) =>
+      payload({ reason: "api_error", error_message: "API Error: 529 Overloaded", session_id: sessionId });
+
+    // Two distinct sessions, same window: each keys on its own session_id, so
+    // each delivers once (desktop + tts) -> 4 sends total.
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("sess-A"));
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("sess-B"));
+
+    expect(sends).toHaveLength(4);
+    // Sanity: a duplicate on sess-A inside the window adds nothing.
+    await evaluateAndDispatch(db, manager, "api_error", apiErr("sess-A"));
+    expect(sends).toHaveLength(4);
+  });
 });
 
 // ─── Settings filter ─────────────────────────────────────────────────────────

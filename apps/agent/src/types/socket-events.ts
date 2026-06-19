@@ -83,6 +83,16 @@ export interface NotificationEvent {
   project?: string;
   question?: string;
   session_id?: string;
+  /**
+   * Optional discriminator marking this `notification` as a synthesized
+   * mid-session emit rather than a generic project notification
+   * (add-api-error-notification, nx-gknjj). Currently the only value is
+   * `"api_error"`, emitted by the token-stream tail-watcher's `onApiError`
+   * callback when an `API Error:` line is observed mid-session. The
+   * `apiErrorRule` reads this to classify the event into desktop+tts error
+   * drafts. Absent on every other notification — generic emits leave it unset.
+   */
+  reason?: "api_error";
 }
 
 export interface AnswerEvent {

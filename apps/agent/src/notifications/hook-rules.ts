@@ -30,7 +30,11 @@
  */
 
 import type { HookEventPayload } from "../routes/hooks-types";
-import type { NotificationChannel, NotificationPriority } from "@nexus/core";
+import type {
+  NotificationChannel,
+  NotificationPriority,
+  NotificationSeverity,
+} from "@nexus/core";
 
 /**
  * Cost threshold (USD) above which a `session_summary` event triggers the
@@ -38,10 +42,16 @@ import type { NotificationChannel, NotificationPriority } from "@nexus/core";
  */
 export const COST_DIGEST_THRESHOLD_USD = 0.5;
 
-/** Stop reasons that count as a crash even when `crash_flag` is unset. */
+/**
+ * Stop reasons that count as a crash even when `crash_flag` is unset.
+ *
+ * `api_error` was REMOVED here (add-api-error-notification, nx-kaxig) and ceded
+ * to `apiErrorRule`, which owns the desktop+tts error classification for both
+ * mid-session emits and `stop_reason === "api_error"` stops. `sessionStopRule`
+ * retains `error`, `crash`, `timeout`, `oom`.
+ */
 const CRASH_STOP_REASONS = new Set([
   "error",
-  "api_error",
   "crash",
   "timeout",
   "oom",
@@ -75,6 +85,16 @@ export interface NotificationDraft {
    * session's detail view. Undefined for non-session events.
    */
   sessionId?: string;
+  /**
+   * Dashboard-facing severity (add-api-error-notification, nx-06bbb).
+   * Optional because most rules leave it unset — `manager.send()` defaults a
+   * missing severity to `"info"`. The `apiErrorRule` sets `"error"` so the
+   * Swift dashboard surfaces api-error rows with error-level urgency. The
+   * trigger orchestrator (`hook-trigger.ts`) threads this onto the
+   * `manager.send()` notification arg, which already accepts an optional
+   * `severity` field.
+   */
+  severity?: NotificationSeverity;
 }
 
 /**
@@ -165,6 +185,21 @@ function isCrashStop(payload: HookEventPayload): boolean {
   return false;
 }
 
+/**
+ * Predicate for the api-error rule (add-api-error-notification, nx-06bbb).
+ * Fires for two distinct payload shapes that both mean "Claude hit an API
+ * Error (rate-limit / overload / transport)":
+ *
+ *  1. Mid-session emit — the token-stream tail-watcher's `onApiError` callback
+ *     posts a `notification` socket event carrying `reason: "api_error"`. The
+ *     dispatcher maps it onto a HookEventPayload before this rule runs.
+ *  2. Crash stop — the CC Stop hook reports `stop_reason === "api_error"`.
+ *     `sessionStopRule` no longer claims this reason (nx-kaxig).
+ */
+function isApiError(payload: HookEventPayload): boolean {
+  return payload.reason === "api_error" || payload.stop_reason === "api_error";
+}
+
 // ─── Rule bodies ─────────────────────────────────────────────────────────────
 
 const toolUseFailRule: HookRule = (payload) => {
@@ -235,6 +270,53 @@ const sessionStopRule: HookRule = (payload) => {
   ];
 };
 
+/**
+ * API-error rule (add-api-error-notification, nx-06bbb).
+ *
+ * Emits BOTH a desktop and a tts draft at `priority: "high"` and
+ * `severity: "error"`, with a project-prefixed body `api error: <text>`.
+ * Fires for mid-session emits (`reason: "api_error"`) AND `api_error` crash
+ * stops — see `isApiError`. Registered in the rule registry under the synthetic
+ * key `api_error`; the trigger orchestrator keys suppression on
+ * `api_error:<session_id>` so a multi-minute 529 outage alerts once per session
+ * (nx-avasg).
+ *
+ * LIVE-SESSION COVERAGE (nx-ybwuz): the mid-session emit path depends on a
+ * tail-watcher being active for the session. `TokenStreamLifecycle.startWatcher`
+ * is invoked on every `SessionStarted` lifecycle event and resumed on agent
+ * restart for non-ended sessions (`apps/agent/src/index.ts`), so live sessions
+ * DO have a host — no extra gating is required. The only uncovered window is a
+ * session whose transcript could not be located (watcher start skipped); that
+ * session still gets the crash-stop path (`stop_reason: "api_error"`).
+ */
+const apiErrorRule: HookRule = (payload) => {
+  if (!isApiError(payload)) return null;
+
+  const project = projectOf(payload);
+  // Prefer the dedicated crash-stop `error_details`; fall back to the
+  // `error_message`/`error` aliases the mid-session emit maps the api-error
+  // text onto. Empty string yields the bare "api error" body.
+  const text = readErrorDetails(payload) || readErrorMessage(payload);
+  const sessionId = readSessionId(payload);
+  const title = "session: api error";
+  const message = text ? `api error: ${text}` : "api error";
+  const body = prefixBody(project, message);
+
+  const common = {
+    title,
+    body,
+    project,
+    priority: "high" as NotificationPriority,
+    severity: "error" as NotificationSeverity,
+    sessionId,
+  };
+
+  return [
+    { channel: "desktop", ...common },
+    { channel: "tts", ...common },
+  ];
+};
+
 const sessionSummaryRule: HookRule = (payload) => {
   const cost = payload.cost_usd;
   if (typeof cost !== "number" || cost < COST_DIGEST_THRESHOLD_USD) {
@@ -252,9 +334,12 @@ const sessionSummaryRule: HookRule = (payload) => {
 
 /**
  * Static rule registry. Keys are event types (matching `RECOGNIZED_EVENTS` in
- * `routes/hooks.ts`); values are pure rule functions. Tests assert exactly
- * five entries — adding a sixth is a deliberate change that requires a spec
- * update.
+ * `routes/hooks.ts`); values are pure rule functions. The `api_error` key is a
+ * synthetic event type (add-api-error-notification, nx-06bbb): it is not a CC
+ * hook name but a routing key the dispatcher/tail-watcher use to reach
+ * `apiErrorRule` via `evaluateAndDispatch(..., "api_error", payload)`. Tests
+ * assert exactly six entries — adding a seventh is a deliberate change that
+ * requires a spec update.
  */
 export const hookRules: Record<string, HookRule> = {
   tool_use_fail: toolUseFailRule,
@@ -262,4 +347,5 @@ export const hookRules: Record<string, HookRule> = {
   hook_failure: hookFailureRule,
   session_stop: sessionStopRule,
   session_summary: sessionSummaryRule,
+  api_error: apiErrorRule,
 };

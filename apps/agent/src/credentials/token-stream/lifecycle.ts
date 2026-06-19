@@ -6,6 +6,7 @@
  * watcher, attribution, cost calculator, and persistence layers.
  */
 
+import { basename } from "node:path";
 import type { Db } from "@nexus/db";
 import {
   sessions,
@@ -34,7 +35,22 @@ const log = createLogger("agent:token-stream:lifecycle");
 export class TokenStreamLifecycle {
   private watchers = new Map<string, TailWatcher>();
 
-  constructor(private db: Db) {}
+  /**
+   * @param onApiError Optional per-session api-error sink
+   *   (add-api-error-notification, nx-9cz4h). Invoked with `(sessionId, project,
+   *   text)` whenever the tail-watcher observes an `API Error:` transcript line.
+   *   `index.ts` wires this to post a `notification` socket event with
+   *   `reason: "api_error"` through the existing dispatcher/notification path.
+   *   Omitted in token-only contexts (tests) — api-error detection then no-ops.
+   */
+  constructor(
+    private db: Db,
+    private onApiError?: (
+      sessionId: string,
+      project: string | null,
+      text: string,
+    ) => void,
+  ) {}
 
   /**
    * Start watching a session's transcript for token usage.
@@ -46,6 +62,7 @@ export class TokenStreamLifecycle {
     id: string;
     cwd: string;
     ccSessionId: string;
+    project?: string | null;
   }): Promise<void> {
     // Guard against duplicate watchers
     if (this.watchers.has(session.id)) {
@@ -105,13 +122,27 @@ export class TokenStreamLifecycle {
       });
     }
 
-    // Create and start the tail watcher
+    // Create and start the tail watcher. The optional api-error sink
+    // (nx-9cz4h) is only attached when a handler was injected — token-only
+    // contexts (tests) leave it undefined and detection no-ops.
+    const onApiError = this.onApiError;
+    // Project slug for the api-error notification: prefer the explicit value,
+    // else derive from the cwd basename (matches the `notification` socket
+    // event's project convention — see types/socket-events.ts).
+    const project =
+      session.project ??
+      (session.cwd ? basename(session.cwd) || null : null);
     const watcher = new TailWatcher(
       transcriptPath,
       byteOffset,
       async (turns: ParsedTurn[], newByteOffset: number) => {
         await this.handleTurns(session.id, turns, newByteOffset);
       },
+      onApiError
+        ? async (text: string) => {
+            onApiError(session.id, project, text);
+          }
+        : undefined,
     );
 
     this.watchers.set(session.id, watcher);
@@ -186,6 +217,7 @@ export class TokenStreamLifecycle {
           id: sessionRow.id,
           cwd: sessionRow.cwd,
           ccSessionId: sessionRow.ccSessionId,
+          // project omitted — startWatcher derives it from the cwd basename.
         });
         resumed++;
       } catch (err) {
