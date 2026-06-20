@@ -31,6 +31,7 @@ import {
   beforeAll,
   afterAll,
   beforeEach,
+  afterEach,
   mock,
 } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -97,8 +98,18 @@ import { handleSessionStart } from "../routes/sessions";
 import { processHookEvent } from "./process-hook-event";
 import { backfillSessionCwd } from "../db/sessions";
 import type { SessionManager } from "../session-manager";
+import { sweepTmuxWindowsByPrefix } from "../testing/tmux-cleanup";
 import { createDb, sessions, eq } from "@nexus/db";
 import type { Db } from "@nexus/db";
+
+/**
+ * Window-name prefix for every tmux window this suite spawns via
+ * `/session/start` (`buildStartRequest("nexus-int-test", …)` → tmux window
+ * `nexus-int-test-<Date.now()>`). The failure-safe sweep (beforeAll orphan
+ * sweep + afterEach + afterAll) targets exactly this prefix so a killed/crashed
+ * run can never leak windows into the user's live tmux.
+ */
+const INT_TEST_WINDOW_PREFIX = "nexus-int-test-";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
@@ -135,6 +146,8 @@ const DDL = `
     "started_at" timestamp NOT NULL,
     "last_activity" timestamp NOT NULL,
     "ended_at" timestamp,
+    "stop_reason" text,
+    "error_details" text,
     "pid" integer,
     "cwd" text,
     "branch" text,
@@ -210,6 +223,11 @@ describe.skipIf(!hasPg)(
     let db: Db;
 
     beforeAll(async () => {
+      // Orphan sweep: self-heal any nexus-int-test-* windows leaked by a prior
+      // killed/crashed run before we start spawning fresh ones. Name-match +
+      // active-guard; kills by stable window id, never by index.
+      sweepTmuxWindowsByPrefix(INT_TEST_WINDOW_PREFIX);
+
       const url = process.env.POSTGRES_URL!;
       const adminHandle = createDb(url);
       adminClient = adminHandle.client;
@@ -225,6 +243,9 @@ describe.skipIf(!hasPg)(
     });
 
     afterAll(async () => {
+      // Belt-and-suspenders final sweep: kill any nexus-int-test-* window the
+      // suite created (same name-match + active-guard as the orphan sweep).
+      sweepTmuxWindowsByPrefix(INT_TEST_WINDOW_PREFIX);
       try {
         await scopedClient.end({ timeout: 5 });
       } finally {
@@ -239,6 +260,13 @@ describe.skipIf(!hasPg)(
     beforeEach(async () => {
       await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."sessions"`);
       setPgrepStub([]);
+    });
+
+    afterEach(() => {
+      // Per-test sweep: kill the window(s) the just-finished test created as
+      // soon as it ends, so a mid-suite crash leaks at most one window (and the
+      // next run's beforeAll orphan sweep would reclaim it anyway).
+      sweepTmuxWindowsByPrefix(INT_TEST_WINDOW_PREFIX);
     });
 
     // ── Flow (b): real spawn → watcher closes dead PID ─────────────────

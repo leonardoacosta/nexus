@@ -114,6 +114,13 @@ async function tmuxSendKeys(text: string): Promise<void> {
 
 beforeAll(async () => {
   if (!SHOULD_RUN) return;
+  // Orphan sweep (nx-8kdie): self-heal any nexus-e2e-stream-* tmux sessions
+  // leaked by a prior killed/crashed run before we spawn a fresh one. Matches
+  // by session-NAME prefix; never touches the user's session.
+  const { sweepTmuxSessionsByPrefix } = await import(
+    "../../apps/agent/src/testing/tmux-cleanup"
+  );
+  sweepTmuxSessionsByPrefix("nexus-e2e-stream-");
   // Imports are deferred so test-file load does not pull the agent module
   // (which validates POSTGRES_URL / encryption keys at module load).
   process.env.NEXUS_ENCRYPTION_KEY ??= "0".repeat(64); // 32-byte hex, test-only

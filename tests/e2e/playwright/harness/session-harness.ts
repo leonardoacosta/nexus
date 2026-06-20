@@ -69,6 +69,36 @@ export function killTmux(tmuxSession: string): void {
   }
 }
 
+/**
+ * Failure-safe orphan sweep (nx-8kdie): kill every tmux SESSION whose name
+ * starts with `prefix` (default the `nx-e2e-` prefix this harness uses). Self-
+ * heals sessions leaked by a prior killed/crashed Playwright run. Node-native
+ * (execFileSync) twin of `apps/agent/src/testing/tmux-cleanup.ts` — this file
+ * runs under Playwright/Node, not Bun, so it can't import the Bun helper.
+ * Matches by session NAME prefix, never by index; best-effort throughout.
+ *
+ * @returns number of sessions killed.
+ */
+export function sweepTmuxSessionsByPrefix(prefix = "nx-e2e-"): number {
+  let out: string;
+  try {
+    out = sh("tmux", ["list-sessions", "-F", "#{session_name}"]);
+  } catch {
+    return 0; // no tmux server / no sessions / tmux missing
+  }
+  let killed = 0;
+  for (const name of out.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    if (!name.startsWith(prefix)) continue;
+    try {
+      sh("tmux", ["kill-session", "-t", name]);
+      killed++;
+    } catch {
+      // already gone — best-effort
+    }
+  }
+  return killed;
+}
+
 /** Send a line of input + Enter into the backing pane (used by read-only test). */
 export function tmuxSendKeys(target: string, text: string): void {
   sh("tmux", ["send-keys", "-t", target, text, "Enter"]);
@@ -105,6 +135,12 @@ export function deleteSessionRow(sessionId: string): void {
  * the handle; caller is responsible for {@link destroyControlledSession}.
  */
 export function createControlledSession(label: string): ControlledSession {
+  // Orphan sweep (nx-8kdie): self-heal any nx-e2e-* tmux sessions leaked by a
+  // prior killed/crashed Playwright run before we spawn a fresh one. Wiring the
+  // sweep HERE (rather than in each spec's beforeAll) means every harness
+  // consumer self-heals with no per-spec duplication. Matches by session-NAME
+  // prefix; never touches the user's session.
+  sweepTmuxSessionsByPrefix("nx-e2e-");
   const uniq = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   const tmuxSession = `nx-e2e-${label}-${uniq}`;
   const sessionId = `e2e-${label}-${uniq}`;
