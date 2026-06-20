@@ -83,8 +83,26 @@ export function isVectorAllUnknown(vector: PresenceVector): boolean {
     !isKnown(vector.phonePresent) &&
     !isKnown(vector.phoneHome) &&
     !isKnown(vector.macIdleSec) &&
-    !isKnown(vector.macFocus)
+    !isKnown(vector.macFocus) &&
+    !isKnown(vector.phoneFocusOn)
   );
+}
+
+/**
+ * Focus-respect modifier (ios-presence-reporter, Phase 2). When the phone has a
+ * Focus active (`phoneFocusOn` known-true) and the matched action is
+ * NON-CRITICAL, drop its `interruptionLevel` to `passive` (the channels — banner
+ * / ding / tts / deliverTo — are unchanged). Critical delivery is unaffected
+ * (Rule 0 is deferred, so nothing emits `critical` this phase, but the guard is
+ * explicit so a future Rule 0 is honoured). An `unknown` `phoneFocusOn`
+ * (best-effort — the user may not share Focus, or the report aged out) applies
+ * no respect — fail-open to the matched action's own level.
+ */
+function respectFocus(action: Action, vector: PresenceVector): Action {
+  if (action.interruptionLevel === "critical") return action;
+  if (!isTrue(vector.phoneFocusOn)) return action;
+  if (action.interruptionLevel === "passive") return action;
+  return { ...action, interruptionLevel: "passive" };
 }
 
 function baseAction(): Action {
@@ -108,6 +126,13 @@ function baseAction(): Action {
  * winning `Action`. First-match-wins, top to bottom.
  */
 export function evaluateRules(vector: PresenceVector): Action {
+  // Compute the first-match-wins rule, then apply the Focus-respect modifier
+  // (Phase 2) once at the seam so every rule branch is covered uniformly.
+  return respectFocus(matchRule(vector), vector);
+}
+
+/** First-match-wins rule selection (pre-modifier). */
+function matchRule(vector: PresenceVector): Action {
   // ── Rule 1 — Active on Mac, NOT in meeting (Q1: beats bedtime) ──────────
   // Guard: macActive known-true AND inMeeting known-false. Note bedtime is
   // intentionally NOT consulted here — an active Mac outranks the bedtime
@@ -147,6 +172,25 @@ export function evaluateRules(vector: PresenceVector): Action {
       digest: true,
       holdUntil,
       deliverTo: ["mac"],
+      interruptionLevel: "passive",
+    };
+  }
+
+  // ── Rule 3 — bedtime + idle Mac → silent passive phone banner (Phase 2) ──
+  // Guard: `isBedtime` known-true AND `macActive` known-false. Inserted AFTER
+  // Rule 2 and BEFORE Rule 4, so an active Mac (Rule 1) still beats bedtime
+  // (Q1) — Rule 1's `macActive && !inMeeting` guard fires first. An `unknown`
+  // `isBedtime` fails the guard (fail-safe — bedtime never wrongly suppresses)
+  // and the notification falls through to Rule 4 / the terminal digest.
+  // Delivers a SILENT banner to the phone: no ding, no tts, passive level.
+  if (isTrue(vector.isBedtime) && isFalse(vector.macActive)) {
+    log.debug("rules: matched Rule 3 (bedtime, idle Mac)");
+    return {
+      ...baseAction(),
+      banner: true,
+      ding: false,
+      tts: false,
+      deliverTo: ["phone"],
       interruptionLevel: "passive",
     };
   }

@@ -14,12 +14,42 @@
  */
 
 import { createLogger } from "@nexus/core/node";
+import type { Db } from "@nexus/db";
+import { notificationSettings, eq } from "@nexus/db";
 import {
   getPresenceContext,
   type PresenceReport,
+  type BedtimeSources,
 } from "../notifications/presence-context";
 
 const log = createLogger("agent:routes:presence-report");
+
+/** The single-row settings sentinel id (mirrors notification-settings.ts). */
+const SETTINGS_ROW_ID = 1;
+const BEDTIME_SOURCES = new Set(["hk", "focus", "either", "both"]);
+
+/**
+ * Read the `bedtime_sources` policy from notification_settings (id=1). Defaults
+ * to `either` when the row is missing, the value is invalid, the read throws, or
+ * no DB is wired — the phone-reported `isBedtime` always computes against SOME
+ * policy.
+ */
+async function readBedtimeSources(db: Db | undefined): Promise<BedtimeSources> {
+  if (!db) return "either";
+  try {
+    const row = await db.query.notificationSettings.findFirst({
+      where: eq(notificationSettings.id, SETTINGS_ROW_ID),
+    });
+    const v = row?.bedtimeSources;
+    return v && BEDTIME_SOURCES.has(v) ? (v as BedtimeSources) : "either";
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "presence-report: bedtime_sources read failed — defaulting to either",
+    );
+    return "either";
+  }
+}
 
 /**
  * The HTTP body shape. A superset of `PresenceReport`: it adds the `homeHint`
@@ -30,7 +60,16 @@ const log = createLogger("agent:routes:presence-report");
 type PresenceReportBody = PresenceReport & {
   /** Gateway-MAC home fingerprint from the Mac sensor → corroborates `phoneHome`. */
   homeHint?: boolean;
+  /** iOS HealthKit sleep-window flag (ios-presence-reporter, Phase 2). */
+  hkSleepWindow?: boolean;
+  /** iOS OS Sleep-Focus flag (ios-presence-reporter, Phase 2). */
+  sleepFocusActive?: boolean;
+  /** The phone's machine identity, when it keys by `machine` instead of `macHost`. */
+  machine?: string;
 };
+
+/** The phone-only wire keys — routed to the GLOBAL phone record, not a machine bucket. */
+const PHONE_SIGNAL_KEYS = ["hkSleepWindow", "sleepFocusActive", "phoneFocusOn"] as const;
 
 /** Allowed report keys + their runtime type guards. */
 const FIELD_VALIDATORS: Record<
@@ -52,6 +91,11 @@ const FIELD_VALIDATORS: Record<
   macFocus: (v) => v === null || typeof v === "string",
   // Gateway-MAC home fingerprint — corroborates phoneHome (mapped below).
   homeHint: (v) => typeof v === "boolean",
+  // Phase 2 (ios-presence-reporter) phone signals → global phone record.
+  hkSleepWindow: (v) => typeof v === "boolean",
+  sleepFocusActive: (v) => typeof v === "boolean",
+  phoneFocusOn: (v) => typeof v === "boolean",
+  machine: (v) => typeof v === "string",
 };
 
 const ALLOWED_KEYS = Object.keys(FIELD_VALIDATORS) as (keyof PresenceReportBody)[];
@@ -63,7 +107,10 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
-export async function handlePresenceReport(request: Request): Promise<Response> {
+export async function handlePresenceReport(
+  request: Request,
+  db?: Db,
+): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -104,17 +151,47 @@ export async function handlePresenceReport(request: Request): Promise<Response> 
     }
   }
 
+  // Split the GLOBAL phone signals (ios-presence-reporter, Phase 2) out of the
+  // per-machine mac report. `hkSleepWindow`/`sleepFocusActive`/`phoneFocusOn`
+  // route to the global phone record (there is one phone) via `reportPhone`,
+  // which computes `isBedtime` from `bedtime_sources`. Everything else merges
+  // into the reporting machine's per-machine bucket via `ctx.report`.
+  const body2 = patch as PresenceReportBody;
+  const {
+    homeHint,
+    hkSleepWindow,
+    sleepFocusActive,
+    phoneFocusOn,
+    machine: _machine,
+    ...rest
+  } = body2;
+
+  const ctx = getPresenceContext();
+
+  // ── Global phone record ──────────────────────────────────────────────────
+  const hasPhoneSignal = PHONE_SIGNAL_KEYS.some((k) => k in body2);
+  if (hasPhoneSignal) {
+    const bedtimeSources = await readBedtimeSources(db);
+    ctx.reportPhone(
+      { hkSleepWindow, sleepFocusActive, phoneFocusOn },
+      bedtimeSources,
+    );
+  }
+
+  // ── Per-machine mac report ───────────────────────────────────────────────
   // Map the wire-only `homeHint` onto the vector's `phoneHome` corroborator.
   // An explicit `phoneHome` in the same body wins (authoritative Tailscale
   // signal), so only fold the hint in when `phoneHome` is absent.
-  const { homeHint, ...rest } = patch as PresenceReportBody;
   const report: PresenceReport = { ...rest };
   if (homeHint !== undefined && report.phoneHome === undefined) {
     report.phoneHome = homeHint;
   }
-
-  const ctx = getPresenceContext();
-  ctx.report(report, "mac");
+  // Only merge a machine report when there is at least one non-phone field —
+  // a phone-only report (e.g. just `phoneFocusOn`) must NOT write an unkeyed
+  // mac bucket.
+  if (Object.keys(report).length > 0) {
+    ctx.report(report, "mac");
+  }
 
   // Echo the REPORTING machine's vector (fleet-aware-rules-eval, Phase 1.7):
   // the report keys into its `macHost` machine bucket (fallback local when
@@ -125,7 +202,10 @@ export async function handlePresenceReport(request: Request): Promise<Response> 
     typeof report.macHost === "string" && report.macHost.length > 0
       ? report.macHost
       : undefined;
-  const vector = machine ? ctx.vectorFor(machine) : ctx.vector();
+  const base = machine ? ctx.vectorFor(machine) : ctx.vector();
+  // Overlay the GLOBAL phone fields so a phone reporter sees its own merged
+  // `isBedtime`/`phoneFocusOn` echoed back (Phase 2).
+  const vector = ctx.overlayGlobalPhoneFields(base);
 
   log.debug({ fields: keys, machine }, "presence-report: merged report");
   return jsonResponse({ vector });

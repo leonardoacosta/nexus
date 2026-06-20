@@ -429,7 +429,7 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── context-aware-routing: presence ingest + routing-rule CRUD ─────
       if (url.pathname === "/presence/report" && request.method === "POST") {
-        return handlePresenceReport(request).then((r) => withCors(request, r)).catch((err) => {
+        return handlePresenceReport(request, db).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/presence/report", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });

@@ -63,6 +63,7 @@ function vectorFixture(over: Partial<PresenceVector> = {}): PresenceVector {
     phoneHome: unknown<boolean>(),
     macIdleSec: unknown<number>(),
     macFocus: unknown<string>(),
+    phoneFocusOn: unknown<boolean>(),
     ...over,
   };
 }

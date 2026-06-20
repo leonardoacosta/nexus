@@ -61,6 +61,14 @@ export interface PresenceVector {
   /** True when the current time is inside the user's bedtime window. */
   isBedtime: PresenceField<boolean>;
   /**
+   * True when the phone has a Focus mode active (`INFocusStatusCenter`), Phase 2
+   * (ios-presence-reporter). A GLOBAL phone field (one phone) overlaid onto the
+   * resolved eval vector before rule evaluation; `unknown` (best-effort — the
+   * user may not share Focus, or the report aged past TTL) applies no Focus
+   * respect (fail-open to normal delivery).
+   */
+  phoneFocusOn: PresenceField<boolean>;
+  /**
    * True when the user's phone is reachable on the tailnet (Phase 1.5). Derived
    * agent-side from `tailscale status --json` — an absent/offline peer reads
    * `unknown` (value null), never a stale `false`.

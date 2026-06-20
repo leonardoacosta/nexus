@@ -71,6 +71,7 @@ const STUDIO_VECTOR = {
   phoneHome: { value: null, source: "mac" as const, updatedAt: new Date(0).toISOString(), confidence: "unknown" as const },
   macIdleSec: { value: null, source: "mac" as const, updatedAt: new Date(0).toISOString(), confidence: "unknown" as const },
   macFocus: { value: null, source: "mac" as const, updatedAt: new Date(0).toISOString(), confidence: "unknown" as const },
+  phoneFocusOn: { value: null, source: "mac" as const, updatedAt: new Date(0).toISOString(), confidence: "unknown" as const },
 };
 
 describe("GET /presence/fleet — enrichment (Phase 1.7)", () => {

@@ -195,9 +195,20 @@ export class NotificationManager {
       // single-machine fleets). The resolve is SKIPPED entirely when the flag
       // is off (HARD PARITY CONTRACT — the legacy path must not touch the
       // fleet).
-      const evalVector = enabled
+      let evalVector = enabled
         ? (await this.resolveEvalVector()) ?? this.presence.context.vector()
         : this.presence.context.vector();
+      // Overlay the GLOBAL phone fields (`isBedtime`, `phoneFocusOn`) onto the
+      // resolved eval vector (ios-presence-reporter, Phase 2). Those fields are
+      // global to the single phone while the eval vector is keyed by the
+      // live-console MACHINE. A phone field past TTL (or never reported) reads
+      // `unknown` and the overlay is a NO-OP — so when no phone has reported,
+      // behaviour is byte-identical to Phase 1.7 (no-regression invariant).
+      // Applied only on the flag-ON path (the flag-off parity branch never
+      // reaches the rules engine, so the overlay is moot there).
+      if (enabled) {
+        evalVector = this.presence.context.overlayGlobalPhoneFields(evalVector);
+      }
       const decision = decidePresenceRoute(enabled, evalVector);
       if (decision) {
         if (decision.hold && decision.holdUntil) {

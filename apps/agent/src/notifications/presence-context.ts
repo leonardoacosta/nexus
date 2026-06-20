@@ -49,6 +49,16 @@ export const FLEET_HEARTBEAT_INTERVAL_MS = 10_000;
 export const PHONE_FIELD_TTL_MS = 120_000;
 
 /**
+ * TTL for the iOS-reported GLOBAL phone fields (`isBedtime`, `phoneFocusOn`),
+ * Phase 2 (ios-presence-reporter). iOS wakes are sparser than the Tailscale
+ * poll (HKObserver / Focus-change / foreground only — no timer), so this is a
+ * few minutes longer than the Tailscale phone TTL. A field older than this
+ * reads `unknown` and the overlay does NOT override (fail-safe — bedtime won't
+ * wrongly suppress a notification on a stale signal).
+ */
+export const GLOBAL_PHONE_FIELD_TTL_MS = 5 * 60_000;
+
+/**
  * Per-field TTL in ms. Fields absent from this map are treated as non-expiring
  * (e.g. `isBedtime`, `meetingEndsAt` are derived/long-lived and only change on
  * an explicit report).
@@ -82,6 +92,42 @@ export interface PresenceReport {
   phoneHome?: boolean;
   macIdleSec?: number;
   macFocus?: string | null;
+  phoneFocusOn?: boolean;
+}
+
+/** The bedtime-source policy (a `notification_settings.bedtime_sources` value). */
+export type BedtimeSources = "hk" | "focus" | "either" | "both";
+
+/** The raw sleep signals the phone reports; the agent computes `isBedtime`. */
+export interface BedtimeSignals {
+  hkSleepWindow: boolean;
+  sleepFocusActive: boolean;
+}
+
+/**
+ * Compute `isBedtime` from the phone's two raw sleep signals per the
+ * `bedtime_sources` policy (ios-presence-reporter, Phase 2). PURE — no I/O.
+ *
+ *   - `hk`     → the HealthKit sleep-window signal only.
+ *   - `focus`  → the OS Sleep-Focus signal only.
+ *   - `either` → bedtime when EITHER source is active (default).
+ *   - `both`   → bedtime only when BOTH sources are active.
+ */
+export function applyBedtimeSources(
+  setting: BedtimeSources,
+  signals: BedtimeSignals,
+): boolean {
+  switch (setting) {
+    case "hk":
+      return signals.hkSleepWindow;
+    case "focus":
+      return signals.sleepFocusActive;
+    case "both":
+      return signals.hkSleepWindow && signals.sleepFocusActive;
+    case "either":
+    default:
+      return signals.hkSleepWindow || signals.sleepFocusActive;
+  }
 }
 
 type FieldKey = Exclude<keyof PresenceVector, "userId">;
@@ -97,6 +143,7 @@ const FIELD_KEYS: FieldKey[] = [
   "phoneHome",
   "macIdleSec",
   "macFocus",
+  "phoneFocusOn",
 ];
 
 /** A stored field before the TTL lens is applied. */
@@ -135,6 +182,7 @@ function freshFields(): Record<FieldKey, StoredField> {
     phoneHome: unknownField(),
     macIdleSec: unknownField(),
     macFocus: unknownField(),
+    phoneFocusOn: unknownField(),
   };
 }
 
@@ -158,6 +206,17 @@ export class PresenceContext {
    * field record so two Macs can never clobber each other's presence.
    */
   private machineFields = new Map<string, Record<FieldKey, StoredField>>();
+  /**
+   * GLOBAL phone fields (ios-presence-reporter, Phase 2). There is ONE phone,
+   * so its `isBedtime`/`phoneFocusOn` are held OUTSIDE the per-machine map and
+   * overlaid onto the resolved eval vector (which is keyed by the live-console
+   * MACHINE). Each carries its own `GLOBAL_PHONE_FIELD_TTL_MS` lens — a field
+   * past TTL reads `unknown` and the overlay does not override.
+   */
+  private globalPhone: { isBedtime: StoredField; phoneFocusOn: StoredField } = {
+    isBedtime: unknownField(),
+    phoneFocusOn: unknownField(),
+  };
   private meetingState: MeetingState | null = null;
 
   // ── Fleet presence binding (cross-machine-delivery, Phase 1.6) ────────────
@@ -393,6 +452,7 @@ export class PresenceContext {
       phoneHome: this.read<boolean>(fields, "phoneHome"),
       macIdleSec: this.read<number>(fields, "macIdleSec"),
       macFocus: this.read<string>(fields, "macFocus"),
+      phoneFocusOn: this.read<boolean>(fields, "phoneFocusOn"),
     };
   }
 
@@ -402,6 +462,106 @@ export class PresenceContext {
    */
   vector(): PresenceVector {
     return this.vectorFor(this.localMachine);
+  }
+
+  /**
+   * Ingest a GLOBAL phone report (ios-presence-reporter, Phase 2). The phone
+   * sends two raw sleep signals plus its Focus flag; the agent computes
+   * `isBedtime` from `bedtimeSources` and stores both fields in the global
+   * phone record (NOT a per-machine bucket — there is one phone). Fields not
+   * present in the report are left untouched. `at` overrides the timestamp
+   * (tests simulate a stale report).
+   */
+  reportPhone(
+    report: {
+      hkSleepWindow?: boolean;
+      sleepFocusActive?: boolean;
+      phoneFocusOn?: boolean;
+    },
+    bedtimeSources: BedtimeSources,
+    at: string = new Date().toISOString(),
+  ): void {
+    const changed: ("isBedtime" | "phoneFocusOn")[] = [];
+
+    // Compute isBedtime only when at least one sleep signal is present. Treat
+    // an absent signal as false for the policy input (the phone reports the
+    // current state of both signals on every wake).
+    if (
+      report.hkSleepWindow !== undefined ||
+      report.sleepFocusActive !== undefined
+    ) {
+      const isBedtime = applyBedtimeSources(bedtimeSources, {
+        hkSleepWindow: report.hkSleepWindow === true,
+        sleepFocusActive: report.sleepFocusActive === true,
+      });
+      this.globalPhone.isBedtime = {
+        value: isBedtime,
+        source: "phone",
+        updatedAt: at,
+        confidence: "high",
+      };
+      changed.push("isBedtime");
+    }
+
+    if (report.phoneFocusOn !== undefined) {
+      this.globalPhone.phoneFocusOn = {
+        value: report.phoneFocusOn,
+        source: "phone",
+        updatedAt: at,
+        confidence: "high",
+      };
+      changed.push("phoneFocusOn");
+    }
+
+    if (changed.length === 0) return;
+    log.debug(
+      { userId: this.userId, changed, bedtimeSources },
+      "presence: merged phone report",
+    );
+  }
+
+  /** Read a global phone field through the GLOBAL_PHONE_FIELD_TTL lens. */
+  private readGlobalPhone(
+    key: "isBedtime" | "phoneFocusOn",
+    nowMs: number = Date.now(),
+  ): PresenceField<boolean> {
+    const f = this.globalPhone[key];
+    if (f.confidence === "unknown") {
+      return { value: null, source: f.source, updatedAt: f.updatedAt, confidence: "unknown" };
+    }
+    const age = nowMs - new Date(f.updatedAt).getTime();
+    if (age > GLOBAL_PHONE_FIELD_TTL_MS) {
+      return { value: null, source: f.source, updatedAt: f.updatedAt, confidence: "unknown" };
+    }
+    return {
+      value: f.value as boolean,
+      source: f.source,
+      updatedAt: f.updatedAt,
+      confidence: f.confidence,
+    };
+  }
+
+  /**
+   * Overlay the freshest GLOBAL phone fields (`isBedtime`, `phoneFocusOn`) onto
+   * a resolved eval vector (ios-presence-reporter, Phase 2). Rule evaluation
+   * runs against the live-console MACHINE's vector, but those two fields are
+   * global to the single phone — so they are overlaid here, after the
+   * live-console resolve and before `evaluateRules`.
+   *
+   * NO-REGRESSION INVARIANT: a phone field past its TTL (or never reported)
+   * reads `unknown` and does NOT override the incoming vector's value. When no
+   * phone has reported, BOTH overlays are no-ops and the returned vector is
+   * field-identical to the input — behaviour equals Phase 1.7.
+   */
+  overlayGlobalPhoneFields(vector: PresenceVector): PresenceVector {
+    const isBedtime = this.readGlobalPhone("isBedtime");
+    const phoneFocusOn = this.readGlobalPhone("phoneFocusOn");
+    return {
+      ...vector,
+      isBedtime: isBedtime.confidence === "unknown" ? vector.isBedtime : isBedtime,
+      phoneFocusOn:
+        phoneFocusOn.confidence === "unknown" ? vector.phoneFocusOn : phoneFocusOn,
+    };
   }
 }
 

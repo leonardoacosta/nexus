@@ -27,6 +27,8 @@ import {
   PresenceContext,
   MAC_FIELD_TTL_MS,
   PHONE_FIELD_TTL_MS,
+  GLOBAL_PHONE_FIELD_TTL_MS,
+  applyBedtimeSources,
 } from "./presence-context";
 import { MeetingState } from "./meeting-state";
 import { lifecycleBus } from "../services/lifecycle-bus";
@@ -285,6 +287,85 @@ describe("PresenceContext — per-machine fleet upsert (nx-vbv39 regression)", (
 
     expect(upserts).toContain("homelab");
     ctx.unbindFleetPresence();
+  });
+});
+
+describe("PresenceContext — global phone record + overlay (Phase 2)", () => {
+  it("reportPhone computes isBedtime from the bedtime_sources policy", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    // either: HK window active → bedtime true.
+    ctx.reportPhone({ hkSleepWindow: true, sleepFocusActive: false }, "either");
+
+    const v = ctx.overlayGlobalPhoneFields(ctx.vector());
+    expect(v.isBedtime.value).toBe(true);
+    expect(v.isBedtime.source).toBe("phone");
+    expect(v.isBedtime.confidence).not.toBe("unknown");
+  });
+
+  it("reportPhone with policy 'both' requires both signals", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.reportPhone({ hkSleepWindow: true, sleepFocusActive: false }, "both");
+    expect(ctx.overlayGlobalPhoneFields(ctx.vector()).isBedtime.value).toBe(false);
+
+    ctx.reportPhone({ hkSleepWindow: true, sleepFocusActive: true }, "both");
+    expect(ctx.overlayGlobalPhoneFields(ctx.vector()).isBedtime.value).toBe(true);
+  });
+
+  it("reportPhone stores phoneFocusOn globally", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.reportPhone({ phoneFocusOn: true }, "either");
+    const v = ctx.overlayGlobalPhoneFields(ctx.vector());
+    expect(v.phoneFocusOn.value).toBe(true);
+    expect(v.phoneFocusOn.confidence).not.toBe("unknown");
+  });
+
+  it("NO-REGRESSION: overlay is a no-op when no phone has reported", () => {
+    // The headless agent has never seen a phone report — both global fields are
+    // unknown, so overlay returns a vector field-IDENTICAL to the input. This
+    // is the Phase 1.7 no-regression invariant.
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.report({ macActive: true, macHost: "studio" }, "mac");
+
+    const base = ctx.vectorFor("studio");
+    const overlaid = ctx.overlayGlobalPhoneFields(base);
+
+    // The overlaid isBedtime/phoneFocusOn are the SAME field objects as the base
+    // (no override), and every other field is untouched.
+    expect(overlaid.isBedtime).toBe(base.isBedtime);
+    expect(overlaid.phoneFocusOn).toBe(base.phoneFocusOn);
+    expect(overlaid.isBedtime.confidence).toBe("unknown");
+    expect(overlaid.phoneFocusOn.confidence).toBe("unknown");
+    expect(overlaid.macActive.value).toBe(true); // base mac state preserved
+  });
+
+  it("a global phone field past its TTL reads unknown and does NOT override", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    const stale = new Date(Date.now() - GLOBAL_PHONE_FIELD_TTL_MS - 1_000).toISOString();
+    ctx.reportPhone({ hkSleepWindow: true, phoneFocusOn: true }, "either", stale);
+
+    const base = ctx.vector();
+    const overlaid = ctx.overlayGlobalPhoneFields(base);
+    // Stale → unknown → overlay no-op (does not force bedtime).
+    expect(overlaid.isBedtime.confidence).toBe("unknown");
+    expect(overlaid.phoneFocusOn.confidence).toBe("unknown");
+    expect(overlaid.isBedtime).toBe(base.isBedtime);
+  });
+
+  it("overlay applies the phone's isBedtime regardless of the console machine", () => {
+    // The eval vector is keyed by the live-console Mac (studio); the global
+    // phone bedtime overlays onto it.
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.report({ macActive: false, macHost: "studio" }, "mac");
+    ctx.reportPhone({ hkSleepWindow: true }, "either");
+
+    const overlaid = ctx.overlayGlobalPhoneFields(ctx.vectorFor("studio"));
+    expect(overlaid.isBedtime.value).toBe(true);
+    expect(overlaid.macActive.value).toBe(false); // console machine field intact
+  });
+
+  it("applyBedtimeSources is exported and pure (either/both spot-check)", () => {
+    expect(applyBedtimeSources("either", { hkSleepWindow: false, sleepFocusActive: true })).toBe(true);
+    expect(applyBedtimeSources("both", { hkSleepWindow: true, sleepFocusActive: false })).toBe(false);
   });
 });
 

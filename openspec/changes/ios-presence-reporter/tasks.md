@@ -10,13 +10,13 @@
 
 ## API Batch
 
-- [ ] Add `phoneFocusOn` to `PresenceVector` in `packages/core/src/types/presence.ts` (TTL'd `PresenceField<boolean>`; `isBedtime` already exists) [beads:nx-rxyjq]
-- [ ] Extend `apps/agent/src/routes/presence-report.ts` to accept the phone signals (`hkSleepWindow`, `sleepFocusActive`, `phoneFocusOn`) keyed by the phone machine; validate shape, 400 on bad input [beads:nx-1gf42]
-- [ ] Add `applyBedtimeSources(setting, { hkSleepWindow, sleepFocusActive })` (a pure function) and compute `isBedtime` per the `bedtime_sources` setting (`hk|focus|either|both`); store the phone signals + computed `isBedtime` + `phoneFocusOn` in a GLOBAL phone record in `apps/agent/src/notifications/presence-context.ts` [beads:nx-8c1c3]
-- [ ] Add `overlayGlobalPhoneFields(vector)` (in `fleet-presence.ts` or presence-context) that overlays the freshest global `isBedtime`/`phoneFocusOn` onto a resolved eval vector; a phone field past TTL reads `unknown` (no override). Wire it into `apps/agent/src/notifications/manager.ts` after `resolveLiveConsoleVector`, before `decidePresenceRoute` [beads:nx-h1rf7]
-- [ ] Add Rule 3 to `apps/agent/src/notifications/rules-engine.ts`: `isBedtime AND NOT macActive` → `{ banner, ding:false, tts:false, deliverTo:["phone"], interruptionLevel:"passive" }`; insert AFTER Rule 2, BEFORE Rule 4; active Mac (Rule 1) still wins [beads:nx-x5rdv]
-- [ ] Add the Focus-respect modifier in `rules-engine.ts` (or the manager): when `phoneFocusOn` is known-true and the matched action is non-critical, drop `interruptionLevel` to `passive`; channels unchanged [beads:nx-xe9vh]
-- [ ] Extend `apps/agent/src/routes/notification-settings.ts` to accept + validate `bedtime_sources` (enum), broadcasting `SettingsChanged` [beads:nx-xgtgj]
+- [x] Add `phoneFocusOn` to `PresenceVector` in `packages/core/src/types/presence.ts` (TTL'd `PresenceField<boolean>`; `isBedtime` already exists) [beads:nx-rxyjq]
+- [x] Extend `apps/agent/src/routes/presence-report.ts` to accept the phone signals (`hkSleepWindow`, `sleepFocusActive`, `phoneFocusOn`) keyed by the phone machine; validate shape, 400 on bad input [beads:nx-1gf42]
+- [x] Add `applyBedtimeSources(setting, { hkSleepWindow, sleepFocusActive })` (a pure function) and compute `isBedtime` per the `bedtime_sources` setting (`hk|focus|either|both`); store the phone signals + computed `isBedtime` + `phoneFocusOn` in a GLOBAL phone record in `apps/agent/src/notifications/presence-context.ts` [beads:nx-8c1c3]
+- [x] Add `overlayGlobalPhoneFields(vector)` (in `fleet-presence.ts` or presence-context) that overlays the freshest global `isBedtime`/`phoneFocusOn` onto a resolved eval vector; a phone field past TTL reads `unknown` (no override). Wire it into `apps/agent/src/notifications/manager.ts` after `resolveLiveConsoleVector`, before `decidePresenceRoute` [beads:nx-h1rf7]
+- [x] Add Rule 3 to `apps/agent/src/notifications/rules-engine.ts`: `isBedtime AND NOT macActive` → `{ banner, ding:false, tts:false, deliverTo:["phone"], interruptionLevel:"passive" }`; insert AFTER Rule 2, BEFORE Rule 4; active Mac (Rule 1) still wins [beads:nx-x5rdv]
+- [x] Add the Focus-respect modifier in `rules-engine.ts` (or the manager): when `phoneFocusOn` is known-true and the matched action is non-critical, drop `interruptionLevel` to `passive`; channels unchanged [beads:nx-xe9vh]
+- [x] Extend `apps/agent/src/routes/notification-settings.ts` to accept + validate `bedtime_sources` (enum), broadcasting `SettingsChanged` [beads:nx-xgtgj]
 
 ## UI Batch
 
@@ -28,7 +28,7 @@
 
 ## E2E Batch
 
-- [ ] Extend `apps/agent/src/routes/presence-report.test.ts` — phone signals parse + key into the global phone record; bad shape 400; missing machine handled [beads:nx-1eqyz]
-- [ ] Extend `apps/agent/src/notifications/rules-engine.test.ts` — Rule 3 (bedtime+idle Mac → silent passive phone; active Mac beats it; ordering after Rule 2 before Rule 4); Focus-respect modifier drops non-critical to passive; `applyBedtimeSources` for hk/focus/either/both [beads:nx-nja0z]
-- [ ] Extend `apps/agent/src/routes/notification-settings.test.ts` — `bedtime_sources` accepted + validated + broadcast; bad enum rejected; plus a no-regression test (phone fields unknown → overlay no-op → Phase 1.7 behavior unchanged) [beads:nx-9aspc]
+- [x] Extend `apps/agent/src/routes/presence-report.test.ts` — phone signals parse + key into the global phone record; bad shape 400; missing machine handled [beads:nx-1eqyz]
+- [x] Extend `apps/agent/src/notifications/rules-engine.test.ts` — Rule 3 (bedtime+idle Mac → silent passive phone; active Mac beats it; ordering after Rule 2 before Rule 4); Focus-respect modifier drops non-critical to passive; `applyBedtimeSources` for hk/focus/either/both [beads:nx-nja0z]
+- [x] Extend `apps/agent/src/routes/notification-settings.test.ts` — `bedtime_sources` accepted + validated + broadcast; bad enum rejected; plus a no-regression test (phone fields unknown → overlay no-op → Phase 1.7 behavior unchanged) [beads:nx-9aspc]
 - [ ] Create `apps/swift/nexus-ios/Tests/PresenceReporterTests.swift` — the reporter's pure logic: in-window computation from a sleep schedule fixture, Focus-on → phoneFocusOn, builds the correct report payload [beads:nx-xm1bn]

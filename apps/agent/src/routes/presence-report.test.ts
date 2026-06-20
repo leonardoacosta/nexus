@@ -159,4 +159,70 @@ describe("POST /presence/report", () => {
     expect(res.status).toBe(200);
     expect(getPresenceContext().vector().macActive.value).toBe(true);
   });
+
+  // ── Phase 2 (ios-presence-reporter): global phone signals ──────────────────
+
+  it("stores phone signals in the GLOBAL phone record (default either → isBedtime)", async () => {
+    // No DB wired → readBedtimeSources defaults to "either"; an active HK
+    // window makes isBedtime true on the overlay.
+    const res = await handlePresenceReport(
+      makeReq({ hkSleepWindow: true, sleepFocusActive: false, phoneFocusOn: true }),
+    );
+    expect(res.status).toBe(200);
+
+    const ctx = getPresenceContext();
+    // The global fields overlay onto any base vector regardless of machine.
+    const overlaid = ctx.overlayGlobalPhoneFields(ctx.vector());
+    expect(overlaid.isBedtime.value).toBe(true);
+    expect(overlaid.isBedtime.confidence).not.toBe("unknown");
+    expect(overlaid.phoneFocusOn.value).toBe(true);
+  });
+
+  it("echoes the overlaid global phone fields in the response vector", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ phoneFocusOn: true }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      vector: { phoneFocusOn: { value: boolean | null } };
+    };
+    expect(body.vector.phoneFocusOn.value).toBe(true);
+  });
+
+  it("a phone-only report does NOT write a mac bucket (no macActive)", async () => {
+    const res = await handlePresenceReport(makeReq({ phoneFocusOn: true }));
+    expect(res.status).toBe(200);
+    // The local mac vector stays all-unknown — phone signals are global.
+    expect(getPresenceContext().vector().macActive.confidence).toBe("unknown");
+  });
+
+  it("rejects a non-boolean hkSleepWindow with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ hkSleepWindow: "yes" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-boolean sleepFocusActive with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ sleepFocusActive: 1 }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-boolean phoneFocusOn with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ phoneFocusOn: "on" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a `machine` identity field on a phone report", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ machine: "leo-iphone", phoneFocusOn: true }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("a phone report with no machine identity is still handled (global record)", async () => {
+    const res = await handlePresenceReport(makeReq({ hkSleepWindow: true }));
+    expect(res.status).toBe(200);
+    const ctx = getPresenceContext();
+    const overlaid = ctx.overlayGlobalPhoneFields(ctx.vector());
+    expect(overlaid.isBedtime.value).toBe(true);
+  });
 });

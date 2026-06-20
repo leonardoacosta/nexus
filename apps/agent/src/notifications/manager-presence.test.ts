@@ -234,6 +234,50 @@ describe("manager presence routing", () => {
     expect(resolveCalled).toBe(false);
   });
 
+  // ── Phase 2 (ios-presence-reporter): global phone overlay no-regression ────
+
+  it("NO-REGRESSION: flag ON + no phone report → overlay no-op → Phase 1.7 behavior", async () => {
+    // No phone has reported (global fields unknown). The live console is an
+    // in-meeting Mac → Rule 2 holds, exactly as Phase 1.7. The overlay must not
+    // change this outcome.
+    const ctx = new PresenceContext("leo", "studio");
+    ctx.report({ macActive: true, macHost: "studio", inMeeting: true }, "test");
+    const localVector = ctx.vector();
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      resolveLiveConsoleVector: async () => localVector,
+    });
+
+    await mgr.send(makeSendInput("noreg-1"));
+    // Rule 2 still holds — the overlay (no phone) did not perturb routing.
+    expect(hq.calls.map((c) => c.id)).toContain("noreg-1");
+  });
+
+  it("phone bedtime overlay fires Rule 3 (silent phone) when the console Mac is idle", async () => {
+    // The live console is an IDLE Mac (macActive false) and the phone reports
+    // bedtime → Rule 3 delivers a silent phone banner (no hold). The overlay
+    // injects isBedtime from the global phone record onto the studio vector.
+    const ctx = new PresenceContext("leo", "homelab");
+    ctx.report({ macActive: false, macHost: "studio" }, "test");
+    ctx.reportPhone({ hkSleepWindow: true }, "either");
+    const studioVector = ctx.vectorFor("studio");
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      resolveLiveConsoleVector: async () => studioVector,
+    });
+
+    const row = await mgr.send(makeSendInput("rule3-1"));
+    // Rule 3 delivers now (silent phone banner), never holds.
+    expect(hq.calls).toHaveLength(0);
+    expect(row.id).toBe("rule3-1");
+  });
+
   it("flushHeldBatch is silent (banner only) during bedtime with idle Mac", async () => {
     const ctx = new PresenceContext("leo");
     // isBedtime true, macActive false (idle) → silent guard.

@@ -101,6 +101,7 @@ function presenceVector(overrides: Partial<{
   phoneHome: boolean | null;
   macIdleSec: number | null;
   macFocus: string | null;
+  phoneFocusOn: boolean | null;
 }> = {}): PresenceVector {
   return {
     userId: "leo",
@@ -114,6 +115,7 @@ function presenceVector(overrides: Partial<{
     phoneHome: field(overrides.phoneHome ?? null),
     macIdleSec: field(overrides.macIdleSec ?? null),
     macFocus: field(overrides.macFocus ?? null),
+    phoneFocusOn: field(overrides.phoneFocusOn ?? null),
   };
 }
 

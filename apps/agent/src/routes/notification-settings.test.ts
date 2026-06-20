@@ -61,6 +61,7 @@ interface FakeRow {
   presenceAwareRouting: boolean;
   unknownNoncriticalMode: "fail-safe" | "fail-open";
   unknownCriticalMode: "fail-open" | "fail-safe";
+  bedtimeSources: "hk" | "focus" | "either" | "both";
   updatedAt: Date;
 }
 
@@ -73,6 +74,7 @@ function defaultRow(): FakeRow {
     presenceAwareRouting: false,
     unknownNoncriticalMode: "fail-safe",
     unknownCriticalMode: "fail-open",
+    bedtimeSources: "either",
     updatedAt: new Date("2026-04-26T00:00:00.000Z"),
   };
 }
@@ -246,6 +248,7 @@ describe("PATCH /notifications/settings — partial update semantics", () => {
       presenceAwareRouting: false,
       unknownNoncriticalMode: "fail-safe",
       unknownCriticalMode: "fail-open",
+      bedtimeSources: "either",
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
     const { db, rows } = makeFakeDb(initial);
@@ -410,6 +413,84 @@ describe("PATCH /notifications/settings — presence-routing keys", () => {
     const res = await handlePatchNotificationSettings(
       db,
       makeRequest("PATCH", { presence_aware_routing: false }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toBe(0);
+    lifecycleBus.removeAllListeners();
+  });
+});
+
+// ── ios-presence-reporter (Phase 2): bedtime_sources ───────────────────────
+
+describe("PATCH /notifications/settings — bedtime_sources", () => {
+  it("accepts each valid bedtime_sources value", async () => {
+    for (const v of ["hk", "focus", "either", "both"] as const) {
+      const { db, rows } = makeFakeDb();
+      const res = await handlePatchNotificationSettings(
+        db,
+        makeRequest("PATCH", { bedtime_sources: v }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.bedtime_sources).toBe(v);
+      expect(rows[0]!.bedtimeSources).toBe(v);
+    }
+  });
+
+  it("rejects an invalid bedtime_sources enum with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { bedtime_sources: "nope" }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("bedtime_sources");
+  });
+
+  it("rejects a non-string bedtime_sources with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { bedtime_sources: 3 }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("GET surfaces bedtime_sources in the wire format", async () => {
+    const { db } = makeFakeDb();
+    const res = await handleGetNotificationSettings(db, makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.bedtime_sources).toBe("either");
+  });
+
+  it("broadcasts SettingsChanged when bedtime_sources changes", async () => {
+    let received = 0;
+    lifecycleBus.removeAllListeners();
+    lifecycleBus.on("SettingsChanged", () => {
+      received += 1;
+    });
+    const { db } = makeFakeDb(); // default either
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { bedtime_sources: "both" }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toBe(1);
+    lifecycleBus.removeAllListeners();
+  });
+
+  it("no-op PATCH of unchanged bedtime_sources does NOT broadcast", async () => {
+    let received = 0;
+    lifecycleBus.removeAllListeners();
+    lifecycleBus.on("SettingsChanged", () => {
+      received += 1;
+    });
+    const { db } = makeFakeDb(); // default either
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { bedtime_sources: "either" }),
     );
     expect(res.status).toBe(200);
     expect(received).toBe(0);

@@ -27,6 +27,7 @@ mock.module("@nexus/core/node", () => ({
 
 import { evaluateRules, isVectorAllUnknown } from "./rules-engine";
 import { decidePresenceRoute, actionToChannels } from "./router";
+import { applyBedtimeSources } from "./presence-context";
 
 // ── Vector builders ───────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ function vector(overrides: Partial<{
   phoneHome: boolean | null;
   macIdleSec: number | null;
   macFocus: string | null;
+  phoneFocusOn: boolean | null;
 }> = {}): PresenceVector {
   return {
     userId: "leo",
@@ -63,6 +65,7 @@ function vector(overrides: Partial<{
     phoneHome: field(overrides.phoneHome ?? null),
     macIdleSec: field(overrides.macIdleSec ?? null),
     macFocus: field(overrides.macFocus ?? null),
+    phoneFocusOn: field(overrides.phoneFocusOn ?? null),
   };
 }
 
@@ -323,5 +326,162 @@ describe("rules-engine — staleness policy", () => {
     );
     expect(action.tts).toBe(false);
     expect(action.digest).toBe(true);
+  });
+});
+
+// ── Phase 2 (ios-presence-reporter) ─────────────────────────────────────────
+
+describe("rules-engine — Rule 3 (bedtime + idle Mac → silent passive phone)", () => {
+  it("isBedtime true + macActive false → silent passive banner to phone", () => {
+    const action = evaluateRules(
+      vector({ isBedtime: true, macActive: false, macHost: "studio" }),
+    );
+    expect(action.banner).toBe(true);
+    expect(action.ding).toBe(false);
+    expect(action.tts).toBe(false);
+    expect(action.deliverTo).toEqual(["phone"]);
+    expect(action.interruptionLevel).toBe("passive");
+  });
+
+  it("active Mac beats bedtime — Rule 1 wins, Rule 3 does not fire (Q1)", () => {
+    // macActive true (not in meeting) → Rule 1, even with isBedtime true.
+    const action = evaluateRules(
+      vector({
+        isBedtime: true,
+        macActive: true,
+        macHost: "studio",
+        inMeeting: false,
+      }),
+    );
+    expect(action.tts).toBe(true); // Rule 1 speaks
+    expect(action.deliverTo).toEqual(["mac"]);
+  });
+
+  it("meeting hold (Rule 2) beats Rule 3 — ordering after Rule 2", () => {
+    // Mac present + in meeting + bedtime → Rule 2 HOLD wins (Rule 3 is after).
+    const action = evaluateRules(
+      vector({
+        isBedtime: true,
+        macActive: false,
+        macLocked: true,
+        macHost: "studio",
+        inMeeting: true,
+      }),
+    );
+    expect(action.holdUntil).not.toBeNull();
+    expect(action.digest).toBe(true);
+    expect(action.deliverTo).toEqual(["mac"]);
+  });
+
+  it("Rule 3 fires BEFORE Rule 4 — bedtime+idle+phone-home prefers silent phone", () => {
+    // Both Rule 3 (bedtime+idle) and Rule 4 (idle+phone-home) could match; Rule
+    // 3 is inserted first, so the silent phone banner wins over room-TTS.
+    const action = evaluateRules(
+      vector({
+        isBedtime: true,
+        macActive: false,
+        macHost: "studio",
+        phonePresent: true,
+        phoneHome: true,
+      }),
+    );
+    expect(action.deliverTo).toEqual(["phone"]);
+    expect(action.tts).toBe(false);
+  });
+
+  it("isBedtime unknown → Rule 3 does NOT fire (fail-safe), falls through", () => {
+    // macActive false + isBedtime unknown: Rule 3 guard fails. With no phone
+    // home, falls through to the terminal digest.
+    const action = evaluateRules(
+      vector({ isBedtime: null, macActive: false, macHost: "studio" }),
+    );
+    expect(action.deliverTo).toEqual(["dashboard"]);
+    expect(action.digest).toBe(true);
+  });
+
+  it("bedtime but macActive unknown → Rule 3 does NOT fire (needs known-false)", () => {
+    const action = evaluateRules(
+      vector({ isBedtime: true, macActive: null, macHost: "studio" }),
+    );
+    expect(action.deliverTo).not.toEqual(["phone"]);
+  });
+});
+
+describe("rules-engine — Focus-respect modifier", () => {
+  it("phoneFocusOn true drops a non-critical action's interruption to passive", () => {
+    // Rule 1 (active Mac) normally emits interruptionLevel "active"; with a
+    // Focus on, it drops to passive — channels (banner/tts) unchanged.
+    const action = evaluateRules(
+      vector({
+        macActive: true,
+        macHost: "studio",
+        inMeeting: false,
+        phoneFocusOn: true,
+      }),
+    );
+    expect(action.interruptionLevel).toBe("passive");
+    // Channels unchanged — Focus respect only lowers the interruption level.
+    expect(action.banner).toBe(true);
+    expect(action.tts).toBe(true);
+    expect(action.deliverTo).toEqual(["mac"]);
+  });
+
+  it("phoneFocusOn false leaves the interruption level untouched", () => {
+    const action = evaluateRules(
+      vector({
+        macActive: true,
+        macHost: "studio",
+        inMeeting: false,
+        phoneFocusOn: false,
+      }),
+    );
+    expect(action.interruptionLevel).toBe("active");
+  });
+
+  it("phoneFocusOn unknown leaves the interruption level untouched (fail-open)", () => {
+    const action = evaluateRules(
+      vector({
+        macActive: true,
+        macHost: "studio",
+        inMeeting: false,
+        phoneFocusOn: null,
+      }),
+    );
+    expect(action.interruptionLevel).toBe("active");
+  });
+});
+
+describe("applyBedtimeSources — truth table", () => {
+  const T = { hkSleepWindow: true, sleepFocusActive: true };
+  const F = { hkSleepWindow: false, sleepFocusActive: false };
+  const HK = { hkSleepWindow: true, sleepFocusActive: false };
+  const FOCUS = { hkSleepWindow: false, sleepFocusActive: true };
+
+  it("hk → follows the HK window only", () => {
+    expect(applyBedtimeSources("hk", HK)).toBe(true);
+    expect(applyBedtimeSources("hk", FOCUS)).toBe(false);
+    expect(applyBedtimeSources("hk", T)).toBe(true);
+    expect(applyBedtimeSources("hk", F)).toBe(false);
+  });
+
+  it("focus → follows the Sleep-Focus signal only", () => {
+    expect(applyBedtimeSources("focus", FOCUS)).toBe(true);
+    expect(applyBedtimeSources("focus", HK)).toBe(false);
+    expect(applyBedtimeSources("focus", T)).toBe(true);
+    expect(applyBedtimeSources("focus", F)).toBe(false);
+  });
+
+  it("either → bedtime when EITHER source is active", () => {
+    expect(applyBedtimeSources("either", HK)).toBe(true);
+    expect(applyBedtimeSources("either", FOCUS)).toBe(true);
+    expect(applyBedtimeSources("either", T)).toBe(true);
+    expect(applyBedtimeSources("either", F)).toBe(false);
+  });
+
+  it("both → bedtime only when BOTH sources are active", () => {
+    expect(applyBedtimeSources("both", T)).toBe(true);
+    expect(applyBedtimeSources("both", HK)).toBe(false);
+    expect(applyBedtimeSources("both", FOCUS)).toBe(false);
+    expect(applyBedtimeSources("both", F)).toBe(false);
   });
 });

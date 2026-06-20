@@ -33,12 +33,16 @@ const ALLOWED_KEYS = new Set([
   "presence_aware_routing",
   "unknown_noncritical_mode",
   "unknown_critical_mode",
+  // ios-presence-reporter (Phase 2): the bedtime-source policy.
+  "bedtime_sources",
 ]);
 const DUCKING_MODES = new Set(["full", "half", "mute"]);
 const FAIL_MODES = new Set(["fail-safe", "fail-open"]);
+const BEDTIME_SOURCES = new Set(["hk", "focus", "either", "both"]);
 
 type DuckingMode = "full" | "half" | "mute";
 type FailMode = "fail-safe" | "fail-open";
+type BedtimeSources = "hk" | "focus" | "either" | "both";
 
 interface SettingsResponse {
   id: number;
@@ -48,6 +52,7 @@ interface SettingsResponse {
   presence_aware_routing: boolean;
   unknown_noncritical_mode: FailMode;
   unknown_critical_mode: FailMode;
+  bedtime_sources: BedtimeSources;
   updated_at: string;
 }
 
@@ -59,6 +64,7 @@ interface SettingsRow {
   presenceAwareRouting: boolean;
   unknownNoncriticalMode: FailMode;
   unknownCriticalMode: FailMode;
+  bedtimeSources: BedtimeSources;
   updatedAt: Date;
 }
 
@@ -78,6 +84,7 @@ function toResponse(row: SettingsRow): SettingsResponse {
     presence_aware_routing: row.presenceAwareRouting,
     unknown_noncritical_mode: row.unknownNoncriticalMode,
     unknown_critical_mode: row.unknownCriticalMode,
+    bedtime_sources: row.bedtimeSources,
     updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -182,6 +189,7 @@ export async function handlePatchNotificationSettings(
     presenceAwareRouting: boolean;
     unknownNoncriticalMode: FailMode;
     unknownCriticalMode: FailMode;
+    bedtimeSources: BedtimeSources;
   }> = {};
 
   if ("tts_enabled" in patch) {
@@ -249,6 +257,17 @@ export async function handlePatchNotificationSettings(
     update.unknownCriticalMode = m as FailMode;
   }
 
+  if ("bedtime_sources" in patch) {
+    const m = patch.bedtime_sources;
+    if (typeof m !== "string" || !BEDTIME_SOURCES.has(m)) {
+      return jsonResponse(
+        { error: "bedtime_sources must be one of: hk, focus, either, both" },
+        400,
+      );
+    }
+    update.bedtimeSources = m as BedtimeSources;
+  }
+
   // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
   // SELECT the current row, merge the candidate patch, and if every field
   // matches the existing value, return 200 WITHOUT issuing an UPDATE and
@@ -275,7 +294,9 @@ export async function handlePatchNotificationSettings(
     (update.unknownNoncriticalMode !== undefined &&
       update.unknownNoncriticalMode !== current.unknownNoncriticalMode) ||
     (update.unknownCriticalMode !== undefined &&
-      update.unknownCriticalMode !== current.unknownCriticalMode);
+      update.unknownCriticalMode !== current.unknownCriticalMode) ||
+    (update.bedtimeSources !== undefined &&
+      update.bedtimeSources !== current.bedtimeSources);
 
   if (!changed) {
     // No-op: return current row, do NOT UPDATE, do NOT emit.
