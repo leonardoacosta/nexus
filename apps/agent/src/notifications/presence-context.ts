@@ -20,10 +20,13 @@ import type {
   PresenceVector,
   Source,
 } from "@nexus/core";
-import { createLogger } from "@nexus/core/node";
+import { createLogger, getAgentId } from "@nexus/core/node";
 import type { Db } from "@nexus/db";
 import { lifecycleBus } from "../services/lifecycle-bus";
-import { upsertSelfPresence } from "../services/fleet-presence";
+import {
+  upsertSelfPresence,
+  type SelfPresenceState,
+} from "../services/fleet-presence";
 import type { MeetingState } from "./meeting-state";
 
 const log = createLogger("agent:notifications:presence-context");
@@ -113,36 +116,83 @@ function unknownField(): StoredField {
   };
 }
 
-/** Fields that, when reported, change the local Mac's live-console picture. */
+/** Fields that, when reported, change a machine's live-console picture. */
 const FLEET_RELEVANT_KEYS: ReadonlySet<FieldKey> = new Set<FieldKey>([
   "macActive",
   "macLocked",
 ]);
 
+/** Build a fresh all-unknown field record for a newly-seen machine. */
+function freshFields(): Record<FieldKey, StoredField> {
+  return {
+    macActive: unknownField(),
+    macLocked: unknownField(),
+    macHost: unknownField(),
+    inMeeting: unknownField(),
+    meetingEndsAt: unknownField(),
+    isBedtime: unknownField(),
+    phonePresent: unknownField(),
+    phoneHome: unknownField(),
+    macIdleSec: unknownField(),
+    macFocus: unknownField(),
+  };
+}
+
+/**
+ * Injectable fleet upsert (defaults to the real `upsertSelfPresence`). Tests
+ * pass a fake to assert the per-machine write without a live DB.
+ */
+type FleetUpsertFn = (
+  db: Db,
+  machine: string,
+  state: SelfPresenceState,
+) => Promise<void>;
+
 export class PresenceContext {
   private readonly userId: string;
-  private fields: Record<FieldKey, StoredField>;
+  /** The local machine's identity — the key the manager's `vector()` reads. */
+  private readonly localMachine: string;
+  /**
+   * Per-machine field maps (fleet-aware-rules-eval, Phase 1.7). Each reporting
+   * machine (`macHost`, or the local machine when absent) owns its own TTL'd
+   * field record so two Macs can never clobber each other's presence.
+   */
+  private machineFields = new Map<string, Record<FieldKey, StoredField>>();
   private meetingState: MeetingState | null = null;
 
   // ── Fleet presence binding (cross-machine-delivery, Phase 1.6) ────────────
   private fleetDb: Db | null = null;
   private fleetMachine: string | null = null;
   private fleetTimer: ReturnType<typeof setInterval> | null = null;
+  private fleetUpsert: FleetUpsertFn = upsertSelfPresence;
 
-  constructor(userId: string) {
+  /**
+   * @param userId       the single-user discriminator (single-user model, Q6).
+   * @param localMachine this agent's machine identity (agents.toml self_name
+   *   via getAgentId()). Reports with no `macHost` key, and the manager's
+   *   fallback `vector()`, resolve against this machine. Defaults to the local
+   *   agent id so existing single-arg construction keeps working.
+   */
+  constructor(userId: string, localMachine: string = getAgentId()) {
     this.userId = userId;
-    this.fields = {
-      macActive: unknownField(),
-      macLocked: unknownField(),
-      macHost: unknownField(),
-      inMeeting: unknownField(),
-      meetingEndsAt: unknownField(),
-      isBedtime: unknownField(),
-      phonePresent: unknownField(),
-      phoneHome: unknownField(),
-      macIdleSec: unknownField(),
-      macFocus: unknownField(),
-    };
+    this.localMachine = localMachine;
+    // Seed the local machine so `vector()` is always well-defined.
+    this.machineFields.set(localMachine, freshFields());
+  }
+
+  /** The field record for `machine`, creating an all-unknown one on first use. */
+  private fieldsFor(machine: string): Record<FieldKey, StoredField> {
+    let f = this.machineFields.get(machine);
+    if (!f) {
+      f = freshFields();
+      this.machineFields.set(machine, f);
+    }
+    return f;
+  }
+
+  /** Every machine identity the context has seen a report for. */
+  machines(): string[] {
+    return [...this.machineFields.keys()];
   }
 
   /** Bind the existing meeting-state machine as the `inMeeting` source. */
@@ -166,13 +216,17 @@ export class PresenceContext {
     db: Db,
     machine: string,
     intervalMs: number = FLEET_HEARTBEAT_INTERVAL_MS,
+    upsertFn?: FleetUpsertFn,
   ): void {
     this.fleetDb = db;
     this.fleetMachine = machine;
+    if (upsertFn) this.fleetUpsert = upsertFn;
     // Write an initial row immediately so the fleet picture is populated on boot.
-    this.upsertFleetPresence();
+    this.upsertFleetPresence(machine);
     if (this.fleetTimer) clearInterval(this.fleetTimer);
-    this.fleetTimer = setInterval(() => this.upsertFleetPresence(), intervalMs);
+    // The heartbeat tick refreshes the LOCAL self-row so a live machine never
+    // looks stale even with no presence change.
+    this.fleetTimer = setInterval(() => this.upsertFleetPresence(machine), intervalMs);
     // Don't keep the event loop alive solely for the heartbeat.
     this.fleetTimer.unref?.();
     log.debug({ machine, intervalMs }, "presence: fleet-presence binding active");
@@ -184,32 +238,38 @@ export class PresenceContext {
     this.fleetTimer = null;
     this.fleetDb = null;
     this.fleetMachine = null;
+    this.fleetUpsert = upsertSelfPresence;
   }
 
   /**
-   * UPSERT this machine's fleet_presence row from the current vector. The local
-   * machine is "on console" when its Mac is active AND not locked (both read
-   * through the TTL lens, so a stale signal collapses to not-on-console).
-   * Fire-and-forget — failures are logged, never thrown.
+   * UPSERT `machine`'s fleet_presence row from ITS per-machine vector
+   * (fleet-aware-rules-eval, Phase 1.7). A machine is "on console" when its Mac
+   * is active AND not locked (both read through the TTL lens, so a stale signal
+   * collapses to not-on-console). The FULL vector jsonb + the typed
+   * `on_console`/`mac_active`/`mac_locked` columns are written together from the
+   * SAME vector so the eval-path jsonb and the delivery-path typed columns can
+   * never diverge. Fire-and-forget — failures are logged, never thrown.
    */
-  private upsertFleetPresence(): void {
+  private upsertFleetPresence(machine: string): void {
     const db = this.fleetDb;
-    const machine = this.fleetMachine;
-    if (!db || !machine) return;
+    if (!db) return;
 
-    const v = this.vector();
+    const v = this.vectorFor(machine);
     const macActive = v.macActive.confidence !== "unknown" ? v.macActive.value : null;
     const macLocked = v.macLocked.confidence !== "unknown" ? v.macLocked.value : null;
     const onConsole = macActive === true && macLocked !== true;
 
-    void upsertSelfPresence(db, machine, { onConsole, macActive, macLocked }).catch(
-      (err) => {
-        log.warn(
-          { machine, err: err instanceof Error ? err.message : String(err) },
-          "presence: fleet_presence upsert failed (non-fatal)",
-        );
-      },
-    );
+    void this.fleetUpsert(db, machine, {
+      onConsole,
+      macActive,
+      macLocked,
+      vector: v,
+    }).catch((err) => {
+      log.warn(
+        { machine, err: err instanceof Error ? err.message : String(err) },
+        "presence: fleet_presence upsert failed (non-fatal)",
+      );
+    });
   }
 
   /**
@@ -233,13 +293,21 @@ export class PresenceContext {
     source: Source,
     at: string = new Date().toISOString(),
   ): void {
+    // The report's machine identity is its `macHost` (the reporting Mac's
+    // hostname); fall back to the local machine when absent (a headless sensor
+    // report, or the meeting-state feed) — never write an unkeyed row.
+    const machine =
+      typeof report.macHost === "string" && report.macHost.length > 0
+        ? report.macHost
+        : this.localMachine;
+    const fields = this.fieldsFor(machine);
     const changed: FieldKey[] = [];
 
     for (const key of FIELD_KEYS) {
       if (!(key in report)) continue;
       const incoming = (report as Record<string, unknown>)[key];
       if (incoming === undefined) continue;
-      this.fields[key] = {
+      fields[key] = {
         value: incoming,
         source,
         updatedAt: at,
@@ -250,25 +318,35 @@ export class PresenceContext {
 
     if (changed.length === 0) return;
 
-    log.debug({ userId: this.userId, changed, source }, "presence: merged report");
+    log.debug(
+      { userId: this.userId, machine, changed, source },
+      "presence: merged report",
+    );
     lifecycleBus.emit("PresenceChanged", {
+      // The lifecycle payload carries the LOCAL machine's vector (back-compat
+      // with the single-vector subscribers); fleet eval reads per-machine rows.
       vector: this.vector(),
       changed,
     });
 
-    // Mirror local presence changes into the shared fleet_presence store so
-    // peers can resolve the live console (cross-machine-delivery, Phase 1.6).
+    // Mirror this MACHINE's presence into the shared fleet_presence store so
+    // peers can resolve the live console. A remote Mac reporting to a headless
+    // agent now persists ITS OWN row (nx-vbv39), not only the local self-row.
     if (changed.some((k) => FLEET_RELEVANT_KEYS.has(k))) {
-      this.upsertFleetPresence();
+      this.upsertFleetPresence(machine);
     }
   }
 
   /**
-   * Read the field through the TTL lens. A field whose `updatedAt` is older
-   * than its TTL collapses to `unknown` (value null) — never the stale truth.
+   * Read `machine`'s field through the TTL lens. A field whose `updatedAt` is
+   * older than its TTL collapses to `unknown` (value null) — never the stale
+   * truth.
    */
-  private read<T>(key: FieldKey): PresenceField<T> {
-    const f = this.fields[key];
+  private read<T>(
+    fields: Record<FieldKey, StoredField>,
+    key: FieldKey,
+  ): PresenceField<T> {
+    const f = fields[key];
     if (f.confidence === "unknown") {
       return {
         value: null,
@@ -297,21 +375,33 @@ export class PresenceContext {
     };
   }
 
-  /** Snapshot the vector with the TTL lens applied to every field. */
-  vector(): PresenceVector {
+  /**
+   * Snapshot a machine's vector with the TTL lens applied to every field. An
+   * unseen machine reads an all-unknown vector (without creating a bucket).
+   */
+  vectorFor(machine: string): PresenceVector {
+    const fields = this.machineFields.get(machine) ?? freshFields();
     return {
       userId: this.userId,
-      macActive: this.read<boolean>("macActive"),
-      macLocked: this.read<boolean>("macLocked"),
-      macHost: this.read<string>("macHost"),
-      inMeeting: this.read<boolean>("inMeeting"),
-      meetingEndsAt: this.read<string>("meetingEndsAt"),
-      isBedtime: this.read<boolean>("isBedtime"),
-      phonePresent: this.read<boolean>("phonePresent"),
-      phoneHome: this.read<boolean>("phoneHome"),
-      macIdleSec: this.read<number>("macIdleSec"),
-      macFocus: this.read<string>("macFocus"),
+      macActive: this.read<boolean>(fields, "macActive"),
+      macLocked: this.read<boolean>(fields, "macLocked"),
+      macHost: this.read<string>(fields, "macHost"),
+      inMeeting: this.read<boolean>(fields, "inMeeting"),
+      meetingEndsAt: this.read<string>(fields, "meetingEndsAt"),
+      isBedtime: this.read<boolean>(fields, "isBedtime"),
+      phonePresent: this.read<boolean>(fields, "phonePresent"),
+      phoneHome: this.read<boolean>(fields, "phoneHome"),
+      macIdleSec: this.read<number>(fields, "macIdleSec"),
+      macFocus: this.read<string>(fields, "macFocus"),
     };
+  }
+
+  /**
+   * The LOCAL machine's vector — the manager's fallback source when no live
+   * console resolves. Unchanged contract for single-machine fleets.
+   */
+  vector(): PresenceVector {
+    return this.vectorFor(this.localMachine);
   }
 }
 

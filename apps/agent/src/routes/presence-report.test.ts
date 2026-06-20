@@ -45,8 +45,8 @@ describe("POST /presence/report", () => {
     const body = (await res.json()) as { vector: { macActive: { value: boolean } } };
     expect(body.vector.macActive.value).toBe(true);
 
-    // The singleton vector reflects the report.
-    expect(getPresenceContext().vector().macHost.value).toBe("studio");
+    // The report keyed into the studio machine bucket (macHost present).
+    expect(getPresenceContext().vectorFor("studio").macHost.value).toBe("studio");
   });
 
   it("rejects malformed JSON with 400", async () => {
@@ -128,5 +128,35 @@ describe("POST /presence/report", () => {
   it("rejects a non-boolean homeHint with 400", async () => {
     const res = await handlePresenceReport(makeReq({ homeHint: "yes" }));
     expect(res.status).toBe(400);
+  });
+
+  // ── Phase 1.7: per-machine keying (fleet-aware-rules-eval) ──────────────────
+
+  it("keys a report carrying macHost into that machine's bucket", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ macActive: true, macHost: "studio" }),
+    );
+    expect(res.status).toBe(200);
+
+    const ctx = getPresenceContext();
+    // The remote machine's vector reflects the report…
+    expect(ctx.vectorFor("studio").macActive.value).toBe(true);
+    expect(ctx.machines()).toContain("studio");
+  });
+
+  it("a macHost-keyed report does not write into the local machine's vector", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ macActive: true, macHost: "studio" }),
+    );
+    expect(res.status).toBe(200);
+
+    // The local vector (no macHost) stays unknown — no conflation.
+    expect(getPresenceContext().vector().macActive.confidence).toBe("unknown");
+  });
+
+  it("a report with no macHost falls back to the local machine", async () => {
+    const res = await handlePresenceReport(makeReq({ macActive: true }));
+    expect(res.status).toBe(200);
+    expect(getPresenceContext().vector().macActive.value).toBe(true);
   });
 });

@@ -7,7 +7,8 @@ import {
 } from "@nexus/db";
 import { desc } from "drizzle-orm";
 import type { NotificationChannel, NotificationPriority } from "@nexus/core";
-import { createLogger } from "@nexus/core/node";
+import { createLogger, getAgentId } from "@nexus/core/node";
+import { FLEET_HEARTBEAT_TTL_MS } from "../services/fleet-presence";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
 import { HeldQueue } from "../notifications/held-queue";
@@ -129,13 +130,27 @@ export async function initNotificationRoutes(db: Db): Promise<void> {
     // the durable held queue replaces the in-memory meeting buffer.
     const presenceContext = getPresenceContext();
     presenceContext.bindMeetingState(meetingState);
+    // Persist this machine's fleet_presence row on every report + heartbeat
+    // tick (fleet-aware-rules-eval, Phase 1.7). A remote Mac reporting here now
+    // writes ITS OWN per-machine row (nx-vbv39), and the live homelab agent's
+    // self-row stays fresh for cross-machine resolution.
+    presenceContext.bindFleetPresence(db, getAgentId());
     const heldQueue = new HeldQueue(db, DEFAULT_PRESENCE_USER);
 
-    manager = new NotificationManager(db, meetingState, {
-      context: presenceContext,
-      heldQueue,
-      presenceAwareRouting: () => readPresenceAwareRouting(db),
-    });
+    manager = new NotificationManager(
+      db,
+      meetingState,
+      {
+        context: presenceContext,
+        heldQueue,
+        presenceAwareRouting: () => readPresenceAwareRouting(db),
+        // Fleet-aware eval: the manager resolves the live-console machine's
+        // stored vector before evaluating the rules, falling back to the local
+        // in-memory vector + the all-unknown guard when no live console
+        // resolves (no regression for single-machine fleets).
+        fleetTtlMs: FLEET_HEARTBEAT_TTL_MS,
+      },
+    );
 
     // Rehydrate pending holds on boot: flush anything already due (coalesced
     // summary) and schedule the rest. Survives agent restart — the data-loss

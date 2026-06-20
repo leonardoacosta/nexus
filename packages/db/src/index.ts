@@ -133,6 +133,7 @@ export {
   fleetPresence,
   type FleetPresence,
   type NewFleetPresence,
+  type FleetPresenceVector,
 } from "./schema";
 
 // Relations (used by drizzle's relational query API)

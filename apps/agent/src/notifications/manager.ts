@@ -2,6 +2,12 @@ import type { Db } from "@nexus/db";
 import { notifications as notificationsTable } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { logger } from "@nexus/core/node";
+import type { PresenceVector } from "@nexus/core";
+import {
+  resolveLiveConsoleVectorFromDb,
+  FLEET_HEARTBEAT_TTL_MS,
+  resolveLiveConsole,
+} from "../services/fleet-presence";
 import {
   insertNotification,
   queryNotificationsByStatus,
@@ -22,7 +28,6 @@ import type { PresenceContext } from "./presence-context";
 import type { HeldQueue } from "./held-queue";
 import type { PresenceHold } from "@nexus/db";
 import { fleetPresence } from "@nexus/db";
-import { resolveLiveConsole } from "../services/fleet-presence";
 import {
   forwardOrLocal,
   type ForwardDeps,
@@ -73,6 +78,22 @@ export interface PresenceWiring {
   heldQueue: HeldQueue;
   /** Reads the live `presence_aware_routing` flag (from notification_settings). */
   presenceAwareRouting: () => Promise<boolean> | boolean;
+  /**
+   * Heartbeat TTL for the live-console vector resolve (fleet-aware-rules-eval,
+   * Phase 1.7). Defaults to FLEET_HEARTBEAT_TTL_MS when omitted.
+   */
+  fleetTtlMs?: number;
+  /**
+   * Resolve the live-console machine's stored `PresenceVector` for fleet-aware
+   * eval. Defaults to the DB-backed `resolveLiveConsoleVectorFromDb`. Injectable
+   * so tests can supply a fixture without seeding `fleet_presence`. Returns null
+   * when no live console resolves — the manager then falls back to the local
+   * in-memory vector + the existing all-unknown→legacy guard.
+   */
+  resolveLiveConsoleVector?: (
+    db: Db,
+    ttlMs: number,
+  ) => Promise<PresenceVector | null>;
 }
 
 /**
@@ -165,10 +186,19 @@ export class NotificationManager {
     // byte-identical legacy meeting-state buffer path below.
     if (this.presence) {
       const enabled = await this.presence.presenceAwareRouting();
-      const decision = decidePresenceRoute(
-        enabled,
-        this.presence.context.vector(),
-      );
+      // Fleet-aware eval (fleet-aware-rules-eval, Phase 1.7): when the flag is
+      // ON, evaluate against the resolved live-console machine's stored vector
+      // rather than this agent's own local in-memory vector — so a session
+      // fired on the headless agent routes by the Mac you're actually at. When
+      // no live console resolves (or the resolve fails), fall back to the local
+      // vector + the existing all-unknown→legacy guard (no regression for
+      // single-machine fleets). The resolve is SKIPPED entirely when the flag
+      // is off (HARD PARITY CONTRACT — the legacy path must not touch the
+      // fleet).
+      const evalVector = enabled
+        ? (await this.resolveEvalVector()) ?? this.presence.context.vector()
+        : this.presence.context.vector();
+      const decision = decidePresenceRoute(enabled, evalVector);
       if (decision) {
         if (decision.hold && decision.holdUntil) {
           // Durable meeting-hold: persist to presence_holds and schedule the
@@ -420,6 +450,30 @@ export class NotificationManager {
     }
 
     return anyDelivered;
+  }
+
+  /**
+   * Resolve the live-console machine's stored `PresenceVector` for fleet-aware
+   * eval (fleet-aware-rules-eval, Phase 1.7). Returns null when no live console
+   * resolves, when its stored vector is null, or when the resolve throws (a DB
+   * hiccup must never break routing) — in every null case the caller falls back
+   * to the local in-memory vector. Only called when `presence_aware_routing` is
+   * ON (the flag-off parity path never reaches here).
+   */
+  private async resolveEvalVector(): Promise<PresenceVector | null> {
+    if (!this.presence) return null;
+    const resolve =
+      this.presence.resolveLiveConsoleVector ?? resolveLiveConsoleVectorFromDb;
+    const ttl = this.presence.fleetTtlMs ?? FLEET_HEARTBEAT_TTL_MS;
+    try {
+      return await resolve(this.db, ttl);
+    } catch (err) {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "presence: live-console vector resolve failed — falling back to local vector",
+      );
+      return null;
+    }
   }
 
   /**

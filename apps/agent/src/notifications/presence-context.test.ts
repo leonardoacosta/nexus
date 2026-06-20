@@ -35,11 +35,12 @@ import type { PresenceChangedPayload } from "../services/lifecycle-bus";
 const USER = "leo";
 
 describe("PresenceContext — field merge", () => {
-  it("merges reported fields into the vector", () => {
+  it("merges reported fields into the reporting machine's vector", () => {
     const ctx = new PresenceContext(USER);
+    // A report carrying macHost keys into that machine's per-machine bucket.
     ctx.report({ macActive: true, macHost: "studio" }, "mac");
 
-    const v = ctx.vector();
+    const v = ctx.vectorFor("studio");
     expect(v.macActive.value).toBe(true);
     expect(v.macActive.confidence).not.toBe("unknown");
     expect(v.macHost.value).toBe("studio");
@@ -155,13 +156,135 @@ describe("PresenceContext — PresenceChanged emission", () => {
     lifecycleBus.on("PresenceChanged", handler);
   });
 
-  it("emits PresenceChanged with the updated vector and changed keys", () => {
+  it("emits PresenceChanged with the changed keys", () => {
     const ctx = new PresenceContext(USER);
     ctx.report({ macActive: true, macHost: "studio" }, "mac");
 
     expect(received).toHaveLength(1);
     expect(received[0]!.changed.sort()).toEqual(["macActive", "macHost"]);
+  });
+
+  it("the emitted payload carries the local machine's vector", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    // A local report (no macHost) is reflected in the emitted local vector.
+    ctx.report({ macActive: true }, "mac");
+
+    expect(received).toHaveLength(1);
     expect(received[0]!.vector.macActive.value).toBe(true);
+  });
+});
+
+describe("PresenceContext — per-machine vector map (Phase 1.7)", () => {
+  it("keys a report by its macHost, not the local machine", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.report({ macActive: true, macHost: "studio" }, "mac");
+
+    // The remote machine's bucket carries the report…
+    const studio = ctx.vectorFor("studio");
+    expect(studio.macActive.value).toBe(true);
+    expect(studio.macHost.value).toBe("studio");
+
+    // …and the LOCAL bucket is untouched (still unknown).
+    const local = ctx.vector();
+    expect(local.macActive.confidence).toBe("unknown");
+  });
+
+  it("falls back to the local machine when macHost is absent", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.report({ macActive: true }, "mac");
+
+    const local = ctx.vector();
+    expect(local.macActive.value).toBe(true);
+    expect(ctx.machines()).toContain("homelab");
+  });
+
+  it("two machines reporting do not clobber each other", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.report({ macActive: true, macHost: "studio" }, "mac");
+    ctx.report({ macActive: false, macHost: "laptop" }, "mac");
+
+    expect(ctx.vectorFor("studio").macActive.value).toBe(true);
+    expect(ctx.vectorFor("laptop").macActive.value).toBe(false);
+  });
+
+  it("applies per-field TTL independently per machine", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    const stale = new Date(Date.now() - MAC_FIELD_TTL_MS - 1_000).toISOString();
+    ctx.report({ macActive: true, macHost: "studio" }, "mac", stale);
+    ctx.report({ macActive: true, macHost: "laptop" }, "mac"); // fresh
+
+    expect(ctx.vectorFor("studio").macActive.confidence).toBe("unknown");
+    expect(ctx.vectorFor("laptop").macActive.value).toBe(true);
+  });
+
+  it("an unknown machine reads an all-unknown vector", () => {
+    const ctx = new PresenceContext(USER, "homelab");
+    const v = ctx.vectorFor("never-reported");
+    expect(v.macActive.confidence).toBe("unknown");
+    expect(v.userId).toBe(USER);
+  });
+});
+
+describe("PresenceContext — per-machine fleet upsert (nx-vbv39 regression)", () => {
+  it("a remote report writes that remote machine's fleet_presence row", async () => {
+    const upserts: Array<{ machine: string; onConsole: boolean }> = [];
+    const fakeDb = {} as never;
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.bindFleetPresence(fakeDb, "homelab", 1_000_000, async (_db, machine, state) => {
+      upserts.push({ machine, onConsole: state.onConsole });
+    });
+    // The boot upsert writes the local self-row.
+    expect(upserts.some((u) => u.machine === "homelab")).toBe(true);
+    upserts.length = 0;
+
+    // A remote Mac reports — the headless agent must persist STUDIO's row,
+    // not (only) its own self-row. This is the nx-vbv39 fix.
+    ctx.report({ macActive: true, macLocked: false, macHost: "studio" }, "mac");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const studio = upserts.find((u) => u.machine === "studio");
+    expect(studio).toBeDefined();
+    expect(studio!.onConsole).toBe(true); // macActive && !macLocked
+
+    ctx.unbindFleetPresence();
+  });
+
+  it("writes the FULL vector jsonb in the upsert", async () => {
+    const upserts: Array<{ machine: string; vector: unknown }> = [];
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.bindFleetPresence({} as never, "homelab", 1_000_000, async (_db, machine, state) => {
+      upserts.push({ machine, vector: state.vector });
+    });
+    upserts.length = 0;
+
+    ctx.report({ macActive: true, macHost: "studio" }, "mac");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const studio = upserts.find((u) => u.machine === "studio");
+    expect(studio).toBeDefined();
+    const v = studio!.vector as { macActive: { value: boolean }; userId: string };
+    expect(v.macActive.value).toBe(true);
+    expect(v.userId).toBe(USER);
+
+    ctx.unbindFleetPresence();
+  });
+
+  it("the local self-row is still written on a local report", async () => {
+    const upserts: string[] = [];
+    const ctx = new PresenceContext(USER, "homelab");
+    ctx.bindFleetPresence({} as never, "homelab", 1_000_000, async (_db, machine) => {
+      upserts.push(machine);
+    });
+    upserts.length = 0;
+
+    ctx.report({ macActive: true }, "mac"); // no macHost → local
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(upserts).toContain("homelab");
+    ctx.unbindFleetPresence();
   });
 });
 

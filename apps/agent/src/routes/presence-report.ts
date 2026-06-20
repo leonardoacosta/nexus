@@ -116,6 +116,17 @@ export async function handlePresenceReport(request: Request): Promise<Response> 
   const ctx = getPresenceContext();
   ctx.report(report, "mac");
 
-  log.debug({ fields: keys }, "presence-report: merged report");
-  return jsonResponse({ vector: ctx.vector() });
+  // Echo the REPORTING machine's vector (fleet-aware-rules-eval, Phase 1.7):
+  // the report keys into its `macHost` machine bucket (fallback local when
+  // absent), and `ctx.report` triggers that machine's per-machine fleet upsert.
+  // Returning that machine's vector lets the reporter confirm its own merged
+  // state (a remote Mac sees ITS row, not the headless agent's local vector).
+  const machine =
+    typeof report.macHost === "string" && report.macHost.length > 0
+      ? report.macHost
+      : undefined;
+  const vector = machine ? ctx.vectorFor(machine) : ctx.vector();
+
+  log.debug({ fields: keys, machine }, "presence-report: merged report");
+  return jsonResponse({ vector });
 }

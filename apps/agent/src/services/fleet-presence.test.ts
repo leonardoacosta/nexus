@@ -13,19 +13,57 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import type { FleetPresence } from "@nexus/db";
 import { createDb } from "@nexus/db";
 import type { Db } from "@nexus/db";
-import { resolveLiveConsole, upsertSelfPresence } from "./fleet-presence";
+import type { PresenceVector } from "@nexus/core";
+import {
+  resolveLiveConsole,
+  resolveLiveConsoleVector,
+  resolveLiveConsoleVectorFromDb,
+  upsertSelfPresence,
+} from "./fleet-presence";
 
 const TTL = 30_000;
 
-/** Build a fleet_presence row fixture with sane defaults. */
-function row(over: Partial<FleetPresence> & { machine: string }): FleetPresence {
+/** Build a fleet_presence row fixture with sane defaults. The `vector` override
+ * accepts a typed `PresenceVector` (cast to the row's opaque jsonb shape — the
+ * same boundary cast the production read path uses). */
+function row(
+  over: Omit<Partial<FleetPresence>, "vector"> & {
+    machine: string;
+    vector?: PresenceVector | null;
+  },
+): FleetPresence {
   return {
     machine: over.machine,
     onConsole: over.onConsole ?? false,
     macActive: over.macActive ?? null,
     macLocked: over.macLocked ?? null,
     heartbeat: over.heartbeat ?? new Date(),
+    vector: (over.vector ?? null) as FleetPresence["vector"],
     updatedAt: over.updatedAt ?? new Date(),
+  };
+}
+
+/** A minimal PresenceVector fixture with one known field for assertions. */
+function vectorFixture(over: Partial<PresenceVector> = {}): PresenceVector {
+  const unknown = <T>() => ({
+    value: null as T | null,
+    source: "test" as const,
+    updatedAt: new Date(0).toISOString(),
+    confidence: "unknown" as const,
+  });
+  return {
+    userId: "leo",
+    macActive: unknown<boolean>(),
+    macLocked: unknown<boolean>(),
+    macHost: unknown<string>(),
+    inMeeting: unknown<boolean>(),
+    meetingEndsAt: unknown<string>(),
+    isBedtime: unknown<boolean>(),
+    phonePresent: unknown<boolean>(),
+    phoneHome: unknown<boolean>(),
+    macIdleSec: unknown<number>(),
+    macFocus: unknown<string>(),
+    ...over,
   };
 }
 
@@ -77,6 +115,100 @@ describe("resolveLiveConsole (pure)", () => {
   });
 });
 
+describe("resolveLiveConsoleVector (pure over rows)", () => {
+  const now = Date.now();
+
+  it("returns the newest on-console machine's vector", () => {
+    const studioVec = vectorFixture({
+      macActive: {
+        value: true,
+        source: "mac",
+        updatedAt: new Date(now).toISOString(),
+        confidence: "high",
+      },
+    });
+    const rows = [
+      row({
+        machine: "studio",
+        onConsole: true,
+        heartbeat: new Date(now - 5_000),
+        vector: studioVec,
+      }),
+      row({
+        machine: "laptop",
+        onConsole: true,
+        heartbeat: new Date(now - 20_000),
+        vector: vectorFixture(),
+      }),
+    ];
+    const v = resolveLiveConsoleVector(rows, TTL, now);
+    expect(v).not.toBeNull();
+    expect(v!.macActive.value).toBe(true);
+    expect(v!.macActive.confidence).toBe("high");
+  });
+
+  it("returns null when no machine is on-console", () => {
+    const rows = [
+      row({ machine: "studio", onConsole: false, vector: vectorFixture() }),
+      row({ machine: "laptop", onConsole: false, vector: vectorFixture() }),
+    ];
+    expect(resolveLiveConsoleVector(rows, TTL, now)).toBeNull();
+  });
+
+  it("returns null when the only on-console row is stale past TTL", () => {
+    const rows = [
+      row({
+        machine: "studio",
+        onConsole: true,
+        heartbeat: new Date(now - 90_000),
+        vector: vectorFixture(),
+      }),
+    ];
+    expect(resolveLiveConsoleVector(rows, TTL, now)).toBeNull();
+  });
+
+  it("returns null when the resolved on-console row has a null vector", () => {
+    const rows = [
+      row({
+        machine: "studio",
+        onConsole: true,
+        heartbeat: new Date(now - 1_000),
+        vector: null,
+      }),
+    ];
+    expect(resolveLiveConsoleVector(rows, TTL, now)).toBeNull();
+  });
+
+  it("round-trips the stored jsonb back to a typed PresenceVector", () => {
+    const stored = vectorFixture({
+      macHost: {
+        value: "studio",
+        source: "mac",
+        updatedAt: new Date(now).toISOString(),
+        confidence: "high",
+      },
+      inMeeting: {
+        value: false,
+        source: "agent-cli",
+        updatedAt: new Date(now).toISOString(),
+        confidence: "high",
+      },
+    });
+    const rows = [
+      row({
+        machine: "studio",
+        onConsole: true,
+        heartbeat: new Date(now - 1_000),
+        vector: stored,
+      }),
+    ];
+    const v = resolveLiveConsoleVector(rows, TTL, now);
+    expect(v!.macHost.value).toBe("studio");
+    expect(v!.inMeeting.value).toBe(false);
+    expect(v!.userId).toBe("leo");
+  });
+});
+
 // ── PG-gated: upsertSelfPresence writes a server-authoritative heartbeat ──────
 
 import { hasLivePg as hasPg } from "../testing/live-pg";
@@ -88,6 +220,7 @@ const FP_DDL = `
     "mac_active" boolean,
     "mac_locked" boolean,
     "heartbeat" timestamp NOT NULL,
+    "vector" jsonb,
     "updated_at" timestamp DEFAULT now() NOT NULL
   );
 `;
@@ -165,5 +298,34 @@ describe.skipIf(!hasPg)("upsertSelfPresence (requires live PG)", () => {
     expect(new Date(second[0]!.heartbeat).getTime()).toBeGreaterThan(
       new Date(first[0]!.heartbeat).getTime(),
     );
+  });
+
+  it("persists the full vector jsonb and round-trips it via resolveLiveConsoleVectorFromDb", async () => {
+    const stored = vectorFixture({
+      macActive: {
+        value: true,
+        source: "mac",
+        updatedAt: new Date().toISOString(),
+        confidence: "high",
+      },
+      macHost: {
+        value: "studio",
+        source: "mac",
+        updatedAt: new Date().toISOString(),
+        confidence: "high",
+      },
+    });
+    await upsertSelfPresence(scopedDb, "studio", {
+      onConsole: true,
+      macActive: true,
+      macLocked: false,
+      vector: stored,
+    });
+
+    const v = await resolveLiveConsoleVectorFromDb(scopedDb, TTL);
+    expect(v).not.toBeNull();
+    expect(v!.macActive.value).toBe(true);
+    expect(v!.macHost.value).toBe("studio");
+    expect(v!.userId).toBe("leo");
   });
 });

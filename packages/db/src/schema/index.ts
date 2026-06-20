@@ -96,4 +96,5 @@ export {
   fleetPresence,
   type FleetPresence,
   type NewFleetPresence,
+  type FleetPresenceVector,
 } from "./fleetPresence";

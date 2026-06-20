@@ -100,13 +100,18 @@ describe("manager presence routing", () => {
   });
 
   it("flag ON + in-meeting → routes to the held queue", async () => {
-    const ctx = new PresenceContext("leo");
+    // The reporting machine IS the local console (studio) — the manager's
+    // live-console resolve falls back to the local vector (stubDb has no fleet
+    // rows), which carries the in-meeting state that fires Rule 2's hold.
+    const ctx = new PresenceContext("leo", "studio");
     ctx.report({ macActive: true, macHost: "studio", inMeeting: true }, "test");
     const hq = makeHeldQueueStub();
     const mgr = new NotificationManager(stubDb, undefined, {
       context: ctx,
       heldQueue: hq.queue as never,
       presenceAwareRouting: () => true,
+      // No live console resolves → fall back to the local (studio) vector.
+      resolveLiveConsoleVector: async () => null,
     });
 
     await mgr.send(makeSendInput("hold-1"));
@@ -132,6 +137,101 @@ describe("manager presence routing", () => {
     expect(summary!.title).toContain("2 updates");
     // Mac active + not bedtime → TTS channel (spoken summary).
     expect(summary!.channel).toBe("tts");
+  });
+
+  // ── Phase 1.7: fleet-aware eval (fleet-aware-rules-eval) ────────────────────
+
+  it("evaluates against the live-console Mac even when the local vector is all-unknown (headless)", async () => {
+    // Headless agent: its OWN local vector is all-unknown (no Mac sensor).
+    const ctx = new PresenceContext("leo", "homelab");
+    expect(ctx.vector().macActive.confidence).toBe("unknown");
+
+    // But a Mac is the resolved live console with macActive → Rule 1 fires.
+    const liveConsoleVector = ctx.vectorFor("homelab"); // base shape
+    const studioVector = {
+      ...liveConsoleVector,
+      macActive: {
+        value: true,
+        source: "mac" as const,
+        updatedAt: new Date().toISOString(),
+        confidence: "high" as const,
+      },
+      macHost: {
+        value: "studio",
+        source: "mac" as const,
+        updatedAt: new Date().toISOString(),
+        confidence: "high" as const,
+      },
+    };
+
+    const hq = makeHeldQueueStub();
+    const delivered: string[] = [];
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      // Inject the resolved live-console vector (DB read is stubbed out).
+      resolveLiveConsoleVector: async () => studioVector,
+    });
+    // Capture the deliver path by spying on routeNotificationParallel via the
+    // lifecycle bus is heavy; instead assert it did NOT hold (Rule 1 delivers
+    // now, it does not hold) and the send resolves.
+    const row = await mgr.send(makeSendInput("fleet-1"));
+    expect(hq.calls).toHaveLength(0); // Rule 1 delivers, never holds
+    expect(row.id).toBe("fleet-1");
+    void delivered;
+  });
+
+  it("falls back to legacy when no live console resolves and local is all-unknown", async () => {
+    const ctx = new PresenceContext("leo", "homelab"); // all-unknown local
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      resolveLiveConsoleVector: async () => null, // no live console
+    });
+
+    await mgr.send(makeSendInput("legacy-1"));
+    // All-unknown → decidePresenceRoute returns null → legacy path, no hold.
+    expect(hq.calls).toHaveLength(0);
+  });
+
+  it("single-machine fleet: resolved vector matches the local in-meeting hold", async () => {
+    const ctx = new PresenceContext("leo", "studio");
+    ctx.report({ macActive: true, inMeeting: true }, "test"); // local = studio
+    const localVector = ctx.vector();
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      // The local machine IS the live console → resolves to the local vector.
+      resolveLiveConsoleVector: async () => localVector,
+    });
+
+    await mgr.send(makeSendInput("single-1"));
+    expect(hq.calls.map((c) => c.id)).toContain("single-1"); // Rule 2 holds
+  });
+
+  it("flag OFF short-circuits before the live-console resolve", async () => {
+    let resolveCalled = false;
+    const ctx = new PresenceContext("leo", "homelab");
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => false,
+      resolveLiveConsoleVector: async () => {
+        resolveCalled = true;
+        return null;
+      },
+    });
+
+    await mgr.send(makeSendInput("flagoff-1"));
+    expect(hq.calls).toHaveLength(0);
+    // The flag-off path MUST NOT consult the fleet at all (parity contract).
+    expect(resolveCalled).toBe(false);
   });
 
   it("flushHeldBatch is silent (banner only) during bedtime with idle Mac", async () => {
