@@ -1,0 +1,1 @@
+ALTER TABLE "improvement_ledger" ADD COLUMN "hypothesis" text;

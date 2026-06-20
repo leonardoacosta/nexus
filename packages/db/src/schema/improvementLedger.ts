@@ -33,6 +33,8 @@ export const improvementLedger = pgTable(
     domain: text("domain"),
     repo: text("repo"),
     targetLayer: text("target_layer"),
+    /** The improvement record's core hypothesis string. */
+    hypothesis: text("hypothesis"),
     verdict: text("verdict"),
     rationale: text("rationale"),
     ref: text("ref"),
