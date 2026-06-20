@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schedule Manager · UI Wireframe</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body><div class="wf-page">
+  <header class="wf-head">
+    <div class="wf-kick">UI WIREFRAME · 08 OF 08</div>
+    <h1>Schedule Manager</h1>
+    <p class="wf-sub">Set when each med &amp; supplement is taken — dose times, frequency rules (once-daily / BID / PRN), with-food, reminders, and start/end. The planned schedule the charts, timeline, and reminders all read from.</p>
+    <a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier · UI views</a>
+  </header>
+
+  <div class="wf-body">
+
+    <div class="wf-frame">
+      <div class="wf-chrome">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">tracker.app/schedule</span>
+      </div>
+      <div class="wf-screen">
+
+        <!-- top toolbar -->
+        <div class="wf-row wrap" style="align-items:center; justify-content:space-between; gap:10px; margin-bottom:16px;">
+          <h2 class="wf-h">My Schedule</h2>
+          <div class="wf-row wrap" style="gap:8px; align-items:center;">
+            <span class="wf-btn primary">+ Add med</span>
+            <span class="wf-btn ghost"><i class="ph ph-bell"></i> Reminders: On</span>
+            <span class="wf-chip on"><i class="ph ph-check"></i> saved</span>
+          </div>
+        </div>
+
+        <div class="wf-row wrap" style="align-items:flex-start;">
+
+          <!-- main column: schedule rows -->
+          <div class="flex1" style="display:flex; flex-direction:column; gap:8px;">
+
+            <!-- column key -->
+            <div class="wf-row" style="gap:10px; padding:0 2px 4px; border-bottom:1px solid var(--line);">
+              <span class="wf-lab" style="flex:1.6; margin:0;">MED / SUPPLEMENT</span>
+              <span class="wf-lab" style="flex:1.1; margin:0;">FREQUENCY</span>
+              <span class="wf-lab" style="flex:1.4; margin:0;">DOSE TIMES</span>
+              <span class="wf-lab" style="flex:.9; margin:0;">WITH FOOD</span>
+              <span class="wf-lab" style="flex:.7; margin:0;">REMIND</span>
+              <span class="wf-lab" style="flex:1; margin:0;">SINCE</span>
+            </div>
+
+            <!-- Lisdexamfetamine -->
+            <div class="wf-panel dopa">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Lisdexamfetamine 40mg</span>
+                  <span class="wf-pill rx">RX</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span class="active">QD</span><span>BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">7:00 AM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle on"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Jan 2026</span></div>
+              </div>
+            </div>
+
+            <!-- Buspirone -->
+            <div class="wf-panel sero">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Buspirone 10mg</span>
+                  <span class="wf-pill rx">RX</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span>QD</span><span class="active">BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">7:00 AM</span>
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">1:00 PM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle on"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Jan 2026</span></div>
+              </div>
+            </div>
+
+            <!-- Guanfacine -->
+            <div class="wf-panel gaba">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Guanfacine 1mg</span>
+                  <span class="wf-pill rx">RX</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span class="active">QD</span><span>BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">8:30 PM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle on"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Mar 2026</span></div>
+              </div>
+            </div>
+
+            <!-- Hydroxyzine PRN -->
+            <div class="wf-panel gaba">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Hydroxyzine 25mg</span>
+                  <span class="wf-pill rx">RX</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span>QD</span><span>BID</span><span class="active">PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box wf-mono" style="padding:4px 8px; min-height:0; color:var(--ink-3);">as needed &middot; bedtime</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Feb 2026</span></div>
+              </div>
+            </div>
+
+            <!-- Coffee -->
+            <div class="wf-panel dopa">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Coffee</span>
+                  <span class="wf-pill otc">OTC</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span>QD</span><span class="active">BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">8:00 AM</span>
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">12:00 PM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since 2019</span></div>
+              </div>
+              <div class="wf-row" style="margin-top:7px; gap:6px; align-items:center;">
+                <span class="wf-sev mod">note</span><span class="wf-txt">noon = caffeine cutoff (protects sleep onset)</span>
+              </div>
+            </div>
+
+            <!-- Magnesium Glycinate -->
+            <div class="wf-panel gaba">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Magnesium Glycinate</span>
+                  <span class="wf-pill otc">OTC</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span class="active">QD</span><span>BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">9:00 PM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle on"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Nov 2025</span></div>
+              </div>
+            </div>
+
+            <!-- Omega-3 + CoQ10 -->
+            <div class="wf-panel found">
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <div style="flex:1.6; min-width:130px;">
+                  <span class="wf-txt" style="color:var(--navy); font-weight:600;">Omega-3 + CoQ10</span>
+                  <span class="wf-pill otc">OTC</span>
+                </div>
+                <div style="flex:1.1;"><span class="wf-seg"><span class="active">QD</span><span>BID</span><span>PRN</span></span></div>
+                <div style="flex:1.4; display:flex; gap:6px; flex-wrap:wrap;">
+                  <span class="wf-box solid wf-mono" style="padding:4px 8px; min-height:0;">8:00 AM</span>
+                </div>
+                <div style="flex:.9; display:flex; align-items:center; gap:6px;">
+                  <span class="wf-toggle on"></span><span class="wf-mono">with food</span>
+                </div>
+                <div style="flex:.7;"><span class="wf-toggle on"></span></div>
+                <div style="flex:1;"><span class="wf-mono">since Sep 2025</span></div>
+              </div>
+              <div class="wf-row" style="margin-top:7px; gap:6px; align-items:center;">
+                <span class="wf-sev good">note</span><span class="wf-txt">fat-soluble &mdash; take with a fatty meal for absorption</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- right sidebar -->
+          <div class="sidebar wf-col">
+
+            <!-- Today's doses -->
+            <div class="wf-panel accent">
+              <span class="wf-lab">TODAY'S DOSES &middot; <span class="n">log actual</span></span>
+
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box solid" style="width:16px; height:16px; min-height:0; display:flex; align-items:center; justify-content:center;"><i class="ph ph-check" style="font-size:11px; color:var(--ok);"></i></span>
+                <span class="wf-txt" style="flex:1; color:var(--navy);">Lisdexamfetamine</span>
+                <span class="wf-mono" style="color:var(--ok);">taken 7:04 AM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box solid" style="width:16px; height:16px; min-height:0; display:flex; align-items:center; justify-content:center;"><i class="ph ph-check" style="font-size:11px; color:var(--ok);"></i></span>
+                <span class="wf-txt" style="flex:1; color:var(--navy);">Buspirone (AM)</span>
+                <span class="wf-mono" style="color:var(--ok);">taken 7:05 AM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box solid" style="width:16px; height:16px; min-height:0; display:flex; align-items:center; justify-content:center;"><i class="ph ph-check" style="font-size:11px; color:var(--ok);"></i></span>
+                <span class="wf-txt" style="flex:1; color:var(--navy);">Coffee (AM)</span>
+                <span class="wf-mono" style="color:var(--ok);">taken 8:12 AM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box" style="width:16px; height:16px; min-height:0;"></span>
+                <span class="wf-txt" style="flex:1;">Coffee (noon)</span>
+                <span class="wf-mono" style="color:var(--ink-3);">due 12:00 PM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box" style="width:16px; height:16px; min-height:0;"></span>
+                <span class="wf-txt" style="flex:1;">Buspirone (PM)</span>
+                <span class="wf-mono" style="color:var(--ink-3);">due 1:00 PM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box" style="width:16px; height:16px; min-height:0;"></span>
+                <span class="wf-txt" style="flex:1;">Guanfacine</span>
+                <span class="wf-mono" style="color:var(--ink-3);">due 8:30 PM</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:7px;">
+                <span class="wf-box" style="width:16px; height:16px; min-height:0;"></span>
+                <span class="wf-txt" style="flex:1;">Magnesium</span>
+                <span class="wf-mono" style="color:var(--ink-3);">due 9:00 PM</span>
+              </div>
+
+              <div style="border-top:1px solid var(--line); margin-top:6px; padding-top:9px;">
+                <span class="wf-mono" style="color:var(--navy);">6 / 8 logged</span>
+                <span class="wf-chip on" style="margin-left:6px;">92% this week</span>
+              </div>
+            </div>
+
+            <!-- Reminders -->
+            <div class="wf-panel">
+              <span class="wf-lab">REMINDERS</span>
+
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:9px;">
+                <span class="wf-txt" style="flex:1;">Notify at dose time</span>
+                <span class="wf-toggle on"></span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:9px;">
+                <span class="wf-txt" style="flex:1;">Snooze</span>
+                <span class="wf-chip on">10 min</span>
+              </div>
+              <div class="wf-row" style="align-items:center; gap:8px; margin-bottom:9px;">
+                <span class="wf-txt" style="flex:1;">Quiet hours</span>
+                <span class="wf-mono">11 PM&ndash;6 AM</span>
+              </div>
+              <div style="border-top:1px solid var(--line); margin-top:2px; padding-top:9px;">
+                <span class="wf-txt" style="color:var(--ink-3);"><i class="ph ph-bell-ringing"></i> reminders fire via the OS in the app</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- annotations -->
+    <ul class="wf-notes">
+      <li><span class="wf-anno">1</span><span class="nt">SCHEDULE ROW</span>Each row is one med or supplement's plan — frequency, dose times, with-food, reminder, and start date — all editable inline. This is the single source the rest of the app reads from.</li>
+      <li><span class="wf-anno">2</span><span class="nt">DOSE-TIME EDIT</span>Time-slot chips (e.g. <span class="wf-mono">7:00 AM</span>) are tappable 12-hour time inputs — Lisdexamfetamine's slot anchors the early-AM dose so it clears before sleep.</li>
+      <li><span class="wf-anno">3</span><span class="nt">FREQUENCY RULE</span>The QD / BID / PRN segment drives how many time-slots render: QD shows one, BID shows two (Buspirone 7 AM + 1 PM), PRN shows "as needed" with no fixed slot.</li>
+      <li><span class="wf-anno">4</span><span class="nt">PRN = AS-NEEDED</span>Hydroxyzine is PRN — no scheduled slot, no reminder; it shows "as needed &middot; bedtime" and is logged only when actually taken.</li>
+      <li><span class="wf-anno">5</span><span class="nt">WITH-FOOD FLAG</span>The with-food toggle (on for Omega-3 + CoQ10) feeds the bioavailability model — fat-soluble doses absorb better with a fatty meal, shifting the PK curve in the neuro-load chart.</li>
+      <li><span class="wf-anno">6</span><span class="nt">PER-MED REMINDER</span>Each row's bell toggle controls reminders for that med; meds default on, OTC habituals like coffee default off (you don't need a nudge to drink coffee).</li>
+      <li><span class="wf-anno">7</span><span class="nt">CAFFEINE CUTOFF</span>Coffee is BID with a hard noon second slot — the inline note marks the caffeine cutoff that protects sleep onset, a rule the timeline enforces visually.</li>
+      <li><span class="wf-anno">8</span><span class="nt">COLOR = SYSTEM</span>The left border color-codes each row by neuro-system (dopa / sero / gaba / foundation) — the same taxonomy as the neuro-load and dossier views.</li>
+      <li><span class="wf-anno">9</span><span class="nt">LOG ACTUAL</span>"Today's doses" is the planned-vs-actual surface: checked rows stamp the real take-time (taken 7:04 AM), unchecked rows show upcoming "due" times — the adherence record.</li>
+      <li><span class="wf-anno">10</span><span class="nt">ADHERENCE</span>The "6 / 8 logged &middot; 92% this week" readout rolls actual take-times into an adherence stat that the effect-correlation view cross-references against mood/focus logs.</li>
+      <li><span class="wf-anno">11</span><span class="nt">GLOBAL SETTINGS</span>The Reminders panel sets app-wide behavior: notify-at-dose-time, snooze interval, and quiet hours (11 PM&ndash;6 AM) that suppress late-night pings.</li>
+      <li><span class="wf-anno">12</span><span class="nt">START / END</span>The "since" column ties each row to the regimen Gantt — start dates here become the bar origins there; ending a med closes its bar.</li>
+      <li><span class="wf-anno">13</span><span class="nt">ADD-MED FLOW</span>"+ Add med" opens a new row to pick the substance, set frequency + times, and flag with-food — after saving it flows into the timeline, PK charts, and interaction matrix.</li>
+    </ul>
+
+  </div>
+
+  <nav class="wf-nav"><span class="lbl">UI views</span>
+    <a href="./chrono-timeline.html">Chrono-timeline</a><a href="./neuro-load.html">Neuro-load</a><a href="./interaction-heatmap.html">Interaction heatmap</a><a href="./substance-dossier.html">Substance dossier</a><a href="./effect-correlation.html">Effect correlation</a><a href="./redundancy.html">Redundancy</a><a href="./regimen-gantt.html">Regimen Gantt</a><a href="./schedule-manager.html" class="cur">Schedule</a>
+  </nav>
+  <footer class="wf-foot"><span><b>Supplement Tracker</b> · UI wireframe</span><span>Low-fidelity · not final UI</span></footer>
+</div></body>
+</html>
