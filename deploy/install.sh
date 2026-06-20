@@ -255,6 +255,17 @@ install_presence_agent() {
              "$HOME/Library/Application Support/Nexus/bin"
     install -m 644 "$src" "$dst"
 
+    # Re-derive + inject NX_PRESENCE_ENDPOINT from the durable, deploy-untouched
+    # agents.toml so the Mac's presence reports to the homelab agent (it runs no
+    # local nexus-agent). MUST run after `install -m 644` (which wipes any prior
+    # edit) but BEFORE bootout/bootstrap below. See deploy/lib/presence-endpoint.sh
+    # (nx-mn2t1). Idempotent + fail-soft.
+    if [[ -f "$SCRIPT_DIR/lib/presence-endpoint.sh" ]]; then
+        # shellcheck source=lib/presence-endpoint.sh
+        source "$SCRIPT_DIR/lib/presence-endpoint.sh"
+        nx_inject_presence_endpoint "$dst"
+    fi
+
     if [[ ! -x "$HOME/Library/Application Support/Nexus/bin/nexus-presence" ]]; then
         warn "nexus-presence binary not yet installed — it lands on the next Swift deploy (macos_swift_deploy_run)."
     elif [[ ! -d "$HOME/Library/Application Support/Nexus/Frameworks/NexusShared.framework" ]]; then

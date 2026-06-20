@@ -28,6 +28,19 @@
       Optional environment knobs (set via launchctl setenv or the plist):
           NX_HOME_GATEWAY_MAC   — known-home gateway MAC; enables homeHint.
           NX_PRESENCE_ENDPOINT  — override the report URL (default loopback).
+
+      NOTE (nx-mn2t1): NX_PRESENCE_ENDPOINT is NOT hard-coded here. Both deploy
+      paths reinstall this plist verbatim (`install -m 644`), which would wipe a
+      manual edit. Instead, deploy/lib/presence-endpoint.sh DERIVES the endpoint
+      from the durable, deploy-untouched ~/.config/nexus/agents.toml and injects
+      it into the INSTALLED plist (via PlistBuddy) on every deploy — AFTER the
+      install, BEFORE bootout/bootstrap. So the value survives every reinstall.
+      Set a durable override by adding a top-level key to agents.toml:
+          presence_endpoint = "http://homelab:7400"
+      (Both the TS + Swift agents.toml parsers tolerate this unknown key.)
+      Absent that key, the helper points a no-local-agent machine (e.g. the Mac)
+      at the first remote [[agents]] entry; a machine running nexus-agent keeps
+      the localhost default.
     -->
     <key>Label</key>
     <string>dev.leonardoacosta.nexus.presence</string>

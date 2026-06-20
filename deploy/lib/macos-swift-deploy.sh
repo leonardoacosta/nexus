@@ -606,6 +606,15 @@ _macos_presence_deploy() {
     if [[ -f "$plist_src" ]]; then
         install -m 644 "$plist_src" "$plist_dst" 2>/dev/null || true
     fi
+    # Re-derive + inject NX_PRESENCE_ENDPOINT from the durable agents.toml so the
+    # Mac's presence reports to the homelab agent (no local nexus-agent here).
+    # MUST run after `install -m 644` (which wipes any prior edit) but BEFORE
+    # bootout/bootstrap. See deploy/lib/presence-endpoint.sh (nx-mn2t1).
+    if [[ -f "$_MACOS_SWIFT_DEPLOY_LIB_DIR/presence-endpoint.sh" ]]; then
+        # shellcheck source=presence-endpoint.sh
+        source "$_MACOS_SWIFT_DEPLOY_LIB_DIR/presence-endpoint.sh"
+        nx_inject_presence_endpoint "$plist_dst"
+    fi
     launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
     if launchctl bootstrap "gui/$uid" "$plist_dst" >/dev/null 2>&1; then
         _macos_swift_deploy_info "presence sensor ($label) reloaded into gui/$uid"
