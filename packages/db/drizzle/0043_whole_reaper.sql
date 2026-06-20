@@ -1,0 +1,1 @@
+CREATE INDEX "fleet_presence_console_heartbeat_idx" ON "fleet_presence" USING btree ("on_console","heartbeat");
