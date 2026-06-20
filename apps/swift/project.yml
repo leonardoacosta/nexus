@@ -208,6 +208,31 @@ targets:
         # attach unless app + runner + xctest are signed.
         GENERATE_INFOPLIST_FILE: YES
 
+  # ───────────── macOS — headless presence sensor (LaunchAgent) ─────────
+  #
+  # Source: apps/swift/nexus-presence/Sources (mac-presence-observer, Phase
+  # 1.5). A no-UI command-line executable run by launchd (RunAtLoad +
+  # KeepAlive, bootstrapped into gui/501 so CMIO camera/mic reads work). It
+  # drives NexusShared.PresenceObserver and POSTs deltas to the local agent's
+  # /presence/report. Built signed (team DX3Y367L2A, hardened runtime) like
+  # nexus-mac so the camera/mic TCC + signed-identity story matches the app.
+  # No Info.plist / entitlements file: a CLI tool needs no bundle plist; the
+  # camera/mic access is granted by running inside the Aqua session, not a
+  # sandbox entitlement.
+  nexus-presence:
+    type: tool
+    platform: macOS
+    sources:
+      - path: nexus-presence/Sources
+    dependencies:
+      - target: NexusShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.presence
+        PRODUCT_NAME: nexus-presence
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "5.10"
+
   # ─────────────────────── iOS — scaffolded ────────────────────────────
   #
   # Source: apps/swift/nexus-ios/Sources (scaffolded by

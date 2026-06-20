@@ -470,5 +470,83 @@ _macos_swift_deploy_build_inline() {
 
     _macos_swift_deploy_info "Nexus.app running with NEW PID(s): ${new_pids[*]}"
 
+    # ── Build + install the headless presence sensor (Phase 1.5) ─────────
+    # Fail-soft: a presence build failure must NOT fail the (already-installed)
+    # dashboard deploy. Logs a warning and continues. Reuses the same signed
+    # scheme + team identity as nexus-mac.
+    _macos_presence_deploy "$swift_dir" || \
+        _macos_swift_deploy_warn "presence sensor deploy failed (fail-soft); the prior nexus-presence keeps running"
+
+    return 0
+}
+
+# ── nexus-presence build + install + LaunchAgent refresh (Phase 1.5) ─
+# Builds the signed nexus-presence CLI, installs it to
+# ~/Library/Application Support/Nexus/bin/nexus-presence, and reloads the
+# always-on LaunchAgent (RunAtLoad+KeepAlive) so the new binary takes over.
+# Runs INSIDE the Aqua session (the inline build path guarantees it), so
+# signing + the gui bootstrap both work. Returns non-zero on any failure;
+# the caller treats it fail-soft.
+_macos_presence_deploy() {
+    local swift_dir="$1"
+    local label="dev.leonardoacosta.nexus.presence"
+    local uid; uid="$(id -u)"
+    local bin_dir="$HOME/Library/Application Support/Nexus/bin"
+    local dst_bin="$bin_dir/nexus-presence"
+    local plist_src="$MACOS_SWIFT_DEPLOY_REPO_ROOT/deploy/launchagents/$label.plist"
+    local plist_dst="$HOME/Library/LaunchAgents/$label.plist"
+
+    _macos_swift_deploy_info "building nexus-presence (signed, scheme: nexus-presence)"
+    local build_dir
+    build_dir="$(mktemp -d -t nx-presence-deploy.XXXXXX)" || {
+        _macos_swift_deploy_warn "mktemp failed (presence)"
+        return 1
+    }
+
+    (cd "$swift_dir" && xcodebuild \
+            -project nexus.xcodeproj \
+            -scheme nexus-presence \
+            -configuration Release \
+            -derivedDataPath "$build_dir" \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM=DX3Y367L2A \
+            CODE_SIGN_STYLE=Automatic \
+            build 2>&1 | tail -15)
+    local rc="${PIPESTATUS[0]:-1}"
+    if [[ "$rc" -ne 0 ]]; then
+        _macos_swift_deploy_warn "nexus-presence build failed (rc=$rc) — keeping prior binary"
+        rm -rf "$build_dir"
+        return 1
+    fi
+
+    local built
+    built="$(find "$build_dir" -path '*/Build/Products/Release/nexus-presence' -type f -print -quit 2>/dev/null || true)"
+    if [[ -z "$built" || ! -f "$built" ]]; then
+        _macos_swift_deploy_warn "nexus-presence built but binary not found in $build_dir"
+        rm -rf "$build_dir"
+        return 1
+    fi
+
+    mkdir -p "$bin_dir"
+    if ! install -m 755 "$built" "$dst_bin"; then
+        _macos_swift_deploy_warn "failed to install nexus-presence to $dst_bin"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    rm -rf "$build_dir"
+    _macos_swift_deploy_info "installed nexus-presence to $dst_bin"
+
+    # Refresh the LaunchAgent so the new binary takes over. Install the plist
+    # (in case it changed) then bootout + bootstrap into the GUI domain.
+    if [[ -f "$plist_src" ]]; then
+        install -m 644 "$plist_src" "$plist_dst" 2>/dev/null || true
+    fi
+    launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+    if launchctl bootstrap "gui/$uid" "$plist_dst" >/dev/null 2>&1; then
+        _macos_swift_deploy_info "presence sensor ($label) reloaded into gui/$uid"
+    else
+        _macos_swift_deploy_warn "launchctl bootstrap gui/$uid $plist_dst failed — load manually inside the GUI session"
+        return 1
+    fi
     return 0
 }

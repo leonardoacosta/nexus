@@ -232,6 +232,44 @@ install_ios_deploy_agent() {
     echo "  log: ~/Library/Logs/nexus-ios-deploy.log    marker: ~/Library/Application Support/Nexus/ios-deploy-status.txt"
 }
 
+# ── macOS presence sensor agent (mac-presence-observer, Phase 1.5) ───
+# Installs + (re)loads dev.leonardoacosta.nexus.presence into the user's GUI
+# launchd domain. Unlike the deploy agents this is ALWAYS-ON (RunAtLoad +
+# KeepAlive): a headless sensor that POSTs presence to the local agent. It MUST
+# run in gui/501 for CMIO camera/mic reads. The nexus-presence BINARY is built +
+# installed by macos_swift_deploy_run (deploy/lib/macos-swift-deploy.sh); this
+# only loads the LaunchAgent. Idempotent: bootout (tolerate not-loaded) then
+# bootstrap.
+install_presence_agent() {
+    local label="dev.leonardoacosta.nexus.presence"
+    local src="$SCRIPT_DIR/launchagents/$label.plist"
+    local dst="$HOME/Library/LaunchAgents/$label.plist"
+    local uid; uid="$(id -u)"
+
+    if [[ ! -f "$src" ]]; then
+        warn "presence LaunchAgent plist not found at $src — skipping presence agent install"
+        return 0
+    fi
+
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
+             "$HOME/Library/Application Support/Nexus/bin"
+    install -m 644 "$src" "$dst"
+
+    if [[ ! -x "$HOME/Library/Application Support/Nexus/bin/nexus-presence" ]]; then
+        warn "nexus-presence binary not yet installed — it lands on the next Swift deploy (macos_swift_deploy_run)."
+    fi
+
+    info "Loading presence sensor agent ($label) into gui/$uid"
+    launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+    if launchctl bootstrap "gui/$uid" "$dst" >/dev/null 2>&1; then
+        info "Presence sensor loaded (RunAtLoad + KeepAlive). It POSTs to the local agent's /presence/report."
+    else
+        warn "launchctl bootstrap gui/$uid $dst failed — load manually inside the GUI session:"
+        echo "  launchctl bootout gui/$uid/$label 2>/dev/null; launchctl bootstrap gui/$uid \"$dst\""
+    fi
+    echo "  log: ~/Library/Logs/nexus-presence.log"
+}
+
 install_linux() {
     local SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SYSTEMD_DIR"
@@ -284,6 +322,11 @@ install_macos() {
     # iOS device deploy Aqua bridge (nx-tceo6). Loads the GUI LaunchAgent so
     # deploy/ios-deploy.sh can kickstart signed iOS device installs over SSH.
     install_ios_deploy_agent
+
+    # Always-on presence sensor (mac-presence-observer, Phase 1.5). Loads the
+    # RunAtLoad+KeepAlive LaunchAgent in gui/501 so the local Mac reports
+    # presence (idle/lock/camera/mic/Focus/home) to its agent continuously.
+    install_presence_agent
 
     echo ""
     info "macOS install complete."

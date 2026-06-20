@@ -169,6 +169,21 @@ public actor NexusClient {
                    body: body)
     }
 
+    // MARK: - Presence reporting (mac-presence-observer, nx-kyrwi)
+
+    /// `POST /presence/report` — push a presence delta from the local Mac
+    /// sensor (`nexus-presence` LaunchAgent). `body` is the non-nil subset of a
+    /// `PresenceDelta` (camelCase keys the agent's `presence-report` route
+    /// accepts: macActive / macLocked / macHost / inMeeting / macIdleSec /
+    /// macFocus / homeHint). Best-effort: returns the raw response body, or nil
+    /// on transport failure — the sensor logs + retries on the next delta.
+    @discardableResult
+    public func reportPresence(_ body: [String: Any]) async -> Data? {
+        await send(method: "POST",
+                   url: endpoint.baseURL.appendingPathComponent("presence/report"),
+                   body: body)
+    }
+
     // MARK: - Presence routing (context-aware-routing, nx-rwulm)
 
     /// Wire echo of `GET|PATCH /notifications/settings` (the presence-routing

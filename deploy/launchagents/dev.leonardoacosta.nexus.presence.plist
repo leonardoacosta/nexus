@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Nexus headless presence sensor (mac-presence-observer, Phase 1.5).
+
+      Unlike the kickstart-triggered deploy / ios-deploy agents, this is an
+      ALWAYS-ON sensor: RunAtLoad=true + KeepAlive=true. launchd starts it at
+      login and respawns it on any crash. It owns no UI (no Dock, no window) and
+      senses the local Mac's presence continuously — idle, lock, console,
+      camera/mic (meeting detection), Focus, and a gateway-MAC home fingerprint
+      — POSTing deltas to the LOCAL agent's POST /presence/report.
+
+      It MUST run inside the user's GUI (Aqua) security session (gui/501): the
+      CoreMediaIO camera property (kCMIODevicePropertyDeviceIsRunningSomewhere)
+      only reflects real camera use inside the Aqua session — the same
+      gui/501 context the swift-deploy / ios-deploy agents use. A background
+      (SSH/launchd-system) session would read camera state as "off" always.
+
+      Install / refresh (idempotent, no root — uid 501 == console user):
+          launchctl bootout   gui/501/dev.leonardoacosta.nexus.presence 2>/dev/null
+          launchctl bootstrap gui/501 <this plist>
+      The deploy seam (deploy/lib/macos-swift-deploy.sh) installs the built
+      binary to ~/Library/Application Support/Nexus/bin/nexus-presence and
+      bootstraps this agent automatically on every Swift deploy.
+
+      Optional environment knobs (set via launchctl setenv or the plist):
+          NX_HOME_GATEWAY_MAC   — known-home gateway MAC; enables homeHint.
+          NX_PRESENCE_ENDPOINT  — override the report URL (default loopback).
+    -->
+    <key>Label</key>
+    <string>dev.leonardoacosta.nexus.presence</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/leonardoacosta/Library/Application Support/Nexus/bin/nexus-presence</string>
+    </array>
+
+    <!-- Always-on sensor: start at login and keep it running. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- A bare launchd job has a minimal PATH; point it at the system
+             tools the gateway-MAC fingerprint shells (route, arp). -->
+        <key>PATH</key>
+        <string>/usr/sbin:/sbin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/leonardoacosta</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-presence.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/leonardoacosta/Library/Logs/nexus-presence.log</string>
+
+    <!-- Respawn guard so a crash-loop backs off instead of spinning. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
