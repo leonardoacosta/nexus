@@ -20,5 +20,13 @@
     <true/>
     <key>com.apple.developer.healthkit.background-delivery</key>
     <true/>
+    <!-- Communication Notifications (ios-presence-reporter, Phase 2 / nx-wf4s1).
+         Required so INFocusStatusCenter can request + read the user's Focus
+         status (general Focus + Sleep Focus) for PresenceReporter. The Apple
+         Developer portal capability is already granted by Leo; this is the
+         matching local key so the build signs + INFocusStatusCenter authorizes
+         on-device. -->
+    <key>com.apple.developer.usernotifications.communication</key>
+    <true/>
 </dict>
 </plist>

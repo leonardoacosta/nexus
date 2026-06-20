@@ -168,6 +168,14 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue.map(\.rawValue).sorted(), forKey: Keys.enabledPresenceSources) }
     }
 
+    /// Which sources determine the phone's bedtime (ios-presence-reporter,
+    /// Phase 2). Agent-computed; the Mac pane PATCHes `bedtime_sources`. Default
+    /// `either` mirrors the agent column default.
+    public var bedtimeSources: BedtimeSources {
+        get { BedtimeSources(rawValue: defaults.string(forKey: Keys.bedtimeSources) ?? "") ?? .either }
+        set { defaults.set(newValue.rawValue, forKey: Keys.bedtimeSources) }
+    }
+
     /// The ordered routing-rule set (index == priority, first-match-wins).
     /// Persisted as JSON so the pane renders the last-known list before the
     /// `GET /notifications/routing-rules` fetch returns. Defaults to the
@@ -211,6 +219,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let unknownNoncriticalMode = "nexus.routing.unknownNoncritical"
         static let unknownCriticalMode   = "nexus.routing.unknownCritical"
         static let enabledPresenceSources = "nexus.routing.sources"
+        static let bedtimeSources        = "nexus.routing.bedtimeSources"
         static let routingRules          = "nexus.routing.rules"
     }
 }
@@ -229,6 +238,28 @@ public enum PresenceFailMode: String, CaseIterable, Identifiable, Sendable, Coda
         switch self {
         case .failSafe: return "Fail-safe — silent/digest"
         case .failOpen: return "Fail-open — deliver everywhere"
+        }
+    }
+}
+
+/// Which sources determine the phone's bedtime (ios-presence-reporter, Phase 2).
+/// The phone reports the two RAW sleep signals (HK sleep window + Sleep Focus);
+/// the AGENT computes `isBedtime` per this policy. Wire values are the agent's
+/// `bedtime_sources` enum literals — used verbatim in the PATCH body.
+public enum BedtimeSources: String, CaseIterable, Identifiable, Sendable, Codable {
+    case hk       // HealthKit sleep schedule only
+    case focus    // OS Sleep Focus only
+    case either   // either signal -> bedtime (default)
+    case both     // both signals required -> bedtime
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .hk:     return "Health"
+        case .focus:  return "Focus"
+        case .either: return "Either"
+        case .both:   return "Both"
         }
     }
 }

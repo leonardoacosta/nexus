@@ -95,6 +95,7 @@ final class SettingsRoutingViewModel: ObservableObject {
     @Published var noncriticalMode: PresenceFailMode
     @Published var criticalMode: PresenceFailMode
     @Published var enabledSources: Set<PresenceSource>
+    @Published var bedtimeSources: BedtimeSources
     @Published var rules: [RoutingRule]
     @Published var sim = SimVector()
     @Published var status: String?
@@ -113,6 +114,7 @@ final class SettingsRoutingViewModel: ObservableObject {
         self.noncriticalMode = store.unknownNoncriticalMode
         self.criticalMode = store.unknownCriticalMode
         self.enabledSources = store.enabledPresenceSources
+        self.bedtimeSources = store.bedtimeSources
         self.rules = store.routingRules
     }
 
@@ -146,6 +148,20 @@ final class SettingsRoutingViewModel: ObservableObject {
         Task {
             _ = await client.patchNotificationSettings(body)
             await MainActor.run { self.flash("Routing settings saved") }
+        }
+    }
+
+    // MARK: Bedtime sources (PATCH /notifications/settings — bedtime_sources)
+
+    /// Persist the bedtime-sources policy. The phone reports raw sleep signals;
+    /// the agent computes `isBedtime` per this enum (ios-presence-reporter,
+    /// Phase 2). One-key PATCH reusing the existing settings seam.
+    func persistBedtimeSources() {
+        store.bedtimeSources = bedtimeSources
+        let body: [String: Any] = ["bedtime_sources": bedtimeSources.rawValue]
+        Task {
+            _ = await client.patchNotificationSettings(body)
+            await MainActor.run { self.flash("Bedtime sources saved") }
         }
     }
 
@@ -196,9 +212,11 @@ final class SettingsRoutingViewModel: ObservableObject {
                     self.presenceAware = settings.presenceAwareRouting
                     self.noncriticalMode = settings.unknownNoncriticalMode
                     self.criticalMode = settings.unknownCriticalMode
+                    self.bedtimeSources = settings.bedtimeSources
                     self.store.presenceAwareRouting = settings.presenceAwareRouting
                     self.store.unknownNoncriticalMode = settings.unknownNoncriticalMode
                     self.store.unknownCriticalMode = settings.unknownCriticalMode
+                    self.store.bedtimeSources = settings.bedtimeSources
                 }
             }
         }
@@ -228,6 +246,8 @@ struct SettingsRoutingView: View {
                 presenceSources
                 Divider()
                 unknownPresenceModes
+                Divider()
+                bedtimeSourcesControl
                 Divider()
                 rulesList
                 Divider()
@@ -285,6 +305,22 @@ struct SettingsRoutingView: View {
             }
             .onChange(of: model.criticalMode) { _, _ in model.persistSettings() }
             .accessibilityIdentifier("settings.routing.criticalMode")
+        }
+    }
+
+    private var bedtimeSourcesControl: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("BEDTIME SOURCES").font(.caption).bold().foregroundStyle(.secondary)
+            Picker("Bedtime from", selection: $model.bedtimeSources) {
+                ForEach(BedtimeSources.allCases) { src in
+                    Text(src.label).tag(src)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: model.bedtimeSources) { _, _ in model.persistBedtimeSources() }
+            .accessibilityIdentifier("settings.routing.bedtimeSources")
+            Text("Which phone signal sets bedtime: the Health sleep schedule, the OS Sleep Focus, either, or both. The phone reports both; the agent decides.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 

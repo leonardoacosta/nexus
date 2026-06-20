@@ -192,11 +192,15 @@ public actor NexusClient {
         public var presenceAwareRouting: Bool
         public var unknownNoncriticalMode: PresenceFailMode
         public var unknownCriticalMode: PresenceFailMode
+        /// ios-presence-reporter (Phase 2): the bedtime-sources policy
+        /// (`hk|focus|either|both`). Defaults to `either` when absent.
+        public var bedtimeSources: BedtimeSources
 
         public enum CodingKeys: String, CodingKey {
             case presenceAwareRouting = "presence_aware_routing"
             case unknownNoncriticalMode = "unknown_noncritical_mode"
             case unknownCriticalMode = "unknown_critical_mode"
+            case bedtimeSources = "bedtime_sources"
         }
 
         public init(from decoder: Decoder) throws {
@@ -207,6 +211,8 @@ public actor NexusClient {
                 (try? c.decode(PresenceFailMode.self, forKey: .unknownNoncriticalMode)) ?? .failSafe
             self.unknownCriticalMode =
                 (try? c.decode(PresenceFailMode.self, forKey: .unknownCriticalMode)) ?? .failOpen
+            self.bedtimeSources =
+                (try? c.decode(BedtimeSources.self, forKey: .bedtimeSources)) ?? .either
         }
     }
 

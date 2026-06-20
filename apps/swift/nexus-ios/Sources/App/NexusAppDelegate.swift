@@ -51,7 +51,23 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if #available(iOS 26.0, *) {
             Task { await HealthKitMedBridge.shared.bootstrap() }
         }
+        // ios-presence-reporter (Phase 2, nx-rkv01): report the phone-only
+        // presence signals (HK sleep window + Focus) to the homelab agent.
+        // Event-driven inside the reporter (HKObserver + Focus-change observer);
+        // we just bootstrap it + re-emit on foreground (below).
+        if #available(iOS 16.0, *) {
+            Task { await PresenceReporter.shared.start() }
+        }
         return true
+    }
+
+    // ios-presence-reporter (nx-rkv01): re-emit a presence report when the app
+    // returns to the foreground so a Focus/bedtime change made while backgrounded
+    // is reported promptly (the HKObserver/Focus observers cover background wakes).
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        if #available(iOS 16.0, *) {
+            Task { await PresenceReporter.shared.reportNow() }
+        }
     }
 
     // MARK: - Background health flush (BGTaskScheduler)

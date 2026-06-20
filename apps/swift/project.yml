@@ -269,6 +269,31 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.10"
         ENABLE_HARDENED_RUNTIME: NO
+    # Attach the unit-test bundle so `xcodebuild test -scheme nexus-ios` runs the
+    # reporter's pure-logic tests (ios-presence-reporter, nx-xm1bn). XcodeGen only
+    # auto-attaches test targets that depend on the app, so listing it explicitly
+    # keeps the scheme's Test action wired.
+    scheme:
+      testTargets:
+        - nexus-ios-Tests
+
+  # iOS unit tests (ios-presence-reporter, Phase 2). Hosts in the nexus-ios app
+  # (`@testable import nexus` — the iOS PRODUCT_NAME is `nexus`). PresenceReporter
+  # lives in the app target, so the test bundle loads the app to reach its pure
+  # SleepWindow / PresencePayload logic.
+  nexus-ios-Tests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: nexus-ios/Tests
+    dependencies:
+      - target: nexus-ios
+      - target: NexusShared
+    settings:
+      base:
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/nexus.app/nexus"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
 
   # ─────────────────────── watchOS — scaffolded ────────────────────────
   #
