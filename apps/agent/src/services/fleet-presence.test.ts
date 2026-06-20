@@ -79,7 +79,7 @@ describe("resolveLiveConsole (pure)", () => {
 
 // ── PG-gated: upsertSelfPresence writes a server-authoritative heartbeat ──────
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 const FP_SCHEMA = `nx_fp_test_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 const FP_DDL = `
   CREATE TABLE "fleet_presence" (

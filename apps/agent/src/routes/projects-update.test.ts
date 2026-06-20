@@ -15,7 +15,7 @@ import type { Db } from "@nexus/db";
 import { projects } from "@nexus/db";
 import { eq } from "drizzle-orm";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 const TEST_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
 

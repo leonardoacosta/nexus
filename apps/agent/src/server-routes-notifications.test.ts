@@ -19,6 +19,7 @@
 
 import { describe, expect, it, mock } from "bun:test";
 import * as coreNode from "@nexus/core/node";
+import { loggerSpy } from "./testing/mock-core-node";
 
 // ─── Mocks (must be installed BEFORE importing the SUT) ───────────────────
 //
@@ -27,31 +28,31 @@ import * as coreNode from "@nexus/core/node";
 // last-writer-wins, and irreversible — a PARTIAL factory would strip every
 // other export (getAgentId, expandTilde, safeSpawn, ...) for the WHOLE suite,
 // and replace the real pino `logger` with a flat object whose missing `.child`
-// later throws in unrelated siblings (e.g. HealthScheduler.tick()). The
-// `loggerMock` therefore carries a chainable `.child` plus the standard pino
-// level methods so it is a drop-in replacement.
-
-const loggerMock = {
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  debug: mock(() => {}),
-  fatal: mock(() => {}),
-  child: () => loggerMock,
-};
+// later throws in unrelated siblings (e.g. HealthScheduler.tick()).
+//
+// Bind the SHARED `loggerSpy` (nx-509z5) rather than a private mock: this suite
+// transitively loads `./server` -> cross-machine-delivery.ts, which binds its
+// `log` at module-load. If this suite wins the load-order race with a PRIVATE
+// logger, cross-machine-delivery.test.ts's `loggerSpy.warn` assertions read 0
+// calls. Binding THE SAME shared spy makes the winner irrelevant.
 
 mock.module("@nexus/core/node", () => ({
   ...coreNode,
-  logger: loggerMock,
-  createLogger: () => loggerMock,
+  logger: loggerSpy,
+  createLogger: () => loggerSpy,
   parseConfig: () => ({ ok: false as const, error: "stub" }),
   getAgentsConfigPath: () => "/tmp/nonexistent-agents.toml",
 }));
 
 import type { Db } from "@nexus/db";
 import type { Server as BunServer } from "bun";
-import { createRequestHandler } from "./server-request-handler";
-import { ServerState } from "./server-websocket";
+// DYNAMIC imports (after the mock.module above) so the SUT chain — which
+// transitively loads cross-machine-delivery.ts and binds its module-load
+// logger — resolves AFTER the shared `loggerSpy` is installed. A static import
+// is hoisted above mock.module and would bind the real pino logger first,
+// breaking cross-machine-delivery.test.ts's `loggerSpy.warn` assertions.
+const { createRequestHandler } = await import("./server-request-handler");
+const { ServerState } = await import("./server-websocket");
 import type { WsData } from "./terminal/stream-manager";
 
 // ─── Fake DB (same shape used by routes/notification-settings.test.ts) ────

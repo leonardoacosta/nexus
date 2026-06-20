@@ -1,6 +1,16 @@
 import { describe, expect, it, afterAll, beforeAll, afterEach } from "bun:test";
-import { startServer, healthCollector, streamManager } from "../server";
 import { MockPtySource } from "./pty-source";
+
+// Bind the SHARED @nexus/core/node logger spy (nx-509z5) BEFORE importing
+// `../server`. `../server` transitively loads cross-machine-delivery.ts, which
+// binds its `log` at module-load via createLogger(). A STATIC import of
+// `../server` (which this file used to have) loads that chain with the REAL
+// pino logger — and because this suite often wins the load-order race in the
+// full run, cross-machine-delivery.test.ts's `loggerSpy.warn` assertions then
+// read 0 calls. A top-level-await dynamic import after the mock fixes it.
+const { installCoreNodeMock } = await import("../testing/mock-core-node");
+installCoreNodeMock({ mockGetAgentId: false });
+const { startServer, healthCollector, streamManager } = await import("../server");
 
 const server = startServer(0);
 const baseUrl = `http://localhost:${server.port}`;

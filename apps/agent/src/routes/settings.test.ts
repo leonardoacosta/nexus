@@ -14,7 +14,7 @@ import type { Db } from "@nexus/db";
 import { agents, isNull, and } from "@nexus/db";
 import { eq } from "drizzle-orm";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 const TEST_AGENT_ID = "test-agent-settings-001";
 

@@ -60,11 +60,26 @@ export const loggerSpy = {
  * sibling suite that imports those helpers (router.ts's TTS path, the health
  * scheduler, etc.). This mirrors the spread pattern router.test.ts already uses.
  */
-export function installCoreNodeMock(): void {
+export interface InstallCoreNodeMockOptions {
+  /**
+   * Override `getAgentId` to return a deterministic "test-agent". Defaults to
+   * `true` for the notification suites that assert on the resolved id. Pass
+   * `false` from suites that only need the logger bound to the shared spy
+   * (e.g. server-bind, health-collector) — otherwise the process-global
+   * `getAgentId` mock leaks into `db/agent-registry.test.ts`, whose
+   * `upsertSelfInRegistry` test calls the REAL resolver.
+   */
+  mockGetAgentId?: boolean;
+}
+
+export function installCoreNodeMock(
+  options: InstallCoreNodeMockOptions = {},
+): void {
+  const { mockGetAgentId = true } = options;
   mock.module("@nexus/core/node", () => ({
     ...realCoreNode,
     logger: loggerSpy,
     createLogger: () => loggerSpy,
-    getAgentId: mock(() => "test-agent"),
+    ...(mockGetAgentId ? { getAgentId: mock(() => "test-agent") } : {}),
   }));
 }

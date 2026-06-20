@@ -1,15 +1,18 @@
 /**
  * Session route integration tests.
  *
- * These tests require a live PostgreSQL connection. They are automatically
- * skipped when `POSTGRES_URL` is not set in the environment, so they run
- * cleanly in local dev without setup and in CI when a real PG is available.
+ * These tests require a live PostgreSQL connection AND mutate it (INSERT into
+ * sessions, etc.), so they are OPT-IN: skipped unless `NEXUS_PG_TESTS=1` is set
+ * (see ../testing/live-pg.ts). This guarantees they NEVER run against an
+ * unspecified/prod `POSTGRES_URL` — e.g. the pre-push deploy gate, which sets
+ * `POSTGRES_URL` to the production homelab DB but does NOT set NEXUS_PG_TESTS.
  *
- * To run locally:
+ * To run locally against a THROWAWAY test database:
  *   1. Start a PostgreSQL instance (see docker-compose.test.yml at project root)
  *   2. Run `pnpm db:push` in packages/db to create tables
  *   3. export POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test
- *   4. bun test apps/agent/src/routes/sessions.test.ts
+ *   4. export NEXUS_PG_TESTS=1
+ *   5. bun test apps/agent/src/routes/sessions.test.ts
  */
 
 import {
@@ -21,7 +24,8 @@ import {
   mock,
 } from "bun:test";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
+import { installExecMock } from "../testing/mock-exec";
 
 // ── pgrep mock (process-watcher reconcile test only) ───────────────────────
 //
@@ -35,17 +39,20 @@ function setPgrepStub(lines: string[]): void {
   pgrepStubLines = lines;
 }
 
-mock.module("../utils/exec", () => ({
-  execText: mock(async (cmd: string, args: string[]) => {
+// RESTORABLE spyOn (nx-509z5 class) so the real `../utils/exec` is handed back
+// to sibling suites (utils/exec.test.ts) that load later. ExecError/
+// ExecTimeoutError stay REAL — see testing/mock-exec.ts.
+const execMockHandle = installExecMock({
+  execText: async (cmd: string, args: string[]) => {
     if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
       return pgrepStubLines.join("\n");
     }
     return "";
-  }),
-  execJson: mock(async () => ({})),
-  ExecError: class extends Error {},
-  ExecTimeoutError: class extends Error {},
-}));
+  },
+  execJson: async () => ({}),
+});
+
+afterAll(() => execMockHandle.restore());
 
 import { createSessionHandlers } from "./sessions";
 import { reconcileOnce } from "../services/process-watcher";

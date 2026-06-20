@@ -35,7 +35,7 @@ import { lifecycleBus } from "../services/lifecycle-bus";
 import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "./live-pg";
 
 // Heavyweight/capability gate. This check is the "runs ON the agent host"
 // transport leg — it stands up real servers and (for the HTTP contract leg)

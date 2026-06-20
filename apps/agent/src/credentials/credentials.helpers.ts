@@ -148,7 +148,9 @@ export function extractCredentialMetadata(plaintext: string): {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const hasPg = !!process.env.POSTGRES_URL;
+// Live-Postgres integration tests are opt-in (NEXUS_PG_TESTS=1). Re-export the
+// canonical gate so any consumer here also defaults OFF — never runs against prod.
+export { hasLivePg as hasPg } from "../testing/live-pg";
 
 /** Test encryption key: 32 bytes, non-zero (non-zero to avoid all-zero key pitfalls) */
 export const TEST_KEY_HEX = "0000000000000000000000000000000000000000000000000000000000000001";

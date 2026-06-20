@@ -34,7 +34,7 @@ import { runRetentionCleanup } from "./retention";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 // ─── 7.1 Migration runner ────────────────────────────────────────────────────
 //

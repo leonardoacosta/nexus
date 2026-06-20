@@ -64,7 +64,7 @@ import {
 
 type Sql = ReturnType<typeof createDb>["client"];
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 const runLive = process.env.NEXUS_RUN_LIVE_REAPER_TESTS === "1";
 
 const SCHEMA = `nx_reaper_e2e_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;

@@ -32,7 +32,7 @@ import {
 
 type Sql = ReturnType<typeof createDb>["client"];
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 // Minimal DDL that creates ALL required tables. The schema-verify probe
 // only checks for existence (`SELECT to_regclass(name)`), so the column set

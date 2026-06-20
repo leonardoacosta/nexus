@@ -40,7 +40,7 @@ import type { SessionRow } from "../../db/sessions";
 
 type Sql = ReturnType<typeof createDb>["client"];
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../../testing/live-pg";
 
 const SCHEMA = `nx_dispatch_astate_${Date.now()}_${Math.floor(
   Math.random() * 1e6,

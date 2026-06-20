@@ -14,7 +14,7 @@ import { HeldQueue } from "./held-queue";
 import { lifecycleBus } from "../services/lifecycle-bus";
 import type { PresenceHoldReleasedPayload } from "../services/lifecycle-bus";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 const HQ_SCHEMA = `nx_hq_test_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 

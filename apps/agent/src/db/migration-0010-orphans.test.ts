@@ -45,7 +45,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createDb } from "@nexus/db";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 const MIGRATION_PATH = path.resolve(
   __dirname,

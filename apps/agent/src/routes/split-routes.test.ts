@@ -1,5 +1,6 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, afterAll } from "bun:test";
 import * as nexusCore from "@nexus/core";
+import { installExecMock } from "../testing/mock-exec";
 
 // Mock @nexus/core logger before any route imports.
 const loggerMock = {
@@ -42,13 +43,14 @@ mock.module("../services/config-loader", () => ({
   stopConfigLoader: () => {},
 }));
 
-// Mock exec utils to prevent real subprocess spawning.
-mock.module("../utils/exec", () => ({
-  execText: mock(() => Promise.resolve("")),
-  execJson: mock(() => Promise.resolve([])),
-  ExecError: class extends Error { exitCode = 1; stderr = ""; },
-  ExecTimeoutError: class extends Error { timeoutMs = 10000; },
-}));
+// Stub exec utils to prevent real subprocess spawning. Uses a RESTORABLE
+// spyOn (nx-509z5 class) so the real `../utils/exec` is handed back to sibling
+// suites (utils/exec.test.ts) that load later — see testing/mock-exec.ts.
+const execMockHandle = installExecMock({
+  execText: () => Promise.resolve(""),
+  execJson: () => Promise.resolve([]),
+});
+afterAll(() => execMockHandle.restore());
 
 describe("split route files — handler exports", () => {
   test("statusline.ts exports handleStatusline", async () => {

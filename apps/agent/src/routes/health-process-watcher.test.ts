@@ -32,6 +32,7 @@ import {
 } from "bun:test";
 import type { Db } from "@nexus/db";
 import { createDb } from "@nexus/db";
+import { installExecMock } from "../testing/mock-exec";
 
 // ─── Real-subprocess passthrough (independent of ../utils/exec mock) ──────
 
@@ -73,8 +74,11 @@ function setExecMode(mode: ExecMode): void {
   execMode = mode;
 }
 
-mock.module("../utils/exec", () => ({
-  execText: mock(async (cmd: string, args: string[]) => {
+// RESTORABLE spyOn (nx-509z5 class) so the real `../utils/exec` is handed back
+// to sibling suites (utils/exec.test.ts) that load later. The real ExecError/
+// ExecTimeoutError classes stay bound — see testing/mock-exec.ts.
+const execMockHandle = installExecMock({
+  execText: async (cmd: string, args: string[]) => {
     if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
       if (execMode === "throw") {
         throw new Error("pgrep stub: synthetic stalled-tick failure");
@@ -82,14 +86,13 @@ mock.module("../utils/exec", () => ({
       return pgrepStubLines.join("\n");
     }
     return runReal(cmd, args);
-  }),
-  execJson: mock(async (cmd: string, args: string[]) => {
+  },
+  execJson: async (cmd: string, args: string[]) => {
     const out = await runReal(cmd, args);
     return JSON.parse(out);
-  }),
-  ExecError: _ExecError,
-  ExecTimeoutError: class extends Error {},
-}));
+  },
+});
+afterAll(() => execMockHandle.restore());
 
 // ─── Imports AFTER mock registration ──────────────────────────────────────
 
@@ -161,7 +164,7 @@ describe("handleHealthProcessWatcher — shape contract", () => {
 // Layer 2: PG-gated round-trip + stalled-alert
 // =========================================================================
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 if (!hasPg) {
   // eslint-disable-next-line no-console

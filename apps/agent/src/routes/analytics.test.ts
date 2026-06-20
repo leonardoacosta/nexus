@@ -23,7 +23,7 @@ import {
 } from "./analytics";
 import { audioPathFor, audioDir } from "../notifications/audio-store";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 // ---------------------------------------------------------------------------
 // Stub endpoints (no DB required)

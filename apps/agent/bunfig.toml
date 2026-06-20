@@ -1,0 +1,10 @@
+# Bun config for @nexus/agent.
+#
+# [test].preload runs ONCE per test-worker process BEFORE any test file loads.
+# We use it to install the shared @nexus/core/node logger spy (nx-509z5) so the
+# module-load logger binding in cross-machine-delivery.ts always resolves the
+# shared `loggerSpy` regardless of which suite triggers that module's first load
+# in the parallel full-suite run. See src/testing/preload.ts for the full
+# rationale.
+[test]
+preload = ["./src/testing/preload.ts"]

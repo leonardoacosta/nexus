@@ -11,7 +11,7 @@ import type { Db } from "@nexus/db";
 import { downsample, handleGetHealthHistory } from "./health-history";
 import type { HealthSnapshotRow } from "../db/health";
 
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 // ── Test schema setup for PG-gated tests ─────────────────────────────────
 

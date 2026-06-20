@@ -16,7 +16,18 @@
 import { describe, expect, it } from "bun:test";
 import type { Server as BunServer } from "bun";
 import type { WsData } from "./terminal/stream-manager";
-import { __testing } from "./server";
+
+// Bind the SHARED @nexus/core/node logger spy (nx-509z5) BEFORE importing
+// `./server`. `./server` transitively loads cross-machine-delivery.ts, which
+// binds its `log` at module-load via createLogger(). A STATIC `import` of
+// `./server` is hoisted above this call, so the real pino logger would win the
+// process-global binding — and cross-machine-delivery.test.ts's `loggerSpy.warn`
+// assertions then read 0 calls. A top-level-await DYNAMIC import after the mock
+// guarantees the shared spy is bound first.
+const { installCoreNodeMock } = await import("./testing/mock-core-node");
+installCoreNodeMock({ mockGetAgentId: false });
+
+const { __testing } = await import("./server");
 
 interface FakeServer {
   hostname: string;

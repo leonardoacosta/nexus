@@ -105,7 +105,7 @@ type Sql = ReturnType<typeof createDb>["client"];
 // ── Environment probe ──────────────────────────────────────────────────────
 
 const TMUX_AVAILABLE = Bun.which("tmux") !== null;
-const hasPg = !!process.env.POSTGRES_URL;
+import { hasLivePg as hasPg } from "../testing/live-pg";
 
 if (!TMUX_AVAILABLE) {
   // eslint-disable-next-line no-console

@@ -46,6 +46,14 @@ const siMock = {
 
 mock.module("systeminformation", () => ({ default: siMock }));
 
+// Bind the SHARED @nexus/core/node logger spy (nx-509z5) BEFORE the dynamic
+// `./server` import below. `./server` transitively loads
+// cross-machine-delivery.ts, which binds its `log` at module-load. Without
+// this, the REAL pino logger binds and — when this suite wins the load-order
+// race — cross-machine-delivery.test.ts's `loggerSpy.warn` reads 0 calls.
+const { installCoreNodeMock } = await import("./testing/mock-core-node");
+installCoreNodeMock({ mockGetAgentId: false });
+
 // Import after mocking
 const { HealthCollector } = await import("./health-collector");
 
