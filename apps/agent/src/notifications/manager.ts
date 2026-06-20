@@ -21,6 +21,12 @@ import { writeAudio } from "./audio-store";
 import type { PresenceContext } from "./presence-context";
 import type { HeldQueue } from "./held-queue";
 import type { PresenceHold } from "@nexus/db";
+import { fleetPresence } from "@nexus/db";
+import { resolveLiveConsole } from "../services/fleet-presence";
+import {
+  forwardOrLocal,
+  type ForwardDeps,
+} from "./cross-machine-delivery";
 
 /**
  * Transient transport-only fields threaded through the `NotificationFired`
@@ -69,15 +75,42 @@ export interface PresenceWiring {
   presenceAwareRouting: () => Promise<boolean> | boolean;
 }
 
+/**
+ * Optional cross-machine forward collaborator (cross-machine-delivery, Phase 1.6).
+ *
+ * Strictly additive: when omitted (single-machine fleets, or the legacy path),
+ * delivery is byte-identical to today — every notification renders locally. When
+ * wired, a presence-routed `deliverTo:[mac]` notification first resolves the
+ * live-console machine via `resolveLiveConsole(SELECT fleet_presence)`; when that
+ * machine is a PEER, the notification is forwarded to it and NOT emitted locally.
+ * When the target IS local — or the forward fails (lossless fallback) — delivery
+ * proceeds locally exactly as before.
+ */
+export interface CrossMachineWiring {
+  /** Local machine identity (agents.toml self_name via getAgentId()). */
+  localMachine: string;
+  /** Heartbeat TTL for the live-console resolve. */
+  ttlMs: number;
+  /** Forward collaborators (peer lookup + fetch + secret). */
+  deps: ForwardDeps;
+}
+
 export class NotificationManager {
   private meetingState: MeetingState;
   private db: Db;
   private presence: PresenceWiring | null;
+  private crossMachine: CrossMachineWiring | null;
 
-  constructor(db: Db, meetingState?: MeetingState, presence?: PresenceWiring) {
+  constructor(
+    db: Db,
+    meetingState?: MeetingState,
+    presence?: PresenceWiring,
+    crossMachine?: CrossMachineWiring,
+  ) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
     this.presence = presence ?? null;
+    this.crossMachine = crossMachine ?? null;
   }
 
   /** Get the meeting state instance. */
@@ -159,6 +192,19 @@ export class NotificationManager {
             { id: row.id, holdUntil: decision.holdUntil },
             "notification held (presence rule-2 meeting hold)",
           );
+          return row;
+        }
+        // Cross-machine forward (Phase 1.6): a `deliverTo:[mac]` action may
+        // resolve to a PEER's live console. Try the forward first; only deliver
+        // locally when it returns false (local target, or lossless fallback).
+        if (
+          this.crossMachine &&
+          decision.action.deliverTo.includes("mac") &&
+          (await this.tryForwardToLiveConsole(row, extras))
+        ) {
+          // Peer accepted the forward — mark delivered, do NOT emit locally.
+          await markNotificationDelivered(this.db, row.id);
+          row.status = "delivered";
           return row;
         }
         // Deliver now per the engine's channel decision.
@@ -374,6 +420,55 @@ export class NotificationManager {
     }
 
     return anyDelivered;
+  }
+
+  /**
+   * Resolve the live-console machine from the shared `fleet_presence` table and,
+   * when it is a PEER, forward the notification there (cross-machine-delivery,
+   * Phase 1.6).
+   *
+   * @returns `true` iff a peer accepted the forward (caller skips local emit).
+   *   `false` means deliver locally — covers the local-target case and every
+   *   failure mode (lossless fallback in `forwardOrLocal`). Any error resolving
+   *   the fleet snapshot also returns `false` so a DB hiccup never drops a
+   *   notification.
+   */
+  private async tryForwardToLiveConsole(
+    notification: NotificationRow,
+    extras?: NotificationTransportExtras,
+  ): Promise<boolean> {
+    const cm = this.crossMachine;
+    if (!cm) return false;
+
+    try {
+      const rows = await this.db.select().from(fleetPresence);
+      const target = resolveLiveConsole(rows, cm.localMachine, cm.ttlMs);
+      return await forwardOrLocal(
+        {
+          id: notification.id,
+          title: notification.title,
+          body: notification.body ?? "",
+          channel: notification.channel,
+          project: notification.project ?? undefined,
+          items: extras?.items,
+          logPath: extras?.logPath,
+          sessionName: extras?.sessionName,
+          sessionId: extras?.sessionId,
+        },
+        target,
+        cm.localMachine,
+        cm.deps,
+      );
+    } catch (err) {
+      logger.warn(
+        {
+          id: notification.id,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "cross-machine: live-console resolve failed — delivering locally",
+      );
+      return false;
+    }
   }
 
   /**

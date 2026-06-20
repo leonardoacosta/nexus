@@ -18,8 +18,12 @@ mock.module("@nexus/db", () => ({
   // Drizzle helper exports — only the surface manager + buffer reach for.
   eq: mock(() => ({})),
   and: mock(() => ({})),
+  sql: mock(() => ({})),
   notifications: {},
   credentials: {},
+  // cross-machine-delivery (Phase 1.6): manager imports fleetPresence for the
+  // live-console SELECT; include it so the static named import resolves.
+  fleetPresence: {},
 }));
 
 // ─── Stub the buffer's DB writers — manager calls these on deliver ─────────

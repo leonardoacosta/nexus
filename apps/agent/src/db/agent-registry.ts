@@ -1,9 +1,36 @@
 import type { Db } from "@nexus/db";
-import { agents } from "@nexus/db";
+import { agents, eq } from "@nexus/db";
 import { expandTilde, getAgentId } from "@nexus/core/node";
 import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
+
+/** A peer agent's reachable address (host:port) resolved from the registry. */
+export interface PeerAddress {
+  host: string;
+  port: number;
+}
+
+/**
+ * Resolve a peer agent's `host:port` from the shared `agents` registry by
+ * machine name (`agents.id`). Returns null when the machine is unknown or has
+ * been soft-deleted — the caller (cross-machine forward) treats a null lookup
+ * as "peer unreachable" and falls back to local delivery (lossless).
+ */
+export async function lookupPeerAddress(
+  db: Db,
+  machine: string,
+): Promise<PeerAddress | null> {
+  const rows = await db
+    .select({ host: agents.host, port: agents.port, deletedAt: agents.deletedAt })
+    .from(agents)
+    .where(eq(agents.id, machine))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row || row.deletedAt !== null || !row.host) return null;
+  return { host: row.host, port: row.port ?? 7400 };
+}
 
 /** Resolve the local Tailscale IPv4 address, falling back to loopback. */
 function getTailscaleIp(): string {

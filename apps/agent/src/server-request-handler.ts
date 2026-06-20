@@ -49,6 +49,8 @@ import {
   handlePutRoutingRules,
 } from "./routes/notification-settings";
 import { handlePresenceReport } from "./routes/presence-report";
+import { handleNotificationDeliver } from "./routes/notifications-deliver";
+import { handleGetPresenceFleet } from "./routes/presence-fleet";
 import {
   handleAnalyticsHealth,
   handleAnalyticsNotifications,
@@ -131,6 +133,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/meeting/status" },
   // context-aware-routing: presence ingest + routing-rule CRUD.
   { method: "POST", path: "/presence/report" },
+  { method: "GET", path: "/presence/fleet" },
+  { method: "POST", path: "/notifications/deliver" },
   { method: "GET", path: "/notifications/routing-rules" },
   { method: "PUT", path: "/notifications/routing-rules" },
   // Credentials (delegated to server-routes-credentials.ts)
@@ -427,6 +431,25 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/presence/report" && request.method === "POST") {
         return handlePresenceReport(request).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/presence/report", method: "POST", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // GET /presence/fleet — dashboard fleet view (cross-machine-delivery,
+      // Phase 1.6): fleet rows + resolved live-console + local machine name.
+      if (url.pathname === "/presence/fleet" && request.method === "GET") {
+        return handleGetPresenceFleet(db).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/presence/fleet", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      // POST /notifications/deliver — receive a forwarded notification from a
+      // peer agent (cross-machine-delivery, Phase 1.6). Secret-gated; renders
+      // locally; NEVER re-forwards (loop guard inside the handler).
+      if (url.pathname === "/notifications/deliver" && request.method === "POST") {
+        return handleNotificationDeliver(request).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/notifications/deliver", method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

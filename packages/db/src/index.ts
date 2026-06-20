@@ -124,6 +124,17 @@ export {
   type RoutingRuleAction,
 } from "./schema";
 
+// fleet_presence — shared-DB fleet presence store, one row per machine
+// (openspec/changes/cross-machine-delivery, Phase 1.6). Each agent upserts its
+// own row; any agent SELECTs the table to resolve the live-console machine via
+// newest-heartbeat-among-on-console. Re-exported at the top level so the agent
+// imports it from `@nexus/db` like every other table.
+export {
+  fleetPresence,
+  type FleetPresence,
+  type NewFleetPresence,
+} from "./schema";
+
 // Relations (used by drizzle's relational query API)
 export {
   sessionsRelations,

@@ -21,13 +21,22 @@ import type {
   Source,
 } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
+import type { Db } from "@nexus/db";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { upsertSelfPresence } from "../services/fleet-presence";
 import type { MeetingState } from "./meeting-state";
 
 const log = createLogger("agent:notifications:presence-context");
 
 /** TTL for the volatile mac fields (~30s per the spec). */
 export const MAC_FIELD_TTL_MS = 30_000;
+
+/**
+ * Default heartbeat-tick interval for the `fleet_presence` row (~10s). Comfortably
+ * under the 30s heartbeat TTL so a live machine is refreshed several times before
+ * it could be deemed stale.
+ */
+export const FLEET_HEARTBEAT_INTERVAL_MS = 10_000;
 
 /**
  * TTL for the Tailscale-derived phone fields (~2min, Phase 1.5). The poller
@@ -104,10 +113,21 @@ function unknownField(): StoredField {
   };
 }
 
+/** Fields that, when reported, change the local Mac's live-console picture. */
+const FLEET_RELEVANT_KEYS: ReadonlySet<FieldKey> = new Set<FieldKey>([
+  "macActive",
+  "macLocked",
+]);
+
 export class PresenceContext {
   private readonly userId: string;
   private fields: Record<FieldKey, StoredField>;
   private meetingState: MeetingState | null = null;
+
+  // ── Fleet presence binding (cross-machine-delivery, Phase 1.6) ────────────
+  private fleetDb: Db | null = null;
+  private fleetMachine: string | null = null;
+  private fleetTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(userId: string) {
     this.userId = userId;
@@ -128,6 +148,68 @@ export class PresenceContext {
   /** Bind the existing meeting-state machine as the `inMeeting` source. */
   bindMeetingState(meeting: MeetingState): void {
     this.meetingState = meeting;
+  }
+
+  /**
+   * Bind the shared-DB fleet-presence store (cross-machine-delivery, Phase 1.6).
+   *
+   * Once bound, every presence change that touches a fleet-relevant field
+   * (mac active/locked) upserts THIS machine's `fleet_presence` row, and a
+   * heartbeat tick refreshes the row's `heartbeat` even with no change so a
+   * live machine never looks stale. The upsert is fire-and-forget (a DB hiccup
+   * must never block the notification path) and uses the DB's `now()` for a
+   * server-authoritative heartbeat.
+   *
+   * `machine` is the local identity (agents.toml `self_name` via getAgentId()).
+   */
+  bindFleetPresence(
+    db: Db,
+    machine: string,
+    intervalMs: number = FLEET_HEARTBEAT_INTERVAL_MS,
+  ): void {
+    this.fleetDb = db;
+    this.fleetMachine = machine;
+    // Write an initial row immediately so the fleet picture is populated on boot.
+    this.upsertFleetPresence();
+    if (this.fleetTimer) clearInterval(this.fleetTimer);
+    this.fleetTimer = setInterval(() => this.upsertFleetPresence(), intervalMs);
+    // Don't keep the event loop alive solely for the heartbeat.
+    this.fleetTimer.unref?.();
+    log.debug({ machine, intervalMs }, "presence: fleet-presence binding active");
+  }
+
+  /** Stop the fleet heartbeat tick (test teardown / shutdown). */
+  unbindFleetPresence(): void {
+    if (this.fleetTimer) clearInterval(this.fleetTimer);
+    this.fleetTimer = null;
+    this.fleetDb = null;
+    this.fleetMachine = null;
+  }
+
+  /**
+   * UPSERT this machine's fleet_presence row from the current vector. The local
+   * machine is "on console" when its Mac is active AND not locked (both read
+   * through the TTL lens, so a stale signal collapses to not-on-console).
+   * Fire-and-forget — failures are logged, never thrown.
+   */
+  private upsertFleetPresence(): void {
+    const db = this.fleetDb;
+    const machine = this.fleetMachine;
+    if (!db || !machine) return;
+
+    const v = this.vector();
+    const macActive = v.macActive.confidence !== "unknown" ? v.macActive.value : null;
+    const macLocked = v.macLocked.confidence !== "unknown" ? v.macLocked.value : null;
+    const onConsole = macActive === true && macLocked !== true;
+
+    void upsertSelfPresence(db, machine, { onConsole, macActive, macLocked }).catch(
+      (err) => {
+        log.warn(
+          { machine, err: err instanceof Error ? err.message : String(err) },
+          "presence: fleet_presence upsert failed (non-fatal)",
+        );
+      },
+    );
   }
 
   /**
@@ -173,6 +255,12 @@ export class PresenceContext {
       vector: this.vector(),
       changed,
     });
+
+    // Mirror local presence changes into the shared fleet_presence store so
+    // peers can resolve the live console (cross-machine-delivery, Phase 1.6).
+    if (changed.some((k) => FLEET_RELEVANT_KEYS.has(k))) {
+      this.upsertFleetPresence();
+    }
   }
 
   /**
@@ -247,5 +335,6 @@ export function getPresenceContext(): PresenceContext {
 
 /** Reset the singleton — test teardown only. */
 export function __resetPresenceContext(): void {
+  singleton?.unbindFleetPresence();
   singleton = null;
 }

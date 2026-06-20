@@ -20,8 +20,11 @@ import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
 mock.module("@nexus/db", () => ({
   eq: mock(() => ({})),
   and: mock(() => ({})),
+  sql: mock(() => ({})),
   notifications: {},
   credentials: {},
+  // cross-machine-delivery (Phase 1.6): manager imports fleetPresence.
+  fleetPresence: {},
 }));
 
 mock.module("./buffer", () => ({
