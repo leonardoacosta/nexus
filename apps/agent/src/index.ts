@@ -21,6 +21,10 @@ import {
 } from "./services/credential-usage-poller";
 import { getCredentialPool } from "./routes/credentials";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
+import {
+  startTailscalePresencePoller,
+  type TailscalePresencePollerService,
+} from "./services/tailscale-presence";
 import { handleCommand } from "./services/command-handler";
 import { getNotificationManager } from "./routes/notifications";
 import { evaluateAndDispatch } from "./notifications/hook-trigger";
@@ -305,6 +309,24 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
 }
 
+// ── Tailscale presence poller ───────────────────────────────────────────────
+// Low-frequency `tailscale status --json` poll that derives the phone's
+// home/away/absent state (zero iOS permission) and reports phonePresent /
+// phoneHome into the presence vector, feeding Rule 4's room-TTS
+// (openspec/changes/mac-presence-observer, Phase 1.5). Resilient: a failed
+// `tailscale status` logs a warn and retries next tick, never crashing the
+// agent. Match the phone peer via NEXUS_PHONE_PEER (default "iphone").
+let tailscalePresencePoller: TailscalePresencePollerService | null = null;
+try {
+  tailscalePresencePoller = startTailscalePresencePoller();
+  logger.info("tailscale presence poller started");
+} catch (err) {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "tailscale presence poller failed to start",
+  );
+}
+
 /** Max time to wait for PTY streams to report closure during graceful shutdown. */
 const STREAM_SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -340,6 +362,7 @@ async function shutdown() {
 
   // Stop new services first.
   await tokenStreamLifecycle.stopAll();
+  tailscalePresencePoller?.stop();
   specWatcher?.stop();
   credentialUsagePoller?.stop();
   cronService?.stop();

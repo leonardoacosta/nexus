@@ -11,7 +11,9 @@
  *
  * Phase 1 ships ONLY the fields the two shipping rules consume (`macActive`,
  * `inMeeting`, `meetingEndsAt`, `isBedtime`) plus the mac-identity fields
- * (`macLocked`, `macHost`). Phone / watch fields arrive in later phases.
+ * (`macLocked`, `macHost`). Phase 1.5 (mac-presence-observer) widens this with
+ * the phone fields (`phonePresent`, `phoneHome` — agent-side Tailscale) and the
+ * mac sensor fields (`macIdleSec`, `macFocus`). Watch fields arrive later still.
  */
 
 /** Trust level for a presence field. `unknown` = stale-past-TTL or never set. */
@@ -19,10 +21,11 @@ export type Confidence = "high" | "medium" | "low" | "unknown";
 
 /**
  * Origin of a presence field's value. `agent-cli` is the existing meeting-state
- * machine; `mac`/`phone`/`watch` are device reporters (later phases); `test`
- * is reserved for fixtures.
+ * machine; `mac`/`phone`/`watch` are device reporters (later phases); `derived`
+ * is an agent-side computation (the Tailscale `phonePresent`/`phoneHome` poller,
+ * Phase 1.5); `test` is reserved for fixtures.
  */
-export type Source = "agent-cli" | "mac" | "phone" | "watch" | "test";
+export type Source = "agent-cli" | "mac" | "phone" | "watch" | "derived" | "test";
 
 /**
  * One field of the presence vector. `value` is `null` exactly when the field is
@@ -57,4 +60,20 @@ export interface PresenceVector {
   meetingEndsAt: PresenceField<string>;
   /** True when the current time is inside the user's bedtime window. */
   isBedtime: PresenceField<boolean>;
+  /**
+   * True when the user's phone is reachable on the tailnet (Phase 1.5). Derived
+   * agent-side from `tailscale status --json` — an absent/offline peer reads
+   * `unknown` (value null), never a stale `false`.
+   */
+  phonePresent: PresenceField<boolean>;
+  /**
+   * True when the phone is on the home LAN — its Tailscale endpoint is a
+   * direct RFC1918 address (Phase 1.5). A public address or DERP relay reads
+   * `false`; an absent peer reads `unknown` (phone home is indeterminate).
+   */
+  phoneHome: PresenceField<boolean>;
+  /** Seconds the Mac HID has been idle, reported by the headless sensor (Phase 1.5). */
+  macIdleSec: PresenceField<number>;
+  /** The Mac's active Focus mode identifier (e.g. "work", "sleep"), or null (Phase 1.5). */
+  macFocus: PresenceField<string>;
 }

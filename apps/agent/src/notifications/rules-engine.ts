@@ -7,20 +7,27 @@
  * `meeting_behavior` fallback stays in `router.ts` and is selected when
  * `presence_aware_routing` is off (see `router.ts`).
  *
- * Phase 1 ships ONLY:
+ * Shipping rules (priority-ordered):
  *   - Rule 1 — active Mac, NOT in meeting → banner + tts to the live host.
  *     This rule MUST win even during bedtime (decision Q1: an active Mac beats
  *     bedtime — TTS at your desk even at 2am).
  *   - Rule 2 — Mac present AND in meeting → HOLD until (meetingEndsAt ?? now+60m)
  *     + a 2-minute buffer, delivered later as a coalesced digest.
+ *   - Rule 4 — (NOT macActive OR macLocked) AND phonePresent AND phoneHome →
+ *     room-audible `tts` to `macHost` (Phase 1.5, mac-presence-observer). The
+ *     Mac is idle/locked but you are home with your phone, so the local Mac
+ *     speaks the notification into the room. Documented order places Rule 4
+ *     AFTER the bedtime rule and BEFORE the phone-away rule (both deferred);
+ *     in the current spine that is between Rule 2 and the terminal fallback.
  *   - Terminal fallback — no rule matches → deliverTo:[dashboard], digest. The
  *     notification is NEVER silently dropped.
  *
- * Rule 0 (critical) and Rules 3–8 are deferred to later phases. The staleness
- * policy hook is implemented: a rule-relevant field read as `unknown` simply
- * fails the rule's guard, so a vector with unknown mac fields falls through to
- * the fail-safe terminal digest (non-critical fail-safe). Critical fail-open is
- * a no-op this phase because Rule 0 is deferred.
+ * Rule 0 (critical), the bedtime rule, the phone-away rule, and Rules 5–8 are
+ * deferred to later phases. The staleness policy hook is implemented: a
+ * rule-relevant field read as `unknown` simply fails the rule's guard, so a
+ * vector with an unknown `phoneHome` never fires Rule 4's room-TTS (non-critical
+ * fail-safe) and falls through to the terminal digest. Critical fail-open is a
+ * no-op this phase because Rule 0 is deferred.
  */
 
 import type { Action, PresenceVector } from "@nexus/core";
@@ -114,6 +121,33 @@ export function evaluateRules(vector: PresenceVector): Action {
       holdUntil,
       deliverTo: ["mac"],
       interruptionLevel: "passive",
+    };
+  }
+
+  // ── Rule 4 — idle/locked Mac + phone home → room-TTS (Phase 1.5) ────────
+  // Guard: the Mac is NOT actively in use (idle: macActive known-false, OR
+  // locked: macLocked known-true) AND you are present-and-home with your phone.
+  // `phoneHome` MUST be known-true — an `unknown` phoneHome (stale Tailscale
+  // poll) fails the guard and the notification falls through to the fail-safe
+  // terminal digest (it does NOT speak into the room on indeterminate home
+  // state). Delivers room-audible TTS to the local Mac host.
+  const macIdleOrLocked = isFalse(vector.macActive) || isTrue(vector.macLocked);
+  if (
+    macIdleOrLocked &&
+    isTrue(vector.phonePresent) &&
+    isTrue(vector.phoneHome)
+  ) {
+    log.debug(
+      { macHost: vector.macHost.value },
+      "rules: matched Rule 4 (phone-home room-TTS)",
+    );
+    return {
+      ...baseAction(),
+      tts: true,
+      deliverTo: ["mac"],
+      deliveryMode: "simultaneous",
+      interruptionLevel: "active",
+      redact: "titlesOnly",
     };
   }
 

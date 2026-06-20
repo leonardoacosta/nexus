@@ -73,4 +73,60 @@ describe("POST /presence/report", () => {
     const res = await handlePresenceReport(makeReq({}));
     expect(res.status).toBe(400);
   });
+
+  // ── Phase 1.5 sensor fields ───────────────────────────────────────────────
+
+  it("merges macIdleSec / macFocus from the headless sensor", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ macIdleSec: 120, macFocus: "work" }),
+    );
+    expect(res.status).toBe(200);
+    const v = getPresenceContext().vector();
+    expect(v.macIdleSec.value).toBe(120);
+    expect(v.macFocus.value).toBe("work");
+  });
+
+  it("accepts an explicit null macFocus (no active Focus)", async () => {
+    const res = await handlePresenceReport(makeReq({ macFocus: null }));
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a negative macIdleSec with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ macIdleSec: -5 }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-number macIdleSec with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ macIdleSec: "120" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("merges phonePresent / phoneHome when reported directly", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ phonePresent: true, phoneHome: true }),
+    );
+    expect(res.status).toBe(200);
+    const v = getPresenceContext().vector();
+    expect(v.phonePresent.value).toBe(true);
+    expect(v.phoneHome.value).toBe(true);
+  });
+
+  it("maps the gateway-MAC homeHint onto phoneHome", async () => {
+    const res = await handlePresenceReport(makeReq({ homeHint: true }));
+    expect(res.status).toBe(200);
+    expect(getPresenceContext().vector().phoneHome.value).toBe(true);
+  });
+
+  it("an explicit phoneHome wins over a conflicting homeHint", async () => {
+    const res = await handlePresenceReport(
+      makeReq({ phoneHome: false, homeHint: true }),
+    );
+    expect(res.status).toBe(200);
+    expect(getPresenceContext().vector().phoneHome.value).toBe(false);
+  });
+
+  it("rejects a non-boolean homeHint with 400", async () => {
+    const res = await handlePresenceReport(makeReq({ homeHint: "yes" }));
+    expect(res.status).toBe(400);
+  });
 });

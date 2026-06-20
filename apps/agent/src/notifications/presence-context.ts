@@ -30,6 +30,13 @@ const log = createLogger("agent:notifications:presence-context");
 export const MAC_FIELD_TTL_MS = 30_000;
 
 /**
+ * TTL for the Tailscale-derived phone fields (~2min, Phase 1.5). The poller
+ * runs every few seconds, so a 2-minute window tolerates a handful of missed
+ * ticks before the field collapses to `unknown` and Rule 4's fail-safe applies.
+ */
+export const PHONE_FIELD_TTL_MS = 120_000;
+
+/**
  * Per-field TTL in ms. Fields absent from this map are treated as non-expiring
  * (e.g. `isBedtime`, `meetingEndsAt` are derived/long-lived and only change on
  * an explicit report).
@@ -39,9 +46,19 @@ const FIELD_TTL_MS: Partial<Record<keyof PresenceVector, number>> = {
   macLocked: MAC_FIELD_TTL_MS,
   macHost: MAC_FIELD_TTL_MS,
   inMeeting: MAC_FIELD_TTL_MS,
+  // Phase 1.5 mac sensor fields share the volatile-mac TTL.
+  macIdleSec: MAC_FIELD_TTL_MS,
+  macFocus: MAC_FIELD_TTL_MS,
+  // Phase 1.5 Tailscale-derived phone fields.
+  phonePresent: PHONE_FIELD_TTL_MS,
+  phoneHome: PHONE_FIELD_TTL_MS,
 };
 
-/** The reportable Phase-1 fields (everything except the `userId` discriminator). */
+/**
+ * The reportable fields (everything except the `userId` discriminator). Phase
+ * 1.5 widens this with the phone fields (`phonePresent`/`phoneHome`, set by the
+ * Tailscale poller) and the mac sensor fields (`macIdleSec`/`macFocus`).
+ */
 export interface PresenceReport {
   macActive?: boolean;
   macLocked?: boolean;
@@ -49,6 +66,10 @@ export interface PresenceReport {
   inMeeting?: boolean;
   meetingEndsAt?: string | null;
   isBedtime?: boolean;
+  phonePresent?: boolean;
+  phoneHome?: boolean;
+  macIdleSec?: number;
+  macFocus?: string | null;
 }
 
 type FieldKey = Exclude<keyof PresenceVector, "userId">;
@@ -60,6 +81,10 @@ const FIELD_KEYS: FieldKey[] = [
   "inMeeting",
   "meetingEndsAt",
   "isBedtime",
+  "phonePresent",
+  "phoneHome",
+  "macIdleSec",
+  "macFocus",
 ];
 
 /** A stored field before the TTL lens is applied. */
@@ -93,6 +118,10 @@ export class PresenceContext {
       inMeeting: unknownField(),
       meetingEndsAt: unknownField(),
       isBedtime: unknownField(),
+      phonePresent: unknownField(),
+      phoneHome: unknownField(),
+      macIdleSec: unknownField(),
+      macFocus: unknownField(),
     };
   }
 
@@ -190,6 +219,10 @@ export class PresenceContext {
       inMeeting: this.read<boolean>("inMeeting"),
       meetingEndsAt: this.read<string>("meetingEndsAt"),
       isBedtime: this.read<boolean>("isBedtime"),
+      phonePresent: this.read<boolean>("phonePresent"),
+      phoneHome: this.read<boolean>("phoneHome"),
+      macIdleSec: this.read<number>("macIdleSec"),
+      macFocus: this.read<string>("macFocus"),
     };
   }
 }

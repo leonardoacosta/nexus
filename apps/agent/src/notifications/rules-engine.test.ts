@@ -46,6 +46,10 @@ function vector(overrides: Partial<{
   inMeeting: boolean | null;
   meetingEndsAt: string | null;
   isBedtime: boolean | null;
+  phonePresent: boolean | null;
+  phoneHome: boolean | null;
+  macIdleSec: number | null;
+  macFocus: string | null;
 }> = {}): PresenceVector {
   return {
     userId: "leo",
@@ -55,6 +59,10 @@ function vector(overrides: Partial<{
     inMeeting: field(overrides.inMeeting ?? null),
     meetingEndsAt: field(overrides.meetingEndsAt ?? null),
     isBedtime: field(overrides.isBedtime ?? null),
+    phonePresent: field(overrides.phonePresent ?? null),
+    phoneHome: field(overrides.phoneHome ?? null),
+    macIdleSec: field(overrides.macIdleSec ?? null),
+    macFocus: field(overrides.macFocus ?? null),
   };
 }
 
@@ -120,6 +128,113 @@ describe("rules-engine — Rule 2 (in meeting → hold)", () => {
     const expectedMin = before + (60 + 2) * 60_000;
     expect(hold).toBeGreaterThanOrEqual(expectedMin - 1_000);
     expect(hold).toBeLessThanOrEqual(Date.now() + (60 + 2) * 60_000 + 1_000);
+  });
+});
+
+describe("rules-engine — Rule 4 (idle/locked Mac + phone home → room-TTS)", () => {
+  it("locked Mac + phone present & home → tts to macHost", () => {
+    const action = evaluateRules(
+      vector({
+        macLocked: true,
+        macHost: "studio",
+        phonePresent: true,
+        phoneHome: true,
+      }),
+    );
+    expect(action.tts).toBe(true);
+    expect(action.deliverTo).toEqual(["mac"]);
+    expect(action.banner).toBe(false);
+    expect(action.digest).toBe(false);
+  });
+
+  it("idle Mac (macActive false) + phone home → tts to macHost", () => {
+    const action = evaluateRules(
+      vector({
+        macActive: false,
+        macHost: "studio",
+        phonePresent: true,
+        phoneHome: true,
+      }),
+    );
+    expect(action.tts).toBe(true);
+    expect(action.deliverTo).toEqual(["mac"]);
+  });
+
+  it("phone away (phoneHome false) → Rule 4 does NOT fire, falls through to terminal", () => {
+    const action = evaluateRules(
+      vector({
+        macLocked: true,
+        macHost: "studio",
+        phonePresent: true,
+        phoneHome: false,
+      }),
+    );
+    expect(action.tts).toBe(false);
+    expect(action.deliverTo).toEqual(["dashboard"]);
+    expect(action.digest).toBe(true);
+  });
+
+  it("phone not present → Rule 4 does NOT fire", () => {
+    const action = evaluateRules(
+      vector({
+        macLocked: true,
+        macHost: "studio",
+        phonePresent: false,
+        phoneHome: true,
+      }),
+    );
+    expect(action.tts).toBe(false);
+    expect(action.deliverTo).toEqual(["dashboard"]);
+  });
+
+  it("unknown phoneHome → fail-safe (no room-TTS, terminal digest)", () => {
+    // Stale Tailscale poll leaves phoneHome unknown. Rule 4 MUST NOT speak into
+    // the room on indeterminate home state — non-critical fail-safe.
+    const action = evaluateRules(
+      vector({
+        macLocked: true,
+        macHost: "studio",
+        phonePresent: true,
+        phoneHome: null,
+      }),
+    );
+    expect(action.tts).toBe(false);
+    expect(action.deliverTo).toEqual(["dashboard"]);
+    expect(action.digest).toBe(true);
+  });
+
+  it("active Mac (not idle/locked) + phone home → Rule 1 wins, NOT Rule 4", () => {
+    // An active, unlocked Mac that is not in a meeting takes Rule 1 (banner+tts
+    // to the desk) — Rule 4 only applies when the Mac is idle or locked.
+    const action = evaluateRules(
+      vector({
+        macActive: true,
+        macLocked: false,
+        macHost: "studio",
+        inMeeting: false,
+        phonePresent: true,
+        phoneHome: true,
+      }),
+    );
+    expect(action.banner).toBe(true);
+    expect(action.tts).toBe(true);
+    // Rule 1 redacts titlesOnly + banner; Rule 4 has banner false — banner proves Rule 1.
+  });
+
+  it("meeting hold beats Rule 4 — ordering after Rule 2", () => {
+    // Mac present + in meeting must HOLD (Rule 2) even if the phone is home,
+    // proving Rule 4 evaluates AFTER Rule 2.
+    const action = evaluateRules(
+      vector({
+        macLocked: true,
+        macHost: "studio",
+        inMeeting: true,
+        phonePresent: true,
+        phoneHome: true,
+      }),
+    );
+    expect(action.holdUntil).not.toBeNull();
+    expect(action.digest).toBe(true);
   });
 });
 
