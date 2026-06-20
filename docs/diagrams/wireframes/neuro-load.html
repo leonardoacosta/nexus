@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neuro-Load by Hour — UI Wireframe 02/07</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+<div class="wf-page">
+
+  <header class="wf-head">
+    <div class="wf-kick">UI WIREFRAME · 02 OF 07</div>
+    <h1>Neuro-Load by Hour</h1>
+    <p class="wf-sub">Stacked relative load across the day, computed live from dose events &times; neuro-system tags — the macro view of where dopaminergic, serotonergic, and sedative load pile up.</p>
+    <a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier &middot; section 7</a>
+  </header>
+
+  <div class="wf-body">
+    <div class="wf-frame">
+      <div class="wf-chrome">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">tracker.app/load</span>
+      </div>
+      <div class="wf-screen">
+
+        <div class="wf-row">
+          <!-- left: chart + controls -->
+          <div class="wf-col flex1">
+
+            <!-- stacked-area chart -->
+            <div class="wf-chart" style="min-height:320px;">
+              <span class="tagline">stacked relative load &middot; 24 h &middot; 12-hour axis</span>
+
+              <!-- numbered peak pins -->
+              <span class="wf-pin" style="left:24%; top:34%;">1</span>
+              <span class="wf-pin" style="left:79%; top:24%;">2</span>
+
+              <svg viewBox="0 0 720 260" preserveAspectRatio="none" aria-label="Faux stacked area chart of neuro-load by hour">
+                <!-- bottom layer: dopaminergic (blue) — big morning hump ~10 AM -->
+                <path fill="rgba(0,120,212,.35)" stroke="rgba(0,120,212,.6)" stroke-width="1.5"
+                  d="M0,260
+                     C40,256 70,250 110,210
+                     C150,168 175,120 205,118
+                     C235,116 260,160 300,196
+                     C345,234 400,246 470,250
+                     C540,253 620,254 720,252
+                     L720,260 L0,260 Z"/>
+                <!-- middle layer: serotonergic (violet) — small midday + big night hump ~10 PM -->
+                <path fill="rgba(154,91,160,.4)" stroke="rgba(154,91,160,.65)" stroke-width="1.5"
+                  d="M0,252
+                     C60,250 110,248 160,244
+                     C210,240 250,228 300,230
+                     C350,232 380,244 430,244
+                     C480,244 510,212 560,150
+                     C600,104 630,78 660,76
+                     C690,74 710,96 720,108
+                     L720,252 Z"/>
+                <!-- top layer: GABAergic / sedative (teal) — big evening hump -->
+                <path fill="rgba(19,96,138,.32)" stroke="rgba(19,96,138,.6)" stroke-width="1.5"
+                  d="M0,250
+                     C60,249 120,248 180,246
+                     C240,244 280,242 330,238
+                     C380,234 410,222 450,196
+                     C495,166 520,120 560,118
+                     C600,116 625,150 660,150
+                     C690,150 710,170 720,178
+                     L720,250 Z"/>
+              </svg>
+
+              <div class="wf-axisx">
+                <span>6A</span><span>8</span><span>10</span><span>12P</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span><span>12A</span>
+              </div>
+            </div>
+
+            <!-- legend toggle chips -->
+            <div class="wf-panel">
+              <span class="wf-lab">Systems <span class="n">— tap to recompute stack</span></span>
+              <div class="wf-row wrap" style="align-items:center; gap:10px;">
+                <span class="wf-chip on"><span class="sw" style="background:#0078d4;"></span> Dopaminergic / adrenergic</span>
+                <span class="wf-toggle on"></span>
+                <span class="wf-chip on"><span class="sw" style="background:#9a5ba0;"></span> Serotonergic</span>
+                <span class="wf-toggle on"></span>
+                <span class="wf-chip on"><span class="sw" style="background:#13608a;"></span> GABAergic / sedative</span>
+                <span class="wf-toggle on"></span>
+                <span class="wf-chip"><span class="sw" style="background:#c8500f;"></span> Caffeine</span>
+                <span class="wf-toggle"></span>
+                <span class="wf-chip on"><span class="sw" style="background:#107C10;"></span> Foundational</span>
+                <span class="wf-toggle on"></span>
+              </div>
+            </div>
+
+            <!-- hour scrubber -->
+            <div class="wf-panel accent">
+              <span class="wf-lab">Scrub hour <span class="n">— 2:00 PM</span></span>
+              <div class="wf-box" style="position:relative; height:18px; background:var(--wf-fill-2);">
+                <!-- filled portion up to thumb -->
+                <div style="position:absolute; left:0; top:0; bottom:0; width:51%; background:#d9e7f4; border-right:1px solid var(--sys-dopa);"></div>
+                <!-- thumb at ~2 PM (51% of the 6A→12A span) -->
+                <div style="position:absolute; left:51%; top:-3px; width:10px; height:24px; background:var(--bb-navy); transform:translateX(-50%);"></div>
+              </div>
+              <div class="wf-row" style="justify-content:space-between; margin-top:5px;">
+                <span class="wf-mono" style="font-size:9px; color:var(--ink-3);">6:00 AM</span>
+                <span class="wf-mono" style="font-size:9px; color:var(--ink-3);">12:00 AM</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- right: driving-this-hour panel -->
+          <div class="sidebar">
+            <div class="wf-panel accent">
+              <span class="wf-lab">Driving <span class="n">2:00 PM</span></span>
+
+              <!-- Lisdexamfetamine (blue, tall) -->
+              <div style="margin-bottom:10px;">
+                <div class="wf-row" style="justify-content:space-between; align-items:baseline;">
+                  <span class="wf-txt" style="font-size:11px;">Lisdexamfetamine</span>
+                  <span class="wf-mono" style="font-size:9px;">42%</span>
+                </div>
+                <div class="wf-box" style="height:10px; width:88%; background:#0078d4;"></div>
+              </div>
+
+              <!-- Coffee Noon (orange, medium) -->
+              <div style="margin-bottom:10px;">
+                <div class="wf-row" style="justify-content:space-between; align-items:baseline;">
+                  <span class="wf-txt" style="font-size:11px;">Coffee (Noon)</span>
+                  <span class="wf-mono" style="font-size:9px;">27%</span>
+                </div>
+                <div class="wf-box" style="height:10px; width:58%; background:#c8500f;"></div>
+              </div>
+
+              <!-- Buspirone (violet, short) -->
+              <div style="margin-bottom:10px;">
+                <div class="wf-row" style="justify-content:space-between; align-items:baseline;">
+                  <span class="wf-txt" style="font-size:11px;">Buspirone</span>
+                  <span class="wf-mono" style="font-size:9px;">19%</span>
+                </div>
+                <div class="wf-box" style="height:10px; width:40%; background:#9a5ba0;"></div>
+              </div>
+
+              <!-- L-Theanine (teal, short) -->
+              <div style="margin-bottom:6px;">
+                <div class="wf-row" style="justify-content:space-between; align-items:baseline;">
+                  <span class="wf-txt" style="font-size:11px;">L-Theanine</span>
+                  <span class="wf-mono" style="font-size:9px;">12%</span>
+                </div>
+                <div class="wf-box" style="height:10px; width:26%; background:#13608a;"></div>
+              </div>
+            </div>
+
+            <div class="wf-panel flag">
+              <span class="wf-lab">Window flag</span>
+              <div class="wf-row" style="align-items:center; gap:6px;">
+                <span class="wf-sev mod">STACKED</span>
+                <span class="wf-txt" style="font-size:11px;">2 stimulants overlap noon</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- annotations -->
+        <ul class="wf-notes">
+          <li><span class="wf-anno">1</span><span class="nt">PIN 1 — AM dopaminergic peak</span>Morning blue hump (~10 AM) = Vyvanse onset + first coffee + Semax stacking on the dopaminergic / adrenergic axis.</li>
+          <li><span class="wf-anno">2</span><span class="nt">PIN 2 — PM serotonergic + sedative peak</span>Night violet + teal humps (~10 PM) = serotonergic agents plus GABAergic / sedative wind-down piling into the same window.</li>
+          <li><span class="wf-anno">3</span><span class="nt">how load is computed</span>Load is a qualitative sum of all active agents by neuro-system at each hour — not a pharmacokinetic curve, a relative pile-up heuristic.</li>
+          <li><span class="wf-anno">4</span><span class="nt">live from dose events</span>The stack is recomputed from logged dose events &times; each substance's neuro-system tags — change a dose, the curve moves.</li>
+          <li><span class="wf-anno">5</span><span class="nt">legend toggles</span>Toggling a system chip off drops that layer and recomputes the remaining stack — here Caffeine is off to isolate the prescription load.</li>
+          <li><span class="wf-anno">6</span><span class="nt">hour scrubber</span>The scrubber pins a single hour (2:00 PM); the right panel answers "what's driving this hour" with per-agent contribution bars.</li>
+          <li><span class="wf-anno">7</span><span class="nt">contribution bars</span>Each bar is one agent's share of the selected hour's total load, mono % label — Lisdexamfetamine dominates the 2 PM slice.</li>
+          <li><span class="wf-anno">8</span><span class="nt">caffeine's footprint</span>Caffeine contributes twice — the AM ramp and the noon coffee — which is why disabling it visibly flattens both stimulant humps.</li>
+          <li><span class="wf-anno">9</span><span class="nt">overloaded windows</span>When two same-system agents overlap (noon stimulant stack), the window earns a STACKED flag to surface piled-up load.</li>
+          <li><span class="wf-anno">10</span><span class="nt">12-hour axis</span>Axis is rendered in 12-hour clock (6A &rarr; 12A) to match how doses are actually logged through the day.</li>
+        </ul>
+
+      </div>
+    </div>
+  </div>
+
+  <nav class="wf-nav">
+    <span class="lbl">Wireframes</span>
+    <a href="./chrono-timeline.html">chrono-timeline</a>
+    <a href="./neuro-load.html" class="cur">neuro-load</a>
+    <a href="./interaction-heatmap.html">interaction-heatmap</a>
+    <a href="./substance-dossier.html">substance-dossier</a>
+    <a href="./effect-correlation.html">effect-correlation</a>
+    <a href="./redundancy.html">redundancy</a>
+    <a href="./regimen-gantt.html">regimen-gantt</a>
+  </nav>
+
+  <footer class="wf-foot">
+    <span>NEURO-LOAD &middot; <b>02 / 07</b></span>
+    <span>SUPPLEMENT STACK DOSSIER &middot; LOW-FIDELITY WIREFRAME</span>
+  </footer>
+
+</div>
+</body>
+</html>

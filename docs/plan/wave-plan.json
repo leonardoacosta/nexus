@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": 1,
   "plan_id": "spine-migration-2026-05-17",
   "plan_name": "spine-migration",
@@ -96,10 +97,20 @@
         "document-spine-architecture"
       ]
     }
+=======
+  "plan_id": "elevenlabs-credential-and-tts-queue",
+  "created_at": "2026-04-26T22:00:00Z",
+  "status": "in_progress",
+  "mode": "consolidated",
+  "spec_names": [
+    "add-elevenlabs-credential",
+    "add-tts-playback-queue"
+>>>>>>> Stashed changes
   ],
   "waves": [
     {
       "wave": 1,
+<<<<<<< Updated upstream
       "rationale": "P1 parallel-safe: collapse-credentials-dir / remove-peer-connector / remove-slack-channel / bump-session-idle-threshold touch distinct files (credentials/, services/peer-connector.ts, notifications/channels/slack.ts, session-manager.ts).",
       "specs": [
         {
@@ -515,12 +526,46 @@
           "gates_failed": [],
           "dispatched_at": null,
           "merged_at": null
+=======
+      "specs": [
+        {
+          "name": "add-elevenlabs-credential",
+          "task_count": 18,
+          "file_paths": [
+            "packages/db/src/schema/elevenlabsCredentials.ts",
+            "packages/db/src/schema/index.ts",
+            "packages/db/migrations/",
+            "apps/agent/src/routes/elevenlabs-credentials.ts",
+            "apps/agent/src/routes/elevenlabs-voices.ts",
+            "apps/agent/src/routes/elevenlabs-builder.ts",
+            "apps/agent/src/server-request-handler.ts",
+            "apps/agent/src/notifications/channels/tts.ts",
+            "packages/core/src/schemas/elevenlabs.ts",
+            "apps/nextjs/src/app/actions/elevenlabs-credentials.ts",
+            "apps/nextjs/src/app/integrations/elevenlabs/page.tsx",
+            "apps/nextjs/src/components/MaskedKeyInput.tsx",
+            "apps/nextjs/src/components/VoiceDropdown.tsx",
+            "apps/nextjs/src/components/TestConnectionPanel.tsx"
+          ]
+        },
+        {
+          "name": "add-tts-playback-queue",
+          "task_count": 11,
+          "file_paths": [
+            "deploy/nexus-notifier.sh",
+            "deploy/com.nexus.notifier.plist",
+            "deploy/com.nexus.tts-player.plist",
+            "deploy/hooks.d/post-merge/02-deploy",
+            "docs/testing/tts-queue-burst.md"
+          ]
+>>>>>>> Stashed changes
         }
       ]
     }
   ],
   "mega_batch_state": {
     "current_wave": 1,
+<<<<<<< Updated upstream
     "current_phase": null,
     "phases_completed": [],
     "task_results": {
@@ -555,4 +600,18 @@
     "phase_started_at": {},
     "phase_completed_at": {}
   }
+=======
+    "phases_completed": []
+  },
+  "completed_waves": [],
+  "decisions": [
+    {
+      "date": "2026-04-26",
+      "text": "Scope to 2 new specs (add-elevenlabs-credential, add-tts-playback-queue); defer 3 in-flight specs to separate run",
+      "rationale": "In-flight specs lack current session context and have partial completion; running them in same wave risks polluting state",
+      "source": "user"
+    }
+  ],
+  "pre_audit_sha": "d232cb1"
+>>>>>>> Stashed changes
 }

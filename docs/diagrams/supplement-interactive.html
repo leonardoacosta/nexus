@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stack Simulator — Neurochemical &amp; Pharmacokinetic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --font-serif:'PT Serif',Georgia,serif; --font-sans:'Work Sans',system-ui,sans-serif; --font-mono:'JetBrains Mono',Consolas,ui-monospace,monospace;
+  --bb-navy:#002855; --navy:#051630; --red:#ba2031; --gold:#886200; --gold-2:#c79a1e;
+  --surface:#EFF3F4; --paper:#fff; --ink:#333; --ink-2:#5d6b79; --ink-3:#8b97a4; --line:#d6dde2; --line-2:#c2ccd3; --link:#0058be;
+  --ok:#107C10; --warn:#886200; --fail:#ba2031; --info:#0058be;
+  --dopa:#0078d4; --caf:#c8500f; --sero:#9a5ba0; --gaba:#13608a; --found:#107C10;
+}
+*{box-shadow:none !important; box-sizing:border-box;}
+body{ margin:0; background:var(--surface); color:var(--ink); font-family:var(--font-sans); font-size:14px; line-height:1.5; }
+.sheet{ max-width:1280px; margin:0 auto; background:var(--paper); border:1px solid var(--line); min-height:100vh; }
+a{ color:var(--link); text-decoration:none; } a:hover{ text-decoration:underline; }
+h1,h2,h3{ font-family:var(--font-serif); color:var(--bb-navy); margin:0; }
+
+.head{ padding:26px 36px 20px; border-bottom:2px solid var(--bb-navy); }
+.kick{ font-family:var(--font-mono); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.18em; color:var(--red); }
+.head h1{ font-size:27px; margin:7px 0 4px; letter-spacing:-.01em; }
+.head .sub{ font-size:13px; color:var(--ink-2); max-width:80ch; }
+.head .back{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
+
+.toolbar{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:14px 36px; border-bottom:1px solid var(--line); background:#f6f9fa; }
+.seg{ display:inline-flex; border:1px solid var(--bb-navy); }
+.seg button{ font-family:var(--font-mono); font-size:12px; padding:7px 16px; border:0; background:var(--paper); color:var(--bb-navy); cursor:pointer; }
+.seg button.active{ background:var(--bb-navy); color:#fff; }
+.btn{ font-family:var(--font-mono); font-size:11px; padding:7px 13px; border:1px solid var(--line-2); background:var(--paper); color:var(--ink-2); cursor:pointer; }
+.btn:hover{ border-color:var(--bb-navy); color:var(--bb-navy); }
+.summary{ display:flex; gap:8px; margin-left:auto; flex-wrap:wrap; }
+.badge{ font-family:var(--font-mono); font-size:11px; font-weight:600; padding:4px 10px; border:1px solid; }
+.badge.major{ color:#fff; background:var(--red); border-color:var(--red); }
+.badge.mod{ color:var(--gold); background:#fbf3da; border-color:#e6d49a; }
+.badge.good{ color:var(--ok); background:#eef6ee; border-color:#bfe0bf; }
+
+.wrap{ display:grid; grid-template-columns:330px 1fr; gap:0; }
+.controls{ border-right:1px solid var(--line); padding:18px 20px; max-height:calc(100vh - 120px); overflow-y:auto; }
+.controls::-webkit-scrollbar{ width:5px; } .controls::-webkit-scrollbar-thumb{ background:var(--line-2); }
+.grp{ margin-bottom:18px; }
+.grp-h{ font-family:var(--font-mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.12em; padding-bottom:6px; margin-bottom:8px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:7px; }
+.grp-h .dot{ width:9px; height:9px; }
+.agent{ display:flex; align-items:center; gap:9px; padding:5px 0; border-bottom:1px solid #eef2f4; }
+.agent:last-child{ border-bottom:0; }
+.agent input[type=checkbox]{ width:15px; height:15px; accent-color:var(--bb-navy); cursor:pointer; flex-shrink:0; }
+.agent .nm{ font-size:12.5px; color:var(--navy-2); flex:1; min-width:0; }
+.agent .nm .cls{ font-family:var(--font-mono); font-size:8.5px; padding:1px 4px; border:1px solid var(--line-2); color:var(--ink-3); margin-left:5px; }
+.agent .nm .cls.rx{ color:var(--info); border-color:#bcd4ee; } .agent .nm .cls.chem{ color:var(--red); border-color:#e6bcc1; }
+.agent.off .nm{ color:var(--ink-3); }
+.times{ display:flex; gap:4px; flex-shrink:0; }
+.times input[type=time]{ font-family:var(--font-mono); font-size:10.5px; padding:2px 4px; border:1px solid var(--line); background:var(--paper); color:var(--navy-2); width:84px; }
+.note{ font-size:11px; color:var(--ink-3); margin-top:8px; line-height:1.5; }
+
+.stage{ padding:18px 24px 24px; min-width:0; }
+.chart-card{ border:1px solid var(--line); border-left:3px solid var(--red); padding:16px 16px 10px; }
+.chart-card .ct{ font-family:var(--font-serif); font-size:16px; color:var(--bb-navy); }
+.chart-card .cs{ font-size:12px; color:var(--ink-2); margin:3px 0 12px; }
+.chart-box{ position:relative; height:380px; }
+.legend-note{ font-family:var(--font-mono); font-size:10px; color:var(--ink-3); margin-top:10px; }
+
+.conf{ margin-top:18px; }
+.conf h3{ font-size:15px; margin-bottom:4px; }
+.conf .csub{ font-size:12px; color:var(--ink-2); margin-bottom:10px; }
+.conf-list{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.edge{ border:1px solid var(--line); border-left:3px solid var(--line-2); padding:9px 12px; min-width:0; }
+.edge.major{ border-left-color:var(--red); } .edge.mod{ border-left-color:var(--gold); } .edge.good{ border-left-color:var(--ok); } .edge.minor{ border-left-color:var(--ink-3); }
+.edge .pr{ font-weight:600; color:var(--bb-navy); font-size:13px; }
+.edge .sv{ font-family:var(--font-mono); font-size:9px; font-weight:600; padding:1px 6px; border:1px solid; margin-left:6px; }
+.edge.major .sv{ color:#fff; background:var(--red); border-color:var(--red); } .edge.mod .sv{ color:var(--gold); background:#fbf3da; border-color:#e6d49a; }
+.edge.good .sv{ color:var(--ok); background:#eef6ee; border-color:#bfe0bf; } .edge.minor .sv{ color:var(--ink-2); background:#eef2f4; border-color:var(--line-2); }
+.edge .mech{ font-size:11.5px; color:var(--ink-2); margin-top:4px; } .edge .rec{ font-size:11.5px; color:var(--ink); margin-top:3px; }
+.edge .rec b{ color:var(--bb-navy); }
+.conf-empty{ font-size:12.5px; color:var(--ink-3); padding:10px; border:1px dashed var(--line-2); }
+
+.foot{ background:var(--navy); color:#aeb9c6; padding:13px 36px; font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.1em; display:flex; justify-content:space-between; }
+.foot b{ color:#fff; }
+@media (max-width:900px){ .wrap{ grid-template-columns:1fr; } .controls{ max-height:none; border-right:0; border-bottom:1px solid var(--line); } .conf-list{ grid-template-columns:1fr; } .head,.toolbar,.foot{ padding-left:20px; padding-right:20px; } }
+@media (prefers-reduced-motion:reduce){ *{ animation:none !important; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="head">
+    <div class="kick">Interactive · Stack Simulator</div>
+    <h1>Neurochemical &amp; Pharmacokinetic Simulator</h1>
+    <p class="sub">Toggle any agent, drag its dose time, and watch both the neurochemical-load stack and the pharmacokinetic decay curves recompute from one shared kinetic model — while the interaction matrix lights up live conflicts. Coffee (AM + noon) included. 12-hour clock.</p>
+    <a class="back" href="./supplement-stack-dossier.html#s3">&larr; back to dossier · interaction matrix</a>
+  </header>
+
+  <div class="toolbar">
+    <div class="seg" id="modeSeg">
+      <button data-mode="neuro" class="active">Neurochemical load</button>
+      <button data-mode="pk">Pharmacokinetic</button>
+    </div>
+    <button class="btn" id="resetBtn">Reset to current stack</button>
+    <button class="btn" id="allOff">All off</button>
+    <div class="summary" id="summary"></div>
+  </div>
+
+  <div class="wrap">
+    <aside class="controls" id="controls"></aside>
+    <section class="stage">
+      <div class="chart-card">
+        <div class="ct" id="chartTitle">Neurochemical load by hour</div>
+        <div class="cs" id="chartSub">Stacked relative load · dose times marked · 12-hour axis</div>
+        <div class="chart-box"><canvas id="chart"></canvas></div>
+        <div class="legend-note" id="chartNote"></div>
+      </div>
+
+      <div class="conf">
+        <h3>Live interaction matrix</h3>
+        <div class="csub">Edges where both endpoints are currently enabled — recomputes as you toggle. Derived from &sect;03 of the dossier.</div>
+        <div class="conf-list" id="confList"></div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <div><b>Stack Simulator</b> · model is illustrative, not clinical</div>
+    <div>Personal Health Research · Confidential</div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  // ---------- canonical agent model ----------
+  // system: dopa | caf | sero | gaba ; weight = peak neuro-load contribution
+  var DEFAULTS = [
+    // STIMULANT / DOPAMINERGIC
+    {id:'lisdex', short:'LDX', label:'Lisdexamfetamine 40mg', cls:'rx',   sys:'dopa', doses:[7],     ka:0.7, thalf:12, weight:100, on:true},
+    {id:'semax',  short:'SMX', label:'Semax (intranasal)',    cls:'chem', sys:'dopa', doses:[8],     ka:1.5, thalf:2,  weight:20,  on:true},
+    {id:'9mebc',  short:'9BC', label:'9-Me-BC',               cls:'chem', sys:'dopa', doses:[8],     ka:1.0, thalf:8,  weight:30,  on:true},
+    {id:'tyrosine',short:'TYR',label:'L-Tyrosine',            cls:'otc',  sys:'dopa', doses:[8],     ka:1.2, thalf:2,  weight:25,  on:true},
+    // CAFFEINE
+    {id:'coffeeAM',  short:'CofAM',label:'Coffee (AM)',       cls:'otc',  sys:'caf',  doses:[8],     ka:2.0, thalf:5,  weight:35,  on:true},
+    {id:'coffeeNoon',short:'CofN',label:'Coffee (noon)',      cls:'otc',  sys:'caf',  doses:[12],    ka:2.0, thalf:5,  weight:35,  on:true},
+    // SEROTONERGIC
+    {id:'buspirone',  short:'BUS', label:'Buspirone 10mg (BID)',     cls:'rx',  sys:'sero', doses:[7,13], ka:2.0, thalf:2.5, weight:30, on:true},
+    {id:'tryptophan', short:'TRP', label:'L-Tryptophan (NOW)',       cls:'otc', sys:'sero', doses:[21],   ka:1.0, thalf:2,   weight:35, on:true},
+    {id:'htp5',       short:'5HTP',label:'5-HTP (Sakara Night)',     cls:'otc', sys:'sero', doses:[21.5], ka:1.5, thalf:2.5, weight:40, on:true},
+    {id:'tryptophan8',short:'TRP8',label:'L-Tryptophan (Eight Sleep)',cls:'otc',sys:'sero', doses:[21.5], ka:1.0, thalf:2,   weight:25, on:true},
+    // GABAERGIC / SEDATIVE
+    {id:'theanine',  short:'THE', label:'L-Theanine',          cls:'otc', sys:'gaba', doses:[10],   ka:1.5, thalf:1,  weight:20, on:true},
+    {id:'magnesium', short:'MAG', label:'Magnesium glycinate', cls:'otc', sys:'gaba', doses:[20.5], ka:1.5, thalf:4,  weight:25, on:true},
+    {id:'guanfacine',short:'GFC', label:'Guanfacine 1mg',      cls:'rx',  sys:'gaba', doses:[20.5], ka:0.8, thalf:17, weight:40, on:true},
+    {id:'hydroxyzine',short:'HYD',label:'Hydroxyzine 25mg PRN',cls:'rx',  sys:'gaba', doses:[22],   ka:1.2, thalf:16, weight:45, on:true},
+    {id:'sleepblend',short:'SLP', label:'Sleep blend (Deep Sleep)',cls:'otc',sys:'gaba',doses:[22], ka:1.2, thalf:4,  weight:30, on:true}
+  ];
+  var GROUPS = [
+    {key:'dopa', name:'Stimulant / Dopaminergic', color:'var(--dopa)'},
+    {key:'caf',  name:'Caffeine',                 color:'var(--caf)'},
+    {key:'sero', name:'Serotonergic',             color:'var(--sero)'},
+    {key:'gaba', name:'GABAergic / Sedative',     color:'var(--gaba)'}
+  ];
+  var SYSCOLOR = {dopa:'#0078d4', caf:'#c8500f', sero:'#9a5ba0', gaba:'#13608a'};
+  var SYSNAME  = {dopa:'Dopaminergic / adrenergic', caf:'Caffeine', sero:'Serotonergic', gaba:'GABAergic / sedative'};
+
+  var EDGES = [
+    {a:'9mebc',b:'lisdex',sev:'major',mech:'MAO inhibition + sympathomimetic amine',rec:'Do not co-dose without prescriber sign-off'},
+    {a:'htp5',b:'buspirone',sev:'major',mech:'5-HTP (serotonin precursor) + 5-HT1A agonist',rec:'Serotonin-syndrome consideration; pick one serotonergic'},
+    {a:'tryptophan',b:'buspirone',sev:'major',mech:'Tryptophan -> serotonin + 5-HT1A agonist',rec:'Cumulative serotonergic load'},
+    {a:'tryptophan8',b:'buspirone',sev:'major',mech:'Tryptophan + 5-HT1A agonist',rec:'Redundant serotonergic input'},
+    {a:'htp5',b:'tryptophan',sev:'mod',mech:'Two serotonin precursors together',rec:'Redundant; consolidate to one'},
+    {a:'htp5',b:'tryptophan8',sev:'mod',mech:'5-HTP + tryptophan',rec:'Redundant precursors'},
+    {a:'tyrosine',b:'lisdex',sev:'mod',mech:'Catecholamine precursor on a stimulant',rec:'CV load; reconsider tyrosine while on Vyvanse'},
+    {a:'9mebc',b:'tyrosine',sev:'mod',mech:'Dopaminergic stacking',rec:'Additive catecholamine load'},
+    {a:'coffeeAM',b:'lisdex',sev:'mod',mech:'Additive adrenergic / cardiovascular',rec:'Monitor HR/BP; space if jittery'},
+    {a:'coffeeNoon',b:'lisdex',sev:'mod',mech:'Additive adrenergic / cardiovascular',rec:'Monitor HR/BP'},
+    {a:'coffeeNoon',b:'sleepblend',sev:'mod',mech:'Noon caffeine (t1/2 ~5h) still ~25% active at bedtime',rec:'Opposes sleep stack; move the second cup earlier'},
+    {a:'coffeeNoon',b:'guanfacine',sev:'minor',mech:'Caffeine opposes sedation',rec:'Mild antagonism'},
+    {a:'hydroxyzine',b:'guanfacine',sev:'mod',mech:'Additive sedation + hypotension; hydroxyzine QT',rec:'Avoid same-night stacking'},
+    {a:'hydroxyzine',b:'sleepblend',sev:'mod',mech:'Additive sedation',rec:'Do not add PRN hydroxyzine to a sedating blend'},
+    {a:'guanfacine',b:'lisdex',sev:'good',mech:'Alpha-2A blunts stimulant HR/BP + comedown',rec:'Beneficial -- keep'},
+    {a:'magnesium',b:'guanfacine',sev:'minor',mech:'Additive mild hypotension',rec:'Usually fine'}
+  ];
+  var SEVRANK = {major:0, mod:1, good:2, minor:3};
+  var SEVLBL  = {major:'MAJOR', mod:'MODERATE', good:'BENEFICIAL', minor:'MINOR'};
+
+  // ---------- state ----------
+  var agents = clone(DEFAULTS);
+  var mode = 'neuro';
+  var chart = null;
+  var T0=5, T1=26, STEP=0.5;
+  var TS=[]; for(var t=T0;t<=T1+1e-9;t+=STEP) TS.push(+t.toFixed(2));
+
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function byId(id){ for(var i=0;i<agents.length;i++) if(agents[i].id===id) return agents[i]; return null; }
+  function fmt12(t){ t=((t%24)+24)%24; var h=Math.floor(t+1e-9); var half=Math.abs(t-h-0.5)<1e-6; var ap=h<12?'AM':'PM'; var hh=h%12; if(hh===0)hh=12; return hh+(half?':30':'')+' '+ap; }
+  function toTimeStr(h){ var H=Math.floor(h+1e-9), M=Math.round((h-H)*60); return (H<10?'0':'')+H+':'+(M<10?'0':'')+M; }
+  function parseTime(s){ var p=s.split(':'); return (+p[0])+(+p[1])/60; }
+  function bateman(t,td,ka,ke){ if(t<=td) return 0; var dt=t-td; return (ka/(ka-ke))*(Math.exp(-ke*dt)-Math.exp(-ka*dt)); }
+  function profileAt(a,t){ var ke=Math.LN2/a.thalf, v=0; for(var i=0;i<a.doses.length;i++) v+=bateman(t,a.doses[i],a.ka,ke); return v; }
+  function peakOf(a){ var mx=0; for(var i=0;i<TS.length;i++){ var v=profileAt(a,TS[i]); if(v>mx)mx=v; } return mx||1; }
+
+  // ---------- dose-line plugin ----------
+  var doseLines = {
+    id:'doseLines',
+    afterDatasetsDraw:function(c){
+      var xs=c.scales.x, ys=c.scales.y, ctx=c.ctx;
+      var marks=[];
+      agents.forEach(function(a){ if(!a.on) return; a.doses.forEach(function(d){ marks.push({t:d, sys:a.sys, lbl:a.short}); }); });
+      marks.sort(function(p,q){ return p.t-q.t; });
+      ctx.save();
+      marks.forEach(function(m,i){
+        var x=xs.getPixelForValue(m.t); if(x<xs.left-1||x>xs.right+1) return;
+        ctx.beginPath(); ctx.setLineDash([3,3]); ctx.lineWidth=1; ctx.strokeStyle=hexA(SYSCOLOR[m.sys],0.45);
+        ctx.moveTo(x,ys.top); ctx.lineTo(x,ys.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        var row=i%3, ly=ys.top+8+row*12;
+        ctx.font='9px '+"'JetBrains Mono',monospace"; ctx.fillStyle=SYSCOLOR[m.sys]; ctx.textAlign='left';
+        ctx.fillText(m.lbl+' '+fmt12(m.t), x+2, ly);
+      });
+      ctx.restore();
+    }
+  };
+  function hexA(h,a){ var n=parseInt(h.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+
+  // ---------- compute datasets ----------
+  function neuroData(){
+    var sets=[];
+    ['dopa','caf','sero','gaba'].forEach(function(sys){
+      var col=SYSCOLOR[sys];
+      var data=TS.map(function(t){
+        var sum=0;
+        agents.forEach(function(a){ if(a.on && a.sys===sys){ sum += a.weight * (profileAt(a,t)/peakOf(a)); } });
+        return {x:t, y:+sum.toFixed(2)};
+      });
+      sets.push({ label:SYSNAME[sys], data:data, borderColor:col, backgroundColor:hexA(col, sys==='caf'?0.32:0.30), fill:true, tension:0.4, pointRadius:0, borderWidth:2 });
+    });
+    return sets;
+  }
+  function pkData(){
+    var sets=[];
+    agents.forEach(function(a){
+      if(!a.on) return;
+      var pk=peakOf(a);
+      var data=TS.map(function(t){ return {x:t, y:+(profileAt(a,t)/pk*100).toFixed(1)}; });
+      var dash = a.cls==='chem' ? [2,2] : (a.cls==='rx' ? [] : [6,3]);
+      sets.push({ label:a.label, data:data, borderColor:SYSCOLOR[a.sys], backgroundColor:'transparent', tension:0.3, pointRadius:0, borderWidth:2, borderDash:dash });
+    });
+    return sets;
+  }
+
+  function renderChart(){
+    var ctx=document.getElementById('chart');
+    if(chart) chart.destroy();
+    var stacked = mode==='neuro';
+    chart=new Chart(ctx,{
+      type:'line',
+      data:{ datasets: stacked?neuroData():pkData() },
+      options:{
+        responsive:true, maintainAspectRatio:false, interaction:{mode:'nearest', axis:'x', intersect:false},
+        plugins:{
+          legend:{ labels:{ color:'#5d6b79', font:{family:"'Work Sans'",size:11}, boxWidth:14, usePointStyle:true } },
+          tooltip:{ backgroundColor:'#002855', titleFont:{family:"'Work Sans'"}, bodyFont:{family:"'JetBrains Mono'",size:10},
+            callbacks:{ title:function(it){ return fmt12(it[0].parsed.x); } } }
+        },
+        scales:{
+          x:{ type:'linear', min:T0, max:T1, ticks:{ color:'#8b97a4', stepSize:2, font:{family:"'JetBrains Mono'",size:9},
+                callback:function(v){ return (Math.abs(v-Math.round(v))<1e-6)? fmt12(v):''; } }, grid:{ color:'rgba(0,40,85,0.05)' } },
+          y:{ stacked:stacked, min:0, max:stacked?undefined:105, ticks:{ color:'#8b97a4', font:{family:"'JetBrains Mono'",size:9} },
+              grid:{ color:'rgba(0,40,85,0.05)' },
+              title:{ display:true, text: stacked?'relative load':'% of own peak', color:'#5d6b79', font:{family:"'Work Sans'",size:11} } }
+        }
+      },
+      plugins:[doseLines]
+    });
+    document.getElementById('chartTitle').textContent = stacked?'Neurochemical load by hour':'Pharmacokinetic active-window curves';
+    document.getElementById('chartSub').textContent = stacked
+      ? 'Stacked relative load by system · dose times marked · 12-hour axis'
+      : 'Bateman one-compartment model, normalized per agent · dose times marked · 12-hour axis';
+    document.getElementById('chartNote').textContent = stacked
+      ? 'Load = sum of each enabled agent’s weight × normalized kinetic profile, stacked by system. Dashed verticals mark dose times. Illustrative, not clinical.'
+      : 'Each curve normalized to its own peak (100). Solid = Rx, long-dash = OTC, fine-dash = research-chem. Dashed verticals mark dose times.';
+  }
+
+  // ---------- conflicts ----------
+  function renderConflicts(){
+    var active = EDGES.filter(function(e){ var A=byId(e.a),B=byId(e.b); return A&&B&&A.on&&B.on; });
+    active.sort(function(p,q){ return SEVRANK[p.sev]-SEVRANK[q.sev]; });
+    var counts={major:0,mod:0,good:0,minor:0}; active.forEach(function(e){ counts[e.sev]++; });
+    var sm=document.getElementById('summary');
+    sm.innerHTML='';
+    [['major','major'],['mod','moderate'],['good','beneficial']].forEach(function(p){
+      var b=document.createElement('span'); b.className='badge '+p[0]; b.textContent=counts[p[0]]+' '+p[1]; sm.appendChild(b);
+    });
+    var list=document.getElementById('confList'); list.innerHTML='';
+    if(!active.length){ list.innerHTML='<div class="conf-empty">No interactions among the currently-enabled agents.</div>'; return; }
+    active.forEach(function(e){
+      var A=byId(e.a),B=byId(e.b);
+      var d=document.createElement('div'); d.className='edge '+e.sev;
+      d.innerHTML='<div class="pr">'+A.label.replace(/\s*\(.*\)/,'')+' × '+B.label.replace(/\s*\(.*\)/,'')+'<span class="sv">'+SEVLBL[e.sev]+'</span></div>'+
+        '<div class="mech">'+e.mech+'</div><div class="rec"><b>→</b> '+e.rec+'</div>';
+      list.appendChild(d);
+    });
+  }
+
+  // ---------- controls ----------
+  function buildControls(){
+    var root=document.getElementById('controls'); root.innerHTML='';
+    GROUPS.forEach(function(g){
+      var box=document.createElement('div'); box.className='grp';
+      var h=document.createElement('div'); h.className='grp-h';
+      h.innerHTML='<span class="dot" style="background:'+g.color+'"></span>'+g.name;
+      box.appendChild(h);
+      agents.filter(function(a){return a.sys===g.key;}).forEach(function(a){
+        var row=document.createElement('div'); row.className='agent'+(a.on?'':' off');
+        var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=a.on;
+        cb.addEventListener('change',function(){ a.on=cb.checked; row.className='agent'+(a.on?'':' off'); update(); });
+        var nm=document.createElement('div'); nm.className='nm';
+        nm.innerHTML=a.label+'<span class="cls '+a.cls+'">'+a.cls.toUpperCase()+'</span>';
+        var tms=document.createElement('div'); tms.className='times';
+        a.doses.forEach(function(d,idx){
+          var inp=document.createElement('input'); inp.type='time'; inp.value=toTimeStr(d);
+          inp.addEventListener('change',function(){ a.doses[idx]=parseTime(inp.value); update(); });
+          tms.appendChild(inp);
+        });
+        row.appendChild(cb); row.appendChild(nm); row.appendChild(tms);
+        box.appendChild(row);
+      });
+      root.appendChild(box);
+    });
+    var note=document.createElement('div'); note.className='note';
+    note.innerHTML='Foundational items — Omega-3 + CoQ10, Creatine, L-Carnitine, NAD+ — and Dihexa are not plotted here: they have minimal acute neuro-PK profiles. Drag any time field to re-schedule a dose.';
+    root.appendChild(note);
+  }
+
+  function update(){ renderChart(); renderConflicts(); }
+
+  // ---------- wiring ----------
+  document.getElementById('modeSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return; mode=b.dataset.mode;
+    [].forEach.call(this.querySelectorAll('button'),function(x){ x.classList.toggle('active',x===b); });
+    renderChart();
+  });
+  document.getElementById('resetBtn').addEventListener('click',function(){ agents=clone(DEFAULTS); buildControls(); update(); });
+  document.getElementById('allOff').addEventListener('click',function(){ agents.forEach(function(a){a.on=false;}); buildControls(); update(); });
+
+  buildControls(); update();
+})();
+</script>
+</body>
+</html>

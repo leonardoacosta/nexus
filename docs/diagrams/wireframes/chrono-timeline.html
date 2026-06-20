@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Chrono-Timeline · Supplement Tracker Wireframe</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body><div class="wf-page">
+  <header class="wf-head"><div class="wf-kick">UI WIREFRAME · 01 OF 07</div><h1>Daily Chrono-Timeline</h1><p class="wf-sub">A 24-hour day rendered as dose bands per agent, colored by neurochemical system — the view that answers "what is my optimal take-window and where do mechanisms collide."</p><a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier · UI views</a></header>
+
+  <div class="wf-body">
+
+    <div class="wf-frame">
+      <div class="wf-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">tracker.app/timeline/today</span></div>
+      <div class="wf-screen">
+
+        <!-- top bar: date stepper + system filter chips -->
+        <div class="wf-row wrap" style="align-items:center; justify-content:space-between; margin-bottom:14px;">
+          <div class="wf-row" style="align-items:center; gap:8px;">
+            <span class="wf-btn ghost">&lt;</span>
+            <span class="wf-h">Thu Jun 19</span>
+            <span class="wf-btn ghost">&gt;</span>
+            <span class="wf-chip">Today</span>
+          </div>
+          <div class="wf-row wrap" style="gap:6px;">
+            <span class="wf-chip on"><span class="sw" style="background:var(--sys-dopa)"></span>Dopaminergic</span>
+            <span class="wf-chip on"><span class="sw" style="background:var(--sys-sero)"></span>Serotonergic</span>
+            <span class="wf-chip on"><span class="sw" style="background:var(--sys-gaba)"></span>GABAergic / Sedative</span>
+            <span class="wf-chip on"><span class="sw" style="background:var(--sys-caf)"></span>Caffeine</span>
+            <span class="wf-chip"><span class="sw" style="background:var(--sys-found)"></span>Foundational</span>
+          </div>
+        </div>
+
+        <!-- main: lanes + neuro-load on left, dose-detail popover on right -->
+        <div class="wf-row wrap">
+          <div class="flex1">
+
+            <!-- 12-hour time ruler -->
+            <div class="wf-ruler">
+              <span>6 AM</span><span>8</span><span>10</span><span>12 PM</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span><span>12 AM</span>
+            </div>
+
+            <!-- swimlanes (lane container is position:relative for the now-line) -->
+            <div style="position:relative;">
+
+              <!-- the "now" vertical line over all lanes (~2 PM => left 44.4%) -->
+              <div style="position:absolute; left:44.4%; top:0; bottom:18px; width:0; border-left:1px dashed var(--red); z-index:4;"></div>
+              <div class="wf-pin" style="left:44.4%; top:-4px; transform:translateX(-50%);">now</div>
+
+              <div class="wf-lane"><span class="lab">Lisdexamfetamine</span><span class="wf-band dopa" style="left:5.6%; width:77.8%;"></span></div>
+              <div class="wf-lane"><span class="lab">Coffee · AM</span><span class="wf-band caf" style="left:11.1%; width:27.8%;"></span></div>
+              <div class="wf-lane"><span class="lab">Coffee · Noon</span><span class="wf-band caf" style="left:33.3%; width:27.8%;"></span></div>
+              <div class="wf-lane"><span class="lab">Semax</span><span class="wf-band dopa" style="left:5.6%; width:6.5%;"></span></div>
+              <div class="wf-lane"><span class="lab">Buspirone</span><span class="wf-band sero" style="left:5.6%; width:3.5%;"></span><span class="wf-band sero" style="left:38.9%; width:3.5%;"></span></div>
+              <div class="wf-lane"><span class="lab">L-Theanine</span><span class="wf-band gaba" style="left:22.2%; width:11.1%;"></span></div>
+              <div class="wf-lane"><span class="lab">Guanfacine</span><span class="wf-band gaba" style="left:80.6%; width:19.4%;"></span></div>
+              <div class="wf-lane"><span class="lab">Magnesium</span><span class="wf-band gaba" style="left:72.2%; width:11.1%;"></span></div>
+              <div class="wf-lane"><span class="lab">Sleep blend</span><span class="wf-band gaba" style="left:88.9%; width:11.1%;"></span></div>
+              <div class="wf-lane"><span class="lab">L-Tryptophan</span><span class="wf-band sero" style="left:83.3%; width:11.1%;"></span></div>
+            </div>
+
+            <!-- neuro-load strip -->
+            <div class="wf-chart tagline" style="min-height:70px; margin-top:14px;" >
+              <span class="tagline">neuro-load by hour</span>
+              <svg viewBox="0 0 100 30" preserveAspectRatio="none">
+                <polyline points="0,26 6,20 11,9 17,6 22,11 28,18 33,14 39,10 44,13 50,19 56,23 61,21 67,17 72,12 78,9 83,7 89,12 95,20 100,25"
+                  fill="none" stroke="var(--bb-navy)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+              </svg>
+              <div class="wf-axisx"><span>6 AM</span><span>10</span><span>2 PM</span><span>6</span><span>10</span><span>12 AM</span></div>
+            </div>
+            <div class="wf-txt" style="margin-top:6px;">AM dopaminergic + caffeine hump peaks ~10:30 AM · PM sedative hump builds after 8 PM toward bedtime.</div>
+
+          </div>
+
+          <!-- dose-detail popover -->
+          <div class="sidebar">
+            <div class="wf-panel dopa">
+              <span class="wf-lab">DOSE DETAIL · <span class="n">tapped band</span></span>
+              <div class="wf-h">Lisdexamfetamine</div>
+              <div class="wf-mono" style="margin-bottom:8px;">40 mg · 7:00 AM</div>
+              <span class="wf-pill rx">Rx</span>
+              <div class="wf-lines" style="margin:12px 0;">
+                <i class="l"></i><i class="m"></i><i class="s"></i>
+              </div>
+              <div class="wf-txt" style="line-height:1.7;">
+                Peak &nbsp;&nbsp;~10:30 AM<br>
+                Duration &nbsp;~13 h<br>
+                With food &nbsp;optional
+              </div>
+              <div style="margin-top:12px;"><span class="wf-chip"><i class="ph ph-pencil-simple"></i>Edit time</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- annotations -->
+    <ul class="wf-notes">
+      <li><span class="wf-anno">1</span><span class="nt">DOSE BAND</span>Each horizontal band is an agent's active / effect window — not the moment swallowed. Lisdexamfetamine's band spans 7 AM&rarr;9 PM because that's how long it's working, so overlaps read as live mechanism, not pill count.</li>
+      <li><span class="wf-anno">2</span><span class="nt">BAND COLOR = SYSTEM</span>Color encodes the neurochemical system: blue = dopaminergic (Lisdex, Semax), violet = serotonergic (Buspirone, L-Tryptophan), teal = GABAergic / sedative (Guanfacine, Magnesium, Sleep blend, L-Theanine), orange = caffeine.</li>
+      <li><span class="wf-anno">3</span><span class="nt">AM CLUSTER</span>The top-left of the grid is a dense blue + orange wash: Lisdex, Semax, and both coffees stack into one dopaminergic / stimulant ramp — the "go" block of the day, visible without reading a single label.</li>
+      <li><span class="wf-anno">4</span><span class="nt">PM CLUSTER</span>The bottom-right is all teal + violet: Guanfacine, Magnesium, L-Tryptophan, Sleep blend collapse into the evening wind-down — the at-a-glance proof the sedative load lands after the stimulant load clears.</li>
+      <li><span class="wf-anno">5</span><span class="nt">COLLISION READ</span>Where a blue band still overlaps a teal band (e.g. Lisdex tail vs Guanfacine onset ~8:30 PM) the user sees a stimulant-vs-sedative overlap window — the exact tension this view exists to surface.</li>
+      <li><span class="wf-anno">6</span><span class="nt">FILTER CHIPS</span>The system chips toggle whole color families on/off. Muting Caffeine drops both coffee lanes; muting GABAergic isolates the daytime stimulant story. "Foundational" ships off by default to cut noise.</li>
+      <li><span class="wf-anno">7</span><span class="nt">NOW-LINE</span>A faint dashed red vertical at the current clock time (~2 PM) crosses every lane, so "what is active right now" is whichever bands the line passes through — here: Lisdex, Coffee Noon, Buspirone PM.</li>
+      <li><span class="wf-anno">8</span><span class="nt">TAP TO EDIT</span>Tapping any band opens the dose-detail popover (right). It shows dose, take-time, computed peak + duration, and an Edit-time chip that lets the user slide the actual swallow time and re-render the band.</li>
+      <li><span class="wf-anno">9</span><span class="nt">NEURO-LOAD STRIP</span>The strip under the lanes sums active bands per hour into a single curve — two humps: an AM stimulant peak ~10:30 AM and a PM sedative rise after 8 PM, the day's overall pharmacological intensity.</li>
+      <li><span class="wf-anno">10</span><span class="nt">SPLIT-DOSE LANES</span>Agents taken twice get two bands on one lane (Buspirone 7 AM + 1 PM; Coffee split into AM and Noon lanes) so a divided regimen still reads as one row, not two unrelated entries.</li>
+      <li><span class="wf-anno">11</span><span class="nt">12-HOUR CLOCK</span>The ruler and all times use a 12-hour clock with AM/PM (6 AM &rarr; 12 AM), matching how the user actually thinks about morning meds vs bedtime stack — no 24-hour military times anywhere.</li>
+      <li><span class="wf-anno">12</span><span class="nt">DATE STEPPER</span>The &lt; Thu Jun 19 &gt; stepper walks day-by-day; each day re-lays the same lanes against the same ruler, so week-over-week timing drift (later coffee, earlier Guanfacine) is spottable by flipping dates.</li>
+    </ul>
+
+  </div>
+
+  <nav class="wf-nav"><span class="lbl">UI views</span>
+    <a href="./chrono-timeline.html" class="cur">Chrono-timeline</a>
+    <a href="./neuro-load.html">Neuro-load</a>
+    <a href="./interaction-heatmap.html">Interaction heatmap</a>
+    <a href="./substance-dossier.html">Substance dossier</a>
+    <a href="./effect-correlation.html">Effect correlation</a>
+    <a href="./redundancy.html">Redundancy</a>
+    <a href="./regimen-gantt.html">Regimen Gantt</a>
+  </nav>
+  <footer class="wf-foot"><span><b>Supplement Tracker</b> · UI wireframe</span><span>Low-fidelity · not final UI</span></footer>
+</div></body>
+</html>

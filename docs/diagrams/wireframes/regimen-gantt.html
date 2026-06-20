@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regimen Timeline (Gantt) · UI Wireframe</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body><div class="wf-page">
+  <header class="wf-head">
+    <div class="wf-kick">UI WIREFRAME · 07 OF 07</div>
+    <h1>Regimen Timeline (Gantt)</h1>
+    <p class="wf-sub">Each regimen item's active / paused / prescribed history over months — the "I've taken this on and off" record.</p>
+    <a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier · UI views</a>
+  </header>
+
+  <div class="wf-body">
+
+    <div class="wf-frame">
+      <div class="wf-chrome">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">tracker.app/regimen</span>
+      </div>
+      <div class="wf-screen">
+
+        <!-- legend + controls -->
+        <div class="wf-row wrap" style="align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+          <div class="wf-row wrap" style="gap:6px; align-items:center;">
+            <span class="wf-chip on">Active</span>
+            <span class="wf-chip"><span class="sw" style="background:var(--info)"></span>Prescribed (Rx)</span>
+            <span class="wf-chip"><span class="sw" style="background:var(--ink-3)"></span>Paused</span>
+            <span class="wf-chip"><span class="sw" style="background:var(--red)"></span>Research-chem</span>
+          </div>
+          <div class="wf-row" style="gap:6px; align-items:center;">
+            <span class="wf-btn ghost">Jan – Jun 2026 &#9662;</span>
+            <span class="wf-btn primary">+ Add item</span>
+          </div>
+        </div>
+
+        <!-- month header: 150px spacer + 6 spread labels -->
+        <div style="display:grid; grid-template-columns:150px 1fr; gap:10px; margin-bottom:6px;">
+          <span></span>
+          <div class="wf-row" style="justify-content:space-between;">
+            <span class="wf-mono">Jan</span>
+            <span class="wf-mono">Feb</span>
+            <span class="wf-mono">Mar</span>
+            <span class="wf-mono">Apr</span>
+            <span class="wf-mono">May</span>
+            <span class="wf-mono">Jun</span>
+          </div>
+        </div>
+
+        <!-- gantt + today line overlay -->
+        <div style="position:relative;">
+          <!-- today vertical line, offset by the 150px+10px gutter, at ~95% of track span -->
+          <div style="position:absolute; top:0; bottom:0; left:calc(160px + (100% - 160px) * 0.95); width:0; border-left:2px dashed var(--red); opacity:.55; z-index:4;"></div>
+          <span class="wf-pin" style="left:calc(160px + (100% - 160px) * 0.95); top:-2px; transform:translateX(-50%); width:auto; height:auto; border-radius:0; padding:1px 5px; font-size:8.5px; z-index:6;">today</span>
+
+          <!-- Lisdexamfetamine -->
+          <div class="wf-gantt-row">
+            <span class="nm">Lisdexamfetamine 40mg <span class="wf-pill rx">RX</span></span>
+            <div class="wf-track"><div class="wf-gbar rx" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- Buspirone -->
+          <div class="wf-gantt-row">
+            <span class="nm">Buspirone 10mg <span class="wf-pill rx">RX</span></span>
+            <div class="wf-track"><div class="wf-gbar rx" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- Hydroxyzine PRN -->
+          <div class="wf-gantt-row">
+            <span class="nm">Hydroxyzine 25mg PRN <span class="wf-pill rx">RX</span></span>
+            <div class="wf-track">
+              <div class="wf-gbar rx" style="left:0%; width:25%"></div>
+              <div class="wf-gbar rx" style="left:50%; width:30%"></div>
+            </div>
+          </div>
+          <!-- Guanfacine -->
+          <div class="wf-gantt-row">
+            <span class="nm">Guanfacine 1mg <span class="wf-pill rx">RX</span></span>
+            <div class="wf-track"><div class="wf-gbar rx" style="left:33%; width:67%"></div></div>
+          </div>
+          <!-- L-Tyrosine -->
+          <div class="wf-gantt-row">
+            <span class="nm">L-Tyrosine <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track">
+              <div class="wf-gbar" style="left:0%; width:30%"></div>
+              <div class="wf-gbar" style="left:66%; width:34%"></div>
+            </div>
+          </div>
+          <!-- L-Theanine -->
+          <div class="wf-gantt-row">
+            <span class="nm">L-Theanine <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track"><div class="wf-gbar" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- Creatine -->
+          <div class="wf-gantt-row">
+            <span class="nm">Creatine <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track"><div class="wf-gbar" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- L-Carnitine Tartrate -->
+          <div class="wf-gantt-row">
+            <span class="nm">L-Carnitine Tartrate <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track"><div class="wf-gbar" style="left:50%; width:50%"></div></div>
+          </div>
+          <!-- Omega-3 + CoQ10 -->
+          <div class="wf-gantt-row">
+            <span class="nm">Omega-3 + CoQ10 <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track"><div class="wf-gbar" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- Magnesium Glycinate -->
+          <div class="wf-gantt-row">
+            <span class="nm">Magnesium Glycinate <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track"><div class="wf-gbar" style="left:0%; width:100%"></div></div>
+          </div>
+          <!-- 9-Me-BC -->
+          <div class="wf-gantt-row">
+            <span class="nm">9-Me-BC <span class="wf-pill chem">CHEM</span></span>
+            <div class="wf-track"><div class="wf-gbar chem" style="left:16%; width:18%"></div></div>
+          </div>
+          <!-- Semax / Selank -->
+          <div class="wf-gantt-row">
+            <span class="nm">Semax / Selank <span class="wf-pill chem">CHEM</span></span>
+            <div class="wf-track"><div class="wf-gbar chem" style="left:50%; width:50%"></div></div>
+          </div>
+          <!-- Sleep blend (rotating) -->
+          <div class="wf-gantt-row">
+            <span class="nm">Sleep blend (rotating) <span class="wf-pill otc">OTC</span></span>
+            <div class="wf-track">
+              <div class="wf-gbar" style="left:0%; width:45%"></div>
+              <div class="wf-gbar" style="left:55%; width:45%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- side note -->
+        <div class="wf-panel accent" style="margin-top:16px;">
+          <span class="wf-lab">EDIT AFFORDANCE</span>
+          <span class="wf-txt">Tap a bar to edit start/end, mark paused, or log why you stopped.</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- annotations -->
+    <ul class="wf-notes">
+      <li><span class="wf-anno">1</span><span class="nt">GANTT ROW</span>Each row is one <span class="wf-mono">regimen_item</span> with its status plotted over time — the long-term "what was I on, and when" record.</li>
+      <li><span class="wf-anno">2</span><span class="nt">BAR / TRACK</span>A filled bar spans the months the item was active; the 6-month window maps to 0–100% of the track width.</li>
+      <li><span class="wf-anno">3</span><span class="nt">GAP = PAUSED</span>Gaps between bars on one row are paused stretches — the on/off history (L-Tyrosine, Hydroxyzine PRN, Sleep blend).</li>
+      <li><span class="wf-anno">4</span><span class="nt">COLOR = CLASS</span>Bar color encodes the item class: blue Rx, green OTC, red research-chem — same pill taxonomy as the dossier.</li>
+      <li><span class="wf-anno">5</span><span class="nt">RX = CONTINUOUS</span>Prescribed items (Lisdexamfetamine, Buspirone) run end-to-end; clinician-managed, not self-cycled.</li>
+      <li><span class="wf-anno">6</span><span class="nt">RX = STARTED MID</span>A bar starting partway in (Guanfacine, Mar) marks an Rx added during the window, not the start of tracking.</li>
+      <li><span class="wf-anno">7</span><span class="nt">CHEM TRIAL</span>Research-chems show as short red bars (9-Me-BC, a brief Feb–Mar trial) — quick experiments, then stopped.</li>
+      <li><span class="wf-anno">8</span><span class="nt">TODAY LINE</span>The dashed vertical near Jun marks today; bars touching it are still active, everything left of a bar's end is history.</li>
+      <li><span class="wf-anno">9</span><span class="nt">ADD / EDIT</span>"+ Add item" opens a new row; tapping any bar edits its start/end, marks it paused, or logs a stop reason.</li>
+      <li><span class="wf-anno">10</span><span class="nt">RANGE PICKER</span>The "Jan – Jun 2026" control reframes the whole chart to a different window without losing item history.</li>
+      <li><span class="wf-anno">11</span><span class="nt">COMPANION VIEW</span>This is the long-term counterpart to the daily chrono-timeline — months of regimen history, not a single day's doses.</li>
+    </ul>
+
+  </div>
+
+  <nav class="wf-nav"><span class="lbl">UI views</span>
+    <a href="./chrono-timeline.html">Chrono-timeline</a><a href="./neuro-load.html">Neuro-load</a><a href="./interaction-heatmap.html">Interaction heatmap</a><a href="./substance-dossier.html">Substance dossier</a><a href="./effect-correlation.html">Effect correlation</a><a href="./redundancy.html">Redundancy</a><a href="./regimen-gantt.html" class="cur">Regimen Gantt</a>
+  </nav>
+  <footer class="wf-foot"><span><b>Supplement Tracker</b> · UI wireframe</span><span>Low-fidelity · not final UI</span></footer>
+</div></body>
+</html>

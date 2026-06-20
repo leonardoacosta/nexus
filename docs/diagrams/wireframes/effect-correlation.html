@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Effect Over Time / Correlation — UI Wireframe 05/07</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+<div class="wf-page">
+
+  <header class="wf-head">
+    <div class="wf-kick">UI WIREFRAME · 05 OF 07</div>
+    <h1>Effect Over Time / Correlation</h1>
+    <p class="wf-sub">Overlay a subjective or objective metric against dose events on a timeline &mdash; separating immediate (within ~5 half-lives) from cumulative effects.</p>
+    <a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier &middot; section 7</a>
+  </header>
+
+  <div class="wf-body">
+    <div class="wf-frame">
+      <div class="wf-chrome">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">tracker.app/effects</span>
+      </div>
+      <div class="wf-screen">
+
+        <!-- controls row -->
+        <div class="wf-panel">
+          <span class="wf-lab">Controls <span class="n">— metric &middot; lag &middot; range</span></span>
+          <div class="wf-row wrap" style="align-items:center; gap:10px;">
+            <span class="wf-btn ghost">Metric: Focus rating &#9662;</span>
+            <span class="wf-seg">
+              <span class="active">Acute (&le;5 t&frac12;)</span>
+              <span>Cumulative</span>
+            </span>
+            <span class="wf-btn ghost">Last 14 days &#9662;</span>
+          </div>
+        </div>
+
+        <div class="wf-row" style="margin-top:12px;">
+          <!-- left: chart + readout -->
+          <div class="wf-col flex1">
+
+            <!-- dual-axis time chart -->
+            <div class="wf-chart" style="min-height:300px;">
+              <span class="tagline">Focus rating (line) vs dose events (pins) &middot; 12-hour axis</span>
+
+              <!-- numbered pins keyed to the readout / notes -->
+              <span class="wf-pin" style="left:39%; top:20%;">1</span>
+              <span class="wf-pin" style="left:13%; top:74%;">4</span>
+
+              <svg viewBox="0 0 720 260" preserveAspectRatio="none" aria-label="Faux dual-axis chart: subjective focus line over dose-event pins">
+                <!-- subjective focus line: 0-10 scale, low at dawn, rises ~3.5h after AM dose, peaks midday, decays by evening -->
+                <path fill="none" stroke="rgba(186,32,49,.85)" stroke-width="2.5"
+                  d="M0,222
+                     C40,220 70,218 95,214
+                     C120,210 135,206 150,196
+                     C175,178 195,120 235,86
+                     C265,60 290,52 320,54
+                     C355,56 380,74 410,104
+                     C445,138 470,168 505,184
+                     C545,202 590,212 640,220
+                     C675,226 700,230 720,232"/>
+                <!-- soft fill under the line to read as area -->
+                <path fill="rgba(186,32,49,.08)" stroke="none"
+                  d="M0,222
+                     C40,220 70,218 95,214
+                     C120,210 135,206 150,196
+                     C175,178 195,120 235,86
+                     C265,60 290,52 320,54
+                     C355,56 380,74 410,104
+                     C445,138 470,168 505,184
+                     C545,202 590,212 640,220
+                     C675,226 700,230 720,232
+                     L720,260 L0,260 Z"/>
+                <!-- dose-event pin markers along the bottom -->
+                <!-- Vyvanse 7A (~9% x) -->
+                <line x1="65" y1="244" x2="65" y2="234" stroke="rgba(0,40,85,.7)" stroke-width="1.5"/>
+                <rect x="60" y="226" width="10" height="10" fill="#002855"/>
+                <!-- Coffee 8A (~16% x) -->
+                <line x1="115" y1="244" x2="115" y2="234" stroke="rgba(0,40,85,.7)" stroke-width="1.5"/>
+                <rect x="110" y="226" width="10" height="10" fill="#002855"/>
+                <!-- Coffee 12P (~50% x) -->
+                <line x1="360" y1="244" x2="360" y2="234" stroke="rgba(0,40,85,.7)" stroke-width="1.5"/>
+                <rect x="355" y="226" width="10" height="10" fill="#002855"/>
+              </svg>
+
+              <!-- dose pin labels along the bottom -->
+              <span class="wf-pin" style="left:6%; bottom:30px; background:#002855;">Rx</span>
+              <span class="wf-mono" style="position:absolute; left:3%; bottom:14px; font-size:8px; color:var(--ink-3);">Vyvanse 7A</span>
+              <span class="wf-mono" style="position:absolute; left:13%; bottom:14px; font-size:8px; color:var(--ink-3);">Coffee 8A</span>
+              <span class="wf-mono" style="position:absolute; left:47%; bottom:14px; font-size:8px; color:var(--ink-3);">Coffee 12P</span>
+
+              <div class="wf-axisx">
+                <span>6A</span><span>9</span><span>12P</span><span>3</span><span>6</span><span>9</span><span>12A</span>
+              </div>
+            </div>
+
+            <!-- correlation readout -->
+            <div class="wf-panel accent">
+              <span class="wf-lab">Correlation readout <span class="n">— acute window</span></span>
+              <div class="wf-row" style="align-items:baseline; gap:14px;">
+                <span class="wf-mono" style="font-size:34px; color:var(--bb-navy); font-weight:600;">r = 0.62</span>
+                <div class="wf-col" style="gap:2px;">
+                  <span class="wf-txt" style="font-size:12px;">Focus vs Lisdexamfetamine (3.5 h lag)</span>
+                  <span class="wf-txt" style="font-size:11px; color:var(--ink-3);">Focus peaks ~3.5 h after the AM dose &mdash; matches the PK Tmax.</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- right: swappable metric list -->
+          <div class="sidebar">
+            <div class="wf-panel">
+              <span class="wf-lab">Metric <span class="n">— tap to overlay</span></span>
+              <div class="wf-col" style="gap:7px;">
+                <span class="wf-chip on"><span class="sw" style="background:#ba2031;"></span> Focus</span>
+                <span class="wf-chip"><span class="sw" style="background:#9a5ba0;"></span> Anxiety</span>
+                <span class="wf-chip"><span class="sw" style="background:#13608a;"></span> Sleep quality</span>
+                <span class="wf-chip"><span class="sw" style="background:#c8500f;"></span> Resting HR</span>
+                <span class="wf-chip"><span class="sw" style="background:#107C10;"></span> HRV</span>
+              </div>
+              <span class="wf-txt" style="font-size:10.5px; color:var(--ink-3); display:block; margin-top:10px;">Objective metrics from Eight Sleep / wearable; subjective from <span class="wf-mono" style="font-size:9.5px;">effect_log</span>.</span>
+            </div>
+
+            <div class="wf-panel flag">
+              <span class="wf-lab">Lag window</span>
+              <div class="wf-row" style="align-items:center; gap:6px;">
+                <span class="wf-sev good">ACUTE</span>
+                <span class="wf-txt" style="font-size:11px;">scopes doses by half_life</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- annotations -->
+        <ul class="wf-notes">
+          <li><span class="wf-anno">1</span><span class="nt">PIN 1 — effect peak after dose</span>The red line peaks ~3.5 h after the morning Vyvanse pin &mdash; the visual overlay of <span class="wf-mono" style="font-size:9.5px;">effect_log</span> ratings on top of <span class="wf-mono" style="font-size:9.5px;">dose_event</span> markers is the whole point of the screen.</li>
+          <li><span class="wf-anno">2</span><span class="nt">acute vs cumulative toggle</span>The .wf-seg lag toggle pivots on each substance's <span class="wf-mono" style="font-size:9.5px;">half_life</span>: Acute scopes the correlation to within ~5 t&frac12; of a dose; Cumulative looks at multi-day trend instead.</li>
+          <li><span class="wf-anno">3</span><span class="nt">metric picker</span>The "Metric: Focus rating" dropdown swaps which series overlays the dose timeline &mdash; one control, many metrics.</li>
+          <li><span class="wf-anno">4</span><span class="nt">PIN 4 — dose pins</span>Each navy pin on the baseline is a logged <span class="wf-mono" style="font-size:9.5px;">dose_event</span> (Vyvanse 7A, Coffee 8A, Coffee 12P) &mdash; the events the metric is correlated against.</li>
+          <li><span class="wf-anno">5</span><span class="nt">correlation readout</span>The accent panel surfaces a single Pearson <span class="wf-mono" style="font-size:9.5px;">r = 0.62</span> for the selected metric vs the active substance at the chosen lag.</li>
+          <li><span class="wf-anno">6</span><span class="nt">lag scopes which doses count</span>The lag window decides which dose events fall inside the correlation: at the 3.5 h acute lag only the AM Vyvanse is in-window; the noon coffee is excluded from this r.</li>
+          <li><span class="wf-anno">7</span><span class="nt">subjective + objective sources</span>Focus / Anxiety / Sleep quality are subjective <span class="wf-mono" style="font-size:9.5px;">effect_log</span> entries; Resting HR / HRV are objective pulls from Eight Sleep / a wearable &mdash; both plot identically.</li>
+          <li><span class="wf-anno">8</span><span class="nt">insight generation</span>The one-liner ("Focus peaks ~3.5 h after the AM dose &mdash; matches the PK Tmax") is generated by comparing the observed lag-to-peak against the substance's known pharmacokinetic Tmax.</li>
+          <li><span class="wf-anno">9</span><span class="nt">lag = PK Tmax match</span>A correlation lag that lines up with the substance's Tmax is the strongest signal the effect is causal rather than coincidental &mdash; that match is what earns the ACUTE good flag.</li>
+          <li><span class="wf-anno">10</span><span class="nt">12-hour axis</span>The x-axis is a 12-hour clock (6A &rarr; 12A) so dose pins and effect ratings land where they were actually logged across the day.</li>
+        </ul>
+
+      </div>
+    </div>
+  </div>
+
+  <nav class="wf-nav">
+    <span class="lbl">Wireframes</span>
+    <a href="./chrono-timeline.html">chrono-timeline</a>
+    <a href="./neuro-load.html">neuro-load</a>
+    <a href="./interaction-heatmap.html">interaction-heatmap</a>
+    <a href="./substance-dossier.html">substance-dossier</a>
+    <a href="./effect-correlation.html" class="cur">effect-correlation</a>
+    <a href="./redundancy.html">redundancy</a>
+    <a href="./regimen-gantt.html">regimen-gantt</a>
+  </nav>
+
+  <footer class="wf-foot">
+    <span>EFFECT CORRELATION &middot; <b>05 / 07</b></span>
+    <span>SUPPLEMENT STACK DOSSIER &middot; LOW-FIDELITY WIREFRAME</span>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supplement &amp; Medication Stack — Pharmacology &amp; Chrono-Timing Dossier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --font-serif:'PT Serif',Georgia,serif;
+  --font-sans:'Work Sans',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Code',Consolas,ui-monospace,monospace;
+  --bb-navy:#002855; --navy:#051630; --navy-2:#052147;
+  --red:#ba2031; --gold:#886200; --gold-2:#c79a1e;
+  --surface:#EFF3F4; --paper:#ffffff;
+  --ink:#333333; --ink-2:#5d6b79; --ink-3:#8b97a4;
+  --line:#d6dde2; --line-2:#c2ccd3; --link:#0058be;
+  --ok:#107C10; --warn:#886200; --fail:#ba2031; --info:#0058be;
+  /* diagram/system accents */
+  --sys-dopa:#0078d4;      /* dopaminergic / adrenergic */
+  --sys-sero:#9a5ba0;      /* serotonergic */
+  --sys-gaba:#13608a;      /* GABAergic / sedative */
+  --sys-found:#107C10;     /* foundational */
+}
+*{box-shadow:none !important;}
+*,*::before,*::after{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; background:var(--surface); color:var(--ink);
+  font-family:var(--font-sans); font-size:14px; line-height:1.55;
+  overflow-wrap:break-word; text-wrap:pretty;
+}
+.sheet{ max-width:1180px; margin:0 auto; background:var(--paper); border:1px solid var(--line); }
+a{color:var(--link); text-decoration:none;} a:hover{text-decoration:underline;}
+h1,h2,h3{font-family:var(--font-serif); color:var(--bb-navy); margin:0;}
+code{font-family:var(--font-mono); font-size:.86em; background:#f1f5f7; color:var(--navy-2); padding:1px 5px; border:1px solid var(--line);}
+
+/* ---------- cover ---------- */
+.cover{ padding:72px 64px 0; display:flex; flex-direction:column; min-height:520px; }
+.kicker{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.28em; color:var(--red); }
+.rule{ width:64px; height:2px; background:var(--red); margin:18px 0 26px; }
+.cover h1{ font-size:42px; font-weight:700; line-height:1.05; letter-spacing:-.01em; max-width:18ch; }
+.cover .sub{ font-family:var(--font-serif); font-size:19px; color:var(--ink-2); margin-top:14px; max-width:60ch; }
+.meta{ margin-top:46px; display:grid; grid-template-columns:repeat(4,1fr); gap:0; border-top:1px solid var(--line); }
+.meta div{ padding:14px 16px 0 0; }
+.meta .k{ font-size:9.5px; text-transform:uppercase; letter-spacing:.16em; color:var(--ink-3); }
+.meta .v{ font-family:var(--font-serif); font-size:14px; color:var(--bb-navy); margin-top:3px; }
+.meta .v.draft{ color:var(--red); }
+.cover-band{ margin:40px -64px 0; background:var(--navy); color:#fff; padding:18px 64px;
+  display:flex; align-items:center; justify-content:space-between; }
+.cover-band .endorse{ font-size:12.5px; color:#9fb0c2; }
+.cover-band .endorse b{ color:#fff; font-weight:600; }
+.emblem{ display:flex; align-items:center; gap:10px; }
+.emblem .sq{ width:14px; height:14px; background:var(--red); }
+.emblem .sq.n{ background:#1c3a63; }
+.emblem .sq.g{ background:var(--gold-2); }
+
+/* ---------- layout ---------- */
+.wrap{ display:grid; grid-template-columns:188px 1fr; gap:0 36px; padding:0 64px 48px; }
+.main{ min-width:0; padding-top:28px; }
+.toc{ position:sticky; top:18px; align-self:start; grid-row:1/-1; padding:28px 0 0; max-height:calc(100dvh - 36px); overflow-y:auto; }
+.toc::-webkit-scrollbar{ width:3px; } .toc::-webkit-scrollbar-thumb{ background:var(--line-2); }
+.toc-title{ font-family:var(--font-mono); font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.2em;
+  color:var(--ink-3); padding-bottom:10px; margin-bottom:8px; border-bottom:2px solid var(--bb-navy); }
+.toc a{ display:flex; gap:8px; font-size:12px; color:var(--ink-2); padding:5px 6px; border-left:2px solid transparent; line-height:1.3; }
+.toc a .tn{ font-family:var(--font-mono); color:var(--red); font-weight:600; font-size:11px; min-width:18px; }
+.toc a:hover{ color:var(--ink); background:#f1f5f7; text-decoration:none; }
+.toc a.active{ color:var(--bb-navy); border-left-color:var(--red); background:#f1f5f7; }
+
+/* ---------- sections ---------- */
+.sec{ margin:0 0 14px; padding-top:18px; scroll-margin-top:18px; }
+.sec-kick{ font-family:var(--font-mono); font-size:11px; font-weight:600; color:var(--red); letter-spacing:.04em; }
+.sec h2{ font-size:25px; letter-spacing:-.01em; margin:4px 0 6px; }
+.sec-sub{ color:var(--ink-2); font-size:13.5px; margin:0 0 18px; max-width:74ch; }
+h3.blk{ font-size:16px; margin:24px 0 10px; padding-left:10px; border-left:3px solid var(--bb-navy); }
+
+/* ---------- callouts ---------- */
+.callouts{ display:flex; flex-direction:column; gap:8px; margin:14px 0; }
+.callout{ display:flex; gap:11px; padding:11px 14px; background:var(--paper); border:1px solid var(--line);
+  border-left-width:3px; }
+.callout i{ font-size:18px; line-height:1.4; flex-shrink:0; }
+.callout .c-body{ font-size:13px; min-width:0; }
+.callout .c-title{ display:block; font-weight:600; color:var(--bb-navy); margin-bottom:1px; }
+.callout.danger{ border-left-color:var(--fail); } .callout.danger i{ color:var(--fail); }
+.callout.warning{ border-left-color:var(--gold); } .callout.warning i{ color:var(--gold); }
+.callout.info{ border-left-color:var(--info); } .callout.info i{ color:var(--info); }
+.callout.success{ border-left-color:var(--ok); } .callout.success i{ color:var(--ok); }
+
+/* ---------- bullets ---------- */
+ul.bul{ list-style:none; padding:0; margin:10px 0; }
+ul.bul li{ position:relative; padding-left:18px; margin:5px 0; font-size:13px; }
+ul.bul li::before{ content:''; position:absolute; left:0; top:.55em; width:5px; height:5px; background:var(--red); }
+ul.bul li.n::before{ background:var(--bb-navy); }
+
+/* ---------- KPI ---------- */
+.kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0; border:1px solid var(--line); margin:6px 0 4px; }
+.kpi{ padding:18px 18px; border-right:1px solid var(--line); }
+.kpi:last-child{ border-right:0; }
+.kpi .val{ font-family:var(--font-serif); font-size:34px; font-weight:700; color:var(--bb-navy); line-height:1; font-variant-numeric:tabular-nums; }
+.kpi .val .u{ font-size:14px; color:var(--ink-3); }
+.kpi .lab{ font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); margin-top:7px; }
+.kpi.flag .val{ color:var(--red); }
+
+/* ---------- tables ---------- */
+.tbl{ border:1px solid var(--line); overflow-x:auto; margin:12px 0 6px; }
+table{ width:100%; border-collapse:collapse; font-size:12.5px; line-height:1.5; }
+thead th{ position:sticky; top:0; background:var(--bb-navy); color:#fff; font-family:var(--font-sans); font-weight:600;
+  font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; text-align:left; padding:9px 12px; white-space:nowrap; }
+tbody td{ padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+tbody tr:nth-child(even){ background:#f5f8f9; }
+tbody tr:hover{ background:#eef3f5; }
+tbody tr:last-child td{ border-bottom:0; }
+td .it{ font-weight:600; color:var(--bb-navy); font-size:13px; }
+td .mfr{ display:block; font-size:11px; color:var(--ink-3); margin-top:1px; }
+td small{ display:block; color:var(--ink-2); font-size:11px; margin-top:3px; }
+.num{ text-align:right; font-variant-numeric:tabular-nums; font-family:var(--font-mono); white-space:nowrap; }
+.col-w{ min-width:190px; }
+
+/* ---------- pills ---------- */
+.pill{ display:inline-block; font-family:var(--font-mono); font-size:9.5px; font-weight:600; padding:2px 7px; letter-spacing:.04em;
+  border:1px solid; white-space:nowrap; }
+.pill.rx{ color:var(--info); border-color:#bcd4ee; background:#eef5fc; }
+.pill.otc{ color:var(--ok); border-color:#bfe0bf; background:#eef6ee; }
+.pill.chem{ color:var(--red); border-color:#e6bcc1; background:#fbeef0; }
+.sev{ display:inline-block; font-family:var(--font-mono); font-size:10px; font-weight:600; padding:2px 8px; border:1px solid; white-space:nowrap; }
+.sev.major{ color:#fff; background:var(--red); border-color:var(--red); }
+.sev.mod{ color:var(--gold); background:#fbf3da; border-color:#e6d49a; }
+.sev.minor{ color:var(--ink-2); background:#eef2f4; border-color:var(--line-2); }
+.sev.good{ color:var(--ok); background:#eef6ee; border-color:#bfe0bf; }
+.ev{ display:inline-block; font-family:var(--font-mono); font-size:9px; letter-spacing:.04em; padding:1px 5px; border:1px solid var(--line-2); color:var(--ink-2); margin-top:5px; }
+.ev.strong{ color:var(--ok); border-color:#bfe0bf; }
+.ev.none{ color:var(--red); border-color:#e6bcc1; }
+
+/* ---------- timeline ---------- */
+.tl{ position:relative; margin:18px 0 6px; padding-left:8px; }
+.tl::before{ content:''; position:absolute; left:120px; top:6px; bottom:6px; width:2px; background:var(--bb-navy); }
+.tl-row{ position:relative; display:grid; grid-template-columns:108px 1fr; gap:0 28px; margin:0 0 14px; }
+.tl-time{ text-align:right; font-family:var(--font-mono); font-size:12px; font-weight:600; color:var(--bb-navy); padding-top:11px; }
+.tl-time small{ display:block; font-family:var(--font-sans); font-weight:400; font-size:10px; color:var(--ink-3); }
+.tl-row::before{ content:''; position:absolute; left:115px; top:14px; width:12px; height:12px; background:var(--paper);
+  border:2px solid var(--bb-navy); border-radius:50%; }
+.tl-card{ border:1px solid var(--line); border-left:3px solid var(--sys-dopa); padding:10px 14px; background:var(--paper); }
+.tl-card.sero{ border-left-color:var(--sys-sero); } .tl-card.gaba{ border-left-color:var(--sys-gaba); }
+.tl-card.found{ border-left-color:var(--sys-found); } .tl-card.flag{ border-left-color:var(--red); }
+.tl-card .h{ font-weight:600; color:var(--bb-navy); font-size:13.5px; margin-bottom:3px; }
+.tl-card .h .tag{ font-family:var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); margin-left:8px; }
+.tl-card .why{ font-size:12px; color:var(--ink-2); margin-top:4px; }
+.chip{ display:inline-block; font-family:var(--font-mono); font-size:10.5px; padding:2px 8px; margin:3px 4px 0 0; border:1px solid var(--line-2); background:#f5f8f9; color:var(--navy-2); }
+
+/* ---------- charts ---------- */
+.chart-card{ border:1px solid var(--line); border-left:3px solid var(--red); padding:18px 18px 12px; margin:14px 0; background:var(--paper); }
+.chart-card .ct{ font-family:var(--font-serif); font-size:16px; color:var(--bb-navy); }
+.chart-card .cs{ font-size:12px; color:var(--ink-2); margin:3px 0 12px; }
+.chart-box{ position:relative; height:340px; }
+.legend-note{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-3); margin-top:10px; }
+
+/* ---------- ui model ---------- */
+.ent-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:12px 0; }
+.ent{ border:1px solid var(--line); border-top:3px solid var(--bb-navy); padding:12px 14px; min-width:0; }
+.ent .en{ font-family:var(--font-mono); font-size:12px; font-weight:600; color:var(--bb-navy); }
+.ent .ed{ font-size:11.5px; color:var(--ink-2); margin:4px 0 6px; }
+.ent .ef{ font-family:var(--font-mono); font-size:10.5px; color:var(--navy-2); line-height:1.7; }
+.ent .ef span{ display:inline-block; background:#f1f5f7; border:1px solid var(--line); padding:0 5px; margin:1px 2px 1px 0; }
+
+/* ---------- footer ---------- */
+.foot{ background:var(--navy); color:#aeb9c6; padding:16px 64px; display:flex; align-items:center; justify-content:space-between; font-size:11px; }
+.foot .endorse b{ color:#fff; }
+.foot .cls{ font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.12em; font-size:10px; }
+
+/* ---------- anim ---------- */
+@keyframes fadeUp{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+.sec,.kpi,.tl-row,.chart-card{ animation:fadeUp .4s ease-out both; }
+@media (prefers-reduced-motion:reduce){ *{animation:none !important;} html{scroll-behavior:auto;} }
+
+@media (max-width:960px){
+  .cover{ padding:48px 28px 0; } .cover h1{ font-size:32px; } .cover-band{ margin:32px -28px 0; padding:16px 28px; }
+  .wrap{ grid-template-columns:1fr; padding:0 28px 36px; }
+  .meta{ grid-template-columns:repeat(2,1fr); }
+  .toc{ position:sticky; top:0; z-index:50; grid-row:auto; max-height:none; display:flex; gap:2px; overflow-x:auto;
+    background:var(--paper); border-bottom:1px solid var(--line); margin:0 -28px; padding:8px 28px; }
+  .toc-title{ display:none; } .toc a{ white-space:nowrap; border-left:0; border-bottom:2px solid transparent; }
+  .toc a.active{ border-left:0; border-bottom-color:var(--red); }
+  .tl::before{ left:96px; } .tl-row{ grid-template-columns:84px 1fr; gap:0 22px; } .tl-row::before{ left:91px; }
+  .foot{ padding:14px 28px; flex-direction:column; gap:6px; text-align:center; }
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- ===== COVER ===== -->
+  <header class="cover">
+    <div class="kicker">Personal Supplement &amp; Medication Stack · Pharmacology Review</div>
+    <div class="rule"></div>
+    <h1>Supplement Stack — Pharmacology &amp; Chrono-Timing Dossier</h1>
+    <p class="sub">Per-item breakdown, bioavailability, interaction matrix, and an optimal take-window model across 19 compounds — 4 prescriptions, 12 supplements, 3 research chemicals. Built to inform a medical-tracking UI and to deconflict overlapping mechanisms.</p>
+    <div class="meta">
+      <div><div class="k">Document</div><div class="v">Stack Dossier v1</div></div>
+      <div><div class="k">Compiled</div><div class="v">2026-06-19</div></div>
+      <div><div class="k">Items</div><div class="v">19 compounds</div></div>
+      <div><div class="k">Classification</div><div class="v draft">Personal · Confidential</div></div>
+    </div>
+    <div class="cover-band">
+      <div class="endorse"><b>Personal Health Research</b> — educational pharmacology, not medical advice</div>
+      <div class="emblem"><span class="sq n"></span><span class="sq"></span><span class="sq g"></span></div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <!-- ===== TOC ===== -->
+    <nav class="toc" id="toc">
+      <div class="toc-title">Contents</div>
+      <a href="#s0"><span class="tn">00</span> Summary &amp; flags</a>
+      <a href="#s1"><span class="tn">01</span> Label corrections</a>
+      <a href="#s2"><span class="tn">02</span> Per-item dossiers</a>
+      <a href="#s3"><span class="tn">03</span> Interaction matrix</a>
+      <a href="#s4"><span class="tn">04</span> Daily timeline</a>
+      <a href="#s5"><span class="tn">05</span> Neuro-load by hour</a>
+      <a href="#s6"><span class="tn">06</span> PK active-window curves</a>
+      <a href="#s7"><span class="tn">07</span> Tracking UI &amp; data model</a>
+      <a href="#s8"><span class="tn">08</span> Raise with prescriber</a>
+    </nav>
+
+    <main class="main">
+
+      <!-- ===== 00 SUMMARY ===== -->
+      <section id="s0" class="sec">
+        <div class="sec-kick">00 — Executive summary</div>
+        <h2>The stack sorts onto one axis: catecholaminergic AM, serotonergic / sedative PM</h2>
+        <p class="sec-sub">The optimization problem is not "what to add" — it is spacing collisions. Two windows are overloaded: an AM dopaminergic / adrenergic cluster stacked on the stimulant, and a PM serotonergic + sedative cluster stacked on the anxiolytic and sleep agents.</p>
+
+        <div class="callouts">
+          <div class="callout danger"><i class="ph-fill ph-warning-octagon"></i><div class="c-body"><span class="c-title">Educational, not medical advice</span>This documents pharmacology for your own understanding and to spec a tracking app. It does not diagnose, prescribe, or tell you to start/stop/dose anything. Items flagged below warrant review with your prescriber and a pharmacist against your real labs and history.</div></div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi"><div class="val">19</div><div class="lab">Compounds</div></div>
+          <div class="kpi"><div class="val">4</div><div class="lab">Prescriptions</div></div>
+          <div class="kpi flag"><div class="val">3</div><div class="lab">Research chemicals</div></div>
+          <div class="kpi flag"><div class="val">2</div><div class="lab">Major interaction flags</div></div>
+          <div class="kpi"><div class="val">3<span class="u"> → 1</span></div><div class="lab">Sleep products (consolidate)</div></div>
+        </div>
+
+        <h3 class="blk">Top flags</h3>
+        <div class="callouts">
+          <div class="callout danger"><i class="ph ph-x-circle"></i><div class="c-body"><span class="c-title">9-Me-BC × Lisdexamfetamine — MAOI on a stimulant</span>Beta-carbolines carry MAO-inhibiting activity. Any MAOI + amphetamine is the textbook hypertensive-crisis / serotonin-syndrome contraindication. Add L-tyrosine and you triple the catecholaminergic load. Single highest-risk edge in the stack.</div></div>
+          <div class="callout danger"><i class="ph ph-x-circle"></i><div class="c-body"><span class="c-title">Four serotonergic inputs converge in the PM</span>5-HTP (Sakara) + L-tryptophan (Eight Sleep) + L-tryptophan (NOW, standalone) + buspirone (5-HT1A) — running all of them is serotonergic polypharmacy. The real PM redundancy is serotonin precursors, <em>not</em> melatonin.</div></div>
+          <div class="callout warning"><i class="ph ph-warning"></i><div class="c-body"><span class="c-title">Sedative / QT stacking at night</span>Hydroxyzine (QT-prolonging) + guanfacine (hypotensive) + valerian sleep blend = additive sedation and blood-pressure drop. Pick one sleep product; avoid PRN hydroxyzine on the same night as a sedating blend.</div></div>
+          <div class="callout success"><i class="ph ph-check-circle"></i><div class="c-body"><span class="c-title">One beneficial pairing already in place</span>Guanfacine × lisdexamfetamine is an evidence-based ADHD combo — the alpha-2A agonist blunts stimulant HR/BP and smooths the evening comedown. Keep it.</div></div>
+        </div>
+
+        <h3 class="blk">Stack constraints &amp; interactive tools</h3>
+        <div class="callouts">
+          <div class="callout info"><i class="ph ph-moon-stars"></i><div class="c-body"><span class="c-title">Hard constraint: melatonin-free</span>By design the stack stays melatonin-free — and it already does: Thorne Deep Sleep uses a melatonin <em>analog</em> (Maizinol / 6-MBOA), while Sakara and Eight Sleep lean on 5-HTP / tryptophan + tart cherry (trace only). No item here adds exogenous melatonin; keep it that way.</div></div>
+          <div class="callout info"><i class="ph ph-coffee"></i><div class="c-body"><span class="c-title">Coffee is modeled</span>AM (~8 AM) and noon (~12 PM) coffee (~95&nbsp;mg each) are now in the load + PK charts and the simulator. The noon cup (t&frac12; ~5&nbsp;h) is still ~25% active at bedtime — it opposes the sleep stack.</div></div>
+          <div class="callout success"><i class="ph ph-sliders"></i><div class="c-body"><span class="c-title">Interactive Stack Simulator</span><a href="./supplement-interactive.html"><b>Open the simulator &rarr;</b></a> — toggle agents, drag dose times, switch Neurochemical &harr; Pharmacokinetic, and watch the interaction matrix light up live. Per-view <a href="./wireframes/chrono-timeline.html">UI wireframes</a> are linked from &sect;07.</div></div>
+        </div>
+      </section>
+
+      <!-- ===== 01 LABEL CORRECTIONS ===== -->
+      <section id="s1" class="sec">
+        <div class="sec-kick">01 — Actual contents</div>
+        <h2>What the bottles really contain</h2>
+        <p class="sec-sub">Verified against current Supplement Facts. Three assumptions were overturned by the real labels — most importantly, none of the three sleep products is a meaningful melatonin source.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>As listed</th><th class="col-w">Actual label</th><th>Why it matters</th></tr></thead>
+            <tbody>
+              <tr><td class="it">Thorne "Omega-3 with CoQ10"</td><td><span class="sev good">confirmed</span> &mdash; the <b>CoQ10 version</b> (SP616): 450&nbsp;mg EPA / 180&nbsp;mg DHA / <b>30&nbsp;mg CoQ10</b> per gelcap. (Not the plain Super EPA, which carries no CoQ10.)</td><td>CoQ10 is mildly activating &rarr; take in the <b>AM</b> with a fatty meal, not at night.</td></tr>
+              <tr><td class="it">Thorne Deep Sleep Complex</td><td><b>Melatonin-free.</b> Maizinol corn-leaf 500&nbsp;mg (6-MBOA, a melatonin <em>analog</em>) + L-theanine 200&nbsp;mg + chamomile 100&nbsp;mg (apigenin).</td><td>The cleanest sleep product — no serotonergic precursor, no actual melatonin.</td></tr>
+              <tr><td class="it">Sakara Night Service</td><td>Mg 50&nbsp;mg + tart cherry 500&nbsp;mg + <b>5-HTP 100&nbsp;mg</b> + PharmaGABA 100&nbsp;mg + adaptogen blend 75&nbsp;mg (L-theanine, ashwagandha, rhodiola, reishi, holy basil, maca).</td><td>5-HTP is a direct serotonin precursor &mdash; the serotonergic-load driver. No melatonin.</td></tr>
+              <tr><td class="it">Eight Sleep Sleep Elixir</td><td>Valerian + ashwagandha + tart cherry + <b>L-tryptophan</b> (doses undisclosed). Only trace melatonin from tart cherry.</td><td>Second serotonergic precursor; valerian adds GABAergic sedation.</td></tr>
+              <tr><td class="it">Magnesium &mdash; you have Glycinate (caps)</td><td><b>Glycinate = bisglycinate</b> (same Mg-bis-glycine chelate). Thorne's bisglycinate is the powder, 200&nbsp;mg elemental/scoop. Weighted comparison in &sect;02.</td><td>Don't run both (double dose). Choose on <b>form</b>, not chemistry &mdash; capsule convenience vs powder dose-flex.</td></tr>
+              <tr><td class="it">Beyond Raw L-Carnitine</td><td><b>L-Carnitine Tartrate (LCLT), 2&nbsp;g / scoop</b> &mdash; the exercise-recovery form, not acetyl-L-carnitine (ALCAR).</td><td>For the <b>nootropic</b> goal: LCLT is the wrong ester &mdash; ALCAR crosses the BBB, LCLT barely does. LCLT-vs-ALCAR note in &sect;02.</td></tr>
+              <tr><td class="it">Dihexa 5&nbsp;mg (FluxLabs)</td><td>Page shows a <b>5&nbsp;mg-vs-10&nbsp;mg label discrepancy</b>; "bodily introduction strictly forbidden by law."</td><td>Confirm cap strength against a COA; zero human data.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 02 DOSSIERS ===== -->
+      <section id="s2" class="sec">
+        <div class="sec-kick">02 — Per-item dossiers</div>
+        <h2>Compound breakdown by group</h2>
+        <p class="sec-sub">Contents &amp; route, mechanism, pharmacokinetics (the metabolic/effectiveness window), notable side effects, and ideal timing. Interactions are consolidated in the matrix (&sect;03). Evidence tier shown per item.</p>
+
+        <h3 class="blk">A · Research peptides &amp; chemicals <span class="pill chem">research-use-only</span></h3>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Item</th><th class="col-w">Contents / route &amp; bioavailability</th><th>Mechanism &amp; benefit</th><th>PK · t&frac12; · window</th><th>Notable side effects</th><th>Ideal timing</th></tr></thead>
+            <tbody>
+              <tr><td><span class="it">Semax</span><span class="mfr">Felix Chem</span><br><span class="ev">moderate-narrow</span></td><td>Intranasal heptapeptide (oral degraded); ACTH(4-10) analog. <small>Vendor sells as research chemical — purity / COA unverified.</small></td><td>&uarr;BDNF/NGF; modulates dopamine/serotonin; attention, neuroprotection</td><td class="num">plasma min<br>CNS hours</td><td>Nasal irritation; generally mild</td><td>AM / daytime</td></tr>
+              <tr><td><span class="it">Selank</span><span class="mfr">Felix Chem</span><br><span class="ev">moderate-narrow</span></td><td>Intranasal heptapeptide; tuftsin analog. <small>Research-chemical sourcing.</small></td><td>Anxiolytic via GABA/serotonin/enkephalin; &uarr;BDNF; no sedation/dependence</td><td class="num">min onset<br>hours effect</td><td>Minimal reported</td><td>Daytime / PRN anxiety</td></tr>
+              <tr><td><span class="it">NAD+ 500&nbsp;mg</span><span class="mfr">Felix Chem</span><br><span class="ev">none</span></td><td>Route critical: oral NAD+ poorly absorbed (gut-degraded); vial likely subq/IV. <small>Precursors NR/NMN are the better-studied path.</small></td><td>Coenzyme: redox, sirtuins, PARP, mitochondrial energy</td><td class="num">IV: minutes</td><td>Flushing, nausea, chest tightness on fast IV</td><td>AM (energizing)</td></tr>
+              <tr><td><span class="it">Dihexa 5&nbsp;mg</span><span class="mfr">FluxLabs</span><br><span class="ev none">none — no human data</span></td><td>Oral cap; angiotensin-IV analog. <small>Label 5 vs 10&nbsp;mg discrepancy; "forbidden for human use."</small></td><td>HGF/c-Met agonist; extreme synaptogenesis in rodents</td><td class="num">no human PK</td><td>Unknown; c-Met is an oncogenic pathway &mdash; theoretical tumor-promotion risk</td><td>Unknown</td></tr>
+              <tr><td><span class="it">9-Me-BC</span><span class="mfr">Healthy Finds</span><br><span class="ev none">none — rodent only</span></td><td>Oral; 9-methyl-&beta;-carboline. <small>OTC research chemical.</small></td><td>&uarr;Dopamine synthesis + dopaminergic neuron proliferation; anti-inflammatory; <b>mild MAO inhibition</b></td><td class="num">no human PK</td><td>Unknown long-term; MAOI activity is the danger with the stimulant</td><td>AM if used</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="blk">B · Amino acids <span class="pill otc">OTC</span></h3>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Item</th><th class="col-w">Contents / bioavailability</th><th>Mechanism &amp; benefit</th><th>PK · t&frac12; · window</th><th>Notable side effects</th><th>Ideal timing</th></tr></thead>
+            <tbody>
+              <tr><td><span class="it">L-Tyrosine 500&nbsp;mg</span><span class="mfr">NOW Foods</span><br><span class="ev">moderate</span></td><td>Competes with large neutral amino acids for brain transport &rarr; <b>empty stomach</b></td><td>Catecholamine precursor (&rarr;dopamine&rarr;NE); helps under acute stress/sleep loss</td><td class="num">~2&nbsp;h<br>1&ndash;3&nbsp;h effect</td><td>Mild GI; overstimulation when stacked</td><td>AM, empty stomach &mdash; see &sect;03 stimulant note</td></tr>
+              <tr><td><span class="it">L-Tryptophan 500&nbsp;mg</span><span class="mfr">NOW Foods</span><br><span class="ev">moderate</span></td><td>Uptake &uarr; with carbs, &darr; with protein</td><td>Serotonin &rarr; melatonin precursor</td><td class="num">~2&nbsp;h</td><td>Drowsiness; (historical EMS from contaminated batches — modern grade safe)</td><td>Evening &mdash; see serotonergic flag</td></tr>
+              <tr><td><span class="it">L-Theanine 100&nbsp;mg</span><span class="mfr">NOW Foods</span><br><span class="ev strong">moderate-clinical</span></td><td>Oral ~50% bioavailable; crosses BBB</td><td>&uarr;Alpha waves; modulates glutamate/GABA; smooths stimulant jitter</td><td class="num">t&frac12; ~1&nbsp;h</td><td>Very safe (GRAS)</td><td>With AM stimulant <em>or</em> PM — not both (also in Deep Sleep + Sakara)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="blk">C · Foundational <span class="pill otc">OTC</span></h3>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Item</th><th class="col-w">Contents</th><th>Mechanism &amp; benefit</th><th>PK · window</th><th>Notable side effects</th><th>Ideal timing</th></tr></thead>
+            <tbody>
+              <tr><td><span class="it">Omega-3 with CoQ10</span><span class="mfr">Thorne</span><br><span class="ev strong">strong-clinical</span></td><td>450 EPA / 180 DHA + <b>CoQ10 30&nbsp;mg</b> per gelcap</td><td>Anti-inflammatory; mood (EPA); triglycerides; CoQ10 mitochondrial / antioxidant</td><td class="num">with fat meal</td><td>Fishy reflux; mild antiplatelet at high dose</td><td><b>AM</b> w/ fattiest meal (CoQ10 mildly activating)</td></tr>
+              <tr><td><span class="it">Magnesium Glycinate <small>(your form)</small></span><span class="mfr">Thorne</span><br><span class="ev strong">strong-clinical</span></td><td>Chelated, low-laxative; glycinate = bisglycinate. Bisglycinate powder is 200&nbsp;mg elemental/scoop</td><td>NMDA modulation; muscle/nerve; sleep; glycine itself calming</td><td class="num">evening</td><td>Loose stool above tolerance</td><td>Evening (~9 PM); separate from levothyroxine 2&nbsp;h</td></tr>
+              <tr><td><span class="it">Creatine</span><span class="mfr">Thorne</span><br><span class="ev strong">strong-clinical</span></td><td>Monohydrate 3&ndash;5&nbsp;g</td><td>PCr energy buffer; <b>cognition under stress/sleep loss</b> + power</td><td class="num">saturation<br>(timing-agnostic)</td><td>Water retention; cosmetic creatinine rise</td><td>Anytime, daily</td></tr>
+              <tr><td><span class="it">L-Carnitine Tartrate</span><span class="mfr">Beyond Raw</span><br><span class="ev">moderate</span></td><td>2&nbsp;g LCLT / scoop</td><td>Fatty-acid &beta;-oxidation; exercise recovery. <small>Nootropic: weak &mdash; LCLT poorly crosses the BBB; ALCAR is the cognitive ester (see note below)</small></td><td class="num">pre/post-workout</td><td>Chronic high dose &rarr; TMAO (CV, debated); caution if hypothyroid</td><td>Pre/post-workout with carbs</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callouts">
+          <div class="callout info"><i class="ph ph-scales"></i><div class="c-body"><span class="c-title">Magnesium: Glycinate (yours) vs Bisglycinate — same molecule</span>"Glycinate" and "bisglycinate" both mean magnesium chelated to two glycines (bis = two) — chemically identical, identically gentle, identically calming (glycine is itself inhibitory). The real difference is <b>form &amp; label</b>: Thorne's <em>Glycinate</em> is a <b>capsule</b> (fixed dose, travel-easy — but in cheaper brands watch for oxide-buffered "glycinate" that dilutes true chelate); the <em>Bisglycinate</em> is a <b>monk-fruit powder, 200&nbsp;mg elemental/scoop</b> (dose-flexible, fully-reacted chelate). <b>Verdict:</b> keep the Glycinate caps you have for adherence; switch to powder only to dial the dose or avoid pills. <b>Never run both</b> — that's ~double the elemental Mg and a laxative threshold.</div></div>
+          <div class="callout warning"><i class="ph ph-brain"></i><div class="c-body"><span class="c-title">L-Carnitine: nootropic efficacy — wrong ester for the brain</span>Your Beyond Raw is <b>L-Carnitine L-Tartrate (LCLT)</b> — validated for exercise recovery and reduced muscle damage, but it <b>poorly crosses the blood-brain barrier</b>, so direct cognitive effects are weak. The nootropic ester is <b>Acetyl-L-Carnitine (ALCAR)</b>: it crosses the BBB, donates acetyl groups toward acetylcholine, and has modest human evidence for mental fatigue, processing speed, and mood (strongest in older adults / fatigue states, thin in healthy young adults). <b>Net:</b> LCLT gives systemic energy/recovery and may help cognition <em>indirectly</em> via better sleep + lower fatigue — but if cognition is the goal, <b>ALCAR ~1.5–3&nbsp;g</b> is the targeted form. Don't expect LCLT to act as a nootropic.</div></div>
+        </div>
+
+        <h3 class="blk">D · Sleep blends — pick one <span class="pill otc">OTC</span></h3>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Item</th><th class="col-w">Actives</th><th>Serotonergic?</th><th>Sedation driver</th><th>Timing</th></tr></thead>
+            <tbody>
+              <tr><td><span class="it">Thorne Deep Sleep</span></td><td>Maizinol 500 + theanine 200 + chamomile 100</td><td><span class="sev good">No — cleanest</span></td><td>Mild (apigenin / theanine)</td><td>30&ndash;60&nbsp;min pre-bed</td></tr>
+              <tr><td><span class="it">Sakara Night Service</span></td><td>5-HTP 100 + GABA 100 + tart cherry 500 + adaptogens</td><td><span class="sev major">Yes — 5-HTP</span></td><td>GABA + adaptogens</td><td>Pre-bed</td></tr>
+              <tr><td><span class="it">Eight Sleep Sleep Elixir</span></td><td>Valerian + ashwagandha + tart cherry + L-tryptophan</td><td><span class="sev mod">Yes — tryptophan</span></td><td>Valerian (GABAergic)</td><td>60&nbsp;min pre-bed</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="blk">E · Prescriptions <span class="pill rx">Rx</span></h3>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Drug</th><th class="col-w">Mechanism</th><th>PK (t&frac12; / duration)</th><th>Ideal timing</th><th>Key cautions</th></tr></thead>
+            <tbody>
+              <tr><td><span class="it">Lisdexamfetamine 40&nbsp;mg</span><span class="mfr">Vyvanse · Schedule II</span><br><span class="ev strong">strong-clinical</span></td><td>Prodrug &rarr; d-amphetamine (RBC-cleaved, rate-limited &rarr; smooth); TAAR1 + DAT/NET reverse transport</td><td class="num">Tmax ~3.5&nbsp;h<br>t&frac12; ~11&ndash;14&nbsp;h<br>~13&ndash;14&nbsp;h dur</td><td>Immediately on waking (06:30&ndash;07:30); never late</td><td>MAOI contraindicated; serotonergic + CV additive; appetite/sleep/BP</td></tr>
+              <tr><td><span class="it">Buspirone 10&nbsp;mg</span><span class="mfr">assumed BID</span><br><span class="ev strong">strong-clinical</span></td><td>5-HT1A partial agonist</td><td class="num">bioavail ~4%<br>t&frac12; 2&ndash;3&nbsp;h</td><td>AM + midday, consistent re: food</td><td><b>Grapefruit &uarr; 4&ndash;9&times;</b> (CYP3A4); serotonergic; 2&ndash;4&nbsp;wk onset</td></tr>
+              <tr><td><span class="it">Hydroxyzine 25&nbsp;mg</span><span class="mfr">PRN</span><br><span class="ev strong">strong-clinical</span></td><td>H1 antagonist + 5-HT2A; anticholinergic</td><td class="num">onset 15&ndash;30&nbsp;min<br>t&frac12; ~14&ndash;20&nbsp;h</td><td>PRN at bedtime (sedating)</td><td>QT prolongation; anticholinergic cognitive load</td></tr>
+              <tr><td><span class="it">Guanfacine 1&nbsp;mg</span><span class="mfr">Intuniv / Tenex</span><br><span class="ev strong">strong-clinical</span></td><td>Selective &alpha;2A agonist &rarr; &darr;central sympathetic outflow + PFC strengthening</td><td class="num">Tmax ~3&nbsp;h<br>t&frac12; ~17&nbsp;h</td><td>Evening / HS (sedation); blunts stimulant rebound</td><td><b>Taper to stop</b> (rebound HTN); additive sedation/hypotension</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 03 INTERACTIONS ===== -->
+      <section id="s3" class="sec">
+        <div class="sec-kick">03 — Interaction matrix</div>
+        <h2>Pairwise interactions, ranked by severity</h2>
+        <p class="sec-sub">Rows are pre-ranked: red = major / contraindicated, gold = moderate, green = beneficial. For a <b>live</b> version that toggles agents and re-times doses, open the <a href="./supplement-interactive.html">Stack Simulator &rarr;</a></p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Severity</th><th>Pair</th><th class="col-w">Mechanism</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sev major">Major</span></td><td class="it">9-Me-BC × Lisdexamfetamine</td><td>MAO inhibition + sympathomimetic amine &rarr; hypertensive / serotonergic crisis risk</td><td>Do not co-dose without prescriber sign-off. Top flag.</td></tr>
+              <tr><td><span class="sev major">Major</span></td><td class="it">5-HTP + L-tryptophan ×2 + Buspirone</td><td>Four converging serotonergic inputs &plusmn; amphetamine tail &rarr; serotonin-syndrome consideration</td><td>One serotonergic source max; don't add standalone tryptophan onto serotonergic sleep blends.</td></tr>
+              <tr><td><span class="sev mod">Moderate</span></td><td class="it">L-Tyrosine × Lisdexamfetamine</td><td>Additive catecholamine precursor on a stimulant &rarr; CV load; marginal added value</td><td>Reconsider tyrosine while on Vyvanse, or reserve for off-days.</td></tr>
+              <tr><td><span class="sev mod">Moderate</span></td><td class="it">Coffee (AM + noon) × Lisdexamfetamine</td><td>Additive adrenergic / cardiovascular load on the stimulant</td><td>Monitor HR/BP; space the cup from the dose if jittery.</td></tr>
+              <tr><td><span class="sev mod">Moderate</span></td><td class="it">Coffee (noon) × sleep stack</td><td>Caffeine t&frac12; ~5&nbsp;h &rarr; the noon cup is ~25% active at bedtime, opposing sedation</td><td>Make noon the caffeine cutoff, or drop the second cup, to protect sleep.</td></tr>
+              <tr><td><span class="sev mod">Moderate</span></td><td class="it">Hydroxyzine × Guanfacine × sleep blend</td><td>Additive sedation + hypotension; hydroxyzine QT prolongation</td><td>Avoid same-night PRN hydroxyzine plus a sedating blend.</td></tr>
+              <tr><td><span class="sev good">Beneficial</span></td><td class="it">Guanfacine × Lisdexamfetamine</td><td>&alpha;2A blunts stimulant HR/BP + smooths comedown</td><td>Keep — FDA-recognized adjunct.</td></tr>
+              <tr><td><span class="sev minor">Minor</span></td><td class="it">Theanine ×3 · Magnesium ×2 · tart cherry/ashwagandha ×2</td><td>Double-dosing identical actives across products</td><td>Consolidate; count totals.</td></tr>
+              <tr><td><span class="sev minor">Minor</span></td><td class="it">Buspirone × grapefruit</td><td>CYP3A4 inhibition &uarr; buspirone 4&ndash;9&times;</td><td>Avoid grapefruit.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 04 TIMELINE ===== -->
+      <section id="s4" class="sec">
+        <div class="sec-kick">04 — Chrono-schedule</div>
+        <h2>Optimal daily take-window</h2>
+        <p class="sec-sub">Left rule colors the dominant system: <span class="chip" style="border-left:3px solid var(--sys-dopa)">dopaminergic/adrenergic</span> <span class="chip" style="border-left:3px solid var(--sys-sero)">serotonergic</span> <span class="chip" style="border-left:3px solid var(--sys-gaba)">GABAergic/sedative</span> <span class="chip" style="border-left:3px solid var(--sys-found)">foundational</span> <span class="chip" style="border-left:3px solid var(--red)">reassess</span></p>
+        <div class="tl">
+          <div class="tl-row"><div class="tl-time">06:30<small>on waking</small></div><div class="tl-card"><div class="h">Lisdexamfetamine 40&nbsp;mg<span class="tag">anchor</span></div><div class="why">Long t&frac12; (~13&nbsp;h) &mdash; earliest dose protects sleep. Everything else schedules around this peak.</div><span class="chip">Buspirone #1</span><span class="chip found">Creatine</span></div></div>
+          <div class="tl-row"><div class="tl-time">~8:00<small>breakfast</small></div><div class="tl-card found"><div class="h">Foundational with food + Coffee #1</div><div class="why">Fat-soluble omega-3 (with CoQ10, AM) + daytime peptides. First coffee here &mdash; additive adrenergic with Vyvanse, so mind the HR.</div><span class="chip">Omega-3 + CoQ10 (fat)</span><span class="chip">Semax (nasal)</span><span class="chip">NAD+</span><span class="chip" style="border-left:3px solid #c8500f">Coffee ~8 AM</span></div></div>
+          <div class="tl-row"><div class="tl-time">pre-workout</div><div class="tl-card found"><div class="h">L-Carnitine Tartrate + carbs</div><div class="why">Insulin drives muscle uptake of LCLT; whenever the workout lands.</div></div></div>
+          <div class="tl-row"><div class="tl-time">~10:00<small>optional</small></div><div class="tl-card gaba"><div class="h">L-Theanine <em>or</em> L-Tyrosine — pick one<span class="tag">anti-jitter</span></div><div class="why">Theanine smooths the stimulant tail. Tyrosine is the catecholamine route — see the moderate flag; don't run both, and not the PM theanine too.</div></div></div>
+          <div class="tl-row"><div class="tl-time">12:00&ndash;14:00</div><div class="tl-card sero"><div class="h">Buspirone #2 · Selank PRN · Coffee #2 (cutoff)</div><div class="why">BID coverage; daytime anxiolysis without sedation. <b>Make noon your caffeine cutoff</b> &mdash; the ~12 PM cup (t&frac12; ~5&nbsp;h) is ~25% active at bedtime.</div><span class="chip" style="border-left:3px solid #c8500f">Coffee ~12 PM (last)</span></div></div>
+          <div class="tl-row"><div class="tl-time">~20:30</div><div class="tl-card gaba"><div class="h">Guanfacine · Magnesium</div><div class="why">Sedation timed for sleep; guanfacine also blunts the stimulant rebound. Magnesium ~200&ndash;250&nbsp;mg elemental.</div></div></div>
+          <div class="tl-row"><div class="tl-time">pre-bed<small>30&ndash;60 min</small></div><div class="tl-card gaba"><div class="h">ONE sleep blend · Hydroxyzine only if needed</div><div class="why">Consolidate the three products; avoid stacking PRN hydroxyzine on a sedating blend.</div></div></div>
+          <div class="tl-row"><div class="tl-time">reassess</div><div class="tl-card flag"><div class="h">Discuss before relying on<span class="tag">flagged</span></div><div class="why">MAOI×stimulant, no-data, and serotonergic redundancy live here.</div><span class="chip">9-Me-BC</span><span class="chip">Dihexa</span><span class="chip">standalone L-Tryptophan</span><span class="chip">L-Tyrosine on Vyvanse</span></div></div>
+        </div>
+      </section>
+
+      <!-- ===== 05 NEURO LOAD ===== -->
+      <section id="s5" class="sec">
+        <div class="sec-kick">05 — XY chart</div>
+        <h2>Neurochemical load by hour</h2>
+        <p class="sec-sub">Relative, illustrative load summed across tagged systems — including <b>caffeine</b> (AM + noon coffee). Dose times are marked on the axis as dashed verticals. Two collision windows are visible: an AM dopaminergic + caffeine spike and a PM serotonergic / sedative spike. Live version: <a href="./supplement-interactive.html">Stack Simulator &rarr;</a></p>
+        <div class="chart-card">
+          <div class="ct">Stacked relative load · 12-hour axis</div>
+          <div class="cs">dopaminergic/adrenergic · caffeine · serotonergic · GABAergic/sedative · dashed verticals = dose times</div>
+          <div class="chart-box"><canvas id="loadChart"></canvas></div>
+          <div class="legend-note">Illustrative model for UI design — not a clinical measurement. Load = sum of each system's active agents weighted by dose timing (Bateman kinetics). Dashed verticals mark each agent's dose.</div>
+        </div>
+      </section>
+
+      <!-- ===== 06 PK CURVES ===== -->
+      <section id="s6" class="sec">
+        <div class="sec-kick">06 — XY chart</div>
+        <h2>Pharmacokinetic active-window curves</h2>
+        <p class="sec-sub">One-compartment (Bateman) model of relative active level per agent, normalized to each agent's own peak — now including <b>AM + noon coffee</b>. This is the "metabolic / effectiveness timespan" as decay curves; note the noon caffeine curve still elevated at bedtime. Toggle any agent in the <a href="./supplement-interactive.html">Stack Simulator &rarr;</a></p>
+        <div class="chart-card">
+          <div class="ct">Relative active level · normalized per agent · 12-hour axis</div>
+          <div class="cs">Lisdexamfetamine · Buspirone (BID) · Coffee (AM + noon) · Guanfacine (HS) · Hydroxyzine (PRN PM) · dashed verticals = dose times</div>
+          <div class="chart-box"><canvas id="pkChart"></canvas></div>
+          <div class="legend-note">Bateman C(t) = (ka/(ka&minus;ke))·(e^&minus;ke·t &minus; e^&minus;ka·t), normalized to peak = 100. The noon coffee curve is still ~25% at bedtime; guanfacine + hydroxyzine rise into the night and carry to morning. Illustrative, not exact clinical PK.</div>
+        </div>
+      </section>
+
+      <!-- ===== 07 UI MODEL ===== -->
+      <section id="s7" class="sec">
+        <div class="sec-kick">07 — Build</div>
+        <h2>Medical-tracking UI &amp; data model</h2>
+        <p class="sec-sub">This stack is a near-perfect spec generator: it forces every field a serious tracker needs. The pivot field is <code>half_life</code> — it classifies any correlation as acute (within ~5 half-lives) vs cumulative.</p>
+
+        <h3 class="blk">Entities</h3>
+        <div class="ent-grid">
+          <div class="ent"><div class="en">substance</div><div class="ed">Canonical compound (a "sleep product" decomposes into 5&ndash;7 of these for load math).</div><div class="ef"><span>name</span><span>aliases</span><span>class</span><span>half_life</span><span>onset</span><span>peak</span><span>mechanism</span><span>neuro_system_tags[]</span><span>evidence_tier</span></div></div>
+          <div class="ent"><div class="en">product → product_ingredient[]</div><div class="ed">A specific SKU and its decomposition into substances + amounts.</div><div class="ef"><span>manufacturer</span><span>form</span><span>route</span><span>link</span><span>coa_url</span><span>substance_id</span><span>amount</span><span>unit</span></div></div>
+          <div class="ent"><div class="en">regimen_item</div><div class="ed">User's active entry — handles "on and off / prescribed."</div><div class="ef"><span>product_id</span><span>dose</span><span>schedule_rule</span><span>start/end_date</span><span>status</span><span>prescribed_by</span></div></div>
+          <div class="ent"><div class="en">dose_event</div><div class="ed">Timestamped intake — the metabolic-window primitive.</div><div class="ef"><span>regimen_item_id</span><span>taken_at</span><span>amount</span><span>with_food</span><span>notes</span></div></div>
+          <div class="ent"><div class="en">effect_log</div><div class="ed">Timestamped subjective ratings, sampled along each item's half-life.</div><div class="ef"><span>dimension</span><span>value</span><span>logged_at</span><span>focus</span><span>anxiety</span><span>energy</span><span>sleep</span><span>side_effect</span></div></div>
+          <div class="ent"><div class="en">metric · lab_result</div><div class="ed">Objective long-term series + monitoring.</div><div class="ef"><span>HRV</span><span>resting_HR</span><span>BP</span><span>sleep_stages</span><span>weight</span><span>CBC</span><span>lipids/TMAO</span><span>LFTs</span></div></div>
+          <div class="ent"><div class="en">interaction</div><div class="ed">Curated edge table — warns at dose-log time.</div><div class="ef"><span>substance_a</span><span>substance_b</span><span>severity</span><span>mechanism</span><span>recommendation</span></div></div>
+        </div>
+
+        <h3 class="blk">UI views</h3>
+        <p class="sec-sub" style="margin-top:-2px">Each view links to a low-fidelity <b>wireframe</b>. The two charts also have a live build — the <a href="./supplement-interactive.html">Stack Simulator</a>.</p>
+        <ul class="bul">
+          <li class="n"><b>24 h chrono-timeline</b> — each dose as a half-life decay band, colored by neuro-system (&sect;04 + &sect;06, live). &nbsp;<a href="./wireframes/chrono-timeline.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Neuro-load-by-hour</b> — stacked area summing tagged systems (&sect;05, computed from dose events). &nbsp;<a href="./wireframes/neuro-load.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Interaction heatmap</b> — active-substance grid, severity-colored; warns when two conflicting items are logged in the same window. &nbsp;<a href="./wireframes/interaction-heatmap.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Per-substance dossier</b> — the eight-dimension card (&sect;02). &nbsp;<a href="./wireframes/substance-dossier.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Effect-over-time correlation</b> — overlay a subjective/objective metric against dose events, lag-aware. &nbsp;<a href="./wireframes/effect-correlation.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Redundancy / consolidation view</b> — flags theanine ×3, serotonergic ×4, magnesium ×2. &nbsp;<a href="./wireframes/redundancy.html">wireframe &rarr;</a></li>
+          <li class="n"><b>Regimen Gantt</b> — on / off / prescribed history over time. &nbsp;<a href="./wireframes/regimen-gantt.html">wireframe &rarr;</a></li>
+        </ul>
+
+        <div class="callouts">
+          <div class="callout info"><i class="ph ph-info"></i><div class="c-body"><span class="c-title">Metabolic vs long-term split</span><code>dose_event</code> + <code>effect_log</code> at fine timestamps, scoped by <code>half_life</code>, drive the acute (intra-day decay) view. <code>metric</code> + <code>lab_result</code> + daily roll-ups drive the long-term trend view (tolerance = effect rating declining at constant dose).</div></div>
+        </div>
+      </section>
+
+      <!-- ===== 08 RAISE ===== -->
+      <section id="s8" class="sec">
+        <div class="sec-kick">08 — Action</div>
+        <h2>Raise with prescriber &amp; pharmacist</h2>
+        <ul class="bul">
+          <li>9-Me-BC's MAO activity while on lisdexamfetamine — is co-dosing acceptable, or should 9-Me-BC be dropped?</li>
+          <li>Cumulative serotonergic load: standalone L-tryptophan + Sakara 5-HTP + Eight Sleep tryptophan + buspirone — which to keep.</li>
+          <li>L-tyrosine's value/risk while already on a stimulant.</li>
+          <li>QT review given PRN hydroxyzine alongside other agents; same-night sedation stacking with guanfacine + a sleep blend.</li>
+          <li>Dihexa: no human safety data + a c-Met/oncogenic theoretical concern — informed-risk discussion.</li>
+          <li class="n">CoQ10 omega-3 confirmed (take AM); keep magnesium to one form (Glycinate caps) — don't double with bisglycinate.</li>
+          <li>Coffee load: AM + noon caffeine adds adrenergic load to the stimulant; the noon cup also erodes sleep — worth a cutoff.</li>
+        </ul>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="foot">
+    <div class="endorse"><b>Personal Health Research</b> — compiled 2026-06-19</div>
+    <div class="cls">Confidential · Educational · Not medical advice</div>
+    <div class="emblem"><span class="sq n"></span><span class="sq"></span><span class="sq g"></span></div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var dark = window.matchMedia('(prefers-color-scheme: dark)').matches; // page is light-first; keep light axis colors
+  var ink2 = '#5d6b79', grid = 'rgba(0,40,85,0.06)', fam = "'Work Sans', system-ui, sans-serif";
+  var C = { dopa:'#0078d4', sero:'#9a5ba0', gaba:'#13608a', navy:'#002855', red:'#ba2031', gold:'#c79a1e' };
+  function hexA(h,a){ var n=parseInt(h.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+
+  // ---- shared kinetic model (mirrors the interactive simulator) ----
+  function bateman(t,td,ka,ke){ if(t<=td) return 0; var dt=t-td; return (ka/(ka-ke))*(Math.exp(-ke*dt)-Math.exp(-ka*dt)); }
+  function fmt12(t){ t=((t%24)+24)%24; var h=Math.floor(t+1e-9); var half=Math.abs(t-h-0.5)<1e-6; var ap=h<12?'AM':'PM'; var hh=h%12; if(hh===0)hh=12; return hh+(half?':30':'')+' '+ap; }
+  var T0=5,T1=26,STEP=0.5, TS=[]; for(var tt=T0;tt<=T1+1e-9;tt+=STEP) TS.push(+tt.toFixed(2));
+  var SYS={dopa:'#0078d4',caf:'#c8500f',sero:'#9a5ba0',gaba:'#13608a'};
+  var SYSN={dopa:'Dopaminergic / adrenergic',caf:'Caffeine',sero:'Serotonergic',gaba:'GABAergic / sedative'};
+  var AG=[
+    {short:'LDX',sys:'dopa',doses:[7],ka:0.7,thalf:12,weight:100},
+    {short:'SMX',sys:'dopa',doses:[8],ka:1.5,thalf:2,weight:20},
+    {short:'9BC',sys:'dopa',doses:[8],ka:1.0,thalf:8,weight:30},
+    {short:'TYR',sys:'dopa',doses:[8],ka:1.2,thalf:2,weight:25},
+    {short:'CofAM',sys:'caf',doses:[8],ka:2.0,thalf:5,weight:35},
+    {short:'CofN',sys:'caf',doses:[12],ka:2.0,thalf:5,weight:35},
+    {short:'BUS',sys:'sero',doses:[7,13],ka:2.0,thalf:2.5,weight:30},
+    {short:'TRP',sys:'sero',doses:[21],ka:1.0,thalf:2,weight:35},
+    {short:'5HTP',sys:'sero',doses:[21.5],ka:1.5,thalf:2.5,weight:40},
+    {short:'TRP8',sys:'sero',doses:[21.5],ka:1.0,thalf:2,weight:25},
+    {short:'THE',sys:'gaba',doses:[10],ka:1.5,thalf:1,weight:20},
+    {short:'MAG',sys:'gaba',doses:[20.5],ka:1.5,thalf:4,weight:25},
+    {short:'GFC',sys:'gaba',doses:[20.5],ka:0.8,thalf:17,weight:40},
+    {short:'HYD',sys:'gaba',doses:[22],ka:1.2,thalf:16,weight:45},
+    {short:'SLP',sys:'gaba',doses:[22],ka:1.2,thalf:4,weight:30}
+  ];
+  function prof(a,t){ var ke=Math.LN2/a.thalf,v=0; for(var i=0;i<a.doses.length;i++) v+=bateman(t,a.doses[i],a.ka,ke); return v; }
+  function peak(a){ var mx=0; for(var i=0;i<TS.length;i++){ var v=prof(a,TS[i]); if(v>mx)mx=v;} return mx||1; }
+  function agByShort(s){ for(var i=0;i<AG.length;i++) if(AG[i].short===s) return AG[i]; return null; }
+  var doseLines={ id:'doseLines', afterDatasetsDraw:function(c){
+    var xs=c.scales.x,ys=c.scales.y,ctx=c.ctx, marks=[];
+    AG.forEach(function(a){ a.doses.forEach(function(d){ marks.push({t:d,sys:a.sys,lbl:a.short}); }); });
+    marks.sort(function(p,q){return p.t-q.t;}); ctx.save();
+    marks.forEach(function(m,i){ var x=xs.getPixelForValue(m.t); if(x<xs.left-1||x>xs.right+1)return;
+      ctx.beginPath(); ctx.setLineDash([3,3]); ctx.lineWidth=1; ctx.strokeStyle=hexA(SYS[m.sys],0.4); ctx.moveTo(x,ys.top); ctx.lineTo(x,ys.bottom); ctx.stroke(); ctx.setLineDash([]);
+      ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillStyle=SYS[m.sys]; ctx.textAlign='left'; ctx.fillText(m.lbl+' '+fmt12(m.t), x+2, ys.top+8+(i%3)*12); });
+    ctx.restore(); } };
+  var xAxis={ type:'linear', min:T0, max:T1, ticks:{ color:ink2, stepSize:2, font:{family:fam,size:9}, callback:function(v){ return Math.abs(v-Math.round(v))<1e-6?fmt12(v):''; } }, grid:{color:grid} };
+  var tipTitle={ title:function(it){ return fmt12(it[0].parsed.x); } };
+
+  // ---- 05 neuro-load (stacked area, caffeine included, dose markers) ----
+  if (window.Chart) new Chart(document.getElementById('loadChart'), {
+    type:'line',
+    data:{ datasets:['dopa','caf','sero','gaba'].map(function(sys){
+      return { label:SYSN[sys],
+        data:TS.map(function(t){ var s=0; AG.forEach(function(a){ if(a.sys===sys) s+=a.weight*(prof(a,t)/peak(a)); }); return {x:t,y:+s.toFixed(2)}; }),
+        borderColor:SYS[sys], backgroundColor:hexA(SYS[sys],0.30), fill:true, tension:0.4, pointRadius:0, borderWidth:2 };
+    })},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'nearest',axis:'x',intersect:false},
+      plugins:{ legend:{ labels:{ color:ink2, font:{family:fam, size:12}, boxWidth:12, usePointStyle:true } },
+        tooltip:{ backgroundColor:C.navy, titleFont:{family:fam}, bodyFont:{family:fam}, callbacks:tipTitle } },
+      scales:{ x:xAxis,
+        y:{ stacked:true, ticks:{ color:ink2, font:{family:fam, size:10} }, grid:{ color:grid }, title:{ display:true, text:'relative load', color:ink2, font:{family:fam, size:11} } } } },
+    plugins:[doseLines]
+  });
+
+  // ---- 06 PK curves (per-agent normalized, caffeine included, dose markers) ----
+  function pkSet(short,label,sys,dash){ var a=agByShort(short),p=peak(a);
+    return { label:label, data:TS.map(function(t){ return {x:t,y:+(prof(a,t)/p*100).toFixed(1)}; }), borderColor:SYS[sys], backgroundColor:'transparent', tension:0.3, pointRadius:0, borderWidth:2, borderDash:dash }; }
+  if (window.Chart) new Chart(document.getElementById('pkChart'), {
+    type:'line',
+    data:{ datasets:[
+      pkSet('LDX','Lisdexamfetamine (7 AM)','dopa',[]),
+      pkSet('BUS','Buspirone BID (7 AM, 1 PM)','sero',[]),
+      pkSet('CofAM','Coffee AM (8 AM)','caf',[6,3]),
+      pkSet('CofN','Coffee noon (12 PM)','caf',[2,3]),
+      pkSet('GFC','Guanfacine (8:30 PM)','gaba',[5,3]),
+      pkSet('HYD','Hydroxyzine PRN (10 PM)','gaba',[1,4])
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'nearest',axis:'x',intersect:false},
+      plugins:{ legend:{ labels:{ color:ink2, font:{family:fam, size:12}, boxWidth:16, usePointStyle:true } },
+        tooltip:{ backgroundColor:C.navy, titleFont:{family:fam}, bodyFont:{family:fam}, callbacks:tipTitle } },
+      scales:{ x:xAxis,
+        y:{ min:0, max:105, ticks:{ color:ink2, font:{family:fam, size:10} }, grid:{ color:grid }, title:{ display:true, text:'% of own peak', color:ink2, font:{family:fam, size:11} } } } },
+    plugins:[doseLines]
+  });
+
+  // ---- scroll spy ----
+  var toc=document.getElementById('toc'), links=toc.querySelectorAll('a'), secs=[];
+  links.forEach(function(l){ var el=document.getElementById(l.getAttribute('href').slice(1)); if(el) secs.push({el:el,link:l}); });
+  var obs=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ links.forEach(function(l){l.classList.remove('active');}); var m=secs.find(function(s){return s.el===e.target;}); if(m){ m.link.classList.add('active'); if(window.innerWidth<=960) m.link.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});} } }); }, { rootMargin:'-8% 0px -82% 0px' });
+  secs.forEach(function(s){ obs.observe(s.el); });
+  links.forEach(function(l){ l.addEventListener('click', function(e){ e.preventDefault(); var el=document.getElementById(l.getAttribute('href').slice(1)); if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); history.replaceState(null,'','#'+l.getAttribute('href').slice(1)); } }); });
+})();
+</script>
+</body>
+</html>

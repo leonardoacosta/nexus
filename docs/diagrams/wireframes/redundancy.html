@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redundancy / Consolidation · UI Wireframe</title>
+<link rel="stylesheet" href="./wireframe-kit.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body><div class="wf-page">
+  <header class="wf-head">
+    <div class="wf-kick">UI WIREFRAME · 06 OF 07</div>
+    <h1>Redundancy / Consolidation</h1>
+    <p class="wf-sub">Surfaces the same active ingredient appearing across multiple products — so double-dosing and stacked mechanisms get caught and consolidated.</p>
+    <a class="wf-back" href="../supplement-stack-dossier.html#s7">&larr; back to dossier · UI views</a>
+  </header>
+
+  <div class="wf-body">
+    <div class="wf-frame">
+      <div class="wf-chrome">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">tracker.app/redundancy</span>
+      </div>
+      <div class="wf-screen">
+
+        <!-- summary row -->
+        <div class="wf-row wrap" style="align-items:center;gap:10px;margin-bottom:16px;">
+          <span class="wf-sev mod">3 duplicate actives</span>
+          <span class="wf-chip on"><i class="ph ph-check-circle"></i> Constraint: Melatonin-free</span>
+          <span class="wf-txt" style="flex:1;min-width:200px;">stack honors melatonin-free — none of the 3 sleep products adds melatonin</span>
+        </div>
+
+        <div class="wf-col">
+
+          <!-- group 1: L-Theanine -->
+          <div class="wf-panel gaba">
+            <span class="wf-lab">Duplicate group <span class="n">01</span></span>
+            <h3 class="wf-h">L-Theanine &times;3</h3>
+            <div class="wf-row wrap" style="gap:6px;margin:8px 0 10px;">
+              <span class="wf-chip">NOW L-Theanine 100 mg</span>
+              <span class="wf-chip">Thorne Deep Sleep 200 mg</span>
+              <span class="wf-chip">Sakara adaptogen blend</span>
+            </div>
+            <div class="wf-txt" style="margin-bottom:4px;">&approx;300+ mg/day combined</div>
+            <div class="wf-box" style="height:10px;position:relative;">
+              <div class="wf-box solid" style="height:100%;width:75%;border:0;"></div>
+            </div>
+            <div class="wf-row" style="margin-top:10px;">
+              <span class="wf-btn">Consolidate &rarr; keep one</span>
+            </div>
+          </div>
+
+          <!-- group 2: Serotonergic precursors -->
+          <div class="wf-panel sero flag">
+            <span class="wf-lab">Duplicate group <span class="n">02</span></span>
+            <h3 class="wf-h">Serotonergic precursors &times;4</h3>
+            <div class="wf-row wrap" style="gap:6px;margin:8px 0 10px;">
+              <span class="wf-chip">L-Tryptophan NOW 500 mg</span>
+              <span class="wf-chip">L-Tryptophan Eight Sleep</span>
+              <span class="wf-chip">5-HTP Sakara 100 mg</span>
+              <span class="wf-chip">Buspirone 5-HT1A (Rx)</span>
+            </div>
+            <div class="wf-txt" style="margin-bottom:4px;">4 converging serotonergic inputs</div>
+            <div class="wf-box" style="height:10px;position:relative;">
+              <div class="wf-box solid" style="height:100%;width:92%;border:0;"></div>
+            </div>
+            <div class="wf-row wrap" style="margin-top:10px;gap:8px;align-items:center;">
+              <span class="wf-sev major"><i class="ph ph-warning"></i> serotonin-syndrome watch</span>
+              <span class="wf-btn primary">Reduce to one precursor</span>
+            </div>
+          </div>
+
+          <!-- group 3: Magnesium -->
+          <div class="wf-panel">
+            <span class="wf-lab">Duplicate group <span class="n">03</span></span>
+            <h3 class="wf-h">Magnesium &times;2 (same chelate)</h3>
+            <div class="wf-row wrap" style="gap:6px;margin:8px 0 10px;">
+              <span class="wf-chip">Thorne Glycinate (caps)</span>
+              <span class="wf-chip">Thorne Bisglycinate (powder 200 mg)</span>
+            </div>
+            <div class="wf-txt" style="margin-bottom:4px;">&approx;400 mg elemental if both</div>
+            <div class="wf-box" style="height:10px;position:relative;">
+              <div class="wf-box solid" style="height:100%;width:60%;border:0;"></div>
+            </div>
+            <div class="wf-txt" style="margin:8px 0 0;">glycinate = bisglycinate — pick one</div>
+            <div class="wf-row" style="margin-top:10px;">
+              <span class="wf-btn">Pick one form</span>
+            </div>
+          </div>
+
+          <!-- side note: minor doubles -->
+          <div class="wf-panel accent">
+            <span class="wf-lab">Also doubled <span class="n">·</span> minor</span>
+            <div class="wf-row wrap" style="gap:8px;align-items:center;">
+              <span class="wf-sev minor">minor</span>
+              <span class="wf-txt">Also doubled: tart cherry &times;2, ashwagandha &times;2 (minor)</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- annotations -->
+    <ul class="wf-notes">
+      <li><span class="wf-anno">1</span><span class="nt">SUMMARY BAR</span>Top-level count of distinct actives that appear in 2+ products (3 here). Severity badge escalates with the worst group below — mod when no acute risk, major when a syndrome-watch cluster exists.</li>
+      <li><span class="wf-anno">2</span><span class="nt">CONSTRAINT CHIP</span>The melatonin-free hard constraint is enforced at this view. A green-on chip confirms the active stack satisfies it; the inline note proves none of the 3 sleep products silently reintroduces melatonin.</li>
+      <li><span class="wf-anno">3</span><span class="nt">INGREDIENT DECOMPOSITION</span>Each duplicate group is keyed on a single active, not a product. Multi-ingredient products (Thorne Deep Sleep, Sakara blend) are decomposed into product_ingredient rows so a blend's L-Theanine lands in the same group as the standalone capsule.</li>
+      <li><span class="wf-anno">4</span><span class="nt">SOURCE CHIPS</span>Each chip = one product_ingredient row carrying its parent product + per-serving dose. This is the audit trail for how the combined total was reached.</li>
+      <li><span class="wf-anno">5</span><span class="nt">DOSE ROLL-UP BAR</span>Per-group track sums the contributing doses into one combined figure (≈300+ mg theanine, ≈400 mg elemental Mg). Fill width is the combined load against a soft ceiling — visual cue for "this is the over-dose, not any single label."</li>
+      <li><span class="wf-anno">6</span><span class="nt">SEROTONERGIC CLUSTER</span>The key flag of this screen: 4 converging serotonergic inputs (2× tryptophan + 5-HTP + an Rx 5-HT1A agonist) summed across OTC and Rx sources. This is mechanism stacking, not just same-ingredient doubling.</li>
+      <li><span class="wf-anno">7</span><span class="nt">SYNDROME WATCH</span>The serotonin-syndrome watch is a major-severity flag attached to group 02 — raised because the cluster crosses the Rx boundary (Buspirone) where additive 5-HT load carries clinical risk.</li>
+      <li><span class="wf-anno">8</span><span class="nt">SAME-CHELATE REDUNDANCY</span>Magnesium group catches a subtler case: two products are the same chelate (glycinate ≡ bisglycinate are the same salt), so they are pure redundancy rather than complementary forms.</li>
+      <li><span class="wf-anno">9</span><span class="nt">CONSOLIDATE ACTIONS</span>Each group offers a single primary remediation — keep one source, reduce to one precursor, pick one form. The serotonergic action is promoted to a primary button because it carries the highest-severity flag.</li>
+      <li><span class="wf-anno">10</span><span class="nt">MINOR DUPLICATES</span>Low-stakes doubles (tart cherry ×2, ashwagandha ×2) are collapsed into one accent note rather than full cards — surfaced for completeness without competing with the actionable clusters.</li>
+    </ul>
+  </div>
+
+  <nav class="wf-nav"><span class="lbl">UI views</span>
+    <a href="./chrono-timeline.html">Chrono-timeline</a><a href="./neuro-load.html">Neuro-load</a><a href="./interaction-heatmap.html">Interaction heatmap</a><a href="./substance-dossier.html">Substance dossier</a><a href="./effect-correlation.html">Effect correlation</a><a href="./redundancy.html" class="cur">Redundancy</a><a href="./regimen-gantt.html">Regimen Gantt</a>
+  </nav>
+
+  <footer class="wf-foot"><span><b>Supplement Tracker</b> · UI wireframe</span><span>Low-fidelity · not final UI</span></footer>
+</div></body>
+</html>
