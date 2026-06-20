@@ -7,30 +7,41 @@
  * handler renders locally and NEVER re-routes/re-forwards.
  */
 
-import { describe, expect, it, beforeEach, afterAll, mock } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  spyOn,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
+import { lifecycleBus } from "../services/lifecycle-bus";
+import { installCoreNodeMock } from "../testing/mock-core-node";
 
-const loggerMock = {
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  debug: mock(() => {}),
-  fatal: mock(() => {}),
-  child: () => loggerMock,
-};
-
-const emitMock = mock((_event: string, _payload: unknown) => ({}));
-
-mock.module("@nexus/core/node", () => ({
-  logger: loggerMock,
-  createLogger: () => loggerMock,
-  getAgentId: mock(() => "test-agent"),
-}));
-
-mock.module("../services/lifecycle-bus", () => ({
-  lifecycleBus: { emit: emitMock },
-}));
+// Shared mocks (nx-509z5): the old partial `mock.module("../services/lifecycle-bus")`
+// here stubbed the bus to `{ emit }` ONLY — missing onAny/offAny/on/off — and
+// since `mock.module` is process-global + irreversible, that incomplete bus
+// leaked into sibling suites (handlePatchSpecStatus / spec-watcher call
+// `lifecycleBus.onAny`, which became undefined → TypeError) whenever this
+// suite's mock won the last-writer race. Fix: spyOn the REAL bus singleton's
+// emit (RESTORABLE — restored in afterAll so siblings get the full bus) and use
+// the shared spread-real @nexus/core/node mock.
+installCoreNodeMock();
 
 const { handleNotificationDeliver } = await import("./notifications-deliver");
+
+let emitMock: ReturnType<typeof spyOn>;
+
+beforeAll(() => {
+  emitMock = spyOn(lifecycleBus, "emit").mockImplementation(
+    () => undefined as never,
+  );
+});
+
+afterAll(() => {
+  emitMock.mockRestore();
+});
 
 const SECRET = "test-secret";
 const prevSecret = process.env.NEXUS_ATTACH_SECRET;

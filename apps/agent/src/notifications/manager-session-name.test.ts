@@ -13,40 +13,59 @@
  * into the shared `notifications.test.ts` suite.
  */
 
-import { describe, expect, it, mock, beforeAll, afterEach } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  spyOn,
+  beforeAll,
+  afterAll,
+  afterEach,
+} from "bun:test";
 
 import { lifecycleBus } from "../services/lifecycle-bus";
 import type {
   NotificationFiredPayload,
   LifecycleEnvelope,
 } from "../services/lifecycle-bus";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
+import { installCoreNodeMock } from "../testing/mock-core-node";
+import { installBufferMock, type BufferMockHandle } from "./testing-mocks";
+import * as routerNs from "./router";
 
-// Mock the buffer so no DB is touched.
-mock.module("./buffer", () => ({
-  insertNotification: async () => {},
-  markNotificationDelivered: async () => {},
-  markNotificationExpired: async () => {},
-  queryNotificationsByStatus: async () => [],
-}));
-
-// Mock the router so a single "desktop" channel reports delivered (no TTS
-// audio bytes — keeps the audio-column UPDATE branch out of scope).
-mock.module("./router", () => ({
-  routeNotificationParallel: async () => ({
-    delivered: [{ channel: "desktop" }],
-    failed: [],
-  }),
-  routeNotification: async () => [],
-  findMatchingRule: () => ({ meeting_behavior: "allow", channels: ["desktop"] }),
-  // context-aware-routing: null = presence routing off, use the legacy path.
-  decidePresenceRoute: () => null,
-  actionToChannels: () => [],
-}));
+// Shared mocks (nx-509z5). The old partial `mock.module("./buffer")` /
+// `mock.module("./router")` here claimed to be "mock-isolated in its own file"
+// — but `mock.module` is process-global + irreversible, so the partial ./buffer
+// stub (missing getNotificationById) and the all-replacing ./router stub leaked
+// into router.test.ts / reliability-regression.test.ts / manager-presence.test.ts
+// in the full alphabetical run. ./buffer + ./router are now SPIED in beforeAll /
+// restored in afterAll (only active for THIS suite). The bus stays REAL — this
+// suite subscribes to NotificationFired via .on().
+installNexusDbMock();
+installCoreNodeMock();
 
 let NotificationManager: typeof import("./manager").NotificationManager;
+let bufferMock: BufferMockHandle;
+let routeParallelSpy: ReturnType<typeof spyOn>;
 
 beforeAll(async () => {
+  bufferMock = installBufferMock();
+  // Single "desktop" channel delivered (no TTS audio bytes — keeps the
+  // audio-column UPDATE branch out of scope). Only routeNotificationParallel
+  // is spied; every other router export stays real for sibling suites.
+  routeParallelSpy = spyOn(
+    routerNs,
+    "routeNotificationParallel",
+  ).mockImplementation(async () => ({
+    delivered: [{ channel: "desktop" }],
+    failed: [],
+  }));
   ({ NotificationManager } = await import("./manager"));
+});
+
+afterAll(() => {
+  routeParallelSpy.mockRestore();
+  bufferMock.restore();
 });
 
 /** A minimal db stub — the manager only touches `db.update(...)` on the TTS

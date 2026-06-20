@@ -39,6 +39,7 @@ import {
   beforeEach,
   mock,
 } from "bun:test";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
 
 // ─── Sentry + logger spies (effective only when this file loads first) ───────
 
@@ -59,17 +60,11 @@ function sentryMockWired(): boolean {
   );
 }
 
-// buffer.ts imports @nexus/db (insert chain) + drizzle-orm at top level. Stub
-// both so insertNotification never touches a real DB. (These do not conflict
-// with buffer.test.ts's own identical stubs.)
-mock.module("@nexus/db", () => ({
-  notifications: {},
-  projectVoiceOverrides: {},
-}));
-mock.module("drizzle-orm", () => ({
-  eq: mock(() => ({})),
-  asc: mock(() => ({})),
-}));
+// buffer.ts + router.ts import @nexus/db at top level. The shared COMPLETE mock
+// (nx-509z5) re-exports the real module so every schema table + drizzle helper
+// resolves regardless of suite load order — insertNotification still never
+// touches a real DB because every test injects a fake `Db` handle.
+installNexusDbMock();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -8,17 +8,15 @@
  */
 
 import { describe, expect, it, mock } from "bun:test";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
 
 // ─── Mock DB dependencies so no real DB is needed ───────────────────────────
+// Shared COMPLETE @nexus/db mock — re-exports the real module so every schema
+// table + drizzle helper resolves under the process-global last-writer-wins
+// semantics of bun's mock.module (nx-509z5). The fake `Db` handle each test
+// passes below still controls per-test behaviour.
 
-mock.module("@nexus/db", () => ({
-  notifications: { id: "id", status: "status", createdAt: "created_at" },
-}));
-
-mock.module("drizzle-orm", () => ({
-  eq: mock(() => ({})),
-  asc: mock(() => ({})),
-}));
+installNexusDbMock();
 
 // ─── Import after mocks are registered ──────────────────────────────────────
 

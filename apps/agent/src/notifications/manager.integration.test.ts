@@ -13,56 +13,61 @@
  * via `mock.module("@nexus/core/fetch")` so we never call out to ElevenLabs.
  */
 
-import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
+import * as coreBarrel from "@nexus/core";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
+import { installCoreNodeMock } from "../testing/mock-core-node";
+import { installBufferMock, type BufferMockHandle } from "./testing-mocks";
 
-// ─── Stub @nexus/db so manager + buffer imports don't reach for PG ────────
+// ─── Shared mocks (nx-509z5) ──────────────────────────────────────────────
+// @nexus/db + @nexus/core/node spread the REAL barrel (complete + safe under
+// last-writer-wins). The @nexus/db spread fixes the old partial stub that
+// omitted projectVoiceOverrides (router.ts threw `Export not found`). ./buffer
+// and fetchWithTimeout are SPIED in beforeAll / restored in afterAll — only
+// active for THIS suite's tests. The bus is NOT mocked — this suite needs the
+// REAL lifecycleBus to receive NotificationFired.
 
-mock.module("@nexus/db", () => ({
-  eq: mock(() => ({})),
-  and: mock(() => ({})),
-  sql: mock(() => ({})),
-  notifications: {},
-  credentials: {},
-  // cross-machine-delivery (Phase 1.6): manager imports fleetPresence.
-  fleetPresence: {},
-}));
-
-mock.module("./buffer", () => ({
-  insertNotification: mock(async () => {}),
-  queryNotificationsByStatus: mock(async () => []),
-  markNotificationDelivered: mock(async () => {}),
-  markNotificationExpired: mock(async () => {}),
-}));
+installNexusDbMock();
+installCoreNodeMock();
 
 // ─── Stub the ElevenLabs HTTP layer with a deterministic 60-byte mp3 ──────
+// spyOn the REAL @nexus/core barrel's fetchWithTimeout (router.ts imports it
+// from "@nexus/core") rather than mock.module — spyOn is RESTORABLE and scoped
+// to beforeAll/afterAll, so the real HTTP layer is handed back to
+// reliability-regression.test.ts (which mocks globalThis.fetch to hang) and
+// router.test.ts's round-trip (own fetch mock).
 
 const fakeMp3 = new Uint8Array(60);
 for (let i = 0; i < 60; i++) fakeMp3[i] = (i * 11 + 3) & 0xff;
 
-mock.module("@nexus/core/fetch", () => ({
-  fetchWithTimeout: mock(async () =>
-    new Response(fakeMp3, {
-      status: 200,
-      headers: { "Content-Type": "audio/mpeg" },
-    }),
-  ),
-}));
+let fetchWithTimeoutSpy: ReturnType<typeof spyOn>;
+let bufferMock: BufferMockHandle;
 
-mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
-  getAgentId: mock(() => "test-agent"),
-}));
+beforeAll(() => {
+  bufferMock = installBufferMock();
+  fetchWithTimeoutSpy = spyOn(coreBarrel, "fetchWithTimeout").mockImplementation(
+    async () =>
+      new Response(fakeMp3, {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      }),
+  );
+});
+
+afterAll(() => {
+  fetchWithTimeoutSpy.mockRestore();
+  bufferMock.restore();
+});
 
 mock.module("@sentry/node", () => ({
   captureException: mock(() => {}),
@@ -80,10 +85,17 @@ const stubDb = {} as unknown as Parameters<typeof NotificationManager>[0];
 
 describe("integration — POST → manager → lifecycleBus carries audioBase64", () => {
   let originalKey: string | undefined;
+  let originalVoiceId: string | undefined;
 
   beforeEach(() => {
     originalKey = process.env.ELEVENLABS_API_KEY;
     process.env.ELEVENLABS_API_KEY = "test-key";
+    // The TTS handler only renders audioBase64 when resolveVoiceId() yields a
+    // non-null id. With no DB handle wired (stubDb) the lookup falls through to
+    // ELEVENLABS_DEFAULT_VOICE_ID — set it so the synth happy path runs and the
+    // envelope carries audioBase64 (otherwise it degrades to signal-only).
+    originalVoiceId = process.env.ELEVENLABS_DEFAULT_VOICE_ID;
+    process.env.ELEVENLABS_DEFAULT_VOICE_ID = "test-voice";
     setRoutingRules([
       {
         project: "nx",
@@ -98,6 +110,11 @@ describe("integration — POST → manager → lifecycleBus carries audioBase64"
       delete process.env.ELEVENLABS_API_KEY;
     } else {
       process.env.ELEVENLABS_API_KEY = originalKey;
+    }
+    if (originalVoiceId === undefined) {
+      delete process.env.ELEVENLABS_DEFAULT_VOICE_ID;
+    } else {
+      process.env.ELEVENLABS_DEFAULT_VOICE_ID = originalVoiceId;
     }
     setRoutingRules([]);
   });

@@ -10,95 +10,71 @@
  * The DB layer is mocked because these tests run without a live PG.
  */
 
-import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  spyOn,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
+import { installCoreNodeMock } from "../testing/mock-core-node";
+import { installBufferMock, type BufferMockHandle } from "./testing-mocks";
+import * as routerNs from "./router";
 
-// ─── Stub @nexus/db so manager imports don't try to talk to PG ─────────────
+// ─── Shared mocks (nx-509z5) ────────────────────────────────────────────────
+// @nexus/db + @nexus/core/node spread the REAL barrel (complete, drift-proof,
+// safe under last-writer-wins). @nexus/db keeps createDb real; core/node keeps
+// every export but the logger real. ./buffer + ./router + the bus are SPIED in
+// beforeAll / restored in afterAll (RESTORABLE — only active for THIS suite's
+// tests, so siblings that run later get the real modules).
 
-mock.module("@nexus/db", () => ({
-  // Drizzle helper exports — only the surface manager + buffer reach for.
-  eq: mock(() => ({})),
-  and: mock(() => ({})),
-  sql: mock(() => ({})),
-  notifications: {},
-  credentials: {},
-  // cross-machine-delivery (Phase 1.6): manager imports fleetPresence for the
-  // live-console SELECT; include it so the static named import resolves.
-  fleetPresence: {},
-}));
+installNexusDbMock();
+installCoreNodeMock();
 
-// ─── Stub the buffer's DB writers — manager calls these on deliver ─────────
-
-mock.module("./buffer", () => ({
-  insertNotification: mock(async () => {}),
-  queryNotificationsByStatus: mock(async () => []),
-  markNotificationDelivered: mock(async () => {}),
-  markNotificationExpired: mock(async () => {}),
-}));
-
-// ─── Stub the router so the manager sees deterministic delivery results ────
-
-const routeNotificationParallelMock = mock(
-  async (
-    _n: unknown,
-  ): Promise<{
-    delivered: Array<{ channel: string; audioBase64?: string }>;
-    failed: string[];
-  }> => ({
-    delivered: [],
-    failed: [],
-  }),
-);
-
-mock.module("./router", () => ({
-  routeNotificationParallel: routeNotificationParallelMock,
-  routeNotification: mock(async () => []),
-  findMatchingRule: mock(() => ({
-    channels: ["tts"],
-    meeting_behavior: "buffer",
-  })),
-  setRoutingRules: mock(() => {}),
-  getRoutingRules: mock(() => []),
-  // context-aware-routing: null = presence routing off, use the legacy path.
-  decidePresenceRoute: mock(() => null),
-  actionToChannels: mock(() => []),
-}));
-
-// ─── Capture lifecycle emissions ───────────────────────────────────────────
-
-const lifecycleEmitMock = mock((_event: string, _payload: unknown) => ({}));
-
-mock.module("../services/lifecycle-bus", () => ({
-  lifecycleBus: {
-    emit: lifecycleEmitMock,
-    on: mock(() => {}),
-    off: mock(() => {}),
-    onAny: mock(() => {}),
-    offAny: mock(() => {}),
-    setOrigin: mock(() => {}),
-    injectPeerEvent: mock(() => {}),
-    removeAllListeners: mock(() => {}),
-  },
-}));
-
-mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
-  getAgentId: mock(() => "test-agent"),
-}));
-
-// ─── Now load the system under test ────────────────────────────────────────
+// ─── Now load the system under test (REAL router + REAL lifecycle bus) ─────
 
 const { NotificationManager } = await import("./manager");
+const { lifecycleBus } = await import("../services/lifecycle-bus");
+
+// Spy on the REAL router + bus + buffer in beforeAll / restore in afterAll
+// (NOT module-eval-time mock.module). spyOn is RESTORABLE and, scoped to
+// beforeAll/afterAll, is only ACTIVE during THIS suite's tests — so sibling
+// suites that run later (router.test.ts tests the REAL routeNotificationParallel;
+// manager.integration needs the REAL bus; reliability-regression calls the REAL
+// insertNotification) are never polluted. mock.module is process-global +
+// irreversible, which is exactly what caused nx-509z5.
+//
+// The manager's static `import { routeNotificationParallel }` / `lifecycleBus`
+// see these spies via ESM live bindings.
+let routeNotificationParallelMock: ReturnType<typeof spyOn>;
+let lifecycleEmitMock: ReturnType<typeof spyOn>;
+let bufferMock: BufferMockHandle;
+
+beforeAll(() => {
+  bufferMock = installBufferMock();
+  routeNotificationParallelMock = spyOn(
+    routerNs,
+    "routeNotificationParallel",
+  ).mockImplementation(async () => ({
+    delivered: [],
+    failed: [],
+  }));
+  // No-op the real fan-out; this suite asserts on the recorded calls only and
+  // the manager ignores emit's return value.
+  lifecycleEmitMock = spyOn(lifecycleBus, "emit").mockImplementation(
+    () => undefined as never,
+  );
+});
+
+afterAll(() => {
+  routeNotificationParallelMock.mockRestore();
+  lifecycleEmitMock.mockRestore();
+  bufferMock.restore();
+});
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -201,12 +177,12 @@ describe("NotificationManager.deliverNotification — audio attachment", () => {
     expect(lifecycleEmitMock).toHaveBeenCalledTimes(3);
 
     const channels = lifecycleEmitMock.mock.calls.map(
-      (call) => (call[1] as { channel: string }).channel,
+      (call: unknown[]) => (call[1] as { channel: string }).channel,
     );
     expect(channels).toEqual(["desktop", "tts", "slack"]);
 
     const audios = lifecycleEmitMock.mock.calls.map(
-      (call) => (call[1] as { audioBase64?: string }).audioBase64,
+      (call: unknown[]) => (call[1] as { audioBase64?: string }).audioBase64,
     );
     expect(audios).toEqual([undefined, audio, undefined]);
   });

@@ -7,42 +7,35 @@
  * are real.
  */
 
-import { describe, expect, it, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  mock,
+  beforeEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
+import { installNexusDbMock } from "../testing/mock-nexus-db";
+import { installCoreNodeMock } from "../testing/mock-core-node";
+import { installBufferMock, type BufferMockHandle } from "./testing-mocks";
 
-mock.module("@nexus/db", () => ({
-  eq: mock(() => ({})),
-  and: mock(() => ({})),
-  sql: mock(() => ({})),
-  notifications: {},
-  credentials: {},
-  presenceHolds: {},
-  projectVoiceOverrides: {},
-  // cross-machine-delivery (Phase 1.6): manager imports fleetPresence.
-  fleetPresence: {},
-}));
+// Shared mocks (nx-509z5): @nexus/db + @nexus/core/node spread the REAL barrel
+// (complete + safe under last-writer-wins). ./buffer is SPIED in beforeAll /
+// restored in afterAll — only active for THIS suite's tests, so its no-op
+// writers don't leak into reliability-regression (which calls the REAL
+// insertNotification). `./router` is intentionally NOT mocked — these tests
+// exercise the REAL decidePresenceRoute / rules engine.
+installNexusDbMock();
+installCoreNodeMock();
 
-mock.module("./buffer", () => ({
-  insertNotification: mock(async () => {}),
-  queryNotificationsByStatus: mock(async () => []),
-  markNotificationDelivered: mock(async () => {}),
-  markNotificationExpired: mock(async () => {}),
-}));
-
-mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
-  createLogger: () => ({
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  }),
-  getAgentId: mock(() => "test-agent"),
-}));
+let bufferMock: BufferMockHandle;
+beforeAll(() => {
+  bufferMock = installBufferMock();
+});
+afterAll(() => {
+  bufferMock.restore();
+});
 
 mock.module("@sentry/node", () => ({
   captureException: mock(() => {}),

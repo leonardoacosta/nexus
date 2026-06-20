@@ -12,25 +12,21 @@
  * Deps (fetch + peer lookup) are injected so the test runs without a live peer.
  */
 
-import { describe, expect, it, beforeEach, mock } from "bun:test";
+import { describe, expect, it, beforeEach } from "bun:test";
+import { installCoreNodeMock, loggerSpy } from "../testing/mock-core-node";
 
-const loggerMock = {
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  debug: mock(() => {}),
-  fatal: mock(() => {}),
-  child: () => loggerMock,
-};
-
-mock.module("@nexus/core/node", () => ({
-  logger: loggerMock,
-  createLogger: () => loggerMock,
-  getAgentId: mock(() => "test-agent"),
-}));
+// Shared COMPLETE @nexus/core/node mock (nx-509z5). The shared `loggerSpy` is
+// the SAME object every notification suite binds, so the process-global
+// last-writer-wins `mock.module` race can no longer swap out the logger this
+// suite asserts on. `cross-machine-delivery.ts` binds its `log` at module-load
+// via createLogger(), so whichever suite imported that module first used to win
+// — and a manager suite's logger mock clobbered this suite's spy (warn counts
+// read 0). With a shared spy the winner is irrelevant.
+const loggerMock = loggerSpy;
+installCoreNodeMock();
 
 // Load the SUT AFTER the mock is registered so its top-level createLogger()
-// call binds to the mock (matches the manager.audio.test pattern).
+// call binds to the shared spy.
 const { forwardOrLocal } = await import("./cross-machine-delivery");
 import type {
   ForwardableNotification,
