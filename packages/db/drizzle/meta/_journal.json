@@ -295,6 +295,13 @@
       "when": 1781932041930,
       "tag": "0041_common_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1781963197424,
+      "tag": "0042_nostalgic_quasar",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "fleet_presence" ADD COLUMN "vector" jsonb;

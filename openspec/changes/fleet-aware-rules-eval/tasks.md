@@ -5,8 +5,8 @@
 
 ## DB Batch
 
-- [ ] Add a `vector` jsonb column to `packages/db/src/schema/fleetPresence.ts` (`jsonb("vector").$type<PresenceVector>()`, nullable for back-compat) holding the full per-machine presence vector; keep the existing typed columns [beads:nx-i6adc]
-- [ ] Run `pnpm --filter @nexus/db db:push` against `POSTGRES_URL`, verify the column exists, and handle the drizzle snapshot guard if it trips (no hand-written `.ts` migration) [beads:nx-hkbw6]
+- [x] Add a `vector` jsonb column to `packages/db/src/schema/fleetPresence.ts` (`jsonb("vector").$type<PresenceVector>()`, nullable for back-compat) holding the full per-machine presence vector; keep the existing typed columns [beads:nx-i6adc]
+- [x] Run `pnpm --filter @nexus/db db:push` against `POSTGRES_URL`, verify the column exists, and handle the drizzle snapshot guard if it trips (no hand-written `.ts` migration) [beads:nx-hkbw6]
 
 ## API Batch
 

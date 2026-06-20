@@ -15,7 +15,18 @@
  * newest-heartbeat tie-break is comparable across machines.
  */
 
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+/**
+ * Structural stand-in for `@nexus/core`'s `PresenceVector`.
+ *
+ * `@nexus/core` depends on `@nexus/db` (workspace:*), so importing the real
+ * `PresenceVector` type here would close a dependency cycle. We store the full
+ * per-machine vector as opaque jsonb; the agent (which depends on both packages)
+ * casts the deserialized value to `PresenceVector` at the read boundary — see
+ * `apps/agent/src/services/fleet-presence.ts` (`resolveLiveConsoleVector`).
+ */
+export type FleetPresenceVector = Record<string, unknown>;
 
 export const fleetPresence = pgTable("fleet_presence", {
   /** Machine name — one row per machine; each agent upserts its own. */
@@ -28,6 +39,15 @@ export const fleetPresence = pgTable("fleet_presence", {
   macLocked: boolean("mac_locked"),
   /** Server-authoritative liveness stamp (DB now() at write); drives merge. */
   heartbeat: timestamp("heartbeat", { mode: "date" }).notNull(),
+  /**
+   * Full per-machine `PresenceVector` (every `PresenceField` with value +
+   * confidence + `updatedAt`). The eval-path source for fleet-aware routing —
+   * new presence fields never require a migration. Nullable for back-compat
+   * with rows written before this column existed. Typed as opaque jsonb here
+   * (circular-dep avoidance, see `FleetPresenceVector`); cast to
+   * `PresenceVector` agent-side.
+   */
+  vector: jsonb("vector").$type<FleetPresenceVector>(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
 });
 
