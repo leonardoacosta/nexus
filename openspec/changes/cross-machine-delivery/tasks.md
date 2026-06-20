@@ -5,9 +5,9 @@
 
 ## DB Batch
 
-- [ ] Create `packages/db/src/schema/fleetPresence.ts` — `fleet_presence` table: `machine` text PK, `on_console` bool notNull default false, `mac_active` bool, `mac_locked` bool, `heartbeat` timestamptz notNull, `updated_at` timestamptz notNull defaultNow; export `$inferSelect`/`$inferInsert` types [beads:nx-cj1q7]
-- [ ] Export `fleetPresence` (+ types) from `packages/db/src/schema/index.ts` [beads:nx-7qntm]
-- [ ] Run `pnpm --filter @nexus/db db:push` against `POSTGRES_URL` and verify the table exists; handle the drizzle snapshot guard if it trips (no hand-written `.ts` migration) [beads:nx-2d9e5]
+- [x] Create `packages/db/src/schema/fleetPresence.ts` — `fleet_presence` table: `machine` text PK, `on_console` bool notNull default false, `mac_active` bool, `mac_locked` bool, `heartbeat` timestamptz notNull, `updated_at` timestamptz notNull defaultNow; export `$inferSelect`/`$inferInsert` types [beads:nx-cj1q7]
+- [x] Export `fleetPresence` (+ types) from `packages/db/src/schema/index.ts` [beads:nx-7qntm]
+- [x] Run `pnpm --filter @nexus/db db:push` against `POSTGRES_URL` and verify the table exists; handle the drizzle snapshot guard if it trips (no hand-written `.ts` migration) [beads:nx-2d9e5]
 
 ## API Batch
 

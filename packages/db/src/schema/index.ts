@@ -92,3 +92,8 @@ export {
   type RoutingRuleCondition,
   type RoutingRuleAction,
 } from "./routingRules";
+export {
+  fleetPresence,
+  type FleetPresence,
+  type NewFleetPresence,
+} from "./fleetPresence";

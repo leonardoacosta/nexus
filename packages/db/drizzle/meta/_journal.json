@@ -288,6 +288,13 @@
       "when": 1781907107555,
       "tag": "0040_plain_peter_quill",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781932041930,
+      "tag": "0041_common_kate_bishop",
+      "breakpoints": true
     }
   ]
 }
