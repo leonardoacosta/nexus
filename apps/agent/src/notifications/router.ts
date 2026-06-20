@@ -5,7 +5,7 @@ import type {
   PresenceVector,
 } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
-import { evaluateRules } from "./rules-engine";
+import { evaluateRules, isVectorAllUnknown } from "./rules-engine";
 import { captureException, addBreadcrumb } from "@sentry/node";
 import { fetchWithTimeout } from "@nexus/core";
 import type { Db } from "@nexus/db";
@@ -560,12 +560,21 @@ export interface PresenceRouteDecision {
  * path. This function only produces a decision when the flag is ON; it returns
  * `null` when the flag is off to make the "use the legacy path" branch explicit
  * and untestably-divergent from today's behaviour.
+ *
+ * ALL-UNKNOWN GUARD: even when the flag is ON, a vector with NO known fields
+ * (every `PresenceField.confidence === "unknown"`) also returns `null` and
+ * falls back to the legacy path. On a headless agent (no Mac sensor, no phone
+ * poll) every field is `unknown`, so `evaluateRules` would otherwise hit its
+ * terminal digest fallback (dashboard-only, no banner/TTS) and SILENCE the
+ * notification — a regression vs today's loud legacy banner+TTS. "I have no
+ * idea where you are" must behave exactly as today, not suppress to a digest.
  */
 export function decidePresenceRoute(
   presenceAwareRouting: boolean,
   vector: PresenceVector,
 ): PresenceRouteDecision | null {
   if (!presenceAwareRouting) return null;
+  if (isVectorAllUnknown(vector)) return null;
 
   const action = evaluateRules(vector);
   const channels = actionToChannels(action);

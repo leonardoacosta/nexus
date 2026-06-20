@@ -60,6 +60,33 @@ function isKnown(field: { confidence: string }): boolean {
   return field.confidence !== "unknown";
 }
 
+/**
+ * True iff EVERY presence field is `unknown` — i.e. the agent has no idea
+ * where the user is (no Mac sensor, no phone poll, no meeting state). On a
+ * headless agent (e.g. the homelab box with no Mac sensor) every field reads
+ * `unknown`, so `evaluateRules` would fall to its terminal digest fallback
+ * (dashboard-only, no banner/TTS). The router uses this to fall back to the
+ * byte-identical legacy path instead — "I don't know where you are" must
+ * behave exactly as today (loud), NOT suppress to a silent digest.
+ *
+ * A vector with ANY known field is NOT all-unknown and still flows through
+ * `evaluateRules` normally.
+ */
+export function isVectorAllUnknown(vector: PresenceVector): boolean {
+  return (
+    !isKnown(vector.macActive) &&
+    !isKnown(vector.macLocked) &&
+    !isKnown(vector.macHost) &&
+    !isKnown(vector.inMeeting) &&
+    !isKnown(vector.meetingEndsAt) &&
+    !isKnown(vector.isBedtime) &&
+    !isKnown(vector.phonePresent) &&
+    !isKnown(vector.phoneHome) &&
+    !isKnown(vector.macIdleSec) &&
+    !isKnown(vector.macFocus)
+  );
+}
+
 function baseAction(): Action {
   return {
     banner: false,

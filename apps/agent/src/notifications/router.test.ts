@@ -19,6 +19,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as coreNode from "@nexus/core/node";
+import type { PresenceVector, PresenceField } from "@nexus/core";
 
 // ─── Sentry mock ─────────────────────────────────────────────────────────────
 // Registered before router.ts is imported. When run in isolation this file
@@ -77,6 +78,80 @@ function makeNotification(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+// ─── Presence vector builders (mirror rules-engine.test.ts) ──────────────────
+
+function field<T>(value: T | null, confidence: "high" | "unknown" = "high"): PresenceField<T> {
+  return {
+    value,
+    source: "test",
+    updatedAt: new Date().toISOString(),
+    confidence: value === null ? "unknown" : confidence,
+  };
+}
+
+function presenceVector(overrides: Partial<{
+  macActive: boolean | null;
+  macLocked: boolean | null;
+  macHost: string | null;
+  inMeeting: boolean | null;
+  meetingEndsAt: string | null;
+  isBedtime: boolean | null;
+  phonePresent: boolean | null;
+  phoneHome: boolean | null;
+  macIdleSec: number | null;
+  macFocus: string | null;
+}> = {}): PresenceVector {
+  return {
+    userId: "leo",
+    macActive: field(overrides.macActive ?? null),
+    macLocked: field(overrides.macLocked ?? null),
+    macHost: field(overrides.macHost ?? null),
+    inMeeting: field(overrides.inMeeting ?? null),
+    meetingEndsAt: field(overrides.meetingEndsAt ?? null),
+    isBedtime: field(overrides.isBedtime ?? null),
+    phonePresent: field(overrides.phonePresent ?? null),
+    phoneHome: field(overrides.phoneHome ?? null),
+    macIdleSec: field(overrides.macIdleSec ?? null),
+    macFocus: field(overrides.macFocus ?? null),
+  };
+}
+
+// ─── all-unknown presence vector → legacy fallback (headless-agent guard) ─────
+//
+// On a headless agent (homelab box, no Mac sensor) EVERY presence field is
+// `unknown`. With the flag ON, evaluateRules would fall to its terminal
+// digest fallback (dashboard-only, no banner/TTS) — silencing notifications.
+// decidePresenceRoute MUST return null (legacy byte-identical path) for an
+// all-unknown vector even when the flag is on, so today's loud banner+TTS is
+// preserved. A vector with ANY known field still flows through the engine.
+
+describe("router: all-unknown presence vector falls back to legacy", () => {
+  it("flag ON + all-unknown vector → decidePresenceRoute returns null (legacy)", async () => {
+    const { decidePresenceRoute } = await import("./router");
+    const decision = decidePresenceRoute(true, presenceVector());
+    expect(decision).toBeNull();
+  });
+
+  it("flag ON + a known field (macActive true) → non-null decision (engine path)", async () => {
+    const { decidePresenceRoute } = await import("./router");
+    const decision = decidePresenceRoute(
+      true,
+      presenceVector({ macActive: true, macHost: "studio", inMeeting: false }),
+    );
+    expect(decision).not.toBeNull();
+    expect(decision!.channels).toEqual(["desktop", "tts"]);
+  });
+
+  it("flag OFF → decidePresenceRoute returns null (existing parity)", async () => {
+    const { decidePresenceRoute } = await import("./router");
+    const decision = decidePresenceRoute(
+      false,
+      presenceVector({ macActive: true, macHost: "studio", inMeeting: false }),
+    );
+    expect(decision).toBeNull();
+  });
+});
 
 // ─── Task 2.3: slow handler → timeout fires + captureException called ────────
 //

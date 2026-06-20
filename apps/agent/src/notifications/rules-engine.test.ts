@@ -25,7 +25,7 @@ mock.module("@nexus/core/node", () => ({
   createLogger: () => loggerMock,
 }));
 
-import { evaluateRules } from "./rules-engine";
+import { evaluateRules, isVectorAllUnknown } from "./rules-engine";
 import { decidePresenceRoute, actionToChannels } from "./router";
 
 // ── Vector builders ───────────────────────────────────────────────────────
@@ -297,6 +297,20 @@ describe("router — actionToChannels", () => {
         redact: "full",
       }),
     ).toEqual(["desktop", "tts"]);
+  });
+});
+
+describe("rules-engine — isVectorAllUnknown (headless-agent guard)", () => {
+  it("all-unknown vector → true", () => {
+    expect(isVectorAllUnknown(vector())).toBe(true);
+  });
+
+  it("any single known field → false (macActive)", () => {
+    expect(isVectorAllUnknown(vector({ macActive: false }))).toBe(false);
+  });
+
+  it("any single known field → false (macHost)", () => {
+    expect(isVectorAllUnknown(vector({ macHost: "studio" }))).toBe(false);
   });
 });
 
