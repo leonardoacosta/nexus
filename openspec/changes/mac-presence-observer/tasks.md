@@ -14,15 +14,15 @@
 
 ## UI Batch
 
-- [ ] Create `apps/swift/NexusShared/Observers/PresenceObserver.swift` — reusable sensor (sibling to `NowPlayingController`): HID idle, `com.apple.screenIsLocked` DistNote + `CGSession` console, CMIO camera + CoreAudio mic `IsRunningSomewhere` listeners, `~/Library/DoNotDisturb` Focus + FSEvents (fail-open parse), gateway-MAC home fingerprint; AND-gated meeting `(camera OR mic) AND frontmost meeting app`; exposes a delta callback [beads:nx-it4o7]
-- [ ] Create `apps/swift/nexus-presence/Sources/main.swift` — headless executable: start `PresenceObserver`, POST deltas to the local agent `/presence/report` via `NexusShared.NexusClient` (qualify the type to avoid the legacy same-target `NexusClient` footgun) [beads:nx-kyrwi]
-- [ ] Add the `nexus-presence` executable target to `apps/swift/project.yml` (link NexusShared; macOS; matching deployment target + signing config of the other Mac targets) [beads:nx-3a8xm]
-- [ ] Create `deploy/launchagents/dev.leonardoacosta.nexus.presence.plist` — `Label dev.leonardoacosta.nexus.presence`, `RunAtLoad=true`, `KeepAlive=true`, `ProgramArguments` → the installed `nexus-presence` binary; document the `launchctl bootstrap gui/501` install (mirror the ios-deploy plist header) [beads:nx-ekcmc]
-- [ ] Wire LaunchAgent install/refresh into the Mac deploy path (bootout-then-bootstrap `gui/501` for `dev.leonardoacosta.nexus.presence`), reusing the existing swift-deploy/launchagent install seam [beads:nx-ftt2o]
+- [x] Create `apps/swift/NexusShared/Observers/PresenceObserver.swift` — reusable sensor (sibling to `NowPlayingController`): HID idle, `com.apple.screenIsLocked` DistNote + `CGSession` console, CMIO camera + CoreAudio mic `IsRunningSomewhere` listeners, `~/Library/DoNotDisturb` Focus + FSEvents (fail-open parse), gateway-MAC home fingerprint; AND-gated meeting `(camera OR mic) AND frontmost meeting app`; exposes a delta callback [beads:nx-it4o7]
+- [x] Create `apps/swift/nexus-presence/Sources/main.swift` — headless executable: start `PresenceObserver`, POST deltas to the local agent `/presence/report` via `NexusShared.NexusClient` (qualify the type to avoid the legacy same-target `NexusClient` footgun) [beads:nx-kyrwi]
+- [x] Add the `nexus-presence` executable target to `apps/swift/project.yml` (link NexusShared; macOS; matching deployment target + signing config of the other Mac targets) [beads:nx-3a8xm]
+- [x] Create `deploy/launchagents/dev.leonardoacosta.nexus.presence.plist` — `Label dev.leonardoacosta.nexus.presence`, `RunAtLoad=true`, `KeepAlive=true`, `ProgramArguments` → the installed `nexus-presence` binary; document the `launchctl bootstrap gui/501` install (mirror the ios-deploy plist header) [beads:nx-ekcmc]
+- [x] Wire LaunchAgent install/refresh into the Mac deploy path (bootout-then-bootstrap `gui/501` for `dev.leonardoacosta.nexus.presence`), reusing the existing swift-deploy/launchagent install seam [beads:nx-ftt2o]
 
 ## E2E Batch
 
 - [x] Extend `apps/agent/src/notifications/rules-engine.test.ts` with Rule 4: locked Mac + phone home → tts to macHost; phone away → no match (falls through); `phoneHome` unknown → fail-safe (no room-TTS); ordering after bedtime / before phone-away [beads:nx-kle43]
 - [x] Create `apps/agent/src/services/tailscale-presence.test.ts` — feed representative `tailscale status --json` fixtures, assert LAN-direct → home, public/DERP → away, absent → not present [beads:nx-9wpll]
 - [x] Extend `apps/agent/src/notifications/presence-context.test.ts` — phone-field merge, phone-TTL → unknown, mac sensor fields merge [beads:nx-blgj5]
-- [ ] Create `apps/swift/NexusSharedTests/PresenceObserverTests.swift` — meeting AND-gate (camera-alone does NOT set inMeeting; camera+meeting-app does), lock/idle delta emission, Focus parse fail-open [beads:nx-41qha]
+- [x] Create `apps/swift/NexusSharedTests/PresenceObserverTests.swift` — meeting AND-gate (camera-alone does NOT set inMeeting; camera+meeting-app does), lock/idle delta emission, Focus parse fail-open [beads:nx-41qha]
