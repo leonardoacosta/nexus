@@ -219,6 +219,19 @@ targets:
   # No Info.plist / entitlements file: a CLI tool needs no bundle plist; the
   # camera/mic access is granted by running inside the Aqua session, not a
   # sandbox entitlement.
+  #
+  # DYNAMIC framework dependency (nx dyld @rpath fix): this `tool` target links
+  # NexusShared as a DYNAMIC framework, so the built executable references
+  # @rpath/NexusShared.framework/... and carries LC_RPATH
+  # @executable_path/../Frameworks. Unlike nexus-mac (a .app bundle that embeds
+  # the framework under Contents/Frameworks/), a bare CLI binary has nowhere to
+  # embed it — so the deploy seam (_macos_presence_deploy in
+  # deploy/lib/macos-swift-deploy.sh) installs the binary to
+  # ~/Library/Application Support/Nexus/bin/nexus-presence AND the framework to
+  # ~/Library/Application Support/Nexus/Frameworks/NexusShared.framework, which
+  # is exactly where ../Frameworks resolves. Installing only the bare binary
+  # (the original bug) left the @rpath dangling -> the LaunchAgent crash-looped
+  # with dyld OS_REASON_DYLD ("Library not loaded: @rpath/NexusShared...").
   nexus-presence:
     type: tool
     platform: macOS

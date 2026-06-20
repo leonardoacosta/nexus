@@ -491,7 +491,9 @@ _macos_presence_deploy() {
     local swift_dir="$1"
     local label="dev.leonardoacosta.nexus.presence"
     local uid; uid="$(id -u)"
-    local bin_dir="$HOME/Library/Application Support/Nexus/bin"
+    local supp_dir="$HOME/Library/Application Support/Nexus"
+    local bin_dir="$supp_dir/bin"
+    local fw_dir="$supp_dir/Frameworks"
     local dst_bin="$bin_dir/nexus-presence"
     local plist_src="$MACOS_SWIFT_DEPLOY_REPO_ROOT/deploy/launchagents/$label.plist"
     local plist_dst="$HOME/Library/LaunchAgents/$label.plist"
@@ -527,7 +529,70 @@ _macos_presence_deploy() {
         return 1
     fi
 
-    mkdir -p "$bin_dir"
+    # ── Locate the NexusShared.framework the CLI links dynamically ───────
+    # nexus-presence is a `tool` target that links NexusShared as a DYNAMIC
+    # framework (@rpath/NexusShared.framework/...). The executable already
+    # carries LC_RPATH @executable_path/../Frameworks, so dyld resolves the
+    # framework relative to the binary. Installing only the bare binary (the
+    # prior behaviour) left that rpath dangling → dyld[…] "Library not loaded:
+    # @rpath/NexusShared.framework/..." and the LaunchAgent crash-looped
+    # (OS_REASON_DYLD). Fix: install the framework next to the binary at
+    # ~/Library/Application Support/Nexus/Frameworks/ so ../Frameworks resolves.
+    # The REAL framework (with the Mach-O dylib at Versions/A/NexusShared) sits
+    # directly under Build/Products/Release/NexusShared.framework. Xcode also
+    # emits a .tbd-only STUB framework under intermediate Swift-module dirs
+    # (Versions/A/NexusShared.tbd, no dylib) — a broad `-name` match grabs that
+    # stub and ships a frameworkless dir that still dyld-crashes. So we MUST
+    # match the dylib-bearing copy: require Versions/A/NexusShared (no .tbd) to
+    # exist inside the candidate.
+    local built_fw=""
+    while IFS= read -r cand; do
+        [[ -z "$cand" ]] && continue
+        if [[ -f "$cand/Versions/A/NexusShared" ]]; then
+            built_fw="$cand"
+            break
+        fi
+    done < <(find "$build_dir" -name 'NexusShared.framework' -type d 2>/dev/null || true)
+    if [[ -z "$built_fw" || ! -f "$built_fw/Versions/A/NexusShared" ]]; then
+        _macos_swift_deploy_warn "nexus-presence built but a dylib-bearing NexusShared.framework not found in $build_dir — the binary would dyld-crash; aborting presence install"
+        rm -rf "$build_dir"
+        return 1
+    fi
+
+    mkdir -p "$bin_dir" "$fw_dir"
+
+    # Install the framework FIRST so the binary's rpath resolves the moment
+    # the LaunchAgent respawns it. Replace any prior copy atomically-ish.
+    if ! rm -rf "$fw_dir/NexusShared.framework"; then
+        _macos_swift_deploy_warn "failed to remove old NexusShared.framework in $fw_dir"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    if ! cp -R "$built_fw" "$fw_dir/NexusShared.framework"; then
+        _macos_swift_deploy_warn "failed to copy NexusShared.framework to $fw_dir"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    # Re-sign the copied framework with hardened runtime so the signature is
+    # valid at its new path (cp may invalidate the path-bound signature). Prefer
+    # the team Developer ID identity; codesign --sign wants the cert SHA-1 or
+    # Common Name, NOT the bare team OU ("DX3Y367L2A" is not a valid identity
+    # selector). Resolve the first Apple Development / Developer ID identity in
+    # the keychain; fall back to ad-hoc (`-`) which still produces a loadable
+    # signature for a non-App-Store CLI dylib. Best-effort: a signing failure
+    # does not abort — an already-validly-signed (copied) framework also loads.
+    local sign_id
+    sign_id="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk '/Apple Development|Developer ID Application/ {print $2; exit}')"
+    [[ -z "$sign_id" ]] && sign_id="-"
+    if codesign --force --options runtime --timestamp=none \
+            --sign "$sign_id" "$fw_dir/NexusShared.framework" >/dev/null 2>&1; then
+        _macos_swift_deploy_info "re-signed NexusShared.framework (identity=$sign_id) at $fw_dir"
+    else
+        _macos_swift_deploy_warn "could not re-sign NexusShared.framework at $fw_dir (continuing; copied signature still loads for a CLI)"
+    fi
+    _macos_swift_deploy_info "installed NexusShared.framework to $fw_dir"
+
     if ! install -m 755 "$built" "$dst_bin"; then
         _macos_swift_deploy_warn "failed to install nexus-presence to $dst_bin"
         rm -rf "$build_dir"

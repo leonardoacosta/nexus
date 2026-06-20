@@ -257,6 +257,11 @@ install_presence_agent() {
 
     if [[ ! -x "$HOME/Library/Application Support/Nexus/bin/nexus-presence" ]]; then
         warn "nexus-presence binary not yet installed — it lands on the next Swift deploy (macos_swift_deploy_run)."
+    elif [[ ! -d "$HOME/Library/Application Support/Nexus/Frameworks/NexusShared.framework" ]]; then
+        # The CLI links NexusShared dynamically (@rpath/../Frameworks). Without
+        # the framework installed alongside, the binary dyld-crashes at launch.
+        # A fresh Swift deploy installs both; warn if only the bare binary exists.
+        warn "nexus-presence binary present but NexusShared.framework missing — the sensor will dyld-crash until the next Swift deploy (macos_swift_deploy_run) installs the framework."
     fi
 
     info "Loading presence sensor agent ($label) into gui/$uid"
