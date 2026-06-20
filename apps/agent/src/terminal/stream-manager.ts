@@ -46,6 +46,19 @@ interface SessionStream {
   unsubscribeGeometry: () => void;
   /** Rolling buffer of recent output for reconnect replay. */
   lastOutput: ReconnectBuffer;
+  /**
+   * Set of sockets being EVICTED by an in-flight writer reclaim (last-open-wins).
+   *
+   * nx-y4hjl: `claimWriter` evicts the prior holder via `prior.close(4009)`,
+   * which fires the prior socket's Bun close handler SYNCHRONOUSLY. If the prior
+   * holder was the only other viewer, that close handler would observe
+   * viewerCount === 0 and tear the PTY down — destroying the session the new
+   * writer is about to inherit. We mark the evicted socket here for the duration
+   * of the synchronous close so the close handler can recognise a reclaim
+   * handoff and SKIP the last-viewer teardown. The new writer registers as a
+   * viewer immediately after, keeping the session alive.
+   */
+  reclaiming: Set<ServerWebSocket<WsData>>;
 }
 
 /** Serialize a geometry control frame (sent as a WS TEXT frame). */
@@ -131,6 +144,7 @@ export class StreamManager {
       unsubscribe,
       unsubscribeGeometry,
       lastOutput,
+      reclaiming: new Set<ServerWebSocket<WsData>>(),
     });
 
     logger.debug({ sessionId }, "stream-manager: attached");
@@ -271,10 +285,21 @@ export class StreamManager {
       // Evict the prior holder — last open wins. Reuse the existing 4009 close
       // (same code the writer-mutex denial used) so existing clients keep their
       // read-only fallback with no protocol change.
+      //
+      // nx-y4hjl: `prior.close()` fires the prior socket's Bun close handler
+      // SYNCHRONOUSLY (confirmed: endSession was observed firing between this
+      // claim and the new writer's addViewer). Mark `prior` as reclaiming for
+      // the duration of that synchronous close so the close handler skips its
+      // last-viewer PTY teardown — the new writer is about to register as a
+      // viewer and inherit the live session. `finally` guarantees the flag is
+      // cleared even if a real close path also removes the entry.
+      stream.reclaiming.add(prior);
       try {
         prior.close(4009, "interactive writer reclaimed by another client");
       } catch {
         // dead socket — close handler / cleanup will reconcile state
+      } finally {
+        stream.reclaiming.delete(prior);
       }
       logger.debug({ sessionId }, "stream-manager: prior interactive writer evicted (last-open-wins)");
     }
@@ -282,6 +307,16 @@ export class StreamManager {
     stream.interactiveWriter = ws;
     logger.debug({ sessionId }, "stream-manager: writer claimed");
     return true;
+  }
+
+  /**
+   * True when `ws` is currently being evicted by an in-flight writer reclaim
+   * (last-open-wins handoff). The close handler consults this to suppress the
+   * last-viewer PTY teardown so a reclaim does NOT destroy the session the new
+   * writer is inheriting (nx-y4hjl).
+   */
+  isReclaiming(ws: ServerWebSocket<WsData>): boolean {
+    return this.sessions.get(ws.data.sessionId)?.reclaiming.has(ws) ?? false;
   }
 
   /** Check if a given socket is the current interactive writer. */

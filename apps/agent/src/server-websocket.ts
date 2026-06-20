@@ -448,10 +448,18 @@ export function createWsHandlers(state: ServerState) {
         state.pongDeadlines.delete(ws);
       }
 
+      // nx-y4hjl: capture the reclaim flag BEFORE removeViewer. When this
+      // socket is being evicted by a live writer reclaim (last-open-wins), the
+      // new writer is about to register as a viewer — so even if removing this
+      // socket drops viewerCount to 0 momentarily, we MUST NOT tear the PTY
+      // down. Skipping endSession here keeps the session alive for the inheritor.
+      const reclaiming = state.streamManager.isReclaiming(ws);
+
       state.streamManager.removeViewer(ws);
       // Mirror the pong-timeout path: tear down the PTY session when the
-      // last viewer disconnects normally (task 1.1 — PTY orphan fix).
-      if (state.streamManager.viewerCount(ws.data.sessionId) === 0) {
+      // last viewer disconnects normally (task 1.1 — PTY orphan fix). A reclaim
+      // handoff is exempt — the session survives for the new writer.
+      if (!reclaiming && state.streamManager.viewerCount(ws.data.sessionId) === 0) {
         // Restore take-over geometry BEFORE endSession closes the PTY
         // (pty-adaptive-geometry-fullscreen task 1.6).
         maybeRestoreTakeover(state, ws.data.sessionId);

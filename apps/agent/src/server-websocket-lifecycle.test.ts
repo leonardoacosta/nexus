@@ -165,27 +165,37 @@ describe("WebSocket keepalive: pong timeout", () => {
   });
 });
 
-// ── Task 4.2: isWriter guard — non-writer interact socket drops messages ──────
+// ── Task 4.2: interact writer — SYMMETRIC last-open-wins reclaim ──────────────
 
-describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
-  it("second interact socket is rejected (writer mutex already held)", async () => {
+describe("interact writer mutex: last-open-wins reclaim (task 4.2)", () => {
+  it("second interact socket reclaims the writer; first holder is evicted (4009)", async () => {
     const sid = "iswriter-guard-session";
     const pty = new MockPtySource({ intervalMs: 0 });
     streamManager.attach(sid, pty);
 
+    // First interact socket opens and claims the writer mutex.
+    let firstCloseCode: number | null = null;
+    let firstOpened = false;
     const ws1 = new WebSocket(`${wsUrl}/sessions/${sid}/interact`);
     const ws1Opened = new Promise<void>((resolve) => {
-      ws1.addEventListener("open", () => resolve());
-      ws1.addEventListener("close", () => resolve());
+      ws1.addEventListener("open", () => { firstOpened = true; resolve(); });
+      ws1.addEventListener("close", (ev) => {
+        firstCloseCode = (ev as CloseEvent).code;
+        resolve();
+      });
       ws1.addEventListener("error", () => resolve());
     });
     await ws1Opened;
     await delay(30);
+    expect(firstOpened).toBe(true);
 
+    // Second interact socket opens and RECLAIMS the writer (last-open-wins).
+    // It must NOT be rejected; the prior holder (ws1) is evicted with 4009.
+    let secondOpened = false;
     let secondCloseCode: number | null = null;
     const ws2 = new WebSocket(`${wsUrl}/sessions/${sid}/interact`);
     const ws2Settled = new Promise<void>((resolve) => {
-      ws2.addEventListener("open", () => resolve());
+      ws2.addEventListener("open", () => { secondOpened = true; resolve(); });
       ws2.addEventListener("close", (ev) => {
         secondCloseCode = (ev as CloseEvent).code;
         resolve();
@@ -193,11 +203,26 @@ describe("isWriter guard: non-writer socket drops messages (task 4.2)", () => {
       ws2.addEventListener("error", () => resolve());
     });
     await ws2Settled;
-    await delay(30);
+    // Give the server time to evict + close the prior writer socket.
+    await delay(50);
 
-    expect(secondCloseCode as number | null).toBe(4009);
+    // Second socket wins: opened, still alive (not closed).
+    expect(secondOpened).toBe(true);
+    expect(secondCloseCode as number | null).toBeNull();
 
-    try { ws1.close(); } catch { /* ignore */ }
+    // First socket is demoted/evicted: closed with the 4009 reclaim code.
+    expect(firstCloseCode as number | null).toBe(4009);
+
+    // nx-y4hjl regression guard: the reclaim handoff (ws1 evicted while it is
+    // the ONLY other viewer) must NOT destroy the PTY. ws1's close-handler
+    // last-viewer teardown must be suppressed during a live reclaim so the
+    // session survives and ws2 becomes the writer. A destroyed session would
+    // surface as ws2 closing 4004 (asserted null above) AND the PTY being gone.
+    expect(streamManager.getPty(sid)).toBeDefined();
+    // ws2 is the live viewer holding the session open; viewerCount must be >= 1.
+    expect(streamManager.viewerCount(sid)).toBeGreaterThanOrEqual(1);
+
+    try { ws2.close(); } catch { /* ignore */ }
     await delay(30);
     streamManager.endSession(sid);
   });
