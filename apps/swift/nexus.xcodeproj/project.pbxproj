@@ -19,6 +19,7 @@
 		0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19140503AECBE5CFA0098D31 /* SettingsTtsViewTests.swift */; };
 		0F2FEFBCE39EA1750F1F14DC /* NotificationActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917572BCCC40D2AA573C6468 /* NotificationActivation.swift */; };
 		10171FAA5BF30FECFF75501F /* nexusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF435A18F0E9DD92003C3A76 /* nexusApp.swift */; };
+		1261E3634980C85CEC0B5D8D /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		134A9BDD2509A812E3964924 /* NotificationsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A532A469108B79B09D86A5DA /* NotificationsScene.swift */; };
 		150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */; };
 		163711F5D303F3F3396A8822 /* NexusClient+Plaid.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF69A5D3F01464184976801B /* NexusClient+Plaid.swift */; };
@@ -44,6 +45,7 @@
 		31A3324E5C24B4E15D7EAFCE /* TriageObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A751B48F5414144A65155543 /* TriageObserver.swift */; };
 		330834207334556FB46ADEC0 /* PtyViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 561095874ED05EE3F7DBEE0E /* PtyViewer.swift */; };
 		3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F8967872A72450315AC519 /* AutostartInstaller.swift */; };
+		354AA76ECE9DB97C7D9F0D69 /* PresenceReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943D03F4499C45E321B51555 /* PresenceReporter.swift */; };
 		395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */; };
 		3AF53DBE67B6F3E42BA65CB0 /* HealthSummaryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C554612A3F1669167A5A69 /* HealthSummaryScene.swift */; };
 		3BF7A2FC96EF3D208255876C /* MedicationHistoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB469155753DF4F96347890 /* MedicationHistoryScene.swift */; };
@@ -130,6 +132,7 @@
 		AF30FAB5D70705C27E9CB44B /* IntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C430AEEC725438D0A5B435 /* IntegrationStatus.swift */; };
 		B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */; };
 		B0B20631FE4682D1D0DD4A38 /* FleetPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */; };
+		B276F2E4F42FFE8E583944C0 /* PresenceReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B071457D6C02AD8DFF3409 /* PresenceReporterTests.swift */; };
 		B2AD8B89E490793CE957D1E8 /* SessionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9684BD3B2D5D0F2F2D11F9EF /* SessionRow.swift */; };
 		B309A23C5545931776B34BBB /* NexusMacAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */; };
 		B45298C4AD1D8538FB8CE2AD /* SessionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD10580432C088A1CE508F9 /* SessionList.swift */; };
@@ -138,6 +141,7 @@
 		B6BA9B5512A733804BBA9042 /* SourceStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03867DDBEA04CD56980E1A93 /* SourceStatus.swift */; };
 		B84A61BA3B3C80CE3693FEF6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1BB2ADEEAA160B6C7C5B5CE2 /* Assets.xcassets */; };
 		B91D8D018154470FE334AF06 /* Notification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C8B46EABE340ECDF07493C /* Notification.swift */; };
+		B9DCA614036625C715C607AF /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		B9E55B63A49D92699F53B60C /* NotificationDisplayTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143E18BD874C76A9C591791A /* NotificationDisplayTitleTests.swift */; };
 		BAAAE289AABAE5624D037BDE /* AgentNotificationIntegrationTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */; };
 		BC8C1A1198CB98D090FB5493 /* NexusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62182CA602E791DB6BDBE3EB /* NexusPanel.swift */; };
@@ -232,6 +236,20 @@
 			remoteGlobalIDString = D7B203F648362A33DFE749F4;
 			remoteInfo = NexusShared;
 		};
+		78F69CBC9F658A6F967270B0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D7B203F648362A33DFE749F4;
+			remoteInfo = NexusShared;
+		};
+		A2C957E2A0CE6F611648A693 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B76B118DE3A471F78122ED49;
+			remoteInfo = "nexus-ios";
+		};
 		C850319735138935F8ED3FC4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
@@ -263,6 +281,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		10481F674AC1422F032B31CC /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				1261E3634980C85CEC0B5D8D /* NexusShared.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2336319F56D6CE866A08A6A7 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -377,6 +406,7 @@
 		40F32F03C3F1B40C9236EC65 /* NotificationActivationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActivationHandler.swift; sourceTree = "<group>"; };
 		482782F9B3DD653CB99247DB /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
 		485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDecodingTests.swift; sourceTree = "<group>"; };
+		48B071457D6C02AD8DFF3409 /* PresenceReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceReporterTests.swift; sourceTree = "<group>"; };
 		4AC6B83DC21187B1451A8146 /* nexusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusTests.swift; sourceTree = "<group>"; };
 		4D8F43EE044A1CD7345E3FCE /* HealthKitMedBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMedBridge.swift; sourceTree = "<group>"; };
 		4E79DB0015B5859AAC480C97 /* MetricsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsRow.swift; sourceTree = "<group>"; };
@@ -429,11 +459,13 @@
 		897BFA2E5C2DEF0037749BF3 /* SpecsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecsViewTests.swift; sourceTree = "<group>"; };
 		8991E5C8A3B4BD87BBE5C43A /* MedicationGroupDetailScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationGroupDetailScene.swift; sourceTree = "<group>"; };
 		899EAA27132F0989904D5A65 /* SettingsDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDiagnosticsView.swift; sourceTree = "<group>"; };
+		8A4D73698A7C7AE4CF49DDFA /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		8DAD3B87469E5CB921D78729 /* IdentityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityRow.swift; sourceTree = "<group>"; };
 		910FFCDAA0AD2FCA24472FAC /* AggregateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateStateTests.swift; sourceTree = "<group>"; };
 		917572BCCC40D2AA573C6468 /* NotificationActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActivation.swift; sourceTree = "<group>"; };
 		92883A9BE9E7941CFB310050 /* ProcessTableViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessTableViewTests.swift; sourceTree = "<group>"; };
 		92DE47387ED686498A455137 /* FailuresView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailuresView.swift; sourceTree = "<group>"; };
+		943D03F4499C45E321B51555 /* PresenceReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceReporter.swift; sourceTree = "<group>"; };
 		94E85554EEEE538FB89007B4 /* ReaperNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaperNotificationTests.swift; sourceTree = "<group>"; };
 		9684BD3B2D5D0F2F2D11F9EF /* SessionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRow.swift; sourceTree = "<group>"; };
 		9932003F0D7F48309F41C215 /* nexus-mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -488,6 +520,7 @@
 		DDAC4C5587B393E5686B0518 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
 		DDC6909C06ECAA94CA340E4E /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
 		DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationIntegrationTest.swift; sourceTree = "<group>"; };
+		DE504390F981D86938252C1A /* nexus-ios-Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "nexus-ios-Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0F53FABAE091A9DA2BF18BF /* NexusIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusIOSApp.swift; sourceTree = "<group>"; };
 		E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
 		E16DE9C51D19A43C99E9B01D /* CalendarScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScene.swift; sourceTree = "<group>"; };
@@ -512,6 +545,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		003ADD357D9FDE01513689E1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9DCA614036625C715C607AF /* NexusShared.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1F0B326CB7470374661DD83C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -793,6 +834,7 @@
 		A9AF38E3CA8DA2BAB5C45019 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				DE504390F981D86938252C1A /* nexus-ios-Tests.xctest */,
 				EE33C13805C324E12DC6C002 /* nexus-ios.app */,
 				278962BB6B1C1506565B02F5 /* nexus-mac-Tests.xctest */,
 				CA086800FB479B8C247153B9 /* nexus-mac-UITests.xctest */,
@@ -900,6 +942,7 @@
 				802E2554253BBA8C591589F2 /* NavigationState.swift */,
 				091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */,
 				E0F53FABAE091A9DA2BF18BF /* NexusIOSApp.swift */,
+				943D03F4499C45E321B51555 /* PresenceReporter.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -916,6 +959,15 @@
 				90B5E8E2AD47CB8DCB73601D /* NexusSharedTests */,
 				A9AF38E3CA8DA2BAB5C45019 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		E44554820D85C2738F2BE0B4 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				8A4D73698A7C7AE4CF49DDFA /* .gitkeep */,
+				48B071457D6C02AD8DFF3409 /* PresenceReporterTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		E58279E033309DEAFFE44C09 /* Tests */ = {
@@ -994,6 +1046,7 @@
 			isa = PBXGroup;
 			children = (
 				3CA554D98CD4F41EA917C768 /* Sources */,
+				E44554820D85C2738F2BE0B4 /* Tests */,
 			);
 			path = "nexus-ios";
 			sourceTree = "<group>";
@@ -1178,6 +1231,27 @@
 			productReference = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */;
 			productType = "com.apple.product-type.framework";
 		};
+		E3B2AF202B2C35F5B8C95847 /* nexus-ios-Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A5A20DCB97A9D789FC332034 /* Build configuration list for PBXNativeTarget "nexus-ios-Tests" */;
+			buildPhases = (
+				1060A0E01DB9497F569335CA /* Sources */,
+				003ADD357D9FDE01513689E1 /* Frameworks */,
+				10481F674AC1422F032B31CC /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C71920EFFFA3016BF592C08B /* PBXTargetDependency */,
+				3A8EAA209E9F517155589111 /* PBXTargetDependency */,
+			);
+			name = "nexus-ios-Tests";
+			packageProductDependencies = (
+			);
+			productName = "nexus-ios-Tests";
+			productReference = DE504390F981D86938252C1A /* nexus-ios-Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1220,6 +1294,10 @@
 						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
+					E3B2AF202B2C35F5B8C95847 = {
+						DevelopmentTeam = DX3Y367L2A;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = B3A77A4E3CABAEBEA89E18C6 /* Build configuration list for PBXProject "nexus" */;
@@ -1243,6 +1321,7 @@
 				D7B203F648362A33DFE749F4 /* NexusShared */,
 				6EBEF5C23C2C88D0BE6248EA /* NexusSharedTests */,
 				B76B118DE3A471F78122ED49 /* nexus-ios */,
+				E3B2AF202B2C35F5B8C95847 /* nexus-ios-Tests */,
 				AD0EFA1F2956664EE93A475C /* nexus-mac */,
 				28A55E9FB8D3A3D0BEB4B21D /* nexus-mac-Tests */,
 				5116313D6600AC6539AFF054 /* nexus-mac-UITests */,
@@ -1288,12 +1367,21 @@
 				6EF01A0287987E6B63E81C81 /* NexusIOSApp.swift in Sources */,
 				ECD63FAF20BFAA9FD949530C /* NotificationDetailScene.swift in Sources */,
 				134A9BDD2509A812E3964924 /* NotificationsScene.swift in Sources */,
+				354AA76ECE9DB97C7D9F0D69 /* PresenceReporter.swift in Sources */,
 				21C247527E7607CC8F7140BC /* RootScene.swift in Sources */,
 				A045774538576B332A715573 /* SessionsArchetypeScene.swift in Sources */,
 				00C57774390D8460E7BCFC52 /* SourcesScene.swift in Sources */,
 				5C301654F84FCC5A12E518D6 /* SshTerminalSession.swift in Sources */,
 				6845A3D065AC8B9D78542251 /* TerminalHostView.swift in Sources */,
 				D0F784EFEEDCC3FA27A860C0 /* TriageShared.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1060A0E01DB9497F569335CA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B276F2E4F42FFE8E583944C0 /* PresenceReporterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1502,6 +1590,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		3A8EAA209E9F517155589111 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D7B203F648362A33DFE749F4 /* NexusShared */;
+			targetProxy = 78F69CBC9F658A6F967270B0 /* PBXContainerItemProxy */;
+		};
 		4065C907EDA6BDE5AF7D6BF9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D7B203F648362A33DFE749F4 /* NexusShared */;
@@ -1526,6 +1619,11 @@
 			isa = PBXTargetDependency;
 			target = D7B203F648362A33DFE749F4 /* NexusShared */;
 			targetProxy = 714CA778F30C1471EB827382 /* PBXContainerItemProxy */;
+		};
+		C71920EFFFA3016BF592C08B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B76B118DE3A471F78122ED49 /* nexus-ios */;
+			targetProxy = A2C957E2A0CE6F611648A693 /* PBXContainerItemProxy */;
 		};
 		C7CCEEE9F60503DB76839A78 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1829,6 +1927,23 @@
 			};
 			name = Debug;
 		};
+		CBCDC31468BF36480A5BE5D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.leonardoacosta.nexus.nexus-ios-Tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus.app/nexus";
+			};
+			name = Release;
+		};
 		CFB3CB0C19168FC0E730C782 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1950,6 +2065,23 @@
 			};
 			name = Release;
 		};
+		DFB05C2CB15080AE4D562868 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.leonardoacosta.nexus.nexus-ios-Tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/nexus.app/nexus";
+			};
+			name = Debug;
+		};
 		F530FD74C639B182CD13B0EF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -2003,6 +2135,15 @@
 			buildConfigurations = (
 				CFB935B370FD98D1D099BF8C /* Debug */,
 				7585315EDC155306575CB88B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A5A20DCB97A9D789FC332034 /* Build configuration list for PBXNativeTarget "nexus-ios-Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DFB05C2CB15080AE4D562868 /* Debug */,
+				CBCDC31468BF36480A5BE5D3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

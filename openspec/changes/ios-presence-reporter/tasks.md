@@ -20,15 +20,15 @@
 
 ## UI Batch
 
-- [ ] Add `com.apple.developer.usernotifications.communication` to `apps/swift/nexus-ios/Resources/nexus-ios.entitlements` (portal capability already granted; this is the matching local key) [beads:nx-wf4s1]
-- [ ] Create `apps/swift/nexus-ios/Sources/App/PresenceReporter.swift` — reads HK sleep schedule (in-window-now, reusing `HealthKitPushManager`'s `.sleepAnalysis`/observer), `INFocusStatusCenter` (Focus + Sleep-Focus) with authorization request, and POSTs `{ machine, hkSleepWindow, sleepFocusActive, phoneFocusOn }` to the agent via `NexusShared.NexusClient`; event-driven (HK observer + Focus-change + foreground), no polling [beads:nx-eqsz9]
-- [ ] Wire the reporter into `apps/swift/nexus-ios/Sources/App/NexusAppDelegate.swift` (start on launch + foreground; subscribe to Focus-status changes) — NOTE: shared file with `ios-session-navigation`, edit surgically [beads:nx-rkv01]
-- [ ] Add a `reportPresence`/presence client method to `apps/swift/NexusShared/Networking/NexusClient.swift` if not already present for iOS (qualify `NexusShared.NexusClient`) — NOTE: shared file with `ios-session-navigation` [beads:nx-e48bb]
-- [ ] Add a bedtime-sources control (HK / Focus / either / both) to `apps/swift/nexus-mac/Sources/Dashboard/Settings/SettingsRoutingView.swift`, persisted via the existing settings PATCH path [beads:nx-7hp9i]
+- [x] Add `com.apple.developer.usernotifications.communication` to `apps/swift/nexus-ios/Resources/nexus-ios.entitlements` (portal capability already granted; this is the matching local key) [beads:nx-wf4s1]
+- [x] Create `apps/swift/nexus-ios/Sources/App/PresenceReporter.swift` — reads HK sleep schedule (in-window-now, reusing `HealthKitPushManager`'s `.sleepAnalysis`/observer), `INFocusStatusCenter` (Focus + Sleep-Focus) with authorization request, and POSTs `{ machine, hkSleepWindow, sleepFocusActive, phoneFocusOn }` to the agent via `NexusShared.NexusClient`; event-driven (HK observer + Focus-change + foreground), no polling [beads:nx-eqsz9]
+- [x] Wire the reporter into `apps/swift/nexus-ios/Sources/App/NexusAppDelegate.swift` (start on launch + foreground; subscribe to Focus-status changes) — NOTE: shared file with `ios-session-navigation`, edit surgically [beads:nx-rkv01]
+- [x] Add a `reportPresence`/presence client method to `apps/swift/NexusShared/Networking/NexusClient.swift` if not already present for iOS (qualify `NexusShared.NexusClient`) — NOTE: shared file with `ios-session-navigation` [beads:nx-e48bb] (existing `reportPresence(_:)` reused; added `bedtime_sources` decode to `NotificationSettingsResponse`)
+- [x] Add a bedtime-sources control (HK / Focus / either / both) to `apps/swift/nexus-mac/Sources/Dashboard/Settings/SettingsRoutingView.swift`, persisted via the existing settings PATCH path [beads:nx-7hp9i]
 
 ## E2E Batch
 
 - [x] Extend `apps/agent/src/routes/presence-report.test.ts` — phone signals parse + key into the global phone record; bad shape 400; missing machine handled [beads:nx-1eqyz]
 - [x] Extend `apps/agent/src/notifications/rules-engine.test.ts` — Rule 3 (bedtime+idle Mac → silent passive phone; active Mac beats it; ordering after Rule 2 before Rule 4); Focus-respect modifier drops non-critical to passive; `applyBedtimeSources` for hk/focus/either/both [beads:nx-nja0z]
 - [x] Extend `apps/agent/src/routes/notification-settings.test.ts` — `bedtime_sources` accepted + validated + broadcast; bad enum rejected; plus a no-regression test (phone fields unknown → overlay no-op → Phase 1.7 behavior unchanged) [beads:nx-9aspc]
-- [ ] Create `apps/swift/nexus-ios/Tests/PresenceReporterTests.swift` — the reporter's pure logic: in-window computation from a sleep schedule fixture, Focus-on → phoneFocusOn, builds the correct report payload [beads:nx-xm1bn]
+- [x] Create `apps/swift/nexus-ios/Tests/PresenceReporterTests.swift` — the reporter's pure logic: in-window computation from a sleep schedule fixture, Focus-on → phoneFocusOn, builds the correct report payload [beads:nx-xm1bn]

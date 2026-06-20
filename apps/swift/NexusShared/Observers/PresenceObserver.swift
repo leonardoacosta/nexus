@@ -315,9 +315,14 @@ public final class PresenceObserver {
     public func stop() {
         pollTimer?.cancel()
         pollTimer = nil
+        // DistributedNotificationCenter is macOS-only; on iOS there are no
+        // screen-lock distributed notifications to detach (ios-presence-reporter
+        // surfaced this when NexusShared began building for the iOS Simulator).
+        #if os(macOS)
         let center = DistributedNotificationCenter.default()
         for obs in distObservers { center.removeObserver(obs) }
         distObservers.removeAll()
+        #endif
     }
 
     // MARK: Recompute + emit
@@ -355,6 +360,10 @@ public final class PresenceObserver {
     /// recompute on each so `macLocked` is reported without waiting for the
     /// poll tick.
     private func armLockNotifications() {
+        // macOS-only: DistributedNotificationCenter + the screenIsLocked/Unlocked
+        // names exist only on macOS. On iOS the poll timer alone drives recompute
+        // (there is no screen-lock distributed notification to observe).
+        #if os(macOS)
         let center = DistributedNotificationCenter.default()
         for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
             let obs = center.addObserver(
@@ -366,6 +375,7 @@ public final class PresenceObserver {
             }
             distObservers.append(obs)
         }
+        #endif
     }
 }
 

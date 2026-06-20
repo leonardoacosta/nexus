@@ -129,11 +129,17 @@ actor PresenceReporter {
     static let shared = PresenceReporter()
 
     private let store = HKHealthStore()
-    private let client = NexusShared.NexusClient(endpoint: Self.resolvedEndpoint())
+    private let client: NexusShared.NexusClient
     private let log = Logger(
         subsystem: "dev.leonardoacosta.nexus.ios",
         category: "presence-reporter"
     )
+
+    init() {
+        // `Self.resolvedEndpoint()` can't be referenced from a stored-property
+        // initializer (covariant Self), so resolve the endpoint here.
+        self.client = NexusShared.NexusClient(endpoint: PresenceReporter.resolvedEndpoint())
+    }
 
     /// Guards one-time observer registration per PROCESS (iOS spawns a fresh
     /// process per background wake, so this resets naturally).
