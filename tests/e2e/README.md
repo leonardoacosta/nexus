@@ -19,9 +19,9 @@ exists yet; this directory is the initial scaffolding.
 ## Running
 
 ```bash
-# One-time: start test Postgres and push schema
+# One-time: start test Postgres and apply migrations (throwaway DB — db:migrate, never db:push)
 docker compose -f docker-compose.test.yml up -d
-POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test pnpm --filter @nexus/db db:push
+POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test pnpm --filter @nexus/db db:migrate
 
 # Run all e2e tests
 POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test \

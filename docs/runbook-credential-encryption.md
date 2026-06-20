@@ -6,7 +6,7 @@ and the subsequent column drop.
 ## Prerequisites
 
 - PostgreSQL database running and accessible via `POSTGRES_URL`
-- `pnpm db:push` already applied (schema includes `value_encrypted` + `encryption_key_id`)
+- The migration adding `value_encrypted` + `encryption_key_id` already applied (via `pnpm db:generate` + deploy `pnpm db:migrate` — never `db:push`)
 - Node.js / Bun runtime available
 
 ---
@@ -72,11 +72,12 @@ The migration at `packages/db/drizzle/0004_encrypt_credentials_finalize.sql` mak
 `value_encrypted` NOT NULL and drops `value_plaintext`. It also matches what
 `0007_aberrant_silver_fox.sql` does via the updated Drizzle schema.
 
-Run via drizzle-kit:
+Run via the migration workflow (generate the migration, then let the deploy apply it — never `db:push`):
 
 ```bash
 cd packages/db
-POSTGRES_URL=$POSTGRES_URL pnpm db:push
+pnpm db:generate          # writes the ordered .sql migration; commit it
+POSTGRES_URL=$POSTGRES_URL pnpm db:migrate   # deploy / local-throwaway applies it
 ```
 
 Or apply the SQL directly:

@@ -40,12 +40,12 @@ Then remote deploys are launched in background and the hook exits immediately
 
 ### Requirement: DB migration on packages/db changes
 
-A `deploy/hooks.d/post-merge/03-migrate` script MUST run `pnpm --filter @nexus/db db:push` when files under `packages/db/` change between `ORIG_HEAD` and `HEAD`. The script MUST source `infra/.tf-outputs.env` to load `POSTGRES_URL` if available. Failures log warnings but never block subsequent hooks.
+A `deploy/hooks.d/post-merge/03-migrate` script MUST run `pnpm --filter @nexus/db db:migrate` (ordered migration replay — NEVER `db:push`) when files under `packages/db/` change between `ORIG_HEAD` and `HEAD`. The deploy is the single writer to the live DB; schema changes arrive as committed `.sql` migrations generated via `db:generate`. The script MUST load `POSTGRES_URL` from the agent's canonical source (`~/.env`). Failures log warnings but never block subsequent hooks.
 
 #### Scenario: schema change triggers migration
 - **Given** a merge introduces a new column in `packages/db/src/schema/credentials.ts`
 - **When** the post-merge dispatcher runs the 03-migrate hook
-- **Then** `pnpm --filter @nexus/db db:push` runs and the new column appears in Postgres
+- **Then** `pnpm --filter @nexus/db db:migrate` runs (applying the committed migration) and the new column appears in Postgres
 
 #### Scenario: no DB changes skips migration
 - **Given** a merge only changes `apps/nextjs/src/components/`
