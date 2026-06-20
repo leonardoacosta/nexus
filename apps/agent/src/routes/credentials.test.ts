@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it, beforeEach, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync, existsSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
@@ -441,12 +441,39 @@ describe("readCredentials — filesystem reader (task 1.10)", () => {
     });
   });
 
-  it("[1.10] empty directory returns empty wire shape", async () => {
+  it("[1.10] empty pool dir falls back to synthesize-from-CC (or empty when no CC file)", async () => {
+    // nx-y4hjl re-scope: this test previously asserted `credentials: []` for an
+    // empty pool dir. That premise is obsolete — `fix-credential-source-divergence`
+    // (reader.ts `readActiveCcCredentialEntry`) INTENTIONALLY synthesizes a single
+    // entry from `~/.claude/.credentials.json` when the pool has zero acct-*.json
+    // files, so the dashboard reflects the real active CC credential on hosts that
+    // use Claude Code directly (no nexus pool import). The old `process.env.HOME`
+    // redirect can't disable that fallback because Bun's `os.homedir()` reads the
+    // passwd entry, not $HOME. So we assert what ACTUALLY ships:
+    //   - on a CC host (the dotted file exists): an empty pool synthesizes exactly
+    //     one active credential whose fingerprint becomes activeFingerprint;
+    //   - on a host WITHOUT that file: the documented empty wire shape.
     const dir = mkdtempSync(join(tmpdir(), "nx-cred-empty-"));
+    // Resolve the same CC credential path the reader's fallback uses. The reader
+    // anchors on os.homedir(); mirror that here so the branch is host-accurate.
+    const ccCredentialsPath = join(homedir(), ".claude", ".credentials.json");
     try {
       const result = await readCredentials(dir);
-      expect(result.credentials).toEqual([]);
-      expect(result.activeFingerprint).toBeNull();
+      if (existsSync(ccCredentialsPath)) {
+        // Shipped fallback: synthesize the host's active CC credential.
+        expect(result.credentials).toHaveLength(1);
+        const entry = result.credentials[0]!;
+        expect(entry.status).toBe("active");
+        expect(entry.isActive).toBe(true);
+        expect(typeof entry.fingerprint).toBe("string");
+        expect(entry.fingerprint.length).toBe(64); // sha256 hex
+        // activeFingerprint must point at the synthesized entry.
+        expect(result.activeFingerprint).toBe(entry.fingerprint);
+      } else {
+        // No CC file on this host — documented empty wire shape.
+        expect(result.credentials).toEqual([]);
+        expect(result.activeFingerprint).toBeNull();
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
