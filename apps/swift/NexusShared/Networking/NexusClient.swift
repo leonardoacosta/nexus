@@ -219,6 +219,21 @@ public actor NexusClient {
         return try? await getJSON(url: url)
     }
 
+    // MARK: - Fleet presence (cross-machine-delivery, nx-ewwvq)
+
+    /// `GET /presence/fleet` — the dashboard's fleet-presence view: every
+    /// `fleet_presence` row, the resolved live-console machine, and the local
+    /// machine name (apps/agent/src/routes/presence-fleet.ts).
+    ///
+    /// Returns `nil` on transport / non-2xx / decode failure so the
+    /// `FleetPresenceIndicator` keeps its last-known-good snapshot (or renders
+    /// its empty state on first load) rather than surfacing an error — the
+    /// indicator is best-effort ambient context, not a critical path.
+    public func fetchFleetPresence() async -> FleetPresenceResponse? {
+        let url = endpoint.baseURL.appendingPathComponent("presence/fleet")
+        return try? await getJSON(url: url)
+    }
+
     /// Wire shape of one `/notifications/routing-rules` row. `condition` /
     /// `action` are opaque JSON maps the agent round-trips; the Routing pane
     /// works in the richer `RoutingRule` model and only sends id + the flat

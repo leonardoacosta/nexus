@@ -21,12 +21,12 @@
 
 ## UI Batch
 
-- [ ] Add `fetchFleetPresence()` to `apps/swift/NexusShared/Networking/NexusClient.swift` (GET `/presence/fleet`, typed decode of machines + live console) [beads:nx-ewwvq]
-- [ ] Create `apps/swift/nexus-mac/Sources/Dashboard/FleetPresenceIndicator.swift` — a compact dashboard element showing the live-console machine and the routing destination ("live console: studio", "notifications → this Mac"); refresh on appear / SSE [beads:nx-4vc67]
+- [x] Add `fetchFleetPresence()` to `apps/swift/NexusShared/Networking/NexusClient.swift` (GET `/presence/fleet`, typed decode of machines + live console) [beads:nx-ewwvq]
+- [x] Create `apps/swift/nexus-mac/Sources/Dashboard/FleetPresenceIndicator.swift` — a compact dashboard element showing the live-console machine and the routing destination ("live console: studio", "notifications → this Mac"); refresh on appear / SSE [beads:nx-4vc67]
 
 ## E2E Batch
 
 - [x] Create `apps/agent/src/services/fleet-presence.test.ts` — `resolveLiveConsole`: newest on-console wins, two on-console tie-break by heartbeat, no on-console → local, all-stale → local [beads:nx-sjqjk]
 - [x] Create `apps/agent/src/notifications/cross-machine-delivery.test.ts` — local target → no forward; remote target → POST to peer; peer-unreachable → lossless local fallback + warn; no re-forward loop [beads:nx-qjejc]
 - [x] Create `apps/agent/src/routes/notifications-deliver.test.ts` — valid forwarded payload + secret → `NotificationFired` + 2xx; bad shape → 400; missing secret → 401/403; never re-routes [beads:nx-u6q71]
-- [ ] Create `apps/swift/nexus-mac/Tests/FleetPresenceIndicatorTests.swift` — indicator renders the resolved live-console machine + routing destination from a stubbed fleet response [beads:nx-f3w74]
+- [x] Create `apps/swift/nexus-mac/Tests/FleetPresenceIndicatorTests.swift` — indicator renders the resolved live-console machine + routing destination from a stubbed fleet response [beads:nx-f3w74]

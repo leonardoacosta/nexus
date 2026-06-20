@@ -78,6 +78,7 @@
 		5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF82FA65C214FE1491DE3E4 /* LaunchAgentInstallerTests.swift */; };
 		6335303D621CAD5DB26654A4 /* WavePlanStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */; };
 		6364EAC1E30154DDA1BCDF6A /* SourceIndexObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A464086226E8599A7BC301 /* SourceIndexObserver.swift */; };
+		63C60B0F83BEA215479D0AB3 /* FleetPresenceIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */; };
 		63D3B543B76594E38988D323 /* NavigationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802E2554253BBA8C591589F2 /* NavigationState.swift */; };
 		654E341195B4A39169F7E278 /* FailuresViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */; };
 		682DB18D9692C6288C32322B /* MedicationGroupScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8443C3BF2060E87794E15B50 /* MedicationGroupScene.swift */; };
@@ -110,6 +111,7 @@
 		9149D4D4F28F32A213B21933 /* ActionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0EE128D4680A02B87E3651 /* ActionRow.swift */; };
 		92078DA331418A0E6A9A0DB8 /* SpawnHomelabSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 332165B2E191D7C8F049DC61 /* SpawnHomelabSession.swift */; };
 		927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */; };
+		97AA75160EDB2117DB41745B /* FleetPresenceIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B13AF99CABE8726E77F30EF /* FleetPresenceIndicator.swift */; };
 		99FFD3710F74FF6E815E2769 /* TTSNotificationFiredRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798B57E251FF27441C76EFCA /* TTSNotificationFiredRoundTripTests.swift */; };
 		9A10DA461A4198E285AF30AD /* SttCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A592CD4BCBD692A3CC9E94 /* SttCommandTests.swift */; };
 		9B40BD395261E3CEFEDE88B3 /* TriageItem+Sample.swift in Sources */ = {isa = PBXBuildFile; fileRef = B882EBF665D0522196F57B4F /* TriageItem+Sample.swift */; };
@@ -127,6 +129,7 @@
 		ABEB490E880F6972B463B8C9 /* NotificationActivationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40F32F03C3F1B40C9236EC65 /* NotificationActivationHandler.swift */; };
 		AF30FAB5D70705C27E9CB44B /* IntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C430AEEC725438D0A5B435 /* IntegrationStatus.swift */; };
 		B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */; };
+		B0B20631FE4682D1D0DD4A38 /* FleetPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */; };
 		B2AD8B89E490793CE957D1E8 /* SessionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9684BD3B2D5D0F2F2D11F9EF /* SessionRow.swift */; };
 		B309A23C5545931776B34BBB /* NexusMacAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */; };
 		B45298C4AD1D8538FB8CE2AD /* SessionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD10580432C088A1CE508F9 /* SessionList.swift */; };
@@ -331,6 +334,7 @@
 		08F50167D8627C3771ECF996 /* SpecDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecDetailViewTests.swift; sourceTree = "<group>"; };
 		091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusAppDelegate.swift; sourceTree = "<group>"; };
 		0A85188AE7ED53AB749EEB08 /* AgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRegistry.swift; sourceTree = "<group>"; };
+		0B13AF99CABE8726E77F30EF /* FleetPresenceIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetPresenceIndicator.swift; sourceTree = "<group>"; };
 		0DBE1B4715A7F3952458F64F /* ProjectsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsViewTests.swift; sourceTree = "<group>"; };
 		0E53AD8EA6F5A9C4F0025ECD /* NexusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusClient.swift; sourceTree = "<group>"; };
 		1387D70399F82E187F0A74D6 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
@@ -387,6 +391,7 @@
 		570A08307B8A0D0713D9E014 /* MarkdownRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderingTests.swift; sourceTree = "<group>"; };
 		593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyLauncherTests.swift; sourceTree = "<group>"; };
 		5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecSession.swift; sourceTree = "<group>"; };
+		616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetPresenceIndicatorTests.swift; sourceTree = "<group>"; };
 		62182CA602E791DB6BDBE3EB /* NexusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusPanel.swift; sourceTree = "<group>"; };
 		63A464086226E8599A7BC301 /* SourceIndexObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceIndexObserver.swift; sourceTree = "<group>"; };
 		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
@@ -411,6 +416,7 @@
 		79D52B73629D70857001E583 /* SettingsRoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRoutingView.swift; sourceTree = "<group>"; };
 		7B73A9657818F6505743E0E8 /* NotificationAudioFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAudioFieldTests.swift; sourceTree = "<group>"; };
 		7BDEF41337CC27E40C4282CA /* SourceIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceIndexView.swift; sourceTree = "<group>"; };
+		7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetPresence.swift; sourceTree = "<group>"; };
 		802E2554253BBA8C591589F2 /* NavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationState.swift; sourceTree = "<group>"; };
 		80841AF19A238A5B1EB7C1D9 /* TTSObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSObserver.swift; sourceTree = "<group>"; };
 		81879058FEAF844513D21F7F /* nexus-presence */ = {isa = PBXFileReference; includeInIndex = 0; path = "nexus-presence"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -648,6 +654,7 @@
 				F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */,
 				D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */,
 				92DE47387ED686498A455137 /* FailuresView.swift */,
+				0B13AF99CABE8726E77F30EF /* FleetPresenceIndicator.swift */,
 				01B0CFFE5094C6A1D743886C /* HealthView.swift */,
 				01EB083041F4DC22A305EF1E /* IntegrationsView.swift */,
 				327312239EBDF6F78197F4DA /* NotificationReplayButton.swift */,
@@ -804,6 +811,7 @@
 				82E8C108E1340EBB0A56B793 /* AggregateState.swift */,
 				CE0491406946C9544A414272 /* CcProfile.swift */,
 				F8C2568BDA318EAA7D351F79 /* CommsMessage.swift */,
+				7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */,
 				1A1FC35BEFA043E53A32AFC2 /* GitMetadata.swift */,
 				E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */,
 				3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */,
@@ -919,6 +927,7 @@
 				6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */,
 				C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */,
 				71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */,
+				616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */,
 				ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */,
 				D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */,
 				92883A9BE9E7941CFB310050 /* ProcessTableViewTests.swift */,
@@ -1316,6 +1325,7 @@
 				79D4B9DBF30A3C4A894666D2 /* DashboardNavigationCoordinator.swift in Sources */,
 				FD0BFD926C048E01DDEB45F0 /* ElevenLabsStatusChip.swift in Sources */,
 				4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */,
+				97AA75160EDB2117DB41745B /* FleetPresenceIndicator.swift in Sources */,
 				884F160CC005F0383EF3FBC5 /* GlobalHotkeyManager.swift in Sources */,
 				D47B8DD11C85D8797FD4A8C2 /* HealthView.swift in Sources */,
 				21FAE3BB9FA83CE0B0FCE22A /* IdentityRow.swift in Sources */,
@@ -1407,6 +1417,7 @@
 				7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */,
 				395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */,
 				654E341195B4A39169F7E278 /* FailuresViewTests.swift in Sources */,
+				63C60B0F83BEA215479D0AB3 /* FleetPresenceIndicatorTests.swift in Sources */,
 				73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */,
 				5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */,
 				CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */,
@@ -1450,6 +1461,7 @@
 				E6BDF54CB91D8971AE88B65B /* CcProfile.swift in Sources */,
 				D09953FEFC90DB68D6A6E014 /* CommsMessage.swift in Sources */,
 				FC165B57A2DFA0DB6EAF8B34 /* ElevenLabsClient.swift in Sources */,
+				B0B20631FE4682D1D0DD4A38 /* FleetPresence.swift in Sources */,
 				F95CC095C27794741B55CD04 /* GitMetadata.swift in Sources */,
 				927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */,
 				D1B25E27984FCD6A9442A0C2 /* HealthSnapshot.swift in Sources */,
