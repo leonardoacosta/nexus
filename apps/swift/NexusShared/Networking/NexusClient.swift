@@ -214,6 +214,23 @@ public actor NexusClient {
         public var condition: [String: Bool]
         public var action: [String: String]
         public var enabled: Bool
+
+        // Explicit public init — the synthesized memberwise init is internal,
+        // so cross-module callers (the nexus-mac Routing pane) cannot construct
+        // one without this.
+        public init(
+            id: String,
+            priority: Int,
+            condition: [String: Bool],
+            action: [String: String],
+            enabled: Bool
+        ) {
+            self.id = id
+            self.priority = priority
+            self.condition = condition
+            self.action = action
+            self.enabled = enabled
+        }
     }
 
     private struct RoutingRulesEnvelope: Codable, Sendable {

@@ -100,9 +100,13 @@ final class SettingsRoutingViewModel: ObservableObject {
     @Published var status: String?
 
     private let store: SettingsStore
-    private let client: NexusClient
+    // Qualify the SHARED client — the nexus-mac target also compiles a legacy
+    // `actor NexusClient` (apps/swift/nexus/nexus/NexusClient.swift) that an
+    // unqualified `NexusClient` would bind to (it lacks these methods). Same
+    // footgun documented in SourceIndexView / ProjectVoicesView.
+    private let client: NexusShared.NexusClient
 
-    init(store: SettingsStore = .shared, client: NexusClient = NexusClient()) {
+    init(store: SettingsStore = .shared, client: NexusShared.NexusClient = NexusShared.NexusClient()) {
         self.store = store
         self.client = client
         self.presenceAware = store.presenceAwareRouting
@@ -161,7 +165,7 @@ final class SettingsRoutingViewModel: ObservableObject {
         store.routingRules = rules          // re-stamps priority = index
         rules = store.routingRules          // read back the reindexed copy
         let wire = rules.map { rule in
-            NexusClient.RoutingRuleWire(
+            NexusShared.NexusClient.RoutingRuleWire(
                 id: rule.id,
                 priority: rule.priority,
                 condition: conditionMap(rule),
