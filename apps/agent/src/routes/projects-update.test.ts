@@ -10,15 +10,22 @@
 import { describe, expect, it, beforeAll, afterAll, mock } from "bun:test";
 import { handleUpdateProject, aggregateProjects } from "./projects";
 import type { SessionRow } from "../db/sessions";
-import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
 import { projects } from "@nexus/db";
 import { eq } from "drizzle-orm";
 
 import { hasLivePg as hasPg } from "../testing/live-pg";
+import {
+  createIsolatedSchema,
+  SESSIONS_PROJECTS_DDL,
+  type IsolatedSchema,
+} from "../testing/isolated-pg-schema";
 
 const TEST_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
 
+// Seeds into the per-suite ISOLATED throwaway schema — the row lands there,
+// not in the shared `public.projects`. Teardown is the single CASCADE drop in
+// `afterAll`, so the seeded project never leaks into prod even on a crash.
 async function seedProject(db: Db) {
   await db
     .insert(projects)
@@ -31,10 +38,6 @@ async function seedProject(db: Db) {
     .onConflictDoNothing();
 }
 
-async function cleanupProject(db: Db) {
-  await db.delete(projects).where(eq(projects.id, TEST_PROJECT_ID));
-}
-
 function makeRequest(body: unknown): Request {
   return new Request(`http://localhost/projects/${TEST_PROJECT_ID}`, {
     method: "PATCH",
@@ -44,16 +47,17 @@ function makeRequest(body: unknown): Request {
 }
 
 describe.skipIf(!hasPg)("PATCH /projects/:id (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
 
   beforeAll(async () => {
-    db = openDatabase();
-    await cleanupProject(db);
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "projupdate");
+    db = iso.db;
     await seedProject(db);
   });
 
   afterAll(async () => {
-    await cleanupProject(db);
+    await iso.drop();
   });
 
   it("updates tags", async () => {

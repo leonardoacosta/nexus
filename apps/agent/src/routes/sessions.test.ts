@@ -56,25 +56,28 @@ afterAll(() => execMockHandle.restore());
 
 import { createSessionHandlers } from "./sessions";
 import { reconcileOnce } from "../services/process-watcher";
-import { openDatabase } from "../db/database";
 import type { Db } from "@nexus/db";
 import { sessions, projects } from "@nexus/db";
-import { eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import {
+  createIsolatedSchema,
+  SESSIONS_PROJECTS_DDL,
+  type IsolatedSchema,
+} from "../testing/isolated-pg-schema";
 
 // ── Seed helpers ───────────────────────────────────────────────────────────
+//
+// All seeding routes through a per-suite ISOLATED throwaway schema (see
+// ../testing/isolated-pg-schema.ts). Rows land in that schema, NOT the shared
+// `public` tables, and the suite's `afterAll` calls `iso.drop()` which
+// `DROP SCHEMA … CASCADE`s everything — sessions AND the seeded project —
+// regardless of test outcome. No per-row teardown is needed (CASCADE handles
+// it), and a crash mid-suite cannot leak rows into prod.
 
-const TEST_IDS = ["test-sess-001", "test-sess-002", "test-sess-003"];
 const TEST_PROJECT_NAME = "__nx_sessions_test_alpha__";
 
-/** Create the alpha test project (idempotent) and return its uuid. */
-async function ensureTestProject(db: Db): Promise<string> {
-  const existing = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.name, TEST_PROJECT_NAME))
-    .limit(1);
-  if (existing[0]) return existing[0].id;
-
+/** Create the alpha test project and return its uuid. */
+async function createTestProject(db: Db): Promise<string> {
   const [row] = await db
     .insert(projects)
     .values({
@@ -86,9 +89,7 @@ async function ensureTestProject(db: Db): Promise<string> {
 }
 
 async function seedSessions(db: Db): Promise<string> {
-  // Ensure clean state before seeding (idempotent across describe blocks).
-  await teardown(db);
-  const projectId = await ensureTestProject(db);
+  const projectId = await createTestProject(db);
   const now = new Date();
   await db.insert(sessions).values([
     {
@@ -126,26 +127,22 @@ async function seedSessions(db: Db): Promise<string> {
   return projectId;
 }
 
-async function teardown(db: Db): Promise<void> {
-  for (const id of TEST_IDS) {
-    await db.delete(sessions).where(eq(sessions.id, id));
-  }
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe.skipIf(!hasPg)("GET /sessions (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
   let handlers: ReturnType<typeof createSessionHandlers>;
 
   beforeAll(async () => {
-    db = openDatabase();
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+    db = iso.db;
     await seedSessions(db);
     handlers = createSessionHandlers(db);
   });
 
   afterAll(async () => {
-    await teardown(db);
+    await iso.drop();
   });
 
   it("returns sessions array", async () => {
@@ -167,18 +164,20 @@ describe.skipIf(!hasPg)("GET /sessions (requires live PG)", () => {
 });
 
 describe.skipIf(!hasPg)("GET /sessions?project= (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
   let handlers: ReturnType<typeof createSessionHandlers>;
   let projectId: string;
 
   beforeAll(async () => {
-    db = openDatabase();
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+    db = iso.db;
     projectId = await seedSessions(db);
     handlers = createSessionHandlers(db);
   });
 
   afterAll(async () => {
-    await teardown(db);
+    await iso.drop();
   });
 
   it("filters by projectId (the current source contract)", async () => {
@@ -205,17 +204,19 @@ describe.skipIf(!hasPg)("GET /sessions?project= (requires live PG)", () => {
 });
 
 describe.skipIf(!hasPg)("GET /sessions?status= (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
   let handlers: ReturnType<typeof createSessionHandlers>;
 
   beforeAll(async () => {
-    db = openDatabase();
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+    db = iso.db;
     await seedSessions(db);
     handlers = createSessionHandlers(db);
   });
 
   afterAll(async () => {
-    await teardown(db);
+    await iso.drop();
   });
 
   it("filters by status", async () => {
@@ -251,17 +252,19 @@ describe.skipIf(!hasPg)("GET /sessions?status= (requires live PG)", () => {
 });
 
 describe.skipIf(!hasPg)("GET /sessions/{id} (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
   let handlers: ReturnType<typeof createSessionHandlers>;
 
   beforeAll(async () => {
-    db = openDatabase();
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+    db = iso.db;
     await seedSessions(db);
     handlers = createSessionHandlers(db);
   });
 
   afterAll(async () => {
-    await teardown(db);
+    await iso.drop();
   });
 
   it("returns a single session by ID", async () => {
@@ -280,12 +283,18 @@ describe.skipIf(!hasPg)("GET /sessions/{id} (requires live PG)", () => {
 });
 
 describe.skipIf(!hasPg)("GET /sessions?status=invalid (requires live PG)", () => {
+  let iso: IsolatedSchema;
   let db: Db;
   let handlers: ReturnType<typeof createSessionHandlers>;
 
-  beforeAll(() => {
-    db = openDatabase();
+  beforeAll(async () => {
+    iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+    db = iso.db;
     handlers = createSessionHandlers(db);
+  });
+
+  afterAll(async () => {
+    await iso.drop();
   });
 
   it("returns 400 for invalid status value", async () => {
@@ -322,15 +331,17 @@ const FRESHNESS_WINDOW_MS = 300_000; // Swift dashboard staleness cutoff (300s)
 describe.skipIf(!hasPg)(
   "process-watcher reconcile keeps a live PID fresh in GET /sessions (nx-z66n8)",
   () => {
+    let iso: IsolatedSchema;
     let db: Db;
     let handlers: ReturnType<typeof createSessionHandlers>;
     const KNOWN_PID = 987654;
     const ROW_ID = "nx-z66n8-fresh-row";
 
     beforeAll(async () => {
-      db = openDatabase();
-      await db.delete(sessions).where(eq(sessions.id, ROW_ID));
-      await db.delete(sessions).where(like(sessions.id, "cc-987654-%"));
+      // Isolated schema — reconcileOnce also writes process_watcher_state
+      // rows, all of which CASCADE-drop in teardown (never touch public).
+      iso = await createIsolatedSchema(SESSIONS_PROJECTS_DDL, "sessroute");
+      db = iso.db;
 
       // Insert a watcher-managed row whose lastActivity is deliberately
       // STALE — older than the dashboard freshness window. Without a
@@ -354,8 +365,7 @@ describe.skipIf(!hasPg)(
     });
 
     afterAll(async () => {
-      await db.delete(sessions).where(eq(sessions.id, ROW_ID));
-      await db.delete(sessions).where(like(sessions.id, "cc-987654-%"));
+      await iso.drop();
     });
 
     it("reconcile bumps lastActivity into the freshness window and the row is served", async () => {
