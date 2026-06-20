@@ -1,0 +1,1 @@
+ALTER TABLE "notification_settings" ADD COLUMN "bedtime_sources" text DEFAULT 'either' NOT NULL;

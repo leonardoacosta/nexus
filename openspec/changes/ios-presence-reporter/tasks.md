@@ -5,8 +5,8 @@
 
 ## DB Batch
 
-- [ ] Add `bedtime_sources` column to `packages/db/src/schema/notificationSettings.ts` (text `$type<"hk"|"focus"|"either"|"both">()` notNull default `"either"`); keep existing columns [beads:nx-ha2yq]
-- [ ] `pnpm --filter @nexus/db db:generate` (creates the migration `.sql`), verify it is additive (ADD COLUMN, no drops), then deploy applies via `db:migrate` — NEVER `db:push`. Handle the snapshot guard if it trips; paste the generated SQL + snapshot-guard result [beads:nx-bmuwj]
+- [x] Add `bedtime_sources` column to `packages/db/src/schema/notificationSettings.ts` (text `$type<"hk"|"focus"|"either"|"both">()` notNull default `"either"`); keep existing columns [beads:nx-ha2yq]
+- [x] `pnpm --filter @nexus/db db:generate` (creates the migration `.sql`), verify it is additive (ADD COLUMN, no drops), then deploy applies via `db:migrate` — NEVER `db:push`. Handle the snapshot guard if it trips; paste the generated SQL + snapshot-guard result [beads:nx-bmuwj]
 
 ## API Batch
 

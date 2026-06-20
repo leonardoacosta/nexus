@@ -38,6 +38,10 @@ export const notificationSettings = pgTable("notification_settings", {
     .$type<"fail-open" | "fail-safe">()
     .notNull()
     .default("fail-open"),
+  bedtimeSources: text("bedtime_sources")
+    .$type<"hk" | "focus" | "either" | "both">()
+    .notNull()
+    .default("either"),
   updatedAt: timestamp("updated_at", { mode: "date" })
     .notNull()
     .defaultNow(),
