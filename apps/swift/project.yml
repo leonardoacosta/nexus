@@ -260,6 +260,15 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
+    # Secrets.xcconfig is GITIGNORED (committed Secrets.example.xcconfig is the
+    # template). It supplies HEALTH_INGEST_TOKEN_AP — the Apothecary ingest bearer
+    # token — as a build setting, which the Info.plist resolves via $(VAR) so the
+    # live token never enters version control. If the file is absent the build
+    # still succeeds (Xcode warns on the missing include); the AP token resolves
+    # empty and HealthKitPushManager pushes mx-only. (dual-health-push, nx-r7yw0)
+    configFiles:
+      Debug: nexus-ios/Resources/Secrets.xcconfig
+      Release: nexus-ios/Resources/Secrets.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios

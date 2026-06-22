@@ -1,10 +1,20 @@
-// HealthKitPushManager — reads ALL Apple Health data and PUSHES it to the homelab
-// mx-health ingest endpoint over the tailnet.
+// HealthKitPushManager — reads ALL Apple Health data and PUSHES it to a LIST of
+// ingest targets: the homelab mx-health endpoint over the tailnet AND the
+// Apothecary (ap) health-metric ingest over HTTPS.
 //
 // This is the PRODUCTION producer for the mx mesh's src-health capability
-// (mx repo: mx-sqd / mx-4d0). It reads HealthKit directly from inside the Nexus
-// app — already on the phone, already on the tailnet — and POSTs the Health Auto
-// Export JSON shape the homelab decoder (internal/health/ingest.go) accepts.
+// (mx repo: mx-sqd / mx-4d0) and the producer side of Apothecary's
+// add-health-metric-ingest. It reads HealthKit directly from inside the Nexus
+// app — already on the phone, already on the tailnet — and POSTs the SAME Health
+// Auto Export JSON shape to EVERY target. Both backends accept it: the homelab
+// decoder (mx internal/health/ingest.go) and ap's /api/health/ingest route both
+// parse {data:{metrics:[{name,units,data:[{date,start?,qty,source}]}]}}.
+//
+// DUAL-PUSH SEMANTICS: each chunk is POSTed to ALL targets and the per-stream
+// HealthKit anchor advances ONLY when EVERY target returns 2xx. Both backends
+// dedup (mx synthesizes a stable key from metric+date+source; ap from
+// metric+start+end+source+qty), so a partial failure safely re-pushes the whole
+// batch on the next wake without creating duplicate rows.
 //
 // ALL METRICS, ALL SOURCES: HealthKit is the SHARED store every device writes
 // into — Apple Watch, WHOOP, Oura, third-party apps all land here under standard
@@ -303,8 +313,14 @@ actor HealthKitPushManager {
     private func push(stream: Stream, samples: [HKSample]) async -> Bool {
         let data: [[String: Any]] = samples.compactMap { sample in
             guard let value = self.value(of: sample, in: stream) else { return nil }
+            // `date` is the sample's END instant (HAE convention); `start` is its
+            // START instant. ap stores the [start,end] interval (reads `start`
+            // optionally, falling back to `date`); mx ignores the extra `start`
+            // key (its decoder uses no DisallowUnknownFields). Instant samples
+            // have start == end, so this is a no-op for them on both backends.
             return [
                 "date": dateFormatter.string(from: sample.endDate),
+                "start": dateFormatter.string(from: sample.startDate),
                 "qty": value,
                 "source": sample.sourceRevision.source.name,
             ]
@@ -327,6 +343,10 @@ actor HealthKitPushManager {
         return true
     }
 
+    /// POST one chunk to EVERY ingest target. Returns true only if ALL targets
+    /// returned 2xx, so the caller advances the anchor only when the chunk is
+    /// durably stored everywhere. A single target failing leaves the whole chunk
+    /// un-acked → it re-pushes to all targets next wake (both backends dedup).
     private func postChunk(stream: Stream, chunk: [[String: Any]]) async -> Bool {
         let envelope: [String: Any] = [
             "data": ["metrics": [[
@@ -340,22 +360,40 @@ actor HealthKitPushManager {
             return false
         }
 
-        var request = URLRequest(url: Self.ingestURL())
+        let targets = Self.ingestTargets()
+        guard !targets.isEmpty else {
+            log.error("no ingest targets resolved for \(stream.exportName, privacy: .public)")
+            return false
+        }
+
+        var allOK = true
+        for target in targets {
+            let ok = await postChunk(body: body, to: target, exportName: stream.exportName)
+            if !ok { allOK = false } // keep posting the rest; require ALL 2xx to ack
+        }
+        return allOK
+    }
+
+    /// POST an already-encoded body to one target. Isolated so the per-target
+    /// failure is logged with its host and a partial dual-push is observable.
+    private func postChunk(body: Data, to target: IngestTarget, exportName: String) async -> Bool {
+        var request = URLRequest(url: target.url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = Self.ingestToken() {
+        if let token = target.token {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = body
 
+        let host = target.url.host ?? target.url.absoluteString
         do {
             let (_, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             if (200...299).contains(code) { return true }
-            log.error("ingest returned \(code) for \(stream.exportName, privacy: .public)")
+            log.error("ingest \(host, privacy: .public) returned \(code) for \(exportName, privacy: .public)")
             return false
         } catch {
-            log.error("ingest POST failed for \(stream.exportName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.error("ingest \(host, privacy: .public) POST failed for \(exportName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -374,20 +412,46 @@ actor HealthKitPushManager {
 
     // MARK: - Endpoint resolution (Info.plist, homelab fallback)
 
-    private static func ingestURL() -> URL {
-        if let raw = Bundle.main.object(forInfoDictionaryKey: "HEALTH_INGEST_ENDPOINT") as? String,
-           let url = URL(string: raw) {
-            return url
-        }
-        return URL(string: "http://homelab:8798/ingest")!
+    /// One (endpoint, bearer-token) ingest destination. A nil token means the
+    /// target is hit without an Authorization header (the mx homelab target is
+    /// currently tokenless on the tailnet).
+    private struct IngestTarget {
+        let url: URL
+        let token: String?
     }
 
-    private static func ingestToken() -> String? {
-        guard let token = Bundle.main.object(forInfoDictionaryKey: "HEALTH_INGEST_TOKEN") as? String,
-              !token.isEmpty else {
-            return nil
+    /// Resolve the full list of ingest targets from the Info.plist:
+    ///   - mx homelab  (HEALTH_INGEST_ENDPOINT, default http://homelab:8798/ingest;
+    ///                  optional HEALTH_INGEST_TOKEN)
+    ///   - Apothecary  (HEALTH_INGEST_ENDPOINT_AP + HEALTH_INGEST_TOKEN_AP)
+    /// The mx target always resolves (it has a hardcoded fallback). The ap target
+    /// is added only when BOTH its endpoint and a non-empty token are present, so
+    /// a build without the gitignored Secrets.xcconfig degrades to mx-only rather
+    /// than POSTing to ap unauthenticated (which ap 401s).
+    private static func ingestTargets() -> [IngestTarget] {
+        var targets: [IngestTarget] = []
+
+        // mx homelab target (existing behaviour, tailnet, optional token).
+        let mxURL = plistString("HEALTH_INGEST_ENDPOINT").flatMap(URL.init(string:))
+            ?? URL(string: "http://homelab:8798/ingest")!
+        targets.append(IngestTarget(url: mxURL, token: plistString("HEALTH_INGEST_TOKEN")))
+
+        // Apothecary target (additive; HTTPS; requires a token).
+        if let apRaw = plistString("HEALTH_INGEST_ENDPOINT_AP"),
+           let apURL = URL(string: apRaw),
+           let apToken = plistString("HEALTH_INGEST_TOKEN_AP") {
+            targets.append(IngestTarget(url: apURL, token: apToken))
         }
-        return token
+
+        return targets
+    }
+
+    /// Non-empty Info.plist string, or nil. (Empty strings come from an unfilled
+    /// `$(VAR)` build-setting substitution when the gitignored xcconfig is absent.)
+    private static func plistString(_ key: String) -> String? {
+        guard let s = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !s.isEmpty else { return nil }
+        return s
     }
 
     // MARK: - Anchor persistence (UserDefaults, keyed by type identifier)

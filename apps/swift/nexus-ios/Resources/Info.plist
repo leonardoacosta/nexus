@@ -55,5 +55,9 @@
     <string>Nexus reads whether a Focus (including Sleep) is active so it can route or quiet notifications during bedtime and Focus on your own homelab — the status never leaves hardware you own.</string>
     <key>HEALTH_INGEST_ENDPOINT</key>
     <string>http://homelab:8798/ingest</string>
+    <key>HEALTH_INGEST_ENDPOINT_AP</key>
+    <string>https://apothecary.leonardoacosta.dev/api/health/ingest</string>
+    <key>HEALTH_INGEST_TOKEN_AP</key>
+    <string>$(HEALTH_INGEST_TOKEN_AP)</string>
 </dict>
 </plist>

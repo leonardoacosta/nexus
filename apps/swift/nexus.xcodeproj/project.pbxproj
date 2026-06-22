@@ -407,6 +407,7 @@
 		482782F9B3DD653CB99247DB /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
 		485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDecodingTests.swift; sourceTree = "<group>"; };
 		48B071457D6C02AD8DFF3409 /* PresenceReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceReporterTests.swift; sourceTree = "<group>"; };
+		48CF53BF60A2559E73B0AC2B /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		4AC6B83DC21187B1451A8146 /* nexusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = nexusTests.swift; sourceTree = "<group>"; };
 		4D8F43EE044A1CD7345E3FCE /* HealthKitMedBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMedBridge.swift; sourceTree = "<group>"; };
 		4E79DB0015B5859AAC480C97 /* MetricsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsRow.swift; sourceTree = "<group>"; };
@@ -684,6 +685,14 @@
 				53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */,
 			);
 			path = nexusUITests;
+			sourceTree = "<group>";
+		};
+		6024866EBB2C9FC62815AD8E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				48CF53BF60A2559E73B0AC2B /* Secrets.xcconfig */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		632E1E5D8441BA5C9AD28F15 /* Dashboard */ = {
@@ -1045,6 +1054,7 @@
 		F51FA3936B47B4395F56F510 /* nexus-ios */ = {
 			isa = PBXGroup;
 			children = (
+				6024866EBB2C9FC62815AD8E /* Resources */,
 				3CA554D98CD4F41EA917C768 /* Sources */,
 				E44554820D85C2738F2BE0B4 /* Tests */,
 			);
@@ -1645,6 +1655,7 @@
 /* Begin XCBuildConfiguration section */
 		217846B64009A0CE31DAC780 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 48CF53BF60A2559E73B0AC2B /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "nexus-ios/Resources/nexus-ios.entitlements";
@@ -1773,6 +1784,7 @@
 		};
 		73FEFCA3B9F979BAADAABB3E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 48CF53BF60A2559E73B0AC2B /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "nexus-ios/Resources/nexus-ios.entitlements";

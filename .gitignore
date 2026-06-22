@@ -18,6 +18,10 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Swift build secrets — local xcconfig with live tokens (never commit).
+# The committed Secrets.example.xcconfig template is the discoverable convention.
+apps/swift/**/Secrets.xcconfig
+
 # Beads
 .beads/interactions.jsonl
 
