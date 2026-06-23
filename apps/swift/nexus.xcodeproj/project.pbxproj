@@ -172,6 +172,7 @@
 		D8BE00C5B1EFB62A214B3AD3 /* Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AFE6B178D2BA94B85748B /* Network.swift */; };
 		DA9A124444C0790484593933 /* PanelSummonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */; };
 		DB29584B3E3C2EA47F562D39 /* nexusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1F2CA29E20821B6BFF2941 /* nexusUITests.swift */; };
+		DC39984C56AE423FAA19C9DF /* HealthKitSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30141460F7A74C845396F23 /* HealthKitSettingsView.swift */; };
 		DD5649BB1E98A992271F43AC /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DD5ADFE245F2EACAF32FABB3 /* SettingsNotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5274BF2DD45938CFBD12A3F1 /* SettingsNotificationsView.swift */; };
 		DD86EE57636DE2561FD89FE0 /* SpecSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */; };
@@ -526,6 +527,7 @@
 		E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
 		E16DE9C51D19A43C99E9B01D /* CalendarScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScene.swift; sourceTree = "<group>"; };
 		E2C841932D39C7FAE47199CC /* AddBankScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBankScene.swift; sourceTree = "<group>"; };
+		E30141460F7A74C845396F23 /* HealthKitSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSettingsView.swift; sourceTree = "<group>"; };
 		E978F94DF484B67B064C297E /* MedsObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedsObserver.swift; sourceTree = "<group>"; };
 		EBF82FA65C214FE1491DE3E4 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageBarTests.swift; sourceTree = "<group>"; };
@@ -910,6 +912,7 @@
 			children = (
 				4D8F43EE044A1CD7345E3FCE /* HealthKitMedBridge.swift */,
 				FCD730EAF96E22FBC5E39D5E /* HealthKitPushManager.swift */,
+				E30141460F7A74C845396F23 /* HealthKitSettingsView.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -1367,6 +1370,7 @@
 				22E2FCD315CE7D6105B7C13A /* FinanceScene.swift in Sources */,
 				80B56F2CFC311885C285603C /* HealthKitMedBridge.swift in Sources */,
 				19F2EE9D2F7DEA4CD5B49F40 /* HealthKitPushManager.swift in Sources */,
+				DC39984C56AE423FAA19C9DF /* HealthKitSettingsView.swift in Sources */,
 				CE8EA1EBE08190D8CD58943B /* HealthMetricsScene.swift in Sources */,
 				3AF53DBE67B6F3E42BA65CB0 /* HealthSummaryScene.swift in Sources */,
 				EAD5D32E6044DDBB3FD17A44 /* MedicationGroupDetailScene.swift in Sources */,
