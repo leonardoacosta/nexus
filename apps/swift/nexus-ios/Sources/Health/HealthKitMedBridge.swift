@@ -1,12 +1,20 @@
 // HealthKitMedBridge — reads Apple Health's MEDICATION data (the user's med
-// list + their logged dose events) and PUSHES it to the mx meds-ingest sidecar
-// over the Tailnet, so Apple-Health-defined meds and the doses logged in the
-// Health app round-trip into the mx src-meds store.
+// list + their logged dose events) and PUSHES it to BOTH the mx meds-ingest
+// sidecar (homelab tailnet) AND Apothecary (ap, HTTPS) using PER-TARGET
+// anchors so a down mx never blocks ap and vice-versa.
 //
-// Capability: src-meds (mx-t66o). Beads: mx-aw88. The meds-ingest routes live
-// on the SAME homelab :8802 server as the meds CRUD sidecar (see
-// NexusShared/Networking/NexusClient+Meds.swift `medsBaseURL()`), so this
-// bridge derives its base URL the same way.
+// Capability: src-meds (mx-t66o). Beads: mx-aw88 / nx-ktyo9.
+// The meds-ingest routes live on the SAME homelab :8802 server as the meds
+// CRUD sidecar (see NexusShared/Networking/NexusClient+Meds.swift
+// `medsBaseURL()`), so this bridge derives its base URL the same way.
+//
+// DUAL-PUSH SEMANTICS (PER-TARGET ANCHORS) — mirrors HealthKitPushManager:
+//   - The DOSE ANCHOR is per-target: "healthkit.meds.anchor.doseEvents.<key>"
+//     ("mx" / "ap"). Each target's anchor advances ONLY on that target's 2xx.
+//     A down mx does not block ap; a down ap does not block mx.
+//   - The MED CATALOG is a full re-push every bootstrap (HKUserAnnotatedMedication-
+//     Query is not an anchored query — it has no anchor type). ap and mx both
+//     upsert idempotently by hk_med_id, so re-pushing is safe.
 //
 // ARCHITECTURE: mirrors HealthKitPushManager (the biometric producer, mx-4d0):
 //   - requests HealthKit auth,
@@ -30,15 +38,15 @@
 // `- (instancetype)init NS_UNAVAILABLE;` and there is no builder, factory, or
 // `+save…` API anywhere in HealthKit.framework/Headers (verified against
 // iPhoneOS26.4.sdk). A third-party app can therefore:
-//   - READ the user's annotated med list (push to mx),  ✅
-//   - READ logged dose events (push to mx),             ✅
-//   - CREATE an HKUserAnnotatedMedication,              ❌ (no initializer)
-//   - WRITE / save an HKMedicationDoseEvent back to HK, ❌ (no initializer).
+//   - READ the user's annotated med list (push to mx/ap),  ✅
+//   - READ logged dose events (push to mx/ap),             ✅
+//   - CREATE an HKUserAnnotatedMedication,                 ❌ (no initializer)
+//   - WRITE / save an HKMedicationDoseEvent back to HK,    ❌ (no initializer).
 //
 // So the "two-way save" the design hoped for is NOT possible on iOS 26.4: the
 // Health app is the sole writer of medication data. nx-created meds (via the
 // add-med form) stay mx-local; only Apple-Health-defined meds + their
-// Health-app-logged doses round-trip INTO mx. `saveDoseEvents(forGroup:)`
+// Health-app-logged doses round-trip INTO mx/ap. `saveDoseEvents(forGroup:)`
 // below is the wiring seam kept for the take-group path, but it is an
 // intentional no-op that logs the limitation rather than inventing a
 // non-existent symbol. If Apple ships a dose-event write API in a later SDK,
@@ -85,6 +93,58 @@ actor HealthKitMedBridge {
     /// Guards one-time observer registration per PROCESS (mirrors the producer).
     private var observerRegistered = false
 
+    // MARK: - Ingest targets (mirrors HealthKitPushManager.IngestTarget)
+
+    /// One meds-ingest destination: a base URL + bearer token + stable key.
+    /// `key` is used as the per-target dose-anchor suffix ("mx" / "ap").
+    private struct MedIngestTarget {
+        let baseURL: URL
+        let token: String?
+        let key: String
+
+        static let mxKey = "mx"
+        static let apKey = "ap"
+    }
+
+    /// Resolve the full list of meds-ingest targets:
+    ///   - mx homelab: NexusClient.medsBaseURL() + SettingsStore.medsToken
+    ///     (always present; falls back to http://homelab:8802).
+    ///   - Apothecary: https://apothecary.leonardoacosta.dev/api/health/ +
+    ///     HEALTH_INGEST_TOKEN_AP (additive; added only when a non-empty token
+    ///     is present in Info.plist so a build without Secrets.xcconfig
+    ///     degrades to mx-only rather than POSTing unauthenticated).
+    private static func ingestTargets() -> [MedIngestTarget] {
+        var targets: [MedIngestTarget] = []
+
+        // mx homelab (existing behaviour).
+        let mxBase = NexusClient.medsBaseURL()
+        targets.append(MedIngestTarget(
+            baseURL: mxBase,
+            token: SettingsStore.shared.medsToken.flatMap { $0.isEmpty ? nil : $0 },
+            key: MedIngestTarget.mxKey
+        ))
+
+        // Apothecary — reuse the SAME HEALTH_INGEST_TOKEN_AP knob that the
+        // biometric push manager uses (mirrors HealthKitPushManager.ingestTargets).
+        if let apToken = plistString("HEALTH_INGEST_TOKEN_AP"),
+           let apBase = URL(string: "https://apothecary.leonardoacosta.dev/api/health/") {
+            targets.append(MedIngestTarget(
+                baseURL: apBase,
+                token: apToken,
+                key: MedIngestTarget.apKey
+            ))
+        }
+
+        return targets
+    }
+
+    /// Non-empty Info.plist string, or nil.
+    private static func plistString(_ key: String) -> String? {
+        guard let s = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !s.isEmpty else { return nil }
+        return s
+    }
+
     // MARK: - Lifecycle
 
     /// Bootstrap on app launch: request auth, push the med catalog, register a
@@ -116,7 +176,7 @@ actor HealthKitMedBridge {
 
     /// flushAll — shared entry point for the BACKGROUND triggers (BGTaskScheduler
     /// + silent APNS), mirroring HealthKitPushManager.flushAll. Refreshes the med
-    /// catalog (cheap, idempotent on the mx side) then flushes new dose events.
+    /// catalog (cheap, idempotent on both targets) then flushes new dose events.
     /// Does NOT register observers (that is bootstrap's once-per-process job).
     func flushAll() async {
         guard HKHealthStore.isHealthDataAvailable(), Self.doseEventType != nil else { return }
@@ -179,15 +239,21 @@ actor HealthKitMedBridge {
     // MARK: - Medication catalog (HKUserAnnotatedMedicationQuery, one-shot)
 
     /// Query the user's annotated med list and POST each to
-    /// `/meds/ingest/medications`. mx recons by hk_med_id + rxnorm (idempotent).
+    /// `<target>/meds/ingest/medications` for EVERY resolved target.
+    /// mx and ap both upsert idempotently by hk_med_id, so re-pushing is safe.
     private func pushMedicationCatalog() async {
         let meds = await fetchAnnotatedMedications()
         guard !meds.isEmpty else { return }
         let payload: [[String: Any]] = meds.map { $0.ingestPayload }
-        if await postMedications(payload) {
-            log.info("pushed \(payload.count) annotated medication(s)")
-        } else {
-            log.error("medication catalog push failed")
+
+        let targets = Self.ingestTargets()
+        for target in targets {
+            let ok = await postMedications(payload, to: target)
+            if ok {
+                log.info("pushed \(payload.count) annotated medication(s) -> \(target.key, privacy: .public)")
+            } else {
+                log.error("medication catalog push failed -> \(target.key, privacy: .public)")
+            }
         }
     }
 
@@ -202,7 +268,7 @@ actor HealthKitMedBridge {
             var d: [String: Any] = ["hk_med_id": hkMedID, "name": name]
             if let rxnorm { d["rxnorm"] = rxnorm }
             // dose/unit are not surfaced on HKMedicationConcept (only generalForm
-            // + codings); mx treats them as optional, so we omit them here.
+            // + codings); mx and ap treat them as optional, so we omit them here.
             return d
         }
     }
@@ -260,23 +326,34 @@ actor HealthKitMedBridge {
         }
     }
 
-    /// Fetch dose events newer than the persisted anchor, push them, advance the
-    /// anchor only on a 2xx (so a failed push retries next wake).
+    /// Flush dose events to ALL resolved ingest targets with PER-TARGET anchors.
+    /// Each target fetches from its own stored anchor and advances it only on
+    /// that target's 2xx — mirrors HealthKitPushManager.flush / flushToTarget.
     private func flushDoseEvents() async {
         guard let type = Self.doseEventType else { return }
-        let anchor = loadAnchor()
+        let targets = Self.ingestTargets()
+        for target in targets {
+            await flushDosesToTarget(type: type, target: target)
+        }
+    }
+
+    /// Fetch dose events newer than THIS TARGET's anchor, push to that target,
+    /// advance only that target's anchor on 2xx. A failure leaves the anchor
+    /// unmoved so the target retries from the same position on the next wake.
+    private func flushDosesToTarget(type: HKSampleType, target: MedIngestTarget) async {
+        let anchor = loadDoseAnchor(targetKey: target.key)
         let (samples, newAnchor) = await fetchDoseSamples(type: type, anchor: anchor)
         guard !samples.isEmpty else { return }
         let payload = samples.compactMap { Self.dosePayload(from: $0, rfc3339: rfc3339) }
         guard !payload.isEmpty else {
             // Nothing extractable (e.g. NotInteracted slots filtered out) — still
             // advance so we don't re-scan them every wake.
-            if let newAnchor { saveAnchor(newAnchor) }
+            if let newAnchor { saveDoseAnchor(newAnchor, targetKey: target.key) }
             return
         }
-        if await postDoses(payload), let newAnchor {
-            saveAnchor(newAnchor)
-            log.info("pushed \(payload.count) dose event(s)")
+        if await postDoses(payload, to: target), let newAnchor {
+            saveDoseAnchor(newAnchor, targetKey: target.key)
+            log.info("pushed \(payload.count) dose event(s) -> \(target.key, privacy: .public)")
         }
     }
 
@@ -297,7 +374,7 @@ actor HealthKitMedBridge {
 
     /// Map an HKMedicationDoseEvent to a `/meds/ingest/doses` body element.
     /// Returns nil for non-take/skip statuses (NotInteracted / NotLogged /
-    /// Snoozed / NotificationNotSent) — mx only tracks taken|skipped.
+    /// Snoozed / NotificationNotSent) — mx and ap only track taken|skipped.
     static func dosePayload(from dose: HKMedicationDoseEvent, rfc3339: ISO8601DateFormatter) -> [String: Any]? {
         let status: String
         switch dose.logStatus {
@@ -339,11 +416,11 @@ actor HealthKitMedBridge {
     /// HKHealthConceptIdentifier exposes only `domain` publicly — no string/UUID
     /// accessor. It IS NSSecureCoding, and the docs guarantee the identifier is
     /// "stable across devices", so we archive it and base64-encode the bytes for
-    /// a deterministic, comparable key. mx treats hk_med_id as an opaque stable
-    /// string (it dedups doses by hk_dose_uuid and recons meds by hk_med_id +
-    /// rxnorm), so an opaque base64 key is sufficient and consistent between the
-    /// med-catalog push (concept.identifier) and the dose push
-    /// (dose.medicationConceptIdentifier) for the SAME medication.
+    /// a deterministic, comparable key. mx and ap treat hk_med_id as an opaque
+    /// stable string (mx dedups doses by hk_dose_uuid and recons meds by
+    /// hk_med_id + rxnorm; ap upserts by hk_med_id), so an opaque base64 key is
+    /// sufficient and consistent between the med-catalog push (concept.identifier)
+    /// and the dose push (dose.medicationConceptIdentifier) for the SAME medication.
     static func stableKey(for identifier: HKHealthConceptIdentifier) -> String {
         if let data = try? NSKeyedArchiver.archivedData(withRootObject: identifier, requiringSecureCoding: true) {
             return data.base64EncodedString()
@@ -399,55 +476,73 @@ actor HealthKitMedBridge {
         codings.first { $0.system == rxnormSystem }?.code
     }
 
-    // MARK: - Ingest POSTs
+    // MARK: - Ingest POSTs (per-target)
 
-    /// POST `[{...}]` to `/meds/ingest/medications`. Returns true on 2xx.
-    private func postMedications(_ body: [[String: Any]]) async -> Bool {
-        await postArray(path: "meds/ingest/medications", body: body)
+    /// POST `[{...}]` to `<target>/meds/ingest/medications`. Returns true on 2xx.
+    private func postMedications(_ body: [[String: Any]], to target: MedIngestTarget) async -> Bool {
+        await postArray(path: "meds/ingest/medications", body: body, target: target)
     }
 
-    /// POST `[{...}]` to `/meds/ingest/doses`. Returns true on 2xx.
-    private func postDoses(_ body: [[String: Any]]) async -> Bool {
-        await postArray(path: "meds/ingest/doses", body: body)
+    /// POST `[{...}]` to `<target>/meds/ingest/doses`. Returns true on 2xx.
+    private func postDoses(_ body: [[String: Any]], to target: MedIngestTarget) async -> Bool {
+        await postArray(path: "meds/ingest/doses", body: body, target: target)
     }
 
-    private func postArray(path: String, body: [[String: Any]]) async -> Bool {
+    private func postArray(path: String, body: [[String: Any]], target: MedIngestTarget) async -> Bool {
         guard let data = try? JSONSerialization.data(withJSONObject: body) else {
-            log.error("failed to encode \(path, privacy: .public) body")
+            log.error("failed to encode \(path, privacy: .public) body for \(target.key, privacy: .public)")
             return false
         }
-        var request = URLRequest(url: NexusClient.medsBaseURL().appendingPathComponent(path))
+        var request = URLRequest(url: target.baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = SettingsStore.shared.medsToken, !token.isEmpty {
+        if let token = target.token {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = data
+        let host = target.baseURL.host ?? target.baseURL.absoluteString
         do {
             let (_, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             if (200...299).contains(code) { return true }
-            log.error("\(path, privacy: .public) ingest returned \(code)")
+            log.error("\(path, privacy: .public) ingest \(host, privacy: .public) [\(target.key, privacy: .public)] returned \(code)")
             return false
         } catch {
-            log.error("\(path, privacy: .public) ingest POST failed: \(error.localizedDescription, privacy: .public)")
+            log.error("\(path, privacy: .public) ingest \(host, privacy: .public) [\(target.key, privacy: .public)] POST failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
 
-    // MARK: - Anchor persistence (UserDefaults, meds-scoped)
+    // MARK: - Dose anchor persistence (per-target, UserDefaults)
+    //
+    // Anchor key scheme: "healthkit.meds.anchor.doseEvents.<targetKey>"
+    // ("mx" / "ap"). The legacy single-target scheme used the bare key
+    // "healthkit.meds.anchor.doseEvents" — that key is not removed here to
+    // avoid a re-push of the full history on first upgrade; per-target keys
+    // shadow it and the legacy key is effectively orphaned after the first flush.
 
-    private static let anchorKey = "healthkit.meds.anchor.doseEvents"
+    private static let doseAnchorKeyPrefix = "healthkit.meds.anchor.doseEvents"
 
-    private func loadAnchor() -> HKQueryAnchor? {
-        guard let data = UserDefaults.standard.data(forKey: Self.anchorKey) else { return nil }
+    private func doseAnchorKey(targetKey: String) -> String {
+        "\(Self.doseAnchorKeyPrefix).\(targetKey)"
+    }
+
+    private func loadDoseAnchor(targetKey: String) -> HKQueryAnchor? {
+        let key = doseAnchorKey(targetKey: targetKey)
+        // Prefer the per-target key; fall back to the legacy bare key on first
+        // run so mx doesn't re-push the full dose history after the upgrade.
+        let data = UserDefaults.standard.data(forKey: key)
+            ?? (targetKey == MedIngestTarget.mxKey
+                ? UserDefaults.standard.data(forKey: Self.doseAnchorKeyPrefix)
+                : nil)
+        guard let data else { return nil }
         return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
     }
 
-    private func saveAnchor(_ anchor: HKQueryAnchor) {
+    private func saveDoseAnchor(_ anchor: HKQueryAnchor, targetKey: String) {
         guard let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) else { return }
-        UserDefaults.standard.set(data, forKey: Self.anchorKey)
+        UserDefaults.standard.set(data, forKey: doseAnchorKey(targetKey: targetKey))
     }
 
     // MARK: - Logging helpers (off the query callbacks)
