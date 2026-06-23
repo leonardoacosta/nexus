@@ -17,6 +17,7 @@ import NexusShared
 
 struct HealthMetricsScene: View {
     @ObservedObject var observer: TriageObserver
+    @State private var showHealthKitSettings = false
 
     var body: some View {
         List {
@@ -47,6 +48,24 @@ struct HealthMetricsScene: View {
         .navigationTitle("Health Metrics")
         .navigationDestination(for: TriageItem.self) { DetailScene(item: $0) }
         .accessibilityIdentifier("health-metrics-scene")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if #available(iOS 15.0, *) {
+                    Button {
+                        showHealthKitSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityIdentifier("healthkit-settings-button")
+                    .accessibilityLabel("HealthKit Settings")
+                }
+            }
+        }
+        .sheet(isPresented: $showHealthKitSettings) {
+            if #available(iOS 15.0, *) {
+                HealthKitSettingsView()
+            }
+        }
         .task { observer.startPolling() }
         .onDisappear { observer.stopPolling() }
     }

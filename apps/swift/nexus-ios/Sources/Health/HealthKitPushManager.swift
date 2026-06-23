@@ -10,11 +10,19 @@
 // decoder (mx internal/health/ingest.go) and ap's /api/health/ingest route both
 // parse {data:{metrics:[{name,units,data:[{date,start?,qty,source}]}]}}.
 //
-// DUAL-PUSH SEMANTICS: each chunk is POSTed to ALL targets and the per-stream
-// HealthKit anchor advances ONLY when EVERY target returns 2xx. Both backends
+// DUAL-PUSH SEMANTICS (PER-TARGET ANCHORS):
+// Each (stream, target) pair has its own persisted HKQueryAnchor keyed by
+// "healthkit.anchor.<identifier>.<targetKey>". Each flush is therefore
+// INDEPENDENT per target: ap's anchor advances on ap's 2xx regardless of mx,
+// and mx's anchor advances on mx's 2xx regardless of ap. A DOWN target does NOT
+// block anchor advancement for reachable targets — its anchor stays at the last
+// successful position so it catches up fully when it returns. Both backends
 // dedup (mx synthesizes a stable key from metric+date+source; ap from
-// metric+start+end+source+qty), so a partial failure safely re-pushes the whole
-// batch on the next wake without creating duplicate rows.
+// metric+start+end+source+qty), so a re-push on target recovery is safe.
+//
+// FULL-HISTORY RESYNC: call resetAllAnchors() to clear EVERY per-target anchor.
+// The next flush will query from nil anchor (= entire HealthKit history) and
+// re-push all samples. Both backends are dedup-safe for re-pushes.
 //
 // ALL METRICS, ALL SOURCES: HealthKit is the SHARED store every device writes
 // into — Apple Watch, WHOOP, Oura, third-party apps all land here under standard
@@ -237,6 +245,45 @@ actor HealthKitPushManager {
         return out
     }
 
+    // MARK: - Full-history resync
+
+    /// Clear ALL per-target anchors for every stream type in the catalog. The next
+    /// call to flush / flushAll will query from a nil anchor (= the full HealthKit
+    /// history from the device's earliest recorded sample) for every target.
+    ///
+    /// Both backends (ap, mx) dedup by a stable key, so re-pushing is safe.
+    /// Call this from the app's HealthKit settings UI when the user taps
+    /// "Resync Full History".
+    func resetAllAnchors() {
+        let allIdentifiers: [String] =
+            Self.quantityIdentifiers.map { $0.rawValue } +
+            Self.categoryIdentifiers.map { $0.rawValue }
+        let ud = UserDefaults.standard
+        var count = 0
+        for identifier in allIdentifiers {
+            // Remove per-target anchors (the new scheme) and any legacy single anchor
+            // left over from the old single-anchor scheme.
+            let legacyKey = anchorKey(identifier)
+            ud.removeObject(forKey: legacyKey)
+            // Per-target anchors: iterate known target keys.
+            for targetKey in allTargetKeys() {
+                let key = anchorKey(identifier, targetKey: targetKey)
+                if ud.object(forKey: key) != nil {
+                    ud.removeObject(forKey: key)
+                    count += 1
+                }
+            }
+        }
+        log.info("HealthKit resync: cleared \(count) per-target anchors; next flush will push full history")
+    }
+
+    /// Returns the set of target keys that exist in UserDefaults (to support
+    /// removal without instantiating a URLSession or resolving endpoints).
+    private func allTargetKeys() -> [String] {
+        // mx and ap are the only two targets; their keys are stable strings.
+        return [IngestTarget.mxKey, IngestTarget.apKey]
+    }
+
     // MARK: - Observers + background delivery
 
     private func registerObserver(for stream: Stream) {
@@ -271,17 +318,33 @@ actor HealthKitPushManager {
         }
     }
 
-    // MARK: - Anchored fetch + push
+    // MARK: - Per-target anchored flush
 
-    /// Fetch new samples since the persisted anchor, push them, and advance the
-    /// anchor only on a 2xx so failures retry next wake.
+    /// Flush a single stream to ALL ingest targets. Each target has its own
+    /// persisted anchor, so a DOWN target does not block anchor advancement for
+    /// reachable targets. Each target fetches from its own anchor independently.
     private func flush(_ stream: Stream) async {
-        let anchor = loadAnchor(for: stream.sampleType.identifier)
+        let targets = Self.ingestTargets()
+        guard !targets.isEmpty else {
+            log.error("no ingest targets resolved for \(stream.exportName, privacy: .public)")
+            return
+        }
+        for target in targets {
+            await flushToTarget(stream: stream, target: target)
+        }
+    }
+
+    /// Fetch new samples for this (stream, target) pair from the target's own
+    /// persisted anchor, push them to that target only, and advance only that
+    /// target's anchor on 2xx. A failure leaves the anchor unmoved so the target
+    /// retries from the same position next wake — no data loss.
+    private func flushToTarget(stream: Stream, target: IngestTarget) async {
+        let anchor = loadAnchor(for: stream.sampleType.identifier, targetKey: target.key)
         let (samples, newAnchor) = await fetchSamples(type: stream.sampleType, anchor: anchor)
         guard !samples.isEmpty else { return }
-        let pushed = await push(stream: stream, samples: samples)
+        let pushed = await push(stream: stream, samples: samples, target: target)
         if pushed, let newAnchor {
-            saveAnchor(newAnchor, for: stream.sampleType.identifier)
+            saveAnchor(newAnchor, for: stream.sampleType.identifier, targetKey: target.key)
         }
     }
 
@@ -306,11 +369,9 @@ actor HealthKitPushManager {
     /// a partial-batch failure just re-sends safely next wake.
     private static let pushChunkSize = 5_000
 
-    /// Encode each sample once, then POST in chunks. Quantity samples push their
-    /// value in the stream's unit; category samples push their enum value as `qty`.
-    /// Returns true only if EVERY chunk got a 2xx (so the anchor advances only when
-    /// all of this batch is durably stored).
-    private func push(stream: Stream, samples: [HKSample]) async -> Bool {
+    /// Encode each sample once, then POST in chunks to ONE target. Returns true
+    /// only if EVERY chunk got a 2xx from that target.
+    private func push(stream: Stream, samples: [HKSample], target: IngestTarget) async -> Bool {
         let data: [[String: Any]] = samples.compactMap { sample in
             guard let value = self.value(of: sample, in: stream) else { return nil }
             // `date` is the sample's END instant (HAE convention); `start` is its
@@ -331,23 +392,20 @@ actor HealthKitPushManager {
         var index = 0
         while index < data.count {
             let chunk = Array(data[index ..< min(index + Self.pushChunkSize, data.count)])
-            if await postChunk(stream: stream, chunk: chunk) {
+            if await postChunk(stream: stream, chunk: chunk, target: target) {
                 pushed += chunk.count
                 index += chunk.count
             } else {
-                log.error("ingest chunk failed for \(stream.exportName, privacy: .public) at \(index)/\(data.count)")
+                log.error("ingest chunk failed for \(stream.exportName, privacy: .public) -> \(target.key, privacy: .public) at \(index)/\(data.count)")
                 return false
             }
         }
-        log.info("pushed \(pushed) \(stream.exportName, privacy: .public) sample(s)")
+        log.info("pushed \(pushed) \(stream.exportName, privacy: .public) sample(s) -> \(target.key, privacy: .public)")
         return true
     }
 
-    /// POST one chunk to EVERY ingest target. Returns true only if ALL targets
-    /// returned 2xx, so the caller advances the anchor only when the chunk is
-    /// durably stored everywhere. A single target failing leaves the whole chunk
-    /// un-acked → it re-pushes to all targets next wake (both backends dedup).
-    private func postChunk(stream: Stream, chunk: [[String: Any]]) async -> Bool {
+    /// POST one chunk to ONE ingest target.
+    private func postChunk(stream: Stream, chunk: [[String: Any]], target: IngestTarget) async -> Bool {
         let envelope: [String: Any] = [
             "data": ["metrics": [[
                 "name": stream.exportName,
@@ -360,23 +418,6 @@ actor HealthKitPushManager {
             return false
         }
 
-        let targets = Self.ingestTargets()
-        guard !targets.isEmpty else {
-            log.error("no ingest targets resolved for \(stream.exportName, privacy: .public)")
-            return false
-        }
-
-        var allOK = true
-        for target in targets {
-            let ok = await postChunk(body: body, to: target, exportName: stream.exportName)
-            if !ok { allOK = false } // keep posting the rest; require ALL 2xx to ack
-        }
-        return allOK
-    }
-
-    /// POST an already-encoded body to one target. Isolated so the per-target
-    /// failure is logged with its host and a partial dual-push is observable.
-    private func postChunk(body: Data, to target: IngestTarget, exportName: String) async -> Bool {
         var request = URLRequest(url: target.url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -390,10 +431,10 @@ actor HealthKitPushManager {
             let (_, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             if (200...299).contains(code) { return true }
-            log.error("ingest \(host, privacy: .public) returned \(code) for \(exportName, privacy: .public)")
+            log.error("ingest \(host, privacy: .public) [\(target.key, privacy: .public)] returned \(code) for \(stream.exportName, privacy: .public)")
             return false
         } catch {
-            log.error("ingest \(host, privacy: .public) POST failed for \(exportName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.error("ingest \(host, privacy: .public) [\(target.key, privacy: .public)] POST failed for \(stream.exportName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -414,10 +455,16 @@ actor HealthKitPushManager {
 
     /// One (endpoint, bearer-token) ingest destination. A nil token means the
     /// target is hit without an Authorization header (the mx homelab target is
-    /// currently tokenless on the tailnet).
+    /// currently tokenless on the tailnet). `key` is a stable short string used
+    /// as the per-target anchor key suffix ("mx" / "ap").
     private struct IngestTarget {
         let url: URL
         let token: String?
+        /// Short stable identifier used as the per-target anchor key suffix.
+        let key: String
+
+        static let mxKey = "mx"
+        static let apKey = "ap"
     }
 
     /// Resolve the full list of ingest targets from the Info.plist:
@@ -434,13 +481,13 @@ actor HealthKitPushManager {
         // mx homelab target (existing behaviour, tailnet, optional token).
         let mxURL = plistString("HEALTH_INGEST_ENDPOINT").flatMap(URL.init(string:))
             ?? URL(string: "http://homelab:8798/ingest")!
-        targets.append(IngestTarget(url: mxURL, token: plistString("HEALTH_INGEST_TOKEN")))
+        targets.append(IngestTarget(url: mxURL, token: plistString("HEALTH_INGEST_TOKEN"), key: IngestTarget.mxKey))
 
         // Apothecary target (additive; HTTPS; requires a token).
         if let apRaw = plistString("HEALTH_INGEST_ENDPOINT_AP"),
            let apURL = URL(string: apRaw),
            let apToken = plistString("HEALTH_INGEST_TOKEN_AP") {
-            targets.append(IngestTarget(url: apURL, token: apToken))
+            targets.append(IngestTarget(url: apURL, token: apToken, key: IngestTarget.apKey))
         }
 
         return targets
@@ -454,17 +501,30 @@ actor HealthKitPushManager {
         return s
     }
 
-    // MARK: - Anchor persistence (UserDefaults, keyed by type identifier)
+    // MARK: - Anchor persistence (per-target, UserDefaults)
+    //
+    // Anchor key scheme: "healthkit.anchor.<identifier>.<targetKey>"
+    // The legacy single-anchor scheme used "healthkit.anchor.<identifier>" (no
+    // targetKey suffix). resetAllAnchors() removes both forms so a migration from
+    // the old scheme doesn't leave stale global anchors that would mask new data.
 
-    private func anchorKey(_ identifier: String) -> String { "healthkit.anchor.\(identifier)" }
+    private func anchorKey(_ identifier: String, targetKey: String) -> String {
+        "healthkit.anchor.\(identifier).\(targetKey)"
+    }
 
-    private func loadAnchor(for identifier: String) -> HKQueryAnchor? {
-        guard let data = UserDefaults.standard.data(forKey: anchorKey(identifier)) else { return nil }
+    /// Legacy key (no target suffix) — kept for cleanup in resetAllAnchors().
+    private func anchorKey(_ identifier: String) -> String {
+        "healthkit.anchor.\(identifier)"
+    }
+
+    private func loadAnchor(for identifier: String, targetKey: String) -> HKQueryAnchor? {
+        let key = anchorKey(identifier, targetKey: targetKey)
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
     }
 
-    private func saveAnchor(_ anchor: HKQueryAnchor, for identifier: String) {
+    private func saveAnchor(_ anchor: HKQueryAnchor, for identifier: String, targetKey: String) {
         guard let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) else { return }
-        UserDefaults.standard.set(data, forKey: anchorKey(identifier))
+        UserDefaults.standard.set(data, forKey: anchorKey(identifier, targetKey: targetKey))
     }
 }
