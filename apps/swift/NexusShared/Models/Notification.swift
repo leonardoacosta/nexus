@@ -64,6 +64,11 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
     /// Codable back-compat: older payloads omit the key and decode as nil.
     public var logPath: String?
 
+    /// Optional URL to open on banner click via NSWorkspace.shared.open.
+    /// Threaded from the agent's `url` field (mopen / iopen command).
+    /// Codable back-compat: older payloads omit the key and decode as nil.
+    public var url: String?
+
     /// True when the agent has a cached MP3 for this notification on
     /// disk (notifications-overhaul, task 2.10). Optional in the wire
     /// contract — older agents omit the key and the field decodes as
@@ -126,6 +131,9 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         case items
         case logPath = "log_path"
         case logPathCamel = "logPath"
+        // mopen / iopen: optional URL to open on banner click. The agent
+        // emits the key literally as `url`.
+        case url
         // notifications-overhaul (task 3.1): audio cache liveness flag
         // and the voice id that produced the cached MP3. Both optional
         // for back-compat with pre-overhaul agents.
@@ -148,6 +156,7 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         deliveryState: DeliveryState = .pending,
         items: [String]? = nil,
         logPath: String? = nil,
+        url: String? = nil,
         audioAvailable: Bool? = nil,
         voiceUsed: String? = nil,
         sessionName: String? = nil
@@ -163,6 +172,7 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         self.deliveryState = deliveryState
         self.items = items
         self.logPath = logPath
+        self.url = url
         self.audioAvailable = audioAvailable
         self.voiceUsed = voiceUsed
         self.sessionName = sessionName
@@ -219,6 +229,7 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         } else {
             self.logPath = nil
         }
+        self.url = try c.decodeIfPresent(String.self, forKey: .url)
 
         // notifications-overhaul (task 3.1): optional. Absent keys decode
         // as nil — back-compat with pre-overhaul agents.
@@ -252,6 +263,7 @@ public struct NotificationEvent: Identifiable, Equatable, Hashable, Codable, Sen
         // spelling — decode tolerates it, encode is contract.
         try c.encodeIfPresent(items, forKey: .items)
         try c.encodeIfPresent(logPath, forKey: .logPath)
+        try c.encodeIfPresent(url, forKey: .url)
         // notifications-overhaul (task 3.1): round-trip on the same key.
         try c.encodeIfPresent(audioAvailable, forKey: .audioAvailable)
         try c.encodeIfPresent(voiceUsed, forKey: .voiceUsed)

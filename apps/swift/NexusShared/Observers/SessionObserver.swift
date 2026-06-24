@@ -200,6 +200,9 @@ public final class SessionObserver: ObservableObject {
         if let logPath = ev.logPath, !logPath.isEmpty {
             content.userInfo[NotificationUserInfoKeys.logPath] = logPath
         }
+        if let url = ev.url, !url.isEmpty {
+            content.userInfo[NotificationUserInfoKeys.url] = url
+        }
         let request = UNNotificationRequest(
             identifier: ev.id.uuidString,
             content: content,

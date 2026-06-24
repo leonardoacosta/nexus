@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Nexus iOS Device — post-commit deploy hook
+# Rebuilds + installs the SIGNED nexus-ios app on the paired device when a
+# local commit touched apps/swift/nexus-ios/ or apps/swift/NexusShared/, so a
+# developer working on the iOS app sees the device refresh without a merge
+# round-trip.
+#
+# Symmetry: this is the post-COMMIT counterpart to the post-MERGE 06-ios-deploy
+# (and the iOS-device sibling of 04-swift-deploy's post-commit). post-merge
+# fires on `git pull`/merge (ORIG_HEAD..HEAD); this fires on every local commit
+# (HEAD~1..HEAD). The signed DEVICE install needs the Aqua (GUI) login keychain,
+# so over a Background session it routes through the
+# dev.leonardoacosta.nexus.ios-deploy GUI LaunchAgent (see ios-device-deploy.sh).
+#
+# Contract: fail-soft (never blocks/corrupts; the lib only installs after a
+# verified-good signed build), idempotent, no-op when iOS paths untouched.
+
+# ── Skip on non-macOS ───────────────────────────────────────────────
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    exit 0
+fi
+
+# ── Detect whether the just-created commit touched the iOS app ──────
+# post-commit runs AFTER HEAD advances, so the new commit is HEAD itself.
+# Diff HEAD against its parent; on the root commit fall back to the empty
+# tree. `--force` bypasses the path check (manual rebuild). Only nexus-ios/
+# + NexusShared/ feed the iOS app (nexus-mac/ is 04-swift-deploy's job).
+
+if [[ "${1:-}" != "--force" ]]; then
+    parent="$(git rev-parse --verify --quiet HEAD~1 || true)"
+    if [[ -n "$parent" ]]; then
+        changed="$(git diff-tree -r --name-only HEAD~1 HEAD 2>/dev/null || true)"
+    else
+        changed="$(git diff-tree -r --name-only --root HEAD 2>/dev/null || true)"
+    fi
+    if ! printf '%s\n' "$changed" | grep -qE '^apps/swift/(nexus-ios|NexusShared)/'; then
+        printf '\033[1;33mios-deploy: %s\033[0m\n' "no nexus-ios/ or NexusShared/ changes in HEAD, skipping"
+        exit 0
+    fi
+fi
+
+# ── Source shared lib and invoke ────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+LIB_PATH="$REPO_ROOT/deploy/lib/ios-device-deploy.sh"
+if [[ ! -f "$LIB_PATH" ]]; then
+    printf '\033[1;33mios-deploy: %s\033[0m\n' "shared lib not found at $LIB_PATH; skipping" >&2
+    exit 0
+fi
+
+# shellcheck source=../../lib/ios-device-deploy.sh
+source "$LIB_PATH"
+
+if ! ios_device_deploy_run "$@"; then
+    printf '\033[1;33mios-deploy: %s\033[0m\n' "iOS device deploy failed (fail-soft); device app may be stale" >&2
+    exit 0  # Fail-soft: a stale device app is recoverable; never break the commit.
+fi

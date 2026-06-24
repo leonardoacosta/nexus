@@ -559,6 +559,9 @@ public final class TTSObserver: ObservableObject {
         if let logPath = event.logPath, !logPath.isEmpty {
             content.userInfo[NotificationUserInfoKeys.logPath] = logPath
         }
+        if let url = event.url, !url.isEmpty {
+            content.userInfo[NotificationUserInfoKeys.url] = url
+        }
 
         let request = UNNotificationRequest(
             identifier: event.id.uuidString,
