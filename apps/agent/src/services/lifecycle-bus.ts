@@ -227,6 +227,8 @@ export interface NotificationFiredPayload {
    * degrade gracefully to opening the app's default view.
    */
   sessionId?: string;
+  /** Optional URL for the iOS APNS push to open in Safari on tap. Added by `iopen`. Mac renderers ignore this. */
+  url?: string;
 }
 
 /**

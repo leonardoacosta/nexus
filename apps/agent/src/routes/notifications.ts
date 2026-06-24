@@ -30,7 +30,7 @@ const log = createLogger("agent:routes:notifications");
  * `slack` from this set would 400 every legacy caller; the dispatch-side
  * drop is the intended migration path.
  */
-const VALID_CHANNELS = new Set<string>(["desktop", "tts", "slack"]);
+const VALID_CHANNELS = new Set<string>(["desktop", "tts", "ropen", "slack"]);
 const VALID_PRIORITIES = new Set<string>(["low", "normal", "high"]);
 
 // Singleton instances — guarded by a simple async mutex to prevent torn state
@@ -201,7 +201,7 @@ export async function handleSendNotification(
     return jsonResponse({ error: "invalid JSON body" }, 400);
   }
 
-  const { id, channel, title, body: notifBody, project, priority } = body as Record<
+  const { id, channel, title, body: notifBody, project, priority, url } = body as Record<
     string,
     unknown
   >;
@@ -259,7 +259,7 @@ export async function handleSendNotification(
     agentId: null,
     priority: (priority as NotificationPriority) ?? "normal",
     createdAt: new Date(),
-  });
+  }, url ? { url: url as string } : undefined);
 
   return jsonResponse(notification, 201);
 }

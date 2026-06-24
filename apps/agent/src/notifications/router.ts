@@ -361,6 +361,7 @@ const CHANNEL_HANDLERS: Record<
 > = {
   desktop: sendDesktopNotification,
   tts: sendTtsNotification,
+  ropen: signalOnlyChannel,
 };
 
 /**

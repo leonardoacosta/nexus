@@ -48,6 +48,9 @@ public enum NotificationUserInfoKeys {
     /// `NotificationEvent.logPath` is non-empty; absent keys mean "fall
     /// back to default activation".
     public static let logPath = "nexus.logPath"
+    /// URL string for iOS to open in Safari on notification tap. Set by the
+    /// `iopen` command; absent on all other notification types.
+    public static let url = "url"
 }
 
 /// Default Keychain-backed store. Reads on every call (Keychain has its

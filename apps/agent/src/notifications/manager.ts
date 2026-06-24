@@ -59,6 +59,8 @@ export interface NotificationTransportExtras {
    * Undefined for non-session notifications.
    */
   sessionId?: string;
+  /** Optional URL for the iOS APNS push subscriber to open in Safari on notification tap. */
+  url?: string;
 }
 
 /**
@@ -444,6 +446,7 @@ export class NotificationManager {
           // mx-7i4k: transport-only CC session id for iOS tap-to-session
           // deep-linking. Omitted for non-session notifications.
           sessionId: extras?.sessionId,
+          url: extras?.url,
           audioBase64: d.audioBase64,
           voiceUsed: d.voiceUsed,
         });

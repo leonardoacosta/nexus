@@ -8,6 +8,7 @@
 // will arrive until provisioning lands.
 
 import Foundation
+import NexusShared
 #if canImport(UIKit)
 import UIKit
 import UserNotifications
@@ -177,19 +178,29 @@ final class NexusAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Tap handler — route to session detail via deep link.
+    // Tap handler — URL open (iopen) takes priority over session deep-link.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let info = response.notification.request.content.userInfo
-        if let sessionId = info["sessionId"] as? String {
+        switch NotificationActivation.target(from: info) {
+        case .openURL(let url):
             DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .nexusOpenSessionDetail,
-                    object: sessionId
-                )
+                UIApplication.shared.open(url)
+            }
+        case .openFile:
+            // No-op on iOS — file opens are macOS-only (NSWorkspace).
+            break
+        case .defaultActivation:
+            if let sessionId = info["sessionId"] as? String {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .nexusOpenSessionDetail,
+                        object: sessionId
+                    )
+                }
             }
         }
         completionHandler()

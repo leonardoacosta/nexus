@@ -92,6 +92,7 @@ export class NotificationPushSubscriber {
       if (p.project) userInfo.project = p.project;
       if (p.sessionName) userInfo.sessionName = p.sessionName;
       if (p.sessionId) userInfo.sessionId = p.sessionId;
+      if (p.url) userInfo.url = p.url;
 
       let ok = 0;
       for (const t of tokens) {

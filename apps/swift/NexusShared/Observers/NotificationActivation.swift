@@ -30,6 +30,10 @@ public enum NotificationActivationTarget: Equatable, Sendable {
     /// the OS default opener (`NSWorkspace.shared.open(_:)` on macOS) to
     /// route click attribution to the signed app bundle.
     case openFile(URL)
+    /// A non-empty `url` string was found in userInfo. Callers SHOULD open
+    /// this URL in the system browser (Safari on iOS). Distinct from
+    /// `openFile` — this is a network URL, not a local file path.
+    case openURL(URL)
 }
 
 /// Stateless extractor used by the macOS AppKit delegate to decide
@@ -45,6 +49,16 @@ public enum NotificationActivation {
     public static func target(
         from userInfo: [AnyHashable: Any]
     ) -> NotificationActivationTarget {
+        // url check (iopen — network URL for Safari). Takes priority over
+        // logPath so an `iopen` push routes to the browser even if some
+        // future notification carries both keys.
+        if let rawUrl = userInfo[NotificationUserInfoKeys.url] as? String {
+            let trimmed = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, let url = URL(string: trimmed) {
+                return .openURL(url)
+            }
+        }
+        // logPath check (reaper log file)
         guard let raw = userInfo[NotificationUserInfoKeys.logPath] as? String else {
             return .defaultActivation
         }

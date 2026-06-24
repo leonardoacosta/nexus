@@ -5,7 +5,7 @@
  * persisted rules referencing it are silently dropped by the router's
  * "No handler for channel" path.
  */
-export type NotificationChannel = "desktop" | "tts";
+export type NotificationChannel = "desktop" | "tts" | "ropen";
 
 /** Notification priority levels. */
 export type NotificationPriority = "low" | "normal" | "high";
@@ -71,8 +71,9 @@ export interface Notification {
 
 /**
  * Surfaces a presence-routing `Action` can deliver to. Distinct from
- * `NotificationChannel` (which stays `desktop | tts` this phase): a delivery
- * target is a *device class*, not a render channel. `phone`/`watch` are
+ * `NotificationChannel` (which is `desktop | tts | ropen`: `ropen` is iOS-only
+ * — signal-only on the agent side, the iOS APNS subscriber acts on its `url`):
+ * a delivery target is a *device class*, not a render channel. `phone`/`watch` are
  * reachable only in later phases but the closed shape is fixed now so rules
  * persisted in `routing_rules` don't churn.
  */
