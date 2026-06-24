@@ -131,6 +131,16 @@ public final class NotificationActivationHandler: NSObject, UNUserNotificationCe
                     "NotificationActivationHandler: NSWorkspace.open returned false for path=\(url.path, privacy: .public)"
                 )
             }
+        case .openURL(let url):
+            Self.logger.info(
+                "NotificationActivationHandler: opening url=\(url.absoluteString, privacy: .public)"
+            )
+            let opened = openFile(url)
+            if !opened {
+                Self.logger.error(
+                    "NotificationActivationHandler: NSWorkspace.open returned false for url=\(url.absoluteString, privacy: .public)"
+                )
+            }
         }
     }
 }

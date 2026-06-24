@@ -307,7 +307,6 @@ struct SpecsView: View {
     /// in the wave plan. Renders `[W{n}]` for a single-wave plan and
     /// `[W{min}-W{max}]` for multi-wave plans, followed by a count of
     /// dispatched/in_progress specs scoped to this project.
-    @ViewBuilder
     private func waveRollupChip(forProject project: String) -> AnyView? {
         guard let plan = model.wavePlan, plan.isActive else { return nil }
         // Names of specs that belong to this project in the live spec list.

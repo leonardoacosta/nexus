@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Nexus iOS Device — post-merge deploy hook
+# Rebuilds + installs the SIGNED nexus-ios app on the paired device when a pull
+# touched apps/swift/nexus-ios/ or apps/swift/NexusShared/.
+# Fail-soft: logs a warning on failure but never blocks subsequent hooks.
+#
+# Symmetry: this is the iOS-DEVICE counterpart to 04-swift-deploy (macOS
+# menubar app) and 02-deploy (Linux nexus-agent). The iOS device install is
+# NOT performed by 04-swift-deploy — a signed device build needs the Aqua
+# (GUI) login keychain, so over a plain SSH/hook (Background) session it routes
+# through the dev.leonardoacosta.nexus.ios-deploy GUI LaunchAgent (see
+# deploy/lib/ios-device-deploy.sh). This hook is the pull-driven trigger.
+
+# ── Skip on non-macOS ───────────────────────────────────────────────
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    exit 0
+fi
+
+# ── Check for iOS-affecting Swift changes (skip with --force) ───────
+# Only nexus-ios/ + NexusShared/ feed the iOS app; nexus-mac/ changes do NOT
+# (that's 04-swift-deploy's job). Scoping here avoids a heavy signed device
+# build + install on every unrelated macOS-app change.
+
+if [[ "${1:-}" != "--force" ]]; then
+    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null \
+            | grep -qE '^apps/swift/(nexus-ios|NexusShared)/'; then
+        printf '\033[1;33mios-deploy: %s\033[0m\n' "no nexus-ios/ or NexusShared/ changes, skipping"
+        exit 0
+    fi
+fi
+
+# ── Source shared lib and invoke ────────────────────────────────────
+# Reuse deploy/lib/ios-device-deploy.sh — the same signed-build/devicectl
+# mechanics used by deploy/ios-deploy.sh. In a non-Aqua session the lib
+# kickstarts the GUI LaunchAgent and polls its completion marker (timeout
+# 600s); it is fail-soft by contract (returns non-zero; never exits caller).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+LIB_PATH="$REPO_ROOT/deploy/lib/ios-device-deploy.sh"
+if [[ ! -f "$LIB_PATH" ]]; then
+    printf '\033[1;33mios-deploy: %s\033[0m\n' "shared lib not found at $LIB_PATH; skipping" >&2
+    exit 0
+fi
+
+# shellcheck source=../../lib/ios-device-deploy.sh
+source "$LIB_PATH"
+
+if ! ios_device_deploy_run "$@"; then
+    printf '\033[1;33mios-deploy: %s\033[0m\n' "iOS device deploy failed (fail-soft); device app may be stale" >&2
+    exit 0  # Fail-soft: a stale device app is recoverable; never block subsequent hooks.
+fi
