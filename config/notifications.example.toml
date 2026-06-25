@@ -15,7 +15,11 @@ announce_specs = true
 announce_sessions = false
 # Always announce errors regardless of other settings
 announce_errors = true
-# Delivery channels: "tts", "apns", "banner"
+# Delivery channels: "tts", "apns", "banner", "telegram"
+# `telegram` is a general-purpose, low-priority message lane delivered to a
+# Telegram chat via the Bot API. Delivery requires TELEGRAM_BOT_TOKEN +
+# TELEGRAM_CHAT_ID in the agent env (see .env.example); until both are
+# provisioned the channel fails open (accepts the request, no-ops delivery).
 channels = ["tts"]
 
 # Per-project overrides. Unset fields inherit from [defaults].
