@@ -30,7 +30,7 @@ const log = createLogger("agent:routes:notifications");
  * `slack` from this set would 400 every legacy caller; the dispatch-side
  * drop is the intended migration path.
  */
-const VALID_CHANNELS = new Set<string>(["desktop", "tts", "ropen", "slack"]);
+const VALID_CHANNELS = new Set<string>(["desktop", "tts", "ropen", "slack", "telegram"]);
 const VALID_PRIORITIES = new Set<string>(["low", "normal", "high"]);
 
 // Singleton instances — guarded by a simple async mutex to prevent torn state

@@ -586,3 +586,161 @@ describe("router: ElevenLabs TTS round-trip", () => {
     expect(existsSync(persistedPath)).toBe(true);
   });
 });
+
+// ─── Telegram channel (add-mx-credential-autorefresh) ────────────────────────
+//
+// Spec: a telegram-channel notification is delivered to the configured chat
+// via the Bot API when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set, and the
+// handler FAILS OPEN — unprovisioned creds or an API error/timeout are
+// accepted + no-op'd, never surfaced as a delivery failure.
+//
+// We mock global fetch (fetchWithTimeout calls it underneath) so no real
+// HTTP round-trip happens.
+
+describe("router: telegram channel", () => {
+  let originalFetch: typeof globalThis.fetch;
+  let originalToken: string | undefined;
+  let originalChatId: string | undefined;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalToken = process.env.TELEGRAM_BOT_TOKEN;
+    originalChatId = process.env.TELEGRAM_CHAT_ID;
+  });
+
+  function restoreEnv() {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+    if (originalChatId === undefined) delete process.env.TELEGRAM_CHAT_ID;
+    else process.env.TELEGRAM_CHAT_ID = originalChatId;
+  }
+
+  it("provisioned → POSTs the body to the Telegram Bot API and delivers", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "12345:fake-token";
+    process.env.TELEGRAM_CHAT_ID = "98765";
+
+    const calls: Array<{ url: string; body: string }> = [];
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("api.telegram.org")) {
+        calls.push({ url, body: String(init?.body ?? "") });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch in telegram test: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const { setRoutingRules, routeNotificationParallel } = await import("./router");
+      setRoutingRules([
+        { project: "tg-ok", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-ok-${Date.now()}`,
+        project: "tg-ok",
+        channel: "telegram",
+        body: "fb-bearer-dev refresh failed: az session expired",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+
+      // POSTed to the Bot API sendMessage endpoint with the body as `text`.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toContain("/bot12345:fake-token/sendMessage");
+      const payload = JSON.parse(calls[0]!.body) as { chat_id: string; text: string };
+      expect(payload.chat_id).toBe("98765");
+      expect(payload.text).toBe("fb-bearer-dev refresh failed: az session expired");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("unprovisioned (no token/chat id) → accepted + no-op (fail-open, never fetches)", async () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+
+    let fetched = false;
+    globalThis.fetch = mock(async () => {
+      fetched = true;
+      throw new Error("telegram fetch must not run when unprovisioned");
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const { setRoutingRules, routeNotificationParallel } = await import("./router");
+      setRoutingRules([
+        { project: "tg-unprov", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-unprov-${Date.now()}`,
+        project: "tg-unprov",
+        channel: "telegram",
+        body: "no creds — should no-op",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      // Fail-open: delivered (success), never failed, never fetched.
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+      expect(fetched).toBe(false);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("Bot API 500 / throw → accepted + no-op (fail-open, not marked failed)", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "12345:fake-token";
+    process.env.TELEGRAM_CHAT_ID = "98765";
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("api.telegram.org")) {
+        return new Response("upstream error", { status: 500 });
+      }
+      throw new Error(`unexpected fetch in telegram test: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const { setRoutingRules, routeNotificationParallel } = await import("./router");
+      setRoutingRules([
+        { project: "tg-500", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-500-${Date.now()}`,
+        project: "tg-500",
+        channel: "telegram",
+        body: "api 500 — should degrade",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      // Non-2xx degrades to no-op, still counts as delivered (never failed).
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+    } finally {
+      restoreEnv();
+    }
+  });
+});

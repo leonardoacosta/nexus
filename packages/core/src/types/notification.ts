@@ -4,8 +4,13 @@
  * `slack` was removed by `remove-slack-channel` (spine-migration). Macros /
  * persisted rules referencing it are silently dropped by the router's
  * "No handler for channel" path.
+ *
+ * `telegram` (add-mx-credential-autorefresh) is a general-purpose,
+ * low-priority message lane delivered to Telegram via the Bot API. It fails
+ * open — an unprovisioned bot token/chat id or an API error is accepted +
+ * no-op'd, never surfaced as a delivery failure.
  */
-export type NotificationChannel = "desktop" | "tts" | "ropen";
+export type NotificationChannel = "desktop" | "tts" | "ropen" | "telegram";
 
 /** Notification priority levels. */
 export type NotificationPriority = "low" | "normal" | "high";
@@ -71,7 +76,7 @@ export interface Notification {
 
 /**
  * Surfaces a presence-routing `Action` can deliver to. Distinct from
- * `NotificationChannel` (which is `desktop | tts | ropen`: `ropen` is iOS-only
+ * `NotificationChannel` (which is `desktop | tts | ropen | telegram`: `ropen` is iOS-only
  * — signal-only on the agent side, the iOS APNS subscriber acts on its `url`):
  * a delivery target is a *device class*, not a render channel. `phone`/`watch` are
  * reachable only in later phases but the closed shape is fixed now so rules

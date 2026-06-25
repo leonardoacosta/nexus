@@ -225,6 +225,71 @@ async function sendTtsNotification(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Telegram (add-mx-credential-autorefresh)
+// ---------------------------------------------------------------------------
+
+/**
+ * Telegram channel handler — a general-purpose, low-priority message lane
+ * delivered to a configured Telegram chat via the Bot API.
+ *
+ * Provisioning is env-driven (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`),
+ * operator-owned and OUT of scope for this change — the agent only delivers
+ * when both are present.
+ *
+ * FAIL-OPEN (mirrors `sendTtsNotification`'s discipline): this handler NEVER
+ * returns `success: false` and NEVER `captureException`s. Every path returns
+ * `{ success: true }` so an unprovisioned or erroring Telegram lane never
+ * marks the notification failed and never spams Sentry during a Bot-API
+ * outage:
+ *
+ *   - token / chat id unset → `{ success: true }` (signal-only no-op). Info log.
+ *   - Bot API non-2xx → `{ success: true }` (degrade to no-op). Warn log.
+ *   - network timeout / throw → `{ success: true }` (no-op). Warn log.
+ */
+async function sendTelegramNotification(
+  notification: NotificationRow,
+): Promise<ChannelResult> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || token.length === 0 || !chatId || chatId.length === 0) {
+    log.info(
+      { notificationId: notification.id },
+      "telegram: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID unset — accepting request, no-op delivery (fail-open)",
+    );
+    return { success: true };
+  }
+
+  try {
+    const res = await fetchWithTimeout(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: "POST",
+        timeout: 8_000,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: notification.body }),
+      },
+    );
+    if (!res.ok) {
+      log.warn(
+        { notificationId: notification.id, status: res.status },
+        "telegram: sendMessage returned non-2xx — degrading to no-op (fail-open)",
+      );
+      return { success: true };
+    }
+    return { success: true };
+  } catch (err) {
+    log.warn(
+      {
+        notificationId: notification.id,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "telegram: delivery threw (timeout/network) — degrading to no-op (fail-open)",
+    );
+    return { success: true };
+  }
+}
+
 /** Timeout in ms for a single channel handler invocation. */
 const NOTIFICATION_TIMEOUT_MS = Number(process.env.NEXUS_NOTIFICATION_TIMEOUT_MS ?? 10_000);
 
@@ -362,6 +427,7 @@ const CHANNEL_HANDLERS: Record<
   desktop: sendDesktopNotification,
   tts: sendTtsNotification,
   ropen: signalOnlyChannel,
+  telegram: sendTelegramNotification,
 };
 
 /**
