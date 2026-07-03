@@ -1,0 +1,87 @@
+name: CI
+
+# Neutral Linux CI gate. Runs the *existing* quality gates (typecheck / lint /
+# lint:sql-safety / test) against a throwaway Postgres, so correctness no longer
+# depends on any individual contributor's OS or git-hook state. Complements the
+# local pre-push hook (deploy/hooks.d/pre-push/01-deploy); does not replace it.
+#
+# ── PRE-EXISTING RED GATES (read before treating this as blocking) ────────────
+# As of the commit that adds this workflow, several gates are RED at base for
+# pre-existing reasons unrelated to this file:
+#   - `pnpm typecheck`: @nexus/emit (bun-types), apps/agent notifications/*.test.ts,
+#     server-websocket.ts
+#   - `pnpm lint`: @nexus/web `next lint` is broken
+#   - `pnpm lint:sql-safety`: red until plans/006 (green sql-safety guard) merges
+# This workflow runs those commands as REAL, blocking steps on purpose — it does
+# NOT silently make the gate non-blocking. But that means the first runs WILL be
+# red. Maintainer action required: fix the pre-existing failures (or temporarily
+# scope the offending packages out) so this gate becomes truly green-blocking.
+# Do NOT add `continue-on-error` or drop steps to force green — fix the source.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-gates:
+    name: Linux gates (typecheck / lint / test)
+    runs-on: ubuntu-latest
+    env:
+      # Points at the docker-compose.test.yml Postgres (host port 5433).
+      POSTGRES_URL: postgres://nexus:nexus@localhost:5433/nexus_test
+      # REQUIRED — apps/agent/src/testing/live-pg.ts gates PG-backed tests on
+      # NEXUS_PG_TESTS=1 AND POSTGRES_URL. Omitting this leaves those suites
+      # silently skipped (green but hollow) even with the container up.
+      NEXUS_PG_TESTS: "1"
+      # Test-only value read by notifications-deliver.test.ts. Not a real secret.
+      NEXUS_ATTACH_SECRET: test
+      # NOTE: NEXUS_HEAVY_TESTS is deliberately NOT set — it would opt in
+      # live-homelab Tailscale round-trips that need a real peer and fail in CI.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      # `--wait` blocks until the compose pg_isready healthcheck reports healthy.
+      - run: docker compose -f docker-compose.test.yml up -d --wait
+      # Apply the schema to the fresh compose Postgres BEFORE any PG-backed test
+      # runs — the container boots an empty `nexus_test` DB, so migrating first
+      # is what keeps those suites from hitting missing tables. Uses the
+      # job-level POSTGRES_URL (same value the test step reads). Migration-based
+      # ONLY (`db:migrate` = `bun ./src/migrate.ts`); NEVER `db:push`.
+      - name: Apply DB schema
+        run: pnpm --filter @nexus/db db:migrate
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm lint:sql-safety
+      - run: pnpm test
+      - if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+# ── macOS Swift job (STRETCH — not wired) ─────────────────────────────
+# Requires a macOS runner (GitHub-hosted `macos-14` is metered, or a
+# self-hosted Mac). When a runner is available, uncomment and finish:
+#
+#   macos-swift:
+#     name: Swift gates (nexus-mac, NexusShared)
+#     runs-on: macos-14
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: brew install xcodegen
+#       - run: cd apps/swift && xcodegen generate
+#       - run: |
+#           xcodebuild test \
+#             -project apps/swift/nexus.xcodeproj \
+#             -scheme nexus-mac \
+#             -destination 'platform=macOS' \
+#             -only-testing:nexus-mac-Tests \
+#             -only-testing:NexusSharedTests \
+#             CODE_SIGNING_ALLOWED=NO
+#
+# Follow-up: iOS/watch bundle coverage is a separate gap — see plans/014.
