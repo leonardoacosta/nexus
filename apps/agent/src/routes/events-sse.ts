@@ -93,6 +93,13 @@ export async function handleGetEvents(
 export function handleEventsStream(): Response {
   let keepalive: ReturnType<typeof setInterval> | null = null;
   let busHandler: ((envelope: LifecycleEnvelope) => void) | null = null;
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (keepalive) clearInterval(keepalive);
+    if (busHandler) lifecycleBus.offAny(busHandler);
+  };
 
   const stream = new ReadableStream({
     start(controller) {
@@ -113,7 +120,7 @@ export function handleEventsStream(): Response {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          if (keepalive) clearInterval(keepalive);
+          cleanup();
         }
       }, 30_000);
 
@@ -130,15 +137,15 @@ export function handleEventsStream(): Response {
           const data = JSON.stringify(envelope);
           controller.enqueue(encoder.encode(`event: ${envelope.event}\ndata: ${data}\n\n`));
         } catch {
-          // Stream closed — will be cleaned up in cancel()
+          // Stream closed abnormally without cancel() — self-clean so we do not
+          // leak a dead subscriber on the global bus.
+          cleanup();
         }
       };
       lifecycleBus.onAny(busHandler);
     },
     cancel() {
-      // Client disconnected — cleanup subscriptions.
-      if (keepalive) clearInterval(keepalive);
-      if (busHandler) lifecycleBus.offAny(busHandler);
+      cleanup();
       log.debug("SSE client disconnected");
     },
   });

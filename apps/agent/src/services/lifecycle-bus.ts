@@ -409,6 +409,11 @@ export class LifecycleBus {
     return this.seq;
   }
 
+  /** Number of wildcard (`onAny`) listeners — for testing leak cleanup. */
+  get wildcardListenerCount(): number {
+    return this.emitter.listenerCount("*");
+  }
+
   /** Remove all listeners (for testing teardown). */
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
