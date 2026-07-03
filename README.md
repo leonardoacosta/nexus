@@ -1,18 +1,21 @@
 # Nexus
 
-Peer-to-peer terminal dashboard for managing Claude Code sessions across all your machines.
+Peer-to-peer dashboard for managing Claude Code sessions across all your machines.
 
-Each dev server runs a lightweight agent daemon. The TUI aggregates sessions from all agents over Tailscale, letting you monitor, stream, and attach to any Claude Code session from a single terminal.
+Each dev server runs a lightweight agent daemon. Swift dashboards (`Nexus.app`,
+iOS, watchOS) and a Next.js web terminal aggregate sessions from every agent over
+Tailscale, letting you monitor, stream, and attach to any Claude Code session
+from any client.
 
 ## Features
 
-- **Dashboard** — all sessions across all machines, grouped by project
-- **Live streaming** — read-only event stream for any session (`a` to attach)
-- **Full attach** — SSH + tmux takeover for managed sessions (`A` to attach)
-- **Start sessions remotely** — spawn Claude Code on any agent via command palette
+- **Dashboard** — all sessions across all machines, grouped by project, in the Swift apps (macOS / iOS / watchOS)
+- **Web terminal** — browser-based terminal for streaming and attaching to sessions
+- **Live streaming** — read-only event stream for any session
+- **Full attach** — SSH + tmux takeover for managed sessions
+- **Start sessions remotely** — spawn Claude Code on any agent
 - **System health** — CPU, memory, disk, Docker status per machine
 - **Projects overview** — registered projects with active session counts
-- **Command palette** — fuzzy-filter navigation with `:` or `/`
 - **Auto-discovery** — agents watch Claude Code's `sessions.json` with no instrumentation needed
 
 ## Architecture
@@ -40,8 +43,9 @@ Monorepo layout — pnpm workspace with Bun runtime + Swift dashboard suite:
 | `apps/swift/nexus-ios`           | iOS client                                                             |
 | `apps/swift/nexus-watch`         | watchOS companion                                                      |
 | `apps/swift/NexusShared`         | Shared Swift framework (Models, Networking, Observers, Synthesis)     |
+| `apps/web`                       | Next.js browser terminal (Ghostty WASM) — covered by tests/e2e/playwright |
 | `packages/core`                  | Shared TS types, session model, protocol contracts                    |
-| `packages/db`                    | SQLite schema + drift detector                                         |
+| `packages/db`                    | PostgreSQL schema (Drizzle) + drift detector                          |
 
 Inbound hook flow (CC -> socket only — HTTP `/hooks` endpoint is retired):
 
@@ -97,8 +101,8 @@ bun run --filter @nexus/agent dev
 systemctl --user start nexus-agent
 journalctl --user -u nexus-agent -f
 
-# macOS post-install (paths printed by the installer)
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nexus.agent.plist
+# macOS post-install — install.sh already bootstraps the GUI launch agents
+# (dev.leonardoacosta.nexus.deploy / .ios-deploy / .presence). Just launch the app:
 open /Applications/Nexus.app
 ```
 
@@ -120,20 +124,6 @@ host = "homelab"      # Tailscale hostname
 port = 7400           # default
 user = "nyaptor"      # SSH user for full attach
 ```
-
-## Key Bindings
-
-| Key       | Action                     |
-| --------- | -------------------------- |
-| `Tab`     | Cycle screens              |
-| `j`/`k`   | Navigate up/down           |
-| `Enter`   | Select / view detail       |
-| `a`       | Stream attach (read-only)  |
-| `A`       | Full attach (SSH + tmux)   |
-| `n`       | Start new session          |
-| `s`       | Stop session (from detail) |
-| `:` `/`   | Command palette            |
-| `q` `Esc` | Back / quit                |
 
 ## Ports
 
