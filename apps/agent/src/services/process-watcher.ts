@@ -497,16 +497,34 @@ function lastTickAgeSeconds(): number {
   return Math.max(0, (performance.now() - lastReconcileMs) / 1000);
 }
 
+// ponytail: one global in-flight latch — a single watcher runs per agent
+// process, so a process-wide coalesce is sufficient. Per-db keying would be
+// speculative. Every caller (tick + probe) uses the one agent db.
+let inFlightReconcile: Promise<ReconcileResult> | null = null;
+
 /**
- * Single reconciliation pass. Exposed standalone so the
- * `POST /sessions/probe` route handler can trigger it on demand.
- *
+ * Single reconciliation pass, serialized. Exposed standalone so the
+ * `POST /sessions/probe` route handler can trigger it on demand without
+ * racing the interval `tick()` (which would double-INSERT new PIDs — the id
+ * is minted fresh per pass and `pid` has no unique constraint).
+ * Concurrent callers coalesce onto the one in-flight pass.
+ */
+export function reconcileOnce(db: Db): Promise<ReconcileResult> {
+  if (inFlightReconcile) return inFlightReconcile;
+  const pass = reconcileOncePass(db).finally(() => {
+    inFlightReconcile = null;
+  });
+  inFlightReconcile = pass;
+  return pass;
+}
+
+/**
  * process-watcher-health-monitoring: records tick duration, live pid count,
  * and error text into `process_watcher_state` on every tick. Emits
  * `ProcessWatcherStalled` on the lifecycle bus when the LATEST row
  * carries an error or this tick's duration exceeds the stalled threshold.
  */
-export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
+async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
   const tickStartMs = performance.now();
   let tickErrorText: string | null = null;
 
