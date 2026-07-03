@@ -77,7 +77,7 @@ export async function createIsolatedSchema(
   const adminHandle = createDb(url);
   const adminSql = adminHandle.client;
 
-  await adminSql.unsafe(`CREATE SCHEMA "${schema}"`);
+  await adminSql.unsafe(`CREATE SCHEMA "${schema}"`); // SAFE: schema is a test-only generated name (nx_<label>_<ts>_<rand>, line 73), never request data
   await adminSql.unsafe(`SET search_path TO "${schema}", public`);
   await adminSql.unsafe(ddl);
 
@@ -94,7 +94,7 @@ export async function createIsolatedSchema(
       await scopedClient.end({ timeout: 5 });
     } finally {
       try {
-        await adminSql.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        await adminSql.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); // SAFE: schema is a test-only generated name (nx_<label>_<ts>_<rand>, line 73), never request data
       } finally {
         await adminSql.end({ timeout: 5 });
       }
