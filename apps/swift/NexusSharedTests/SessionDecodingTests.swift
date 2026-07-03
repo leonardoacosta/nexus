@@ -129,6 +129,56 @@ final class SessionDecodingTests: XCTestCase {
         XCTAssertNil(s.projectId)
     }
 
+    /// Child subagent row — mirrors stub-agent SESSIONS_FIXTURE[1]. Populates the
+    /// previously-drifted columns so a stale Swift model (missing a CodingKey)
+    /// decodes nil here and FAILS the assertions below.
+    private static let stubChildSessionRowJSON = """
+    {
+      "id": "stub-sess-2-child",
+      "projectId": null,
+      "machine": "stub-machine",
+      "status": "active",
+      "startedAt": "2026-05-19T11:04:02.740Z",
+      "lastActivity": "2026-05-19T11:04:02.740Z",
+      "endedAt": null,
+      "pid": 4243,
+      "cwd": "/tmp/stub",
+      "branch": null,
+      "sessionType": "ad_hoc",
+      "model": "claude",
+      "rateLimitUtilization": 0.42,
+      "totalCostUsd": null,
+      "rateLimitResetAt": null,
+      "idleSince": null,
+      "ccSessionId": null,
+      "tmuxSession": null,
+      "tmuxTarget": null,
+      "spec": "add-subagent-tree-columns",
+      "credentialId": "cred-personal",
+      "credentialFingerprint": "fp-aaaa",
+      "gitProvider": null,
+      "gitOwnerRepo": null,
+      "parentSessionId": "stub-sess-1",
+      "childRole": "explore"
+    }
+    """
+
+    /// Contract: the six previously-drifted columns
+    /// (spec / rateLimitUtilization / credentialId / credentialFingerprint /
+    /// parentSessionId / childRole) MUST decode to their wire values. A Swift model
+    /// missing any CodingKey decodes that field to nil and fails here — this is the
+    /// TS↔Swift wire-drift guard.
+    func testDecodesSubagentTreeAndCredentialFields() throws {
+        let data = Self.stubChildSessionRowJSON.data(using: .utf8)!
+        let s = try JSONDecoder().decode(Session.self, from: data)
+        XCTAssertEqual(s.parentSessionId, "stub-sess-1", "parent linkage must decode")
+        XCTAssertEqual(s.childRole, "explore")
+        XCTAssertEqual(s.credentialId, "cred-personal")
+        XCTAssertEqual(s.credentialFingerprint, "fp-aaaa")
+        XCTAssertEqual(s.spec, "add-subagent-tree-columns")
+        XCTAssertEqual(s.rateLimitUtilization ?? -1, 0.42, accuracy: 0.001)
+    }
+
     /// `GET /sessions` returns a bare JSON ARRAY (no envelope) —
     /// `NexusClient.fetchSessions` decodes `[Session]` directly. Guards
     /// the array wire shape the whole transport path assumes.
