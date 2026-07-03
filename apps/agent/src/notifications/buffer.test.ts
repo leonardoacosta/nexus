@@ -40,7 +40,7 @@ describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () 
 
   it("markNotificationDelivered sets status=delivered + sentAt", async () => {
     const where = mock(async () => {});
-    const set = mock(() => ({ where }));
+    const set = mock((_patch: unknown) => ({ where }));
     const update = mock(() => ({ set }));
     const db = { update } as unknown as import("@nexus/db").Db;
 
@@ -53,7 +53,7 @@ describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () 
 
   it("markNotificationExpired sets status=expired", async () => {
     const where = mock(async () => {});
-    const set = mock(() => ({ where }));
+    const set = mock((_patch: unknown) => ({ where }));
     const update = mock(() => ({ set }));
     const db = { update } as unknown as import("@nexus/db").Db;
 

@@ -22,6 +22,7 @@ import {
   handleCredentialHealth,
   handleSwapCredential,
   getCredentialPool,
+  initCredentialRoutes,
 } from "./credentials";
 import {
   readCredentials,
@@ -117,7 +118,6 @@ describe("credential route handlers — input validation", () => {
     // Initialize with a fake DB that satisfies the pool constructor
     // (pool won't be called for validation failures)
     const fakeDb = {} as unknown as import("@nexus/db").Db;
-    const { initCredentialRoutes } = require("./credentials");
     initCredentialRoutes(fakeDb, { encryptionKey: Buffer.alloc(32, 1) });
   });
 
@@ -287,7 +287,6 @@ describe("POST /credentials/swap", () => {
   beforeEach(() => {
     resetCredentialRoutes();
     const fakeDb = {} as unknown as import("@nexus/db").Db;
-    const { initCredentialRoutes } = require("./credentials");
     initCredentialRoutes(fakeDb, { encryptionKey: Buffer.alloc(32, 1) });
   });
 

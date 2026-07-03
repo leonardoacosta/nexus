@@ -120,7 +120,7 @@ function makeCollectorStub(latestMetrics: HealthMetrics | null): HealthCollector
 
 /** Minimal db stub with a working insertHealthSnapshot replacement. */
 function makeDbStub(): { db: Db; inserts: number } {
-  let inserts = 0;
+  const inserts = 0;
   const db = {} as unknown as Db;
   // We'll patch insertHealthSnapshot via the module mock below
   return { db, inserts: 0 };
