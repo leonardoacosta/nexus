@@ -2,86 +2,92 @@
  * Regression test for plan 010 — SSE lifecycle-bus subscriber leak.
  *
  * Each open /events/stream subscribes a wildcard handler to the global
- * lifecycleBus. Before the fix, that handler unsubscribed ONLY inside the
- * stream's cancel() callback; an abnormal close where cancel() never fired
- * left a dead handler registered forever, and every subsequent bus emit
- * invoked its failing enqueue. The handler now self-cleans the first time
- * its enqueue fails (and cancel() delegates to the same idempotent cleanup),
- * so a leaked subscriber cannot outlive its stream.
+ * lifecycleBus. The handler unsubscribed ONLY inside the stream's cancel()
+ * callback; an abnormal close where cancel() never fired left a dead handler
+ * registered forever, and every subsequent bus emit invoked its failing
+ * enqueue (re-throwing out of emit() and leaking the subscriber). The fix:
+ * the busHandler catch calls the idempotent cleanup() the first time an
+ * enqueue throws — offAny's itself off the bus without waiting for cancel().
  *
- * Both cases assert on a baseline-relative wildcard listener count, so they
- * are robust to any other subscribers the shared in-process server holds.
+ * These tests drive that exact failure path via `subscribeStreamToBus` — the
+ * production wiring extracted from `handleEventsStream`. We capture a REAL
+ * ReadableStream controller, `close()` it (producer-side close does NOT fire
+ * the stream's cancel() callback — verified), which makes a subsequent
+ * `enqueue()` throw, then emit on the bus. The seam's catch must self-clean.
  *
- * Harness note: the plan's original "graceful reader.cancel() returns to
- * baseline" case is NOT observable in Bun's in-process HTTP test harness —
- * a client-side reader.cancel() does not propagate to the server-side
- * ReadableStream (server cancel() never fires and the controller stays open,
- * so no enqueue failure occurs). Only AbortController.abort() actually tears
- * the connection down in this harness. Both cases below therefore drive the
- * teardown via abort(), which is the exact abnormal-close path this fix
- * targets. The graceful-cancel path is covered by cancel() delegating to the
- * same cleanup() (verified by typecheck + the `closed`-guard idempotency in
- * case 2).
+ * Why not drive this through a real HTTP fetch: a client-side abort/cancel in
+ * Bun's in-process harness routes teardown through the server cancel() callback,
+ * which already unsubscribes on UNFIXED code — so an abort-based test passes
+ * regardless of the fix (tautology). Only the enqueue-throw-WITHOUT-cancel path
+ * exercises the actual fix, and `controller.close()` is the one way to reach
+ * that state deterministically from a test.
  */
 
 import { describe, expect, it } from "bun:test";
-import { baseUrl } from "./server.helpers";
 import { lifecycleBus } from "./services/lifecycle-bus";
+import { subscribeStreamToBus } from "./routes/events-sse";
 
-const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function waitForCount(target: number, timeoutMs = 3000): Promise<number> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (lifecycleBus.wildcardListenerCount === target) return target;
-    await settle(25);
-  }
-  return lifecycleBus.wildcardListenerCount;
+/**
+ * Capture a real ReadableStream controller — the exact object the SSE handler
+ * enqueues into. `start()` runs synchronously during construction.
+ */
+function captureController(): ReadableStreamDefaultController<Uint8Array> {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  return controller;
 }
 
 describe("SSE lifecycle-bus subscriber leak (plan 010)", () => {
-  it("does not leak a handler after an abrupt abort", async () => {
+  it("self-cleans the bus subscriber when a bus emit's enqueue throws (abnormal close, no cancel)", () => {
     const baseline = lifecycleBus.wildcardListenerCount;
-    const ac = new AbortController();
-    const res = await fetch(`${baseUrl}/events/stream`, {
-      headers: { Accept: "text/event-stream" },
-      signal: ac.signal,
-    });
-    const reader = res.body!.getReader();
-    await reader.read();
+
+    const controller = captureController();
+    const { cleanup } = subscribeStreamToBus(controller);
     expect(lifecycleBus.wildcardListenerCount).toBe(baseline + 1);
 
-    ac.abort();
-    reader.cancel().catch(() => {});
-    // Drive any still-registered dead handler through its failing enqueue.
-    await settle(50);
-    lifecycleBus.emit("SessionStopped", { sessionId: "leak-test" });
+    // Abnormal-close state: producer side closed (enqueue now throws) but the
+    // stream's cancel() callback never fired — the leak this fix targets.
+    controller.close();
 
-    // If the handler did not self-clean, the count stays at baseline + 1 and
-    // this poll times out (the leak this plan fixes).
-    expect(await waitForCount(baseline)).toBe(baseline);
+    // A bus emit drives the still-registered handler through a failing enqueue.
+    // FIXED:   busHandler catch -> cleanup() -> offAny -> count == baseline.
+    // UNFIXED: enqueue TypeError propagates out of emit(), handler stays
+    //          subscribed -> count == baseline + 1 (leak).
+    try {
+      lifecycleBus.emit("SessionStopped", { sessionId: "seam-leak-test" });
+    } catch {
+      // On unfixed code the uncaught enqueue error propagates out of emit();
+      // swallow it so the assertion below is the load-bearing signal.
+    }
+
+    expect(lifecycleBus.wildcardListenerCount).toBe(baseline);
+    cleanup(); // no-op if already cleaned; keeps the bus pristine on failure
   });
 
-  it("cleanup is idempotent — repeated emits after teardown keep baseline", async () => {
+  it("cleanup is idempotent — enqueue-failure self-clean + a later cancel() stay at baseline", () => {
     const baseline = lifecycleBus.wildcardListenerCount;
-    const ac = new AbortController();
-    const res = await fetch(`${baseUrl}/events/stream`, {
-      headers: { Accept: "text/event-stream" },
-      signal: ac.signal,
-    });
-    const reader = res.body!.getReader();
-    await reader.read();
+
+    const controller = captureController();
+    const { cleanup } = subscribeStreamToBus(controller);
     expect(lifecycleBus.wildcardListenerCount).toBe(baseline + 1);
 
-    ac.abort();
-    reader.cancel().catch(() => {});
-    await settle(50);
-    lifecycleBus.emit("SessionStopped", { sessionId: "idem-1" });
-    expect(await waitForCount(baseline)).toBe(baseline);
+    controller.close();
+    try {
+      lifecycleBus.emit("SessionStopped", { sessionId: "idem-enqueue" });
+    } catch {
+      /* unfixed re-throw swallowed */
+    }
+    // busHandler already self-cleaned on the failing enqueue.
+    expect(lifecycleBus.wildcardListenerCount).toBe(baseline);
 
-    // A second emit must not double-offAny below baseline (the `closed` guard).
-    lifecycleBus.emit("SessionStopped", { sessionId: "idem-2" });
-    await settle(50);
+    // Simulate cancel() firing AFTER the self-clean already ran — the `closed`
+    // guard must make this a no-op, not double-offAny below baseline.
+    cleanup();
+    cleanup();
     expect(lifecycleBus.wildcardListenerCount).toBe(baseline);
   });
 });
