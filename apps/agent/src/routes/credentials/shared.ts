@@ -20,8 +20,11 @@ const auditLogger = createLogger("audit.credential");
 export type CredentialAuditEntry = {
   event: string;
   credential_id: string;
-  actor: string;
-  ip: string;
+  // `claimed_*` = caller-asserted, NOT verified. Nexus has no per-request
+  // auth (Tailscale ACL is the trust boundary), so actor/IP here are
+  // spoofable via body/headers and must not be read as proven identity.
+  claimed_actor: string;
+  claimed_ip: string;
   timestamp_iso: string;
   detail?: Record<string, unknown>;
 };
@@ -30,7 +33,13 @@ export function emitAudit(entry: CredentialAuditEntry): void {
   auditLogger.info(entry, entry.event);
 }
 
-/** Extract caller IP from request headers or socket. */
+/**
+ * Extract the caller-CLAIMED IP from request headers or URL host.
+ *
+ * The value is UNTRUSTED — `x-forwarded-for` is client-spoofable and the URL
+ * host is not the WireGuard socket peer. Callers store it under `claimed_ip`
+ * in the audit entry; it must never be read as a verified source address.
+ */
 export function extractCallerIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {

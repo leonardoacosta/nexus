@@ -9,8 +9,11 @@
  * `drop-attach-secret-gate` change. Network-level trust (loopback + Tailscale
  * bind) supersedes the soft header gate; see `server.ts` for the bind logic.
  *
- * WebSocket auth still uses a token (header or query-string) and lives in
- * `server-websocket.ts` — that surface is untouched by the HTTP-gate removal.
+ * The WebSocket `?token=` / header gate was ALSO removed (by
+ * `drop-attach-secret-gate`); `server-websocket.ts` now only format-checks the
+ * session id and caps concurrent connections. WS reachability, like the HTTP
+ * routes, rests entirely on the network bind layer (loopback + Tailscale).
+ * Restoring a WS token is a separate maintainer decision, not implied here.
  */
 
 // ── Credential ID validation ────────────────────────────────────────────────

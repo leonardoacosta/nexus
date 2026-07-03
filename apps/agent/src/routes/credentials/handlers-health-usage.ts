@@ -59,8 +59,8 @@ export async function handleCredentialHealth(id: string, request: Request): Prom
     emitAudit({
       event: "credential.health_check",
       credential_id: id,
-      actor: "system",
-      ip,
+      claimed_actor: "system",
+      claimed_ip: ip,
       timestamp_iso: checked_at,
       detail: { healthy, checked_at },
     });

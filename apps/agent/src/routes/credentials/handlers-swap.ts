@@ -66,8 +66,8 @@ export async function handleSwapCredential(request: Request): Promise<Response> 
     emitAudit({
       event: "credential.manual_swap_out",
       credential_id: result.parked.id,
-      actor: "manual",
-      ip,
+      claimed_actor: "manual",
+      claimed_ip: ip,
       timestamp_iso: now,
     });
   }
@@ -75,8 +75,8 @@ export async function handleSwapCredential(request: Request): Promise<Response> 
   emitAudit({
     event: "credential.manual_swap_in",
     credential_id: result.activated.id,
-    actor: "manual",
-    ip,
+    claimed_actor: "manual",
+    claimed_ip: ip,
     timestamp_iso: now,
   });
 
