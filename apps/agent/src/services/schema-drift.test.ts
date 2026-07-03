@@ -36,7 +36,7 @@ function makeStubDb(opts: { existing?: boolean } = {}): {
   insertCalls: number;
   updateCalls: number;
 } {
-  let selectCalls: SelectCall[] = [];
+  const selectCalls: SelectCall[] = [];
   let insertCalls = 0;
   let updateCalls = 0;
 

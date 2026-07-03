@@ -27,6 +27,7 @@
  * fixtures cannot silently diverge from the production response shape.
  */
 
+import { networkInterfaces } from "node:os";
 import type { HealthMetrics } from "@nexus/core";
 import type { SessionRow } from "../db/sessions";
 import type { SessionEventRow } from "../db/events";
@@ -58,9 +59,7 @@ export function isLoopbackish(host: string): boolean {
  * Tailscale CGNAT range (100.64/10), then any other non-internal IPv4.
  */
 export function discoverNonLoopbackIPv4(): string {
-  // Bun re-exports the Node `os` module.
-  const os = require("node:os") as typeof import("node:os");
-  const ifaces = os.networkInterfaces();
+  const ifaces = networkInterfaces();
   const candidates: string[] = [];
   for (const name of Object.keys(ifaces)) {
     for (const addr of ifaces[name] ?? []) {

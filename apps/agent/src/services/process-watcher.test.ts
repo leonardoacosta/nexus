@@ -34,6 +34,10 @@ import {
   beforeEach,
   mock,
 } from "bun:test";
+// Captured before the `mock.module("node:fs", ...)` call below registers the
+// mock, so this namespace holds the REAL fs — the mock's readlinkSync delegates
+// to it after recording the call (nx-9jz0v /proc-readlink regression guard).
+import * as realFs from "node:fs";
 
 // ── Mock subprocess exec BEFORE importing the watcher ──────────────────────
 
@@ -129,7 +133,7 @@ function clearReadlinkCalls(): void {
   readlinkCalls.length = 0;
 }
 mock.module("node:fs", () => {
-  const real = require("node:fs") as typeof import("node:fs");
+  const real = realFs;
   return {
     ...real,
     readlinkSync: (path: string, ..._args: unknown[]) => {

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { CommandRegistry } from "./command-registry";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -217,7 +217,6 @@ describe("CommandRegistry", () => {
 
   it("refresh() removes deleted files", () => {
     // Remove the review command we just added.
-    const { unlinkSync } = require("node:fs");
     unlinkSync(join(TEST_DIR, "review.md"));
 
     registry.refresh();
