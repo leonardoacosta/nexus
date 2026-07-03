@@ -11,6 +11,7 @@ import {
   mockReaddirSync,
   mockExistsSync,
   mockQueryRecentSessions,
+  mockResolveGitRemote,
 } from "./projects-discovered.helpers";
 
 import { describe, expect, it, beforeEach } from "bun:test";
@@ -214,5 +215,49 @@ describe("handleGetDiscoveredProjects", () => {
     expect("truncated" in body).toBe(true);
     expect("projectsDir" in body).toBe(false);
     expect("total" in body).toBe(false);
+  });
+
+  // ── Test 8: bounded-concurrency git-remote resolution ────────────────────
+
+  it("resolves git remote per dir with bounded concurrency (respects the cap)", async () => {
+    const db = makeDb([makeAgentRow({ projectsDir: "/home/user/many" })]);
+
+    const dirs = Array.from({ length: 20 }, (_, i) =>
+      dirent(`repo-${String(i).padStart(2, "0")}`, true),
+    );
+    mockReaddirSync.mockImplementation(
+      () => dirs as unknown as ReturnType<typeof import("node:fs").readdirSync>,
+    );
+    mockExistsSync.mockImplementation((p: string) => p.endsWith("/.git"));
+
+    // Instrument the resolver: track live concurrency and return a per-path URL.
+    let live = 0;
+    let maxLive = 0;
+    mockResolveGitRemote.mockImplementation(async (p: string) => {
+      live++;
+      maxLive = Math.max(maxLive, live);
+      await new Promise((r) => setTimeout(r, 5)); // force overlap
+      live--;
+      return `git@example.com:${p}.git`;
+    });
+    // Clear call history accumulated by earlier tests (resetMocks resets the
+    // implementation, not the call count) so the per-dir count assertion is exact.
+    mockResolveGitRemote.mockClear();
+
+    const res = await handleGetDiscoveredProjects(db);
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      projects: Array<{ path: string; gitRemoteUrl: string | null }>;
+    };
+
+    // Called once per candidate dir.
+    expect(mockResolveGitRemote).toHaveBeenCalledTimes(20);
+    // Each project's remote maps to its own path (no cross-wiring).
+    for (const p of body.projects) {
+      expect(p.gitRemoteUrl).toBe(`git@example.com:${p.path}.git`);
+    }
+    // Bounded parallelism — never exceeds the cap (GIT_REMOTE_CONCURRENCY = 8).
+    expect(maxLive).toBeGreaterThan(1);   // proves it actually parallelized
+    expect(maxLive).toBeLessThanOrEqual(8);
   });
 });

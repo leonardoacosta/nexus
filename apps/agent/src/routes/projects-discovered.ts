@@ -8,6 +8,7 @@ import * as sessionsModule from "../db/sessions";
 import * as projectRegistryModule from "../db/project-registry";
 import type { ProjectToUpsert } from "../db/project-registry";
 import { encodeCursor, parseCursor, parseLimit } from "./cursor";
+import { runPool } from "../utils/run-pool";
 
 // ── Injectable accessors (fs + db) ─────────────────────────────────────────
 //
@@ -86,6 +87,15 @@ const LEGACY_SCAN_CAP = 100;
  * the request indefinitely on git-remote spawns.
  */
 const PAGINATED_SCAN_CAP = 1_000;
+
+/**
+ * Max parallel `git remote get-url` subprocess spawns during a discovery scan.
+ * Matches the bounded-pool pattern in
+ * services/credential-usage-poller.ts (POLL_CONCURRENCY). Git calls are local
+ * (no network), so a higher cap than the poller's 4 is fine; keep it bounded
+ * so a huge projects dir can't fork 1000 subprocesses at once.
+ */
+const GIT_REMOTE_CONCURRENCY = 8;
 
 // ── Pagination constants ───────────────────────────────────────────────────
 
@@ -170,6 +180,21 @@ async function getGitRemoteUrl(projectPath: string): Promise<string | null> {
   return null;
 }
 
+/** Injectable git-remote resolver (see __setFsForTesting rationale above). */
+let resolveGitRemote: (projectPath: string) => Promise<string | null> = getGitRemoteUrl;
+
+/** Test-only: replace the git-remote resolver. */
+export function __setGitRemoteResolverForTesting(
+  fn: (projectPath: string) => Promise<string | null>,
+): void {
+  resolveGitRemote = fn;
+}
+
+/** Test-only: restore the real git-remote resolver. */
+export function __resetGitRemoteResolverForTesting(): void {
+  resolveGitRemote = getGitRemoteUrl;
+}
+
 // ── Simple cache with TTL ──────────────────────────────────────────────────
 
 interface CacheEntry<T> {
@@ -229,9 +254,19 @@ async function scanProjects(
     return { ok: false, error: message };
   }
 
-  const projects: AgentDiscoveredProject[] = [];
   // Reset the module-level dedup set at the start of each new scan cycle.
   seenCanonicalPaths = new Set<string>();
+
+  // Pass 1 — collect candidates (cheap, sequential). Cap here to preserve the
+  // exact truncated semantics: hitting `cap` collected candidates sets
+  // truncated and stops, identical to the pre-parallel behavior.
+  interface Candidate {
+    name: string;
+    canonicalPath: string;
+    activeSessions: number;
+    totalSessions: number;
+  }
+  const candidates: Candidate[] = [];
   let truncated = false;
 
   for (const entry of entries) {
@@ -285,14 +320,28 @@ async function scanProjects(
       if (isActive) activeSessions++;
     }
 
-    const gitRemoteUrl = await getGitRemoteUrl(canonicalPath);
-    projects.push({ name, path: canonicalPath, activeSessions, totalSessions, gitRemoteUrl });
+    candidates.push({ name, canonicalPath, activeSessions, totalSessions });
 
-    if (projects.length >= cap) {
+    if (candidates.length >= cap) {
       truncated = true;
       break;
     }
   }
+
+  // Pass 2 — resolve git remotes with a bounded pool (was N sequential awaits).
+  const remoteUrls = await runPool(
+    candidates,
+    GIT_REMOTE_CONCURRENCY,
+    (c) => resolveGitRemote(c.canonicalPath),
+  );
+
+  const projects: AgentDiscoveredProject[] = candidates.map((c, i) => ({
+    name: c.name,
+    path: c.canonicalPath,
+    activeSessions: c.activeSessions,
+    totalSessions: c.totalSessions,
+    gitRemoteUrl: remoteUrls[i]!,
+  }));
 
   return { ok: true, projects, truncated };
 }

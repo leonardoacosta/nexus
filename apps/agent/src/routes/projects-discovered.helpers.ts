@@ -16,6 +16,7 @@ import type { Db } from "@nexus/db";
 import {
   __setFsForTesting,
   __setDepsForTesting,
+  __setGitRemoteResolverForTesting,
 } from "./projects-discovered";
 
 // ── Mocks for the injectable fs shim and db deps ──────────────────────────────
@@ -40,6 +41,14 @@ __setDepsForTesting({
   queryRecentSessions: mockQueryRecentSessions as unknown as typeof import("../db/sessions").queryRecentSessions,
   upsertProjectLocations: mockUpsertProjectLocations as unknown as typeof import("../db/project-registry").upsertProjectLocations,
 });
+
+// Install the git-remote resolver shim. Defaults to null so real `git` is
+// never spawned in the suite (existing tests never assert a non-null remote).
+export const mockResolveGitRemote =
+  mock((_p: string): Promise<string | null> => Promise.resolve(null));
+__setGitRemoteResolverForTesting(
+  mockResolveGitRemote as unknown as (p: string) => Promise<string | null>,
+);
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,4 +93,5 @@ export function resetMocks() {
   mockRealpathSync.mockImplementation((p: string) => p);
   mockQueryRecentSessions.mockImplementation(() => Promise.resolve([]));
   mockUpsertProjectLocations.mockImplementation(() => Promise.resolve());
+  mockResolveGitRemote.mockImplementation(() => Promise.resolve(null));
 }
