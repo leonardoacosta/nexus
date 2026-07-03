@@ -178,8 +178,14 @@ interface LiveProcess {
  * Run `pgrep -af claude` and return the parsed live `claude` processes.
  * `-a` formats each line as `PID COMMAND…`. Exit code 1 from pgrep means
  * "no matches" — translated to an empty list, not an error.
+ *
+ * Tri-state return: `LiveProcess[]` = scan succeeded (possibly empty),
+ * `null` = the scan itself FAILED (timeout, exec crash, non-1 exit). The
+ * caller MUST branch on null and leave managed rows untouched — a failed
+ * scan is NOT evidence that every session died. Collapsing failure into
+ * `[]` closed every open row on a single flaky pgrep tick (see plan 001).
  */
-async function listClaudeProcesses(): Promise<LiveProcess[]> {
+async function listClaudeProcesses(): Promise<LiveProcess[] | null> {
   let stdout: string;
   try {
     stdout = await execText("pgrep", ["-af", "claude"]);
@@ -192,9 +198,9 @@ async function listClaudeProcesses(): Promise<LiveProcess[]> {
     if (exitCode === 1) return [];
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      "pgrep failed; skipping reconciliation pass",
+      "pgrep failed; skipping row reconciliation this tick (managed rows left untouched)",
     );
-    return [];
+    return null;
   }
 
   const procs: LiveProcess[] = [];
@@ -504,14 +510,23 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   const tickStartMs = performance.now();
   let tickErrorText: string | null = null;
 
-  let live: LiveProcess[] = [];
+  let live: LiveProcess[] | null = [];
   try {
     live = await listClaudeProcesses();
   } catch (err) {
     tickErrorText = err instanceof Error ? err.message : String(err);
     log.warn({ err: tickErrorText }, "listClaudeProcesses threw inside reconcileOnce");
+    live = null;
   }
-  const livePids = new Set(live.map((p) => p.pid));
+  // A failed scan (null) is NOT "nothing alive". Do NOT close managed rows
+  // on a scan failure — a single flaky pgrep tick would otherwise mark every
+  // open session ended and storm RemoteSessionEnded to every client.
+  const scanFailed = live === null;
+  if (scanFailed && tickErrorText === null) {
+    tickErrorText = "pgrep scan failed; row reconciliation skipped this tick";
+  }
+  const liveList = live ?? [];
+  const livePids = new Set(liveList.map((p) => p.pid));
   lastLivePidCount = livePids.size;
 
   // Step 1b (nx-ds6rq): tmux is the authoritative source for cwd +
@@ -611,7 +626,7 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
         }
       }
     }
-    if (!livePids.has(pid)) {
+    if (!scanFailed && !livePids.has(pid)) {
       try {
         await db
           .update(sessions)
@@ -710,7 +725,7 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   // /proc/<pid>/cwd — that path is blocked by Yama=1 under user-instance
   // systemd (nx-9jz0v).
   let created = 0;
-  for (const proc of live) {
+  for (const proc of liveList) {
     if (managedPids.has(proc.pid)) continue;
     const sessionId = `cc-${proc.pid}-${randomUUID().slice(0, 8)}`;
 
@@ -816,7 +831,7 @@ export async function reconcileOnce(db: Db): Promise<ReconcileResult> {
   }
 
   if (created > 0 || closed > 0) {
-    log.info({ created, closed, live: live.length }, "reconciliation pass complete");
+    log.info({ created, closed, live: liveList.length }, "reconciliation pass complete");
   }
 
   // process-watcher-health-monitoring: tick-level counters.
