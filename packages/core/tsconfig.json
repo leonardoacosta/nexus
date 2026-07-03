@@ -7,8 +7,5 @@
     "types": ["@types/bun"]
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../db" }
-  ]
+  "exclude": ["node_modules", "dist"]
 }

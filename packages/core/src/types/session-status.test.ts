@@ -32,23 +32,23 @@ import {
  * Cross-check with: INSERT statements in the codebase, seed data, and any
  * agent version producing these strings.
  */
-const KNOWN_DB_STATUSES: ReadonlyArray<string> = [
+const KNOWN_DB_STATUSES = [
   "active",
   "idle",
   "ended",
   "stale",
   "errored",
-];
+] as const satisfies readonly SessionStatus[];
 
 /**
  * Values that real agents insert into `sessions.session_type`.
  * `null` is handled separately (defaults to "ad_hoc").
  */
-const KNOWN_DB_TYPES: ReadonlyArray<string> = [
+const KNOWN_DB_TYPES = [
   "ad_hoc",
   "managed",
   "pooled",
-];
+] as const satisfies readonly SessionType[];
 
 // ---------------------------------------------------------------------------
 // Compile-time guards: confirm the fixtures match the declared union types.
@@ -71,7 +71,7 @@ void _t;
 // ---------------------------------------------------------------------------
 
 describe("narrowSessionStatus", () => {
-  it.each(KNOWN_DB_STATUSES)(
+  it.each(KNOWN_DB_STATUSES.map((s): [SessionStatus] => [s]))(
     'narrows known status "%s" successfully',
     (status) => {
       expect(() => narrowSessionStatus(status)).not.toThrow();
@@ -117,7 +117,7 @@ describe("narrowSessionStatus", () => {
 // ---------------------------------------------------------------------------
 
 describe("narrowSessionType", () => {
-  it.each(KNOWN_DB_TYPES)(
+  it.each(KNOWN_DB_TYPES.map((s): [SessionType] => [s]))(
     'narrows known type "%s" successfully',
     (type) => {
       expect(() => narrowSessionType(type)).not.toThrow();
