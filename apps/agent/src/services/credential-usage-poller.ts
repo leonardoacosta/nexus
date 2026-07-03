@@ -27,6 +27,7 @@ import { credentials } from "@nexus/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
+import { runPool } from "../utils/run-pool";
 import type { CredentialPool } from "../credentials/pool";
 
 const log = createLogger("agent:services:credential-usage-poller");
@@ -205,31 +206,6 @@ async function writeSnapshot(
       usagePolledAt: new Date(),
     })
     .where(eq(credentials.id, credentialId));
-}
-
-/**
- * Run N async tasks with a concurrency cap. Each task receives its input,
- * returns a promise; failures are caught at the caller level.
- */
-async function runPool<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let idx = 0;
-  async function run(): Promise<void> {
-    while (idx < items.length) {
-      const myIdx = idx++;
-      results[myIdx] = await worker(items[myIdx]!);
-    }
-  }
-  const runners = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    () => run(),
-  );
-  await Promise.all(runners);
-  return results;
 }
 
 interface PrimaryAvailableRow {
