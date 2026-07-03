@@ -129,6 +129,42 @@ export const SESSIONS_FIXTURE: SessionRow[] = [
     parentSessionId: null,
     childRole: null,
   },
+  // Child subagent row (child of stub-sess-1). Populates the six previously
+  // Swift-drifted columns with non-null values so the Swift contract test
+  // (SessionDecodingTests.testDecodesSubagentTreeAndCredentialFields) can
+  // assert they decode to real values. Every column is present because the
+  // array is typed `SessionRow[]` — a schema add/remove breaks compilation.
+  {
+    id: "stub-sess-2-child",
+    projectId: null,
+    machine: "stub-machine",
+    status: "active",
+    startedAt: new Date(FIXED_NOW),
+    lastActivity: new Date(FIXED_NOW),
+    endedAt: null,
+    stopReason: null,
+    errorDetails: null,
+    pid: 4243,
+    cwd: "/tmp/stub",
+    branch: null,
+    sessionType: "ad_hoc",
+    model: "claude",
+    rateLimitUtilization: 0.42,
+    totalCostUsd: null,
+    rateLimitResetAt: null,
+    idleSince: null,
+    ccSessionId: null,
+    tmuxSession: null,
+    tmuxTarget: null,
+    spec: "add-subagent-tree-columns",
+    credentialId: "cred-personal",
+    credentialFingerprint: "fp-aaaa",
+    gitProvider: null,
+    gitOwnerRepo: null,
+    agentState: null,
+    parentSessionId: "stub-sess-1",
+    childRole: "explore",
+  },
 ];
 
 /**

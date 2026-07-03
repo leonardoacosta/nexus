@@ -75,6 +75,19 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     /// Spec: openspec/changes/session-attach-and-cwd-cap (tasks 2.3, 2.4, 2.6)
     public var sessionType: String?
 
+    /// OpenSpec proposal slug the session is working on (`sessions.spec`).
+    public var spec: String?
+    /// Rate-limit utilization fraction 0.0–1.0 (`sessions.rate_limit_utilization`).
+    public var rateLimitUtilization: Double?
+    /// Active credential id / fingerprint for this session — subagent-tree +
+    /// credential columns the agent writes (add-subagent-tree-columns).
+    public var credentialId: String?
+    public var credentialFingerprint: String?
+    /// Sub-agent tree linkage: the parent session id and this child's role.
+    /// Both nil for a top-level session. Drives the Subagent-tree dashboard.
+    public var parentSessionId: String?
+    public var childRole: String?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case project
@@ -99,6 +112,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case totalCostUsd
         case idleSince
         case sessionType
+        case spec
+        case rateLimitUtilization
+        case credentialId
+        case credentialFingerprint
+        case parentSessionId
+        case childRole
     }
 
     public init(from decoder: Decoder) throws {
@@ -137,6 +156,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.idleSince     = (try? Self.decodeFlexibleDate(c, .idleSince)) ?? nil
         let typeRaw        = try c.decodeIfPresent(String.self, forKey: .sessionType)
         self.sessionType   = (typeRaw?.isEmpty ?? true) ? nil : typeRaw
+        self.spec                  = try c.decodeIfPresent(String.self, forKey: .spec)
+        self.rateLimitUtilization  = try c.decodeIfPresent(Double.self, forKey: .rateLimitUtilization)
+        self.credentialId          = try c.decodeIfPresent(String.self, forKey: .credentialId)
+        self.credentialFingerprint = try c.decodeIfPresent(String.self, forKey: .credentialFingerprint)
+        self.parentSessionId       = try c.decodeIfPresent(String.self, forKey: .parentSessionId)
+        self.childRole             = try c.decodeIfPresent(String.self, forKey: .childRole)
     }
 
     public init(
@@ -161,7 +186,13 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         gitOwnerRepo: String? = nil,
         totalCostUsd: Double? = nil,
         idleSince: Date? = nil,
-        sessionType: String? = nil
+        sessionType: String? = nil,
+        spec: String? = nil,
+        rateLimitUtilization: Double? = nil,
+        credentialId: String? = nil,
+        credentialFingerprint: String? = nil,
+        parentSessionId: String? = nil,
+        childRole: String? = nil
     ) {
         self.id = id
         self.project = project
@@ -185,6 +216,12 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.totalCostUsd = totalCostUsd
         self.idleSince = idleSince
         self.sessionType = sessionType
+        self.spec = spec
+        self.rateLimitUtilization = rateLimitUtilization
+        self.credentialId = credentialId
+        self.credentialFingerprint = credentialFingerprint
+        self.parentSessionId = parentSessionId
+        self.childRole = childRole
     }
 
     /// Distinguish a real Claude Code session from telemetry-ping stubs.
