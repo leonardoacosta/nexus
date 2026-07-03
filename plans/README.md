@@ -14,21 +14,21 @@ written. No source code was modified in producing these plans.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Guard the process-watcher against a transient pgrep failure ending every live session | P1 | S | — | DONE (reviewed, worktree 20260703-1534-eeaa8ae5, branch advisor/001-fix-pgrep-flake; 25/0 on PG. Follow-up: 1-line assertion update in health-process-watcher.test.ts to match improved Stalled contract) |
-| 002 | Serialize `reconcileOnce` so `/sessions/probe` can't race the reconcile tick | P1 | S | 001 | TODO |
+| 001 | Guard the process-watcher against a transient pgrep failure ending every live session | P1 | S | — | GO (branch advisor/001-fix-pgrep-flake; 25/0 PG; companion health-process-watcher.test.ts assertion fixed same branch, commit fe85db61, 5/0) |
+| 002 | Serialize `reconcileOnce` so `/sessions/probe` can't race the reconcile tick | P1 | S | 001 | DONE (reviewed, worktree stack-002-serialize, branch advisor/002-serialize-reconcile STACKED on 001; 26/0 on PG. Merge 001 then 002) |
 | 003 | Stop logging verbatim terminal keystrokes/pastes at INFO on the takeover path | P1 | S | — | DONE (reviewed, worktree 20260703-1535-3ebbc8ce, branch advisor/003-redact-keystroke-logging) |
 | 004 | Guard the decrypted-credential lease route, de-trust audit attribution, fix stale WS-auth comment | P1 | M | — | DONE (reviewed, worktree 20260703-1536-6f810120, branch advisor/004-harden-credential-routes; crud 6/0, creds 28/0) |
 | 005 | Bump drizzle-orm to >=0.45.2 to clear the SQL-injection advisory | P1 | S | — | DONE (reviewed, worktree 20260703-1535-7838e896, branch advisor/005-bump-drizzle-orm) |
-| 006 | Annotate the 7 safe SQL sites so `lint-sql-safety.sh` passes and can gate CI | P2 | S | — | TODO |
-| 007 | Characterization tests for the credential AES-256-GCM encryption module | P1 | S | — | TODO |
-| 008 | Stop the credential watcher re-inserting a duplicate row per token refresh / restart | P2 | M | 007 | TODO |
-| 009 | Abort the credential watchers on shutdown (discarded AbortControllers) | P2 | S | — | TODO |
-| 010 | Self-clean SSE lifecycle-bus subscription on enqueue failure, not only in `cancel()` | P2 | S | — | TODO |
-| 011 | Parallelize (bounded) the per-project `git remote get-url` calls in discovery | P2 | S | — | TODO |
-| 012 | Correct the stale README (retired TUI, SQLite→Postgres, nonexistent plist, missing apps/web) | P2 | S | — | TODO |
-| 013 | Add a neutral CI workflow so quality gates don't depend on each contributor's machine | P2 | M | 006 | TODO |
-| 014 | Fixture-based contract test that fails when agent Session JSON drifts from the Swift model | P3 | L | — | TODO |
-| 015 | Unit tests for token-stream cost/attribution (the money path) | P2 | M | — | TODO |
+| 006 | Annotate the 7 safe SQL sites so `lint-sql-safety.sh` passes and can gate CI | P2 | S | — | DONE (reviewed, worktree 20260703-1550-d5c8ed93, branch apply/20260703-1550-d5c8ed93; lint-sql-safety exit 0, 7 annotations. NOTE: touches process-watcher.ts:878 — distant from 001/002 regions, merge-clean) |
+| 007 | Characterization tests for the credential AES-256-GCM encryption module | P1 | S | — | DONE (reviewed, worktree 20260703-1550-0a395bdb, branch advisor/007-encryption-tests; 14/0, encryption.ts untouched) |
+| 008 | Stop the credential watcher re-inserting a duplicate row per token refresh / restart | P2 | M | 007 | DONE after 1 revise (reviewed, branch advisor/008-fix-credential-dup-insert, 2 commits cc540485+f2bb1769; dedup PG 3/0, active-cred 6/0, typecheck-clean. Plan mis-scoped active-credential-watcher.ts — scope-expanded to widen its local WatcherPool type + test double) |
+| 009 | Abort the credential watchers on shutdown (discarded AbortControllers) | P2 | S | — | DONE (reviewed, worktree 20260703-1550-bb66e1d6, branch apply/20260703-1550-bb66e1d6; teardown test 1/0) |
+| 010 | Self-clean SSE lifecycle-bus subscription on enqueue failure, not only in `cancel()` | P2 | S | — | GO after 1 revise (branch advisor/010-fix-sse-leak). First test was a tautology (passed on unfixed code) — reviewer caught it, HOLD. Revised: extracted subscribeStreamToBus seam so the test drives the real enqueue-failure path. Bite VERIFIED (fixed=2/0, unfixed=1 FAIL); sse suite 16/16 |
+| 011 | Parallelize (bounded) the per-project `git remote get-url` calls in discovery | P2 | S | — | DONE (reviewed, worktree 20260703-1550-370584de, branch advisor/011-parallelize-git-discovery; discovery 20/0, runPool extracted to shared util) |
+| 012 | Correct the stale README (retired TUI, SQLite→Postgres, nonexistent plist, missing apps/web) | P2 | S | — | DONE (reviewed, worktree 20260703-1551-73d382c0, branch apply/20260703-1551-73d382c0; stale facts gone) |
+| 013 | Add a neutral CI workflow so quality gates don't depend on each contributor's machine | P2 | M | 006, 016 | GO-AFTER-BASELINE after 1 revise (branch advisor/013-add-ci-workflow; commit 31abbd07 added missing `db:migrate` step reviewer flagged). Valid YAML, all gate scripts exist, real blocking gates. Merge AFTER 006 + 016 (baseline) so CI lands green |
+| 014 | Fixture-based contract test that fails when agent Session JSON drifts from the Swift model | P3 | L | — | DONE (Mac-VERIFIED: branch apply/20260703-1551-0e0dada8; ran on Mac via isolated git-worktree + 3-way patch + xcodebuild nexus-mac scheme, CODE_SIGNING_ALLOWED=NO — NexusSharedTests/SessionDecodingTests 8/8 pass incl. testDecodesSubagentTreeAndCredentialFields; guard-bite confirmed (removing case childRole → TEST FAILED). TS side 9/0) |
+| 015 | Unit tests for token-stream cost/attribution (the money path) | P2 | M | — | DONE (reviewed, worktree 20260703-1551-ccc8aac3, branch advisor/015-token-stream-cost-tests; 23/0, source untouched) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale).
 
@@ -42,6 +42,46 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED 
 > attribution). Fixing the broken baseline is itself un-planned debt — a prerequisite for
 > plan 013 (CI), which would otherwise land red on day one. Consider a plan 016 to green the
 > baseline before 013 gates on it.
+
+## Merge Readiness (executed + independently reviewed, 2026-07-03)
+
+All 15 plans were executed by cheaper subagents in isolated git worktrees, reviewed by the
+advisor (re-run done-criteria + read diff + runtime evidence), then **independently re-reviewed
+by a second reviewer agent per branch** rendering a GO/HOLD verdict. Plus a baseline-fix engineer
+(informal "plan 016") greened the pre-existing red `pnpm typecheck` / `pnpm lint`.
+
+**Verdict: every branch is GO.** `git merge-tree` confirms all branches merge onto `main`
+(`7bc7a17b`) with **zero conflicts** individually.
+
+| Plan | Branch | Verdict | Evidence |
+|------|--------|---------|----------|
+| 001 | advisor/001-fix-pgrep-flake | GO | 25/0 PG; companion health test fixed (fe85db61) |
+| 002 | advisor/002-serialize-reconcile | GO | STACKED on 001; 26/0 PG; wrapper correct |
+| 003 | advisor/003-redact-keystroke-logging | GO | 14/0; log fields stripped; real test |
+| 004 | advisor/004-harden-credential-routes | GO (security-reviewed) | gate 426 RED-verified; crud 6/0 + creds 28/0 |
+| 005 | advisor/005-bump-drizzle-orm | GO | db:generate clean; snapshot 2/0; advisory cleared |
+| 006 | apply/20260703-1550-d5c8ed93 | GO | lint-sql-safety exit 0; 7 SAFE annotations |
+| 007 | advisor/007-encryption-tests | GO | 14/0; tamper+wrong-key+parity assertions |
+| 008 | advisor/008-fix-credential-dup-insert | GO (+1 revise) | dedup 3/0 PG; active-cred 6/0; plan mis-scope fixed |
+| 009 | apply/20260703-1550-bb66e1d6 | GO | teardown 1/0; both AbortControllers aborted |
+| 010 | advisor/010-fix-sse-leak | GO (+1 revise) | tautology test caught + fixed; bite verified |
+| 011 | advisor/011-parallelize-git-discovery | GO | discovery 20/0; runPool extracted; bounded conc. |
+| 012 | apply/20260703-1551-73d382c0 | GO | stale facts gone; replacements verified |
+| 013 | advisor/013-add-ci-workflow | GO-AFTER-BASELINE (+1 revise) | valid YAML; db:migrate step added (31abbd07) |
+| 014 | apply/20260703-1551-0e0dada8 | GO (Mac-verified) | xcodebuild SessionDecodingTests 8/8; guard bites |
+| 016 | (baseline-fix branch, apply/…) | DONE | `pnpm typecheck` exit 0, `pnpm lint` exit 0 |
+
+### Merge order (nothing is merged — advisor never merges to your branch)
+
+1. **016 baseline-fix** first (greens typecheck/lint repo-wide) — its worktree is nested under 008's; branch is an `apply/…` id (see task output). Touches `process-watcher.test.ts` (minimal require→import) — trivial keep-both if it textually collides with 001/002.
+2. **006** (greens lint:sql-safety) — prerequisite for 013's CI gate.
+3. **001 → 002** (002 is stacked on 001; merging 002 brings 001).
+4. Everything else independent, any order: **003, 004, 005, 007, 008, 009, 010, 011, 012, 014, 015**.
+5. **013 last** (CI) — only after 016 + 006 land, or its first runs go red as designed.
+
+### Leftover follow-ups (not blocking)
+- `docker-compose.test.yml` header comments still cite the banned `db:push` for the manual local-schema step (doc-rot; 013 only fixed ci.yml).
+- Deep worktree nesting (013 under 009, 008/016 under 012) is cosmetic — `wt reap` / `git worktree prune` after merges.
 
 ## Recommended sequencing
 
