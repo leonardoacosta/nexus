@@ -50,7 +50,7 @@ type WatcherPool = {
     name: string;
     type: string;
     value_plaintext: string;
-  }) => Promise<void>;
+  }) => Promise<"inserted" | "updated">;
 };
 
 const log = createLogger("agent:active-credential-watcher");
