@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
+import { logger } from "@nexus/core/node";
 import { TmuxPtySource, type SpawnFns } from "./tmux-pty-source";
 
 /**
@@ -155,6 +156,22 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     // bytes as key names and auto-submits on names like "Enter".
     expect(sendKeys[0]).toEqual(["tmux", "send-keys", "-t", TARGET, "-l", "hi"]);
 
+    source.close();
+  });
+
+  it("[1.3] write() does not log the literal keystroke text", () => {
+    const rec = makeRecorder();
+    const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
+    const infoSpy = spyOn(logger, "info");
+    source.write(new TextEncoder().encode("some-typed-text"));
+    const spawnedCall = infoSpy.mock.calls.find((c) => c[1] === "NXPTY tmux send-keys spawned");
+    expect(spawnedCall).toBeDefined();
+    const fields = spawnedCall![0] as Record<string, unknown>;
+    expect(fields).toHaveProperty("target");
+    expect(fields).toHaveProperty("bytes");
+    expect(fields).not.toHaveProperty("literal");
+    expect(JSON.stringify(fields)).not.toContain("some-typed-text");
+    infoSpy.mockRestore();
     source.close();
   });
 
