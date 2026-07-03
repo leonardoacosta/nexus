@@ -117,3 +117,5 @@ async function emit(input: CliInput): Promise<void> {
 }
 
 await emit(parseArgs(process.argv));
+
+export {};
