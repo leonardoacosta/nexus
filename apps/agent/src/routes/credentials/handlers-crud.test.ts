@@ -12,6 +12,7 @@
 
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { handleListCredentials } from "./handlers-crud";
+import { handleLeaseCredential } from "./handlers-lease";
 import { poolRef } from "./shared";
 
 interface CredentialRowFixture {
@@ -205,5 +206,46 @@ describe("handleListCredentials", () => {
     const dedPrimary = dedBody.credentials.find((r) => r.id === "p")!;
     expect(dedPrimary.usage5hUsed).toBe(41);
     expect(dedPrimary.siblingCount).toBe(0);
+  });
+});
+
+// ── Lease route TLS gate (plan 004 sub-fix A) ────────────────────────────────
+//
+// POST /credentials/lease returns a DECRYPTED credential, so it must be gated
+// at least as strictly as the add route: non-loopback http:// -> 426. A pool
+// must be installed so the TLS check (which runs after the pool-null guard)
+// is actually reached rather than short-circuiting on a 500.
+describe("handleLeaseCredential — TLS gate", () => {
+  beforeEach(() => {
+    // Pool returning null on lease() — proves the gate fires before lease()
+    // for the 426 case, and yields a non-426 (409) for the loopback case.
+    poolRef.current = {
+      lease: async () => null,
+      stopCleanup: () => {},
+    } as unknown as typeof poolRef.current;
+  });
+
+  afterEach(() => {
+    poolRef.current = null;
+  });
+
+  it("rejects non-loopback http:// with 426", async () => {
+    const req = new Request("http://10.0.0.5:7400/credentials/lease", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "anthropic", leased_by: "attacker" }),
+    });
+    const res = await handleLeaseCredential(req);
+    expect(res.status).toBe(426);
+  });
+
+  it("allows loopback http:// (not 426'd)", async () => {
+    const req = new Request("http://127.0.0.1:7400/credentials/lease", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "anthropic", leased_by: "caller" }),
+    });
+    const res = await handleLeaseCredential(req);
+    expect(res.status).not.toBe(426);
   });
 });

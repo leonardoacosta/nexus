@@ -6,6 +6,7 @@
  */
 
 import {
+  checkTlsEnforcement,
   emitAudit,
   extractCallerIp,
   jsonResponse,
@@ -18,6 +19,12 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
   if (!pool) {
     return jsonResponse({ error: "credential system not initialized" }, 500);
   }
+
+  // TLS enforcement: the lease response returns a DECRYPTED credential
+  // (Claude OAuth token / API key). Gate it at least as strictly as the
+  // add route — reject non-loopback HTTP with 426. Loopback + TLS pass.
+  const tlsErr = checkTlsEnforcement(request);
+  if (tlsErr) return tlsErr;
 
   let body: unknown;
   try {
@@ -45,8 +52,8 @@ export async function handleLeaseCredential(request: Request): Promise<Response>
   emitAudit({
     event: "credential.leased",
     credential_id: credential.id,
-    actor: leased_by as string,
-    ip,
+    claimed_actor: leased_by as string,
+    claimed_ip: ip,
     timestamp_iso: new Date().toISOString(),
     detail: { type: credential.type },
   });
