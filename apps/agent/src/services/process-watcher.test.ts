@@ -48,6 +48,37 @@ function setPgrepOutput(lines: string[]): void {
   pgrepResponse = { lines };
 }
 
+// plan 001: make `pgrep -af claude` FAIL (not just return empty) so a scan
+// failure can be distinguished from an empty match set. "timeout" throws an
+// ExecTimeoutError (no exitCode); an object throws an ExecError with the given
+// non-1 exit code.
+let pgrepShouldFail: null | "timeout" | { exitCode: number } = null;
+function setPgrepFailure(mode: null | "timeout" | { exitCode: number }): void {
+  pgrepShouldFail = mode;
+}
+
+// Hoisted above the execText mock so the factory closure can reference them
+// (a class expression on the returned object isn't in scope inside execText).
+class MockExecError extends Error {
+  constructor(
+    public readonly cmd: string,
+    public readonly args: string[],
+    public readonly exitCode: number,
+    public readonly stderr: string,
+  ) {
+    super(`exec failed: ${cmd}`);
+  }
+}
+class MockExecTimeoutError extends Error {
+  constructor(
+    public readonly cmd: string,
+    public readonly args: string[],
+    public readonly timeoutMs: number,
+  ) {
+    super(`exec timed out: ${cmd}`);
+  }
+}
+
 // nx-ds6rq: mock tmux list-panes output. Each fixture is the raw stdout the
 // watcher would see from
 // `tmux list-panes -a -F '#{pane_pid}|#{pane_current_path}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}'`.
@@ -69,6 +100,14 @@ mock.module("../utils/exec", () => ({
   execText: mock(async (cmd: string, args: string[]) => {
     // pgrep -af claude — the master live-claude scan.
     if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
+      // plan 001: simulate a scan FAILURE (timeout or non-1 exit) so tests
+      // can assert managed rows are left untouched, not mass-closed.
+      if (pgrepShouldFail === "timeout") {
+        throw new MockExecTimeoutError(cmd, args, 10_000);
+      }
+      if (pgrepShouldFail && typeof pgrepShouldFail === "object") {
+        throw new MockExecError(cmd, args, pgrepShouldFail.exitCode, "boom");
+      }
       return pgrepResponse.lines.join("\n");
     }
     // pgrep -P <pid> — descendant walk for tmuxScan.
@@ -86,17 +125,8 @@ mock.module("../utils/exec", () => ({
   }),
   // execText callers in the watcher catch this to translate "no matches"
   // into an empty list — keep the shape stable.
-  ExecError: class extends Error {
-    constructor(
-      public readonly cmd: string,
-      public readonly args: string[],
-      public readonly exitCode: number,
-      public readonly stderr: string,
-    ) {
-      super(`exec failed: ${cmd}`);
-    }
-  },
-  ExecTimeoutError: class extends Error {},
+  ExecError: MockExecError,
+  ExecTimeoutError: MockExecTimeoutError,
   execJson: mock(() => Promise.resolve(null)),
 }));
 
@@ -150,6 +180,7 @@ mock.module("node:fs", () => {
 
 // Now safe to import the module under test + DB plumbing.
 import { reconcileOnce, __testing } from "./process-watcher";
+import { lifecycleBus } from "./lifecycle-bus";
 import { createDb, sessions, eq } from "@nexus/db";
 import type { Db } from "@nexus/db";
 
@@ -174,6 +205,8 @@ const DDL = `
     "started_at" timestamp NOT NULL,
     "last_activity" timestamp NOT NULL,
     "ended_at" timestamp,
+    "stop_reason" text,
+    "error_details" text,
     "pid" integer,
     "cwd" text,
     "branch" text,
@@ -311,6 +344,7 @@ describe.skipIf(!hasPg)(
     beforeEach(async () => {
       await scopedClient.unsafe(`DELETE FROM "${SCHEMA}"."sessions"`);
       setPgrepOutput([]);
+      setPgrepFailure(null);
       setTmuxPanesOutput([]);
       setChildMap({});
       setResolverResult(null);
@@ -350,6 +384,49 @@ describe.skipIf(!hasPg)(
       expect(rows).toHaveLength(1);
       expect(rows[0]!.status).toBe("ended");
       expect(rows[0]!.endedAt).not.toBeNull();
+    });
+
+    // ── plan 001: a scan FAILURE must NOT be treated as "nothing alive" ────
+    // A flaky pgrep tick (timeout, non-1 exit) previously collapsed to `[]`
+    // and mass-closed every open managed row. These pin the guard: on scan
+    // failure the close-loop is skipped entirely — rows stay OPEN and no
+    // RemoteSessionEnded fires.
+
+    test("pgrep timeout → managed rows left OPEN, no RemoteSessionEnded emitted", async () => {
+      await insertRow(db, { id: "row-a", pid: 100, status: "active" });
+      await insertRow(db, { id: "row-b", pid: 200, status: "active" });
+      const ended: unknown[] = [];
+      const handler = (e: unknown): void => {
+        ended.push(e);
+      };
+      lifecycleBus.on("RemoteSessionEnded", handler);
+      try {
+        setPgrepFailure("timeout");
+        const result = await reconcileOnce(db);
+        expect(result).toEqual({ created: 0, closed: 0 });
+      } finally {
+        lifecycleBus.off("RemoteSessionEnded", handler);
+      }
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.status).toBe("active");
+        expect(row.endedAt).toBeNull();
+      }
+      expect(ended).toEqual([]);
+    });
+
+    test("pgrep non-1 error exit → rows also left untouched", async () => {
+      await insertRow(db, { id: "row-c", pid: 300, status: "active" });
+      setPgrepFailure({ exitCode: 2 });
+      const result = await reconcileOnce(db);
+      expect(result).toEqual({ created: 0, closed: 0 });
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, "row-c"));
+      expect(rows[0]!.status).toBe("active");
+      expect(rows[0]!.endedAt).toBeNull();
     });
 
     test("Mixed: alive row untouched, dead row closed, new pid created", async () => {
