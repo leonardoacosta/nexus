@@ -875,7 +875,7 @@ async function persistTickRow(
         // table (tiny, append-only) the extra round-trip is irrelevant.
         await db.execute(
           sql`DELETE FROM ${processWatcherState} WHERE id NOT IN (
-            SELECT id FROM ${processWatcherState}
+            SELECT id FROM ${processWatcherState} /*// SAFE: processWatcherState is a Drizzle table object, not request data */
             ORDER BY observed_at DESC
             LIMIT ${TICK_HISTORY_KEEP_ROWS}
           )`,

@@ -111,16 +111,16 @@ export async function selfHealingMigrate(
   });
 
   const schema = client(migrationsSchema);
-  await client`CREATE SCHEMA IF NOT EXISTS ${schema}`;
+  await client`CREATE SCHEMA IF NOT EXISTS ${schema}`; // SAFE: schema is a postgres.js identifier fragment (migration bookkeeping schema, default "drizzle"), never request data
   await client`
-    CREATE TABLE IF NOT EXISTS ${schema}.__drizzle_migrations (
+    CREATE TABLE IF NOT EXISTS ${schema}.__drizzle_migrations ( /*// SAFE: schema is a postgres.js identifier fragment (migration bookkeeping schema), not request data */
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
       created_at bigint
     )`;
 
   const lastRows = await client<{ created_at: string | null }[]>`
-    SELECT created_at FROM ${schema}.__drizzle_migrations
+    SELECT created_at FROM ${schema}.__drizzle_migrations /*// SAFE: schema is a postgres.js identifier fragment (migration bookkeeping schema), not request data */
     ORDER BY created_at DESC LIMIT 1`;
   const lastCreatedAt =
     lastRows[0]?.created_at != null ? Number(lastRows[0].created_at) : null;
@@ -193,7 +193,7 @@ async function applyOneMigration(
       }
     }
 
-    await tx`INSERT INTO ${schema}.__drizzle_migrations (hash, created_at)
+    await tx`INSERT INTO ${schema}.__drizzle_migrations (hash, created_at) /*// SAFE: schema is a postgres.js identifier fragment; hash and folderMillis on the next line are bound parameters, not request data */
              VALUES (${migration.hash}, ${migration.folderMillis})`;
 
     return ranStatements === 0 && healedStatements > 0 ? "healed" : "applied";
