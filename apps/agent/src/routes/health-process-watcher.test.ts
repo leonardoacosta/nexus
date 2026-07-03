@@ -316,15 +316,18 @@ describe.skipIf(!hasPg)(
 
         expect(captured.length).toBeGreaterThanOrEqual(1);
         const evt = captured[0]!;
-        expect(evt.errorText).toContain("synthetic stalled-tick failure");
+        // 001 reworded the surfaced stall reason: listClaudeProcesses now
+        // swallows the raw pgrep error and returns null, so reconcileOnce
+        // reports the scan-failure message rather than the thrown text.
+        expect(evt.errorText).toContain("pgrep scan failed");
         expect(typeof evt.tickAgeSeconds).toBe("number");
         expect(typeof evt.livePidCount).toBe("number");
 
         // Cross-check via the route: lastReconcileError MUST surface the
-        // same error text we threw from the pgrep stub.
+        // same scan-failure reason the failing tick recorded.
         const res = await handleHealthProcessWatcher(db);
         const body = (await res.json()) as { lastReconcileError: string | null };
-        expect(body.lastReconcileError).toContain("synthetic stalled-tick failure");
+        expect(body.lastReconcileError).toContain("pgrep scan failed");
       } finally {
         lifecycleBus.off("ProcessWatcherStalled", handler);
         // Reset module-level error so subsequent tests don't see it.
