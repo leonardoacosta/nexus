@@ -562,6 +562,16 @@ describe.skipIf(!hasPg)(
       expect(rows[0]!.pid).toBe(4242);
     });
 
+    test("Concurrent probe + tick coalesce — one new PID yields exactly one row", async () => {
+      setPgrepOutput([pgrepLine(4242, "claude")]);
+      const [a, b] = await Promise.all([reconcileOnce(db), reconcileOnce(db)]);
+      expect(a).toEqual({ created: 1, closed: 0 });
+      expect(b).toEqual(a);
+      const rows = await db.select().from(sessions);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.pid).toBe(4242);
+    });
+
     // ── nx-9jz0v: cwd is hook-authoritative; watcher does NOT introspect
     // /proc/<pid>/cwd because user-instance systemd cannot grant
     // CAP_SYS_PTRACE under Yama=1. These tests pin that behaviour:
