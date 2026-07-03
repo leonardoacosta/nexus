@@ -28,6 +28,8 @@
  *   3  socket connection failed (agent not running, perms wrong, stale path)
  */
 
+import { readFileSync } from "node:fs";
+
 const DEFAULT_SOCKET = "/tmp/nexus-agent.sock";
 
 interface CliInput {
@@ -76,7 +78,7 @@ function readStdin(): string {
   // Node-shaped sync read fallback for the simple case.
   let data = "";
   try {
-    data = require("node:fs").readFileSync(0, "utf8");
+    data = readFileSync(0, "utf8");
   } catch (err) {
     fail(2, `stdin read failed: ${(err as Error).message}`);
   }
