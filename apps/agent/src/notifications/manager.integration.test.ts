@@ -28,6 +28,10 @@ import * as coreBarrel from "@nexus/core";
 import { installNexusDbMock } from "../testing/mock-nexus-db";
 import { installCoreNodeMock } from "../testing/mock-core-node";
 import { installBufferMock, type BufferMockHandle } from "./testing-mocks";
+import type {
+  LifecycleEnvelope,
+  NotificationFiredPayload,
+} from "../services/lifecycle-bus";
 
 // ─── Shared mocks (nx-509z5) ──────────────────────────────────────────────
 // @nexus/db + @nexus/core/node spread the REAL barrel (complete + safe under
@@ -81,7 +85,7 @@ const { lifecycleBus } = await import("../services/lifecycle-bus");
 const { NotificationManager } = await import("./manager");
 const { setRoutingRules } = await import("./router");
 
-const stubDb = {} as unknown as Parameters<typeof NotificationManager>[0];
+const stubDb = {} as unknown as ConstructorParameters<typeof NotificationManager>[0];
 
 describe("integration — POST → manager → lifecycleBus carries audioBase64", () => {
   let originalKey: string | undefined;
@@ -123,16 +127,16 @@ describe("integration — POST → manager → lifecycleBus carries audioBase64"
     const manager = new NotificationManager(stubDb);
 
     const arrival = new Promise<{
-      payload: Record<string, unknown>;
+      payload: NotificationFiredPayload;
     }>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("timed out waiting for NotificationFired")),
         5_000,
       );
-      const handler = (envelope: {
-        payload: Record<string, unknown>;
-      }): void => {
-        if ((envelope.payload as { id: string }).id !== "integ-1") return;
+      const handler = (
+        envelope: LifecycleEnvelope<"NotificationFired">,
+      ): void => {
+        if (envelope.payload.id !== "integ-1") return;
         clearTimeout(timer);
         lifecycleBus.off("NotificationFired", handler);
         resolve({ payload: envelope.payload });

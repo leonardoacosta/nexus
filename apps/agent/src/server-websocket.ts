@@ -434,7 +434,7 @@ export function createWsHandlers(state: ServerState) {
         pty.write(data);
       } else {
         logger.info(
-          { sessionId, bytes: msg instanceof Uint8Array ? msg.length : msg.byteLength, hasPty: false },
+          { sessionId, bytes: msg.length, hasPty: false },
           "NXPTY interact binary DROPPED — no PTY attached",
         );
       }
