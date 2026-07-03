@@ -177,7 +177,7 @@ describe("renderStatusline — project resolution", () => {
     expect(startIdx).toBeGreaterThan(0);
     // Find the matching closing brace by tracking depth
     let depth = 0;
-    let bodyStart = src.indexOf("{", startIdx);
+    const bodyStart = src.indexOf("{", startIdx);
     let bodyEnd = bodyStart;
     for (let i = bodyStart; i < src.length; i++) {
       if (src[i] === "{") depth++;
