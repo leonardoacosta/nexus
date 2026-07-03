@@ -63,8 +63,8 @@ export async function handlePromoteCredential(
     emitAudit({
       event: "credential.promoted",
       credential_id: result.newPrimary,
-      actor,
-      ip,
+      claimed_actor: actor,
+      claimed_ip: ip,
       timestamp_iso: new Date().toISOString(),
       detail: { previous_primary: result.previousPrimary },
     });
@@ -113,8 +113,8 @@ export async function handleReportRateLimit(
   emitAudit({
     event: "credential.cooldown",
     credential_id: result.cooledDown.id,
-    actor: leased_by as string,
-    ip,
+    claimed_actor: leased_by as string,
+    claimed_ip: ip,
     timestamp_iso: now,
   });
 
@@ -122,8 +122,8 @@ export async function handleReportRateLimit(
     emitAudit({
       event: "credential.auto_swap",
       credential_id: result.next.id,
-      actor: leased_by as string,
-      ip,
+      claimed_actor: leased_by as string,
+      claimed_ip: ip,
       timestamp_iso: now,
       detail: { cooled_id: result.cooledDown.id },
     });

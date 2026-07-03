@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
   resetCredentialRoutes,
+  initCredentialRoutes,
   handleLeaseCredential,
   handleReportRateLimit,
   handleCredentialHealth,
@@ -27,6 +28,7 @@ import {
   readCredentials,
   type CredentialReadResult,
 } from "../services/credential-pool/reader";
+import * as credentialShared from "./credentials/shared";
 
 // ── Request helpers ───────────────────────────────────────────────────────────
 
@@ -282,6 +284,46 @@ function makeCredentialRow(overrides: {
     updatedAt: now,
   };
 }
+
+// ── Audit provenance keys (plan 004 sub-fix B) ───────────────────────────────
+//
+// The lease audit actor/IP come from client-spoofable inputs (`leased_by` body
+// field, `x-forwarded-for` header). They MUST be recorded under `claimed_*`
+// keys so the audit schema never presents caller-asserted values as verified
+// identity.
+describe("credential lease audit provenance (plan 004)", () => {
+  beforeEach(() => {
+    resetCredentialRoutes();
+    const fakeDb = {} as unknown as import("@nexus/db").Db;
+    initCredentialRoutes(fakeDb, { encryptionKey: Buffer.alloc(32, 1) });
+  });
+
+  it("records forged leased_by under claimed_actor and forged IP under claimed_ip", async () => {
+    const pool = getCredentialPool()!;
+    spyOn(pool, "lease").mockResolvedValue(
+      makeCredentialRow({ id: "cred-x", name: "leased" }),
+    );
+    const auditSpy = spyOn(credentialShared, "emitAudit");
+
+    // Loopback URL so the TLS gate passes; forged actor + IP inputs.
+    const req = makePostRequest(
+      "http://127.0.0.1:7400/credentials/lease",
+      { type: "anthropic", leased_by: "attacker-spoofed" },
+      { "x-forwarded-for": "203.0.113.9" },
+    );
+    const res = await handleLeaseCredential(req);
+    expect(res.status).toBe(200);
+
+    expect(auditSpy).toHaveBeenCalledTimes(1);
+    const entry = auditSpy.mock.calls[0]![0] as Record<string, unknown>;
+    // Spoofable values are recorded, but only under the claimed_* keys.
+    expect(entry.claimed_actor).toBe("attacker-spoofed");
+    expect(entry.claimed_ip).toBe("203.0.113.9");
+    // The old trusted-looking keys must be gone.
+    expect(entry).not.toHaveProperty("actor");
+    expect(entry).not.toHaveProperty("ip");
+  });
+});
 
 describe("POST /credentials/swap", () => {
   beforeEach(() => {

@@ -251,8 +251,8 @@ export async function handleDeleteCredential(
   emitAudit({
     event: "credential.deleted",
     credential_id: id,
-    actor,
-    ip,
+    claimed_actor: actor,
+    claimed_ip: ip,
     timestamp_iso: new Date().toISOString(),
     detail: promoteId ? { promoted_to: promoteId } : undefined,
   });
