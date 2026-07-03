@@ -50,6 +50,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # `--wait` blocks until the compose pg_isready healthcheck reports healthy.
       - run: docker compose -f docker-compose.test.yml up -d --wait
+      # Apply the schema to the fresh compose Postgres BEFORE any PG-backed test
+      # runs — the container boots an empty `nexus_test` DB, so migrating first
+      # is what keeps those suites from hitting missing tables. Uses the
+      # job-level POSTGRES_URL (same value the test step reads). Migration-based
+      # ONLY (`db:migrate` = `bun ./src/migrate.ts`); NEVER `db:push`.
+      - name: Apply DB schema
+        run: pnpm --filter @nexus/db db:migrate
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:sql-safety
