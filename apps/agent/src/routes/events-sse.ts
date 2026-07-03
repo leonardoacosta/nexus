@@ -85,6 +85,54 @@ export async function handleGetEvents(
 // ---------------------------------------------------------------------------
 
 /**
+ * Wire a lifecycle-bus wildcard subscriber that pushes every envelope into
+ * `controller` as an SSE frame, with self-cleaning teardown.
+ *
+ * This is the leak-fix seam: the `busHandler` catch calls `cleanup()` the first
+ * time an `enqueue` throws. That covers the abnormal-close case where the
+ * stream errored/closed but the ReadableStream `cancel()` callback never fired
+ * (a client drop that Bun does not surface as a cancel) — without this the dead
+ * subscriber would stay registered on the global bus forever and every later
+ * emit would re-throw. `cleanup()` is idempotent (the `closed` guard) so it is
+ * safe to call from the enqueue-failure path AND a later `cancel()`.
+ *
+ * `onClose` runs once, inside `cleanup`, for caller-owned teardown (clearing the
+ * keepalive interval). Extracted from `handleEventsStream` so the exact
+ * production wiring is unit-testable against a real ReadableStream controller.
+ *
+ * Hook events flow through here too — handleHooks emits HookEventReceived after
+ * persistence (add-hooks-sse-fanout). Process-watcher reconciliation emits
+ * `RemoteSessionStarted` / `RemoteSessionEnded` carrying the discriminator
+ * fields menu bar / dashboard clients need to update without a follow-up GET
+ * (fix-agent-cc-session-tracking task 2.7).
+ */
+export function subscribeStreamToBus(
+  controller: Pick<ReadableStreamDefaultController<Uint8Array>, "enqueue">,
+  onClose?: () => void,
+): { cleanup: () => void; busHandler: (envelope: LifecycleEnvelope) => void } {
+  const encoder = new TextEncoder();
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    lifecycleBus.offAny(busHandler);
+    onClose?.();
+  };
+  const busHandler = (envelope: LifecycleEnvelope) => {
+    try {
+      const data = JSON.stringify(envelope);
+      controller.enqueue(encoder.encode(`event: ${envelope.event}\ndata: ${data}\n\n`));
+    } catch {
+      // Stream closed abnormally without cancel() — self-clean so we do not
+      // leak a dead subscriber on the global bus.
+      cleanup();
+    }
+  };
+  lifecycleBus.onAny(busHandler);
+  return { cleanup, busHandler };
+}
+
+/**
  * SSE endpoint for real-time event streaming.
  *
  * Uses ReadableStream to push events as SSE frames.
@@ -92,7 +140,7 @@ export async function handleGetEvents(
  */
 export function handleEventsStream(): Response {
   let keepalive: ReturnType<typeof setInterval> | null = null;
-  let busHandler: ((envelope: LifecycleEnvelope) => void) | null = null;
+  let cleanup: () => void = () => {};
 
   const stream = new ReadableStream({
     start(controller) {
@@ -108,37 +156,22 @@ export function handleEventsStream(): Response {
       });
       controller.enqueue(encoder.encode(`data: ${connectEvent}\n\n`));
 
+      // Subscribe to lifecycle bus (self-cleaning). onClose clears keepalive.
+      ({ cleanup } = subscribeStreamToBus(controller, () => {
+        if (keepalive) clearInterval(keepalive);
+      }));
+
       // Keepalive every 30 seconds.
       keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          if (keepalive) clearInterval(keepalive);
+          cleanup();
         }
       }, 30_000);
-
-      // Subscribe to lifecycle bus — push all events as SSE frames.
-      // Hook events flow through here too — handleHooks emits HookEventReceived
-      // after persistence, see add-hooks-sse-fanout (apply-2026-04-27-001).
-      // Process-watcher reconciliation emits `RemoteSessionStarted` /
-      // `RemoteSessionEnded` after each create/close — those frames carry
-      // the discriminator fields menu bar / dashboard clients need to
-      // update without a follow-up GET. See
-      // openspec/changes/fix-agent-cc-session-tracking task 2.7.
-      busHandler = (envelope: LifecycleEnvelope) => {
-        try {
-          const data = JSON.stringify(envelope);
-          controller.enqueue(encoder.encode(`event: ${envelope.event}\ndata: ${data}\n\n`));
-        } catch {
-          // Stream closed — will be cleaned up in cancel()
-        }
-      };
-      lifecycleBus.onAny(busHandler);
     },
     cancel() {
-      // Client disconnected — cleanup subscriptions.
-      if (keepalive) clearInterval(keepalive);
-      if (busHandler) lifecycleBus.offAny(busHandler);
+      cleanup();
       log.debug("SSE client disconnected");
     },
   });
