@@ -80,28 +80,18 @@ async function processCredentialFile(
     throw err;
   }
 
-  // Insert. On duplicate fingerprint, fall through to metadata refresh
-  // so updated token expiry etc. are picked up. (handleFileEvent kept
-  // the same semantics; the initial-scan phase inherits them by
-  // routing through this helper.)
-  try {
-    await pool.add({
-      id: randomUUID(),
-      name: basename(filename, ".json"),
-      type: "oauth",
-      value_plaintext: plaintext,
-    });
-    return "added";
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message.includes("duplicate") || err.message.includes("unique"))
-    ) {
-      await pool.refreshMetadata();
-      return "refreshed";
-    }
-    throw err;
-  }
+  // add() now dedupes internally: a re-import of the same file (same
+  // fingerprint + same name) updates the existing row in place and returns
+  // "updated"; a genuinely new row returns "inserted". "updated" maps onto
+  // the existing "refreshed" bucket so `added + refreshed + skipped == scanned`
+  // still holds.
+  const outcome = await pool.add({
+    id: randomUUID(),
+    name: basename(filename, ".json"),
+    type: "oauth",
+    value_plaintext: plaintext,
+  });
+  return outcome === "updated" ? "refreshed" : "added";
 }
 
 /**

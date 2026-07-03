@@ -50,7 +50,7 @@ interface FakePool {
     name: string;
     type: string;
     value_plaintext: string;
-  }): Promise<void>;
+  }): Promise<"inserted" | "updated">;
   list(): Promise<Array<{ id: string; fingerprint: string | null }>>;
   calls: FakePoolCall[];
   /** Rows the fake pool returns from list(). Tests mutate this between calls. */
@@ -75,6 +75,9 @@ function createFakePool(initialRows: FakePool["rows"] = []): FakePool {
       // to subsequent list() calls. Test-only — real pool also writes to DB.
       const fp = computeCredentialFingerprint(input.value_plaintext);
       pool.rows.push({ id: input.id, fingerprint: fp });
+      // Return value is ignored by the active watcher's rotation path; return
+      // the "inserted" discriminant to satisfy CredentialPool.add's new type.
+      return "inserted";
     },
     async list() {
       pool.calls.push({ method: "list" });

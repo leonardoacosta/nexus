@@ -188,7 +188,7 @@ export class CredentialPool {
     name: string;
     type: string;
     value_plaintext: string;
-  }): Promise<void> {
+  }): Promise<"inserted" | "updated"> {
     const key = this.requireKey();
 
     // Compute the fingerprint up front. If parsing fails, surface the typed
@@ -209,7 +209,63 @@ export class CredentialPool {
     const metadata = extractCredentialMetadata(credential.value_plaintext);
     const now = new Date();
 
-    await this.db.transaction(async (tx) => {
+    const outcome = await this.db.transaction(async (tx) => {
+      // Re-import guard: a row with the SAME fingerprint AND SAME name is the
+      // same pool file re-imported (token refresh rewrites acct-*.json in place;
+      // the refresh token — hence the fingerprint — is stable across access-token
+      // refreshes). Update it in place so its lease / cooldown / rate-limit state
+      // survives, instead of appending a duplicate row. A fingerprint match with a
+      // DIFFERENT name is a distinct pool file for the same account (by-design
+      // duplicate group) and MUST fall through to the insert path below.
+      const sameFileRows = await tx
+        .select()
+        .from(credentials)
+        .where(
+          and(
+            eq(credentials.fingerprint, fingerprint),
+            eq(credentials.name, credential.name),
+          ),
+        )
+        .limit(2); // fetch 2 so we can detect the ambiguous >1 case
+
+      if (sameFileRows.length > 1) {
+        // Data drift: more than one row already shares this (fingerprint, name).
+        // Refuse to guess which to update — surface it (STOP condition).
+        throw new Error(
+          `credential re-import ambiguous: ${sameFileRows.length} rows share fingerprint+name for "${credential.name}"`,
+        );
+      }
+
+      const existingSameFile = sameFileRows[0] ?? null;
+      if (existingSameFile !== null) {
+        await tx
+          .update(credentials)
+          .set({
+            // Refresh the token material + volatile metadata only. Preserve
+            // status / leasedBy / leasedAt / cooldownUntil / rateLimitCount /
+            // isPrimary / duplicateGroupId / id / createdAt untouched.
+            valueEncrypted,
+            encryptionKeyId: "v1",
+            subscriptionType: metadata.subscriptionType,
+            rateLimitTier: metadata.rateLimitTier,
+            expiresAt: metadata.expiresAt,
+            mcpProviders: metadata.mcpProviders,
+            updatedAt: now,
+          })
+          .where(eq(credentials.id, existingSameFile.id));
+
+        logger.info(
+          {
+            id: existingSameFile.id,
+            name: credential.name,
+            fingerprint,
+            event: "credential.reimport_updated",
+          },
+          "credential re-import updated existing row in place",
+        );
+        return "updated" as const;
+      }
+
       // Look for an existing primary in the same duplicate group.
       const existingPrimaryRows = await tx
         .select()
@@ -282,7 +338,15 @@ export class CredentialPool {
           "credential primary swapped on add (newer mtime)",
         );
       }
+
+      return "inserted" as const;
     });
+
+    // Update-in-place re-imports return early — no "added" event / probe for an
+    // in-place refresh of an existing row.
+    if (outcome === "updated") {
+      return "updated";
+    }
 
     void this.emitEvent(credential.id, "added", null, { name: credential.name, fingerprint });
 
@@ -300,6 +364,8 @@ export class CredentialPool {
           "best-effort identity probe failed on add",
         ),
     );
+
+    return "inserted";
   }
 
   /**

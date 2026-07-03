@@ -39,14 +39,18 @@ interface FakePool {
     name: string;
     type: string;
     value_plaintext: string;
-  }): Promise<void>;
+  }): Promise<"inserted" | "updated">;
   // Matches the production CredentialPool.refreshMetadata signature
   // (returns number of rows refreshed); the test only asserts call
   // count so the value is always 0.
   refreshMetadata(): Promise<number>;
   calls: FakePoolCall[];
-  /** When set, `add` throws an Error with this message on the matching call. */
-  throwOnAdd?: string;
+  /**
+   * Discriminant the fake `add` returns. Defaults to "inserted"; set to
+   * "updated" to drive the re-import (dedupe) path — the real pool decides
+   * this internally via its (fingerprint, name) lookup.
+   */
+  addReturns?: "inserted" | "updated";
 }
 
 function createFakePool(): FakePool {
@@ -61,11 +65,7 @@ function createFakePool(): FakePool {
           value_plaintext: input.value_plaintext,
         },
       });
-      if (pool.throwOnAdd) {
-        const msg = pool.throwOnAdd;
-        pool.throwOnAdd = undefined;
-        throw new Error(msg);
-      }
+      return pool.addReturns ?? "inserted";
     },
     async refreshMetadata() {
       pool.calls.push({ method: "refreshMetadata" });
@@ -143,18 +143,21 @@ describe("credential-watcher runInitialScan", () => {
     expect(pool.calls).toHaveLength(0);
   });
 
-  test("duplicate-fingerprint add falls through to refreshMetadata", async () => {
+  test("add returning 'updated' is counted as refreshed", async () => {
     await writeFile(join(dir, "acct-001.json"), validCredential);
 
     const pool = createFakePool();
-    pool.throwOnAdd = "duplicate key value violates unique constraint";
+    // The real pool dedupes internally: a re-import of the same (fingerprint,
+    // name) updates in place and returns "updated". The watcher maps that onto
+    // the "refreshed" bucket WITHOUT any refreshMetadata fall-through call.
+    pool.addReturns = "updated";
 
     const result = await runInitialScan(pool, dir);
 
     expect(result.scanned).toBe(1);
     expect(result.added).toBe(0);
     expect(result.refreshed).toBe(1);
-    expect(pool.calls.map((c) => c.method)).toEqual(["add", "refreshMetadata"]);
+    expect(pool.calls.map((c) => c.method)).toEqual(["add"]);
   });
 
   test("skips invalid credential files without throwing", async () => {
