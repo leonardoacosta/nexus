@@ -242,6 +242,8 @@ export function startServer(
 
   // Track DB-backed background subsystems so graceful shutdown can stop them.
   let processWatcher: ProcessWatcherHandle | null = null;
+  let credWatcher: AbortController | null = null;
+  let activeCredWatcher: AbortController | null = null;
 
   // Initialize subsystems that need the DB.
   // initNotificationRoutes is async (mutex-guarded) — fire-and-forget here
@@ -264,9 +266,9 @@ export function startServer(
     if (pool) {
       safeFireAndForget(pool.refreshMetadata(), "credential-metadata-refresh");
       // Watch credential directory for new/changed files
-      startCredentialWatcher(pool);
+      credWatcher = startCredentialWatcher(pool);
       // Watch ~/.claude/.credentials.json symlink for active-account tracking
-      startActiveCredentialWatcher(pool);
+      activeCredWatcher = startActiveCredentialWatcher(pool);
     }
 
     // Process watcher: 30s reconcile loop that keeps the `sessions` table
@@ -303,23 +305,31 @@ export function startServer(
   const servers = bindServers(bindAddress, serve);
   const baseWrapper = combineServers(servers);
 
-  // Wrap the base wrapper so graceful shutdown also tears down the
-  // process-watcher interval. Without this the loop keeps running after
-  // the server stops, holding the event loop open during integration
-  // tests and dev restarts.
-  const wrapper: NexusServer = processWatcher
+  // Wrap the base wrapper so graceful shutdown tears down every DB-backed
+  // background subsystem (process watcher + both credential fs watchers).
+  // Without this the watch loops and debounce timers keep the event loop
+  // open after the server stops, holding fds during dev restarts / tests.
+  const hasBackground = processWatcher || credWatcher || activeCredWatcher;
+  const wrapper: NexusServer = hasBackground
     ? {
         get port() {
           return baseWrapper.port;
         },
         stop(closeActiveConnections?: boolean) {
-          try {
-            processWatcher?.stop();
-          } catch (err) {
-            logger.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "process-watcher stop threw — continuing shutdown",
-            );
+          const disposers: Array<[string, () => void]> = [
+            ["process-watcher", () => processWatcher?.stop()],
+            ["credential-watcher", () => credWatcher?.abort()],
+            ["active-credential-watcher", () => activeCredWatcher?.abort()],
+          ];
+          for (const [name, dispose] of disposers) {
+            try {
+              dispose();
+            } catch (err) {
+              logger.warn(
+                { subsystem: name, error: err instanceof Error ? err.message : String(err) },
+                "background subsystem stop threw — continuing shutdown",
+              );
+            }
           }
           baseWrapper.stop(closeActiveConnections);
         },
