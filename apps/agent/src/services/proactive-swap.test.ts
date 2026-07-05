@@ -121,6 +121,16 @@ describe("evaluateProactiveSwap — swap branch", () => {
     expect(h.audits[0]?.claimed_actor).toBe("auto-usage");
   });
 
+  it("eligible candidate present → swap taken, ladder suppressed (no notifications)", async () => {
+    // 2.2: when a swap target is available the ladder MUST NOT fire — the
+    // graduated exhaustion notification is only for the no-candidate case.
+    const rows = [row("a", "fp-a", 0.05), row("c", "fp-c", 0.7)];
+    const { opts, h } = makeOpts(rows, { activeFingerprint: "fp-a" });
+    await evaluateProactiveSwap(opts);
+    expect(h.swaps).toEqual(["c"]);
+    expect(h.notifications).toEqual([]); // ladder suppressed by the eligible candidate
+  });
+
   it("all other candidates at/below 10% → no swap (ladder branch)", async () => {
     const rows = [
       row("a", "fp-a", 0.05),

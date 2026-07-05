@@ -9,7 +9,9 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { parseUsageBody } from "./credential-usage-poller";
+import type { Db } from "@nexus/db";
+import { parseUsageBody, startCredentialUsagePoller } from "./credential-usage-poller";
+import type { CredentialPool } from "../credentials/pool";
 
 describe("parseUsageBody", () => {
   it("parses a well-formed Anthropic-shaped response", () => {
@@ -133,5 +135,71 @@ describe("back-off threshold computation", () => {
   it("does not back off below 50%", () => {
     expect(shouldBackOff(4, 1)).toBe(false);
     expect(shouldBackOff(10, 4)).toBe(false);
+  });
+});
+
+// ── [2.3] onTickComplete (proactive-swap) integration ──────────────────────
+//
+// A successful tick MUST invoke the injected evaluator at the end; an evaluator
+// throw MUST be logged and MUST NOT fail the tick. We drive tickOnce() with a
+// db stub returning one pollable row whose decrypt yields no token — so the
+// tick attempts zero remote calls (no network), stays non-backed-off, and
+// reaches the onTickComplete hook deterministically.
+
+/** db stub: queryPollableRows → one primary+available row. */
+function fakePollerDb(): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve([{ id: "cred-1", accountEmail: "a@b.com" }]),
+      }),
+    }),
+  } as unknown as Db;
+}
+
+/** pool stub: decrypt returns null so no token is extracted (no fetch). */
+function fakePool(): CredentialPool {
+  return {
+    getDecrypted: async () => null,
+  } as unknown as CredentialPool;
+}
+
+describe("credential-usage-poller: onTickComplete evaluator hook (2.3)", () => {
+  it("invokes the injected evaluator at the end of a successful tick", async () => {
+    let calledWith: { db: Db; pool: CredentialPool } | null = null;
+    const svc = startCredentialUsagePoller({
+      db: fakePollerDb(),
+      pool: fakePool(),
+      intervalMs: 1_000_000, // park the scheduled tick well outside the test
+      onTickComplete: async (deps) => {
+        calledWith = deps;
+      },
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.backedOff).toBe(false);
+      expect(result.attempted).toBe(0); // no token → no remote call
+      expect(calledWith).not.toBeNull();
+    } finally {
+      svc.stop();
+    }
+  });
+
+  it("logs an evaluator throw without failing the tick", async () => {
+    const svc = startCredentialUsagePoller({
+      db: fakePollerDb(),
+      pool: fakePool(),
+      intervalMs: 1_000_000,
+      onTickComplete: async () => {
+        throw new Error("evaluator boom");
+      },
+    });
+    try {
+      // tickOnce MUST resolve (the throw is swallowed), not reject.
+      const result = await svc.tickOnce();
+      expect(result.backedOff).toBe(false);
+    } finally {
+      svc.stop();
+    }
   });
 });

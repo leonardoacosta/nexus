@@ -362,3 +362,40 @@ describe("resilience", () => {
     expect(sends).toHaveLength(0);
   });
 });
+
+// ─── [4.3] Residual hook: orchestration-event routing ────────────────────────
+//
+// read-cc-telemetry-from-influxdb § Residual Hook Boundary: the cc hook pipeline
+// is retained ONLY for signals with no VictoriaMetrics analog — orchestration-
+// lifecycle events (`command_start`/`command_end` carrying `run_id`/`spec`) and
+// welded side-effects. Those orchestration events route through the residual
+// hook path but MUST NOT capture cost/token or produce a spurious user
+// notification (they have no notification rule). This pins that the residual
+// dispatcher accepts a `command_start`-with-`run_id` payload gracefully — no
+// send, no throw — after the metric/cost/token capture path was deleted.
+
+describe("residual hook: orchestration events (4.3)", () => {
+  it("routes a command_start (run_id + spec) as a graceful no-op — no send, no throw", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    const orchestration: HookEventPayload = payload({
+      hook_event_name: "command_start",
+      run_id: "run-abc123",
+      spec: "read-cc-telemetry-from-influxdb",
+      wave: 1,
+      phase: "e2e",
+    });
+
+    await expect(
+      evaluateAndDispatch(db, manager, "command_start", orchestration),
+    ).resolves.toBeUndefined();
+
+    // No notification rule for command_start → routed but never notified,
+    // and never captured as a cost/token source of truth.
+    expect(sends).toHaveLength(0);
+    // The orchestration identity survives on the payload contract.
+    expect(orchestration.run_id).toBe("run-abc123");
+    expect(orchestration.spec).toBe("read-cc-telemetry-from-influxdb");
+  });
+});

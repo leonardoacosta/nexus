@@ -81,4 +81,26 @@ describe("socket-server dispatcher: NotificationFired event project preservation
     expect(received).toHaveLength(1);
     expect(received[0]!.payload.project).toBeUndefined();
   });
+
+  // ── [4.3] Residual hook: TTS side-effect preserved ────────────────────────
+  //
+  // read-cc-telemetry-from-influxdb retired the metric/cost/token CAPTURE path
+  // but MUST keep the welded side-effects. A Notification hook event still fans
+  // out a NotificationFired envelope carrying the "tts" channel — the signal the
+  // Mac listener synthesises. This pins that the read-path migration did not
+  // sever the TTS side-effect.
+  test("notification event still fires the TTS side-effect (channel carries tts)", () => {
+    const event: SocketEvent = {
+      event: "notification",
+      message: "spec applied",
+      channels: ["tts", "desktop"],
+      project: "nx",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]!.payload.channel.split(",")).toContain("tts");
+    expect(received[0]!.payload.body).toBe("spec applied");
+  });
 });
