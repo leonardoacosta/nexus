@@ -11,5 +11,5 @@
 - [x] [2.3] Per-source hide/show toggles persisted in localStorage; hidden sources excluded from rows but counted in a summary chip. [beads:nx-liqkv]
 
 ## E2E Batch
-- [ ] [3.1] Agent test: `/requests` passthrough forwards params + auth and returns 502-class JSON when the gateway is down (mirror existing /sources passthrough tests). [beads:nx-p42j0]
-- [ ] [3.2] Web tests: healthy+degraded rows render from a stubbed SourceIndex; history drawer renders transitions from stubbed /requests; missing feed shows the named empty state; hide toggle survives reload (localStorage). [beads:nx-x8izy]
+- [x] [3.1] Agent test: `/requests` passthrough forwards params + auth and returns 502-class JSON when the gateway is down (mirror existing /sources passthrough tests). [beads:nx-p42j0]
+- [x] [3.2] Web tests: healthy+degraded rows render from a stubbed SourceIndex; history drawer renders transitions from stubbed /requests; missing feed shows the named empty state; hide toggle survives reload (localStorage). [beads:nx-x8izy]

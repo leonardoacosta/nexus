@@ -28,4 +28,4 @@
 - [x] [3.6] [P-2] Add "Integrations" group to dashboard primary nav with `/integrations/elevenlabs` link [owner:ui-engineer] [type:ui] [beads:nx-nbn9q]
 ## E2E Batch
 
-- [ ] [4.1] Playwright e2e: open `/integrations/elevenlabs`, paste a test key, choose a voice, click Save, click Test, assert status code render [owner:e2e-engineer] [type:testing] [beads:nx-tov87]
+- [x] [4.1] Playwright e2e: open `/integrations/elevenlabs`, paste a test key, choose a voice, click Save, click Test, assert status code render [owner:e2e-engineer] [type:testing] [beads:nx-tov87]

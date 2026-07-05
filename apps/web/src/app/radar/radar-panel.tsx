@@ -3,46 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { RadarSource } from "~/lib/agent-radar-client";
-import { fetchSources, isUnhealthy } from "~/lib/agent-radar-client";
+import { fetchSources } from "~/lib/agent-radar-client";
 import { theme } from "~/components/theme";
 
 import { SourceRow } from "./source-row";
+import { loadHidden, partitionSources, persistHidden } from "./radar-hidden";
 
 /**
  * Radar source panel (tasks 2.1 + 2.3). Fetches `GET /sources` from the agent,
  * renders one {@link SourceRow} per source, and re-polls every 30s (matching the
  * Swift Source Index view). Per-source hide/show toggles persist in localStorage;
  * hidden sources are excluded from the rows but still counted (health summary +
- * hidden chip).
+ * hidden chip). The hide persistence + row partition live in `radar-hidden.ts`
+ * (unit-tested there).
  *
  * State machine (state-handling skill): loading -> error -> empty -> data.
  */
 
 const POLL_INTERVAL_MS = 30_000;
-const HIDDEN_KEY = "nexus.radar.hiddenSources";
-
-/** Load the persisted hidden-source id set from localStorage (SSR-safe). */
-function loadHidden(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(HIDDEN_KEY);
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw) as unknown;
-    return Array.isArray(arr)
-      ? new Set(arr.filter((x): x is string => typeof x === "string"))
-      : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function persistHidden(ids: Set<string>): void {
-  try {
-    window.localStorage.setItem(HIDDEN_KEY, JSON.stringify([...ids]));
-  } catch {
-    // localStorage unavailable (private mode / quota) — in-memory only.
-  }
-}
 
 export function RadarPanel({ agentBaseUrl }: { agentBaseUrl: string }) {
   const [sources, setSources] = useState<RadarSource[] | null>(null);
@@ -112,9 +90,10 @@ export function RadarPanel({ agentBaseUrl }: { agentBaseUrl: string }) {
   }
 
   // data
-  const visible = sources.filter((s) => !hidden.has(s.id));
-  const hiddenCount = sources.length - visible.length;
-  const degradedCount = sources.filter((s) => isUnhealthy(s.health)).length;
+  const { visible, hiddenSources, hiddenCount, degradedCount } = partitionSources(
+    sources,
+    hidden,
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -178,9 +157,7 @@ export function RadarPanel({ agentBaseUrl }: { agentBaseUrl: string }) {
               gap: 8,
             }}
           >
-            {sources
-              .filter((s) => hidden.has(s.id))
-              .map((s) => (
+            {hiddenSources.map((s) => (
                 <SourceRow
                   key={s.id}
                   agentBaseUrl={agentBaseUrl}
