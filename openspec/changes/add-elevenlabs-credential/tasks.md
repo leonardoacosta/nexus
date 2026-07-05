@@ -20,12 +20,12 @@
 - [x] [2.7] [P-2] Bun unit tests for all 5 endpoints (auth gate, mask invariant, cache hit/miss, env fallback, signal-only when both empty) [owner:test-writer] [type:testing] [beads:nx-meuog]
 ## UI Batch
 
-- [ ] [3.1] [P-1] `apps/nextjs/src/app/actions/elevenlabs-credentials.ts` server actions: `fetchCredentials`, `saveCredentials`, `testCredentials`, `deleteCredentials`, `listVoices` [owner:ui-engineer] [type:ui] [beads:nx-bnsfx]
-- [ ] [3.2] [P-1] `MaskedKeyInput.tsx` component (always renders bullets when `hasKey`, accepts paste, emits onChange only when user types) [owner:ui-engineer] [type:ui] [beads:nx-j91ir]
-- [ ] [3.3] [P-1] `VoiceDropdown.tsx` component fed by `listVoices` action with text-input fallback when proxy returns 5xx [owner:ui-engineer] [type:ui] [beads:nx-b4uun]
-- [ ] [3.4] [P-1] `TestConnectionPanel.tsx` rendering status code + quota summary (`${characterCount} / ${characterLimit} chars` when subscription is present) [owner:ui-engineer] [type:ui] [beads:nx-wwqnx]
-- [ ] [3.5] [P-2] `apps/nextjs/src/app/integrations/elevenlabs/page.tsx` composing the three components plus Save / Delete actions [owner:ui-engineer] [type:ui] [beads:nx-3aruz]
-- [ ] [3.6] [P-2] Add "Integrations" group to dashboard primary nav with `/integrations/elevenlabs` link [owner:ui-engineer] [type:ui] [beads:nx-nbn9q]
+- [x] [3.1] [P-1] `apps/nextjs/src/app/actions/elevenlabs-credentials.ts` server actions: `fetchCredentials`, `saveCredentials`, `testCredentials`, `deleteCredentials`, `listVoices` [owner:ui-engineer] [type:ui] [beads:nx-bnsfx]
+- [x] [3.2] [P-1] `MaskedKeyInput.tsx` component (always renders bullets when `hasKey`, accepts paste, emits onChange only when user types) [owner:ui-engineer] [type:ui] [beads:nx-j91ir]
+- [x] [3.3] [P-1] `VoiceDropdown.tsx` component fed by `listVoices` action with text-input fallback when proxy returns 5xx [owner:ui-engineer] [type:ui] [beads:nx-b4uun]
+- [x] [3.4] [P-1] `TestConnectionPanel.tsx` rendering status code + quota summary (`${characterCount} / ${characterLimit} chars` when subscription is present) [owner:ui-engineer] [type:ui] [beads:nx-wwqnx]
+- [x] [3.5] [P-2] `apps/nextjs/src/app/integrations/elevenlabs/page.tsx` composing the three components plus Save / Delete actions [owner:ui-engineer] [type:ui] [beads:nx-3aruz]
+- [x] [3.6] [P-2] Add "Integrations" group to dashboard primary nav with `/integrations/elevenlabs` link [owner:ui-engineer] [type:ui] [beads:nx-nbn9q]
 ## E2E Batch
 
 - [ ] [4.1] Playwright e2e: open `/integrations/elevenlabs`, paste a test key, choose a voice, click Save, click Test, assert status code render [owner:e2e-engineer] [type:testing] [beads:nx-tov87]

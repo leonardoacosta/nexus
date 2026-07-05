@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { NavBar } from "~/components/NavBar";
+
 export const metadata: Metadata = {
   title: "Nexus Web",
   description: "Attach to Nexus agent terminal sessions from the browser",
@@ -32,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         }}
       >
+        <NavBar />
         {children}
       </body>
     </html>
