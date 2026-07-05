@@ -14,7 +14,7 @@ written. No source code was modified in producing these plans.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Guard the process-watcher against a transient pgrep failure ending every live session | P1 | S | — | GO (branch advisor/001-fix-pgrep-flake; 25/0 PG; companion health-process-watcher.test.ts assertion fixed same branch, commit fe85db61, 5/0) |
+| 001 | Guard the process-watcher against a transient pgrep failure ending every live session | P1 | S | — | DONE (merged to main f514d1ae; was GO on branch advisor/001-fix-pgrep-flake, 25/0 PG) |
 | 002 | Serialize `reconcileOnce` so `/sessions/probe` can't race the reconcile tick | P1 | S | 001 | DONE (reviewed, worktree stack-002-serialize, branch advisor/002-serialize-reconcile STACKED on 001; 26/0 on PG. Merge 001 then 002) |
 | 003 | Stop logging verbatim terminal keystrokes/pastes at INFO on the takeover path | P1 | S | — | DONE (reviewed, worktree 20260703-1535-3ebbc8ce, branch advisor/003-redact-keystroke-logging) |
 | 004 | Guard the decrypted-credential lease route, de-trust audit attribution, fix stale WS-auth comment | P1 | M | — | DONE (reviewed, worktree 20260703-1536-6f810120, branch advisor/004-harden-credential-routes; crud 6/0, creds 28/0) |
@@ -23,10 +23,10 @@ written. No source code was modified in producing these plans.
 | 007 | Characterization tests for the credential AES-256-GCM encryption module | P1 | S | — | DONE (reviewed, worktree 20260703-1550-0a395bdb, branch advisor/007-encryption-tests; 14/0, encryption.ts untouched) |
 | 008 | Stop the credential watcher re-inserting a duplicate row per token refresh / restart | P2 | M | 007 | DONE after 1 revise (reviewed, branch advisor/008-fix-credential-dup-insert, 2 commits cc540485+f2bb1769; dedup PG 3/0, active-cred 6/0, typecheck-clean. Plan mis-scoped active-credential-watcher.ts — scope-expanded to widen its local WatcherPool type + test double) |
 | 009 | Abort the credential watchers on shutdown (discarded AbortControllers) | P2 | S | — | DONE (reviewed, worktree 20260703-1550-bb66e1d6, branch apply/20260703-1550-bb66e1d6; teardown test 1/0) |
-| 010 | Self-clean SSE lifecycle-bus subscription on enqueue failure, not only in `cancel()` | P2 | S | — | GO after 1 revise (branch advisor/010-fix-sse-leak). First test was a tautology (passed on unfixed code) — reviewer caught it, HOLD. Revised: extracted subscribeStreamToBus seam so the test drives the real enqueue-failure path. Bite VERIFIED (fixed=2/0, unfixed=1 FAIL); sse suite 16/16 |
+| 010 | Self-clean SSE lifecycle-bus subscription on enqueue failure, not only in `cancel()` | P2 | S | — | DONE (merged to main 28c209c3; was GO after 1 revise — tautology test caught and fixed, bite verified, sse suite 16/16) |
 | 011 | Parallelize (bounded) the per-project `git remote get-url` calls in discovery | P2 | S | — | DONE (reviewed, worktree 20260703-1550-370584de, branch advisor/011-parallelize-git-discovery; discovery 20/0, runPool extracted to shared util) |
 | 012 | Correct the stale README (retired TUI, SQLite→Postgres, nonexistent plist, missing apps/web) | P2 | S | — | DONE (reviewed, worktree 20260703-1551-73d382c0, branch apply/20260703-1551-73d382c0; stale facts gone) |
-| 013 | Add a neutral CI workflow so quality gates don't depend on each contributor's machine | P2 | M | 006, 016 | GO-AFTER-BASELINE after 1 revise (branch advisor/013-add-ci-workflow; commit 31abbd07 added missing `db:migrate` step reviewer flagged). Valid YAML, all gate scripts exist, real blocking gates. Merge AFTER 006 + 016 (baseline) so CI lands green |
+| 013 | Add a neutral CI workflow so quality gates don't depend on each contributor's machine | P2 | M | 006, 016 | DONE (merged to main 42f9e7b2 after 006+016 landed; .github/workflows/ci.yml live) |
 | 014 | Fixture-based contract test that fails when agent Session JSON drifts from the Swift model | P3 | L | — | DONE (Mac-VERIFIED: branch apply/20260703-1551-0e0dada8; ran on Mac via isolated git-worktree + 3-way patch + xcodebuild nexus-mac scheme, CODE_SIGNING_ALLOWED=NO — NexusSharedTests/SessionDecodingTests 8/8 pass incl. testDecodesSubagentTreeAndCredentialFields; guard-bite confirmed (removing case childRole → TEST FAILED). TS side 9/0) |
 | 015 | Unit tests for token-stream cost/attribution (the money path) | P2 | M | — | DONE (reviewed, worktree 20260703-1551-ccc8aac3, branch advisor/015-token-stream-cost-tests; 23/0, source untouched) |
 | 017 | Route the two held-queue floating promises through the existing safeFireAndForget wrapper | P2 | S | — | DONE (branch advisor/wave2-017-022; 2 sites wrapped, safeFireAndForget counts 2/3 confirmed; new rejection test 1/0; src/notifications+src/utils 0 fail; lint 0 errors) |
@@ -37,6 +37,15 @@ written. No source code was modified in producing these plans.
 | 022 | Reconcile operator-facing env vars into example files; fix APNS + ElevenLabs phantom names | P3 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale).
+
+> **Reconcile 2026-07-05 (post-wave-2 execution):** All wave-1 branches merged to main
+> (001 f514d1ae, 002 39f68d40, 010 28c209c3, 013 42f9e7b2 confirmed via merge commits).
+> Wave-2 017-021 spot-checked at HEAD: safeFireAndForget counts 3/2, single fetch site +
+> AbortSignal.any, zero sync-fs in reader.ts, zero node:child_process in send-text +
+> isValidTmuxTarget guard, mode:"date" on specSessions.ts:36, lint-sql-safety exit 0,
+> ci.yml present. Runtime: held-queue + send-text + credentials suites 33 pass / 0 fail.
+> 022 drift-checked: both example files unchanged since c67ff12c — executable as written.
+> Only remaining open plan: **022**.
 
 ## Wave 2 — /improve:code deep (2026-07-05, audited at `c67ff12c`)
 
