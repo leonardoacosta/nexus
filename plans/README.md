@@ -29,8 +29,49 @@ written. No source code was modified in producing these plans.
 | 013 | Add a neutral CI workflow so quality gates don't depend on each contributor's machine | P2 | M | 006, 016 | GO-AFTER-BASELINE after 1 revise (branch advisor/013-add-ci-workflow; commit 31abbd07 added missing `db:migrate` step reviewer flagged). Valid YAML, all gate scripts exist, real blocking gates. Merge AFTER 006 + 016 (baseline) so CI lands green |
 | 014 | Fixture-based contract test that fails when agent Session JSON drifts from the Swift model | P3 | L | — | DONE (Mac-VERIFIED: branch apply/20260703-1551-0e0dada8; ran on Mac via isolated git-worktree + 3-way patch + xcodebuild nexus-mac scheme, CODE_SIGNING_ALLOWED=NO — NexusSharedTests/SessionDecodingTests 8/8 pass incl. testDecodesSubagentTreeAndCredentialFields; guard-bite confirmed (removing case childRole → TEST FAILED). TS side 9/0) |
 | 015 | Unit tests for token-stream cost/attribution (the money path) | P2 | M | — | DONE (reviewed, worktree 20260703-1551-ccc8aac3, branch advisor/015-token-stream-cost-tests; 23/0, source untouched) |
+| 017 | Route the two held-queue floating promises through the existing safeFireAndForget wrapper | P2 | S | — | TODO |
+| 018 | Add a default AbortSignal timeout to AgentRestClient via a single request() wrapper | P2 | S | — | TODO |
+| 019 | Convert credential-pool reader.ts sync fs calls to fs/promises (already-async signatures) | P2 | S | — | TODO |
+| 020 | Route /commands/send-text through safeSpawn and add the isValidTmuxTarget guard | P2 | S | — | TODO |
+| 021 | Add explicit mode:'date' to spec_sessions.createdAt (convention-explicitness; DDL-neutral) | P3 | S | — | TODO |
+| 022 | Reconcile operator-facing env vars into example files; fix APNS + ElevenLabs phantom names | P3 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale).
+
+## Wave 2 — /improve:code deep (2026-07-05, audited at `c67ff12c`)
+
+Provenance: `audit-scan` deterministic scan (121 findings, score 77% B) as seed inventory ->
+6 seams graded by parallel auditors -> adversarial verification (12 agents, 7 claims verified,
+1 refuted) -> advisor personally re-read every confirmed site. Evidence bundles:
+`/tmp/nx-code-audit/plan-0NN.json`. Plan number 016 is skipped — it was consumed by the
+informal Wave-1 baseline-fix.
+
+Plans 017-022 touch **disjoint files** — no cross-plan conflicts, any execution order works.
+Suggested order: 017/019/020 (agent robustness) -> 018 (web client) -> 021/022 (P3 hygiene).
+
+### Rejected / corrected findings this wave (do not re-raise)
+
+- **specs.ts + handlers-status.ts sync I/O (E5)** — REFUTED by verifier: subprocess-dominated
+  low-frequency dashboard routes; the awaited openspec CLI spawn dwarfs the sub-ms sync read.
+- **apns-sender.ts:11/:61 + nexus-emit sync reads (E5)** — one-shot lazy-init / CLI paths;
+  no event loop to block. Correct as written.
+- **db/health.ts:30, tmux-pty-source.ts:383/:506, agent-ws-client.ts:310 (A9)** — false
+  positives: guarded by try+Promise.race, no real reject path, or defensive dead branch.
+- **credentials.ts:91/97/102 (C2)** — scanner regex blind to multi-line formatting; columns
+  already carry `mode:'date', withTimezone:true`.
+- **next.config.ts:10 (E7)** — docstring prose, not a fetch call site.
+- **"drizzle returns string without mode:'date'" (plan 021's original premise)** — refuted at
+  draft time: drizzle-orm 0.44.7 defaults timestamp() to date mode (type + runtime). Plan 021
+  survives as a convention-explicitness one-liner only.
+- **safeSpawn invariant fleet-wide (D4, 29 sites)** — HOLDS everywhere except the single
+  commands-send-text.ts regression (plan 020). 7 hits were regex `.exec()` false positives.
+
+### Not audited this wave
+
+B3/B4 god-modules and >500-line files (maintainer-deferred, Wave 1), packages/ui missing
+package.json + retired app dirs (deferred), A2/C15 test-file hits (auto-skip class), F-category
+observability gaps for apps/web (Sentry/PostHog/health endpoint — product decision, not defect),
+Swift sources (audit-scan is TS-only), H1 test-only env flags (excluded by design from 022).
 
 > **Baseline note (discovered during execution, 2026-07-03):** `pnpm typecheck` and
 > `pnpm lint` are **already red at HEAD `64a206ff`**, independent of any plan — pre-existing
