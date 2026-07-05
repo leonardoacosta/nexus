@@ -35,20 +35,10 @@ import {
   mock,
 } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
+import { installExecMock, type ExecMockHandle } from "../testing/mock-exec";
+import { ExecError } from "../utils/exec";
 
 // ── Real-subprocess passthrough (independent of ../utils/exec mock) ────────
-
-class _ExecError extends Error {
-  constructor(
-    public readonly cmd: string,
-    public readonly args: string[],
-    public readonly exitCode: number,
-    public readonly stderr: string,
-  ) {
-    super(`Command failed: ${cmd} ${args.join(" ")} (exit ${exitCode}) — ${stderr}`);
-    this.name = "ExecError";
-  }
-}
 
 /** Minimal real `execText` re-implementation for the test's tmux passthroughs. */
 async function runReal(cmd: string, args: string[]): Promise<string> {
@@ -62,7 +52,7 @@ async function runReal(cmd: string, args: string[]): Promise<string> {
     proc.exited,
   ]);
   if (exitCode !== 0) {
-    throw new _ExecError(cmd, args, exitCode, stderr);
+    throw new ExecError(cmd, args, exitCode, stderr);
   }
   return stdout;
 }
@@ -74,22 +64,32 @@ function setPgrepStub(lines: string[]): void {
   pgrepStubLines = lines;
 }
 
-mock.module("../utils/exec", () => ({
-  execText: mock(async (cmd: string, args: string[]) => {
-    // Intercept pgrep — return our stubbed lines.
-    if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
-      return pgrepStubLines.join("\n");
-    }
-    // Everything else (tmux, which) goes through a real subprocess.
-    return runReal(cmd, args);
-  }),
-  execJson: mock(async (cmd: string, args: string[]) => {
-    const out = await runReal(cmd, args);
-    return JSON.parse(out);
-  }),
-  ExecError: _ExecError,
-  ExecTimeoutError: class extends Error {},
-}));
+// nx-jlx1c: install via RESTORABLE `installExecMock` (spyOn) rather than
+// process-global, irreversible `mock.module`. A raw mock.module here leaked its
+// pgrep/tmux stub + fake error classes into utils/exec.test.ts (loads later,
+// exercises the real subprocess helpers). Non-pgrep commands still route through
+// the local `runReal` re-implementation (not the spied namespace — avoids
+// self-recursion). Real ExecError/ExecTimeoutError are preserved untouched.
+let execHandle: ExecMockHandle;
+beforeAll(() => {
+  execHandle = installExecMock({
+    execText: async (cmd: string, args: string[]) => {
+      // Intercept pgrep — return our stubbed lines.
+      if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
+        return pgrepStubLines.join("\n");
+      }
+      // Everything else (tmux, which) goes through a real subprocess.
+      return runReal(cmd, args);
+    },
+    execJson: async (cmd: string, args: string[]) => {
+      const out = await runReal(cmd, args);
+      return JSON.parse(out);
+    },
+  });
+});
+afterAll(() => {
+  execHandle.restore();
+});
 
 // ── Imports (after the mock registration) ──────────────────────────────────
 

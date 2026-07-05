@@ -38,6 +38,8 @@ import {
 // mock, so this namespace holds the REAL fs — the mock's readlinkSync delegates
 // to it after recording the call (nx-9jz0v /proc-readlink regression guard).
 import * as realFs from "node:fs";
+import { installExecMock, type ExecMockHandle } from "../testing/mock-exec";
+import { ExecError, ExecTimeoutError } from "../utils/exec";
 
 // ── Mock subprocess exec BEFORE importing the watcher ──────────────────────
 
@@ -61,27 +63,12 @@ function setPgrepFailure(mode: null | "timeout" | { exitCode: number }): void {
   pgrepShouldFail = mode;
 }
 
-// Hoisted above the execText mock so the factory closure can reference them
-// (a class expression on the returned object isn't in scope inside execText).
-class MockExecError extends Error {
-  constructor(
-    public readonly cmd: string,
-    public readonly args: string[],
-    public readonly exitCode: number,
-    public readonly stderr: string,
-  ) {
-    super(`exec failed: ${cmd}`);
-  }
-}
-class MockExecTimeoutError extends Error {
-  constructor(
-    public readonly cmd: string,
-    public readonly args: string[],
-    public readonly timeoutMs: number,
-  ) {
-    super(`exec timed out: ${cmd}`);
-  }
-}
+// nx-jlx1c: throw the REAL ExecError/ExecTimeoutError (imported from
+// ../utils/exec) rather than local fakes. The watcher catches the real classes,
+// and — crucially — because the exec stub is now installed via the RESTORABLE
+// `installExecMock` (spyOn) helper instead of process-global `mock.module`, no
+// fake class or stub leaks into utils/exec.test.ts (which loads later and needs
+// the real module + real error classes for its `instanceof` assertions).
 
 // nx-ds6rq: mock tmux list-panes output. Each fixture is the raw stdout the
 // watcher would see from
@@ -100,39 +87,43 @@ function setChildMap(map: Record<number, number[]>): void {
   childMap = map;
 }
 
-mock.module("../utils/exec", () => ({
-  execText: mock(async (cmd: string, args: string[]) => {
-    // pgrep -af claude — the master live-claude scan.
-    if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
-      // plan 001: simulate a scan FAILURE (timeout or non-1 exit) so tests
-      // can assert managed rows are left untouched, not mass-closed.
-      if (pgrepShouldFail === "timeout") {
-        throw new MockExecTimeoutError(cmd, args, 10_000);
-      }
-      if (pgrepShouldFail && typeof pgrepShouldFail === "object") {
-        throw new MockExecError(cmd, args, pgrepShouldFail.exitCode, "boom");
-      }
-      return pgrepResponse.lines.join("\n");
+async function execTextImpl(cmd: string, args: string[]): Promise<string> {
+  // pgrep -af claude — the master live-claude scan.
+  if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
+    // plan 001: simulate a scan FAILURE (timeout or non-1 exit) so tests
+    // can assert managed rows are left untouched, not mass-closed.
+    if (pgrepShouldFail === "timeout") {
+      throw new ExecTimeoutError(cmd, args, 10_000);
     }
-    // pgrep -P <pid> — descendant walk for tmuxScan.
-    if (cmd === "pgrep" && args[0] === "-P" && args.length === 2) {
-      const pid = parseInt(args[1] ?? "", 10);
-      const kids = childMap[pid] ?? [];
-      return kids.join("\n");
+    if (pgrepShouldFail && typeof pgrepShouldFail === "object") {
+      throw new ExecError(cmd, args, pgrepShouldFail.exitCode, "boom");
     }
-    // tmux list-panes -a -F <format> — pane scan.
-    if (cmd === "tmux" && args[0] === "list-panes" && args[1] === "-a") {
-      return tmuxPanesOutput;
-    }
-    // Any other invocation is unexpected — surface it loudly.
-    throw new Error(`unexpected execText call in test: ${cmd} ${args.join(" ")}`);
-  }),
-  // execText callers in the watcher catch this to translate "no matches"
-  // into an empty list — keep the shape stable.
-  ExecError: MockExecError,
-  ExecTimeoutError: MockExecTimeoutError,
-  execJson: mock(() => Promise.resolve(null)),
-}));
+    return pgrepResponse.lines.join("\n");
+  }
+  // pgrep -P <pid> — descendant walk for tmuxScan.
+  if (cmd === "pgrep" && args[0] === "-P" && args.length === 2) {
+    const pid = parseInt(args[1] ?? "", 10);
+    const kids = childMap[pid] ?? [];
+    return kids.join("\n");
+  }
+  // tmux list-panes -a -F <format> — pane scan.
+  if (cmd === "tmux" && args[0] === "list-panes" && args[1] === "-a") {
+    return tmuxPanesOutput;
+  }
+  // Any other invocation is unexpected — surface it loudly.
+  throw new Error(`unexpected execText call in test: ${cmd} ${args.join(" ")}`);
+}
+
+let execHandle: ExecMockHandle;
+beforeAll(() => {
+  execHandle = installExecMock({
+    execText: execTextImpl,
+    execJson: async () => null,
+  });
+});
+afterAll(() => {
+  execHandle.restore();
+});
 
 // session-row-enrichment-v1 § 1.8: mock the git-project-resolver so each
 // test can deterministically control what the watcher sees. Default

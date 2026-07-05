@@ -60,6 +60,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { installExecMock, type ExecMockHandle } from "../testing/mock-exec";
 
 // ─── Fixture tree ───────────────────────────────────────────────────────────
 //
@@ -117,69 +118,67 @@ __setGetProjectsForTesting(() => [
   { code: PROJECT_CODE, name: PROJECT_CODE, path: PROJECT_CWD },
 ]);
 
-// Mock execText so `openspec show/list` reads our in-memory fixture state
-// instead of spawning a real subprocess. Return JSON that matches the
-// shape the watcher expects.
-mock.module("../utils/exec", () => ({
-  execText: async (cmd: string, args: string[]) => {
-    if (cmd !== "openspec") {
-      throw new Error(`unexpected cmd: ${cmd}`);
-    }
-    // `openspec show <specName> --json`
-    if (args[0] === "show") {
-      const specName = args[1];
-      if (specName === SPEC_PROGRESS) {
-        return JSON.stringify({
-          name: SPEC_PROGRESS,
-          status: "active",
-          completedTasks: progressState.completed,
-          totalTasks: progressState.total,
-        });
-      }
-      if (specName === SPEC_ARCHIVE) {
-        // When archived, `openspec show` returns empty array so the watcher
-        // falls through to a full pollProjectSpecs() which observes the
-        // directory is gone and emits `removed`.
-        return JSON.stringify([]);
-      }
-      return JSON.stringify([]);
-    }
-    // `openspec list --json`
-    if (args[0] === "list") {
-      const specs: Array<{
-        name: string;
-        status: string;
-        completedTasks: number;
-        totalTasks: number;
-      }> = [];
-      // Progress spec still exists.
-      specs.push({
+// Stub execText so `openspec show/list` reads our in-memory fixture state
+// instead of spawning a real subprocess. Installed via the RESTORABLE
+// `installExecMock` (spyOn) helper — NOT `mock.module` — because Bun's
+// `mock.module` is process-global AND irreversible, so a raw stub (plus its
+// FAKE ExecError/ExecTimeoutError classes) leaked into utils/exec.test.ts,
+// which loads later and exercises the REAL subprocess helpers + real error
+// classes. `installExecMock` reverts both functions in `afterAll` so siblings
+// get the real module back (nx-jlx1c).
+async function openspecExecText(cmd: string, args: string[]): Promise<string> {
+  if (cmd !== "openspec") {
+    throw new Error(`unexpected cmd: ${cmd}`);
+  }
+  // `openspec show <specName> --json`
+  if (args[0] === "show") {
+    const specName = args[1];
+    if (specName === SPEC_PROGRESS) {
+      return JSON.stringify({
         name: SPEC_PROGRESS,
         status: "active",
         completedTasks: progressState.completed,
         totalTasks: progressState.total,
       });
-      // Archive spec: only include if its directory still exists.
-      // `existsSync` is not imported here; rely on fs-watch test's archive
-      // step to advance the archive state.
-      if (archiveState.exists) {
-        specs.push({
-          name: SPEC_ARCHIVE,
-          status: "active",
-          completedTasks: 0,
-          totalTasks: 3,
-        });
-      }
-      return JSON.stringify(specs);
     }
-    throw new Error(`unexpected openspec invocation: ${args.join(" ")}`);
-  },
-  execJson: async () => {
-    throw new Error("execJson should not be called in this test");
-  },
-  ExecError: class ExecError extends Error {},
-  ExecTimeoutError: class ExecTimeoutError extends Error {},
-}));
+    if (specName === SPEC_ARCHIVE) {
+      // When archived, `openspec show` returns empty array so the watcher
+      // falls through to a full pollProjectSpecs() which observes the
+      // directory is gone and emits `removed`.
+      return JSON.stringify([]);
+    }
+    return JSON.stringify([]);
+  }
+  // `openspec list --json`
+  if (args[0] === "list") {
+    const specs: Array<{
+      name: string;
+      status: string;
+      completedTasks: number;
+      totalTasks: number;
+    }> = [];
+    // Progress spec still exists.
+    specs.push({
+      name: SPEC_PROGRESS,
+      status: "active",
+      completedTasks: progressState.completed,
+      totalTasks: progressState.total,
+    });
+    // Archive spec: only include if its directory still exists.
+    // `existsSync` is not imported here; rely on fs-watch test's archive
+    // step to advance the archive state.
+    if (archiveState.exists) {
+      specs.push({
+        name: SPEC_ARCHIVE,
+        status: "active",
+        completedTasks: 0,
+        totalTasks: 3,
+      });
+    }
+    return JSON.stringify(specs);
+  }
+  throw new Error(`unexpected openspec invocation: ${args.join(" ")}`);
+}
 
 const archiveState = { exists: true };
 
@@ -201,7 +200,16 @@ const FIXTURE_PROJECT = {
   cwd: PROJECT_CWD,
 };
 
+let execHandle: ExecMockHandle;
+
 beforeAll(() => {
+  // Spy execText/execJson (restorable) — see openspecExecText note above.
+  execHandle = installExecMock({
+    execText: openspecExecText,
+    execJson: async () => {
+      throw new Error("execJson should not be called in this test");
+    },
+  });
   // Seed fs.
   mkdirSync(SPEC_PROGRESS_DIR, { recursive: true });
   mkdirSync(SPEC_ARCHIVE_DIR, { recursive: true });
@@ -238,6 +246,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  execHandle.restore();
   __resetGetProjectsForTesting();
   try {
     rmSync(BASE, { recursive: true, force: true });
