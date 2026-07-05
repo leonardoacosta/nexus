@@ -81,6 +81,13 @@ export interface StartCredentialUsagePollerOpts {
   backoffMs?: number;
   /** Override the per-fetch timeout (testing). */
   fetchTimeoutMs?: number;
+  /**
+   * Proactive-swap evaluator, invoked at the end of each successful (non-backed-off)
+   * tick with the freshly-polled usage data. Injected so tests can stub it and so
+   * the poller stays decoupled from the swap logic. Failures are logged, never
+   * thrown into the tick. See `services/proactive-swap.ts`.
+   */
+  onTickComplete?: (deps: { db: Db; pool: CredentialPool }) => Promise<void>;
 }
 
 /**
@@ -254,7 +261,7 @@ export function startCredentialUsagePoller(
       : DEFAULT_INTERVAL_MS);
   const backoffMs = opts.backoffMs ?? BACKOFF_INTERVAL_MS;
   const fetchTimeoutMs = opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
-  const { db, pool } = opts;
+  const { db, pool, onTickComplete } = opts;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -331,6 +338,21 @@ export function startCredentialUsagePoller(
       { attempted, succeeded, failed, backedOff },
       "credential-usage-poller tick complete",
     );
+
+    // Proactive-swap evaluation runs on the freshly-persisted usage snapshot at
+    // the end of a successful tick. Defensive: a throw here is logged, never
+    // propagated into the tick (which would trigger the error re-schedule path).
+    if (onTickComplete && !backedOff) {
+      try {
+        await onTickComplete({ db, pool });
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "credential-usage-poller: onTickComplete (proactive-swap) failed (non-fatal)",
+        );
+      }
+    }
+
     return { attempted, succeeded, failed, backedOff };
   }
 
