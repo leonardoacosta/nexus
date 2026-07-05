@@ -11,13 +11,13 @@
 - [x] [1.4] [P-2] Encryption round-trip unit test against the new schema [owner:test-writer] [type:testing] [beads:nx-21xn]
 ## API Batch
 
-- [ ] [2.1] [P-1] Add `apps/agent/src/routes/elevenlabs-credentials.ts` with `handleGetCredentials`, `handlePatchCredentials`, `handleDeleteCredentials` [owner:api-engineer] [type:api] [beads:nx-8wnn]
-- [ ] [2.2] [P-1] Add `handleTestConnection` in same file proxying `GET /v1/user` [owner:api-engineer] [type:api] [beads:nx-e6snv]
-- [ ] [2.3] [P-1] Add `apps/agent/src/routes/elevenlabs-voices.ts` with `handleListVoices` (1h TTL in-memory cache, per-agent) [owner:api-engineer] [type:api] [beads:nx-t6y5u]
-- [ ] [2.4] [P-1] Add Zod schemas for PATCH input + all GET response shapes in `packages/core/src/schemas/elevenlabs.ts` [owner:types-engineer] [type:api] [beads:nx-j0422]
-- [ ] [2.5] [P-2] Add `apps/agent/src/routes/elevenlabs-builder.ts` route table and wire into `server-request-handler.ts` after the credential routes [owner:api-engineer] [type:api] [beads:nx-80dk6]
-- [ ] [2.6] [P-2] Update `apps/agent/src/notifications/channels/tts.ts` to read the DB row first, fall back to env var when row is absent [owner:api-engineer] [type:api] [beads:nx-hav1j]
-- [ ] [2.7] [P-2] Bun unit tests for all 5 endpoints (auth gate, mask invariant, cache hit/miss, env fallback, signal-only when both empty) [owner:test-writer] [type:testing] [beads:nx-meuog]
+- [x] [2.1] [P-1] Add `apps/agent/src/routes/elevenlabs-credentials.ts` with `handleGetCredentials`, `handlePatchCredentials`, `handleDeleteCredentials` [owner:api-engineer] [type:api] [beads:nx-8wnn]
+- [x] [2.2] [P-1] Add `handleTestConnection` in same file proxying `GET /v1/user` [owner:api-engineer] [type:api] [beads:nx-e6snv]
+- [x] [2.3] [P-1] Add `apps/agent/src/routes/elevenlabs-voices.ts` with `handleListVoices` (1h TTL in-memory cache, per-agent) [owner:api-engineer] [type:api] [beads:nx-t6y5u]
+- [x] [2.4] [P-1] Add Zod schemas for PATCH input + all GET response shapes in `packages/core/src/schemas/elevenlabs.ts` [owner:types-engineer] [type:api] [beads:nx-j0422]
+- [x] [2.5] [P-2] Add `apps/agent/src/routes/elevenlabs-builder.ts` route table and wire into `server-request-handler.ts` after the credential routes [owner:api-engineer] [type:api] [beads:nx-80dk6]
+- [x] [2.6] [P-2] Update `apps/agent/src/notifications/channels/tts.ts` to read the DB row first, fall back to env var when row is absent [owner:api-engineer] [type:api] [beads:nx-hav1j]
+- [x] [2.7] [P-2] Bun unit tests for all 5 endpoints (auth gate, mask invariant, cache hit/miss, env fallback, signal-only when both empty) [owner:test-writer] [type:testing] [beads:nx-meuog]
 ## UI Batch
 
 - [ ] [3.1] [P-1] `apps/nextjs/src/app/actions/elevenlabs-credentials.ts` server actions: `fetchCredentials`, `saveCredentials`, `testCredentials`, `deleteCredentials`, `listVoices` [owner:ui-engineer] [type:ui] [beads:nx-bnsfx]

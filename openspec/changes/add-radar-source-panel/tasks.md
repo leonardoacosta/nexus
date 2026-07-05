@@ -3,7 +3,7 @@
 <!-- beads:feature:nx-b3k17 -->
 
 ## API Batch
-- [ ] [1.1] `apps/agent/src/routes/requests.ts` — `GET /requests` passthrough to `${MX_GATEWAY_URL}/requests` forwarding status/source/changed_since params; mirror the fail-soft + logging shape of the existing `/sources` passthrough (`server-request-handler.ts:676-690`); register the route + method-guard entry. [beads:nx-tdo3s]
+- [x] [1.1] `apps/agent/src/routes/requests.ts` — `GET /requests` passthrough to `${MX_GATEWAY_URL}/requests` forwarding status/source/changed_since params; mirror the fail-soft + logging shape of the existing `/sources` passthrough (`server-request-handler.ts:676-690`); register the route + method-guard entry. [beads:nx-tdo3s]
 
 ## UI Batch
 - [ ] [2.1] `apps/web/src/app/radar/page.tsx` — fetch `/sources` via `NEXT_PUBLIC_NEXUS_AGENT_URL`; render one row per source (name, status, last scan, item count, MINE count, last error); unhealthy rows visually distinct; unset-URL renders the configure message per web-dashboard convention. [beads:nx-920w0]

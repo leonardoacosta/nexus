@@ -75,6 +75,16 @@ export {
   type NewProjectVoiceOverride,
 } from "./schema";
 
+// elevenlabs_credentials — per-agent encrypted ElevenLabs API key + voice
+// metadata (add-elevenlabs-credential). Backs `/elevenlabs/*` endpoints + the
+// TTS channel's DB-row-over-env credential resolution.
+export {
+  elevenlabsCredentials,
+  elevenlabsCredentialsRelations,
+  type ElevenlabsCredential,
+  type NewElevenlabsCredential,
+} from "./schema";
+
 // spec_sessions — many-to-many join between specs (project + name slug) and
 // sessions (session_id), written by POST /session/start when the caller
 // passes spec_slug. Survives session close — historical lookups

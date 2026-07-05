@@ -71,6 +71,7 @@ import { handleStatusline } from "./routes/statusline";
 import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
+import { handleGetRequests } from "./routes/requests";
 import { handleGetTriage } from "./routes/triage";
 import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
@@ -82,6 +83,7 @@ import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
 import { CREDENTIAL_ID_RE } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
+import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -146,6 +148,12 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/credentials/:id/report-rate-limit" },
   { method: "GET", path: "/credentials/:id/health" },
   { method: "GET", path: "/credentials/status" },
+  // ElevenLabs credential management (delegated to server-routes-elevenlabs.ts)
+  { method: "GET", path: "/elevenlabs/credentials" },
+  { method: "PATCH", path: "/elevenlabs/credentials" },
+  { method: "DELETE", path: "/elevenlabs/credentials" },
+  { method: "POST", path: "/elevenlabs/credentials/test" },
+  { method: "GET", path: "/elevenlabs/voices" },
   // Agents (settings)
   { method: "GET", path: "/agent/self" },
   { method: "POST", path: "/agents" },
@@ -164,6 +172,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/recommend" },
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
+  { method: "GET", path: "/requests" },
   { method: "GET", path: "/triage" },
   { method: "GET", path: "/thread" },
   { method: "GET", path: "/failures" },
@@ -522,6 +531,10 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       const credResult = tryHandleCredentialRoute(request, url);
       if (credResult !== null) return credResult;
 
+      // ── ElevenLabs credential routes (delegated) ─────────────────────
+      const elevenlabsResult = tryHandleElevenlabsRoute(request, url, db);
+      if (elevenlabsResult !== null) return elevenlabsResult;
+
       // ── Analytics routes ──────────────────────────────────────────────
       if (url.pathname === "/analytics/health" && request.method === "GET") {
         return handleAnalyticsHealth(db, url).then((r) => withCors(request, r)).catch((err) => {
@@ -679,6 +692,15 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         logger.error({ route: "/sources", method: "GET", err }, "route handler failed");
         // Fail-soft even on an unexpected throw: empty index, not 500.
         return withCors(request, new Response(JSON.stringify({ sources: [], inbox: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Request-history passthrough (no DB; proxies the mx gateway :8799) ─
+    if (url.pathname === "/requests" && request.method === "GET") {
+      return handleGetRequests(request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/requests", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty history, not 500.
+        return withCors(request, new Response(JSON.stringify({ requests: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
