@@ -120,3 +120,9 @@ export {
   type CcDecision,
   type NewCcDecision,
 } from "./ccDecision";
+export {
+  credentialPolls,
+  credentialPollsRelations,
+  type CredentialPoll,
+  type NewCredentialPoll,
+} from "./credentialPolls";

@@ -3,9 +3,9 @@
 <!-- beads:feature:nx-yx7fl -->
 
 ## DB Batch
-- [ ] [1.1] Create `packages/db/src/schema/credentialPolls.ts` — `credential_polls` table mirroring `health_snapshots`: `id` integer identity PK, `credentialId` text FK → `credentials.id` (`onDelete: cascade`), `fingerprint` text notNull, `usage5hUsed`/`usage5hLimit`/`usage7dUsed`/`usage7dLimit` integer, `usage5hResetAt`/`usage7dResetAt` timestamptz nullable, `polledAt` timestamptz notNull; indexes `(credentialId, polledAt)` and `(polledAt)`. Export `credentialPolls` + inferred types. [owner:db-engineer] [beads:nx-4jqil]
-- [ ] [1.2] Export `credentialPolls` from `packages/db/src/schema/index.ts` and ensure it is reachable via the `@nexus/db` barrel used by the agent. [owner:db-engineer] [beads:nx-n9xve]
-- [ ] [1.3] Generate the migration: `pnpm --filter @nexus/db db:generate`; commit the resulting `packages/db/drizzle/00XX_*.sql`. NEVER `db:push`. [owner:db-engineer] [beads:nx-c9uld]
+- [x] [1.1] Create `packages/db/src/schema/credentialPolls.ts` — `credential_polls` table mirroring `health_snapshots`: `id` integer identity PK, `credentialId` text FK → `credentials.id` (`onDelete: cascade`), `fingerprint` text notNull, `usage5hUsed`/`usage5hLimit`/`usage7dUsed`/`usage7dLimit` integer, `usage5hResetAt`/`usage7dResetAt` timestamptz nullable, `polledAt` timestamptz notNull; indexes `(credentialId, polledAt)` and `(polledAt)`. Export `credentialPolls` + inferred types. [owner:db-engineer] [beads:nx-4jqil]
+- [x] [1.2] Export `credentialPolls` from `packages/db/src/schema/index.ts` and ensure it is reachable via the `@nexus/db` barrel used by the agent. [owner:db-engineer] [beads:nx-n9xve]
+- [x] [1.3] Generate the migration: `pnpm --filter @nexus/db db:generate`; commit the resulting `packages/db/drizzle/00XX_*.sql`. NEVER `db:push`. [owner:db-engineer] [beads:nx-c9uld]
 
 ## API Batch
 - [ ] [2.1] In `apps/agent/src/services/credential-usage-poller.ts` `writeSnapshot()`, after the existing `credentials` current-state update, `INSERT` one `credential_polls` row (credentialId, fingerprint, the four used/limit values, both reset instants, `polledAt = new Date()`). Only on successful parse; no insert on failed/unparseable polls. [owner:api-engineer] [beads:nx-r4n23]
