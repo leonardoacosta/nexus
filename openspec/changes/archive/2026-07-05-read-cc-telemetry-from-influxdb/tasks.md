@@ -19,7 +19,7 @@
 
 ## UI Batch
 
-- [~] [3.1] Verify dashboard consumers of `/sessions/{id}/tokens` (Swift dashboards — nexus-mac/ios) render per-session cost/tokens unchanged from the repointed endpoint [owner:ui-engineer] [beads:nx-nt5ex] — **CONTRACT-VERIFY DONE (e2e-engineer, wave1b)**: grep across `apps/swift/**/*.swift` finds **NO Codable consumer of `/sessions/{id}/tokens`** — no Swift model decodes the `{turns, aggregates:{input,output,cache_creation,cache_read,cost_usd,turn_count}}` shape. The per-session cost the dashboard renders comes from `NexusShared/Models/Session.swift` `totalCostUsd: Double?` on the `/sessions` LIST endpoint (untouched by this migration). The repointed `/tokens` response SHAPE is byte-identical to the pre-migration handler, so there is zero Swift decode surface to break. Shape proven by the route positive test (`session-cost-read.test.ts` → "GET /sessions/{id}/tokens — VictoriaMetrics-sourced (4.1)"). **DEPLOY-ENV-DEFERRED**: on-device visual render (Mac + deployed agent + live VM) NOT run — requires the deployed environment.
+- [x] [3.1] Verify dashboard consumers of `/sessions/{id}/tokens` (Swift dashboards — nexus-mac/ios) render per-session cost/tokens unchanged from the repointed endpoint [owner:ui-engineer] [beads:nx-nt5ex] — **CONTRACT-VERIFY DONE (e2e-engineer, wave1b)**: grep across `apps/swift/**/*.swift` finds **NO Codable consumer of `/sessions/{id}/tokens`** — no Swift model decodes the `{turns, aggregates:{input,output,cache_creation,cache_read,cost_usd,turn_count}}` shape. The per-session cost the dashboard renders comes from `NexusShared/Models/Session.swift` `totalCostUsd: Double?` on the `/sessions` LIST endpoint (untouched by this migration). The repointed `/tokens` response SHAPE is byte-identical to the pre-migration handler, so there is zero Swift decode surface to break. Shape proven by the route positive test (`session-cost-read.test.ts` → "GET /sessions/{id}/tokens — VictoriaMetrics-sourced (4.1)"). **DEPLOY-ENV-DEFERRED**: on-device visual render (Mac + deployed agent + live VM) NOT run — requires the deployed environment.
 
 ## E2E Batch
 
@@ -30,4 +30,4 @@
 
 ## Housekeeping
 
-- [ ] Archive/supersede the `explore-native-otel-telemetry` exploration (read-from-VictoriaMetrics replaces its Collector -> Postgres shim)
+- [x] Archive/supersede the `explore-native-otel-telemetry` exploration (read-from-VictoriaMetrics replaces its Collector -> Postgres shim) — archived as `2026-07-05-explore-native-otel-telemetry` via /apply:all.
