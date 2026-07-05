@@ -642,9 +642,10 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     }
   }
 
-  // Roadmap pulse — "what's next" (already ≤40 chars, capped by roadmap-pulse itself)
+  // Roadmap pulse — "what's next" on its own line (already ≤40 chars, capped
+  // by roadmap-pulse itself)
   if (deps.pulse) {
-    parts.push(`${SPEC}${deps.pulse}${RESET}`);
+    return `${parts.join("  ")}\n${SPEC}${deps.pulse}${RESET}`;
   }
 
   return parts.join("  ");

@@ -224,7 +224,7 @@ describe("renderStatusline — degraded mode", () => {
 describe("renderStatusline — roadmap pulse segment", () => {
   it("[5.1] pulse string in deps renders at end of line", () => {
     const out = renderStatusline({}, { ...baseDeps, pulse: "next: ship the thing" });
-    expect(strip(out)).toEndWith("next: ship the thing");
+    expect(strip(out)).toEndWith("\nnext: ship the thing");
   });
 
   it("[5.1b] null/absent pulse renders no segment", () => {
