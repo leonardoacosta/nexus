@@ -691,6 +691,43 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /credentials/:id/usage-history?window=5h|7d&sinceHours=N` — the
+    /// ordered utilization series for one account (oldest → newest). Backs the
+    /// Mac dashboard's per-row sparkline. `window` selects which of the 5h / 7d
+    /// used+limit columns the agent maps onto each point; `sinceHours` is the
+    /// lookback. Returns `[]` on a 200 with no rows (unknown id / no history
+    /// yet) or a 404 (older agent without the endpoint) so the chart hides its
+    /// section instead of surfacing an error.
+    ///
+    /// Spec: openspec/changes/credential-usage-history (task 3.2) — bd:nx-ffpi8
+    public func fetchUsageHistory(
+        id: String,
+        window: String = "5h",
+        sinceHours: Int = 24
+    ) async throws -> [UsageHistoryPoint] {
+        let escaped = id.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? id
+        var comps = URLComponents(
+            url: endpoint.baseURL
+                .appendingPathComponent("credentials")
+                .appendingPathComponent(escaped)
+                .appendingPathComponent("usage-history"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [
+            URLQueryItem(name: "window", value: window),
+            URLQueryItem(name: "sinceHours", value: String(sinceHours)),
+        ]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: UsageHistoryResponse = try await getJSON(url: url)
+            return envelope.points
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
     /// `GET /failures?days=N` — recent script + notification failures.
     /// `limit` constrains the rendered top-N (server may return more).
     public func fetchScriptErrors(limit: Int = 50, days: Int = 7) async throws -> [ScriptError] {
