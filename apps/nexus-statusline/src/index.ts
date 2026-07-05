@@ -39,8 +39,8 @@
  *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: workspace.project_dir, then cwd)
  */
 
-import { readFileSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync, openSync, readSync, closeSync, statSync } from "node:fs";
+import { execSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 
@@ -381,6 +381,55 @@ async function getAccountDomain(): Promise<string | null> {
   }
 }
 
+// ── Roadmap pulse (cc advisor-plans/026) ─────────────────────────────────────
+
+const PULSE_CACHE_TTL_MS = 300_000; // 5 minutes
+const PULSE_BIN = join(homedir(), ".claude/scripts/bin/roadmap-pulse");
+
+/**
+ * Read the roadmap-pulse segment for a project, stale-while-revalidate.
+ *
+ * roadmap-pulse --line takes ~1.4s (bd/openspec scans) — far too slow to run
+ * inline on a per-prompt render. So: always serve the cached line (per-project
+ * file, mtime = freshness) and, when stale, kick off a detached background
+ * refresh for a future render. First-ever render shows nothing; that's fine.
+ * Output is project-dependent (openspec/ scan of the repo), hence the
+ * per-project cache file and cwd on the refresh spawn.
+ */
+function getRoadmapPulse(projectDir: string): string | null {
+  try {
+    const projectCode = deriveProjectCode(projectDir);
+    const cachePath = join(
+      homedir(),
+      `.claude/scripts/state/roadmap-pulse.${projectCode}.line`,
+    );
+
+    let line: string | null = null;
+    let stale = true;
+    try {
+      stale = Date.now() - statSync(cachePath).mtimeMs > PULSE_CACHE_TTL_MS;
+      line = readFileSync(cachePath, "utf-8").trim() || null;
+    } catch {
+      // No cache yet
+    }
+
+    if (stale) {
+      const child = spawn(
+        "sh",
+        ["-c", `"${PULSE_BIN}" --line > "${cachePath}.tmp" 2>/dev/null && mv "${cachePath}.tmp" "${cachePath}"`],
+        { cwd: projectDir, detached: true, stdio: "ignore" },
+      );
+      child.unref();
+    }
+
+    // "Nothing pending." is the script's empty state — not worth a segment
+    if (line === "Nothing pending.") return null;
+    return line;
+  } catch {
+    return null;
+  }
+}
+
 // ── Gauge rendering ──────────────────────────────────────────────────────────
 
 function renderGauge(label: string, pct: number, suffix: string): string {
@@ -477,6 +526,8 @@ interface RenderDeps {
   accountDomain: string | null;
   /** Project directory used for fallback project-code derivation. */
   projectDir: string;
+  /** Cached roadmap-pulse --line output; null/absent = no segment. */
+  pulse?: string | null;
 }
 
 /**
@@ -591,6 +642,11 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     }
   }
 
+  // Roadmap pulse — "what's next" (already ≤40 chars, capped by roadmap-pulse itself)
+  if (deps.pulse) {
+    parts.push(`${SPEC}${deps.pulse}${RESET}`);
+  }
+
   return parts.join("  ");
 }
 
@@ -624,6 +680,7 @@ async function main(): Promise<void> {
     usage,
     accountDomain,
     projectDir,
+    pulse: getRoadmapPulse(projectDir),
   });
 
   process.stdout.write(out);
