@@ -8,7 +8,7 @@
  * exercised end-to-end in tasks 4.1–4.3 against a homelab agent.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, afterEach } from "bun:test";
 import type { Db } from "@nexus/db";
 import { parseUsageBody, startCredentialUsagePoller } from "./credential-usage-poller";
 import type { CredentialPool } from "../credentials/pool";
@@ -198,6 +198,115 @@ describe("credential-usage-poller: onTickComplete evaluator hook (2.3)", () => {
       // tickOnce MUST resolve (the throw is swallowed), not reject.
       const result = await svc.tickOnce();
       expect(result.backedOff).toBe(false);
+    } finally {
+      svc.stop();
+    }
+  });
+});
+
+// ── [4.1] credential_polls history-row write on tickOnce ───────────────────
+//
+// A successful tick (token present + parseable /api/oauth/usage response) MUST
+// append exactly one credential_polls row with the parsed snapshot values. A
+// failed/unparseable response MUST append none. We drive tickOnce() with:
+//   - a capturing db stub that records every insert(...).values(...)
+//   - a pool whose getDecrypted yields a token-bearing OAuth blob
+//   - a stubbed global fetch (fetchWithTimeout wraps the global fetch)
+// so no real network or Postgres is touched — this mirrors the pure-stub style
+// of the parser/back-off tests above. The full DB path is also covered by the
+// route + reaper live-PG suites.
+
+/** One pollable row; accountEmail set so no opportunistic identity re-probe. */
+const POLL_ROW = { id: "cred-1", accountEmail: "a@b.com", fingerprint: "fp-1" };
+
+/** db stub that resolves queryPollableRows and captures inserted poll rows. */
+function capturingDb(inserts: Array<Record<string, unknown>>): Db {
+  return {
+    select: () => ({
+      from: () => ({ where: () => Promise.resolve([POLL_ROW]) }),
+    }),
+    update: () => ({
+      set: () => ({ where: () => Promise.resolve() }),
+    }),
+    insert: () => ({
+      values: (v: Record<string, unknown>) => {
+        inserts.push(v);
+        return Promise.resolve();
+      },
+    }),
+  } as unknown as Db;
+}
+
+/** pool stub: decrypt yields a token-bearing OAuth blob so a fetch is attempted. */
+function tokenPool(): CredentialPool {
+  return {
+    getDecrypted: async () =>
+      JSON.stringify({ claudeAiOauth: { accessToken: "tok-123" } }),
+  } as unknown as CredentialPool;
+}
+
+const ORIGINAL_FETCH = globalThis.fetch;
+
+describe("credential-usage-poller: credential_polls history write (4.1)", () => {
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
+  });
+
+  it("inserts exactly one credential_polls row on a successful tick", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          five_hour: { used: 41, limit: 50, resets_at: "2030-01-01T00:00:00.000Z" },
+          seven_day: { used: 220, limit: 1000, resets_at: "2030-01-08T00:00:00.000Z" },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const inserts: Array<Record<string, unknown>> = [];
+    const svc = startCredentialUsagePoller({
+      db: capturingDb(inserts),
+      pool: tokenPool(),
+      intervalMs: 1_000_000,
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.attempted).toBe(1);
+      expect(result.succeeded).toBe(1);
+      expect(result.failed).toBe(0);
+
+      expect(inserts).toHaveLength(1);
+      expect(inserts[0]).toMatchObject({
+        credentialId: "cred-1",
+        fingerprint: "fp-1",
+        usage5hUsed: 41,
+        usage5hLimit: 50,
+        usage7dUsed: 220,
+        usage7dLimit: 1000,
+      });
+    } finally {
+      svc.stop();
+    }
+  });
+
+  it("inserts no credential_polls row when the response is unparseable", async () => {
+    // 200 OK but a body parseUsageBody rejects → payload null → no write.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ five_hour: 42, seven_day: "junk" }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+
+    const inserts: Array<Record<string, unknown>> = [];
+    const svc = startCredentialUsagePoller({
+      db: capturingDb(inserts),
+      pool: tokenPool(),
+      intervalMs: 1_000_000,
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.attempted).toBe(1);
+      expect(result.succeeded).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(inserts).toHaveLength(0);
     } finally {
       svc.stop();
     }

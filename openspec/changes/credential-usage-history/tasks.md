@@ -22,7 +22,7 @@
 - [x] [3.4] Render the chart in `apps/swift/nexus-mac/Sources/Dashboard/CredentialsView.swift` beneath the existing `CredentialsUsageBar`, loading history per account row on `.task`. Mac only; no iOS/watch changes. [owner:swift-engineer] [beads:nx-7v5qm]
 
 ## E2E Batch
-- [ ] [4.1] Extend `apps/agent/src/services/credential-usage-poller.test.ts`: a successful `tickOnce()` inserts one `credential_polls` row with the expected values; a failed/unparseable poll inserts none. [owner:e2e-engineer] [beads:nx-haoyt]
-- [ ] [4.2] Add a reaper test in the cron suite asserting rows older than 30 days are deleted and newer rows retained. [owner:e2e-engineer] [beads:nx-d0t9c]
-- [ ] [4.3] Add a route test (beside `handlers-crud.test.ts`) for `GET /credentials/:id/usage-history`: ordered points for a seeded id, `{ points: [] }` + 200 for an unknown id, and `window=7d` selecting the 7-day columns. [owner:e2e-engineer] [beads:nx-pdirs]
+- [x] [4.1] Extend `apps/agent/src/services/credential-usage-poller.test.ts`: a successful `tickOnce()` inserts one `credential_polls` row with the expected values; a failed/unparseable poll inserts none. [owner:e2e-engineer] [beads:nx-haoyt]
+- [x] [4.2] Add a reaper test in the cron suite asserting rows older than 30 days are deleted and newer rows retained. [owner:e2e-engineer] [beads:nx-d0t9c]
+- [x] [4.3] Add a route test (beside `handlers-crud.test.ts`) for `GET /credentials/:id/usage-history`: ordered points for a seeded id, `{ points: [] }` + 200 for an unknown id, and `window=7d` selecting the 7-day columns. [owner:e2e-engineer] [beads:nx-pdirs]
 - [x] [4.4] Add a `CredentialsUsageHistoryChart` unit test (beside `CredentialsUsageBarTests.swift`) mapping points → utilization ratio and confirming empty-points hides the chart. [owner:swift-engineer] [beads:nx-2w15v]
