@@ -96,6 +96,18 @@ export interface UsageSnapshot {
 }
 
 /**
+ * One point in an account's utilization-over-time series, returned by
+ * `GET /credentials/:id/usage-history`. `used`/`limit` are the raw counts for
+ * the selected window (5h or 7d); the UI derives the ratio. `polledAt` is the
+ * ISO-8601 instant the poll was captured.
+ */
+export interface UsageHistoryPoint {
+  polledAt: string;
+  used: number;
+  limit: number;
+}
+
+/**
  * Top-level row on the credentials page.
  *
  * Keyed by `fingerprint` — every `snapshots[i].fingerprint` equals

@@ -14,10 +14,12 @@ import {
   handleListCredentials,
   handleReportRateLimit,
   handleCredentialHealth,
+  handleCredentialUsageHistory,
   handleGetActiveCredential,
   handleRefreshIdentity,
   handleRefreshIdentityAll,
 } from "./routes/credentials";
+import { dbRef } from "./routes/credentials/shared";
 import { withCors } from "./server-origin";
 import { CREDENTIAL_ID_RE } from "./server-auth";
 
@@ -150,6 +152,41 @@ export function tryHandleCredentialRoute(
       logger.error({ route: "/credentials/:id/health", method: "GET", err }, "route handler failed");
       return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
     });
+  }
+
+  // GET /credentials/{id}/usage-history — utilization time-series
+  const credUsageHistoryMatch = url.pathname.match(
+    /^\/credentials\/([^/]+)\/usage-history$/,
+  );
+  if (credUsageHistoryMatch && request.method === "GET") {
+    if (!CREDENTIAL_ID_RE.test(credUsageHistoryMatch[1]!)) {
+      return withCors(request, new Response("Bad Request", { status: 400 }));
+    }
+    const db = dbRef.current;
+    if (!db) {
+      return withCors(
+        request,
+        new Response(JSON.stringify({ error: "credential system not initialized" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return handleCredentialUsageHistory(db, credUsageHistoryMatch[1]!, request)
+      .then((r) => withCors(request, r))
+      .catch((err) => {
+        logger.error(
+          { route: "/credentials/:id/usage-history", method: "GET", err },
+          "route handler failed",
+        );
+        return withCors(
+          request,
+          new Response(JSON.stringify({ error: "internal error" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      });
   }
 
   // GET /credentials/status — pool overview

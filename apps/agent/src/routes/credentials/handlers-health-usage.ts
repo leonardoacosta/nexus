@@ -8,12 +8,15 @@
 import type { Db } from "@nexus/db";
 import {
   credentials as credentialsTable,
+  credentialPolls,
   sessionTokenTurns,
   eq,
   and,
+  asc,
   sql,
 } from "@nexus/db";
 import { gte } from "drizzle-orm";
+import type { UsageHistoryPoint } from "@nexus/core";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import {
   emitAudit,
@@ -167,4 +170,74 @@ export async function handleCredentialUsage(
     turn_count: Number(agg?.turn_count ?? 0),
     session_count: Number(agg?.session_count ?? 0),
   });
+}
+
+// ── Usage history (utilization time-series) ─────────────────────────────────
+
+const VALID_HISTORY_WINDOWS = ["5h", "7d"] as const;
+type HistoryWindow = (typeof VALID_HISTORY_WINDOWS)[number];
+
+/**
+ * GET /credentials/{id}/usage-history?window=5h|7d&sinceHours=N — ordered
+ * utilization series for one credential, sourced from the append-only
+ * `credential_polls` table.
+ *
+ * Maps the selected window's used/limit columns to `{ polledAt, used, limit }`,
+ * ordered oldest-first. Defaults: `window=5h`, `sinceHours=24`. An unknown id
+ * (or one with no polls yet) returns `{ points: [] }` with 200 — history is
+ * best-effort, not an existence check.
+ */
+export async function handleCredentialUsageHistory(
+  db: Db,
+  id: string,
+  request: Request,
+): Promise<Response> {
+  const url = new URL(request.url);
+
+  const windowParam = url.searchParams.get("window") ?? "5h";
+  if (!VALID_HISTORY_WINDOWS.includes(windowParam as HistoryWindow)) {
+    return jsonResponse(
+      { error: "invalid window parameter", valid: [...VALID_HISTORY_WINDOWS] },
+      400,
+    );
+  }
+  const window = windowParam as HistoryWindow;
+
+  const sinceHoursRaw = Number.parseInt(
+    url.searchParams.get("sinceHours") ?? "24",
+    10,
+  );
+  const sinceHours =
+    Number.isFinite(sinceHoursRaw) && sinceHoursRaw > 0 ? sinceHoursRaw : 24;
+  const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+
+  const usedCol =
+    window === "5h" ? credentialPolls.usage5hUsed : credentialPolls.usage7dUsed;
+  const limitCol =
+    window === "5h"
+      ? credentialPolls.usage5hLimit
+      : credentialPolls.usage7dLimit;
+
+  const rows = await db
+    .select({
+      polledAt: credentialPolls.polledAt,
+      used: usedCol,
+      limit: limitCol,
+    })
+    .from(credentialPolls)
+    .where(
+      and(
+        eq(credentialPolls.credentialId, id),
+        gte(credentialPolls.polledAt, since),
+      ),
+    )
+    .orderBy(asc(credentialPolls.polledAt));
+
+  const points: UsageHistoryPoint[] = rows.map((r) => ({
+    polledAt: r.polledAt.toISOString(),
+    used: r.used ?? 0,
+    limit: r.limit ?? 0,
+  }));
+
+  return jsonResponse({ points });
 }

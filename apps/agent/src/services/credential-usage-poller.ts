@@ -23,7 +23,7 @@
  */
 
 import type { Db } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { credentials, credentialPolls } from "@nexus/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
@@ -195,12 +195,18 @@ function extractAccessToken(plaintext: string | null): string | null {
   }
 }
 
-/** Persist a parsed usage snapshot to the credentials row. */
+/**
+ * Persist a parsed usage snapshot: overwrite the credentials row's current
+ * state, then append one immutable `credential_polls` history row. Both writes
+ * happen only on a successful parse — a null payload never reaches here.
+ */
 async function writeSnapshot(
   db: Db,
   credentialId: string,
+  fingerprint: string,
   payload: UsagePayload,
 ): Promise<void> {
+  const polledAt = new Date();
   await db
     .update(credentials)
     .set({
@@ -210,14 +216,28 @@ async function writeSnapshot(
       usage7dUsed: payload.sevenDay.used,
       usage7dLimit: payload.sevenDay.limit,
       usage7dResetAt: payload.sevenDay.resetsAt,
-      usagePolledAt: new Date(),
+      usagePolledAt: polledAt,
     })
     .where(eq(credentials.id, credentialId));
+
+  // Append-only history row — one per polled account per successful tick.
+  await db.insert(credentialPolls).values({
+    credentialId,
+    fingerprint,
+    usage5hUsed: payload.fiveHour.used,
+    usage5hLimit: payload.fiveHour.limit,
+    usage7dUsed: payload.sevenDay.used,
+    usage7dLimit: payload.sevenDay.limit,
+    usage5hResetAt: payload.fiveHour.resetsAt,
+    usage7dResetAt: payload.sevenDay.resetsAt,
+    polledAt,
+  });
 }
 
 interface PrimaryAvailableRow {
   id: string;
   accountEmail: string | null;
+  fingerprint: string;
 }
 
 /** Query rows that should be polled this tick. */
@@ -226,6 +246,7 @@ async function queryPollableRows(db: Db): Promise<PrimaryAvailableRow[]> {
     .select({
       id: credentials.id,
       accountEmail: credentials.accountEmail,
+      fingerprint: credentials.fingerprint,
     })
     .from(credentials)
     .where(
@@ -308,7 +329,7 @@ export function startCredentialUsagePoller(
       }
 
       try {
-        await writeSnapshot(db, row.id, payload);
+        await writeSnapshot(db, row.id, row.fingerprint, payload);
         succeeded++;
 
         // Opportunistic identity re-probe for rows whose accountEmail is

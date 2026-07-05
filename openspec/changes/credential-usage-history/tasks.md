@@ -8,12 +8,12 @@
 - [x] [1.3] Generate the migration: `pnpm --filter @nexus/db db:generate`; commit the resulting `packages/db/drizzle/00XX_*.sql`. NEVER `db:push`. [owner:db-engineer] [beads:nx-c9uld]
 
 ## API Batch
-- [ ] [2.1] In `apps/agent/src/services/credential-usage-poller.ts` `writeSnapshot()`, after the existing `credentials` current-state update, `INSERT` one `credential_polls` row (credentialId, fingerprint, the four used/limit values, both reset instants, `polledAt = new Date()`). Only on successful parse; no insert on failed/unparseable polls. [owner:api-engineer] [beads:nx-r4n23]
-- [ ] [2.2] Thread the credential `fingerprint` into `writeSnapshot` (extend `queryPollableRows`/`PrimaryAvailableRow` to select `fingerprint`) so the history row can be grouped by account. [owner:api-engineer] [beads:nx-a0pii]
-- [ ] [2.3] Add `credential_polls` pruning to the weekly reaper in `apps/agent/src/services/cron.ts` `runReaperJob` — delete rows where `polled_at < now() - interval '30 days'`. [owner:api-engineer] [beads:nx-3teeu]
-- [ ] [2.4] Add `GET /credentials/:id/usage-history?window=5h|7d&sinceHours=N` handler (new function beside `handlers-health-usage.ts`): query `credential_polls` for the id since the lookback, map the selected window's columns to `{ polledAt, used, limit }`, order `polled_at ASC`, return `{ points }`. Defaults `window=5h`, `sinceHours=24`. [owner:api-engineer] [beads:nx-5sk9s]
-- [ ] [2.5] Register the new route in `apps/agent/src/routes/credentials/index.ts`. [owner:api-engineer] [beads:nx-n03hd]
-- [ ] [2.6] Add `UsageHistoryPoint` (`{ polledAt: string; used: number; limit: number }`) to `packages/core/src/types/account.ts` and export from `packages/core/src/index.ts`. [owner:types-engineer] [beads:nx-e2q41]
+- [x] [2.1] In `apps/agent/src/services/credential-usage-poller.ts` `writeSnapshot()`, after the existing `credentials` current-state update, `INSERT` one `credential_polls` row (credentialId, fingerprint, the four used/limit values, both reset instants, `polledAt = new Date()`). Only on successful parse; no insert on failed/unparseable polls. [owner:api-engineer] [beads:nx-r4n23]
+- [x] [2.2] Thread the credential `fingerprint` into `writeSnapshot` (extend `queryPollableRows`/`PrimaryAvailableRow` to select `fingerprint`) so the history row can be grouped by account. [owner:api-engineer] [beads:nx-a0pii]
+- [x] [2.3] Add `credential_polls` pruning to the weekly reaper in `apps/agent/src/services/cron.ts` `runReaperJob` — delete rows where `polled_at < now() - interval '30 days'`. [owner:api-engineer] [beads:nx-3teeu]
+- [x] [2.4] Add `GET /credentials/:id/usage-history?window=5h|7d&sinceHours=N` handler (new function beside `handlers-health-usage.ts`): query `credential_polls` for the id since the lookback, map the selected window's columns to `{ polledAt, used, limit }`, order `polled_at ASC`, return `{ points }`. Defaults `window=5h`, `sinceHours=24`. [owner:api-engineer] [beads:nx-5sk9s]
+- [x] [2.5] Register the new route in `apps/agent/src/routes/credentials/index.ts`. [owner:api-engineer] [beads:nx-n03hd]
+- [x] [2.6] Add `UsageHistoryPoint` (`{ polledAt: string; used: number; limit: number }`) to `packages/core/src/types/account.ts` and export from `packages/core/src/index.ts`. [owner:types-engineer] [beads:nx-e2q41]
 
 ## UI Batch
 - [ ] [3.1] Add `UsageHistoryPoint` Codable model + `CredentialListResponse`-style envelope to `apps/swift/NexusShared/Models/CcProfile.swift` (or a sibling model file). [owner:swift-engineer] [beads:nx-bku97]
