@@ -18,6 +18,7 @@
 		0D8946BCAC446BC09B3F941D /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19140503AECBE5CFA0098D31 /* SettingsTtsViewTests.swift */; };
 		0F2FEFBCE39EA1750F1F14DC /* NotificationActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917572BCCC40D2AA573C6468 /* NotificationActivation.swift */; };
+		0F3E4F1104798148DFD1A94E /* SettingsTokensView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5A5F328D2C86A264F05366 /* SettingsTokensView.swift */; };
 		10171FAA5BF30FECFF75501F /* nexusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF435A18F0E9DD92003C3A76 /* nexusApp.swift */; };
 		1261E3634980C85CEC0B5D8D /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		134A9BDD2509A812E3964924 /* NotificationsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A532A469108B79B09D86A5DA /* NotificationsScene.swift */; };
@@ -78,6 +79,7 @@
 		5E29F30FF1AD0D4D3F3ED7CE /* SettingsTtsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C4DEA80A61EFBDEC969643 /* SettingsTtsView.swift */; };
 		5F67E3556D6BB41CF09D0E3A /* MedsObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E978F94DF484B67B064C297E /* MedsObserver.swift */; };
 		5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF82FA65C214FE1491DE3E4 /* LaunchAgentInstallerTests.swift */; };
+		617D8E6E9B79FBFB0645490D /* SettingsTokensViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD02644C27F567F00688CDED /* SettingsTokensViewTests.swift */; };
 		6335303D621CAD5DB26654A4 /* WavePlanStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */; };
 		6364EAC1E30154DDA1BCDF6A /* SourceIndexObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A464086226E8599A7BC301 /* SourceIndexObserver.swift */; };
 		63C60B0F83BEA215479D0AB3 /* FleetPresenceIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */; };
@@ -413,6 +415,7 @@
 		4D8F43EE044A1CD7345E3FCE /* HealthKitMedBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMedBridge.swift; sourceTree = "<group>"; };
 		4E79DB0015B5859AAC480C97 /* MetricsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsRow.swift; sourceTree = "<group>"; };
 		4EBCDFBE87B23310A9E67D7C /* NexusSharedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NexusSharedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4F5A5F328D2C86A264F05366 /* SettingsTokensView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTokensView.swift; sourceTree = "<group>"; };
 		4F70D84BB75E0E9CE5C68D89 /* AttachButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachButton.swift; sourceTree = "<group>"; };
 		51C8FAB9AEABD956F824CDBA /* StatusIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIcon.swift; sourceTree = "<group>"; };
 		5274BF2DD45938CFBD12A3F1 /* SettingsNotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNotificationsView.swift; sourceTree = "<group>"; };
@@ -483,6 +486,7 @@
 		ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActivationHandlerTests.swift; sourceTree = "<group>"; };
 		ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavePlanStatusTests.swift; sourceTree = "<group>"; };
 		ACF7696CDB6C8E33CDD0A500 /* ProjectAggregate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAggregate.swift; sourceTree = "<group>"; };
+		AD02644C27F567F00688CDED /* SettingsTokensViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTokensViewTests.swift; sourceTree = "<group>"; };
 		B0384CA9ED243F4F09451466 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusMacAppDelegate.swift; sourceTree = "<group>"; };
 		B213F5631650836B0CE90CEB /* nexus-watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -650,6 +654,7 @@
 				899EAA27132F0989904D5A65 /* SettingsDiagnosticsView.swift */,
 				5274BF2DD45938CFBD12A3F1 /* SettingsNotificationsView.swift */,
 				79D52B73629D70857001E583 /* SettingsRoutingView.swift */,
+				4F5A5F328D2C86A264F05366 /* SettingsTokensView.swift */,
 				63C4DEA80A61EFBDEC969643 /* SettingsTtsView.swift */,
 			);
 			path = Settings;
@@ -1000,6 +1005,7 @@
 				A06DFD96E27531E259E3A5BF /* SettingsAgentsViewTests.swift */,
 				08D3759E7809683FD1E36F16 /* SettingsDiagnosticsViewTests.swift */,
 				A3F466880670E7E2C6CC9CBC /* SettingsRoutingViewTests.swift */,
+				AD02644C27F567F00688CDED /* SettingsTokensViewTests.swift */,
 				19140503AECBE5CFA0098D31 /* SettingsTtsViewTests.swift */,
 				08F50167D8627C3771ECF996 /* SpecDetailViewTests.swift */,
 				897BFA2E5C2DEF0037749BF3 /* SpecsViewTests.swift */,
@@ -1458,6 +1464,7 @@
 				025E2C0CBD6A642DD5ED472A /* SettingsDiagnosticsView.swift in Sources */,
 				DD5ADFE245F2EACAF32FABB3 /* SettingsNotificationsView.swift in Sources */,
 				F2484BF836A9D8D2E7888ED3 /* SettingsRoutingView.swift in Sources */,
+				0F3E4F1104798148DFD1A94E /* SettingsTokensView.swift in Sources */,
 				5E29F30FF1AD0D4D3F3ED7CE /* SettingsTtsView.swift in Sources */,
 				F642384DE730B82BA0405638 /* SettingsView.swift in Sources */,
 				17968D234544DB4B2DDAE60C /* SourceIndexView.swift in Sources */,
@@ -1533,6 +1540,7 @@
 				ED709811569DA0C597C23129 /* SettingsAgentsViewTests.swift in Sources */,
 				7B29FDA887CE5571ECDEDEAB /* SettingsDiagnosticsViewTests.swift in Sources */,
 				57BC1F6F9A0F0354CF88910A /* SettingsRoutingViewTests.swift in Sources */,
+				617D8E6E9B79FBFB0645490D /* SettingsTokensViewTests.swift in Sources */,
 				0EC97136AECABA74486FFE9C /* SettingsTtsViewTests.swift in Sources */,
 				D5C633E7052DE44FC5546D4A /* SpecDetailViewTests.swift in Sources */,
 				FA37E2848563130A1D122C31 /* SpecsViewTests.swift in Sources */,

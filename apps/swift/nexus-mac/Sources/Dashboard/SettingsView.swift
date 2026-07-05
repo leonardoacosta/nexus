@@ -18,6 +18,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case routing
     case agents
     case dashboard
+    case tokens
     case diagnostics
 
     var id: String { rawValue }
@@ -29,6 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .routing:       return "Routing"
         case .agents:        return "Agents"
         case .dashboard:     return "Dashboard"
+        case .tokens:        return "Access Tokens"
         case .diagnostics:   return "Diagnostics"
         }
     }
@@ -41,6 +43,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .routing:       return "arrow.triangle.branch"
         case .agents:        return "network"
         case .dashboard:     return "slider.horizontal.3"
+        case .tokens:        return "key.horizontal"
         case .diagnostics:   return "waveform.path.ecg"
         }
     }
@@ -90,6 +93,7 @@ struct SettingsView: View {
         case .routing:       SettingsRoutingView()
         case .agents:        SettingsAgentsView()
         case .dashboard:     SettingsDashboardView()
+        case .tokens:        SettingsTokensView()
         case .diagnostics:   SettingsDiagnosticsView()
         }
     }

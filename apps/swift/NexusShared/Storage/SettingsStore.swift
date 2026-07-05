@@ -85,8 +85,14 @@ public final class SettingsStore: @unchecked Sendable {
 
     /// Optional bearer token for the meds sidecar. When set, requests carry
     /// `Authorization: Bearer <token>`; when nil, no auth header (tailnet-trust).
+    ///
+    /// Resolution order: a per-device UserDefaults override (set via the Mac
+    /// Tokens settings pane) wins; else the build-time `MEDS_TOKEN` Info.plist
+    /// value seeded from the gitignored `Secrets.xcconfig`. This lets the same
+    /// server-side token reach every device build without manual per-device
+    /// entry, since UserDefaults is NOT shared across targets/devices here.
     public var medsToken: String? {
-        get { defaults.string(forKey: Keys.medsToken) }
+        get { Self.resolvedToken(defaults.string(forKey: Keys.medsToken), plistKey: "MEDS_TOKEN") }
         set { defaults.set(newValue, forKey: Keys.medsToken) }
     }
 
@@ -117,10 +123,36 @@ public final class SettingsStore: @unchecked Sendable {
 
     /// Optional bearer token for the Plaid control sidecar. When set, requests
     /// carry `Authorization: Bearer <token>`; when nil, no auth header
-    /// (tailnet-trust).
+    /// (tailnet-trust). Resolution order mirrors `medsToken`: UserDefaults
+    /// override wins, else the build-time `PLAID_CONTROL_TOKEN` Info.plist value.
     public var plaidControlToken: String? {
-        get { defaults.string(forKey: Keys.plaidControlToken) }
+        get { Self.resolvedToken(defaults.string(forKey: Keys.plaidControlToken), plistKey: "PLAID_CONTROL_TOKEN") }
         set { defaults.set(newValue, forKey: Keys.plaidControlToken) }
+    }
+
+    // MARK: - Health ingest (mx-health tailnet ingest, :8798)
+
+    /// Optional bearer token for the mx homelab HealthKit ingest target. When
+    /// set, HealthKit pushes carry `Authorization: Bearer <token>`; when nil,
+    /// no auth header (tailnet-trust). Resolution order mirrors `medsToken`:
+    /// UserDefaults override wins, else the build-time `HEALTH_INGEST_TOKEN`
+    /// Info.plist value seeded from the gitignored `Secrets.xcconfig`.
+    public var healthIngestToken: String? {
+        get { Self.resolvedToken(defaults.string(forKey: Keys.healthIngestToken), plistKey: "HEALTH_INGEST_TOKEN") }
+        set { defaults.set(newValue, forKey: Keys.healthIngestToken) }
+    }
+
+    // MARK: - Token resolution (UserDefaults override -> Info.plist default)
+
+    /// Prefer a non-empty per-device UserDefaults override; else fall back to a
+    /// non-empty Info.plist value for `plistKey`. Empty strings (from an
+    /// unfilled `$(VAR)` xcconfig substitution when Secrets.xcconfig is absent)
+    /// are treated as nil — mirrors HealthKitPushManager.plistString semantics.
+    private static func resolvedToken(_ override: String?, plistKey: String) -> String? {
+        if let override, !override.isEmpty { return override }
+        guard let s = Bundle.main.object(forInfoDictionaryKey: plistKey) as? String,
+              !s.isEmpty else { return nil }
+        return s
     }
 
     // MARK: - Presence routing (context-aware-routing, nx-rwulm)
@@ -215,6 +247,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let plaidControlBaseURL   = "nexus.plaid.baseURL"
         static let plaidControlPort      = "nexus.plaid.port"
         static let plaidControlToken     = "nexus.plaid.token"
+        static let healthIngestToken     = "nexus.health.ingestToken"
         static let presenceAwareRouting  = "nexus.routing.presenceAware"
         static let unknownNoncriticalMode = "nexus.routing.unknownNoncritical"
         static let unknownCriticalMode   = "nexus.routing.unknownCritical"

@@ -59,5 +59,11 @@
     <string>https://apothecary.leonardoacosta.dev/api/health/ingest</string>
     <key>HEALTH_INGEST_TOKEN_AP</key>
     <string>$(HEALTH_INGEST_TOKEN_AP)</string>
+    <key>HEALTH_INGEST_TOKEN</key>
+    <string>$(HEALTH_INGEST_TOKEN)</string>
+    <key>MEDS_TOKEN</key>
+    <string>$(MEDS_TOKEN)</string>
+    <key>PLAID_CONTROL_TOKEN</key>
+    <string>$(PLAID_CONTROL_TOKEN)</string>
 </dict>
 </plist>
