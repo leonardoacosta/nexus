@@ -14,19 +14,28 @@
  * Spec: openspec/changes/add-elevenlabs-credential/
  */
 
-import { describe, expect, it, beforeEach, afterAll, mock } from "bun:test";
+import { describe, expect, it, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import type { Db } from "@nexus/db";
+import * as coreNode from "@nexus/core/node";
+import * as coreFetch from "@nexus/core/fetch";
 
 // ─── Mocks (must be installed BEFORE importing the SUT) ───────────────────
+// mock.module is PROCESS-GLOBAL; spread the real barrel so sibling suites keep
+// every other @nexus/core/node export (nx-jlx1c).
 
-const fetchWithTimeoutMock = mock(
-  async (_url: string, _init: unknown) => new Response(null, { status: 200 }),
+// fetchWithTimeout is spied via RESTORABLE `spyOn` (NOT mock.module): a global
+// mock.module override leaked into credential-usage-poller.test.ts (loads
+// later, calls the REAL fetchWithTimeout which routes through the test's
+// globalThis.fetch stub) — the leaked stub returned an empty 200 so the poller
+// tick recorded 0 successes. `mockRestore()` in afterAll hands the real function
+// back to that sibling suite (nx-jlx1c).
+const fetchWithTimeoutMock = spyOn(coreFetch, "fetchWithTimeout").mockImplementation(
+  (async (_url: string, _init: unknown) =>
+    new Response(null, { status: 200 })) as typeof coreFetch.fetchWithTimeout,
 );
-mock.module("@nexus/core/fetch", () => ({
-  fetchWithTimeout: fetchWithTimeoutMock,
-}));
 
 mock.module("@nexus/core/node", () => ({
+  ...coreNode,
   logger: {
     info: mock(() => {}),
     warn: mock(() => {}),
@@ -70,6 +79,7 @@ function resetElevenlabsCredentialRoutes(): void {
 }
 
 afterAll(() => {
+  fetchWithTimeoutMock.mockRestore();
   if (savedEnvKey === undefined) delete process.env.NEXUS_ENCRYPTION_KEY;
   else process.env.NEXUS_ENCRYPTION_KEY = savedEnvKey;
 });

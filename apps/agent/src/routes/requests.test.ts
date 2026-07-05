@@ -14,15 +14,20 @@
  */
 
 import { describe, expect, it, mock, afterEach } from "bun:test";
+import * as coreNode from "@nexus/core/node";
 
 // ── Stub the logger before importing the SUT ───────────────────────────────
+// mock.module is PROCESS-GLOBAL; spread the real barrel so sibling suites keep
+// every other @nexus/core/node export (nx-jlx1c).
+const loggerMock = {
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  debug: mock(() => {}),
+};
 mock.module("@nexus/core/node", () => ({
-  logger: {
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    debug: mock(() => {}),
-  },
+  ...coreNode,
+  logger: loggerMock,
 }));
 
 import { handleGetRequests } from "./requests";

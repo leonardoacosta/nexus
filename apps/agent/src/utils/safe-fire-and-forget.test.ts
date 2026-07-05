@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
+import * as coreNode from "@nexus/core/node";
 
 // ── Mock @nexus/core logger before importing the utility ──────────────────────
 
@@ -11,8 +12,12 @@ const loggerMock = {
 };
 
 // The unit under test imports from "@nexus/core/node" (Node subpath), so we
-// mock that specifier — not the root "@nexus/core" entry.
+// mock that specifier — not the root "@nexus/core" entry. mock.module is
+// PROCESS-GLOBAL and never auto-restores between files, so we MUST spread the
+// real barrel; a partial mock strips every other export for sibling suites
+// (nx-jlx1c).
 mock.module("@nexus/core/node", () => ({
+  ...coreNode,
   logger: loggerMock,
   createLogger: () => loggerMock,
 }));

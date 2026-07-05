@@ -39,20 +39,29 @@ import * as realCredentialWatcher from "./credentials/credential-watcher";
 // can inspect abort state before/after stop().
 const startedControllers: AbortController[] = [];
 
-mock.module("./routes/notifications", () => ({
-  ...realNotifications,
-  initNotificationRoutes: async () => {},
-}));
-mock.module("./routes/credentials", () => ({
-  ...realCredentialsRoute,
-  initCredentialRoutes: () => {},
-  // Truthy pool so the `if (pool)` branch runs and starts the watchers.
-  getCredentialPool: () => ({ refreshMetadata: async () => 0 }),
-}));
-mock.module("./notifications/router", () => ({
-  ...realRouter,
-  setTtsDbHandle: () => {},
-}));
+// NOTE (nx-jlx1c): `mock.module` is process-global, IRREVERSIBLE, and
+// propagates FORWARD to every test file that loads after this one. Overriding
+// the shared route-init entry points (`initNotificationRoutes`,
+// `initCredentialRoutes`, `getCredentialPool`, `setTtsDbHandle`) with stubs
+// therefore leaked into sibling suites (credentials.test.ts,
+// notifications-telegram.test.ts) — those call the REAL init to set up their
+// pool, got the no-op stub instead, and returned HTTP 500 ("credential system
+// not initialized"). The fix: DO NOT override those shared functions. They are
+// safe to run for real in `startServer`:
+//   - initNotificationRoutes(db) + pool.refreshMetadata() are safeFireAndForget
+//     (async, errors swallowed) — a stub db just makes them no-op async.
+//   - setTtsDbHandle(db) is a synchronous setter with no I/O.
+//   - initCredentialRoutes(db) is lazy (`new CredentialPool(db)`, no I/O) and
+//     getCredentialPool() then returns that truthy pool so the watcher branch
+//     runs.
+// Only the WATCHER factories (below) are stubbed — this file's whole purpose is
+// to inspect the AbortControllers they return, and the real ones would spawn
+// live fs.watch loops. Those two modules (credential-watcher, process-watcher)
+// are consumed real only by suites that load before this one, so the stubs
+// don't contaminate them.
+mock.module("./routes/notifications", () => ({ ...realNotifications }));
+mock.module("./routes/credentials", () => ({ ...realCredentialsRoute }));
+mock.module("./notifications/router", () => ({ ...realRouter }));
 mock.module("./services/process-watcher", () => ({
   ...realProcessWatcher,
   startProcessWatcher: () => ({ stop: () => {} }),

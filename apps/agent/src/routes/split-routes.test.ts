@@ -1,5 +1,7 @@
 import { describe, test, expect, mock, afterAll } from "bun:test";
 import * as nexusCore from "@nexus/core";
+import * as realSessions from "../db/sessions";
+import * as realEvents from "../db/events";
 import { installExecMock } from "../testing/mock-exec";
 
 // Mock @nexus/core logger before any route imports.
@@ -19,21 +21,15 @@ mock.module("@nexus/core", () => ({
   createLogger: () => loggerMock,
 }));
 
-// Mock DB modules to avoid needing a real database.
-mock.module("../db/sessions", () => ({
-  queryActiveSessions: mock(() => Promise.resolve([])),
-  queryRecentSessions: mock(() => Promise.resolve([])),
-  getSessionById: mock(() => Promise.resolve(null)),
-  upsertSession: mock(() => Promise.resolve()),
-  updateSessionStatus: mock(() => Promise.resolve()),
-  insertSession: mock(() => Promise.resolve()),
-  loadActiveSessions: mock(() => Promise.resolve([])),
-}));
-
-mock.module("../db/events", () => ({
-  appendSessionEvent: mock(() => Promise.resolve(1)),
-  querySessionEvents: mock(() => Promise.resolve([])),
-}));
+// SPREAD the real db modules. These suites only assert that the split route
+// files EXPORT their handlers (typeof === "function") — they never invoke a db
+// helper — so the real (lazy, no-connection-at-import) functions are safe here.
+// A non-spreading `mock.module` here was process-global + irreversible and
+// leaked into sibling suites: its `getSessionById: () => null` override made
+// session-cost-read.test.ts's handleGetSessionTokens return 404, and stripping
+// exports like `recordSessionStop` crashed other suites (nx-jlx1c).
+mock.module("../db/sessions", () => ({ ...realSessions }));
+mock.module("../db/events", () => ({ ...realEvents }));
 
 // Mock config-loader since it may not be initialized in test context.
 mock.module("../services/config-loader", () => ({

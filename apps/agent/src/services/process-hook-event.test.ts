@@ -11,17 +11,26 @@
  *   - failures in any enrichment branch are swallowed (helper never throws)
  */
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, spyOn, beforeEach, afterAll } from "bun:test";
 import type { Db } from "@nexus/db";
 import type { SessionManager } from "../session-manager";
 import type { WatcherEvent, Session } from "@nexus/core";
+import * as schemaDriftNs from "./schema-drift";
 
 // ─── Module mocks (must register before importing helper) ──────────────────
 
-const inspectAndEmitDriftMock = mock(async (_db: Db, _evt: string, _payload: unknown) => {});
-mock.module("./schema-drift", () => ({
-  inspectAndEmitDrift: inspectAndEmitDriftMock,
-}));
+// nx-jlx1c: spy `inspectAndEmitDrift` via RESTORABLE `spyOn` rather than
+// process-global, irreversible `mock.module`. A raw mock.module here replaced
+// the real function for the WHOLE run, so schema-drift.test.ts (loads later)
+// saw this no-op stub and its emit assertions observed 0 events. `spyOn` +
+// `mockRestore()` in afterAll reverts the real function for that sibling suite.
+const inspectAndEmitDriftMock = spyOn(
+  schemaDriftNs,
+  "inspectAndEmitDrift",
+).mockImplementation(async (_db: Db, _evt: string, _payload: unknown) => {});
+afterAll(() => {
+  inspectAndEmitDriftMock.mockRestore();
+});
 
 const resolveGitOriginMock = mock(async (_cwd: string | null | undefined) => null as
   | { provider: string; ownerRepo: string }

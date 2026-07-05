@@ -13,8 +13,12 @@
 
 import { describe, expect, it, beforeEach, afterAll, mock } from "bun:test";
 import type { Db } from "@nexus/db";
+import * as coreNode from "@nexus/core/node";
 
+// mock.module is PROCESS-GLOBAL; spread the real barrel so sibling suites keep
+// every other @nexus/core/node export (nx-jlx1c).
 mock.module("@nexus/core/node", () => ({
+  ...coreNode,
   logger: {
     info: mock(() => {}),
     warn: mock(() => {}),
