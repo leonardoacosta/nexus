@@ -330,6 +330,13 @@
       "when": 1781975885446,
       "tag": "0046_long_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1783261181098,
+      "tag": "0047_sticky_charles_xavier",
+      "breakpoints": true
     }
   ]
 }

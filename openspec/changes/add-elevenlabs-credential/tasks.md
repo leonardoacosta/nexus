@@ -5,10 +5,10 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add `elevenlabs_credentials` schema in `packages/db/src/schema/elevenlabsCredentials.ts` (id, agentId FK, valueEncrypted, encryptionKeyId, voiceId, voiceName, lastTestOkAt, lastTestStatusCode, createdAt, updatedAt) [owner:db-engineer] [type:db] [beads:nx-ssdg]
-- [ ] [1.2] [P-1] Wire the new schema into `packages/db/src/schema/index.ts` and add relations to `agents` [owner:db-engineer] [type:db] [beads:nx-bara]
-- [ ] [1.3] [P-2] Generate Drizzle migration via `pnpm db:generate` and verify SQL [owner:db-engineer] [type:db] [beads:nx-g3pd]
-- [ ] [1.4] [P-2] Encryption round-trip unit test against the new schema [owner:test-writer] [type:testing] [beads:nx-21xn]
+- [x] [1.1] [P-1] Add `elevenlabs_credentials` schema in `packages/db/src/schema/elevenlabsCredentials.ts` (id, agentId FK, valueEncrypted, encryptionKeyId, voiceId, voiceName, lastTestOkAt, lastTestStatusCode, createdAt, updatedAt) [owner:db-engineer] [type:db] [beads:nx-ssdg]
+- [x] [1.2] [P-1] Wire the new schema into `packages/db/src/schema/index.ts` and add relations to `agents` [owner:db-engineer] [type:db] [beads:nx-bara]
+- [x] [1.3] [P-2] Generate Drizzle migration via `pnpm db:generate` and verify SQL [owner:db-engineer] [type:db] [beads:nx-g3pd]
+- [x] [1.4] [P-2] Encryption round-trip unit test against the new schema [owner:test-writer] [type:testing] [beads:nx-21xn]
 ## API Batch
 
 - [ ] [2.1] [P-1] Add `apps/agent/src/routes/elevenlabs-credentials.ts` with `handleGetCredentials`, `handlePatchCredentials`, `handleDeleteCredentials` [owner:api-engineer] [type:api] [beads:nx-8wnn]
