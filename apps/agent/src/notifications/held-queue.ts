@@ -20,6 +20,7 @@ import type { PresenceHold, PresenceHoldPayload } from "@nexus/db";
 import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { safeFireAndForget } from "../utils/safe-fire-and-forget";
 
 const log = createLogger("agent:notifications:held-queue");
 
@@ -147,9 +148,12 @@ export class HeldQueue {
     this.clearTimer(id);
     const delay = Math.max(0, holdUntil.getTime() - Date.now());
     const timer = setTimeout(() => {
-      void this.flush(id).then((row) => {
-        if (row && onFlush) onFlush(row);
-      });
+      safeFireAndForget(
+        this.flush(id).then((row) => {
+          if (row && onFlush) onFlush(row);
+        }),
+        "held-queue-scheduled-flush",
+      );
     }, delay);
     // Don't keep the process alive solely for a pending flush.
     if (typeof timer === "object" && "unref" in timer) {

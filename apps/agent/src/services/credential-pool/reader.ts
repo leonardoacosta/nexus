@@ -90,13 +90,7 @@
  */
 
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "node:fs";
+import { access, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createLogger } from "@nexus/core/node";
@@ -217,6 +211,16 @@ function ccActiveCredentialPath(): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** async replacement for existsSync — access() resolves iff the path exists. */
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Best-effort account-label extraction from an OAuth blob. */
 function extractAccountLabel(plaintext: string): string | null {
@@ -342,13 +346,13 @@ function isExpired(plaintext: string): boolean {
  * Returns null on all failure modes so the caller can render the dashboard
  * without "active" being inferable.
  */
-function detectActiveFingerprint(dir: string): string | null {
+async function detectActiveFingerprint(dir: string): Promise<string | null> {
   // 1. Symlink-style marker.
   const symlinkPath = join(dir, "active");
-  if (existsSync(symlinkPath)) {
+  if (await exists(symlinkPath)) {
     try {
-      const resolved = realpathSync(symlinkPath);
-      const plaintext = readFileSync(resolved, "utf-8");
+      const resolved = await realpath(symlinkPath);
+      const plaintext = await readFile(resolved, "utf-8");
       return computeCredentialFingerprint(plaintext);
     } catch (err) {
       log.debug({ symlinkPath, error: err }, "active symlink resolution failed");
@@ -357,13 +361,13 @@ function detectActiveFingerprint(dir: string): string | null {
 
   // 2. Marker file containing the fingerprint or a path to the active file.
   const markerPath = join(dir, "active.json");
-  if (existsSync(markerPath)) {
+  if (await exists(markerPath)) {
     try {
-      const raw = readFileSync(markerPath, "utf-8").trim();
+      const raw = (await readFile(markerPath, "utf-8")).trim();
       const parsed = JSON.parse(raw);
       if (typeof parsed?.fingerprint === "string") return parsed.fingerprint;
-      if (typeof parsed?.path === "string" && existsSync(parsed.path)) {
-        return computeCredentialFingerprint(readFileSync(parsed.path, "utf-8"));
+      if (typeof parsed?.path === "string" && (await exists(parsed.path))) {
+        return computeCredentialFingerprint(await readFile(parsed.path, "utf-8"));
       }
     } catch (err) {
       log.debug({ markerPath, error: err }, "active.json marker read failed");
@@ -372,15 +376,15 @@ function detectActiveFingerprint(dir: string): string | null {
 
   // 3. CC's `~/.claude/.credentials.json` (single file or symlink).
   const ccPath = ccActiveCredentialPath();
-  if (existsSync(ccPath)) {
+  if (await exists(ccPath)) {
     try {
       let resolved = ccPath;
       try {
-        resolved = realpathSync(ccPath);
+        resolved = await realpath(ccPath);
       } catch {
         // Not a symlink — read the original path.
       }
-      const plaintext = readFileSync(resolved, "utf-8");
+      const plaintext = await readFile(resolved, "utf-8");
       return computeCredentialFingerprint(plaintext);
     } catch (err) {
       if (err instanceof CredentialParseError) {
@@ -415,14 +419,14 @@ function detectActiveFingerprint(dir: string): string | null {
 export async function readCredentials(
   dir: string = defaultCredentialsDir(),
 ): Promise<CredentialReadResult> {
-  if (!existsSync(dir)) {
+  if (!(await exists(dir))) {
     log.debug({ dir }, "credentials directory does not exist");
     return { credentials: [], activeFingerprint: null };
   }
 
   let entries: string[];
   try {
-    entries = readdirSync(dir);
+    entries = await readdir(dir);
   } catch (err) {
     log.debug({ dir, error: err }, "readdir(credentials) failed");
     return { credentials: [], activeFingerprint: null };
@@ -438,8 +442,8 @@ export async function readCredentials(
     let plaintext: string;
     let mtime: Date;
     try {
-      plaintext = readFileSync(filePath, "utf-8");
-      mtime = statSync(filePath).mtime;
+      plaintext = await readFile(filePath, "utf-8");
+      mtime = (await stat(filePath)).mtime;
     } catch (err) {
       log.warn({ file: filename, error: err }, "credential file read failed");
       continue;
@@ -490,7 +494,7 @@ export async function readCredentials(
     });
   }
 
-  const activeFingerprint = detectActiveFingerprint(dir);
+  const activeFingerprint = await detectActiveFingerprint(dir);
 
   // Mark the matching row as active. Leave "expired" rows alone — an
   // expired credential can't be "the active one" in any useful sense.
@@ -511,7 +515,7 @@ export async function readCredentials(
   // host that uses CC directly (no nexus pool import) — the original
   // symptom that motivated the spec.
   if (rows.length === 0) {
-    const synthetic = readActiveCcCredentialEntry();
+    const synthetic = await readActiveCcCredentialEntry();
     if (synthetic) {
       return {
         credentials: [synthetic],
@@ -542,13 +546,13 @@ export async function readCredentials(
  * by `readCredentials()` when the nexus pool is empty — see the call site
  * for rationale.
  */
-function readActiveCcCredentialEntry(): CredentialEntry | null {
+async function readActiveCcCredentialEntry(): Promise<CredentialEntry | null> {
   const ccPath = ccActiveCredentialPath();
-  if (!existsSync(ccPath)) return null;
+  if (!(await exists(ccPath))) return null;
 
   let resolvedPath = ccPath;
   try {
-    resolvedPath = realpathSync(ccPath);
+    resolvedPath = await realpath(ccPath);
   } catch {
     // Not a symlink, or link target missing — fall back to the original
     // path so a regular file is still read correctly.
@@ -558,8 +562,8 @@ function readActiveCcCredentialEntry(): CredentialEntry | null {
   let plaintext: string;
   let mtime: Date;
   try {
-    plaintext = readFileSync(resolvedPath, "utf-8");
-    mtime = statSync(resolvedPath).mtime;
+    plaintext = await readFile(resolvedPath, "utf-8");
+    mtime = (await stat(resolvedPath)).mtime;
   } catch (err) {
     log.debug({ ccPath, resolvedPath, error: err }, "active CC credentials read failed");
     return null;

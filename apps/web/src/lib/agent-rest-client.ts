@@ -99,8 +99,25 @@ export class AgentHttpError extends Error {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
+/**
+ * Default per-request deadline. fetch has NO built-in timeout — without one,
+ * a connected-but-silent agent socket pends forever and stalls pollSessions
+ * (its next tick is scheduled in `finally`, which a hung await never reaches).
+ * 10s: comfortably above tailnet round-trip, short enough that the 3s poll
+ * loop self-heals quickly. Ticks never overlap (next tick is scheduled only
+ * after the current one settles), so a timing-out tick just delays the list
+ * refresh by up to the deadline.
+ */
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+/** `POST /session/start` spawns tmux + a Claude Code process on the agent — allow a longer budget. */
+const START_SESSION_TIMEOUT_MS = 30_000;
+
 export class AgentRestClient {
-  constructor(private readonly agentBaseUrl: string) {}
+  constructor(
+    private readonly agentBaseUrl: string,
+    private readonly defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS,
+  ) {}
 
   /**
    * `GET /sessions` — active + recent sessions. Defaults to
@@ -114,8 +131,7 @@ export class AgentRestClient {
     if (opts.project) params.set("project", opts.project);
     const qs = params.toString();
     const path = qs ? `/sessions?${qs}` : "/sessions";
-    const url = this.http(path);
-    const res = await fetch(url, {
+    const res = await this.request(path, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: opts.signal,
@@ -133,8 +149,7 @@ export class AgentRestClient {
     id: string,
     signal?: AbortSignal,
   ): Promise<SessionSummary | null> {
-    const url = this.http(`/sessions/${encodeURIComponent(id)}`);
-    const res = await fetch(url, {
+    const res = await this.request(`/sessions/${encodeURIComponent(id)}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,
@@ -154,19 +169,19 @@ export class AgentRestClient {
    * on a non-2xx (missing tmux, bad path, etc.).
    */
   async startSession(input: StartSessionInput): Promise<StartSessionResult> {
-    const url = this.http("/session/start");
     const body: Record<string, string> = {
       project: input.project,
       path: input.path,
     };
     if (input.specSlug) body.spec_slug = input.specSlug;
-    const res = await fetch(url, {
+    const res = await this.request("/session/start", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
       body: JSON.stringify(body),
+      timeoutMs: START_SESSION_TIMEOUT_MS,
     });
     if (!res.ok) {
       let detail = "";
@@ -205,6 +220,25 @@ export class AgentRestClient {
       throw new AgentHttpError(0, `unconstructable agent URL for ${path}`);
     }
     return url;
+  }
+
+  /**
+   * Single execution point for all agent HTTP calls. Injects a default
+   * timeout so no request can pend forever; a caller-supplied cancellation
+   * signal is combined via AbortSignal.any (whichever aborts first wins).
+   * Timeout rejection surfaces as a DOMException named "TimeoutError" —
+   * distinct from the "AbortError" that pollSessions deliberately swallows.
+   */
+  private async request(
+    path: string,
+    init: RequestInit & { timeoutMs?: number } = {},
+  ): Promise<Response> {
+    const { timeoutMs = this.defaultTimeoutMs, signal, ...rest } = init;
+    const timeout = AbortSignal.timeout(timeoutMs);
+    return fetch(this.http(path), {
+      ...rest,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
   }
 }
 

@@ -159,3 +159,36 @@ describe.skipIf(!hasPg)("HeldQueue (requires live PG)", () => {
     expect(released).not.toContain("future-1");
   });
 });
+
+describe("HeldQueue scheduled-flush rejection (no PG needed)", () => {
+  it("routes a rejecting flush through safeFireAndForget (no unhandledRejection)", async () => {
+    // Stub db whose update chain rejects — mimics a transient PG outage at
+    // the moment a hold comes due (held-queue.ts flush()).
+    const rejectingDb = {
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () => Promise.reject(new Error("pg down")),
+          }),
+        }),
+      }),
+    } as unknown as Db;
+
+    let unhandled = false;
+    const handler = () => {
+      unhandled = true;
+    };
+    process.on("unhandledRejection", handler);
+
+    const q = new HeldQueue(rejectingDb, "leo");
+    // Past-due holdUntil → timer fires immediately (delay clamps to 0).
+    q.scheduleFlush("reject-1", new Date(Date.now() - 1_000));
+
+    // Wait long enough for the timer + rejection to settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    process.removeListener("unhandledRejection", handler);
+    q.shutdown();
+    expect(unhandled).toBe(false);
+  });
+});

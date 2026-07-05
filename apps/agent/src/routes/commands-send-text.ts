@@ -19,8 +19,8 @@
  * no tmux target, tmux not installed, send-keys non-zero) returns 4xx/5xx
  * with `{ error: string }`.
  */
-import { createLogger } from "@nexus/core/node";
-import { spawn } from "node:child_process";
+import { createLogger, safeSpawn } from "@nexus/core/node";
+import { isValidTmuxTarget } from "../terminal/tmux-pty-source";
 import type { SessionManager } from "../session-manager";
 
 // Module-level handle so the route doesn't need a constructor.
@@ -28,12 +28,21 @@ import type { SessionManager } from "../session-manager";
 // startup. Lazy-checked at request time so tests can opt in piecemeal.
 let _sessionManager: SessionManager | null = null;
 
-export function initSendTextRoute(sessionManager: SessionManager): void {
+// Injectable spawn impl (default: real safeSpawn). Tests pass a recording
+// fake — mirrors the SpawnFns injection pattern in terminal/tmux-pty-source.ts.
+let _spawn: typeof safeSpawn = safeSpawn;
+
+export function initSendTextRoute(
+  sessionManager: SessionManager,
+  spawnImpl: typeof safeSpawn = safeSpawn,
+): void {
   _sessionManager = sessionManager;
+  _spawn = spawnImpl;
 }
 
 export function resetSendTextRoute(): void {
   _sessionManager = null;
+  _spawn = safeSpawn;
 }
 
 const log = createLogger("agent:routes:commands-send-text");
@@ -56,29 +65,36 @@ function isSendTextBody(value: unknown): value is SendTextBody {
 }
 
 /**
- * Run `tmux send-keys -t <target> <text> [Enter]` and resolve to the
- * tuple { code, stderr }. Never throws.
+ * Run `tmux send-keys -t <target> <text> [Enter]` via safeSpawn and resolve
+ * to the tuple { code, stderr }. Never throws.
  */
-function tmuxSendKeys(
+async function tmuxSendKeys(
   target: string,
   text: string,
   appendNewline: boolean,
 ): Promise<{ code: number; stderr: string }> {
-  return new Promise((resolve) => {
-    const args = ["send-keys", "-t", target, text];
-    if (appendNewline) args.push("Enter");
-    const child = spawn("tmux", args, { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+  const args = ["send-keys", "-t", target, text];
+  if (appendNewline) args.push("Enter");
+  try {
+    // trustArgs: `text` is intended keystrokes and may legitimately contain
+    // shell metacharacters (; $ \r ...). Safe because this is an argv-vector
+    // spawn (no shell) and `target` — the only other non-literal arg — is
+    // validated with isValidTmuxTarget before we get here.
+    const handle = _spawn("tmux", args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      trustArgs: true,
     });
-    child.on("error", (err) => {
-      resolve({ code: -1, stderr: err.message });
-    });
-    child.on("close", (code) => {
-      resolve({ code: code ?? -1, stderr });
-    });
-  });
+    const stderr =
+      handle.stderr instanceof ReadableStream
+        ? await new Response(handle.stderr).text()
+        : "";
+    const code = await handle.exitCode;
+    return { code, stderr };
+  } catch (err) {
+    // Bun.spawn throws synchronously when tmux is missing — preserve the old
+    // node 'error'-event behavior: code -1, message in stderr (route → 500).
+    return { code: -1, stderr: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function handleSendText(request: Request): Promise<Response> {
@@ -110,6 +126,10 @@ export async function handleSendText(request: Request): Promise<Response> {
   const tmuxTarget = session.tmuxTarget;
   if (!tmuxTarget || tmuxTarget.trim() === "") {
     return jsonError(409, `session has no tmuxTarget: ${sessionId}`);
+  }
+  if (!isValidTmuxTarget(tmuxTarget)) {
+    log.warn({ sessionId, tmuxTarget }, "send-text: rejected invalid tmux target");
+    return jsonError(409, `session has invalid tmuxTarget: ${sessionId}`);
   }
 
   const { code, stderr } = await tmuxSendKeys(tmuxTarget, text, appendNewline);

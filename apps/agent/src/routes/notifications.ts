@@ -12,6 +12,7 @@ import { FLEET_HEARTBEAT_TTL_MS } from "../services/fleet-presence";
 import { NotificationManager } from "../notifications/manager";
 import { MeetingState } from "../notifications/meeting-state";
 import { HeldQueue } from "../notifications/held-queue";
+import { safeFireAndForget } from "../utils/safe-fire-and-forget";
 import {
   getPresenceContext,
   DEFAULT_PRESENCE_USER,
@@ -155,11 +156,17 @@ export async function initNotificationRoutes(db: Db): Promise<void> {
     // Rehydrate pending holds on boot: flush anything already due (coalesced
     // summary) and schedule the rest. Survives agent restart — the data-loss
     // bug the in-memory buffer had.
-    void heldQueue.hydrate().then((flushedNow) => {
-      if (flushedNow.length > 0 && manager) {
-        void manager.flushHeldBatch(flushedNow);
-      }
-    });
+    safeFireAndForget(
+      heldQueue.hydrate().then((flushedNow) => {
+        if (flushedNow.length > 0 && manager) {
+          safeFireAndForget(
+            manager.flushHeldBatch(flushedNow),
+            "held-queue-flush-batch",
+          );
+        }
+      }),
+      "held-queue-hydrate",
+    );
   });
 }
 

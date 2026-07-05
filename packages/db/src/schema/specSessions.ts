@@ -33,7 +33,7 @@ export const specSessions = pgTable(
     project: text("project").notNull(),
     specName: text("spec_name").notNull(),
     sessionId: text("session_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
   },
