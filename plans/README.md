@@ -32,7 +32,7 @@ written. No source code was modified in producing these plans.
 | 017 | Route the two held-queue floating promises through the existing safeFireAndForget wrapper | P2 | S | — | DONE (branch advisor/wave2-017-022; 2 sites wrapped, safeFireAndForget counts 2/3 confirmed; new rejection test 1/0; src/notifications+src/utils 0 fail; lint 0 errors) |
 | 018 | Add a default AbortSignal timeout to AgentRestClient via a single request() wrapper | P2 | S | — | TODO |
 | 019 | Convert credential-pool reader.ts sync fs calls to fs/promises (already-async signatures) | P2 | S | — | TODO |
-| 020 | Route /commands/send-text through safeSpawn and add the isValidTmuxTarget guard | P2 | S | — | TODO |
+| 020 | Route /commands/send-text through safeSpawn and add the isValidTmuxTarget guard | P2 | S | — | DONE (branch advisor/wave2-017-022; safeSpawn + trustArgs + isValidTmuxTarget guard; route tests 4/0; grep-convention confirms sole remaining node:child_process route is the settled specs/handlers-status.ts; agent suite pre-existing 14 fails confirmed baseline via stash-isolation) |
 | 021 | Add explicit mode:'date' to spec_sessions.createdAt (convention-explicitness; DDL-neutral) | P3 | S | — | DONE (branch advisor/wave2-017-022; db:generate no-op verified — 47 migrations unchanged, clean git status; handlers-sessions + session-spec-link 12/12; pnpm typecheck TS2307 bun:test errors in packages/db confirmed pre-existing via stash-isolation, unrelated to this 1-line change) |
 | 022 | Reconcile operator-facing env vars into example files; fix APNS + ElevenLabs phantom names | P3 | S | — | TODO |
 

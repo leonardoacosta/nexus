@@ -7,66 +7,39 @@
  *   1. valid sessionId with tmuxTarget → 200, tmux send-keys invoked
  *   2. unknown sessionId → 404, tmux NOT invoked
  *   3. empty/missing text → 400, tmux NOT invoked
+ *   4. invalid tmuxTarget (shell-metachar) → 409, tmux NOT invoked
  *
- * The route shells out to `tmux send-keys` via `node:child_process.spawn`.
- * We mock the child_process module so the test never spawns a real tmux
- * (and works on machines without tmux installed). The SessionManager is
- * a minimal stub matching the shape `handleSendText` reads.
+ * The route spawns `tmux send-keys` via an injected `safeSpawn`-shaped fake
+ * (see `initSendTextRoute`'s second parameter) rather than mocking
+ * `@nexus/core/node` — a partial `mock.module` factory there would strip
+ * `safeSpawn` for sibling suites in the same process (see
+ * `apps/agent/src/testing/mock-core-node.ts:53-61`). The bun test preload
+ * already silences the logger for every suite. The SessionManager is a
+ * minimal stub matching the shape `handleSendText` reads.
  */
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
+import type { safeSpawn } from "@nexus/core/node";
 
-// ── child_process mock — capture spawn calls + simulate `tmux` exit 0 ──
+// ── Spawn fake — capture calls + simulate `tmux` exit 0 ──
 
 interface SpawnCall {
-  command: string;
+  binary: string;
   args: ReadonlyArray<string>;
 }
 const spawnCalls: SpawnCall[] = [];
 
-mock.module("node:child_process", () => ({
-  spawn: (command: string, args: ReadonlyArray<string>) => {
-    spawnCalls.push({ command, args: [...args] });
-    // Minimal mock matching the route's usage: stderr.on('data'),
-    // child.on('error'), child.on('close'). Returns exit code 0.
-    const stderrListeners: Array<(chunk: Buffer) => void> = [];
-    const exitListeners: Array<(code: number | null) => void> = [];
-    const errorListeners: Array<(err: Error) => void> = [];
-    void stderrListeners;
-    void errorListeners;
-    const child = {
-      stderr: {
-        on: (_event: string, cb: (chunk: Buffer) => void) => {
-          stderrListeners.push(cb);
-        },
-      },
-      on: (event: string, cb: (...args: unknown[]) => void) => {
-        if (event === "close") {
-          exitListeners.push(cb as (code: number | null) => void);
-        } else if (event === "error") {
-          errorListeners.push(cb as (err: Error) => void);
-        }
-      },
-    };
-    // Fire 'close' on next tick so the await in tmuxSendKeys resolves.
-    queueMicrotask(() => {
-      for (const cb of exitListeners) cb(0);
-    });
-    return child;
-  },
-}));
-
-// Silence the route logger.
-const loggerMock = {
-  warn: mock(() => {}),
-  info: mock(() => {}),
-  error: mock(() => {}),
-  debug: mock(() => {}),
-  child: mock(() => loggerMock),
-};
-mock.module("@nexus/core/node", () => ({
-  createLogger: () => loggerMock,
-  logger: loggerMock,
-}));
+const fakeSpawn = ((binary: string, args: string[]) => {
+  spawnCalls.push({ binary, args: [...args] });
+  return {
+    pid: 12345,
+    stdin: undefined,
+    stdout: undefined,
+    stderr: undefined, // route treats non-ReadableStream as ""
+    exitCode: Promise.resolve(0),
+    abort: async () => 0,
+    kill: () => {},
+  };
+}) as unknown as typeof safeSpawn;
 
 // ── Test fixtures ──
 
@@ -106,7 +79,7 @@ describe("POST /commands/send-text", () => {
         tmuxTarget: "nexus:cc-1234",
       },
     });
-    initSendTextRoute(sm);
+    initSendTextRoute(sm, fakeSpawn);
 
     const res = await handleSendText(
       makeRequest({
@@ -124,7 +97,7 @@ describe("POST /commands/send-text", () => {
     // tmux invoked with the expected args
     expect(spawnCalls.length).toBe(1);
     const call = spawnCalls[0]!;
-    expect(call.command).toBe("tmux");
+    expect(call.binary).toBe("tmux");
     expect(call.args).toEqual(["send-keys", "-t", "nexus:cc-1234", "ls\r"]);
 
     resetSendTextRoute();
@@ -135,7 +108,7 @@ describe("POST /commands/send-text", () => {
       await import("./commands-send-text");
 
     const sm = makeSessionManagerStub({}); // empty — nothing resolves
-    initSendTextRoute(sm);
+    initSendTextRoute(sm, fakeSpawn);
 
     const res = await handleSendText(
       makeRequest({
@@ -164,7 +137,7 @@ describe("POST /commands/send-text", () => {
         tmuxTarget: "nexus:cc-1234",
       },
     });
-    initSendTextRoute(sm);
+    initSendTextRoute(sm, fakeSpawn);
 
     // Missing `text` field entirely — fails the isSendTextBody type guard.
     const res = await handleSendText(
@@ -176,6 +149,29 @@ describe("POST /commands/send-text", () => {
     expect(body.error).toContain("expected");
 
     // Critical: NO tmux invocation
+    expect(spawnCalls.length).toBe(0);
+
+    resetSendTextRoute();
+  });
+
+  test("invalid tmuxTarget (shell-metachar) returns 409 and does NOT spawn", async () => {
+    const { initSendTextRoute, handleSendText, resetSendTextRoute } =
+      await import("./commands-send-text");
+
+    const sm = makeSessionManagerStub({
+      "cc-evil-0000": { id: "cc-evil-0000", tmuxTarget: "bad;target" },
+    });
+    initSendTextRoute(sm, fakeSpawn);
+
+    const res = await handleSendText(
+      makeRequest({ sessionId: "cc-evil-0000", text: "hello" }),
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("invalid tmuxTarget");
+
+    // Critical: NO spawn of any kind
     expect(spawnCalls.length).toBe(0);
 
     resetSendTextRoute();
