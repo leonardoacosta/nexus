@@ -197,3 +197,84 @@ public struct CredentialListResponse: Decodable, Sendable {
     public var credentials: [CcProfile]
     public var activeFingerprint: String?
 }
+
+// MARK: - Usage history (credential-usage-history)
+
+/// One point in an account's utilization time-series, from
+/// `GET /credentials/:id/usage-history?window=5h|7d`. The agent maps the
+/// selected window's used/limit columns onto this flat shape; `polledAt`
+/// arrives as an ISO-8601 string and is decoded to a `Date` for charting.
+///
+/// Spec: openspec/changes/credential-usage-history (task 3.1) — bd:nx-bku97
+public struct UsageHistoryPoint: Identifiable, Equatable, Hashable, Codable, Sendable {
+    public var polledAt: Date
+    public var used: Int
+    public var limit: Int
+
+    /// Stable identity for `ForEach` in the sparkline — poll instants are
+    /// unique per account per tick.
+    public var id: Date { polledAt }
+
+    /// Utilization ratio in 0...1. `limit <= 0` renders as 0% (no divide by
+    /// zero); over-limit clamps to 1.0. Mirrors `CredentialsUsageBar`.
+    public var utilization: Double {
+        guard limit > 0 else { return 0 }
+        return min(max(Double(used) / Double(limit), 0), 1)
+    }
+
+    public enum CodingKeys: String, CodingKey {
+        case polledAt
+        case used
+        case limit
+    }
+
+    public init(polledAt: Date, used: Int, limit: Int) {
+        self.polledAt = polledAt
+        self.used = used
+        self.limit = limit
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.polledAt = UsageHistoryPoint.decodePermissiveDate(c, .polledAt) ?? .distantPast
+        self.used = (try? c.decode(Int.self, forKey: .used)) ?? 0
+        self.limit = (try? c.decode(Int.self, forKey: .limit)) ?? 0
+    }
+
+    private static func decodePermissiveDate(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        _ key: CodingKeys
+    ) -> Date? {
+        if let s = try? c.decode(String.self, forKey: key) {
+            let f1 = ISO8601DateFormatter()
+            f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let f2 = ISO8601DateFormatter()
+            f2.formatOptions = [.withInternetDateTime]
+            return f1.date(from: s) ?? f2.date(from: s)
+        }
+        if let n = try? c.decode(Double.self, forKey: key) {
+            return n > 1_000_000_000_000
+                ? Date(timeIntervalSince1970: n / 1000)
+                : Date(timeIntervalSince1970: n)
+        }
+        return nil
+    }
+}
+
+/// Envelope for `GET /credentials/:id/usage-history` — `{ "points": [...] }`.
+/// A missing/absent `points` key decodes to `[]` so a 200 for an unknown id
+/// (or an older agent) degrades to an empty series rather than throwing.
+public struct UsageHistoryResponse: Decodable, Sendable {
+    public var points: [UsageHistoryPoint]
+
+    public enum CodingKeys: String, CodingKey { case points }
+
+    public init(points: [UsageHistoryPoint]) {
+        self.points = points
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        self.points = (try? c?.decode([UsageHistoryPoint].self, forKey: .points)) ?? []
+    }
+}

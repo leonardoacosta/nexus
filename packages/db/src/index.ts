@@ -75,6 +75,27 @@ export {
   type NewProjectVoiceOverride,
 } from "./schema";
 
+// elevenlabs_credentials — per-agent encrypted ElevenLabs API key + voice
+// metadata (add-elevenlabs-credential). Backs `/elevenlabs/*` endpoints + the
+// TTS channel's DB-row-over-env credential resolution.
+export {
+  elevenlabsCredentials,
+  elevenlabsCredentialsRelations,
+  type ElevenlabsCredential,
+  type NewElevenlabsCredential,
+} from "./schema";
+
+// credential_polls — append-only utilization time-series, one row per polled
+// account per successful 5-minute usage poll (credential-usage-history).
+// Mirrors health_snapshots; the usage poller inserts + the weekly reaper prunes
+// rows older than 30 days. Backs `/credentials/:id/usage-history`.
+export {
+  credentialPolls,
+  credentialPollsRelations,
+  type CredentialPoll,
+  type NewCredentialPoll,
+} from "./schema";
+
 // spec_sessions — many-to-many join between specs (project + name slug) and
 // sessions (session_id), written by POST /session/start when the caller
 // passes spec_slug. Survives session close — historical lookups

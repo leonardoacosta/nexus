@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "@nexus/core/node";
 import type { Db } from "@nexus/db";
+import { credentialPolls, lt, sql } from "@nexus/db";
 import { execText } from "../utils/exec";
 import { getSettings } from "./config-loader";
 import {
@@ -382,6 +383,32 @@ async function runReaperJob(db: Db): Promise<void> {
       "cron: reaper job failed",
     );
   }
+
+  // Prune the credential_polls time-series — 30-day retention (append-only
+  // table grows ~1 row/account/5min). Isolated try/catch so a prune failure
+  // never blocks the rest of the reaper.
+  try {
+    const pruned = await pruneCredentialPolls(db);
+    log.info({ pruned }, "cron: pruned credential_polls older than 30 days");
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "cron: credential_polls prune failed",
+    );
+  }
+}
+
+/**
+ * Delete `credential_polls` rows older than the 30-day retention window.
+ * Returns the number of rows deleted. Exported so the reaper suite can drive
+ * the real prune query against a live-PG scratch schema (task 4.2).
+ */
+export async function pruneCredentialPolls(db: Db): Promise<number> {
+  const deleted = await db
+    .delete(credentialPolls)
+    .where(lt(credentialPolls.polledAt, sql`now() - interval '30 days'`))
+    .returning({ id: credentialPolls.id });
+  return deleted.length;
 }
 
 // ---------------------------------------------------------------------------

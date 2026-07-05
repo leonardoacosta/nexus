@@ -44,6 +44,7 @@ export type {
 export type {
   Account,
   CredentialFile,
+  UsageHistoryPoint,
   UsageSnapshot,
   WireCredentialRow,
 } from "./types/account";

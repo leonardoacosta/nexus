@@ -98,6 +98,7 @@
 		73C686C92A6D2D201819B1E1 /* ProcessTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA25DA13C7B0A5769320CA4 /* ProcessTableView.swift */; };
 		73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */; };
 		77E1EA61EE8FA2D3A543CCED /* AgentsConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F7BD05CCA314D0CB836B8B /* AgentsConfigStoreTests.swift */; };
+		7948D4A76D496BA890529B58 /* CredentialsUsageHistoryChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626CA6C822EF3AA7FEDD6896 /* CredentialsUsageHistoryChart.swift */; };
 		79D4B9DBF30A3C4A894666D2 /* DashboardNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */; };
 		7AEABBD2A9816884E84085DA /* AlertStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */; };
 		7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */; };
@@ -154,6 +155,7 @@
 		C6C368A31E5F4E9723C35430 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C6CE1B60ED5791BB565E1F7D /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */; };
 		C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */; };
+		C93075CCD08C1533E3BC3E1F /* CredentialsUsageHistoryChartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D979F90E148EC8E27D146C38 /* CredentialsUsageHistoryChartTests.swift */; };
 		CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */; };
 		CE13B0FA8F28A76DCC0D0C1C /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		CE8EA1EBE08190D8CD58943B /* HealthMetricsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688CE97B4A7C0E18066AF6E4 /* HealthMetricsScene.swift */; };
@@ -428,6 +430,7 @@
 		5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecSession.swift; sourceTree = "<group>"; };
 		616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetPresenceIndicatorTests.swift; sourceTree = "<group>"; };
 		62182CA602E791DB6BDBE3EB /* NexusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusPanel.swift; sourceTree = "<group>"; };
+		626CA6C822EF3AA7FEDD6896 /* CredentialsUsageHistoryChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageHistoryChart.swift; sourceTree = "<group>"; };
 		63A464086226E8599A7BC301 /* SourceIndexObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceIndexObserver.swift; sourceTree = "<group>"; };
 		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
 		63C4DEA80A61EFBDEC969643 /* SettingsTtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTtsView.swift; sourceTree = "<group>"; };
@@ -520,6 +523,7 @@
 		D39D5A03A9B3405B71BDDC5A /* PtyAttachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtyAttachTests.swift; sourceTree = "<group>"; };
 		D3B39F7E98289F86C25ADFFC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingController.swift; sourceTree = "<group>"; };
+		D979F90E148EC8E27D146C38 /* CredentialsUsageHistoryChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageHistoryChartTests.swift; sourceTree = "<group>"; };
 		D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsStatusChip.swift; sourceTree = "<group>"; };
 		DA9EAA56B8ACD6A2A461C82A /* SettingsDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDashboardView.swift; sourceTree = "<group>"; };
 		DB82BFC925082829235A684A /* ProcessInfoDecodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessInfoDecodeTests.swift; sourceTree = "<group>"; };
@@ -707,6 +711,7 @@
 			children = (
 				34C4AAEFAE04CEBF7C748A09 /* Settings */,
 				F0528043A9DD3EEC9205C82B /* CredentialsUsageBar.swift */,
+				626CA6C822EF3AA7FEDD6896 /* CredentialsUsageHistoryChart.swift */,
 				F987BCA4EF60BCDBFCAC76A7 /* CredentialsView.swift */,
 				F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */,
 				D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */,
@@ -993,6 +998,7 @@
 				DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */,
 				BC1E68D09477F24FF228D0BA /* AudioControlTests.swift */,
 				EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */,
+				D979F90E148EC8E27D146C38 /* CredentialsUsageHistoryChartTests.swift */,
 				6BE40A6D52BAD65AC063890D /* CredentialsViewTests.swift */,
 				C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */,
 				71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */,
@@ -1429,6 +1435,7 @@
 				3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */,
 				1BAFA2038CD249707F7B77C5 /* CcProfileStatusView.swift in Sources */,
 				D1EDA0FE8AF902AD35250D5C /* CredentialsUsageBar.swift in Sources */,
+				7948D4A76D496BA890529B58 /* CredentialsUsageHistoryChart.swift in Sources */,
 				B065B294B253F2C16C3868A8 /* CredentialsView.swift in Sources */,
 				79D4B9DBF30A3C4A894666D2 /* DashboardNavigationCoordinator.swift in Sources */,
 				FD0BFD926C048E01DDEB45F0 /* ElevenLabsStatusChip.swift in Sources */,
@@ -1523,6 +1530,7 @@
 				150D366F59057AB92A7BEDC9 /* AggregateStateTests.swift in Sources */,
 				EC6858A1A1F56445BC1E06C7 /* AudioControlTests.swift in Sources */,
 				2CA1788A9ABE8156EB680DCF /* CredentialsUsageBarTests.swift in Sources */,
+				C93075CCD08C1533E3BC3E1F /* CredentialsUsageHistoryChartTests.swift in Sources */,
 				7B2967DFE4A656D1335360D9 /* CredentialsViewTests.swift in Sources */,
 				395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */,
 				654E341195B4A39169F7E278 /* FailuresViewTests.swift in Sources */,

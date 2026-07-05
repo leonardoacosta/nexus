@@ -99,6 +99,20 @@ export function loadEncryptionKey(): Buffer {
 }
 
 /**
+ * Like `loadEncryptionKey` but returns `null` instead of throwing when the
+ * key is absent or malformed. Callers that translate a missing key into an
+ * HTTP 400 (e.g. the ElevenLabs credential routes) use this so a missing key
+ * degrades to a clean client error rather than a crash.
+ */
+export function tryLoadEncryptionKey(): Buffer | null {
+  try {
+    return loadEncryptionKey();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Load the pre-rotation threshold from NEXUS_PREROTATE_THRESHOLD.
  * Defaults to 0.85. Must be in the range (0.0, 1.0].
  *

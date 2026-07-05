@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 
+import { elevenlabsCredentials } from "./elevenlabsCredentials";
 import { sessions } from "./sessions";
 
 export const agents = pgTable("agents", {
@@ -18,16 +19,17 @@ export const agents = pgTable("agents", {
 /**
  * Inverse relations for agents.
  *
- * Only `sessions` is wired: `sessions.machine` acts as the de-facto
- * foreign key to `agents.id` and `sessionsRelations` already defines
- * the forward `one(agents)` side.
+ * `sessions` is wired via `sessions.machine` (de-facto FK to `agents.id`),
+ * and `elevenlabsCredentials` via its `agent_id` FK (ON DELETE CASCADE).
  *
- * `healthSnapshots`, `credentials`, and `notifications` have no column
- * pointing at `agents.id`, so they cannot participate in a drizzle
- * relation here. See task nx-cy8o notes for the spec correction.
+ * `healthSnapshots` and `notifications` have no column pointing at
+ * `agents.id`, so they cannot participate in a drizzle relation here.
+ * `credentials.agentId` is nullable (shared-pool semantics) and its
+ * inverse is intentionally left off. See task nx-cy8o notes.
  */
 export const agentsRelations = relations(agents, ({ many }) => ({
   sessions: many(sessions),
+  elevenlabsCredentials: many(elevenlabsCredentials),
 }));
 
 export type Agent = typeof agents.$inferSelect;

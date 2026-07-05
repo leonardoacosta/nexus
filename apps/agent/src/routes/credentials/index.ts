@@ -39,6 +39,7 @@ export {
 export {
   handleCredentialHealth,
   handleCredentialUsage,
+  handleCredentialUsageHistory,
 } from "./handlers-health-usage";
 
 export { handleSwapCredential } from "./handlers-swap";

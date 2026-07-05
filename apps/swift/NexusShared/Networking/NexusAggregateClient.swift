@@ -371,6 +371,27 @@ public actor NexusAggregateClient {
         return Array(merged.values)
     }
 
+    /// Usage-history sparkline series for one account. A credential lives on
+    /// exactly one agent; fan out to all — the owner answers with its points
+    /// and non-owners return `[]` (unknown id) harmlessly. First non-empty
+    /// series wins. Returns `[]` when no agent has history for this id.
+    ///
+    /// Spec: openspec/changes/credential-usage-history (task 3.4) — bd:nx-7v5qm
+    public func fetchUsageHistory(
+        id: String,
+        window: String = "5h",
+        sinceHours: Int = 24
+    ) async -> [UsageHistoryPoint] {
+        let (perAgent, _) = await fanOut("fetchUsageHistory") { client in
+            try await client.fetchUsageHistory(
+                id: id,
+                window: window,
+                sinceHours: sinceHours
+            )
+        }
+        return perAgent.first(where: { !$0.isEmpty }) ?? []
+    }
+
     /// Best-effort refresh-identity-all across every reachable agent.
     /// Returns the summed `{ probed, succeeded, failed }` so the UI can
     /// render a single toast. Per-agent failures are dropped.

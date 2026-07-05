@@ -1,5 +1,7 @@
 import type { Db } from "@nexus/db";
-import { sessions, sessionTokenTurns, eq, sql } from "@nexus/db";
+import { sessions, eq } from "@nexus/db";
+import { createVmReadClient } from "../telemetry/vm-read";
+import { readSessionCostTokens } from "../telemetry/session-cost-read";
 import { createLogger } from "@nexus/core/node";
 import {
   queryActiveSessions,
@@ -470,10 +472,17 @@ export async function handleSessionStart(
 // ── GET /sessions/{id}/tokens ─────────────────────────────────────────────
 
 /**
- * GET /sessions/{id}/tokens — per-turn token breakdown + aggregates.
+ * GET /sessions/{id}/tokens — per-session cost + token breakdown.
  *
- * Returns all token turns for a session ordered by timestamp, plus
- * computed aggregates (total tokens, cost, turn count).
+ * Sourced from native Claude Code OpenTelemetry series in VictoriaMetrics
+ * (read-cc-telemetry-from-influxdb) — replaces the retired transcript-tail
+ * reconstruction. The response SHAPE is preserved (`{ turns, aggregates }` with
+ * per-type token counts + cost) so Swift dashboard consumers need no change.
+ * VictoriaMetrics carries per-session totals, not per-turn rows, so `turns` is
+ * always `[]` and `turn_count` is 0.
+ *
+ * When VictoriaMetrics has no series for the session (or `VM_URL` is unset), the
+ * endpoint returns a zero/empty breakdown with HTTP 200 — never a 5xx.
  */
 export async function handleGetSessionTokens(
   db: Db,
@@ -488,39 +497,20 @@ export async function handleGetSessionTokens(
     );
   }
 
-  // Fetch all turns for this session
-  const turns = await db
-    .select()
-    .from(sessionTokenTurns)
-    .where(eq(sessionTokenTurns.sessionId, id))
-    .orderBy(sessionTokenTurns.ts);
+  const vm = createVmReadClient();
+  const breakdown = await readSessionCostTokens(vm, id);
 
-  // Compute aggregates
   const aggregates = {
-    input: 0,
-    output: 0,
-    cache_creation: 0,
-    cache_read: 0,
-    cost_usd: null as number | null,
-    turn_count: turns.length,
+    input: breakdown.input,
+    output: breakdown.output,
+    cache_creation: breakdown.cache_creation,
+    cache_read: breakdown.cache_read,
+    cost_usd: breakdown.cost_usd,
+    turn_count: 0,
   };
 
-  let costAccumulator: number | null = 0;
-  for (const turn of turns) {
-    aggregates.input += turn.inputTokens;
-    aggregates.output += turn.outputTokens;
-    aggregates.cache_creation += turn.cacheCreationInputTokens;
-    aggregates.cache_read += turn.cacheReadInputTokens;
-    if (turn.costUsd !== null && costAccumulator !== null) {
-      costAccumulator += parseFloat(turn.costUsd);
-    } else {
-      costAccumulator = null;
-    }
-  }
-  aggregates.cost_usd = costAccumulator;
-
   return new Response(
-    JSON.stringify({ turns, aggregates }),
+    JSON.stringify({ turns: [], aggregates }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }

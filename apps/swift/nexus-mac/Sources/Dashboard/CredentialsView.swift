@@ -93,6 +93,10 @@ private struct CredentialRow: View {
     let profile: NexusShared.CcProfile
     @ObservedObject var model: CredentialsViewModel
     @State private var expandSiblings: Bool = false
+    /// Per-account 5h utilization series for the sparkline beneath the bars.
+    /// Loaded on `.task`; empty until the agent answers (or forever on older
+    /// agents / accounts with no history yet — the chart hides itself).
+    @State private var usageHistory: [NexusShared.UsageHistoryPoint] = []
 
     private var showUsageBars: Bool {
         profile.usage5hLimit != nil && profile.usage7dLimit != nil
@@ -161,6 +165,9 @@ private struct CredentialRow: View {
                 usageBars
                     .padding(.leading, 14)
                     .padding(.trailing, 6)
+                CredentialsUsageHistoryChart(points: usageHistory, label: "5h")
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
             }
             if expandSiblings, let ids = profile.siblingIds, !ids.isEmpty {
                 siblingsList(ids: ids)
@@ -170,6 +177,9 @@ private struct CredentialRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
+        .task(id: profile.id) {
+            usageHistory = await model.usageHistory(id: profile.id)
+        }
     }
 
     @ViewBuilder
@@ -304,6 +314,14 @@ final class CredentialsViewModel: ObservableObject {
             return lhsKey < rhsKey
         }
         lastError = rows.isEmpty ? "No agent reachable — credential pool not available." : nil
+    }
+
+    /// Fetch the per-account 5h utilization series for the sparkline. The
+    /// aggregate client fans out to every agent; the credential's owner
+    /// answers and the rest return `[]`. Empty result = no history yet (or
+    /// older agent) — the chart hides itself.
+    func usageHistory(id: String) async -> [NexusShared.UsageHistoryPoint] {
+        await client.fetchUsageHistory(id: id, window: "5h")
     }
 
     /// Re-probe a single credential's identity and optimistically update

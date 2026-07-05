@@ -4,16 +4,17 @@ import type {
   NotificationRule,
   PresenceVector,
 } from "@nexus/core";
-import { createLogger } from "@nexus/core/node";
+import { createLogger, getAgentId } from "@nexus/core/node";
 import { evaluateRules, isVectorAllUnknown } from "./rules-engine";
 import { captureException, addBreadcrumb } from "@sentry/node";
 import { fetchWithTimeout } from "@nexus/core";
 import type { Db } from "@nexus/db";
-import { projectVoiceOverrides } from "@nexus/db";
+import { projectVoiceOverrides, elevenlabsCredentials } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import type { NotificationRow } from "./buffer";
 import { isUnspeakable, stripBeadIds } from "./speakability";
 import { writeAudio } from "./audio-store";
+import { decrypt, tryLoadEncryptionKey } from "../credentials/encryption";
 
 /**
  * Signal-only channel handler.
@@ -55,17 +56,74 @@ function defaultVoiceId(): string | null {
   return v && v.length > 0 ? v : null;
 }
 
+/** Resolved ElevenLabs credential — api key plus its optional voice id. */
+export interface ResolvedElevenLabsCredential {
+  apiKey: string;
+  voiceId: string | null;
+}
+
+/**
+ * Resolve the ElevenLabs API key (+ voice id) for the LOCAL agent.
+ *
+ * Precedence (add-elevenlabs-credential):
+ *   1. Encrypted `elevenlabs_credentials` DB row for this agent — decrypted
+ *      fresh on every call (NO in-memory cache) so a dashboard key rotation
+ *      takes effect on the very next dispatch without an agent restart.
+ *   2. `ELEVENLABS_API_KEY` env var (legacy / unmigrated agents).
+ * Returns `null` when neither yields a key → caller stays signal-only.
+ *
+ * A DB error or a decrypt failure is non-fatal: it logs a warning and falls
+ * through to the env var. TTS must never hard-fail on a credential lookup.
+ */
+export async function resolveElevenLabsCredential(
+  db: Db | null = ttsDbHandle,
+): Promise<ResolvedElevenLabsCredential | null> {
+  if (db) {
+    try {
+      const row = await db.query.elevenlabsCredentials.findFirst({
+        where: eq(elevenlabsCredentials.agentId, getAgentId()),
+      });
+      if (row?.valueEncrypted) {
+        const key = tryLoadEncryptionKey();
+        if (key) {
+          try {
+            const apiKey = decrypt(row.valueEncrypted, key);
+            return { apiKey, voiceId: row.voiceId };
+          } catch (err) {
+            log.warn(
+              { err: err instanceof Error ? err.message : String(err) },
+              "tts: decrypt of stored ElevenLabs key failed — falling back to env",
+            );
+          }
+        }
+      }
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "tts: ElevenLabs credential lookup failed (non-fatal) — falling back to env",
+      );
+    }
+  }
+  const envKey = process.env.ELEVENLABS_API_KEY;
+  if (envKey && envKey.length > 0) {
+    return { apiKey: envKey, voiceId: process.env.ELEVENLABS_VOICE_ID ?? null };
+  }
+  return null;
+}
+
 /**
  * Resolve the ElevenLabs voice id for a notification:
  *   1. per-project override row (project_voice_overrides) when project set
- *   2. ELEVENLABS_DEFAULT_VOICE_ID env var
- *   3. null → caller degrades to signal-only (Mac listener synthesizes
+ *   2. `credentialVoiceId` — voice_id from the DB credential row / env
+ *   3. ELEVENLABS_DEFAULT_VOICE_ID env var
+ *   4. null → caller degrades to signal-only (Mac listener synthesizes
  *      locally); never a hard failure.
  *
  * Reuses the existing `projectVoiceOverrides` table — no new schema.
  */
 async function resolveVoiceId(
   notification: NotificationRow,
+  credentialVoiceId: string | null,
 ): Promise<string | null> {
   if (notification.project && ttsDbHandle) {
     try {
@@ -85,7 +143,7 @@ async function resolveVoiceId(
       );
     }
   }
-  return defaultVoiceId();
+  return credentialVoiceId ?? defaultVoiceId();
 }
 
 /**
@@ -165,18 +223,22 @@ async function synthesizeViaElevenLabs(
 async function sendTtsNotification(
   notification: NotificationRow,
 ): Promise<ChannelResult> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey || apiKey.length === 0) {
+  // Resolve the ElevenLabs key from the encrypted DB row first, then the env
+  // var (add-elevenlabs-credential). Fresh read per dispatch → rotate without
+  // restart. `null` means neither source has a key → signal-only.
+  const credential = await resolveElevenLabsCredential();
+  if (!credential) {
     log.info(
       { notificationId: notification.id },
-      "tts: ELEVENLABS_API_KEY unset — emitting signal-only NotificationFired (listener falls back to local synth)",
+      "tts: no ElevenLabs API key (DB row or env) — emitting signal-only NotificationFired (listener falls back to local synth)",
     );
     return { success: true };
   }
+  const apiKey = credential.apiKey;
 
   let voiceId: string | null;
   try {
-    voiceId = await resolveVoiceId(notification);
+    voiceId = await resolveVoiceId(notification, credential.voiceId);
   } catch (err) {
     // Voice resolution threw (e.g. DB hiccup in project-voice lookup).
     // Degrade to signal-only — a transient lookup error must never kill TTS.

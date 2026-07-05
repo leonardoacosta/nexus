@@ -20,6 +20,8 @@ import {
   type CredentialUsagePollerService,
 } from "./services/credential-usage-poller";
 import { getCredentialPool } from "./routes/credentials";
+import { evaluateProactiveSwap } from "./services/proactive-swap";
+import { lastSwapAt } from "./services/credential-pool/swap-tracker";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import {
   startTailscalePresencePoller,
@@ -27,14 +29,11 @@ import {
 } from "./services/tailscale-presence";
 import { handleCommand } from "./services/command-handler";
 import { getNotificationManager } from "./routes/notifications";
-import { evaluateAndDispatch } from "./notifications/hook-trigger";
-import type { HookEventPayload } from "./routes/hooks-types";
 import { initSendTextRoute } from "./routes/commands-send-text";
 import { initResizeRoute } from "./routes/commands-resize";
 import { stopConfigLoader } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
-import { TokenStreamLifecycle } from "./credentials/token-stream/lifecycle";
 import { ensureAudioDir } from "./notifications/audio-store";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
@@ -197,71 +196,12 @@ startSocketServer({
   );
 });
 
-// ── Token stream lifecycle ─────────────────────────────────────────────────
-// Watches per-session transcripts for token usage and persists cost data.
-// The api-error sink (add-api-error-notification, nx-9cz4h) reuses the existing
-// notification path: it maps the api-error text onto a synthetic `notification`
-// HookEventPayload carrying `reason: "api_error"` and hands it to the shared
-// `evaluateAndDispatch` orchestrator (suppression + settings filter +
-// manager.send all live there — no new transport). Mirrors the dispatcher's
-// `dispatchStopNotification` lazy-manager pattern.
-const tokenStreamLifecycle = new TokenStreamLifecycle(
-  db,
-  (sessionId, project, text) => {
-    const manager = getNotificationManager();
-    if (!manager) return; // manager not yet initialized — drop (best-effort)
-    const payload: HookEventPayload = {
-      event: "notification",
-      session_id: sessionId,
-      project: project ?? undefined,
-      reason: "api_error",
-      error_message: text,
-    };
-    evaluateAndDispatch(db, manager, "api_error", payload).catch((err) => {
-      logger.warn(
-        { error: err instanceof Error ? err.message : String(err), sessionId },
-        "api-error notification dispatch rejected (best-effort)",
-      );
-    });
-  },
-);
-
-lifecycleBus.on("SessionStarted", async (envelope) => {
-  const { sessionId, cwd, project } = envelope.payload;
-  try {
-    await tokenStreamLifecycle.startWatcher({
-      id: sessionId,
-      cwd: cwd ?? "",
-      ccSessionId: sessionId,
-      project: project ?? null,
-    });
-  } catch (err) {
-    logger.warn(
-      { error: err instanceof Error ? err.message : String(err), sessionId },
-      "token stream watcher failed to start",
-    );
-  }
-});
-
-lifecycleBus.on("SessionStopped", async (envelope) => {
-  const { sessionId } = envelope.payload;
-  try {
-    await tokenStreamLifecycle.stopWatcher(sessionId);
-  } catch (err) {
-    logger.warn(
-      { error: err instanceof Error ? err.message : String(err), sessionId },
-      "token stream watcher failed to stop",
-    );
-  }
-});
-
-// Resume watchers for sessions that were active before the agent restarted.
-tokenStreamLifecycle.resumeActiveWatchers().catch((err) => {
-  logger.warn(
-    { error: err instanceof Error ? err.message : String(err) },
-    "token stream watcher resume failed — will start watchers on new session events",
-  );
-});
+// Token-stream transcript-tail cost reconstruction was RETIRED by
+// read-cc-telemetry-from-influxdb — per-session cost/token usage is now read
+// from native Claude Code OpenTelemetry series in VictoriaMetrics (see
+// apps/agent/src/telemetry/vm-read.ts + the /sessions/{id}/tokens endpoint).
+// The token-stream watcher (and the api-error notification sink that rode on
+// it) no longer start.
 
 // ── Cron service ───────────────────────────────────────────────────────────
 // Scheduled maintenance (daily), drift detection (weekly), and the weekly
@@ -285,7 +225,18 @@ let credentialUsagePoller: CredentialUsagePollerService | null = null;
 try {
   const pool = getCredentialPool();
   if (pool) {
-    credentialUsagePoller = startCredentialUsagePoller({ db, pool });
+    credentialUsagePoller = startCredentialUsagePoller({
+      db,
+      pool,
+      // Proactive rotation / graduated exhaustion ladder — runs at the end of
+      // each successful tick on the freshly-polled 5h usage (credential-proactive-swap).
+      onTickComplete: ({ db: tickDb, pool: tickPool }) =>
+        evaluateProactiveSwap({
+          db: tickDb,
+          pool: tickPool,
+          swapTracker: { lastSwapAt },
+        }),
+    });
     logger.info("credential usage poller started");
   } else {
     logger.warn(
@@ -361,7 +312,6 @@ async function shutdown() {
   }
 
   // Stop new services first.
-  await tokenStreamLifecycle.stopAll();
   tailscalePresencePoller?.stop();
   specWatcher?.stop();
   credentialUsagePoller?.stop();

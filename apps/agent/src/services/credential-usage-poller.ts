@@ -23,7 +23,7 @@
  */
 
 import type { Db } from "@nexus/db";
-import { credentials } from "@nexus/db";
+import { credentials, credentialPolls } from "@nexus/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
@@ -81,6 +81,13 @@ export interface StartCredentialUsagePollerOpts {
   backoffMs?: number;
   /** Override the per-fetch timeout (testing). */
   fetchTimeoutMs?: number;
+  /**
+   * Proactive-swap evaluator, invoked at the end of each successful (non-backed-off)
+   * tick with the freshly-polled usage data. Injected so tests can stub it and so
+   * the poller stays decoupled from the swap logic. Failures are logged, never
+   * thrown into the tick. See `services/proactive-swap.ts`.
+   */
+  onTickComplete?: (deps: { db: Db; pool: CredentialPool }) => Promise<void>;
 }
 
 /**
@@ -188,12 +195,18 @@ function extractAccessToken(plaintext: string | null): string | null {
   }
 }
 
-/** Persist a parsed usage snapshot to the credentials row. */
+/**
+ * Persist a parsed usage snapshot: overwrite the credentials row's current
+ * state, then append one immutable `credential_polls` history row. Both writes
+ * happen only on a successful parse — a null payload never reaches here.
+ */
 async function writeSnapshot(
   db: Db,
   credentialId: string,
+  fingerprint: string,
   payload: UsagePayload,
 ): Promise<void> {
+  const polledAt = new Date();
   await db
     .update(credentials)
     .set({
@@ -203,14 +216,28 @@ async function writeSnapshot(
       usage7dUsed: payload.sevenDay.used,
       usage7dLimit: payload.sevenDay.limit,
       usage7dResetAt: payload.sevenDay.resetsAt,
-      usagePolledAt: new Date(),
+      usagePolledAt: polledAt,
     })
     .where(eq(credentials.id, credentialId));
+
+  // Append-only history row — one per polled account per successful tick.
+  await db.insert(credentialPolls).values({
+    credentialId,
+    fingerprint,
+    usage5hUsed: payload.fiveHour.used,
+    usage5hLimit: payload.fiveHour.limit,
+    usage7dUsed: payload.sevenDay.used,
+    usage7dLimit: payload.sevenDay.limit,
+    usage5hResetAt: payload.fiveHour.resetsAt,
+    usage7dResetAt: payload.sevenDay.resetsAt,
+    polledAt,
+  });
 }
 
 interface PrimaryAvailableRow {
   id: string;
   accountEmail: string | null;
+  fingerprint: string;
 }
 
 /** Query rows that should be polled this tick. */
@@ -219,6 +246,7 @@ async function queryPollableRows(db: Db): Promise<PrimaryAvailableRow[]> {
     .select({
       id: credentials.id,
       accountEmail: credentials.accountEmail,
+      fingerprint: credentials.fingerprint,
     })
     .from(credentials)
     .where(
@@ -254,7 +282,7 @@ export function startCredentialUsagePoller(
       : DEFAULT_INTERVAL_MS);
   const backoffMs = opts.backoffMs ?? BACKOFF_INTERVAL_MS;
   const fetchTimeoutMs = opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
-  const { db, pool } = opts;
+  const { db, pool, onTickComplete } = opts;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -301,7 +329,7 @@ export function startCredentialUsagePoller(
       }
 
       try {
-        await writeSnapshot(db, row.id, payload);
+        await writeSnapshot(db, row.id, row.fingerprint, payload);
         succeeded++;
 
         // Opportunistic identity re-probe for rows whose accountEmail is
@@ -331,6 +359,21 @@ export function startCredentialUsagePoller(
       { attempted, succeeded, failed, backedOff },
       "credential-usage-poller tick complete",
     );
+
+    // Proactive-swap evaluation runs on the freshly-persisted usage snapshot at
+    // the end of a successful tick. Defensive: a throw here is logged, never
+    // propagated into the tick (which would trigger the error re-schedule path).
+    if (onTickComplete && !backedOff) {
+      try {
+        await onTickComplete({ db, pool });
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "credential-usage-poller: onTickComplete (proactive-swap) failed (non-fatal)",
+        );
+      }
+    }
+
     return { attempted, succeeded, failed, backedOff };
   }
 
