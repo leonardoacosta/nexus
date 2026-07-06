@@ -167,6 +167,27 @@ struct SettingsTtsView: View {
                 Text("Quiet").tag(DuckingMode.pause)
             }
             .onChange(of: model.ducking) { _, _ in model.persistToggles() }
+            // nx-5bqus: describe the three modes' actual behaviour (documented
+            // in AudioPlayer.swift / MP3Player.swift). macOS has no per-app
+            // output volume, so Duck/Quiet dip the SYSTEM output volume for the
+            // clip and restore it after.
+            Text(duckingCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Behavioural summary for the selected ducking mode. Kept in sync with
+    /// the volume targets in AudioPlayer.applyDuck (~40% duck / ~15% quiet).
+    private var duckingCaption: String {
+        switch model.ducking {
+        case .mix:
+            return "Mix — TTS plays at full volume over other audio; no system volume change."
+        case .duck:
+            return "Duck — system output volume dips to ~40% for the clip, then restores."
+        case .pause:
+            return "Quiet — system output volume dips to ~15% (near-silence) for the clip, then restores."
         }
     }
 

@@ -33,9 +33,20 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 import NexusShared
+import os.log
 
 public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     public static let shared = AudioPlayer()
+
+    // nx-5bqus: silent-failure diagnostics. The CoreAudio volume helpers below
+    // are best-effort no-ops on failure — which previously left a silently
+    // non-ducking device with no explanation. Log at .warning so an
+    // uncontrollable / unsettable output device is greppable in Console.app
+    // (subsystem matches TTSObserver's so the whole TTS pipeline traces together).
+    private static let logger = Logger(
+        subsystem: "dev.leonardoacosta.nexus.mac",
+        category: "AudioPlayer"
+    )
     private var player: AVAudioPlayer?
     private var onFinish: (() -> Void)?
 
@@ -155,13 +166,27 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     /// Returns nil when no controllable device exposes the property.
     static func readSystemOutputVolume() -> Float? {
         let deviceID = defaultOutputDevice()
-        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return nil }
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else {
+            // nx-5bqus: no controllable default output device — ducking is a
+            // no-op and the clip plays at full volume without dipping others.
+            logger.warning(
+                "AudioPlayer: readSystemOutputVolume — no controllable default output device; ducking disabled"
+            )
+            return nil
+        }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
             mScope: kAudioDevicePropertyScopeOutput,
             mElement: kAudioObjectPropertyElementMain
         )
-        guard AudioObjectHasProperty(deviceID, &address) else { return nil }
+        guard AudioObjectHasProperty(deviceID, &address) else {
+            // nx-5bqus: device exposes no master volume property (aggregate /
+            // virtual output) — volume can't be read, so ducking stays off.
+            logger.warning(
+                "AudioPlayer: readSystemOutputVolume — device \(deviceID, privacy: .public) has no VirtualMainVolume property; ducking disabled"
+            )
+            return nil
+        }
         var volume = Float(0)
         var size = UInt32(MemoryLayout<Float>.size)
         let status = AudioObjectGetPropertyData(
@@ -172,22 +197,43 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
             &size,
             &volume
         )
-        return status == noErr ? volume : nil
+        guard status == noErr else {
+            // nx-5bqus: the read itself failed — surface the OSStatus.
+            logger.warning(
+                "AudioPlayer: readSystemOutputVolume — read failed for device \(deviceID, privacy: .public) (status \(status, privacy: .public)); ducking disabled"
+            )
+            return nil
+        }
+        return volume
     }
 
     /// Set the system output device's master volume scalar, clamped to 0.0–1.0.
     /// Best-effort — silently no-ops when the property is unsettable.
     static func setSystemOutputVolume(_ value: Float) {
         let deviceID = defaultOutputDevice()
-        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return }
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else {
+            // nx-5bqus: no controllable device — the duck/restore can't apply.
+            logger.warning(
+                "AudioPlayer: setSystemOutputVolume — no controllable default output device; volume unchanged"
+            )
+            return
+        }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
             mScope: kAudioDevicePropertyScopeOutput,
             mElement: kAudioObjectPropertyElementMain
         )
         var settable = DarwinBoolean(false)
-        guard AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr,
-              settable.boolValue else { return }
+        let settableStatus = AudioObjectIsPropertySettable(deviceID, &address, &settable)
+        guard settableStatus == noErr, settable.boolValue else {
+            // nx-5bqus: volume is not settable on this device — either the
+            // query errored or the property is read-only. Duck/restore silently
+            // did nothing before; now it's logged.
+            logger.warning(
+                "AudioPlayer: setSystemOutputVolume — device \(deviceID, privacy: .public) volume not settable (status \(settableStatus, privacy: .public), settable=\(settable.boolValue, privacy: .public)); volume unchanged"
+            )
+            return
+        }
         var clamped = max(0.0, min(1.0, value))
         let size = UInt32(MemoryLayout<Float>.size)
         _ = AudioObjectSetPropertyData(deviceID, &address, 0, nil, size, &clamped)
