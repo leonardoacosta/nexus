@@ -103,6 +103,15 @@ struct AttachScene: View {
         }
         .navigationTitle(resolved?.project ?? "Attach")
         .navigationBarTitleDisplayMode(.inline)
+        // nx-z0gjx: this view is PUSHED onto the Sessions-tab NavigationStack,
+        // but a pushed view does NOT auto-hide the enclosing TabView's tab bar.
+        // The tab bar (Sources/Comms/…/More) stayed pinned to the bottom and
+        // overlapped SwiftTerm's own keyboard accessory row (ctrl/tab/arrows/
+        // keyboard-toggle), intercepting taps meant for the keyboard toggle and
+        // fully blocking typing into the PTY. Hiding the tab bar for the
+        // duration of this pushed view frees that bottom row; SwiftUI restores
+        // the bar automatically on back-pop to the Sessions list (iOS 16+).
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 statusBadge
