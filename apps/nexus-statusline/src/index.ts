@@ -6,7 +6,7 @@
  * On any error, outputs empty string — statusline must never crash.
  *
  * Reads CC context from stdin (JSON piped by Claude Code) — canonical payload
- * per https://code.claude.com/docs/en/statusline (2026-04-24). All fields
+ * per https://code.claude.com/docs/en/statusline (2026-07-05). All fields
  * optional; renderer degrades gracefully when any are absent.
  *
  *   {
@@ -15,9 +15,15 @@
  *     transcript_path?: string,
  *     cwd?: string,
  *     model?: { id?: string; display_name?: string },
- *     workspace?: { current_dir?: string; project_dir?: string },
+ *     workspace?: {
+ *       current_dir?: string,
+ *       project_dir?: string,
+ *       git_worktree?: string,      // name of the active git worktree, when any
+ *     },
  *     version?: string,
- *     output_style?: string,
+ *     output_style?: { name?: string },   // CC sends an object, NOT a bare string
+ *     effort?: { level?: string },        // reasoning-effort tier (e.g. "xhigh")
+ *     exceeds_200k_tokens?: boolean,      // context has crossed the 200K boundary
  *     cost?: {
  *       total_cost_usd?: number,
  *       total_duration_ms?: number,
@@ -27,11 +33,11 @@
  *     },
  *     context_window?: {
  *       used_percentage?: number,    // CC sends used%, NOT remaining%
- *       used_tokens?: number,
- *       max_tokens?: number,
+ *       context_window_size?: number,
  *     },
  *     rate_limits?: {
- *       five_hour?: { resets_at?: number },  // unix seconds
+ *       five_hour?: { resets_at?: number },   // unix seconds
+ *       seven_day?: { used_percentage?: number; resets_at?: number },
  *     },
  *   }
  *
@@ -63,9 +69,11 @@ interface CcInput {
   transcript_path?: string;
   cwd?: string;
   model?: { id?: string; display_name?: string };
-  workspace?: { current_dir?: string; project_dir?: string };
+  workspace?: { current_dir?: string; project_dir?: string; git_worktree?: string };
   version?: string;
-  output_style?: string;
+  output_style?: { name?: string };
+  effort?: { level?: string };
+  exceeds_200k_tokens?: boolean;
   cost?: {
     total_cost_usd?: number;
     total_duration_ms?: number;
@@ -75,11 +83,11 @@ interface CcInput {
   };
   context_window?: {
     used_percentage?: number;
-    used_tokens?: number;
-    max_tokens?: number;
+    context_window_size?: number;
   };
   rate_limits?: {
     five_hour?: { resets_at?: number };
+    seven_day?: { used_percentage?: number; resets_at?: number };
   };
 }
 
@@ -587,11 +595,20 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     parts.push(`${DIM}+${linesAdded}/-${linesRemoved}${RESET}`);
   }
 
-  // CC model name + output_style (between project info and git)
+  // CC model name + effort tier + output_style (between project info and git)
   if (ccInput.model?.display_name) {
     parts.push(`${DIM}${shortenModel(ccInput.model.display_name)}${RESET}`);
   }
-  const outputStyle = ccInput.output_style;
+  // Effort tier — DIM tag immediately after the model segment (session-config info)
+  const effortLevel = ccInput.effort?.level;
+  if (effortLevel) {
+    parts.push(`${DIM}${effortLevel}${RESET}`);
+  }
+  // output_style — CC sends { name } (object). Tolerate the legacy bare-string
+  // form defensively so an old payload degrades gracefully instead of crashing.
+  const outputStyleRaw = ccInput.output_style as { name?: string } | string | undefined;
+  const outputStyle =
+    typeof outputStyleRaw === "string" ? outputStyleRaw : outputStyleRaw?.name;
   if (outputStyle && outputStyle !== "default") {
     parts.push(`${DIM}${shortenOutputStyle(outputStyle)}${RESET}`);
   }
@@ -607,10 +624,22 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     parts.push(branchPart);
   }
 
+  // Worktree badge — immediately after the git branch segment. Disambiguates
+  // which pane is which when many parallel /apply worktrees are running.
+  const worktree = ccInput.workspace?.git_worktree;
+  if (worktree) {
+    parts.push(`${DIM}⑂${worktree}${RESET}`);
+  }
+
   // Active spec (from nexus-agent session — spec field may be absent)
   const spec = (session as Record<string, unknown> | undefined)?.spec;
   if (typeof spec === "string" && spec.length > 0) {
     parts.push(`⚡ ${SPEC}${spec}${RESET}`);
+  }
+
+  // 200K-boundary marker — compact qualifier immediately before the context bar
+  if (ccInput.exceeds_200k_tokens) {
+    parts.push(`${DIM}200K+${RESET}`);
   }
 
   // Context window — CC sends used_percentage; we display remaining
@@ -636,8 +665,17 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
       );
     }
     if (usage.seven_day) {
+      // Prefer CC-supplied resets_at (unix seconds) when present, same precedence
+      // pattern the 5H segment already uses for five_hour.resets_at.
+      const ccResetsAt7d = ccInput.rate_limits?.seven_day?.resets_at;
       parts.push(
-        renderUsageGauge("7D", usage.seven_day.utilization, usage.seven_day.resets_at, 7 * 86400),
+        renderUsageGauge(
+          "7D",
+          usage.seven_day.utilization,
+          usage.seven_day.resets_at,
+          7 * 86400,
+          ccResetsAt7d,
+        ),
       );
     }
   }

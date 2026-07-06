@@ -28,19 +28,33 @@ const baseDeps = {
 // ── 2.1 — canonical payload renders a context bar ────────────────────────────
 
 describe("renderStatusline — CC canonical payload", () => {
-  it("[2.1] renders a context-bar segment when canonical payload supplied", () => {
+  it("[2.1] renders context-bar + style segment for the 2026-07-05 canonical payload", () => {
     const ccInput: CcInput = {
       hook_event_name: "StatusLine",
       session_id: "abc",
-      model: { id: "claude-opus-4-7", display_name: "Opus 4.7" },
+      model: { id: "claude-opus-4-8", display_name: "Opus 4.8" },
       workspace: { current_dir: "/home/x/dev/nx", project_dir: "/home/x/dev/nx" },
-      context_window: { used_percentage: 45, used_tokens: 45000, max_tokens: 1_000_000 },
+      output_style: { name: "tts-summary" },
+      context_window: { used_percentage: 45, context_window_size: 1_000_000 },
     };
     const out = renderStatusline(ccInput, baseDeps);
     const stripped = strip(out);
     // Renders "CTX" gauge with 55% remaining
     expect(stripped).toContain("CTX");
     expect(stripped).toContain("55%");
+    // output_style object form renders (truncated head before dash → "tts")
+    expect(stripped).toContain("tts");
+  });
+
+  it("[2.1b] legacy bare-string output_style does not crash (degrades gracefully)", () => {
+    // CC used to send a bare string; the type is now { name }, but an old payload
+    // must not crash the renderer.
+    const ccInput = { output_style: "tts-summary" } as unknown as CcInput;
+    let out = "";
+    expect(() => {
+      out = renderStatusline(ccInput, baseDeps);
+    }).not.toThrow();
+    expect(typeof out).toBe("string");
   });
 
   // ── 2.2 — used_percentage:25 renders ~75% with CTX_HIGH ────────────────────
@@ -114,8 +128,8 @@ describe("renderStatusline — line-delta segment", () => {
 // ── 2.8 — output_style segment ──────────────────────────────────────────────
 
 describe("renderStatusline — output_style segment", () => {
-  it("[2.8a] output_style='tts-summary' renders an 8-char truncation", () => {
-    const ccInput: CcInput = { output_style: "tts-summary" };
+  it("[2.8a] output_style={name:'tts-summary'} renders an 8-char truncation", () => {
+    const ccInput: CcInput = { output_style: { name: "tts-summary" } };
     const out = renderStatusline(ccInput, baseDeps);
     const stripped = strip(out);
     // Truncates to head before dash → "tts" (≤ 8 chars)
@@ -124,8 +138,8 @@ describe("renderStatusline — output_style segment", () => {
     expect(stripped).not.toContain("tts-summary");
   });
 
-  it("[2.8b] output_style='default' renders nothing (no segment)", () => {
-    const ccInput: CcInput = { output_style: "default" };
+  it("[2.8b] output_style={name:'default'} renders nothing (no segment)", () => {
+    const ccInput: CcInput = { output_style: { name: "default" } };
     const out = renderStatusline(ccInput, baseDeps);
     expect(strip(out)).not.toContain("default");
   });
@@ -230,5 +244,111 @@ describe("renderStatusline — roadmap pulse segment", () => {
   it("[5.1b] null/absent pulse renders no segment", () => {
     const out = renderStatusline({}, { ...baseDeps, pulse: null });
     expect(strip(out)).not.toContain("next:");
+  });
+
+  it("[2.6] multi-line pulse (embedded \\n) renders as two separate rows", () => {
+    const out = renderStatusline(
+      {},
+      { ...baseDeps, pulse: "next: Merge Slot\nradar:stale" },
+    );
+    const lines = strip(out).split("\n");
+    // The parts row is lines[0]; the pulse contributes two distinct trailing rows,
+    // NOT one squeezed line.
+    expect(lines).toContain("next: Merge Slot");
+    expect(lines).toContain("radar:stale");
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ── 2.2 / 2.3 / 2.5 — new CC-metadata segments ───────────────────────────────
+
+describe("renderStatusline — exceeds_200k marker", () => {
+  it("[2.2] exceeds_200k_tokens:true renders the 200K+ marker", () => {
+    const out = renderStatusline(
+      { exceeds_200k_tokens: true, context_window: { used_percentage: 50 } },
+      baseDeps,
+    );
+    expect(strip(out)).toContain("200K+");
+  });
+
+  it("[2.2b] exceeds_200k_tokens false/absent renders no marker", () => {
+    expect(strip(renderStatusline({ exceeds_200k_tokens: false }, baseDeps))).not.toContain(
+      "200K",
+    );
+    expect(strip(renderStatusline({}, baseDeps))).not.toContain("200K");
+  });
+});
+
+describe("renderStatusline — effort tag", () => {
+  it("[2.3] effort.level='xhigh' renders a DIM tag after the model segment", () => {
+    const out = renderStatusline(
+      { model: { display_name: "Opus 4.8" }, effort: { level: "xhigh" } },
+      baseDeps,
+    );
+    const s = strip(out);
+    expect(s).toContain("xhigh");
+    // Tag sits after the model segment (shortenModel("Opus 4.8") → "4.8")
+    expect(s.indexOf("xhigh")).toBeGreaterThan(s.indexOf("4.8"));
+  });
+
+  it("[2.3b] absent effort renders no tag", () => {
+    const out = renderStatusline({ model: { display_name: "Opus 4.8" } }, baseDeps);
+    expect(strip(out)).not.toContain("xhigh");
+  });
+});
+
+describe("renderStatusline — git_worktree badge", () => {
+  it("[2.5] workspace.git_worktree renders a badge after the git segment", () => {
+    const deps = { ...baseDeps, git: { branch: "main", dirty: false, ahead: 0 } };
+    const out = renderStatusline(
+      { workspace: { git_worktree: "my-feature" } },
+      deps,
+    );
+    const s = strip(out);
+    expect(s).toContain("my-feature");
+    // Badge appears after the git branch segment ("main")
+    expect(s.indexOf("my-feature")).toBeGreaterThan(s.indexOf("main"));
+  });
+
+  it("[2.5b] absent git_worktree renders no badge", () => {
+    const deps = { ...baseDeps, git: { branch: "main", dirty: false, ahead: 0 } };
+    const out = renderStatusline({}, deps);
+    expect(strip(out)).not.toContain("my-feature");
+  });
+});
+
+describe("renderStatusline — 7D rate-limit source precedence", () => {
+  it("[2.4] rate_limits.seven_day.resets_at is preferred over agent-analytics 7D", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const in30Min = now + 30 * 60;
+    const analyticsResetIso = new Date((now + 3 * 86400) * 1000).toISOString();
+    const usage = {
+      seven_day: { utilization: 50, resets_at: analyticsResetIso },
+    };
+
+    // CC-supplied resets_at (30m) wins over the analytics-derived value (3d)
+    const withCc = renderStatusline(
+      { rate_limits: { seven_day: { resets_at: in30Min } } },
+      { ...baseDeps, usage },
+    );
+    expect(strip(withCc)).toMatch(/7D.*↻(29|30)m/);
+
+    // Absent CC value → falls back to the analytics-derived reset (3d)
+    const without = renderStatusline({}, { ...baseDeps, usage });
+    expect(strip(without)).toMatch(/7D.*↻3d/);
+  });
+});
+
+// ── 2.7 — empty payload shows none of the new segments ───────────────────────
+
+describe("renderStatusline — new-segment degraded parity", () => {
+  it("[2.7] empty payload {} renders without any new segment appearing", () => {
+    const out = renderStatusline({}, baseDeps);
+    const s = strip(out);
+    expect(typeof out).toBe("string");
+    expect(s).not.toContain("200K");
+    expect(s).not.toContain("xhigh");
+    expect(s).not.toContain("my-feature");
+    expect(s).not.toContain("⑂");
   });
 });
