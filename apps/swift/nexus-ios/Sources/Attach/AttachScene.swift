@@ -47,6 +47,16 @@ struct AttachScene: View {
     /// the terminal branch + its `.id` stay stable and the PTY mounts once.
     @State private var resolved: Session?
 
+    /// Belt-and-suspenders teardown handle (nx-km2um / ios-session-navigation
+    /// UI 2.8). TerminalHostView.dismantleUIView -> coordinator.disconnect() is
+    /// the primary teardown, but on a NavigationStack back-pop dismantleUIView
+    /// does NOT fire promptly — the PTY stream WS leaked ~3min post-pop and the
+    /// interact WS only closed at its 40s pong-timeout, never on the pop. This
+    /// box is wired by TerminalHostView to the coordinator's `disconnect()` and
+    /// fired from `.onDisappear` below so BOTH sockets close within ~1-2s of the
+    /// pop — redundant with dismantleUIView, never later than it, idempotent.
+    @State private var teardown = AttachTeardown()
+
     var body: some View {
         // ios-session-navigation (UI 2.3): this view is PUSHED onto the
         // Sessions-tab NavigationStack — it no longer wraps its own
@@ -64,7 +74,8 @@ struct AttachScene: View {
                     session: resolved,
                     tmuxTarget: tmuxTarget,
                     client: observer.client,
-                    status: $status
+                    status: $status,
+                    teardown: teardown
                 )
                 .ignoresSafeArea(edges: .bottom)
                 .id(resolved.id)
@@ -113,6 +124,14 @@ struct AttachScene: View {
         .onChange(of: observer.sessions) {
             resolveOnce()
         }
+        // nx-km2um: back-pop teardown. `.onDisappear` fires promptly when this
+        // pushed view is popped off the Sessions NavigationStack, so we close
+        // both PTY sockets here instead of waiting for dismantleUIView (which
+        // lags the pop by minutes). No-op / idempotent if the coordinator
+        // already tore down.
+        .onDisappear {
+            teardown.disconnect()
+        }
     }
 
     /// Resolve the session snapshot exactly once. After `resolved` is set it is
@@ -151,4 +170,14 @@ enum AttachStatus: Equatable {
     case connecting
     case connected
     case failed(String)
+}
+
+/// Ungated teardown handle bridging AttachScene (ungated) to the SwiftTerm-gated
+/// coordinator's `disconnect()`. AttachScene owns one via `@State`; TerminalHostView
+/// sets `disconnect` to the coordinator's teardown in `makeUIView`; AttachScene
+/// fires it from `.onDisappear` on back-pop (nx-km2um). Main-actor isolated so the
+/// stored closure needs no extra `Sendable`/isolation annotation.
+@MainActor
+final class AttachTeardown {
+    var disconnect: () -> Void = {}
 }

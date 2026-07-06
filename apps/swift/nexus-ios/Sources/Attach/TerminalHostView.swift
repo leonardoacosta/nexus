@@ -78,6 +78,11 @@ struct TerminalHostView: UIViewRepresentable {
     /// a second endpoint-resolution path.
     let client: NexusAggregateClient
     @Binding var status: AttachStatus
+    /// Back-pop teardown bridge (nx-km2um). AttachScene owns this and fires it
+    /// from `.onDisappear`; we point it at the coordinator's `disconnect()` so
+    /// the pop closes both PTY sockets promptly instead of waiting on the
+    /// laggy dismantleUIView path.
+    let teardown: AttachTeardown
 
     func makeUIView(context: Context) -> PhoneTerminalView {
         let view = PhoneTerminalView()
@@ -102,6 +107,13 @@ struct TerminalHostView: UIViewRepresentable {
         // layout (first layout, rotation, keyboard show/hide).
         view.onSettledLayout = { [weak coordinator = context.coordinator] cols, rows, bounds in
             coordinator?.handleSettledLayout(cols: cols, rows: rows, bounds: bounds)
+        }
+
+        // nx-km2um: wire the back-pop teardown to this coordinator's disconnect()
+        // (closes both the PTY stream WS and the interact WS, idempotent). Fired
+        // by AttachScene.onDisappear on NavigationStack pop.
+        teardown.disconnect = { [weak coordinator = context.coordinator] in
+            coordinator?.disconnect()
         }
 
         let b = view.bounds
@@ -140,6 +152,9 @@ struct TerminalHostView: View {
     let tmuxTarget: String
     let client: NexusAggregateClient
     @Binding var status: AttachStatus
+    /// Unused in the placeholder (no coordinator to wire) — present so the
+    /// call site in AttachScene is identical across the SwiftTerm #if.
+    let teardown: AttachTeardown
 
     var body: some View {
         VStack(spacing: 12) {
