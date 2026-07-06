@@ -128,7 +128,10 @@ final class TTSObserverTests: XCTestCase {
     /// override individual seams.
     private func makeObserver(
         keychain: KeychainStore = StubKeychainStore(),
-        audioPlayer: MP3PlayerProtocol? = nil
+        audioPlayer: MP3PlayerProtocol? = nil,
+        settings: SettingsStore = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-observer-tests-\(UUID().uuidString)"
+        )!)
     ) -> TTSObserver {
         TTSObserver(
             client: makeUnreachableAggregate(),
@@ -136,11 +139,19 @@ final class TTSObserverTests: XCTestCase {
             audioPlayer: audioPlayer,
             systemSpeech: SystemSpeechSynthesizer(),
             elevenLabs: ElevenLabsClient(),
-            settings: SettingsStore(defaults: UserDefaults(
-                suiteName: "tts-observer-tests-\(UUID().uuidString)"
-            )!),
+            settings: settings,
             notificationCenter: .current()
         )
+    }
+
+    /// A SettingsStore backed by a fresh, isolated UserDefaults suite so a
+    /// test can flip `ttsEnabled` without touching the shared domain.
+    private func makeSettings(ttsEnabled: Bool) -> SettingsStore {
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-observer-gate-\(UUID().uuidString)"
+        )!)
+        store.ttsEnabled = ttsEnabled
+        return store
     }
 
     // MARK: - 1) testStartRegistersHandler
@@ -339,5 +350,71 @@ final class TTSObserverTests: XCTestCase {
         XCTAssertEqual(keychain.voiceIdReads, 0)
 
         _ = observer // anchor the observer until end of test
+    }
+
+    // MARK: - 6) ttsEnabled gate (nx-azr0t)
+
+    /// With `ttsEnabled == false`, a `channel: "tts"` event must reach the
+    /// banner stage but MUST NOT reach the audio-synth stage. `synthesise()`
+    /// is the first thing that consults the keychain (voiceId + apiKey reads),
+    /// so zero keychain reads is the observable proof that the gate returned
+    /// before synthesis. The audio-player spy must likewise stay empty.
+    func testTtsDisabledSuppressesSynthButNotBanner() async {
+        let keychain = StubKeychainStore(apiKey: "kfake", voiceId: "vfake")
+        let spy = SpyMP3Player()
+        let observer = makeObserver(
+            keychain: keychain,
+            audioPlayer: spy,
+            settings: makeSettings(ttsEnabled: false)
+        )
+
+        let event = NotificationEvent(
+            id: UUID(),
+            body: "should not be spoken",
+            channel: "tts",
+            title: "Nexus",
+            severity: .info,
+            deliveryState: .pending
+        )
+        await observer.handle(event: event)
+
+        // Gate proof: synthesise() was never entered, so the keychain was
+        // never consulted and the audio player was never invoked.
+        XCTAssertEqual(keychain.apiKeyReads, 0,
+                       "ttsEnabled=false must short-circuit before the apiKey read")
+        XCTAssertEqual(keychain.voiceIdReads, 0,
+                       "ttsEnabled=false must short-circuit before the voiceId read")
+        XCTAssertTrue(spy.calls.isEmpty,
+                      "ttsEnabled=false must not reach audioPlayer.play()")
+    }
+
+    /// Positive control: with `ttsEnabled == true`, the same event DOES reach
+    /// `synthesise()`, which consults the keychain — proving the suppression
+    /// above is caused by the gate and not by some unrelated short-circuit.
+    /// (No ElevenLabs key would be usable here anyway, so the path falls back
+    /// to system speech; we only assert that synthesise() was entered.)
+    func testTtsEnabledReachesSynth() async {
+        let keychain = StubKeychainStore(apiKey: nil, voiceId: nil)
+        let spy = SpyMP3Player()
+        let observer = makeObserver(
+            keychain: keychain,
+            audioPlayer: spy,
+            settings: makeSettings(ttsEnabled: true)
+        )
+
+        let event = NotificationEvent(
+            id: UUID(),
+            body: "should reach synth",
+            channel: "tts",
+            title: "Nexus",
+            severity: .info,
+            deliveryState: .pending
+        )
+        await observer.handle(event: event)
+
+        // synthesise() reads voiceId (resolution chain) then apiKey (guard),
+        // so a positive read count proves the gate let the event through.
+        XCTAssertGreaterThan(keychain.voiceIdReads, 0,
+                             "ttsEnabled=true must reach synthesise() (voiceId consulted)")
     }
 }

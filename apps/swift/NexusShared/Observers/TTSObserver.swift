@@ -445,7 +445,10 @@ public final class TTSObserver: ObservableObject {
 
     // MARK: - Per-event handler
 
-    private func handle(event: NotificationEvent) async {
+    /// `internal` (not `private`) so nexus-mac-Tests can drive the per-event
+    /// pipeline directly and assert the behavioural contracts (channel filter,
+    /// ttsEnabled gate, banner-vs-synth split). See TTSObserverTests header.
+    func handle(event: NotificationEvent) async {
         let channel = event.channel ?? "<nil>"
         Self.logger.info(
             "TTSObserver: received id=\(event.id.uuidString, privacy: .public) channel=\(channel, privacy: .public)"
@@ -482,6 +485,20 @@ public final class TTSObserver: ObservableObject {
         // system speech on any failure (missing key, network error, HTTP
         // non-2xx, tiny body). Desktop channel skips audio entirely.
         guard event.channel == "tts" else { return }
+
+        // nx-azr0t: gate the spoken-audio path on the user's ttsEnabled
+        // preference. The banner (Stage 2) is intentionally NOT gated — the
+        // Stage-1 comment documents that both tts/desktop channels reach the
+        // banner pipeline and only the audio path is internally gated. Mirrors
+        // postBanner()'s bannerEnabled early-return: log at .info, then return.
+        // Before this guard, toggling "TTS enabled" off in SettingsTtsView had
+        // zero effect — audio played on every event.
+        guard settings.ttsEnabled else {
+            Self.logger.info(
+                "TTSObserver: synth suppressed (nx.tts.enabled=false) id=\(event.id.uuidString, privacy: .public)"
+            )
+            return
+        }
         await synthesise(event: event)
     }
 
