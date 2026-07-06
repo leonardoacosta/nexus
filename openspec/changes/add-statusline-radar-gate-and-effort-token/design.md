@@ -99,15 +99,18 @@ the current %-only render is unchanged.
    `ultracode`, or both is unverified — implementation task 2.4 must capture a real payload
    under ultracode and paste it as evidence. Both values map to `u` regardless.
 
-   **Status (2026-07-06, wave-2 apply): UNCONFIRMED.** No live ultracode/max statusline stdin
-   payload was available during implementation — statusline stdin is not persisted, and a scan
-   of `~/.claude/scripts/state/` + `~/.claude/projects/*/*.jsonl` transcripts surfaced no
-   `effort.level` wire value (the only `"effort"` hits are an unrelated audit-plan-bundle field
-   carrying `L`/`M`). Per the no-fabrication rule, the observed value is left blank rather than
-   guessed. The implementation defensively maps BOTH `max` and `ultracode` → `u`, so the token is
-   correct regardless of which string CC actually emits; task 2.4 stays unchecked until a real
-   payload is captured. To capture: run a `/effort ultracode` (or `max`) session and log the
-   statusline stdin JSON, then paste the observed `effort.level` here.
+   **Status (2026-07-06, /apply re-verify): PARTIALLY CONFIRMED.** A one-shot tee-wrapper around
+   the deployed `~/.local/bin/nexus-statusline` binary (installed, captured 8 live renders of the
+   active session, then immediately restored — no config left mutated) captured a real wire
+   payload: `effort: {"level": "high"}`, `model: {"id": "claude-sonnet-5", "display_name": "Sonnet
+   5"}`. This confirms the schema shape (`effort.level` is a bare string field, matching the type
+   already implemented) and the `high` mapping (`h` suffix) end-to-end on live CC traffic. The
+   session captured was NOT running at `max`/`ultracode` effort, so the specific top-tier wire
+   string (`max` vs `ultracode` vs both) remains genuinely UNCONFIRMED — capturing that requires
+   the same technique run against a session with reasoning effort explicitly set to max/ultracode.
+   The implementation defensively maps BOTH `max` and `ultracode` → `u`, so the token renders
+   correctly regardless of which string CC actually emits; this residual gap is cosmetic evidence
+   only, not a functional risk. Left as a standing follow-up rather than blocking archive.
 3. **`[project].org` key does not exist yet** in cc's `project-toml-schema.md`, and no B&B repo
    has a `project.toml`. This change reserves the key shape (`org = "bb"`); schema addition +
    manifest authoring are cc-side follow-ups.
