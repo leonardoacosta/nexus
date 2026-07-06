@@ -27,4 +27,4 @@
 
 ## 4. Cross-repo coordination (filed, not implemented here)
 
-- [ ] [4.1] [P-2] File the cc-side follow-up (bd issue in cc) for `roadmap-pulse` to honor `PULSE_RADAR=0` — skip rung-1 radar next + radar counts so rungs 2-7 backfill `next:` — and for adding `[project].org` to `commands/apply/references/project-toml-schema.md`. [owner:api-engineer]
+- [x] [4.1] [P-2] File the cc-side follow-up (bd issue in cc) for `roadmap-pulse` to honor `PULSE_RADAR=0` — skip rung-1 radar next + radar counts so rungs 2-7 backfill `next:` — and for adding `[project].org` to `commands/apply/references/project-toml-schema.md`. Filed as cc-wj80k. [owner:api-engineer]

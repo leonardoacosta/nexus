@@ -39,7 +39,7 @@ string), `cost` (with `total_cost_usd`, `total_duration_ms`, `total_api_duration
 - **THEN** no error is thrown
 - **AND** the output-style segment MAY be omitted (the type no longer declares this shape as valid)
 
-### Requirement: Rate-limit segments MUST source from CC payload, not re-query agent
+### Requirement: Rate-limit countdown MUST source from CC payload
 
 The 5H segment's `↻` countdown MUST derive from `rate_limits.five_hour.resets_at` when present.
 The 7D segment MUST apply the same precedence: when `rate_limits.seven_day.resets_at` (and/or
@@ -78,24 +78,6 @@ before the context bar segment. When `false` or absent, no marker renders.
 - **GIVEN** stdin payload `{"exceeds_200k_tokens": false}` or a payload omitting the field
 - **WHEN** the statusline renders
 - **THEN** no marker appears
-
-### Requirement: Reasoning-effort tag
-
-When `effort.level` is present, the statusline MUST render it as a DIM-colored tag immediately
-after the model segment (before the `output_style` segment). When `effort` is absent, no tag
-renders.
-
-#### Scenario: Effort tag renders
-
-- **GIVEN** stdin payload `{"effort": {"level": "xhigh"}}`
-- **WHEN** the statusline renders
-- **THEN** a DIM `xhigh` tag appears immediately after the model segment
-
-#### Scenario: No tag when effort absent
-
-- **GIVEN** a stdin payload without an `effort` field
-- **WHEN** the statusline renders
-- **THEN** no effort tag appears
 
 ### Requirement: Git-worktree badge
 
