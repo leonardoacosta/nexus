@@ -6,9 +6,22 @@
  * it's covered by the section-3 smoke test (`echo '{}' | nexus-statusline`).
  */
 
-import { describe, expect, it } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { renderStatusline, type CcInput } from "./index";
+import { describe, expect, it, spyOn } from "bun:test";
+import * as childProcess from "node:child_process";
+
+import {
+  renderStatusline,
+  modelEffortToken,
+  isBbProject,
+  gatePulseLine,
+  stripRadarStale,
+  getRoadmapPulse,
+  type CcInput,
+} from "./index";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -279,21 +292,28 @@ describe("renderStatusline — exceeds_200k marker", () => {
   });
 });
 
-describe("renderStatusline — effort tag", () => {
-  it("[2.3] effort.level='xhigh' renders a DIM tag after the model segment", () => {
+describe("renderStatusline — model/effort token (supersedes standalone effort tag)", () => {
+  it("combined token replaces the model version segment (Opus 4.8 + xhigh → Oxh, no '4.8', no 'xhigh')", () => {
     const out = renderStatusline(
-      { model: { display_name: "Opus 4.8" }, effort: { level: "xhigh" } },
+      { model: { id: "claude-opus-4-8", display_name: "Opus 4.8" }, effort: { level: "xhigh" } },
       baseDeps,
     );
     const s = strip(out);
-    expect(s).toContain("xhigh");
-    // Tag sits after the model segment (shortenModel("Opus 4.8") → "4.8")
-    expect(s.indexOf("xhigh")).toBeGreaterThan(s.indexOf("4.8"));
+    expect(s).toContain("Oxh");
+    // The old standalone effort tag and version-number segment are gone
+    expect(s).not.toContain("xhigh");
+    expect(s).not.toContain("4.8");
   });
 
-  it("[2.3b] absent effort renders no tag", () => {
-    const out = renderStatusline({ model: { display_name: "Opus 4.8" } }, baseDeps);
-    expect(strip(out)).not.toContain("xhigh");
+  it("absent effort renders the letter alone (no suffix)", () => {
+    const out = renderStatusline(
+      { model: { id: "claude-opus-4-8", display_name: "Opus 4.8" } },
+      baseDeps,
+    );
+    const s = strip(out);
+    expect(s).toContain("O");
+    expect(s).not.toContain("xhigh");
+    expect(s).not.toContain("4.8");
   });
 });
 
@@ -350,5 +370,209 @@ describe("renderStatusline — new-segment degraded parity", () => {
     expect(s).not.toContain("xhigh");
     expect(s).not.toContain("my-feature");
     expect(s).not.toContain("⑂");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// add-statusline-radar-gate-and-effort-token
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 2.3 — model/effort token ─────────────────────────────────────────────────
+
+describe("modelEffortToken", () => {
+  it("[2.3] Fu — fable + max", () => {
+    expect(
+      modelEffortToken({ id: "claude-fable-5", display_name: "Fable 5" }, { level: "max" }),
+    ).toBe("Fu");
+  });
+
+  it("[2.3] Sxh — sonnet + xhigh", () => {
+    expect(
+      modelEffortToken({ id: "claude-sonnet-4-6", display_name: "Sonnet 4.6" }, { level: "xhigh" }),
+    ).toBe("Sxh");
+  });
+
+  it("[2.3] O — opus, no effort → letter alone", () => {
+    expect(modelEffortToken({ id: "claude-opus-4-8", display_name: "Opus 4.8" })).toBe("O");
+  });
+
+  it("[2.3] ultracode also maps to u", () => {
+    expect(
+      modelEffortToken({ id: "claude-fable-5" }, { level: "ultracode" }),
+    ).toBe("Fu");
+  });
+
+  it("[2.3] no token when model absent (effort alone never renders)", () => {
+    expect(modelEffortToken(undefined, { level: "max" })).toBeNull();
+    expect(modelEffortToken({})).toBeNull();
+  });
+
+  it("[2.3] Nl — unknown family falls back to display_name initial", () => {
+    expect(
+      modelEffortToken({ id: "nova-x1", display_name: "Nova X1" }, { level: "low" }),
+    ).toBe("Nl");
+  });
+
+  it("[2.3] unrecognized effort → letter alone", () => {
+    expect(
+      modelEffortToken({ id: "claude-opus-4-8" }, { level: "bogus" }),
+    ).toBe("O");
+  });
+
+  it("[2.3] no standalone version-number segment remains in rendered output", () => {
+    const out = renderStatusline(
+      { model: { id: "claude-fable-5", display_name: "Fable 5" }, effort: { level: "max" } },
+      baseDeps,
+    );
+    const s = strip(out);
+    expect(s).toContain("Fu");
+    expect(s).not.toContain("Fable");
+    // The bare version number "5" must not appear as its own DIM segment
+    expect(s).not.toMatch(/\s5\s/);
+  });
+});
+
+// ── 2.1 — B&B radar gate ─────────────────────────────────────────────────────
+
+describe("isBbProject + radar gate", () => {
+  it("[2.1] nx (non-B&B) strips radar:stale from the counts row, leaving 7o", () => {
+    const isBb = isBbProject("/home/nyaptor/dev/nx");
+    expect(isBb).toBe(false);
+    expect(gatePulseLine("next: x\n7o,radar:stale", isBb)).toBe("next: x\n7o");
+  });
+
+  it("[2.1] ws (allowlist, no toml) keeps radar:stale", () => {
+    const isBb = isBbProject("/home/nyaptor/dev/ws");
+    expect(isBb).toBe(true);
+    expect(gatePulseLine("next: x\n7o,radar:stale", isBb)).toBe("next: x\n7o,radar:stale");
+  });
+
+  it("[2.1] org = \"bb\" toml overrides a non-allowlisted code", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-bbgate-"));
+    try {
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      writeFileSync(
+        join(dir, ".claude/project.toml"),
+        '[project]\nname = "Personalish"\ncode = "zz"\norg = "bb"\n',
+      );
+      // basename(dir) is a random temp code, definitely not in the allowlist
+      expect(isBbProject(dir)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[2.1] org = \"personal\" toml overrides an allowlisted-style code to non-B&B", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-bbgate-"));
+    try {
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      writeFileSync(
+        join(dir, ".claude/project.toml"),
+        '[project]\norg = "personal"\n',
+      );
+      expect(isBbProject(dir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[2.1] unreadable/absent toml falls back to allowlist without throwing", () => {
+    // Non-existent dir → readFileSync throws internally, caught, allowlist fallback
+    expect(() => isBbProject("/nonexistent/path/xx")).not.toThrow();
+    expect(isBbProject("/nonexistent/path/xx")).toBe(false);
+  });
+
+  it("[2.1] stripRadarStale drops a counts row that becomes empty", () => {
+    expect(stripRadarStale("next: x\nradar:stale")).toBe("next: x");
+    expect(stripRadarStale("radar:stale")).toBe("");
+  });
+
+  it("[2.1] gatePulseLine returns null when non-B&B strip empties the whole line", () => {
+    expect(gatePulseLine("radar:stale", false)).toBeNull();
+  });
+});
+
+// ── 2.2 — refresh spawn carries PULSE_RADAR ──────────────────────────────────
+
+describe("getRoadmapPulse — PULSE_RADAR spawn env", () => {
+  it("[2.2] non-B&B project spawns refresh with PULSE_RADAR=0", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-pulse-nonbb-"));
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      () => ({ unref() {} }) as unknown as ReturnType<typeof childProcess.spawn>,
+    );
+    try {
+      getRoadmapPulse(dir); // no cache → stale → spawn fires
+      expect(spy).toHaveBeenCalled();
+      const opts = spy.mock.calls[0]?.[2] as { env?: Record<string, string> };
+      expect(opts?.env?.PULSE_RADAR).toBe("0");
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[2.2] B&B project (org toml) spawns refresh with PULSE_RADAR=1", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-pulse-bb-"));
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude/project.toml"), '[project]\norg = "bb"\n');
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      () => ({ unref() {} }) as unknown as ReturnType<typeof childProcess.spawn>,
+    );
+    try {
+      getRoadmapPulse(dir);
+      expect(spy).toHaveBeenCalled();
+      const opts = spy.mock.calls[0]?.[2] as { env?: Record<string, string> };
+      expect(opts?.env?.PULSE_RADAR).toBe("1");
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── 2.5 — CTX absolute usage (k/k) ───────────────────────────────────────────
+
+describe("renderContext — absolute usage suffix", () => {
+  it("[2.5] used_percentage:42 + context_window_size:200000 renders 84k/200k", () => {
+    const out = renderStatusline(
+      { context_window: { used_percentage: 42, context_window_size: 200000 } },
+      baseDeps,
+    );
+    expect(strip(out)).toContain("84k/200k");
+  });
+
+  it("[2.5] missing context_window_size renders percentage-only (no k/k)", () => {
+    const out = renderStatusline(
+      { context_window: { used_percentage: 42 } },
+      baseDeps,
+    );
+    const s = strip(out);
+    expect(s).toContain("58%"); // 100 - 42 remaining
+    expect(s).not.toContain("k/");
+  });
+
+  it("[2.5] context_window_size:0 (non-positive) renders percentage-only", () => {
+    const out = renderStatusline(
+      { context_window: { used_percentage: 42, context_window_size: 0 } },
+      baseDeps,
+    );
+    expect(strip(out)).not.toContain("k/");
+  });
+});
+
+// ── 2.6 — regression: empty payload crash-safe, no new behavior visible ──────
+
+describe("add-statusline-radar-gate — empty payload regression", () => {
+  it("[2.6] empty payload {} renders without throwing and shows no new behavior", () => {
+    let out = "";
+    expect(() => {
+      out = renderStatusline({}, baseDeps);
+    }).not.toThrow();
+    const s = strip(out);
+    // No model/effort token, no CTX k/k usage, no radar remnants
+    expect(s).not.toContain("k/");
+    expect(s).not.toContain("radar:stale");
+    expect(s).not.toContain("undefined");
+    expect(s).not.toContain("null");
   });
 });

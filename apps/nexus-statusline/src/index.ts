@@ -46,7 +46,8 @@
  */
 
 import { readFileSync, writeFileSync, openSync, readSync, closeSync, statSync } from "node:fs";
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 
@@ -164,9 +165,119 @@ function deriveProjectCode(dir: string): string {
   return basename(dir) || "?";
 }
 
-function shortenModel(model: string): string {
-  const parts = model.split(/\s+/);
-  return parts[1] ?? model;
+// ── Model/effort token ────────────────────────────────────────────────────────
+
+/** Family letter keyed by substring found in model.id / display_name. */
+const MODEL_FAMILIES: ReadonlyArray<readonly [string, string]> = [
+  ["fable", "F"],
+  ["opus", "O"],
+  ["sonnet", "S"],
+  ["haiku", "H"],
+];
+
+/** Effort-level → compact suffix. `ultracode` mapped defensively alongside `max`. */
+const EFFORT_SUFFIX: Readonly<Record<string, string>> = {
+  low: "l",
+  medium: "m",
+  high: "h",
+  xhigh: "xh",
+  max: "u",
+  ultracode: "u",
+};
+
+/**
+ * Compact row-one model token: family letter (from `model.id`, `display_name`
+ * fallback; unknown family → uppercased `display_name` initial) + effort suffix
+ * (`low/medium/high/xhigh/max|ultracode` → `l/m/h/xh/u`). Effort absent or
+ * unrecognized → letter alone. No model → no token (effort alone never renders).
+ */
+export function modelEffortToken(
+  model?: { id?: string; display_name?: string },
+  effort?: { level?: string },
+): string | null {
+  if (!model) return null;
+  const id = model.id ?? "";
+  const dn = model.display_name ?? "";
+  if (!id && !dn) return null;
+
+  const hay = `${id} ${dn}`.toLowerCase();
+  let letter: string | undefined;
+  for (const [fam, l] of MODEL_FAMILIES) {
+    if (hay.includes(fam)) {
+      letter = l;
+      break;
+    }
+  }
+  if (!letter) {
+    const initial = dn.trim().charAt(0) || id.trim().charAt(0);
+    if (!initial) return null;
+    letter = initial.toUpperCase();
+  }
+
+  const level = effort?.level?.toLowerCase();
+  const suffix = level ? (EFFORT_SUFFIX[level] ?? "") : "";
+  return letter + suffix;
+}
+
+// ── B&B project gate (radar content) ─────────────────────────────────────────
+
+/** B&B fleet project codes — allowlist fallback when no project.toml `org` key. */
+const BB_ALLOWLIST: ReadonlySet<string> = new Set([
+  "ws", "fb", "dc", "se", "tb", "sc", "ba", "bo", "es", "ew", "ic", "lu", "pp",
+]);
+
+/**
+ * Is this project part of the B&B fleet? `<projectDir>/.claude/project.toml`
+ * `[project].org` is authoritative when present (`"bb"` = B&B); otherwise fall
+ * back to the hardcoded allowlist matched against the derived project code.
+ * Same no-TOML-dep regex approach as `getLocalAgentUrl`. All reads wrapped —
+ * never throws; unreadable/absent toml + unlisted code → non-B&B (radar hidden
+ * by default; a false-hide is low-cost, a false-show on a personal repo is not).
+ */
+export function isBbProject(projectDir: string): boolean {
+  try {
+    const tomlPath = join(projectDir, ".claude/project.toml");
+    const content = readFileSync(tomlPath, "utf-8");
+    const orgMatch = content.match(/^\s*org\s*=\s*["']([^"']+)["']/m);
+    if (orgMatch) return orgMatch[1] === "bb";
+  } catch {
+    // No toml / unreadable — fall through to allowlist
+  }
+  try {
+    return BB_ALLOWLIST.has(deriveProjectCode(projectDir));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strip the exact `radar:stale` token from each comma-CSV row of a pulse line,
+ * dropping any row that becomes empty. Rows without the token pass through.
+ */
+export function stripRadarStale(line: string): string {
+  return line
+    .split("\n")
+    .map((row) => {
+      if (!row.includes("radar:stale")) return row;
+      return row
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0 && t !== "radar:stale")
+        .join(",");
+    })
+    .filter((row) => row.length > 0)
+    .join("\n");
+}
+
+/**
+ * Apply the B&B gate to a cached pulse line: B&B renders verbatim; non-B&B has
+ * the `radar:stale` token stripped (line dropped entirely if it becomes empty).
+ */
+export function gatePulseLine(line: string | null, isBb: boolean): string | null {
+  if (line == null) return null;
+  if (isBb) return line;
+  const stripped = stripRadarStale(line);
+  return stripped.length > 0 ? stripped : null;
 }
 
 /** Truncate output_style name to ≤ 8 chars for statusline display. */
@@ -404,9 +515,10 @@ const PULSE_BIN = join(homedir(), ".claude/scripts/bin/roadmap-pulse");
  * Output is project-dependent (openspec/ scan of the repo), hence the
  * per-project cache file and cwd on the refresh spawn.
  */
-function getRoadmapPulse(projectDir: string): string | null {
+export function getRoadmapPulse(projectDir: string): string | null {
   try {
     const projectCode = deriveProjectCode(projectDir);
+    const isBb = isBbProject(projectDir);
     const cachePath = join(
       homedir(),
       `.claude/scripts/state/roadmap-pulse.${projectCode}.line`,
@@ -422,17 +534,25 @@ function getRoadmapPulse(projectDir: string): string | null {
     }
 
     if (stale) {
-      const child = spawn(
+      const child = childProcess.spawn(
         "sh",
         ["-c", `"${PULSE_BIN}" --line > "${cachePath}.tmp" 2>/dev/null && mv "${cachePath}.tmp" "${cachePath}"`],
-        { cwd: projectDir, detached: true, stdio: "ignore" },
+        {
+          cwd: projectDir,
+          detached: true,
+          stdio: "ignore",
+          // Producer-side radar gate: cc's roadmap-pulse skips radar rungs when 0
+          env: { ...process.env, PULSE_RADAR: isBb ? "1" : "0" },
+        },
       );
       child.unref();
     }
 
     // "Nothing pending." is the script's empty state — not worth a segment
     if (line === "Nothing pending.") return null;
-    return line;
+    // Non-B&B: strip the radar:stale counts token (covers the stale-cache window
+    // and roadmap-pulse versions predating PULSE_RADAR support).
+    return gatePulseLine(line, isBb);
   } catch {
     return null;
   }
@@ -448,9 +568,23 @@ function renderGauge(label: string, pct: number, suffix: string): string {
   return `${DIM}${label}${RESET} ${color}${bar} ${suffix}${RESET}`;
 }
 
-function renderContext(remainingPct: number): string {
+function renderContext(
+  remainingPct: number,
+  usedPct?: number,
+  contextWindowSize?: number,
+): string {
   const pct = Math.round(remainingPct);
-  return renderGauge("CTX", pct, `${pct}%`);
+  let suffix = `${pct}%`;
+  if (
+    contextWindowSize != null &&
+    contextWindowSize > 0 &&
+    usedPct != null
+  ) {
+    const usedK = Math.round((usedPct / 100) * contextWindowSize / 1000);
+    const sizeK = Math.round(contextWindowSize / 1000);
+    suffix = `${pct}% ${usedK}k/${sizeK}k`;
+  }
+  return renderGauge("CTX", pct, suffix);
 }
 
 /** Parse ISO8601 timestamp to unix seconds. */
@@ -595,14 +729,12 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     parts.push(`${DIM}+${linesAdded}/-${linesRemoved}${RESET}`);
   }
 
-  // CC model name + effort tier + output_style (between project info and git)
-  if (ccInput.model?.display_name) {
-    parts.push(`${DIM}${shortenModel(ccInput.model.display_name)}${RESET}`);
-  }
-  // Effort tier — DIM tag immediately after the model segment (session-config info)
-  const effortLevel = ccInput.effort?.level;
-  if (effortLevel) {
-    parts.push(`${DIM}${effortLevel}${RESET}`);
+  // CC model/effort token + output_style (between project info and git).
+  // Combined token (e.g. Fu, Sxh, O) supersedes the old version-number segment
+  // and the standalone effort tag.
+  const modelToken = modelEffortToken(ccInput.model, ccInput.effort);
+  if (modelToken) {
+    parts.push(`${DIM}${modelToken}${RESET}`);
   }
   // output_style — CC sends { name } (object). Tolerate the legacy bare-string
   // form defensively so an old payload degrades gracefully instead of crashing.
@@ -646,7 +778,9 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
   const usedPct = ccInput.context_window?.used_percentage;
   if (usedPct != null) {
     const remaining = 100 - usedPct;
-    parts.push(renderContext(remaining));
+    parts.push(
+      renderContext(remaining, usedPct, ccInput.context_window?.context_window_size),
+    );
   }
 
   // Session (5hr) and Weekly (7d) usage
