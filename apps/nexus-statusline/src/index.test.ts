@@ -20,6 +20,10 @@ import {
   gatePulseLine,
   stripRadarStale,
   getRoadmapPulse,
+  formatSpecsLine,
+  formatRoadmapLine,
+  getSpecsLine,
+  getRoadmapLine,
   type CcInput,
 } from "./index";
 
@@ -273,6 +277,157 @@ describe("renderStatusline — roadmap pulse segment", () => {
   });
 });
 
+// ── 2.6 — specs + roadmap lines (add-bead-proposal-roadmap-surface) ──────────
+
+describe("formatSpecsLine", () => {
+  const rollup = (
+    closed: number,
+    total: number,
+    ready: number,
+    blocked = 0,
+  ) => ({ tasks: { total, closed, ready, blocked } });
+
+  it("renders the top in-progress proposal as closed/total · N ready", () => {
+    const projects = [
+      {
+        code: "nx",
+        specs: [
+          { name: "ios-session-nav", status: "active", beadRollup: rollup(14, 15, 1) },
+        ],
+      },
+    ];
+    expect(formatSpecsLine(projects, "nx")).toBe("ios-session-nav 14/15 · 1 ready");
+  });
+
+  it("picks the proposal with the most task activity (most closed)", () => {
+    const projects = [
+      {
+        code: "nx",
+        specs: [
+          { name: "quiet", status: "active", beadRollup: rollup(2, 10, 3) },
+          { name: "busy", status: "active", beadRollup: rollup(9, 12, 1) },
+        ],
+      },
+    ];
+    expect(formatSpecsLine(projects, "nx")).toBe("busy 9/12 · 1 ready");
+  });
+
+  it("omits proposals whose status is complete", () => {
+    const projects = [
+      {
+        code: "nx",
+        specs: [
+          { name: "done", status: "complete", beadRollup: rollup(5, 5, 0) },
+        ],
+      },
+    ];
+    expect(formatSpecsLine(projects, "nx")).toBeNull();
+  });
+
+  it("omits proposals with no bead rollup or zero task total", () => {
+    const projects = [
+      {
+        code: "nx",
+        specs: [
+          { name: "nobeads", status: "active", beadRollup: null },
+          { name: "empty", status: "active", beadRollup: rollup(0, 0, 0) },
+        ],
+      },
+    ];
+    expect(formatSpecsLine(projects, "nx")).toBeNull();
+  });
+
+  it("returns null when the project code is not present / no projects", () => {
+    expect(formatSpecsLine(undefined, "nx")).toBeNull();
+    expect(formatSpecsLine([], "nx")).toBeNull();
+    expect(
+      formatSpecsLine(
+        [{ code: "oo", specs: [{ name: "x", status: "active", beadRollup: rollup(1, 2, 1) }] }],
+        "nx",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("formatRoadmapLine", () => {
+  const cap = (name: string, closed: number, total: number) => ({
+    name,
+    progress: { closedTasks: closed, totalTasks: total },
+  });
+
+  it("renders the least-complete capability as name + percent", () => {
+    const caps = [cap("agent-lifecycle", 4, 10), cap("dashboard", 9, 10)];
+    expect(formatRoadmapLine(caps)).toBe("agent-lifecycle 40%");
+  });
+
+  it("ignores capabilities with zero total tasks", () => {
+    const caps = [cap("empty", 0, 0), cap("real", 3, 4)];
+    expect(formatRoadmapLine(caps)).toBe("real 75%");
+  });
+
+  it("returns null on empty / undefined / all-zero-total", () => {
+    expect(formatRoadmapLine(undefined)).toBeNull();
+    expect(formatRoadmapLine([])).toBeNull();
+    expect(formatRoadmapLine([cap("z", 0, 0)])).toBeNull();
+  });
+});
+
+describe("renderStatusline — specs + roadmap trailing lines", () => {
+  it("appends specs and roadmap lines each on their own row", () => {
+    const out = renderStatusline(
+      {},
+      { ...baseDeps, specsLine: "ios-session-nav 14/15 · 1 ready", roadmapLine: "agent-lifecycle 40%" },
+    );
+    const lines = strip(out).split("\n");
+    expect(lines).toContain("ios-session-nav 14/15 · 1 ready");
+    expect(lines).toContain("agent-lifecycle 40%");
+  });
+
+  it("null specs/roadmap lines render no extra rows", () => {
+    const out = renderStatusline({}, { ...baseDeps, specsLine: null, roadmapLine: null });
+    expect(strip(out)).not.toContain("ready");
+    expect(strip(out)).not.toContain("%");
+  });
+
+  it("coexists with the pulse line (pulse first, then specs, then roadmap)", () => {
+    const out = renderStatusline(
+      {},
+      {
+        ...baseDeps,
+        pulse: "next: ship it",
+        specsLine: "busy 9/12 · 1 ready",
+        roadmapLine: "cap 40%",
+      },
+    );
+    const s = strip(out);
+    expect(s.indexOf("next: ship it")).toBeLessThan(s.indexOf("busy 9/12"));
+    expect(s.indexOf("busy 9/12")).toBeLessThan(s.indexOf("cap 40%"));
+  });
+});
+
+describe("getSpecsLine / getRoadmapLine — stale-while-revalidate cache", () => {
+  it("first render (no cache) returns null and spawns a detached refresh", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-beadline-"));
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      // No cache file for this random dir → stale → null line + spawn fires.
+      expect(getSpecsLine("/home/nyaptor/dev/zzznope", "http://localhost:7400")).toBeNull();
+      expect(getRoadmapLine("/home/nyaptor/dev/zzznope", "http://localhost:7400")).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(2);
+      // Refresh command curls the agent endpoint into the cache file.
+      const specArgs = spy.mock.calls[0]?.[1] as string[];
+      expect(specArgs.join(" ")).toContain("/specs/all");
+      const roadArgs = spy.mock.calls[1]?.[1] as string[];
+      expect(roadArgs.join(" ")).toContain("/roadmap?project=zzznope");
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // ── 2.2 / 2.3 / 2.5 — new CC-metadata segments ───────────────────────────────
 
 describe("renderStatusline — exceeds_200k marker", () => {
@@ -498,7 +653,7 @@ describe("getRoadmapPulse — PULSE_RADAR spawn env", () => {
   it("[2.2] non-B&B project spawns refresh with PULSE_RADAR=0", () => {
     const dir = mkdtempSync(join(tmpdir(), "nx-pulse-nonbb-"));
     const spy = spyOn(childProcess, "spawn").mockImplementation(
-      () => ({ unref() {} }) as unknown as ReturnType<typeof childProcess.spawn>,
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
     );
     try {
       getRoadmapPulse(dir); // no cache → stale → spawn fires
@@ -516,7 +671,7 @@ describe("getRoadmapPulse — PULSE_RADAR spawn env", () => {
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(join(dir, ".claude/project.toml"), '[project]\norg = "bb"\n');
     const spy = spyOn(childProcess, "spawn").mockImplementation(
-      () => ({ unref() {} }) as unknown as ReturnType<typeof childProcess.spawn>,
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
     );
     try {
       getRoadmapPulse(dir);
