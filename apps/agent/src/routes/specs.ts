@@ -24,9 +24,7 @@ import { getProjects, type ProjectConfig } from "../services/config-loader";
 import { execText } from "../utils/exec";
 import {
   computeBeadRollup,
-  defaultRollupBeadSource,
-  type RawBead,
-  type RollupBeadSource,
+  computeRollupsForProject,
 } from "../services/bead-rollup";
 
 const log = createLogger("agent:routes:specs");
@@ -74,20 +72,6 @@ interface ProjectSpecStatus {
   specs: Array<SpecSnapshot & { beadRollup: BeadRollup | null }>;
 }
 
-/**
- * A per-project rollup source that fetches `bd ready --json` at most once
- * (memoised) and reuses it across every spec in that project — otherwise
- * `handleGetSpecsAll` would spawn `bd ready` once per spec, per project.
- */
-function memoisedProjectSource(): RollupBeadSource {
-  let readyCache: Promise<RawBead[]> | null = null;
-  return {
-    listBeads: defaultRollupBeadSource.listBeads,
-    listReady: (cwd) =>
-      (readyCache ??= defaultRollupBeadSource.listReady(cwd)),
-  };
-}
-
 export async function handleGetSpecsAll(): Promise<Response> {
   const projects = loadProjects();
   const results: ProjectSpecStatus[] = [];
@@ -97,13 +81,18 @@ export async function handleGetSpecsAll(): Promise<Response> {
     if (!existsSync(openspecDir)) continue;
 
     const specs = await pollProjectSpecs(project.path);
-    const source = memoisedProjectSource();
-    const withRollups = await Promise.all(
-      specs.map(async (spec) => ({
-        ...spec,
-        beadRollup: await computeBeadRollup(project.path, spec.name, source),
-      })),
+    // ONE `bd list` + ONE `bd ready` for the whole project — never a per-spec
+    // `bd` fan-out. The unbounded per-spec spawn saturated large projects and
+    // tripped the 10s exec timeout, cascading null rollups to every project
+    // after the first (add-bead-proposal-roadmap-surface, nx-fndhz).
+    const rollups = await computeRollupsForProject(
+      project.path,
+      specs.map((s) => s.name),
     );
+    const withRollups = specs.map((spec) => ({
+      ...spec,
+      beadRollup: rollups.get(spec.name) ?? null,
+    }));
 
     results.push({
       code: project.code,

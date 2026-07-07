@@ -20,7 +20,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RoadmapCapability, RoadmapProposal } from "@nexus/core";
 import {
-  computeBeadRollup,
+  computeRollupsForProject,
   defaultRollupBeadSource,
   emptyRollup,
   type RawBead,
@@ -129,18 +129,17 @@ export async function computeRoadmap(
   );
   const allBeads = Array.isArray(all) ? all : [];
 
-  const capabilities: RoadmapCapability[] = [];
-
+  // Pass 1: resolve each feature bead's proposal slug. `bd show <feature>`
+  // stays per-feature (spec_id is not in `bd list` output and feature beads
+  // are few — acceptable). Collect the union of slugs so the ROLLUP compute
+  // can be batched into ONE `bd list` for the whole project.
+  const slugsByEpic = new Map<string, string[]>();
+  const allSlugs = new Set<string>();
   for (const epic of capabilityEpics) {
-    const name = (epic.title ?? "").slice(CAPABILITY_PREFIX.length);
     const featureBeads = allBeads.filter(
       (b) => b.parent === epic.id && b.issue_type === "feature",
     );
-
-    const proposals: RoadmapProposal[] = [];
-    let totalTasks = 0;
-    let closedTasks = 0;
-
+    const slugs: string[] = [];
     for (const feature of featureBeads) {
       let slug: string | null;
       try {
@@ -149,9 +148,29 @@ export async function computeRoadmap(
         slug = null;
       }
       if (!slug) continue;
+      slugs.push(slug);
+      allSlugs.add(slug);
+    }
+    slugsByEpic.set(epic.id, slugs);
+  }
 
-      const rollup =
-        (await computeBeadRollup(projectPath, slug, source)) ?? emptyRollup();
+  // ONE batched rollup compute for every proposal across every capability —
+  // not a per-proposal `computeBeadRollup` fan-out (nx-fndhz). Degrades to a
+  // null-valued map on bd failure, coerced to emptyRollup below.
+  const rollups = await computeRollupsForProject(projectPath, [...allSlugs], source);
+
+  // Pass 2: assemble capabilities from the shared rollup map.
+  const capabilities: RoadmapCapability[] = [];
+  for (const epic of capabilityEpics) {
+    const name = (epic.title ?? "").slice(CAPABILITY_PREFIX.length);
+    const slugs = slugsByEpic.get(epic.id) ?? [];
+
+    const proposals: RoadmapProposal[] = [];
+    let totalTasks = 0;
+    let closedTasks = 0;
+
+    for (const slug of slugs) {
+      const rollup = rollups.get(slug) ?? emptyRollup();
       const specStatus = classifySpecStatus(projectPath, slug);
 
       proposals.push({ slug, rollup, specStatus });

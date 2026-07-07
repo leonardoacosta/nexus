@@ -19,8 +19,11 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "@nexus/core/node";
 import type { BeadRef, BeadRollup, UnlinkedBead } from "@nexus/core";
 import { execJson } from "../utils/exec";
+
+const log = createLogger("agent:services:bead-rollup");
 
 // ---------------------------------------------------------------------------
 // Raw bd JSON shape (the subset we read)
@@ -365,7 +368,115 @@ export async function computeBeadRollup(
       (Array.isArray(ready) ? ready : []).map((b) => b.id),
     );
     return aggregateRollup(markers, Array.isArray(beads) ? beads : [], readyIds);
-  } catch {
+  } catch (err) {
+    // Previously a silent `catch { return null }` — the swallow is WHY this
+    // failure mode (bd timeout under per-spec fan-out) was invisible in the
+    // journal. Log it so a degraded rollup is diagnosable.
+    log.warn({ err, specName }, "bead rollup compute failed");
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// computeRollupsForProject — batched IO orchestrator (one bd call per PROJECT)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute rollups for MANY proposals with exactly ONE `bd list` + ONE
+ * `bd ready` for the whole project — the fix for the unbounded per-spec `bd`
+ * fan-out that saturated the box and tripped the 10s exec timeout on
+ * large projects (every project after the first returned null rollups).
+ *
+ * `bd`/dolt is a 137MB binary (~1.2s cold); a 38-spec project spawning ~38
+ * concurrent `bd` is the root cause. Bounding concurrency did not help — the
+ * only fix is one spawn per project, not per spec.
+ *
+ * Contract (matches {@link computeBeadRollup} per spec):
+ *   - No `.beads/` dir            -> every spec maps to `null`.
+ *   - `tasks.md` unresolvable     -> that spec maps to `null`.
+ *   - Reachable but marker-less   -> that spec maps to a zeroed rollup.
+ *   - bd failure                  -> every marker-parsed spec degrades to
+ *                                    `null` (never throws; logs a warn).
+ *   - Empty id union              -> no bd spawn at all.
+ *
+ * Each spec's rollup is folded from the SHARED bead/ready maps but partitioned
+ * down to that spec's own linked ids first, so `rollup.beads` (the detail-view
+ * set) never leaks another spec's beads.
+ */
+export async function computeRollupsForProject(
+  projectPath: string,
+  specNames: string[],
+  source: RollupBeadSource = defaultRollupBeadSource,
+): Promise<Map<string, BeadRollup | null>> {
+  const out = new Map<string, BeadRollup | null>();
+
+  // No `.beads/` -> every spec null (mirrors computeBeadRollup's guard).
+  if (!existsSync(join(projectPath, ".beads"))) {
+    for (const name of specNames) out.set(name, null);
+    return out;
+  }
+
+  // 1. Parse markers per spec; a spec with no resolvable tasks.md maps to
+  //    null now and never enters the bd union.
+  const markersBySpec = new Map<string, BeadMarkers>();
+  const unionIds = new Set<string>();
+  for (const name of specNames) {
+    const tasksMd = resolveTasksMd(projectPath, name);
+    if (tasksMd === null) {
+      out.set(name, null);
+      continue;
+    }
+    const markers = parseBeadMarkers(tasksMd);
+    markersBySpec.set(name, markers);
+    if (markers.epicId) unionIds.add(markers.epicId);
+    if (markers.featureId) unionIds.add(markers.featureId);
+    for (const id of markers.taskIds) unionIds.add(id);
+  }
+
+  // 2. Empty union -> nothing to fetch. Every marker-parsed spec folds to a
+  //    zeroed rollup (no bd spawn — the empty-marker case is bd-independent).
+  if (unionIds.size === 0) {
+    for (const [name, markers] of markersBySpec) {
+      out.set(name, aggregateRollup(markers, [], new Set()));
+    }
+    return out;
+  }
+
+  // 3. ONE `bd list --id <union> --all` + ONE `bd ready` for the whole
+  //    project — the whole point of this function.
+  let byId: Map<string, RawBead>;
+  let readyIds: Set<string>;
+  try {
+    const [beads, ready] = await Promise.all([
+      source.listBeads([...unionIds], projectPath),
+      source.listReady(projectPath),
+    ]);
+    byId = new Map(
+      (Array.isArray(beads) ? beads : []).map((b) => [b.id, b] as const),
+    );
+    readyIds = new Set((Array.isArray(ready) ? ready : []).map((b) => b.id));
+  } catch (err) {
+    log.warn(
+      { err, projectPath, specCount: markersBySpec.size },
+      "bead rollup batch compute failed",
+    );
+    for (const name of markersBySpec.keys()) out.set(name, null);
+    return out;
+  }
+
+  // 4. Fold each spec from the SHARED maps, partitioned to its own ids so the
+  //    detail-view `beads` set is not polluted by sibling specs.
+  for (const [name, markers] of markersBySpec) {
+    const ids = [markers.epicId, markers.featureId, ...markers.taskIds].filter(
+      (x): x is string => Boolean(x),
+    );
+    const specBeads: RawBead[] = [];
+    for (const id of ids) {
+      const b = byId.get(id);
+      if (b) specBeads.push(b);
+    }
+    out.set(name, aggregateRollup(markers, specBeads, readyIds));
+  }
+
+  return out;
 }

@@ -17,6 +17,7 @@ import {
   aggregateRollup,
   filterUnlinked,
   computeBeadRollup,
+  computeRollupsForProject,
   collectLinkedBeadIds,
   emptyRollup,
   defaultRollupBeadSource,
@@ -362,6 +363,144 @@ describe("computeBeadRollup", () => {
 // `--all` shipped undetected. This spies on the exec layer and asserts the
 // actual flags, so a future regression fails locally.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// computeRollupsForProject — the batched entry point (nx-fndhz).
+//
+// The headline invariant: N specs -> exactly ONE `bd list` + ONE `bd ready`
+// for the whole project, not a per-spec fan-out. Plus correct per-spec
+// partitioning from the shared maps.
+// ---------------------------------------------------------------------------
+
+describe("computeRollupsForProject", () => {
+  afterEach(() => {
+    spyOn(exec, "execJson").mockRestore();
+  });
+
+  it("issues exactly ONE bd list + ONE bd ready for N specs (deduped union)", async () => {
+    const root = makeProject({
+      specs: {
+        s1: "<!-- beads:feature:nx-f1 -->\n[beads:nx-t1]\n[beads:nx-shared]",
+        s2: "<!-- beads:feature:nx-f2 -->\n[beads:nx-t2]\n[beads:nx-shared]",
+        s3: "<!-- beads:feature:nx-f3 -->\n[beads:nx-t3]",
+      },
+    });
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+    try {
+      await computeRollupsForProject(root, ["s1", "s2", "s3"]);
+
+      const listCalls = spy.mock.calls.filter((c) => c[1][0] === "list");
+      const readyCalls = spy.mock.calls.filter((c) => c[1][0] === "ready");
+      // The whole point: one list + one ready for THREE specs.
+      expect(listCalls).toHaveLength(1);
+      expect(readyCalls).toHaveLength(1);
+
+      const [, args] = listCalls[0]!;
+      expect(args).toContain("--all"); // closed-inclusive flag preserved
+      const csv = args[2] as string;
+      const ids = csv.split(",");
+      // nx-shared appears in s1 and s2 but must be deduped to a single id.
+      expect(ids.filter((i) => i === "nx-shared")).toHaveLength(1);
+      // all six distinct ids present.
+      expect(new Set(ids)).toEqual(
+        new Set(["nx-f1", "nx-t1", "nx-shared", "nx-f2", "nx-t2", "nx-f3", "nx-t3"]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("partitions the shared bead set per spec (no cross-spec leak)", async () => {
+    const root = makeProject({
+      specs: {
+        withMarkers: MARKED_TASKS, // epic1/feat1/t1,t2,t3
+        shared: "[beads:nx-t1]", // shares nx-t1 with withMarkers
+        noMarkers: "# Tasks\n- [ ] nothing here\n",
+        // "gone" has no tasks.md at all.
+      },
+    });
+    try {
+      const beads: RawBead[] = [
+        { id: "nx-epic1", status: "open", issue_type: "epic", title: "Epic" },
+        { id: "nx-feat1", status: "open", issue_type: "feature", title: "Feature" },
+        { id: "nx-t1", status: "closed", issue_type: "task" },
+        { id: "nx-t2", status: "open", issue_type: "task" },
+        { id: "nx-t3", status: "open", issue_type: "task" },
+      ];
+      const m = await computeRollupsForProject(
+        root,
+        ["withMarkers", "shared", "noMarkers", "gone"],
+        fakeSource(beads, ["nx-t2"]),
+      );
+
+      // withMarkers -> full rollup, only its OWN 5 linked beads.
+      const wm = m.get("withMarkers")!;
+      expect(wm).not.toBeNull();
+      expect(wm!.tasks.total).toBe(3);
+      expect(wm!.tasks.closed).toBe(1);
+      expect(wm!.tasks.ready).toBe(1); // nx-t2
+      expect(wm!.beads).toHaveLength(5);
+
+      // shared -> ONLY nx-t1 (partitioned; NOT polluted by withMarkers' beads).
+      const sh = m.get("shared")!;
+      expect(sh).not.toBeNull();
+      expect(sh!.tasks.total).toBe(1);
+      expect(sh!.tasks.closed).toBe(1);
+      expect(sh!.beads).toHaveLength(1);
+      expect(sh!.beads[0]!.id).toBe("nx-t1");
+
+      // noMarkers -> zeroed rollup (bd reachable, nothing to fold).
+      expect(m.get("noMarkers")).toEqual(emptyRollup());
+
+      // gone -> null (tasks.md unresolvable).
+      expect(m.get("gone")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("maps every spec to null when the project has no .beads/ dir", async () => {
+    const root = makeProject({ beads: false, specs: { a: MARKED_TASKS, b: MARKED_TASKS } });
+    try {
+      const m = await computeRollupsForProject(root, ["a", "b"]);
+      expect(m.get("a")).toBeNull();
+      expect(m.get("b")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT spawn bd when the id union is empty", async () => {
+    const root = makeProject({ specs: { a: "# no markers\n", b: "# also none\n" } });
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+    try {
+      const m = await computeRollupsForProject(root, ["a", "b"]);
+      expect(spy).not.toHaveBeenCalled();
+      expect(m.get("a")).toEqual(emptyRollup());
+      expect(m.get("b")).toEqual(emptyRollup());
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("degrades every marker-parsed spec to null on bd failure", async () => {
+    const root = makeProject({ specs: { s: MARKED_TASKS } });
+    const throwing: RollupBeadSource = {
+      async listBeads() {
+        throw new Error("bd exploded");
+      },
+      async listReady() {
+        return [];
+      },
+    };
+    try {
+      const m = await computeRollupsForProject(root, ["s"], throwing);
+      expect(m.get("s")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("defaultRollupBeadSource — bd arg strings", () => {
   afterEach(() => {
