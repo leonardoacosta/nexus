@@ -74,6 +74,7 @@ import { handleGetSources } from "./routes/sources";
 import { handleGetRequests } from "./routes/requests";
 import { handleGetQueue } from "./routes/queue";
 import { handlePostDecision } from "./routes/decision";
+import { handlePostCapture } from "./routes/capture";
 import { handleGetTriage } from "./routes/triage";
 import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
@@ -754,6 +755,20 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       return handlePostDecision(request).then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/requests/:id/decision", method: "POST", err }, "route handler failed");
         // A dropped decision must surface loudly — 502, never an empty 200.
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Capture passthrough (no DB; proxies the mx gateway :8799) ─────────
+    // POST /capture (add-capture-proxy). NOT fail-soft: the handler relays the
+    // gateway status/body verbatim and maps a network failure to 504 — a
+    // dropped capture must surface loudly so the Shortcut re-taps. Dispatched
+    // after the origin defense-in-depth block, so a disallowed browser origin
+    // is already rejected with 403 before reaching here.
+    if (url.pathname === "/capture" && request.method === "POST") {
+      return handlePostCapture(request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/capture", method: "POST", err }, "route handler failed");
+        // A dropped capture must surface loudly — 502, never a fabricated 200.
         return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
       });
     }
