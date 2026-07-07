@@ -401,6 +401,48 @@ public actor NexusClient {
         return try await getJSON(url: url)
     }
 
+    /// `GET /beads/unlinked?project=<code>` — open + in-progress beads with
+    /// no proposal link (unplanned work). Returns `[]` on 404 (older agent
+    /// without the route) so the Specs tab's "Unlinked" section renders an
+    /// empty state instead of surfacing an error.
+    ///
+    /// Spec: openspec/changes/add-bead-proposal-roadmap-surface (task 2.2)
+    public func fetchUnlinkedBeads(project: String) async throws -> [UnlinkedBead] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("beads/unlinked"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "project", value: project)]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: UnlinkedBeadsResponse = try await getJSON(url: url)
+            return envelope.unlinked
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
+    /// `GET /roadmap?project=<code>` — `[CAPABILITY]` epics with their child
+    /// proposals + per-capability progress. Returns `[]` on 404 (older agent
+    /// without the route) so the Roadmap tab shows an empty state rather than
+    /// an error.
+    ///
+    /// Spec: openspec/changes/add-bead-proposal-roadmap-surface (task 2.2)
+    public func fetchRoadmap(project: String) async throws -> [RoadmapCapability] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("roadmap"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "project", value: project)]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: RoadmapResponse = try await getJSON(url: url)
+            return envelope.capabilities
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
     /// `GET /specs/{project}/{name}/{file}` — raw markdown content for a
     /// single spec document. `file` MUST be one of "proposal", "design",
     /// "tasks". Returns `nil` on 404 (file/spec/project absent); throws on

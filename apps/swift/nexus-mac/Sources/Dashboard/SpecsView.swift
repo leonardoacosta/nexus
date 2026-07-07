@@ -246,7 +246,32 @@ struct SpecsView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 4)
                 }
+                unlinkedBeadsSection
             }
+        }
+    }
+
+    /// "Unlinked open beads" section — open/in-progress beads with no
+    /// proposal link (unplanned work). Hidden entirely when every project
+    /// reports zero unlinked beads. specs-tab · add-bead-proposal-roadmap-
+    /// surface task 2.3.
+    @ViewBuilder
+    private var unlinkedBeadsSection: some View {
+        let rows = model.unlinkedRows
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("UNLINKED OPEN BEADS")
+                    .font(.system(.caption2, design: .monospaced))
+                    .tracking(1.5)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+                ForEach(rows, id: \.bead.id) { row in
+                    UnlinkedBeadRow(project: row.project, bead: row.bead)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .accessibilityIdentifier("specs-view-unlinked-beads")
         }
     }
 
@@ -412,6 +437,7 @@ private struct SpecRow: View {
                         WaveStatusDot(status: wave.status)
                     }
                 }
+                beadRollupRow
             }
             Spacer()
             startSessionButton
@@ -423,6 +449,35 @@ private struct SpecRow: View {
                 ? AnyShapeStyle(Color.accentColor.opacity(0.18))
                 : AnyShapeStyle(Color.clear)
         )
+    }
+
+    /// Bead-rollup adornment row: a thin progress bar (`closed/total` task
+    /// beads), a ready-count chip, and tappable epic/feature bead ids.
+    /// Hidden entirely when the agent shipped no rollup (older agent, or a
+    /// project with no `.beads/` dir) — add-bead-proposal-roadmap-surface
+    /// task 2.3 "gracefully handle beadRollup == nil".
+    @ViewBuilder
+    private var beadRollupRow: some View {
+        if let rollup = spec.beadRollup {
+            HStack(spacing: 8) {
+                ProgressView(value: rollup.progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 80)
+                Text("\(rollup.tasks.closed)/\(rollup.tasks.total)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if rollup.tasks.ready > 0 {
+                    ReadyCountChip(count: rollup.tasks.ready)
+                }
+                if let epic = rollup.epic {
+                    BeadIdChip(ref: epic, role: "epic")
+                }
+                if let feature = rollup.feature {
+                    BeadIdChip(ref: feature, role: "feature")
+                }
+            }
+            .accessibilityIdentifier("spec-row-bead-rollup-\(spec.name)")
+        }
     }
 
     /// Per-row Start Session button. Disabled when ≥1 linked session is
@@ -565,6 +620,23 @@ final class SpecsViewModel: ObservableObject {
     /// `client.fetchProjects()`. Used by Start Session to resolve the
     /// agent's POST /session/start `path` field.
     @Published private(set) var projectPaths: [String: String] = [:]
+    /// Unlinked (unplanned) open beads per project, fed by
+    /// `GET /beads/unlinked?project=` (add-bead-proposal-roadmap-surface
+    /// task 2.3). Fetched best-effort during `load()`; a 404 / failure
+    /// simply leaves a project absent so the section stays empty.
+    @Published private(set) var unlinkedByProject: [String: [UnlinkedBead]] = [:]
+
+    /// Flattened `(project, bead)` pairs for the "Unlinked open beads"
+    /// section, project-then-priority ordered.
+    var unlinkedRows: [(project: String, bead: UnlinkedBead)] {
+        unlinkedByProject
+            .sorted { $0.key < $1.key }
+            .flatMap { project, beads in
+                beads
+                    .sorted { $0.priority != $1.priority ? $0.priority < $1.priority : $0.id < $1.id }
+                    .map { (project, $0) }
+            }
+    }
 
     private let client = NexusShared.NexusAggregateClient()
     private var sseTask: Task<Void, Never>?
@@ -605,6 +677,27 @@ final class SpecsViewModel: ObservableObject {
             }
         }
         self.projectPaths = paths
+        await loadUnlinkedBeads()
+    }
+
+    /// Fan out `fetchUnlinkedBeads` for each distinct project in the loaded
+    /// spec list. Best-effort — the aggregate client already swallows
+    /// per-agent failures, and a project with no unlinked beads just maps to
+    /// an empty array (dropped from `unlinkedRows`).
+    private func loadUnlinkedBeads() async {
+        let projects = Set(specs.map(\.project))
+        var byProject: [String: [UnlinkedBead]] = [:]
+        await withTaskGroup(of: (String, [UnlinkedBead]).self) { group in
+            for project in projects {
+                group.addTask { [client] in
+                    (project, await client.fetchUnlinkedBeads(project: project))
+                }
+            }
+            for await (project, beads) in group where !beads.isEmpty {
+                byProject[project] = beads
+            }
+        }
+        self.unlinkedByProject = byProject
     }
 
     /// Best-effort accessor for ProjectAggregate.path — the model evolved

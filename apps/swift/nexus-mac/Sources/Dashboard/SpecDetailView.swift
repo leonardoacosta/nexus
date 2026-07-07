@@ -61,6 +61,10 @@ struct SpecDetailView: View {
     @State private var pendingStatusFlip: Bool = false
     @State private var showConfirm: Bool = false
     @State private var confirmTargetStatus: String = "draft"
+    // add-bead-proposal-roadmap-surface task 2.4: the "Beads" section is
+    // collapsed by default so the linked-bead list (epic + feature + tasks)
+    // doesn't crowd the markdown pane on first render.
+    @State private var beadsExpanded: Bool = false
 
     /// Aggregate client — owns fan-out across reachable agents. Static-shared
     /// is fine because the actor handles serialization internally.
@@ -121,6 +125,7 @@ struct SpecDetailView: View {
             // entry except `status` (already shown in the pill).
             // specs-tab-start-on-spec § 3.9.
             metadataPane(for: spec)
+            beadsSection(for: spec)
             Picker("", selection: $activeTab) {
                 ForEach(SpecDocumentTab.allCases) { tab in
                     Text(tab.label).tag(tab)
@@ -227,6 +232,49 @@ struct SpecDetailView: View {
             }
             .padding(.vertical, 4)
             .accessibilityIdentifier("spec-detail-metadata-pane")
+        }
+    }
+
+    /// "Beads" section — the full linked set (epic + feature + tasks) from
+    /// the proposal's `beadRollup`, each row prefixed with the shared
+    /// `BeadStatusGlyph` (task 2.4 — reuse the existing status-glyph
+    /// convention). Hidden when the agent shipped no rollup or the set is
+    /// empty (older agent, or a project with no `.beads/` dir).
+    @ViewBuilder
+    private func beadsSection(for spec: SpecSummary) -> some View {
+        if let rollup = spec.beadRollup, !rollup.beads.isEmpty {
+            DisclosureGroup(isExpanded: $beadsExpanded) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(rollup.beads) { bead in
+                        HStack(spacing: 6) {
+                            BeadStatusGlyph(status: bead.status)
+                            Text(bead.id)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                            Text(bead.title)
+                                .font(.caption2)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Beads")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("\(rollup.tasks.closed)/\(rollup.tasks.total)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                    if rollup.tasks.ready > 0 {
+                        ReadyCountChip(count: rollup.tasks.ready)
+                    }
+                }
+            }
+            .accessibilityIdentifier("spec-detail-beads-section")
         }
     }
 

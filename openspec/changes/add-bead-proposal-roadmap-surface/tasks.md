@@ -28,13 +28,13 @@ file cache, not a table (design.md § Non-goals).
 
 ## UI Batch
 
-- [ ] 2.1 Add `apps/swift/NexusShared/Models/BeadRollup.swift` (`BeadRollup`, `BeadRef`, `UnlinkedBead` Codable; non-optional counts per the `specs.ts:167` wire discipline) and `apps/swift/NexusShared/Models/Roadmap.swift` (`RoadmapCapability`). [owner:swift-engineer] [type:feature] [beads:nx-iqekj]
-- [ ] 2.2 Extend `apps/swift/NexusShared/Models/SpecSummary.swift` with an optional `beadRollup`; add `fetchUnlinkedBeads(project:)` + `fetchRoadmap(project:)` and decode the new field in `fetchSpec` in `apps/swift/NexusShared/Networking/NexusClient.swift`. [owner:swift-engineer] [type:feature] [beads:nx-baivc]
-- [ ] 2.3 `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift`: per-proposal progress bar (`closed/total`) + ready-count chip + tappable epic/feature ids; add an "Unlinked open beads" section fed by `fetchUnlinkedBeads`. [owner:swift-engineer] [type:feature] [beads:nx-ljcq2]
-- [ ] 2.4 `apps/swift/nexus-mac/Sources/Dashboard/SpecDetailView.swift`: add a "Beads" section listing `rollup.beads` with a status glyph (reuse the existing session/spec status-glyph convention). [owner:swift-engineer] [type:feature] [beads:nx-zhhpd]
-- [ ] 2.5 Add `apps/swift/nexus-mac/Sources/Dashboard/RoadmapView.swift`: `List` of capabilities as `DisclosureGroup`s of proposals with per-proposal + per-capability progress bars; register the Roadmap tab in `apps/swift/nexus-mac/Sources/AppNavigation.swift`; run `cd apps/swift && xcodegen generate`. [owner:swift-engineer] [type:feature] [beads:nx-2n3ka]
+- [x] 2.1 Add `apps/swift/NexusShared/Models/BeadRollup.swift` (`BeadRollup`, `BeadRef`, `UnlinkedBead` Codable; non-optional counts per the `specs.ts:167` wire discipline) and `apps/swift/NexusShared/Models/Roadmap.swift` (`RoadmapCapability`). [owner:swift-engineer] [type:feature] [beads:nx-iqekj]
+- [x] 2.2 Extend `apps/swift/NexusShared/Models/SpecSummary.swift` with an optional `beadRollup`; add `fetchUnlinkedBeads(project:)` + `fetchRoadmap(project:)` and decode the new field in `fetchSpec` in `apps/swift/NexusShared/Networking/NexusClient.swift`. [owner:swift-engineer] [type:feature] [beads:nx-baivc]
+- [x] 2.3 `apps/swift/nexus-mac/Sources/Dashboard/SpecsView.swift`: per-proposal progress bar (`closed/total`) + ready-count chip + tappable epic/feature ids; add an "Unlinked open beads" section fed by `fetchUnlinkedBeads`. [owner:swift-engineer] [type:feature] [beads:nx-ljcq2]
+- [x] 2.4 `apps/swift/nexus-mac/Sources/Dashboard/SpecDetailView.swift`: add a "Beads" section listing `rollup.beads` with a status glyph (reuse the existing session/spec status-glyph convention). [owner:swift-engineer] [type:feature] [beads:nx-zhhpd]
+- [x] 2.5 Add `apps/swift/nexus-mac/Sources/Dashboard/RoadmapView.swift`: `List` of capabilities as `DisclosureGroup`s of proposals with per-proposal + per-capability progress bars; register the Roadmap tab in `apps/swift/nexus-mac/Sources/AppNavigation.swift`; run `cd apps/swift && xcodegen generate`. [owner:swift-engineer] [type:feature] [beads:nx-2n3ka]
 - [x] 2.6 `apps/nexus-statusline/src/index.ts`: add a specs line (top in-progress proposal `x/total . N ready`) and a roadmap line (least-complete capability) behind the existing stale-while-revalidate file cache (the `getRoadmapPulse()` shape); empty on first render. [owner:api-engineer] [type:feature] [beads:nx-tibp5]
-- [ ] 2.7 `apps/swift/nexus-mac/Tests/SpecsViewTests.swift` + new `RoadmapViewTests.swift`: the Codable models decode a fixture agent payload without throwing; rollup count fields present. [owner:swift-engineer] [type:test] [beads:nx-sipek]
+- [x] 2.7 `apps/swift/nexus-mac/Tests/SpecsViewTests.swift` + new `RoadmapViewTests.swift`: the Codable models decode a fixture agent payload without throwing; rollup count fields present. [owner:swift-engineer] [type:test] [beads:nx-sipek]
 
 ## E2E Batch
 

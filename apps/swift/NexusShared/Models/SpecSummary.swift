@@ -34,6 +34,13 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
     /// `capability`, etc.
     public var frontmatter: [String: String]?
 
+    /// Live per-proposal bead rollup attached by the agent's
+    /// `GET /specs/:project/:name` + `GET /specs/all` routes
+    /// (add-bead-proposal-roadmap-surface). Optional for back-compat: older
+    /// agents (and projects with no `.beads/` dir) omit it or send `null`,
+    /// which decodes to `nil` — the UI simply hides the progress bar then.
+    public var beadRollup: BeadRollup?
+
     public var id: String { "\(project)/\(name)" }
 
     public var progress: Double {
@@ -51,6 +58,7 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         case hasDesign   = "has_design"
         case hasTasks    = "has_tasks"
         case frontmatter
+        case beadRollup
     }
 
     public init(
@@ -63,7 +71,8 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         hasProposal: Bool = false,
         hasDesign: Bool = false,
         hasTasks: Bool = false,
-        frontmatter: [String: String]? = nil
+        frontmatter: [String: String]? = nil,
+        beadRollup: BeadRollup? = nil
     ) {
         self.name = name
         self.project = project
@@ -75,6 +84,7 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         self.hasDesign = hasDesign
         self.hasTasks = hasTasks
         self.frontmatter = frontmatter
+        self.beadRollup = beadRollup
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +103,10 @@ public struct SpecSummary: Identifiable, Equatable, Hashable, Codable, Sendable 
         // Older agents don't emit this key; leave nil to signal "unknown"
         // (the UI surfaces a placeholder in that case rather than {}).
         self.frontmatter    = try c.decodeIfPresent([String: String].self, forKey: .frontmatter)
+        // add-bead-proposal-roadmap-surface: live bead rollup. Optional +
+        // null-tolerant — older agents omit it, current agents may send
+        // `null` when the project has no `.beads/` dir.
+        self.beadRollup     = try c.decodeIfPresent(BeadRollup.self, forKey: .beadRollup)
         if let s = try c.decodeIfPresent(String.self, forKey: .lastModified) {
             let f1 = ISO8601DateFormatter()
             f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

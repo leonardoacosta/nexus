@@ -20,6 +20,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
     case sources
     case sessions
     case specs
+    case roadmap
     case projects
     case credentials
     case failures
@@ -36,6 +37,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         case .sources:       return "Sources"
         case .sessions:      return "Sessions"
         case .specs:         return "Specs"
+        case .roadmap:       return "Roadmap"
         case .projects:      return "Projects"
         case .credentials:   return "Credentials"
         case .failures:      return "Failures"
@@ -52,6 +54,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         case .sources:       return "square.stack.3d.up"
         case .sessions:      return "terminal"
         case .specs:         return "doc.text"
+        case .roadmap:       return "map"
         case .projects:      return "folder"
         case .credentials:   return "key"
         case .failures:      return "exclamationmark.triangle"
@@ -156,6 +159,7 @@ struct AppNavigation: View {
         case .sources:       SourceIndexView()
         case .sessions:      SessionsView(observer: observer)
         case .specs:         SpecsView(sessionObserver: observer)
+        case .roadmap:       RoadmapView()
         case .projects:      ProjectsView(sessionObserver: observer)
         case .credentials:   CredentialsView()
         case .failures:      FailuresView()

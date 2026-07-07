@@ -227,4 +227,117 @@ final class SpecsViewTests: XCTestCase {
         XCTAssertEqual(summary.frontmatter?["approved-by"], "leo@x.dev")
         XCTAssertEqual(summary.frontmatter?["capability"], "specs-tab")
     }
+
+    // MARK: - beadRollup decode (add-bead-proposal-roadmap-surface task 2.7)
+
+    func testSpecSummaryDecoderHandlesMissingBeadRollup() throws {
+        // Older agents omit `beadRollup`; the optional must decode to nil
+        // rather than throw so the progress bar simply hides.
+        let json = """
+        {
+          "name": "no-rollup",
+          "project": "nx",
+          "status": "draft",
+          "completedTasks": 0,
+          "totalTasks": 0,
+          "has_proposal": true,
+          "has_design": false,
+          "has_tasks": false
+        }
+        """.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(SpecSummary.self, from: json)
+        XCTAssertNil(summary.beadRollup)
+    }
+
+    func testSpecSummaryDecoderHandlesNullBeadRollup() throws {
+        // Current agents send `null` when the project has no `.beads/` dir.
+        let json = """
+        {
+          "name": "null-rollup",
+          "project": "nx",
+          "status": "draft",
+          "completedTasks": 0,
+          "totalTasks": 0,
+          "has_proposal": true,
+          "has_design": false,
+          "has_tasks": false,
+          "beadRollup": null
+        }
+        """.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(SpecSummary.self, from: json)
+        XCTAssertNil(summary.beadRollup)
+    }
+
+    func testSpecSummaryDecoderParsesBeadRollup() throws {
+        // A full agent payload — camelCase wire keys, non-optional counts.
+        let json = """
+        {
+          "name": "add-bead-proposal-roadmap-surface",
+          "project": "nx",
+          "status": "in-progress",
+          "completedTasks": 9,
+          "totalTasks": 14,
+          "has_proposal": true,
+          "has_design": true,
+          "has_tasks": true,
+          "beadRollup": {
+            "epic": { "id": "nx-0bhyl", "status": "in_progress", "type": "epic", "priority": 2, "title": "[CAPABILITY] specs" },
+            "feature": { "id": "nx-naeby", "status": "in_progress", "type": "feature", "priority": 2, "title": "roadmap surface" },
+            "tasks": { "total": 14, "closed": 9, "ready": 3, "blocked": 1 },
+            "beads": [
+              { "id": "nx-iqekj", "status": "closed", "type": "task", "priority": 2, "title": "Swift models" },
+              { "id": "nx-2n3ka", "status": "open", "type": "task", "priority": 2, "title": "Roadmap tab" }
+            ]
+          }
+        }
+        """.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(SpecSummary.self, from: json)
+        let rollup = try XCTUnwrap(summary.beadRollup)
+        // Non-optional count fields populated (the task's explicit assertion).
+        XCTAssertEqual(rollup.tasks.total, 14)
+        XCTAssertEqual(rollup.tasks.closed, 9)
+        XCTAssertEqual(rollup.tasks.ready, 3)
+        XCTAssertEqual(rollup.tasks.blocked, 1)
+        XCTAssertEqual(rollup.epic?.id, "nx-0bhyl")
+        XCTAssertEqual(rollup.feature?.type, "feature")
+        XCTAssertEqual(rollup.beads.count, 2)
+        // progress = closed/total.
+        XCTAssertEqual(rollup.progress, 9.0 / 14.0, accuracy: 0.0001)
+    }
+
+    func testBeadTaskCountsDefaultsMissingCountsToZero() throws {
+        // Wire discipline: a missing count decodes to 0, never throws.
+        let json = """
+        { "epic": null, "feature": null, "tasks": { "total": 3 }, "beads": [] }
+        """.data(using: .utf8)!
+        let rollup = try JSONDecoder().decode(BeadRollup.self, from: json)
+        XCTAssertEqual(rollup.tasks.total, 3)
+        XCTAssertEqual(rollup.tasks.closed, 0)
+        XCTAssertEqual(rollup.tasks.ready, 0)
+        XCTAssertEqual(rollup.tasks.blocked, 0)
+    }
+
+    // MARK: - Unlinked beads decode
+
+    func testUnlinkedBeadsResponseDecodes() throws {
+        let json = """
+        {
+          "unlinked": [
+            { "id": "nx-aaaa", "title": "ad-hoc fix", "status": "open", "priority": 1, "type": "bug" }
+          ]
+        }
+        """.data(using: .utf8)!
+        let env = try JSONDecoder().decode(UnlinkedBeadsResponse.self, from: json)
+        XCTAssertEqual(env.unlinked.count, 1)
+        XCTAssertEqual(env.unlinked[0].id, "nx-aaaa")
+        XCTAssertEqual(env.unlinked[0].priority, 1)
+    }
+
+    func testUnlinkedBeadsResponseHandlesMissingKey() throws {
+        let env = try JSONDecoder().decode(
+            UnlinkedBeadsResponse.self,
+            from: "{}".data(using: .utf8)!
+        )
+        XCTAssertTrue(env.unlinked.isEmpty)
+    }
 }

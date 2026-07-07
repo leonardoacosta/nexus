@@ -326,6 +326,35 @@ public actor NexusAggregateClient {
         return nil
     }
 
+    /// Unlinked (unplanned) beads for a project, merged across agents and
+    /// deduped by bead `id`. A project lives on exactly one agent, so this
+    /// is effectively a "which agent owns this project" probe; partial
+    /// failure never blanks out the owner's rows.
+    ///
+    /// Spec: openspec/changes/add-bead-proposal-roadmap-surface (task 2.2)
+    public func fetchUnlinkedBeads(project: String) async -> [UnlinkedBead] {
+        let (perAgent, _) = await fanOut("fetchUnlinkedBeads") { client in
+            try await client.fetchUnlinkedBeads(project: project)
+        }
+        var merged: [String: UnlinkedBead] = [:]
+        for rows in perAgent { for b in rows { merged[b.id] = b } }
+        return merged.values.sorted { $0.id < $1.id }
+    }
+
+    /// Roadmap capabilities for a project, merged across agents and deduped
+    /// by capability `epicId`. Single-owner semantics (each project lives on
+    /// one agent); partial failure tolerant.
+    ///
+    /// Spec: openspec/changes/add-bead-proposal-roadmap-surface (task 2.2)
+    public func fetchRoadmap(project: String) async -> [RoadmapCapability] {
+        let (perAgent, _) = await fanOut("fetchRoadmap") { client in
+            try await client.fetchRoadmap(project: project)
+        }
+        var merged: [String: RoadmapCapability] = [:]
+        for rows in perAgent { for c in rows { merged[c.epicId] = c } }
+        return merged.values.sorted { $0.name < $1.name }
+    }
+
     /// Active /apply wave plan from the agent that owns the currently-running
     /// run (specs-tab-accordion-with-topology, task 2.2).
     ///
