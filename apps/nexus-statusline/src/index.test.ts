@@ -24,6 +24,9 @@ import {
   formatRoadmapLine,
   getSpecsLine,
   getRoadmapLine,
+  getDriftLine,
+  formatDriftLine,
+  formatSessionClock,
   type CcInput,
 } from "./index";
 
@@ -425,6 +428,165 @@ describe("getSpecsLine / getRoadmapLine — stale-while-revalidate cache", () =>
       spy.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// add-attention-guard — drift line + session clock
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 1.4 — drift matrix ───────────────────────────────────────────────────────
+
+describe("formatDriftLine — foreign high-urgency queue head", () => {
+  // Current session is "cc"; the head is a preempt on a "tl" request.
+  const foreignPreempt = [
+    {
+      source: "tl",
+      title: "P1 security fix",
+      verdict: { action: "preempt", confidence: 0.9 },
+    },
+  ];
+
+  it("foreign preempt head renders one drift line with action, title, source", () => {
+    expect(formatDriftLine(foreignPreempt, "cc")).toBe(
+      "head: preempt — P1 security fix (tl)",
+    );
+  });
+
+  it("foreign HIGH-confidence (non-preempt) head still renders", () => {
+    const items = [
+      { source: "tl", title: "urgent review", verdict: { action: "delegate", confidence: 0.8 } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBe("head: delegate — urgent review (tl)");
+  });
+
+  it("high-confidence via band STRING (no numeric score) renders", () => {
+    const items = [
+      { source: "tl", title: "review", verdict: { action: "group", confidenceBand: "high" } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBe("head: group — review (tl)");
+  });
+
+  it("tolerates the nested protojson `core` spine shape", () => {
+    const items = [
+      { core: { source: "tl", title: "nested" }, verdict: { action: "preempt", confidence: 0.9 } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBe("head: preempt — nested (tl)");
+  });
+
+  it("SILENT: same-project head (source === current project)", () => {
+    const items = [
+      { source: "cc", title: "own work", verdict: { action: "preempt", confidence: 0.9 } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBeNull();
+    // Case-insensitive
+    expect(formatDriftLine([{ source: "CC", title: "x", verdict: { action: "preempt", confidence: 0.9 } }], "cc")).toBeNull();
+  });
+
+  it("SILENT: low-confidence, non-preempt head", () => {
+    const items = [
+      { source: "tl", title: "meh", verdict: { action: "defer", confidence: 0.3 } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBeNull();
+  });
+
+  it("SILENT: medium-confidence, non-preempt head", () => {
+    const items = [
+      { source: "tl", title: "maybe", verdict: { action: "resolve", confidence: 0.5 } },
+    ];
+    expect(formatDriftLine(items, "cc")).toBeNull();
+  });
+
+  it("SILENT: verdict-less head (no verdict key)", () => {
+    const items = [{ source: "tl", title: "no verdict" }];
+    expect(formatDriftLine(items, "cc")).toBeNull();
+  });
+
+  it("SILENT: empty queue / undefined items", () => {
+    expect(formatDriftLine([], "cc")).toBeNull();
+    expect(formatDriftLine(undefined, "cc")).toBeNull();
+  });
+
+  it("SILENT: high-urgency but blank source (cannot establish foreignness)", () => {
+    const items = [{ source: "", title: "x", verdict: { action: "preempt", confidence: 0.9 } }];
+    expect(formatDriftLine(items, "cc")).toBeNull();
+  });
+});
+
+describe("getDriftLine — stale-while-revalidate cache", () => {
+  it("first render (no cache) returns null and spawns a detached /queue refresh", () => {
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      expect(getDriftLine("/home/nyaptor/dev/zzznope", "http://localhost:7400")).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(1);
+      const args = spy.mock.calls[0]?.[1] as string[];
+      expect(args.join(" ")).toContain("/queue?limit=1");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("renderStatusline — drift line trailing row", () => {
+  it("drift line renders as a trailing row (before the pulse line)", () => {
+    const out = renderStatusline(
+      {},
+      { ...baseDeps, driftLine: "head: preempt — P1 fix (tl)", pulse: "next: ship it" },
+    );
+    const s = strip(out);
+    const lines = s.split("\n");
+    expect(lines).toContain("head: preempt — P1 fix (tl)");
+    // Drift line sits above the pulse line
+    expect(s.indexOf("head: preempt")).toBeLessThan(s.indexOf("next: ship it"));
+  });
+
+  it("null drift line renders no row", () => {
+    const out = renderStatusline({}, { ...baseDeps, driftLine: null });
+    expect(strip(out)).not.toContain("head:");
+  });
+});
+
+// ── 1.4 — session clock formatting across boundaries ─────────────────────────
+
+describe("formatSessionClock — passive elapsed time", () => {
+  it("sub-hour renders <M>m", () => {
+    expect(formatSessionClock(41 * 60_000)).toBe("41m");
+    expect(formatSessionClock(0)).toBe("0m");
+    expect(formatSessionClock(59 * 60_000)).toBe("59m");
+  });
+
+  it("at and past the hour boundary renders <H>h<MM>m (zero-padded minutes)", () => {
+    expect(formatSessionClock(60 * 60_000)).toBe("1h00m");
+    expect(formatSessionClock(61 * 60_000)).toBe("1h01m");
+    // 2h41m — the spec's worked example
+    expect(formatSessionClock(161 * 60_000)).toBe("2h41m");
+  });
+
+  it("truncates seconds (does not round up)", () => {
+    // 41m59s → 41m
+    expect(formatSessionClock(41 * 60_000 + 59_000)).toBe("41m");
+  });
+
+  it("returns null for missing / non-finite / negative durations (no segment)", () => {
+    expect(formatSessionClock(undefined)).toBeNull();
+    expect(formatSessionClock(NaN)).toBeNull();
+    expect(formatSessionClock(-5)).toBeNull();
+  });
+});
+
+describe("renderStatusline — session clock segment", () => {
+  it("renders ⧗<clock> from cost.total_duration_ms", () => {
+    const out = renderStatusline(
+      { cost: { total_duration_ms: 161 * 60_000 } },
+      baseDeps,
+    );
+    expect(strip(out)).toContain("⧗2h41m");
+  });
+
+  it("no duration renders no clock segment", () => {
+    expect(strip(renderStatusline({}, baseDeps))).not.toContain("⧗");
   });
 });
 

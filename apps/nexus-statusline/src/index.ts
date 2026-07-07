@@ -724,6 +724,132 @@ export function getRoadmapLine(projectDir: string, agentUrl: string): string | n
   }
 }
 
+// ── Attention guard: foreign high-urgency queue head (add-attention-guard) ───
+
+/**
+ * The mx triage verdict attached to a queue item — the fields the drift line
+ * reads. Mirrors NexusShared `Verdict` (TriageItem.swift): `confidence` is a
+ * numeric score (0…1) when present, else a band string arrives under
+ * `confidenceBand` / `confidence_band` / `confidenceLabel`.
+ */
+interface QueueVerdict {
+  action?: string;
+  confidence?: number;
+  confidenceBand?: string;
+  confidence_band?: string;
+  confidenceLabel?: string;
+}
+
+/**
+ * One `/queue` item — the fields the drift line reads. The mx gateway emits
+ * protojson (nested `core`) OR a flattened spine; we tolerate BOTH by probing
+ * `core` first, exactly like the NexusShared `TriageItem` decoder.
+ */
+interface QueueItem {
+  source?: string;
+  title?: string;
+  verdict?: QueueVerdict | null;
+  core?: { source?: string; title?: string };
+}
+
+/** `/queue` payload (only the field the drift line reads). */
+interface QueueResponse {
+  items?: QueueItem[];
+}
+
+/**
+ * Banded confidence for a queue verdict, mirroring NexusShared
+ * `Verdict.confidenceBand`: prefer the numeric score (≥0.75 high, ≥0.40
+ * medium, else low), falling back to the raw band/label string lowercased.
+ * null when neither is present.
+ */
+function verdictBand(v: QueueVerdict): string | null {
+  if (typeof v.confidence === "number" && Number.isFinite(v.confidence)) {
+    if (v.confidence >= 0.75) return "high";
+    if (v.confidence >= 0.4) return "medium";
+    return "low";
+  }
+  const raw = v.confidenceBand ?? v.confidence_band ?? v.confidenceLabel;
+  return raw ? raw.toLowerCase() : null;
+}
+
+/**
+ * Drift line for the statusline: renders `head: <action> — <title> (<source>)`
+ * for the queue head ONLY when its verdict is a preempt-action OR high-confidence
+ * AND its request belongs to a project OTHER than the current session's. Returns
+ * null (silent) on same-project heads, lower-urgency heads, verdict-less heads,
+ * empty queues, and — via the caller — fetch failures. `currentCode` is the
+ * statusline's own project code (cwd/project input); comparison is
+ * case-insensitive.
+ */
+export function formatDriftLine(
+  items: QueueItem[] | undefined,
+  currentCode: string,
+): string | null {
+  if (!items || items.length === 0) return null;
+  const head = items[0];
+  if (!head) return null;
+
+  const verdict = head.verdict;
+  if (!verdict) return null;
+
+  const action = verdict.action?.toLowerCase() ?? "";
+  const isPreempt = action === "preempt";
+  const isHighConfidence = verdictBand(verdict) === "high";
+  if (!isPreempt && !isHighConfidence) return null;
+
+  const source = (head.core?.source ?? head.source ?? "").trim();
+  if (!source) return null;
+  // Foreign-project gate: silent when the head belongs to the current project.
+  if (source.toLowerCase() === currentCode.toLowerCase()) return null;
+
+  const title = (head.core?.title ?? head.title ?? "").trim();
+  const actionLabel = verdict.action?.trim() || "head";
+  return `head: ${actionLabel} — ${title} (${source})`;
+}
+
+/**
+ * Drift line sourced from the agent's `GET /queue?limit=1` behind the same
+ * stale-while-revalidate cache the specs/roadmap lines use. Empty on first
+ * render; silent on fetch failure (a down agent leaves the cache untouched, so
+ * `readCachedAgentJson` returns null → no line).
+ */
+export function getDriftLine(projectDir: string, agentUrl: string): string | null {
+  try {
+    const code = deriveProjectCode(projectDir);
+    const cachePath = join(
+      homedir(),
+      `.claude/scripts/state/queue-head.${code}.json`,
+    );
+    const data = readCachedAgentJson<QueueResponse>(
+      cachePath,
+      `${agentUrl}/queue?limit=1`,
+    );
+    return formatDriftLine(data?.items, code);
+  } catch {
+    return null;
+  }
+}
+
+// ── Session clock: passive elapsed time (add-attention-guard) ────────────────
+
+/**
+ * Format session elapsed time as plain text — `<H>h<MM>m` past the first hour
+ * (`2h41m`), `<M>m` below it (`41m`). No thresholds, no color escalation, no
+ * triggered behavior at any duration — time made visible, nothing more.
+ * Returns null for a missing / non-finite / negative duration (no segment).
+ */
+export function formatSessionClock(durationMs: number | undefined): string | null {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs < 0) {
+    return null;
+  }
+  const totalMinutes = Math.floor(durationMs / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h${String(minutes).padStart(2, "0")}m`;
+  return `${minutes}m`;
+}
+
 // ── Gauge rendering ──────────────────────────────────────────────────────────
 
 function renderGauge(label: string, pct: number, suffix: string): string {
@@ -840,6 +966,8 @@ interface RenderDeps {
   specsLine?: string | null;
   /** Least-complete capability line (add-bead-proposal-roadmap-surface); null = omit. */
   roadmapLine?: string | null;
+  /** Foreign high-urgency queue-head drift line (add-attention-guard); null = silent. */
+  driftLine?: string | null;
 }
 
 /**
@@ -897,6 +1025,13 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     (linesAdded > 0 || linesRemoved > 0)
   ) {
     parts.push(`${DIM}+${linesAdded}/-${linesRemoved}${RESET}`);
+  }
+
+  // Session clock — passive elapsed time from session start (add-attention-guard).
+  // Plain DIM text, no thresholds / color escalation at any duration.
+  const sessionClock = formatSessionClock(ccInput.cost?.total_duration_ms);
+  if (sessionClock) {
+    parts.push(`${DIM}⧗${sessionClock}${RESET}`);
   }
 
   // CC model/effort token + output_style (between project info and git).
@@ -988,6 +1123,8 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
   // the specs line (top in-progress proposal), then the roadmap line
   // (least-complete capability). All optional — absent ones contribute no row.
   const trailing: string[] = [];
+  // Drift line first — the attention guard is the highest-signal trailing row.
+  if (deps.driftLine) trailing.push(`${GIT_DIRTY}${deps.driftLine}${RESET}`);
   if (deps.pulse) trailing.push(`${SPEC}${deps.pulse}${RESET}`);
   if (deps.specsLine) trailing.push(`${SPEC}${deps.specsLine}${RESET}`);
   if (deps.roadmapLine) trailing.push(`${SPEC}${deps.roadmapLine}${RESET}`);
@@ -1029,6 +1166,7 @@ async function main(): Promise<void> {
     pulse: getRoadmapPulse(projectDir),
     specsLine: getSpecsLine(projectDir, agentUrl),
     roadmapLine: getRoadmapLine(projectDir, agentUrl),
+    driftLine: getDriftLine(projectDir, agentUrl),
   });
 
   process.stdout.write(out);
