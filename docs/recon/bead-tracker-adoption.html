@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nx Adoption Verdict — beadboard × beads-task-issue-tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0e14; --bg2: #11151f; --panel: #161b26; --panel2: #1c2331;
+    --ink: #e6ebf4; --muted: #8b96ac; --line: #262e3d;
+    --steal: #34d399; --adapt: #60a5fa; --monitor: #fbbf24; --skip: #f87171;
+    --keystone: #c084fc; --accent: #34d399;
+    --shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fb; --bg2: #eaeef6; --panel: #ffffff; --panel2: #f6f8fc;
+      --ink: #131a26; --muted: #5b6678; --line: #dbe1ec;
+      --shadow: 0 8px 30px rgba(20,30,60,.08);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: radial-gradient(1200px 600px at 80% -10%, rgba(52,211,153,.08), transparent),
+      var(--bg); color: var(--ink);
+    font-family: 'Space Grotesk', system-ui, sans-serif; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 56px 28px 80px; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+  header .eyebrow { color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    letter-spacing: .12em; text-transform: uppercase; margin: 0 0 10px; }
+  header h1 { font-size: 40px; font-weight: 700; margin: 0 0 12px; letter-spacing: -.02em; line-height: 1.08; }
+  header p.lede { font-size: 17px; color: var(--muted); max-width: 780px; margin: 0 0 8px; }
+  .repos { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 0; }
+  .repo-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--muted); }
+  .repo-chip b { color: var(--ink); font-weight: 600; }
+  .repo-chip .frozen { color: var(--monitor); }
+
+  .thesis { margin: 34px 0 8px; background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-left: 3px solid var(--keystone); border-radius: 14px;
+    padding: 22px 24px; box-shadow: var(--shadow); }
+  .thesis h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--keystone); font-family: 'JetBrains Mono', monospace; }
+  .thesis p { margin: 0; font-size: 16px; }
+  .thesis b { color: var(--ink); }
+
+  h2.section { margin: 52px 0 8px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .section-sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+
+  /* pipeline flow */
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; align-items: stretch;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    box-shadow: var(--shadow); }
+  .stage { padding: 18px 16px; border-right: 1px solid var(--line); position: relative; }
+  .stage:last-child { border-right: none; }
+  .stage .k { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .stage .t { font-weight: 600; font-size: 14.5px; margin-bottom: 6px; }
+  .stage .d { font-size: 12.5px; color: var(--muted); }
+  .stage .pins { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .pin { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600;
+    padding: 3px 7px; border-radius: 6px; border: 1px solid transparent; }
+  .pin.steal { background: rgba(52,211,153,.12); color: var(--steal); border-color: rgba(52,211,153,.3); }
+  .pin.adapt { background: rgba(96,165,250,.12); color: var(--adapt); border-color: rgba(96,165,250,.3); }
+  .pin.key { background: rgba(192,132,252,.14); color: var(--keystone); border-color: rgba(192,132,252,.35); }
+  .stage::after { content: '\2192'; position: absolute; right: -9px; top: 20px; color: var(--line);
+    font-size: 16px; z-index: 2; }
+  .stage:last-child::after { display: none; }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 18px 0 0; }
+  .lg { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.steal { background: var(--steal); } .dot.adapt { background: var(--adapt); }
+  .dot.monitor { background: var(--monitor); } .dot.skip { background: var(--skip); }
+  .dot.key { background: var(--keystone); }
+
+  /* cards */
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 22px; }
+  @media (max-width: 820px) { .cards { grid-template-columns: 1fr; } .flow { grid-template-columns: 1fr; }
+    .stage { border-right: none; border-bottom: 1px solid var(--line); } .stage::after { display: none; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+  .card.keystone { grid-column: 1 / -1; border-color: rgba(192,132,252,.4);
+    background: linear-gradient(180deg, rgba(192,132,252,.06), var(--panel)); }
+  .card .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .badge { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700;
+    padding: 3px 9px; border-radius: 20px; letter-spacing: .06em; text-transform: uppercase; }
+  .badge.steal { background: rgba(52,211,153,.14); color: var(--steal); }
+  .badge.adapt { background: rgba(96,165,250,.14); color: var(--adapt); }
+  .badge.key { background: rgba(192,132,252,.16); color: var(--keystone); }
+  .effort { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+  .effort b { color: var(--ink); }
+  .card h3 { margin: 6px 0 4px; font-size: 16.5px; font-weight: 600; letter-spacing: -.01em; }
+  .card .src { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+  .ba { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: auto; }
+  .ba .row { border-radius: 9px; padding: 10px 12px; font-size: 13px; }
+  .ba .before { background: rgba(248,113,113,.07); border: 1px solid rgba(248,113,113,.18); }
+  .ba .after { background: rgba(52,211,153,.07); border: 1px solid rgba(52,211,153,.18); }
+  .ba .lab { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; margin-bottom: 3px; }
+  .ba .before .lab { color: var(--skip); } .ba .after .lab { color: var(--steal); }
+  .ba code { font-size: 12px; background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 4px; }
+
+  /* implementation callout */
+  .callout { margin-top: 40px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .callout h2 { margin: 0; padding: 18px 22px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace; color: var(--accent); border-bottom: 1px solid var(--line);
+    background: var(--panel2); }
+  .step { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center;
+    padding: 14px 22px; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: none; }
+  .step .n { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px;
+    color: var(--accent); opacity: .7; }
+  .step .body b { font-size: 14.5px; } .step .body span { color: var(--muted); font-size: 13px; }
+  .step .tag { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; padding: 3px 9px;
+    border-radius: 20px; white-space: nowrap; }
+  .tag.sm { background: rgba(52,211,153,.13); color: var(--steal); }
+  .tag.md { background: rgba(96,165,250,.13); color: var(--adapt); }
+
+  .monskip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 22px; }
+  @media (max-width: 820px) { .monskip { grid-template-columns: 1fr; } }
+  .ms { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .ms h4 { margin: 0 0 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace; }
+  .ms.mon h4 { color: var(--monitor); } .ms.skip h4 { color: var(--skip); }
+  .ms ul { margin: 0; padding-left: 18px; } .ms li { font-size: 13px; color: var(--muted); margin-bottom: 7px; }
+  .ms li b { color: var(--ink); font-weight: 600; }
+
+  footer { margin-top: 46px; padding-top: 20px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">/recon · external-repo verdict · context: nx</p>
+    <h1>Making nx the bead-tracker that knows its own roadmap</h1>
+    <p class="lede">Two mature Beads dashboards, cross-referenced against the nx stack (Swift dashboard suite + Bun agent daemon + Postgres/drizzle). What to steal, what to adapt — and the one thing neither of them has that becomes nx's moat.</p>
+    <div class="repos">
+      <div class="repo-chip"><b>jordanhindo/beadboard</b> · Next.js + Dolt · 53&#9733; · MIT</div>
+      <div class="repo-chip"><b>w3dev33/beads-task-issue-tracker</b> · Tauri + Nuxt · 58&#9733; · <span class="frozen">frozen &rarr; PaiR</span></div>
+    </div>
+  </header>
+
+  <div class="thesis">
+    <h2>The moat</h2>
+    <p>Both repos prove <b>bead visualization + multi-agent coordination is a solved, polished problem</b> — so steal their pure derivation logic instead of reinventing it. But <b>both have zero openspec / proposal / roadmap linkage</b>. beadboard has 0 code hits for <code>openspec</code>; the tracker's <code>specId</code> is a labeled text box. nx's defensible surface is the <b>openspec &times; bead &times; roadmap join</b> — built <i>on top of</i> their bead derivations, not against them.</p>
+  </div>
+
+  <h2 class="section">Where each pattern lands in the nx pipeline</h2>
+  <p class="section-sub">bd store &rarr; Bun agent projection &rarr; derivation layer &rarr; socket spine &rarr; Swift dashboard. Findings pinned to their integration point.</p>
+  <div class="flow">
+    <div class="stage">
+      <div class="k">01 · Ingest</div>
+      <div class="t">bd is the only writer</div>
+      <div class="d">drizzle mirror = read projection, never-throw importer, two-query graph load</div>
+      <div class="pins"><span class="pin adapt">A1</span><span class="pin adapt">F</span></div>
+    </div>
+    <div class="stage">
+      <div class="k">02 · Join</div>
+      <div class="t">spec_id &rarr; proposal FK</div>
+      <div class="d">populate bd's native --spec-id with the openspec change-id; reconcile on hook ingest</div>
+      <div class="pins"><span class="pin key">KEYSTONE</span></div>
+    </div>
+    <div class="stage">
+      <div class="k">03 · Derive</div>
+      <div class="t">lanes, next, hierarchy</div>
+      <div class="d">pure fns: blocked-set, unblocks-rank, readiness gate, epic dot-notation rollup</div>
+      <div class="pins"><span class="pin steal">S1</span><span class="pin steal">S2</span><span class="pin steal">B</span></div>
+    </div>
+    <div class="stage">
+      <div class="k">04 · Stream</div>
+      <div class="t">socket spine cadence</div>
+      <div class="d">LISTEN/NOTIFY over the existing spine; tiered active/idle poll; coord.v1 envelope</div>
+      <div class="pins"><span class="pin adapt">E</span><span class="pin steal">S3</span></div>
+    </div>
+    <div class="stage">
+      <div class="k">05 · Surface</div>
+      <div class="t">Swift dashboard</div>
+      <div class="d">3-panel control panel, focus-traced dep graph, dual-filter table w/ proposal status</div>
+      <div class="pins"><span class="pin adapt">A2</span><span class="pin adapt">C</span><span class="pin adapt">D</span></div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="lg"><span class="dot key"></span> Keystone (the moat)</div>
+    <div class="lg"><span class="dot steal"></span> Steal — port near-verbatim</div>
+    <div class="lg"><span class="dot adapt"></span> Adapt — good idea, nx-shaped</div>
+    <div class="lg"><span class="dot monitor"></span> Monitor</div>
+    <div class="lg"><span class="dot skip"></span> Skip</div>
+  </div>
+
+  <h2 class="section">Steal &amp; Adapt — before / after</h2>
+  <p class="section-sub">Ordered keystone-first, then quickest wins. Effort is against the nx stack.</p>
+  <div class="cards">
+
+    <div class="card keystone">
+      <div class="top">
+        <span class="badge key">Keystone · Steal</span>
+        <span class="effort">effort: <b>medium</b> · both repos</span>
+      </div>
+      <h3>spec_id as the bead &harr; openspec proposal join key</h3>
+      <div class="src">tracker: lib.rs ~2652 <code>--spec-id</code> · IssuePreview.vue:886 &nbsp;|&nbsp; beadboard: gap (0 hits)</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before — the prior art</div>Beads ships a first-class <code>--spec-id</code> field, but the tracker renders it as inert mono text (<code>{{ issue.specId }}</code>) with no parsing, navigation, or validation. beadboard doesn't touch proposals at all.</div>
+        <div class="row after"><div class="lab">After — nx owns this</div>Populate <code>spec_id</code> with the openspec change-id on <code>bd create</code>. Model <code>proposals</code> in drizzle FK'd to <code>bead_id</code>/<code>spec_id</code>. Swift detail view renders it as a <b>tappable link</b> into proposal status + tasks.md progress + delta. Daemon reconciles <code>specId</code> &harr; <code>openspec/changes/*</code> on hook ingest. This is the roadmap surface nothing else has.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge steal">Steal</span><span class="effort">effort: <b>small</b> · tracker (B)</span></div>
+      <h3>Dot-notation epic hierarchy + progress rollup</h3>
+      <div class="src">issue-helpers.ts · getParentIdFromIssue / groupIssues</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>~40 lines of pure fns derive parent/children from the ID string (<code>abc.1 &rarr; abc</code>) + compute <code>closedChildCount / childCount</code> client-side.</div>
+        <div class="row after"><div class="lab">After</div>Port to NexusShared (Swift) + the Bun agent. Menubar epic rows and any roadmap view get inline progress bars with <b>zero schema change</b> — hierarchy derives from the ID <code>bd</code> already emits.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge steal">Steal</span><span class="effort">effort: <b>small</b> · beadboard (S1)</span></div>
+      <h3>Derived lanes + unblocks-ranked "what next"</h3>
+      <div class="src">kanban.ts · deriveBlockedIds / pickNextActionableIssue</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>nx ranks work by priority/dependency. beadboard derives blocked-ness (any <code>blocks</code> target not closed) and ranks ready by priority &rarr; <b>unblocks-count</b> &rarr; recency.</div>
+        <div class="row after"><div class="lab">After</div>Shared <code>@nx/beads</code> derivation module (blocked-set, unblocks-count, next-actionable tiebreak) feeding the statusline/roadmap-pulse and the Swift dashboard. Principled "do this next" pick for free.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge steal">Steal</span><span class="effort">effort: <b>small</b> · beadboard (S2)</span></div>
+      <h3>Per-bead readiness checklist gate</h3>
+      <div class="src">kanban.ts · buildExecutionChecklist</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>owner / no-open-blockers / acceptance-signal / executable-status rendered as a card checklist. nx gates at the openspec tasks.md level, not per-bead.</div>
+        <div class="row after"><div class="lab">After</div>Render a readiness chip on each bead card; add an nx-only 5th check — <b>"has an associated openspec proposal"</b> — directly advancing the moat.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge steal">Steal</span><span class="effort">effort: <b>small&ndash;med</b> · beadboard (S3)</span></div>
+      <h3>Coordination-as-audit-log envelope</h3>
+      <div class="src">coord-schema.ts · <code>coord.v1</code> via bd audit record</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>Agent/coordination events likely live in bespoke drizzle tables in nx's daemon. beadboard writes a versioned envelope into the tracker's own history.</div>
+        <div class="row after"><div class="lab">After</div>Adopt a versioned <code>coord.v*</code> envelope for hook/agent events so they're self-describing + replayable, keeping Swift event consumers stable across schema evolution.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge adapt">Adapt</span><span class="effort">effort: <b>medium</b> · beadboard (A1)</span></div>
+      <h3>bd-only-writer + never-throw importer</h3>
+      <div class="src">read-issues-dolt.ts · returns null, never throws</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>nx's Postgres/drizzle is a <i>third</i> store beyond <code>issues.jsonl</code>. Drift risk between mirror and <code>bd</code> truth.</div>
+        <div class="row after"><div class="lab">After</div>Discipline: <code>bd</code> CLI is the only writer; drizzle is a read projection rebuilt via a never-throw importer that degrades to direct JSONL parse. Steal the two-query in-memory-join shape.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge adapt">Adapt</span><span class="effort">effort: <b>medium</b> · beadboard (A2)</span></div>
+      <h3>Focus-aware dependency graph</h3>
+      <div class="src">epic-graph.ts · buildWorkflowEdges (BFS edge-tagging)</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>Selecting a node BFS-traces upstream blockers + downstream blocked, tagging edges to dim the unrelated. nx has no interactive dep graph in Swift.</div>
+        <div class="row after"><div class="lab">After</div>Port to a SwiftUI/webview graph where selecting a bead dims unrelated edges; extend nodes to render <b>openspec proposal status</b> — a graph beadboard structurally cannot draw.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge adapt">Adapt</span><span class="effort">effort: <b>medium</b> · tracker (E, F)</span></div>
+      <h3>Adaptive live-update cadence + CLI serialization</h3>
+      <div class="src">useAdaptivePolling · BD_PROJECT_LOCKS mutex</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>Tiered 5s active / 30s blurred / 60s idle / paused-hidden, cheap mtime-check before expensive fetch. Per-project mutex + 10s sync cooldown prevents concurrent-DB corruption.</div>
+        <div class="row after"><div class="lab">After</div>Replace fs-watch with Postgres LISTEN/NOTIFY over the existing socket spine; keep the tier table + cheap-check-first gating. The Bun dispatcher shelling to <code>bd</code> needs exactly this mutex + debounce.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="badge adapt">Adapt</span><span class="effort">effort: <b>medium</b> · tracker (C, D)</span></div>
+      <h3>Dual-filter table + 3-panel control-panel IA</h3>
+      <div class="src">issue-helpers.ts filterIssues · pages/index.vue</div>
+      <div class="ba">
+        <div class="row before"><div class="lab">Before</div>Inclusion + exclusion/inverse filters, search short-circuits everything, per-project persisted state. Left dashboard / center table / right detail — "observe AI, step in" framing (no board).</div>
+        <div class="row after"><div class="lab">After</div>SwiftUI-native reimplementation over Postgres queries; matches nx's menubar-dashboard intent. Add a proposal-status column the table can group/filter on.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout">
+    <h2>Implementation order — quickest wins first</h2>
+    <div class="step"><div class="n">1</div><div class="body"><b>Epic hierarchy + progress rollup (B)</b> &nbsp;<span>~40 pure lines to NexusShared + Bun; zero schema change, instant menubar value.</span></div><span class="tag sm">small</span></div>
+    <div class="step"><div class="n">2</div><div class="body"><b>Derived lanes + unblocks-ranked next (S1)</b> &nbsp;<span>Shared @nx/beads module; feeds statusline/roadmap-pulse + dashboard.</span></div><span class="tag sm">small</span></div>
+    <div class="step"><div class="n">3</div><div class="body"><b>Per-bead readiness checklist + proposal check (S2)</b> &nbsp;<span>Card chip; the 5th "has proposal" check bootstraps the moat.</span></div><span class="tag sm">small</span></div>
+    <div class="step"><div class="n">4</div><div class="body"><b>spec_id &rarr; proposal join (KEYSTONE)</b> &nbsp;<span>Populate --spec-id, model drizzle proposals FK, reconcile on hook ingest, render tappable link.</span></div><span class="tag md">medium</span></div>
+    <div class="step"><div class="n">5</div><div class="body"><b>bd-only-writer projection discipline (A1)</b> &nbsp;<span>Never-throw importer + two-query load; protects against mirror drift.</span></div><span class="tag md">medium</span></div>
+    <div class="step"><div class="n">6</div><div class="body"><b>coord.v1 envelope, adaptive cadence + mutex, focus graph, dual-filter table (S3/E/F/A2/C/D)</b> &nbsp;<span>Streaming + surface polish once the moat is in.</span></div><span class="tag md">medium</span></div>
+  </div>
+
+  <div class="monskip">
+    <div class="ms mon">
+      <h4>Monitor</h4>
+      <ul>
+        <li><b>bb-pi embedded orchestrator</b> — Pi runtime + archetypes/templates/reservations for multi-agent scope-locking. "Under construction" w/ known races; nx has its own daemon. Watch the reservation model, don't couple.</li>
+        <li><b>beadboard-driver skill</b> — 9-step agent operating contract as an installable skill. Overlaps nx's slash-command spine; watch the packaging.</li>
+        <li><b>Multi-backend abstraction (bd / br / SQLite)</b> — the tracker's built-in engine isn't even in the shipped tree. Watch only if bd server-mode regresses.</li>
+        <li><b><code>cleared:{id}</code> sentinel</b> — SQLite UNIQUE workaround; unlikely on Postgres.</li>
+      </ul>
+    </div>
+    <div class="ms skip">
+      <h4>Skip</h4>
+      <ul>
+        <li><b>Dolt as the datastore</b> — nx is committed to Postgres/drizzle. Take the fallback discipline (A1), not the engine.</li>
+        <li><b>Next.js / Nuxt UI shells</b> — nx's surface is Swift. Reference the information architecture (lenses, 3-panel), not the component trees.</li>
+        <li><b>Windows path canonicalization, Remotion video, Chokidar+SSE / notify fs-watch transport</b> — nx targets macOS/iOS/watchOS over a Bun socket spine.</li>
+        <li><b>Filesystem attachment convention</b> (<code>.beads/attachments/{id}/</code>) — nx has Postgres + real object storage.</li>
+        <li><b>Roadmap / proposal-content surfacing</b> — doesn't exist in either repo. Not a skip of prior art; it's nx's greenfield.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    /recon external-repo · context files: docs/recon/beadboard.md · docs/recon/beads-task-issue-tracker.md<br>
+    Generated 2026-07-07 · nx (@nexus/root) · verdict cross-referenced against Swift dashboard suite + Bun agent + Postgres/drizzle
+  </footer>
+
+</div>
+</body>
+</html>
