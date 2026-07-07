@@ -96,6 +96,22 @@ ReadWritePaths=%h/.claude
 ReadWritePaths=%h/.config/nexus
 ReadWritePaths=%h/.local
 ReadWritePaths=/tmp
+# %h/dev is WRITABLE — required for dolt-backed beads (nx-cblfj).
+#
+# The specs/roadmap/rollup surfaces run `bd list`/`bd ready`/`bd show` against
+# every registered project under ~/dev. For a DOLT-backed project (nx, oo, ap,
+# ...) the beads store is an embedded Dolt database at
+# `<project>/.beads/embeddeddolt/`, and Dolt takes an on-disk lock file
+# (`.beads/embeddeddolt/.lock`) even for read-only queries. Under
+# `ReadOnlyPaths=/home` that open() fails with EROFS ("read-only file system"),
+# so `bd` exits 1, `computeBeadRollup` catches it and returns null, and every
+# dolt-backed project shows `beadRollup: null`. SQLite-backed projects (a
+# `.beads/beads.db`) read fine read-only, which is why cc/gd worked and nx/oo
+# did not. Granting write to ~/dev lets Dolt take its lock. The agent only
+# operates on projects under ~/dev (it already reads them all via bd/git/
+# openspec), so this is the minimal grant that restores the surface without
+# widening the sandbox beyond the tree the agent already works in.
+ReadWritePaths=%h/dev
 
 # Resource limits
 LimitNOFILE=65536
