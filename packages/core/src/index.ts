@@ -27,7 +27,8 @@ export type {
   PresenceField,
   PresenceVector,
 } from "./types/presence";
-export type { SpecSummary } from "./types/spec";
+export type { SpecSummary, BeadRef, BeadRollup, UnlinkedBead } from "./types/spec";
+export type { RoadmapCapability, RoadmapProposal } from "./types/roadmap";
 export type {
   FailuresResponse,
   FailureTopError,

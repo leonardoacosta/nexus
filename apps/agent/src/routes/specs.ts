@@ -11,6 +11,7 @@
  */
 
 import { createLogger } from "@nexus/core/node";
+import type { BeadRollup } from "@nexus/core";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -20,7 +21,13 @@ import {
   type SpecSnapshot,
 } from "../services/spec-watcher";
 import { getProjects, type ProjectConfig } from "../services/config-loader";
-import { execText, execJson } from "../utils/exec";
+import { execText } from "../utils/exec";
+import {
+  computeBeadRollup,
+  defaultRollupBeadSource,
+  type RawBead,
+  type RollupBeadSource,
+} from "../services/bead-rollup";
 
 const log = createLogger("agent:routes:specs");
 
@@ -61,34 +68,24 @@ async function runOpenspec(
 // GET /specs/all -- cross-project aggregate
 // ---------------------------------------------------------------------------
 
-interface BeadsSummary {
-  open: number;
-  closed: number;
-  ready: number;
-}
-
 interface ProjectSpecStatus {
   code: string;
   name: string;
-  specs: SpecSnapshot[];
-  beads: BeadsSummary | null;
+  specs: Array<SpecSnapshot & { beadRollup: BeadRollup | null }>;
 }
 
-async function fetchBeadsSummary(cwd: string): Promise<BeadsSummary | null> {
-  if (!existsSync(join(cwd, ".beads"))) return null;
-
-  try {
-    const items = await execJson<unknown[]>("bd", ["ready", "--json"], { cwd });
-    if (!Array.isArray(items)) return null;
-
-    return {
-      open: items.length,
-      closed: 0,
-      ready: items.length,
-    };
-  } catch {
-    return null;
-  }
+/**
+ * A per-project rollup source that fetches `bd ready --json` at most once
+ * (memoised) and reuses it across every spec in that project — otherwise
+ * `handleGetSpecsAll` would spawn `bd ready` once per spec, per project.
+ */
+function memoisedProjectSource(): RollupBeadSource {
+  let readyCache: Promise<RawBead[]> | null = null;
+  return {
+    listBeads: defaultRollupBeadSource.listBeads,
+    listReady: (cwd) =>
+      (readyCache ??= defaultRollupBeadSource.listReady(cwd)),
+  };
 }
 
 export async function handleGetSpecsAll(): Promise<Response> {
@@ -99,16 +96,19 @@ export async function handleGetSpecsAll(): Promise<Response> {
     const openspecDir = join(project.path, "openspec");
     if (!existsSync(openspecDir)) continue;
 
-    const [specs, beads] = await Promise.all([
-      pollProjectSpecs(project.path),
-      fetchBeadsSummary(project.path),
-    ]);
+    const specs = await pollProjectSpecs(project.path);
+    const source = memoisedProjectSource();
+    const withRollups = await Promise.all(
+      specs.map(async (spec) => ({
+        ...spec,
+        beadRollup: await computeBeadRollup(project.path, spec.name, source),
+      })),
+    );
 
     results.push({
       code: project.code,
       name: project.name,
-      specs,
-      beads,
+      specs: withRollups,
     });
   }
 
@@ -213,12 +213,20 @@ export async function handleGetSpec(
   // are preserved verbatim (no case normalisation).
   const frontmatter = readProposalFrontmatter(proj.path, name);
 
+  // add-bead-proposal-roadmap-surface: attach the live bead rollup. Null
+  // when the project has no `.beads/` or `bd` errors — the payload is
+  // otherwise unchanged (never a 500).
+  const beadRollup = await computeBeadRollup(proj.path, name);
+
   try {
     const spec = JSON.parse(result.stdout);
-    return new Response(JSON.stringify({ ...spec, project, frontmatter }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ ...spec, project, frontmatter, beadRollup }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   } catch {
     return new Response(
       JSON.stringify({ error: "failed to parse spec data" }),

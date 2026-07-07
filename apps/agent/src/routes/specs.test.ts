@@ -224,8 +224,7 @@ describe("handleGetSpecsAll", () => {
         projects: {
           code: string;
           name: string;
-          specs: unknown[];
-          beads: unknown;
+          specs: { beadRollup?: unknown }[];
         }[];
       };
 
@@ -234,12 +233,52 @@ describe("handleGetSpecsAll", () => {
         expect(project).toHaveProperty("name");
         expect(project).toHaveProperty("specs");
         expect(Array.isArray(project.specs)).toBe(true);
-        // beads can be null or an object
-        expect(project).toHaveProperty("beads");
+        // add-bead-proposal-roadmap-surface: per-spec beadRollup replaced
+        // the old project-level count-only `beads` field.
+        for (const spec of project.specs) {
+          expect(spec).toHaveProperty("beadRollup");
+        }
       }
     },
     { timeout: 30_000 },
   );
+});
+
+// ---------------------------------------------------------------------------
+// handleGetSpecsAll — per-spec beadRollup attachment
+// (add-bead-proposal-roadmap-surface task 1.7 / 1.11)
+//
+// A fixture project WITHOUT a `.beads/` dir makes computeBeadRollup return
+// null, so every spec row carries `beadRollup: null` — a deterministic
+// assertion of the new wire shape that never shells to `bd`.
+// ---------------------------------------------------------------------------
+
+describe("handleGetSpecsAll — beadRollup wire shape", () => {
+  it("attaches beadRollup (null with no .beads/) to every spec row", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nx-specs-rollup-"));
+    const specDir = join(root, "openspec", "changes", "demo");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "proposal.md"), "# demo\n");
+    writeFileSync(join(specDir, "tasks.md"), "- [x] one\n- [ ] two\n");
+    fixtureProjects.push({ code: "fix", name: "fixture", path: root });
+    try {
+      const response = await handleGetSpecsAll();
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        projects: { code: string; specs: { name: string; beadRollup: unknown }[] }[];
+      };
+      const project = body.projects.find((p) => p.code === "fix");
+      expect(project).toBeTruthy();
+      expect(project!.specs.length).toBeGreaterThan(0);
+      for (const spec of project!.specs) {
+        expect(spec).toHaveProperty("beadRollup");
+        expect(spec.beadRollup).toBeNull(); // no .beads/ dir -> null
+      }
+    } finally {
+      fixtureProjects.length = 0;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

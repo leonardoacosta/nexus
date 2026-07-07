@@ -77,6 +77,8 @@ import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
 import { handleCron } from "./routes/cron-routes";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
+import { handleGetUnlinkedBeads } from "./routes/beads-unlinked";
+import { handleGetRoadmap } from "./routes/roadmap";
 import type { WsData } from "./terminal/stream-manager";
 import { ServerState, handleWsUpgrade } from "./server-websocket";
 import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
@@ -188,6 +190,9 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // specs-tab-start-on-spec — sessions linkage + status PATCH.
   { method: "GET", path: "/specs/:project/:name/sessions" },
   { method: "PATCH", path: "/specs/:project/:name/status" },
+  // Beads + roadmap (add-bead-proposal-roadmap-surface)
+  { method: "GET", path: "/beads/unlinked" },
+  { method: "GET", path: "/roadmap" },
   // Events
   { method: "GET", path: "/events" },
   { method: "GET", path: "/events/stream" },
@@ -677,6 +682,24 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // referenced wave-plan.json from disk; no DB required.
     const wavePlanResult = tryHandleWavePlanRoute(request, url);
     if (wavePlanResult !== null) return wavePlanResult;
+
+    // ── Beads + roadmap routes (no DB; read live from bd) ─────────────────
+    // add-bead-proposal-roadmap-surface. Both fail-soft inside their
+    // handlers (empty payload, never 500) — the catch here is defense in
+    // depth for an unexpected throw.
+    if (url.pathname === "/beads/unlinked" && request.method === "GET") {
+      return handleGetUnlinkedBeads(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/beads/unlinked", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ unlinked: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    if (url.pathname === "/roadmap" && request.method === "GET") {
+      return handleGetRoadmap(url).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/roadmap", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response(JSON.stringify({ capabilities: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
 
     // ── Operational routes (no DB required) ──────────────────────────────
     if (url.pathname === "/environment" && request.method === "GET") {
