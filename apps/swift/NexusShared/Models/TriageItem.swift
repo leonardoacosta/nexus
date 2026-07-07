@@ -783,6 +783,113 @@ public enum TriagePayload: Equatable, Hashable, Sendable {
     public var medication: MedicationBody? { if case .medication(let b) = self { return b }; return nil }
 }
 
+// MARK: - Verdict (decide-flow LLM triage verdict)
+
+/// The mx LLM triage verdict attached to a queue item (add-triage-verdict-layer,
+/// mx-3z8y). A sibling of `core` / `payload` on the wire (`item.verdict`). EVERY
+/// field is optional and the whole struct is nested-optional on `TriageItem`, so
+/// a pre-verdict gateway payload (no `verdict` key) decodes UNCHANGED — the
+/// decide surface renders such an item as skip-only (no VerdictBox, excluded from
+/// forced-decision). Decodes camelCase OR snake_case per the WireDecode
+/// convention; `confidence` accepts a numeric score (0…1) OR a band string.
+///
+/// Spec: openspec/changes/add-decide-flow-menubar (NexusShared task 2.1).
+public struct Verdict: Equatable, Hashable, Sendable, Codable {
+    /// The recommended narrow action (defer / delegate / preempt / group /
+    /// resolve / snooze). Drives the primary accept path + the VerdictBox label.
+    public var action: String?
+    /// The suggested disposition (mirrors CommsDisposition semantics, but a raw
+    /// string here — the verdict layer is source-agnostic).
+    public var disposition: String?
+    /// One-line rationale the model produced ("why this action").
+    public var reason: String?
+    /// Confidence score in 0…1 when numeric. A band string ("high"/"medium"/
+    /// "low") on the wire decodes to nil here and is surfaced via `confidenceBand`.
+    public var confidence: Double?
+    /// Confidence band as sent by the gateway when it emits a string instead of
+    /// a score. `confidenceBand` prefers the numeric score, falling back to this.
+    public var confidenceLabel: String?
+    /// The prompt template version that produced this verdict (pilot bookkeeping).
+    public var promptVersion: String?
+    /// Stable verdict id — REQUIRED to post a decision. An item with no
+    /// `verdictId` cannot be decided (render skip-only).
+    public var verdictId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case disposition
+        case reason
+        case confidence
+        case confidenceLabel, confidence_label, confidenceBand, confidence_band
+        case promptVersion, prompt_version
+        case verdictId, verdict_id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.action = WireDecode.nonEmpty(c, .action)
+        self.disposition = WireDecode.nonEmpty(c, .disposition)
+        self.reason = WireDecode.nonEmpty(c, .reason)
+        // Numeric score preferred; a band STRING under `confidence` folds into
+        // confidenceLabel so a `"confidence": "high"` payload still renders.
+        self.confidence = WireDecode.double(c, .confidence)
+        let bandFromConfidence = self.confidence == nil
+            ? WireDecode.nonEmpty(c, .confidence) : nil
+        self.confidenceLabel = WireDecode.nonEmpty(
+            c, .confidenceLabel, .confidence_label, .confidenceBand, .confidence_band
+        ) ?? bandFromConfidence
+        self.promptVersion = WireDecode.nonEmpty(c, .promptVersion, .prompt_version)
+        self.verdictId = WireDecode.nonEmpty(c, .verdictId, .verdict_id)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(action, forKey: .action)
+        try c.encodeIfPresent(disposition, forKey: .disposition)
+        try c.encodeIfPresent(reason, forKey: .reason)
+        try c.encodeIfPresent(confidence, forKey: .confidence)
+        try c.encodeIfPresent(confidenceLabel, forKey: .confidenceLabel)
+        try c.encodeIfPresent(promptVersion, forKey: .promptVersion)
+        try c.encodeIfPresent(verdictId, forKey: .verdictId)
+    }
+
+    public init(
+        action: String? = nil,
+        disposition: String? = nil,
+        reason: String? = nil,
+        confidence: Double? = nil,
+        confidenceLabel: String? = nil,
+        promptVersion: String? = nil,
+        verdictId: String? = nil
+    ) {
+        self.action = action
+        self.disposition = disposition
+        self.reason = reason
+        self.confidence = confidence
+        self.confidenceLabel = confidenceLabel
+        self.promptVersion = promptVersion
+        self.verdictId = verdictId
+    }
+
+    /// Banded confidence label the VerdictBox renders. Prefers the numeric
+    /// score (>=0.75 high, >=0.4 medium, else low); falls back to the raw
+    /// `confidenceLabel` string; nil when neither is present.
+    public var confidenceBand: String? {
+        if let c = confidence {
+            if c >= 0.75 { return "high" }
+            if c >= 0.40 { return "medium" }
+            return "low"
+        }
+        return confidenceLabel?.lowercased()
+    }
+
+    /// A verdict is actionable (a decision can be posted) only when it carries a
+    /// `verdictId`. Verdict-less / id-less items are skip-only.
+    public var isActionable: Bool {
+        !(verdictId ?? "").isEmpty
+    }
+}
+
 // MARK: - TriageItem (Core spine + payload)
 
 /// The unified item every archetype page renders: the `Core` correlation spine
@@ -804,11 +911,17 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
     public var lastSeenAt: Date?
     // --- Family body ---
     public var payload: TriagePayload
+    // --- Decide-flow LLM verdict (optional; sibling of core/payload) ---
+    /// The mx triage verdict, when present. Nil for a pre-verdict payload — the
+    /// decide surface renders such items skip-only. Additive: absence NEVER
+    /// changes how the rest of the item decodes.
+    public var verdict: Verdict?
 
     /// Item-level coding keys: both the nested-`core` (protojson) shape and the
     /// flattened shape resolve through `init(from:)` below, which probes for a
-    /// `core` object first and falls back to top-level keys.
-    private enum TopKeys: String, CodingKey { case core, payload }
+    /// `core` object first and falls back to top-level keys. `verdict` is a
+    /// top-level sibling in BOTH shapes.
+    private enum TopKeys: String, CodingKey { case core, payload, verdict }
     private enum CoreKeys: String, CodingKey {
         case id, source, kind, title, url, author, participants
         case threadKey, thread_key
@@ -845,6 +958,14 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         self.lastSeenAt = WireDecode.date(core, .lastSeenAt, .last_seen_at)
 
         self.payload = TriagePayload.decode(from: decoder, kind: self.kind)
+        // `verdict` sits at the top level in both the nested-`core` and the
+        // flattened shapes (`top` is keyed off the same container). Absent key
+        // -> nil, which is the pre-verdict steady state.
+        if let top, let decoded = try? top.decodeIfPresent(Verdict.self, forKey: .verdict) {
+            self.verdict = decoded
+        } else {
+            self.verdict = nil
+        }
     }
 
     public init(
@@ -861,7 +982,8 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         lastActivityAt: Date? = nil,
         stillPresentUpstream: Bool = true,
         lastSeenAt: Date? = nil,
-        payload: TriagePayload
+        payload: TriagePayload,
+        verdict: Verdict? = nil
     ) {
         self.id = id
         self.source = source
@@ -877,5 +999,6 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         self.stillPresentUpstream = stillPresentUpstream
         self.lastSeenAt = lastSeenAt
         self.payload = payload
+        self.verdict = verdict
     }
 }

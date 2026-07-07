@@ -373,6 +373,90 @@ extension TriageItem {
         ),
     ]
 
+    // MARK: - Decide flow (verdict-present + verdict-absent)
+    //
+    // Spec: openspec/changes/add-decide-flow-menubar. The menubar decide surface
+    // renders a session batch of verdict-bearing cards; ONE verdict-less item is
+    // included to exercise the defensive skip-only render path (no VerdictBox,
+    // excluded from forced-decision).
+
+    /// A verdict-BEARING card (renders the VerdictBox + the six-way actions).
+    public static let sampleDecideVerdict: TriageItem = TriageItem(
+        id: "ado:wi:4821", source: "ado", kind: .workItem,
+        title: "AB#4821 · Auth token refresh fails on retry",
+        url: "https://dev.azure.com/acme/_workitems/edit/4821",
+        author: IdentityRef(displayName: "Ana Brooks", handle: "ana.brooks@acme.com"),
+        ballInCourt: .mine, lastActivityAt: ago(3 * 3600),
+        payload: .comms(CommsBody(
+            summary: "You're assigned reviewer — PR is waiting on your approval to merge.",
+            priority: .high, upstreamState: "In Review", suggestedDisposition: .open,
+            dispositionEvidence: "Assigned reviewer on an open PR awaiting your approval."
+        )),
+        verdict: Verdict(
+            action: "delegate", disposition: "open",
+            reason: "Reviewer assignment, but the fix is a one-line retry guard — hand to the on-call.",
+            confidence: 0.82, promptVersion: "decide-v1", verdictId: "vd_4821_a"
+        )
+    )
+
+    /// A verdict-LESS card (pre-verdict payload) — decodes unchanged, renders
+    /// skip-only, and is EXCLUDED from forced-decision.
+    public static let sampleDecideNoVerdict: TriageItem = TriageItem(
+        id: "gmail:msg:8841", source: "gmail", kind: .email,
+        title: "Q3 contract redline — need sign-off today",
+        url: "https://mail.google.com/mail/u/0/#inbox/8841",
+        author: IdentityRef(displayName: "Dana Kerr", handle: "dana.kerr@acme.com"),
+        ballInCourt: .mine, lastActivityAt: ago(8 * 60),
+        payload: .comms(CommsBody(
+            summary: "Approve the indemnity clause edit before 5pm so legal can countersign.",
+            priority: .urgent, suggestedDisposition: .inbox,
+            dispositionEvidence: "Direct ask with same-day deadline; you are the approver."
+        ))
+        // No verdict — pre-verdict steady state.
+    )
+
+    /// A representative decide session batch (<=10): verdict-bearing cards plus
+    /// the single verdict-less card. Backs the DecideDeckView `#Preview`.
+    public static let sampleDecideBatch: [TriageItem] = [
+        sampleDecideVerdict,
+        TriageItem(
+            id: "teams:msg:platform-oncall:5521", source: "teams", kind: .chatMessage,
+            threadKey: "teams:channel:platform-oncall",
+            title: "#platform-oncall — rollback confirmation",
+            url: "https://teams.microsoft.com/l/message/platform-oncall/5521",
+            author: IdentityRef(displayName: "Raj Mehta", handle: "raj.mehta@acme.com"),
+            ballInCourt: .theirs, lastActivityAt: ago(22 * 60),
+            payload: .comms(CommsBody(
+                summary: "Sent you the deploy log — let me know if rollback looks right.",
+                priority: .normal, suggestedDisposition: .waiting,
+                dispositionEvidence: "You replied last; awaiting their confirmation."
+            )),
+            verdict: Verdict(
+                action: "snooze", disposition: "waiting",
+                reason: "Ball is with them for the rollback call — nothing owed until they reply.",
+                confidence: 0.66, promptVersion: "decide-v1", verdictId: "vd_5521_b"
+            )
+        ),
+        TriageItem(
+            id: "snow:inc:0294817", source: "snow", kind: .ticket,
+            title: "INC0294817 · VPN gateway latency spike",
+            url: "https://acme.service-now.com/incident.do?sysparm_query=number=INC0294817",
+            author: IdentityRef(displayName: "ServiceNow · ops queue"),
+            ballInCourt: .theirs, lastActivityAt: ago(5 * 3600),
+            payload: .comms(CommsBody(
+                summary: "Awaiting vendor RCA — assigned to network team.",
+                priority: .high, upstreamState: "Active", suggestedDisposition: .waiting,
+                dispositionEvidence: "Assigned to network team; ball is with the vendor."
+            )),
+            verdict: Verdict(
+                action: "defer", disposition: "waiting",
+                reason: "Vendor RCA pending — defer until the network team escalates.",
+                confidence: 0.38, promptVersion: "decide-v1", verdictId: "vd_0294817_c"
+            )
+        ),
+        sampleDecideNoVerdict,
+    ]
+
     // MARK: - Combined feed
 
     /// Every archetype's fixtures concatenated — the cross-source feed the
