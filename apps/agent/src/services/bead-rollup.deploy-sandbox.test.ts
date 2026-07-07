@@ -35,4 +35,18 @@ describe("deploy/nexus-agent.service dolt sandbox (nx-cblfj)", () => {
     // invariant paired so the sandbox intent stays legible.
     expect(unit).toMatch(/^ReadOnlyPaths=\/home\s*$/m);
   });
+
+  test("puts mise shims on PATH so the openspec CLI resolves under systemd", () => {
+    // handleGetSpec shells to the `openspec` CLI (runOpenspec). Under bare
+    // `bun run`/interactive shells openspec is found via the full user PATH,
+    // but the systemd unit sets a minimal Environment=PATH. openspec is
+    // mise-managed (~/.local/share/mise/installs/node/<ver>/bin/openspec), so
+    // only the version-independent shims dir (~/.local/share/mise/shims,
+    // already under ReadWritePaths=%h/.local) reliably resolves it. Without
+    // this the single-spec endpoint returns a 404 and beadRollup never
+    // computes — same deploy-env failure shape as the dolt sandbox bug.
+    const pathLine = /^Environment=PATH=(.*)$/m.exec(unit);
+    expect(pathLine).not.toBeNull();
+    expect(pathLine![1]).toContain(".local/share/mise/shims");
+  });
 });

@@ -50,7 +50,16 @@ RestartSec=5
 StartLimitBurst=5
 StartLimitIntervalSec=60
 Environment=LOG_LEVEL=info
-Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# %h/.local/share/mise/shims is on PATH so the `openspec` CLI resolves under
+# systemd (nx-cblfj). handleGetSpec (routes/specs.ts) shells to `openspec show`
+# via runOpenspec; openspec is mise-managed and version-pinned
+# (~/.local/share/mise/installs/node/<ver>/bin/openspec), so only the stable,
+# version-independent shims dir reliably finds it. Interactive shells / bare
+# `bun run` resolve it via the full user PATH, which is why this only bites the
+# sandboxed agent — a deploy-env gap, not feature logic (same shape as the
+# dolt-sandbox ReadWritePaths grant above). The shims dir lives under
+# %h/.local, already covered by ReadWritePaths=%h/.local.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 
 # Notification env vars (absorbed from retired claude-daemon)
 # Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)
