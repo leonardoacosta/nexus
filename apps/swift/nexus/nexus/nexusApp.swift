@@ -207,6 +207,11 @@ struct nexusApp: App {
         dashboardScene
             .windowResizability(.contentMinSize)
 
+        // Decide-flow pilot (openspec/changes/add-decide-flow-menubar): a second
+        // MenuBarExtra whose window popover hosts the session deck. Independent of
+        // the dashboard menubar item + its viewModel — owns its own DecideSession.
+        DecideScene()
+
         Settings {
             PreferencesScene()
                 .environmentObject(viewModel)
