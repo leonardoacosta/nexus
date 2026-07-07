@@ -72,6 +72,8 @@ import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
 import { handleGetRequests } from "./routes/requests";
+import { handleGetQueue } from "./routes/queue";
+import { handlePostDecision } from "./routes/decision";
 import { handleGetTriage } from "./routes/triage";
 import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
@@ -175,6 +177,9 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
   { method: "GET", path: "/requests" },
+  // Decide-flow menubar (add-decide-flow-menubar)
+  { method: "GET", path: "/queue" },
+  { method: "POST", path: "/requests/:id/decision" },
   { method: "GET", path: "/triage" },
   { method: "GET", path: "/thread" },
   { method: "GET", path: "/failures" },
@@ -724,6 +729,32 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         logger.error({ route: "/requests", method: "GET", err }, "route handler failed");
         // Fail-soft even on an unexpected throw: empty history, not 500.
         return withCors(request, new Response(JSON.stringify({ requests: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Decision-queue passthrough (no DB; proxies the mx gateway :8799) ──
+    // Decide-flow menubar (add-decide-flow-menubar). Fail-soft inside the
+    // handler (empty { items: [] }, never 500) — the catch here is defense in
+    // depth for an unexpected throw.
+    if (url.pathname === "/queue" && request.method === "GET") {
+      return handleGetQueue(request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/queue", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty queue, not 500.
+        return withCors(request, new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Decision passthrough (no DB; proxies the mx gateway :8799) ────────
+    // POST /requests/{id}/decision (add-decide-flow-menubar). NOT fail-soft:
+    // the handler relays the gateway status/body verbatim and maps a network
+    // failure to 504. Distinct method (POST) from GET /requests, so no
+    // collision with the request-history route above.
+    const decisionMatch = url.pathname.match(/^\/requests\/([^/]+)\/decision$/);
+    if (decisionMatch && request.method === "POST") {
+      return handlePostDecision(request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/requests/:id/decision", method: "POST", err }, "route handler failed");
+        // A dropped decision must surface loudly — 502, never an empty 200.
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
       });
     }
 
