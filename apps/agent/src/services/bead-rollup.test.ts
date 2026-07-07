@@ -7,7 +7,7 @@
  * fake bead source (the DI seam), so it never shells to `bd`.
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +19,11 @@ import {
   computeBeadRollup,
   collectLinkedBeadIds,
   emptyRollup,
+  defaultRollupBeadSource,
   type RawBead,
   type RollupBeadSource,
 } from "./bead-rollup";
+import * as exec from "../utils/exec";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -349,5 +351,55 @@ describe("computeBeadRollup", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultRollupBeadSource — real `bd` arg strings (regression for the missing
+// `--all` flag that silently zeroed every rollup's `closed`/`total`).
+//
+// The DI-fake tests above never exercise the real arg array, so the dropped
+// `--all` shipped undetected. This spies on the exec layer and asserts the
+// actual flags, so a future regression fails locally.
+// ---------------------------------------------------------------------------
+
+describe("defaultRollupBeadSource — bd arg strings", () => {
+  afterEach(() => {
+    // Restore the spy so the module binding is not left mutated for other
+    // suites in a full-suite run (bun mock forward-leak guard).
+    spyOn(exec, "execJson").mockRestore();
+  });
+
+  it("listBeads passes --all so closed beads are returned", async () => {
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+
+    await defaultRollupBeadSource.listBeads(["nx-a", "nx-b"], "/tmp/proj");
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [cmd, args] = spy.mock.calls[0]!;
+    expect(cmd).toBe("bd");
+    expect(args).toEqual(["list", "--id", "nx-a,nx-b", "--all", "--json"]);
+    // Guard the exact intent: the closed-inclusive flag is present.
+    expect(args).toContain("--all");
+  });
+
+  it("listBeads short-circuits (no bd spawn) for an empty id set", async () => {
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+
+    const out = await defaultRollupBeadSource.listBeads([], "/tmp/proj");
+
+    expect(out).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("listReady stays open-only — never leaks --all into bd ready", async () => {
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+
+    await defaultRollupBeadSource.listReady("/tmp/proj");
+
+    const [cmd, args] = spy.mock.calls[0]!;
+    expect(cmd).toBe("bd");
+    expect(args).toEqual(["ready", "--json"]);
+    expect(args).not.toContain("--all");
   });
 });

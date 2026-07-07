@@ -54,9 +54,16 @@ export interface RollupBeadSource {
 export const defaultRollupBeadSource: RollupBeadSource = {
   async listBeads(ids, cwd) {
     if (ids.length === 0) return [];
-    return execJson<RawBead[]>("bd", ["list", "--id", ids.join(","), "--json"], {
-      cwd,
-    });
+    // `--all` is MANDATORY: without it `bd list --id` excludes closed beads,
+    // so every rollup's `closed` count is 0 and `total` is undercounted
+    // (only open task beads come back). The progress bar is closed/total, so
+    // omitting `--all` silently breaks the whole feature. Do NOT add `--all`
+    // to `bd ready` below — the ready set is a distinct, open-only query.
+    return execJson<RawBead[]>(
+      "bd",
+      ["list", "--id", ids.join(","), "--all", "--json"],
+      { cwd },
+    );
   },
   async listReady(cwd) {
     return execJson<RawBead[]>("bd", ["ready", "--json"], { cwd });

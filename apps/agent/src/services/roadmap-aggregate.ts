@@ -46,12 +46,19 @@ export interface RoadmapBeadSource extends RollupBeadSource {
 export const defaultRoadmapBeadSource: RoadmapBeadSource = {
   ...defaultRollupBeadSource,
   listEpics(cwd) {
-    return execJson<RawBead[]>("bd", ["list", "--type", "epic", "--json"], {
-      cwd,
-    });
+    // `--all` so a closed/done capability epic still surfaces on the roadmap.
+    return execJson<RawBead[]>(
+      "bd",
+      ["list", "--type", "epic", "--all", "--json"],
+      { cwd },
+    );
   },
   listAll(cwd) {
-    return execJson<RawBead[]>("bd", ["list", "--json"], { cwd });
+    // `--all` so CLOSED feature beads are returned — otherwise a shipped
+    // proposal's feature bead drops out of child resolution and the whole
+    // proposal (and its closed tasks) vanishes from the capability rollup,
+    // undercounting progress. Mirrors the `--all` fix in `listBeads`.
+    return execJson<RawBead[]>("bd", ["list", "--all", "--json"], { cwd });
   },
   async showSpecId(featureId, cwd) {
     const arr = await execJson<RawBead[]>("bd", ["show", featureId, "--json"], {
