@@ -73,6 +73,7 @@ import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
 import { handleGetRequests } from "./routes/requests";
 import { handleGetQueue } from "./routes/queue";
+import { handleGetDecisions } from "./routes/decisions";
 import { handlePostDecision } from "./routes/decision";
 import { handlePostCapture } from "./routes/capture";
 import { handleGetTriage } from "./routes/triage";
@@ -181,6 +182,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/requests" },
   // Decide-flow menubar (add-decide-flow-menubar)
   { method: "GET", path: "/queue" },
+  { method: "GET", path: "/decisions" },
   { method: "POST", path: "/requests/:id/decision" },
   { method: "GET", path: "/triage" },
   { method: "GET", path: "/thread" },
@@ -755,6 +757,17 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         logger.error({ route: "/queue", method: "GET", err }, "route handler failed");
         // Fail-soft even on an unexpected throw: empty queue, not 500.
         return withCors(request, new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Decision-feed passthrough (no DB; proxies the mx gateway :8799) ───
+    // Fail-soft inside the handler (empty `[]`, never 500) — the catch here is
+    // defense in depth for an unexpected throw. mx /decisions is a bare ARRAY.
+    if (url.pathname === "/decisions" && request.method === "GET") {
+      return handleGetDecisions(request).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/decisions", method: "GET", err }, "route handler failed");
+        // Fail-soft even on an unexpected throw: empty array, not 500.
+        return withCors(request, new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
