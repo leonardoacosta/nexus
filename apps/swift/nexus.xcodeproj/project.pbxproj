@@ -48,6 +48,7 @@
 		31A3324E5C24B4E15D7EAFCE /* TriageObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A751B48F5414144A65155543 /* TriageObserver.swift */; };
 		330834207334556FB46ADEC0 /* PtyViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 561095874ED05EE3F7DBEE0E /* PtyViewer.swift */; };
 		3343B9656D7D2540355D1E8A /* AutostartInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F8967872A72450315AC519 /* AutostartInstaller.swift */; };
+		3374DF61EB4047B5555EBA4F /* FleetExceptionsObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E33E370C4E91E6B7E74D4DE /* FleetExceptionsObserver.swift */; };
 		354AA76ECE9DB97C7D9F0D69 /* PresenceReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943D03F4499C45E321B51555 /* PresenceReporter.swift */; };
 		37E5DCBC2D97F664AFA1EC29 /* DecideCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1893360D3F45676C22F88BD7 /* DecideCardView.swift */; };
 		395CC1772E041DF0B7CD0CB3 /* DashboardNavigationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */; };
@@ -61,6 +62,7 @@
 		3FC35BF5AFC9E97E93697586 /* NowPlayingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */; };
 		3FE4C6D545B0F34A720472C4 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF654BB0375E595A1948E65 /* Keychain.swift */; };
 		3FF4DCDF99FEA9A4AC54FA79 /* MetricsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E79DB0015B5859AAC480C97 /* MetricsRow.swift */; };
+		447FD725354E50693236F976 /* FleetExceptionsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D284A8378C9585DDDFAA20 /* FleetExceptionsSection.swift */; };
 		458A85E0C9EE76D32DDB8873 /* AgentsConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7B82DF5B008BBF1832D3D6 /* AgentsConfigStore.swift */; };
 		45ED6FF75A282AA2C9E12C7A /* ProjectAccordionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706A99E011D47BAF934DD387 /* ProjectAccordionRow.swift */; };
 		4638A955ED918EA4ED06F1AE /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -140,6 +142,7 @@
 		A045774538576B332A715573 /* SessionsArchetypeScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76685DF67A89E6BCE4C21712 /* SessionsArchetypeScene.swift */; };
 		A2E59A26293A9CF66B2EF7C3 /* DetailScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0068A1451BBAC953DE71F74 /* DetailScene.swift */; };
 		A383C87FBCA0A6C36C50CDBB /* TmuxWindowNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C673AED76418A9941F6B62B7 /* TmuxWindowNameTests.swift */; };
+		A4BB4F52D570AC6BB46D5918 /* FleetException.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E3335ADF1FE6BB6C3FBD743 /* FleetException.swift */; };
 		A6F122DECCB643B55D29998A /* NexusAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091274382052DCC6BFCAB173 /* NexusAppDelegate.swift */; };
 		A8A63BE690032E42A53EAD68 /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B6FA9ADE337E941DB0ADB5 /* WindowAccessor.swift */; };
 		A9077D4148E30229B5629137 /* SSEStreamDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */; };
@@ -426,6 +429,7 @@
 		1A1FC35BEFA043E53A32AFC2 /* GitMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitMetadata.swift; sourceTree = "<group>"; };
 		1A9AF8C66BD065438059BCF0 /* SettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStoreTests.swift; sourceTree = "<group>"; };
 		1BB2ADEEAA160B6C7C5B5CE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1E33E370C4E91E6B7E74D4DE /* FleetExceptionsObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetExceptionsObserver.swift; sourceTree = "<group>"; };
 		1E7B82DF5B008BBF1832D3D6 /* AgentsConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsConfigStore.swift; sourceTree = "<group>"; };
 		1EA2250911C4813370B4DC79 /* SpecsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecsView.swift; sourceTree = "<group>"; };
 		1ED50A4C95555C16FF3CC37F /* NotificationActionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActionRegistry.swift; sourceTree = "<group>"; };
@@ -456,6 +460,7 @@
 		3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSnapshot.swift; sourceTree = "<group>"; };
 		3CDC9237E5616F35E1436F51 /* QueueHeadWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHeadWidgetTests.swift; sourceTree = "<group>"; };
 		3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSpeechSynthesizer.swift; sourceTree = "<group>"; };
+		3E3335ADF1FE6BB6C3FBD743 /* FleetException.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetException.swift; sourceTree = "<group>"; };
 		3F16E8714DDBB28908DEE41D /* NotifyButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyButton.swift; sourceTree = "<group>"; };
 		3F1D9D7786302019EB91E73E /* FinanceScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceScene.swift; sourceTree = "<group>"; };
 		4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEStreamDelegate.swift; sourceTree = "<group>"; };
@@ -597,6 +602,7 @@
 		E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
 		E16DE9C51D19A43C99E9B01D /* CalendarScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScene.swift; sourceTree = "<group>"; };
 		E2C841932D39C7FAE47199CC /* AddBankScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBankScene.swift; sourceTree = "<group>"; };
+		E2D284A8378C9585DDDFAA20 /* FleetExceptionsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetExceptionsSection.swift; sourceTree = "<group>"; };
 		E30141460F7A74C845396F23 /* HealthKitSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSettingsView.swift; sourceTree = "<group>"; };
 		E5E2895A373D59FF607ACD67 /* DecideVerdictDecodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecideVerdictDecodeTests.swift; sourceTree = "<group>"; };
 		E978F94DF484B67B064C297E /* MedsObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedsObserver.swift; sourceTree = "<group>"; };
@@ -798,6 +804,7 @@
 				F486DD462D2E3D0891AC4AD2 /* DashboardNavigationCoordinator.swift */,
 				D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */,
 				92DE47387ED686498A455137 /* FailuresView.swift */,
+				E2D284A8378C9585DDDFAA20 /* FleetExceptionsSection.swift */,
 				0B13AF99CABE8726E77F30EF /* FleetPresenceIndicator.swift */,
 				01B0CFFE5094C6A1D743886C /* HealthView.swift */,
 				01EB083041F4DC22A305EF1E /* IntegrationsView.swift */,
@@ -982,6 +989,7 @@
 				81F5634C81DF6FAEF9B71853 /* BeadRollup.swift */,
 				CE0491406946C9544A414272 /* CcProfile.swift */,
 				F8C2568BDA318EAA7D351F79 /* CommsMessage.swift */,
+				3E3335ADF1FE6BB6C3FBD743 /* FleetException.swift */,
 				7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */,
 				1A1FC35BEFA043E53A32AFC2 /* GitMetadata.swift */,
 				E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */,
@@ -1007,6 +1015,7 @@
 			isa = PBXGroup;
 			children = (
 				3C25FB232F427CFED0B650FC /* DecideSession.swift */,
+				1E33E370C4E91E6B7E74D4DE /* FleetExceptionsObserver.swift */,
 				E978F94DF484B67B064C297E /* MedsObserver.swift */,
 				917572BCCC40D2AA573C6468 /* NotificationActivation.swift */,
 				D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */,
@@ -1593,6 +1602,7 @@
 				8C46C7EB2433AFB2BF14A318 /* DecideScene.swift in Sources */,
 				FD0BFD926C048E01DDEB45F0 /* ElevenLabsStatusChip.swift in Sources */,
 				4D0B59462EB388768FB7BFC7 /* FailuresView.swift in Sources */,
+				447FD725354E50693236F976 /* FleetExceptionsSection.swift in Sources */,
 				97AA75160EDB2117DB41745B /* FleetPresenceIndicator.swift in Sources */,
 				884F160CC005F0383EF3FBC5 /* GlobalHotkeyManager.swift in Sources */,
 				D47B8DD11C85D8797FD4A8C2 /* HealthView.swift in Sources */,
@@ -1750,6 +1760,8 @@
 				D09953FEFC90DB68D6A6E014 /* CommsMessage.swift in Sources */,
 				83255FD1F03B12AC3C33E740 /* DecideSession.swift in Sources */,
 				FC165B57A2DFA0DB6EAF8B34 /* ElevenLabsClient.swift in Sources */,
+				A4BB4F52D570AC6BB46D5918 /* FleetException.swift in Sources */,
+				3374DF61EB4047B5555EBA4F /* FleetExceptionsObserver.swift in Sources */,
 				B0B20631FE4682D1D0DD4A38 /* FleetPresence.swift in Sources */,
 				F95CC095C27794741B55CD04 /* GitMetadata.swift in Sources */,
 				927EC9E8F4A36B07F1DDA0ED /* HealthMetrics.swift in Sources */,
