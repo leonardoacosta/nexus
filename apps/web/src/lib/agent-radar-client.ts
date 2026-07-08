@@ -56,6 +56,81 @@ export interface SourceIndex {
   sources: RadarSource[];
 }
 
+// ── Fleet exceptions DTOs (add-fleet-exceptions-feed) ────────────────────────
+
+/** Fleet-wide beads/backlog exception class (mirrors the agent's FleetExceptionClass). */
+export type FleetExceptionClass =
+  | "p0_open"
+  | "p1_open"
+  | "in_progress_stale"
+  | "ready_head_stale"
+  | "unarchived_changes";
+
+/** Human label for each exception class — used in the /radar row lines. */
+export const FLEET_EXCEPTION_LABEL: Record<FleetExceptionClass, string> = {
+  p0_open: "P0 open",
+  p1_open: "P1 open",
+  in_progress_stale: "in-progress stale",
+  ready_head_stale: "ready head stale",
+  unarchived_changes: "unarchived changes",
+};
+
+/**
+ * One (repo, class) exception line. Wire shape is ALREADY camelCase — the agent
+ * serializes its `FleetExceptionEntry` directly — so unlike the source rows there
+ * is no snake_case remap. `offenders` is capped agent-side (worst-first ids).
+ */
+export interface FleetExceptionEntry {
+  repo: string;
+  class: FleetExceptionClass;
+  count: number;
+  offenders: string[];
+}
+
+const FLEET_EXCEPTION_CLASSES: readonly FleetExceptionClass[] = [
+  "p0_open",
+  "p1_open",
+  "in_progress_stale",
+  "ready_head_stale",
+  "unarchived_changes",
+];
+
+function toExceptionClass(v: unknown): FleetExceptionClass | null {
+  return typeof v === "string" &&
+    (FLEET_EXCEPTION_CLASSES as readonly string[]).includes(v)
+    ? (v as FleetExceptionClass)
+    : null;
+}
+
+/** Map one exception entry (tolerant of missing/extra keys); null when unusable. */
+export function parseFleetException(raw: unknown): FleetExceptionEntry | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const repo = asString(r.repo);
+  const cls = toExceptionClass(r.class);
+  if (!repo || !cls) return null;
+  const offenders = Array.isArray(r.offenders)
+    ? r.offenders.filter((o): o is string => typeof o === "string")
+    : [];
+  return {
+    repo,
+    class: cls,
+    count: asNumber(r.count) ?? offenders.length,
+    offenders,
+  };
+}
+
+/**
+ * Parse the bare `/exceptions` JSON array. A clean fleet is `[]` (the
+ * load-bearing silent-when-clean signal); a non-array (fail-soft) is also `[]`.
+ */
+export function parseFleetExceptions(raw: unknown): FleetExceptionEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(parseFleetException)
+    .filter((e): e is FleetExceptionEntry => e !== null);
+}
+
 /** One request-status transition for a source (title, old -> new, timestamp). */
 export interface RequestTransition {
   id: string;
@@ -207,4 +282,16 @@ export async function fetchRequests(
   const qs = params.toString();
   const path = qs ? `/requests?${qs}` : "/requests";
   return parseTransitions(await getJson(agentBaseUrl, path, opts.signal));
+}
+
+/**
+ * `GET /exceptions` — fleet-wide beads/backlog exceptions (add-fleet-exceptions-feed).
+ * The agent fail-softs to `[]` (HTTP 200) when the read fails; a clean fleet is
+ * also `[]`. Callers render NOTHING for an empty array (silent-when-clean).
+ */
+export async function fetchExceptions(
+  agentBaseUrl: string,
+  signal?: AbortSignal,
+): Promise<FleetExceptionEntry[]> {
+  return parseFleetExceptions(await getJson(agentBaseUrl, "/exceptions", signal));
 }

@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import {
   isUnhealthy,
+  parseFleetException,
+  parseFleetExceptions,
   parseSource,
   parseSourceIndex,
   parseTransitions,
@@ -105,5 +107,55 @@ describe("parseTransitions", () => {
     expect(parseTransitions({ requests: [] })).toEqual([]);
     expect(parseTransitions({})).toEqual([]);
     expect(parseTransitions(null)).toEqual([]);
+  });
+});
+
+describe("parseFleetException — camelCase wire (no remap)", () => {
+  it("maps a full entry unchanged", () => {
+    expect(
+      parseFleetException({
+        repo: "nx",
+        class: "in_progress_stale",
+        count: 12,
+        offenders: ["nx-aaa", "nx-bbb"],
+      }),
+    ).toEqual({
+      repo: "nx",
+      class: "in_progress_stale",
+      count: 12,
+      offenders: ["nx-aaa", "nx-bbb"],
+    });
+  });
+
+  it("defaults count to offenders.length and drops non-string offenders", () => {
+    expect(
+      parseFleetException({ repo: "oo", class: "p0_open", offenders: ["a", 3, null] }),
+    ).toEqual({ repo: "oo", class: "p0_open", count: 1, offenders: ["a"] });
+  });
+
+  it("rejects an unknown class or a missing repo", () => {
+    expect(parseFleetException({ repo: "x", class: "bogus", count: 1 })).toBeNull();
+    expect(parseFleetException({ class: "p1_open", count: 1 })).toBeNull();
+    expect(parseFleetException(null)).toBeNull();
+  });
+});
+
+describe("parseFleetExceptions — bare array, silent-when-clean", () => {
+  it("returns [] for a clean fleet (the load-bearing silent signal)", () => {
+    expect(parseFleetExceptions([])).toEqual([]);
+  });
+
+  it("fail-softs a non-array payload to []", () => {
+    expect(parseFleetExceptions(null)).toEqual([]);
+    expect(parseFleetExceptions({})).toEqual([]);
+  });
+
+  it("parses valid entries and drops invalid ones", () => {
+    const out = parseFleetExceptions([
+      { repo: "nx", class: "ready_head_stale", count: 4, offenders: ["nx-1"] },
+      { repo: "x", class: "nope" }, // invalid class -> dropped
+      { repo: "mv", class: "unarchived_changes", count: 2, offenders: ["slug-a"] },
+    ]);
+    expect(out.map((e) => e.repo)).toEqual(["nx", "mv"]);
   });
 });

@@ -1,6 +1,7 @@
 import { getAgentBaseUrl } from "~/lib";
 import { theme } from "~/components/theme";
 
+import { FleetExceptionsRow } from "./exceptions-row";
 import { RadarPanel } from "./radar-panel";
 
 /**
@@ -52,6 +53,7 @@ export default function RadarPage() {
           source index · agent <code>{agentBaseUrl}</code>
         </p>
       </header>
+      <FleetExceptionsRow agentBaseUrl={agentBaseUrl} />
       <RadarPanel agentBaseUrl={agentBaseUrl} />
     </main>
   );
