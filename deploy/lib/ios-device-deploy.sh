@@ -46,6 +46,20 @@
 NX_IOS_DEFAULT_UDID="1AE26465-387A-5B3F-9012-4CF29A9B3AFB"
 NX_IOS_BUNDLE_ID="dev.leonardoacosta.nexus.ios"
 
+# App Store Connect API key for headless -allowProvisioningUpdates (2026-07-08).
+# Without this, xcodebuild can only REUSE an already-cached cert/profile for a
+# bundle ID — a BRAND NEW bundle ID (e.g. a new extension target's App ID) has
+# no cached profile and needs to talk live to the Developer Portal to create
+# one, which requires either a GUI-signed-in Xcode account (not available to
+# the LaunchAgent's build context) or an ASC API key (this). Fixes the
+# "No Accounts" / "No profiles for '<bundle-id>' were found" class of failure
+# for any future new target, not just the one that surfaced it (nexus-widgets).
+# Override via env if the key is ever rotated; the .p8 itself is NEVER
+# committed to git — it lives only at NX_IOS_ASC_KEY_PATH on the Mac.
+NX_IOS_ASC_KEY_ID="${NX_IOS_ASC_KEY_ID:-ZA5D8N707G8T}"
+NX_IOS_ASC_ISSUER_ID="${NX_IOS_ASC_ISSUER_ID:-31dc9929-98e0-4093-9c76-5bc3359809b5}"
+NX_IOS_ASC_KEY_PATH="${NX_IOS_ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_${NX_IOS_ASC_KEY_ID}.p8}"
+
 # LaunchAgent label + paths (keep in sync with the plist under
 # deploy/launchagents/dev.leonardoacosta.nexus.ios-deploy.plist):
 NX_IOS_DEPLOY_LAUNCHAGENT_LABEL="dev.leonardoacosta.nexus.ios-deploy"
@@ -206,6 +220,21 @@ _ios_device_deploy_build_inline() {
         _ios_device_deploy_warn "mktemp failed"; return 1
     }
 
+    # ASC API key args — only added when the key file is actually present, so
+    # a moved/rotated/missing key degrades to the prior cached-profile-only
+    # behavior instead of hard-failing xcodebuild on a bad flag.
+    local -a asc_auth_args=()
+    if [[ -f "$NX_IOS_ASC_KEY_PATH" ]]; then
+        asc_auth_args=(
+            -authenticationKeyPath "$NX_IOS_ASC_KEY_PATH"
+            -authenticationKeyID "$NX_IOS_ASC_KEY_ID"
+            -authenticationKeyIssuerID "$NX_IOS_ASC_ISSUER_ID"
+        )
+        _ios_device_deploy_info "using ASC API key $NX_IOS_ASC_KEY_ID for live provisioning updates"
+    else
+        _ios_device_deploy_warn "no ASC API key at $NX_IOS_ASC_KEY_PATH — provisioning updates will only reuse already-cached profiles"
+    fi
+
     # SIGNED build. Use PIPESTATUS to recover the real exit code through the
     # `| tail` pipe so a silent compile/sign failure does not look like success.
     (cd "$swift_dir" && xcodebuild \
@@ -215,6 +244,7 @@ _ios_device_deploy_build_inline() {
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$build_dir" \
             -allowProvisioningUpdates \
+            "${asc_auth_args[@]}" \
             DEVELOPMENT_TEAM=DX3Y367L2A \
             CODE_SIGN_STYLE=Automatic \
             build 2>&1 | tail -30)
