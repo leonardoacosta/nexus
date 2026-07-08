@@ -56,7 +56,12 @@ NX_IOS_BUNDLE_ID="dev.leonardoacosta.nexus.ios"
 # for any future new target, not just the one that surfaced it (nexus-widgets).
 # Override via env if the key is ever rotated; the .p8 itself is NEVER
 # committed to git — it lives only at NX_IOS_ASC_KEY_PATH on the Mac.
-NX_IOS_ASC_KEY_ID="${NX_IOS_ASC_KEY_ID:-ZA5D8N707G8T}"
+# NOTE: BRQ7ZBN78B is the confirmed nx-team key (verified against the
+# Integrations page 2026-07-08) — a same-issuer sibling key (ZA5D8N707G8T,
+# generated same day but for a different purpose/account) was tried first and
+# 401'd against Apple's listTeams.action; do not swap back without re-verifying
+# on the Integrations page.
+NX_IOS_ASC_KEY_ID="${NX_IOS_ASC_KEY_ID:-BRQ7ZBN78B}"
 NX_IOS_ASC_ISSUER_ID="${NX_IOS_ASC_ISSUER_ID:-31dc9929-98e0-4093-9c76-5bc3359809b5}"
 NX_IOS_ASC_KEY_PATH="${NX_IOS_ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_${NX_IOS_ASC_KEY_ID}.p8}"
 
