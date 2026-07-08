@@ -87,6 +87,36 @@ extension NexusClient {
         return env?.items ?? []
     }
 
+    /// `GET /queue?limit=1` mapped onto the widget's tri-state outcome. Unlike
+    /// `fetchDecideQueue` (fail-soft: failure AND empty both resolve to `[]`),
+    /// this DISTINGUISHES an empty queue (`.empty`, render "clear") from a fetch
+    /// failure (`.failed`, retain the last good widget entry). Transport error /
+    /// non-2xx / decode failure all map to `.failed`; a 200 with no items maps to
+    /// `.empty`; the first item maps to `.item`.
+    ///
+    /// Spec: openspec/changes/add-queue-head-widget task 1.2.
+    public func fetchQueueHeadOutcome() async -> QueueHeadFetchOutcome {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("queue"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "limit", value: "1")]
+        guard let url = comps.url else { return .failed }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await decideSession().data(for: req) else {
+            return .failed
+        }
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            return .failed
+        }
+        guard let env = try? JSONDecoder().decode(QueueEnvelope.self, from: data) else {
+            return .failed
+        }
+        return env.items.first.map(QueueHeadFetchOutcome.item) ?? .empty
+    }
+
     /// `GET /queue/head` — a single ranked item, the fallback when the batch
     /// endpoint (mx add-queue-batch) hasn't landed. Fail-soft: nil on any
     /// failure or an empty body. Accepts either a bare item object or a

@@ -38,6 +38,7 @@
 		21C247527E7607CC8F7140BC /* RootScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5592F30E8101D234FB6B4159 /* RootScene.swift */; };
 		21FAE3BB9FA83CE0B0FCE22A /* IdentityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DAD3B87469E5CB921D78729 /* IdentityRow.swift */; };
 		22E2FCD315CE7D6105B7C13A /* FinanceScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1D9D7786302019EB91E73E /* FinanceScene.swift */; };
+		26B855FB49F8E7AD681DA97B /* NexusWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A237E17580E6EDCD8D58B6 /* NexusWidgetBundle.swift */; };
 		2C3849FCFA7819DFCD63D248 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012FF0DFB2DB82FE9B710D15 /* Session.swift */; };
 		2CA1788A9ABE8156EB680DCF /* CredentialsUsageBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6EDF2BAC6A24698E6936C8 /* CredentialsUsageBarTests.swift */; };
 		2E1B128F929BCBBB1895FC3C /* VerdictBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F902A5A449A7A812DF61705 /* VerdictBox.swift */; };
@@ -56,6 +57,7 @@
 		3BF7A2FC96EF3D208255876C /* MedicationHistoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB469155753DF4F96347890 /* MedicationHistoryScene.swift */; };
 		3CE043331BCDC10623CEB08A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D26019595C89D3AA34964F /* ContentView.swift */; };
 		3E320883E4FA025DE7B1A1BE /* SessionRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */; };
+		3F77A50777F1A6D4F9B2381F /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
 		3FC35BF5AFC9E97E93697586 /* NowPlayingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */; };
 		3FE4C6D545B0F34A720472C4 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF654BB0375E595A1948E65 /* Keychain.swift */; };
 		3FF4DCDF99FEA9A4AC54FA79 /* MetricsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E79DB0015B5859AAC480C97 /* MetricsRow.swift */; };
@@ -78,6 +80,7 @@
 		53F7C977ABD51172A4F4D278 /* PayloadDecodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3E127C0C98FB3DCF20776D6 /* PayloadDecodeTests.swift */; };
 		54812947FE3FF0AF5C659C9D /* SettingsDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9EAA56B8ACD6A2A461C82A /* SettingsDashboardView.swift */; };
 		55F2A42C0995BF5FE43DCE93 /* TTSObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31115AFC5C16685752DA91CC /* TTSObserverTests.swift */; };
+		56DD0A8C12C26D9E5EB6465B /* QueueHeadWidgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDC9237E5616F35E1436F51 /* QueueHeadWidgetTests.swift */; };
 		57BC1F6F9A0F0354CF88910A /* SettingsRoutingViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F466880670E7E2C6CC9CBC /* SettingsRoutingViewTests.swift */; };
 		5C301654F84FCC5A12E518D6 /* SshTerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 082EF1BB13B1AEFFA39B5E1A /* SshTerminalSession.swift */; };
 		5C7487DDB6C2CFBCBC57AD08 /* SettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9AF8C66BD065438059BCF0 /* SettingsStoreTests.swift */; };
@@ -91,6 +94,7 @@
 		63C60B0F83BEA215479D0AB3 /* FleetPresenceIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */; };
 		63D3B543B76594E38988D323 /* NavigationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802E2554253BBA8C591589F2 /* NavigationState.swift */; };
 		654E341195B4A39169F7E278 /* FailuresViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B78D251A86C177E818C9A2 /* FailuresViewTests.swift */; };
+		663481C7EC639A057FCC81C8 /* QueueHeadWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE4CCF798740AED2522EA57 /* QueueHeadWidget.swift */; };
 		682DB18D9692C6288C32322B /* MedicationGroupScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8443C3BF2060E87794E15B50 /* MedicationGroupScene.swift */; };
 		6845A3D065AC8B9D78542251 /* TerminalHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31BA3ED5F66F53704DCA1F07 /* TerminalHostView.swift */; };
 		69EB11BA59BBDF80DFEA897E /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -103,6 +107,7 @@
 		73A5FB7F05768E9E02C01C98 /* ProcessInfoDecodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB82BFC925082829235A684A /* ProcessInfoDecodeTests.swift */; };
 		73C686C92A6D2D201819B1E1 /* ProcessTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA25DA13C7B0A5769320CA4 /* ProcessTableView.swift */; };
 		73FDD6B284ADF27FE8FA020F /* GhosttyLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593D8D69A6863C3E7BF29D9C /* GhosttyLauncherTests.swift */; };
+		752FC63519D0C2D60AF8B128 /* QueueHeadWidgetSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0F5ECB9FB7022E63F55CB5F /* QueueHeadWidgetSupport.swift */; };
 		77E1EA61EE8FA2D3A543CCED /* AgentsConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F7BD05CCA314D0CB836B8B /* AgentsConfigStoreTests.swift */; };
 		783C6407B300B9BA3038C22C /* BeadStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB591F82F540EA3D838D88E6 /* BeadStatusGlyph.swift */; };
 		7948D4A76D496BA890529B58 /* CredentialsUsageHistoryChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626CA6C822EF3AA7FEDD6896 /* CredentialsUsageHistoryChart.swift */; };
@@ -168,6 +173,7 @@
 		C6C368A31E5F4E9723C35430 /* NexusShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C6CE1B60ED5791BB565E1F7D /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F669AC13B43218AAD3D3B3DE /* NotificationsView.swift */; };
 		C7F62D4FCAD23BA544A80A16 /* SystemSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */; };
+		C86895404D36E8837DA39685 /* QueueHeadProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACAF90A0AEEA2C52F39E8A01 /* QueueHeadProvider.swift */; };
 		C93075CCD08C1533E3BC3E1F /* CredentialsUsageHistoryChartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D979F90E148EC8E27D146C38 /* CredentialsUsageHistoryChartTests.swift */; };
 		CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */; };
 		CE13B0FA8F28A76DCC0D0C1C /* NexusShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */; };
@@ -221,6 +227,7 @@
 		FA9D6E7D29DAFD60013B4664 /* AgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A85188AE7ED53AB749EEB08 /* AgentRegistry.swift */; };
 		FC165B57A2DFA0DB6EAF8B34 /* ElevenLabsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC8713A6F0FF55E278958C07 /* ElevenLabsClient.swift */; };
 		FC91D653D1FEC78F2E2CAC7B /* nexusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AC6B83DC21187B1451A8146 /* nexusTests.swift */; };
+		FCF8F37C27EDDB7671653686 /* nexus-widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6495911E3C57EA0B25394613 /* nexus-widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FD0BFD926C048E01DDEB45F0 /* ElevenLabsStatusChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */; };
 		FF7B682D25203D9963E2405C /* IntegrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01EB083041F4DC22A305EF1E /* IntegrationsView.swift */; };
 /* End PBXBuildFile section */
@@ -233,6 +240,13 @@
 			remoteGlobalIDString = AD0EFA1F2956664EE93A475C;
 			remoteInfo = "nexus-mac";
 		};
+		1E8A276B5D6EB1E385B7E9E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9086C976E62AACDE8082FCB6;
+			remoteInfo = "nexus-widgets";
+		};
 		5AE29DDEBFBDE4288D4CECCE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
@@ -241,6 +255,13 @@
 			remoteInfo = NexusShared;
 		};
 		64C9AB8E6F28673E567650B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D7B203F648362A33DFE749F4;
+			remoteInfo = NexusShared;
+		};
+		6E4B16A1B619053A5930739A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = FB2A0AD2D92192872E93030F /* Project object */;
 			proxyType = 1;
@@ -319,6 +340,17 @@
 				69EB11BA59BBDF80DFEA897E /* NexusShared.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		302FD31B9CF535A110BC4FFD /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FCF8F37C27EDDB7671653686 /* nexus-widgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		336E5B8650DFC51B8954E658 /* Embed Frameworks */ = {
@@ -422,6 +454,7 @@
 		3C2381C50D6066EAE1007D06 /* AggregateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateStateTests.swift; sourceTree = "<group>"; };
 		3C25FB232F427CFED0B650FC /* DecideSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecideSession.swift; sourceTree = "<group>"; };
 		3C46D8446E6E525D0F17193A /* HealthSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSnapshot.swift; sourceTree = "<group>"; };
+		3CDC9237E5616F35E1436F51 /* QueueHeadWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHeadWidgetTests.swift; sourceTree = "<group>"; };
 		3E2380792124A1E228955A4D /* SystemSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSpeechSynthesizer.swift; sourceTree = "<group>"; };
 		3F16E8714DDBB28908DEE41D /* NotifyButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyButton.swift; sourceTree = "<group>"; };
 		3F1D9D7786302019EB91E73E /* FinanceScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceScene.swift; sourceTree = "<group>"; };
@@ -455,6 +488,7 @@
 		63A464086226E8599A7BC301 /* SourceIndexObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceIndexObserver.swift; sourceTree = "<group>"; };
 		63BCCC77DBFE0B5753FFC38E /* IntegrationGateUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationGateUITests.swift; sourceTree = "<group>"; };
 		63C4DEA80A61EFBDEC969643 /* SettingsTtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTtsView.swift; sourceTree = "<group>"; };
+		6495911E3C57EA0B25394613 /* nexus-widgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "nexus-widgets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6706F2F0D0389D03A84A66D5 /* AlertStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertStrip.swift; sourceTree = "<group>"; };
 		688CE97B4A7C0E18066AF6E4 /* HealthMetricsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetricsScene.swift; sourceTree = "<group>"; };
 		68A4253C54978E3A46AEC47A /* PresenceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceObserver.swift; sourceTree = "<group>"; };
@@ -509,10 +543,12 @@
 		A751B48F5414144A65155543 /* TriageObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageObserver.swift; sourceTree = "<group>"; };
 		AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NexusShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB2C93268B41859AEFAA71CA /* ScriptError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptError.swift; sourceTree = "<group>"; };
+		ACAF90A0AEEA2C52F39E8A01 /* QueueHeadProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHeadProvider.swift; sourceTree = "<group>"; };
 		ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActivationHandlerTests.swift; sourceTree = "<group>"; };
 		ACF6EAE35D1AFB1C9919BB6C /* WavePlanStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavePlanStatusTests.swift; sourceTree = "<group>"; };
 		ACF7696CDB6C8E33CDD0A500 /* ProjectAggregate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAggregate.swift; sourceTree = "<group>"; };
 		AD02644C27F567F00688CDED /* SettingsTokensViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTokensViewTests.swift; sourceTree = "<group>"; };
+		AEE4CCF798740AED2522EA57 /* QueueHeadWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHeadWidget.swift; sourceTree = "<group>"; };
 		B0384CA9ED243F4F09451466 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		B1DC1E128A6EE66A5ADBCE5B /* NexusMacAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusMacAppDelegate.swift; sourceTree = "<group>"; };
 		B213F5631650836B0CE90CEB /* nexus-watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "nexus-watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -546,6 +582,7 @@
 		D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsViewTests.swift; sourceTree = "<group>"; };
 		D39D5A03A9B3405B71BDDC5A /* PtyAttachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtyAttachTests.swift; sourceTree = "<group>"; };
 		D3B39F7E98289F86C25ADFFC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		D6A237E17580E6EDCD8D58B6 /* NexusWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusWidgetBundle.swift; sourceTree = "<group>"; };
 		D7E04DD7ABC06B4EEDCC0303 /* NowPlayingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingController.swift; sourceTree = "<group>"; };
 		D979F90E148EC8E27D146C38 /* CredentialsUsageHistoryChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsUsageHistoryChartTests.swift; sourceTree = "<group>"; };
 		D9C9ED2E40B500AD2FD8B1E9 /* ElevenLabsStatusChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsStatusChip.swift; sourceTree = "<group>"; };
@@ -556,6 +593,7 @@
 		DDD0DD7C8A21D3D83EC72E09 /* AgentNotificationIntegrationTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationIntegrationTest.swift; sourceTree = "<group>"; };
 		DE504390F981D86938252C1A /* nexus-ios-Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "nexus-ios-Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0F53FABAE091A9DA2BF18BF /* NexusIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusIOSApp.swift; sourceTree = "<group>"; };
+		E0F5ECB9FB7022E63F55CB5F /* QueueHeadWidgetSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHeadWidgetSupport.swift; sourceTree = "<group>"; };
 		E1414E54A06D75187FDA5F9C /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
 		E16DE9C51D19A43C99E9B01D /* CalendarScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScene.swift; sourceTree = "<group>"; };
 		E2C841932D39C7FAE47199CC /* AddBankScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBankScene.swift; sourceTree = "<group>"; };
@@ -612,6 +650,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				477AEC7C99B84B962FAB88C0 /* NexusShared.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C4B50EE89BCD7FD6B00EE2AA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F77A50777F1A6D4F9B2381F /* NexusShared.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -725,6 +771,14 @@
 			path = nexusUITests;
 			sourceTree = "<group>";
 		};
+		580B6BC66572704C6EA15764 /* nexus-widgets */ = {
+			isa = PBXGroup;
+			children = (
+				CE0F9710A09933DD6F1F1604 /* Sources */,
+			);
+			path = "nexus-widgets";
+			sourceTree = "<group>";
+		};
 		6024866EBB2C9FC62815AD8E /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -802,6 +856,7 @@
 				CA46EA7FB8DCBE5C1016616B /* Speech */,
 				067DF7001F57A3B80531A669 /* Storage */,
 				80DF69FCDDFDF0AF0B35BEFA /* Synthesis */,
+				9748F56A13817F35D40F2689 /* Widget */,
 			);
 			path = NexusShared;
 			sourceTree = "<group>";
@@ -830,6 +885,7 @@
 				DB82BFC925082829235A684A /* ProcessInfoDecodeTests.swift */,
 				D39D5A03A9B3405B71BDDC5A /* PtyAttachTests.swift */,
 				D081FBD5B951F820E6402441 /* PtySessionPickerTests.swift */,
+				3CDC9237E5616F35E1436F51 /* QueueHeadWidgetTests.swift */,
 				94E85554EEEE538FB89007B4 /* ReaperNotificationTests.swift */,
 				485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */,
 				6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */,
@@ -874,6 +930,14 @@
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		9748F56A13817F35D40F2689 /* Widget */ = {
+			isa = PBXGroup;
+			children = (
+				E0F5ECB9FB7022E63F55CB5F /* QueueHeadWidgetSupport.swift */,
+			);
+			path = Widget;
+			sourceTree = "<group>";
+		};
 		97BC56D4A1A114032F3737C1 /* nexus-mac */ = {
 			isa = PBXGroup;
 			children = (
@@ -904,6 +968,7 @@
 				9932003F0D7F48309F41C215 /* nexus-mac.app */,
 				81879058FEAF844513D21F7F /* nexus-presence */,
 				B213F5631650836B0CE90CEB /* nexus-watch.app */,
+				6495911E3C57EA0B25394613 /* nexus-widgets.appex */,
 				AA950E4AAE4FC12EDA88DFBD /* NexusShared.framework */,
 				4EBCDFBE87B23310A9E67D7C /* NexusSharedTests.xctest */,
 			);
@@ -1015,6 +1080,16 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		CE0F9710A09933DD6F1F1604 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				D6A237E17580E6EDCD8D58B6 /* NexusWidgetBundle.swift */,
+				ACAF90A0AEEA2C52F39E8A01 /* QueueHeadProvider.swift */,
+				AEE4CCF798740AED2522EA57 /* QueueHeadWidget.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
 		D085A8C8D4FF2123E16B069A = {
 			isa = PBXGroup;
 			children = (
@@ -1023,6 +1098,7 @@
 				97BC56D4A1A114032F3737C1 /* nexus-mac */,
 				C89C8B0443CE42DA094A2EF7 /* nexus-presence */,
 				66A1D2EECA84081AF6BBC694 /* nexus-watch */,
+				580B6BC66572704C6EA15764 /* nexus-widgets */,
 				8125EF1CA296D23B15771A80 /* NexusShared */,
 				90B5E8E2AD47CB8DCB73601D /* NexusSharedTests */,
 				A9AF38E3CA8DA2BAB5C45019 /* Products */,
@@ -1242,6 +1318,25 @@
 			productReference = 4EBCDFBE87B23310A9E67D7C /* NexusSharedTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		9086C976E62AACDE8082FCB6 /* nexus-widgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6206F8BEC065C5F5AB964B06 /* Build configuration list for PBXNativeTarget "nexus-widgets" */;
+			buildPhases = (
+				C436CC1C295A164A800E22F6 /* Sources */,
+				C4B50EE89BCD7FD6B00EE2AA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				68F4909B37C809CB80D91126 /* PBXTargetDependency */,
+			);
+			name = "nexus-widgets";
+			packageProductDependencies = (
+			);
+			productName = "nexus-widgets";
+			productReference = 6495911E3C57EA0B25394613 /* nexus-widgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		AD0EFA1F2956664EE93A475C /* nexus-mac */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CC6328FB546361CD7835AE95 /* Build configuration list for PBXNativeTarget "nexus-mac" */;
@@ -1271,12 +1366,14 @@
 			buildPhases = (
 				0FE8FB4084542F70A53A3F60 /* Sources */,
 				5716AF0D1AFAEE453AEC6137 /* Frameworks */,
+				302FD31B9CF535A110BC4FFD /* Embed Foundation Extensions */,
 				2336319F56D6CE866A08A6A7 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				C43036BE3B8F6584E896ADE8 /* PBXTargetDependency */,
+				D3C1995F8AD981D83ED9FC1F /* PBXTargetDependency */,
 			);
 			name = "nexus-ios";
 			packageProductDependencies = (
@@ -1354,6 +1451,10 @@
 						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
 					};
+					9086C976E62AACDE8082FCB6 = {
+						DevelopmentTeam = DX3Y367L2A;
+						ProvisioningStyle = Automatic;
+					};
 					AD0EFA1F2956664EE93A475C = {
 						DevelopmentTeam = DX3Y367L2A;
 						ProvisioningStyle = Automatic;
@@ -1399,6 +1500,7 @@
 				5116313D6600AC6539AFF054 /* nexus-mac-UITests */,
 				3F12065152A0EA2F077411EB /* nexus-presence */,
 				63336FCB34A482E20BF70366 /* nexus-watch */,
+				9086C976E62AACDE8082FCB6 /* nexus-widgets */,
 			);
 		};
 /* End PBXProject section */
@@ -1557,6 +1659,7 @@
 				73A5FB7F05768E9E02C01C98 /* ProcessInfoDecodeTests.swift in Sources */,
 				1A54E8ACEB52F116BF7DDEB0 /* PtyAttachTests.swift in Sources */,
 				8026FF5A9606000601041772 /* PtySessionPickerTests.swift in Sources */,
+				56DD0A8C12C26D9E5EB6465B /* QueueHeadWidgetTests.swift in Sources */,
 				E0F4F0B3E6A812E4ADC698E4 /* ReaperNotificationTests.swift in Sources */,
 				90B5B13B7613B0481AE9ABAD /* SSEIdleWatchdogTests.swift in Sources */,
 				0572D733D77B83BFDBB9E450 /* SessionDecodingTests.swift in Sources */,
@@ -1617,6 +1720,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C436CC1C295A164A800E22F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26B855FB49F8E7AD681DA97B /* NexusWidgetBundle.swift in Sources */,
+				C86895404D36E8837DA39685 /* QueueHeadProvider.swift in Sources */,
+				663481C7EC639A057FCC81C8 /* QueueHeadWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F926EADB7158F2FCECEE20F0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1656,6 +1769,7 @@
 				3FC35BF5AFC9E97E93697586 /* NowPlayingController.swift in Sources */,
 				D4C074BD59AEFB3ED396D23C /* PresenceObserver.swift in Sources */,
 				0317B9688F369E37DC0DD93D /* ProjectAggregate.swift in Sources */,
+				752FC63519D0C2D60AF8B128 /* QueueHeadWidgetSupport.swift in Sources */,
 				BC4BDC23982E484318FFDE15 /* Roadmap.swift in Sources */,
 				06F1C9F9E1CE5678DF584ED1 /* SSEDecoder.swift in Sources */,
 				A9077D4148E30229B5629137 /* SSEStreamDelegate.swift in Sources */,
@@ -1705,6 +1819,11 @@
 			target = AD0EFA1F2956664EE93A475C /* nexus-mac */;
 			targetProxy = 0DDF91AAE39389D22B1B8919 /* PBXContainerItemProxy */;
 		};
+		68F4909B37C809CB80D91126 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D7B203F648362A33DFE749F4 /* NexusShared */;
+			targetProxy = 6E4B16A1B619053A5930739A /* PBXContainerItemProxy */;
+		};
 		C43036BE3B8F6584E896ADE8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D7B203F648362A33DFE749F4 /* NexusShared */;
@@ -1719,6 +1838,11 @@
 			isa = PBXTargetDependency;
 			target = D7B203F648362A33DFE749F4 /* NexusShared */;
 			targetProxy = 5AE29DDEBFBDE4288D4CECCE /* PBXContainerItemProxy */;
+		};
+		D3C1995F8AD981D83ED9FC1F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9086C976E62AACDE8082FCB6 /* nexus-widgets */;
+			targetProxy = 1E8A276B5D6EB1E385B7E9E6 /* PBXContainerItemProxy */;
 		};
 		EBB4864EA5D6773844D3CA8C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1748,6 +1872,24 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.leonardoacosta.nexus.ios;
 				PRODUCT_NAME = nexus;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2239234CBD3837A199ACE8C9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = "nexus-widgets/Resources/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.leonardoacosta.nexus.ios.widgets;
+				PRODUCT_NAME = "nexus-widgets";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1802,6 +1944,24 @@
 				SWIFT_VERSION = 5.10;
 			};
 			name = Release;
+		};
+		428EBA3516F45CADCC4CBA65 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = "nexus-widgets/Resources/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.leonardoacosta.nexus.ios.widgets;
+				PRODUCT_NAME = "nexus-widgets";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		42C05D4BB177295E96CEA850 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -2227,6 +2387,15 @@
 			buildConfigurations = (
 				CFB935B370FD98D1D099BF8C /* Debug */,
 				7585315EDC155306575CB88B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6206F8BEC065C5F5AB964B06 /* Build configuration list for PBXNativeTarget "nexus-widgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				428EBA3516F45CADCC4CBA65 /* Debug */,
+				2239234CBD3837A199ACE8C9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -260,6 +260,10 @@ targets:
     dependencies:
       - target: NexusShared
       - package: SwiftTerm
+      # Embed the WidgetKit extension so lock-screen / home widgets install with
+      # the app (add-queue-head-widget). XcodeGen embeds an app-extension dep into
+      # the app's "Embed App Extensions" phase automatically.
+      - target: nexus-widgets
     # Secrets.xcconfig is GITIGNORED (committed Secrets.example.xcconfig is the
     # template). It supplies HEALTH_INGEST_TOKEN_AP — the Apothecary ingest bearer
     # token — as a build setting, which the Info.plist resolves via $(VAR) so the
@@ -303,6 +307,32 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/nexus.app/nexus"
         BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
+
+  # ─────────────── iOS — WidgetKit extension (queue-head glance) ────────
+  #
+  # Source: apps/swift/nexus-widgets/Sources (add-queue-head-widget). A
+  # single-widget bundle rendering the queue head (verdict action + truncated
+  # title) or a "clear" state — small home widget + lock-screen accessories
+  # (rectangular + inline). Reads GET /queue?limit=1 via NexusShared. Embedded
+  # into nexus-ios (see its dependencies). No app group / entitlements: the
+  # retain-on-failure state persists in the extension's OWN UserDefaults, not
+  # shared with the app. Bundle id is a child of the app id so it signs under
+  # the same automatic profile (the signed install is the [user] on-device task).
+  nexus-widgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: nexus-widgets/Sources
+    dependencies:
+      - target: NexusShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leonardoacosta.nexus.ios.widgets
+        PRODUCT_NAME: nexus-widgets
+        INFOPLIST_FILE: nexus-widgets/Resources/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.10"
+        ENABLE_HARDENED_RUNTIME: NO
 
   # ─────────────────────── watchOS — scaffolded ────────────────────────
   #
