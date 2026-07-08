@@ -16,10 +16,10 @@
 
 ## UI Batch
 
-- [ ] 2.1 NexusShared: `FleetExceptions` Codable model + observer polling /exceptions (existing observer cadence conventions)
+- [x] 2.1 NexusShared: `FleetExceptions` Codable model + observer polling /exceptions (existing observer cadence conventions)
   - depends on: 1.3
   - touches: apps/swift/NexusShared/Models/, apps/swift/NexusShared/Observers/
-- [ ] 2.2 nexus-mac: menubar exceptions section — renders ONLY when exceptions non-empty (absent on clean feed, asserted in review); repo/class/count/offender-ids text lines, no scroll, no drill-in
+- [x] 2.2 nexus-mac: menubar exceptions section — renders ONLY when exceptions non-empty (absent on clean feed, asserted in review); repo/class/count/offender-ids text lines, no scroll, no drill-in
   - depends on: 2.1
   - touches: apps/swift/nexus-mac/
 - [x] 2.3 apps/web: one exceptions row on /radar, hidden when clean, same shape-not-items rule

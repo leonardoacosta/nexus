@@ -907,6 +907,26 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /exceptions` — the fleet-wide exceptions feed: one `FleetException`
+    /// per (repo, class) with worst-first offender ids (capped at 3 server-side).
+    /// The agent serves a BARE JSON array (clean fleet = `[]`, no envelope —
+    /// silent-when-clean) and SWR-caches it server-side, so the client just
+    /// polls on its observer cadence.
+    ///
+    /// Returns `[]` on a 404 (older agent without the route) so the menubar
+    /// exceptions section stays absent rather than surfacing an error, mirroring
+    /// `fetchIntegrations` / `fetchTriage`.
+    ///
+    /// Spec: openspec/changes/add-fleet-exceptions-feed (task 2.1)
+    public func fetchFleetExceptions() async throws -> [FleetException] {
+        let url = endpoint.baseURL.appendingPathComponent("exceptions")
+        do {
+            return try await getJSON(url: url)
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
     /// `GET /notifications` — historical notification rows persisted by the
     /// agent (severity + delivery_state shipped in agent-payload-completeness).
     /// Returned newest-first by the agent; callers prepend on mount so the

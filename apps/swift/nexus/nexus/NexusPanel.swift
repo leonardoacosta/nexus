@@ -19,6 +19,7 @@ struct NexusPanel: View {
             VStack(spacing: 0) {
                 IdentityRow()
                 if vm.alert != nil { AlertStrip() }
+                FleetExceptionsSection()
                 MetricsRow()
                 SessionList()
                 ActionRow()
