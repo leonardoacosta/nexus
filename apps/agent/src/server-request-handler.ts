@@ -82,6 +82,7 @@ import { handleCron } from "./routes/cron-routes";
 import { handleGetEvents, handleEventsStream } from "./routes/events-sse";
 import { handleGetUnlinkedBeads } from "./routes/beads-unlinked";
 import { handleGetRoadmap } from "./routes/roadmap";
+import { handleGetExceptions } from "./routes/exceptions";
 import type { WsData } from "./terminal/stream-manager";
 import { ServerState, handleWsUpgrade } from "./server-websocket";
 import { isDisallowedBrowserOrigin, withCors } from "./server-origin";
@@ -199,6 +200,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // Beads + roadmap (add-bead-proposal-roadmap-surface)
   { method: "GET", path: "/beads/unlinked" },
   { method: "GET", path: "/roadmap" },
+  // Fleet exceptions feed (add-fleet-exceptions-feed)
+  { method: "GET", path: "/exceptions" },
   // Events
   { method: "GET", path: "/events" },
   { method: "GET", path: "/events/stream" },
@@ -704,6 +707,16 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       return handleGetRoadmap(url).then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/roadmap", method: "GET", err }, "route handler failed");
         return withCors(request, new Response(JSON.stringify({ capabilities: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Fleet exceptions feed (add-fleet-exceptions-feed) ─────────────────
+    // SWR-cached, fail-soft: the handler returns an empty array (never 500)
+    // on any internal error; the catch here is defense in depth.
+    if (url.pathname === "/exceptions" && request.method === "GET") {
+      return handleGetExceptions().then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/exceptions", method: "GET", err }, "route handler failed");
+        return withCors(request, new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 

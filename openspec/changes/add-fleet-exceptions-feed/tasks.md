@@ -2,15 +2,15 @@
 
 ## API Batch
 
-- [ ] 1.1 Port beadboard's bead reader into `apps/agent/src/lib/beads-reader.ts` (MIT attribution header citing jordanhindo/beadboard src/lib/read-issues-dolt.ts + parser.ts): Dolt two-query primary with metadata.json/dolt-server.port discovery, issues.jsonl parse fallback, null-not-throw contract (searched: no existing beads reader anywhere in nx/agent; beadboard's is the debugged exemplar per docs/recon/beadboard.md)
+- [x] 1.1 Port beadboard's bead reader into `apps/agent/src/lib/beads-reader.ts` (MIT attribution header citing jordanhindo/beadboard src/lib/read-issues-dolt.ts + parser.ts): Dolt two-query primary with metadata.json/dolt-server.port discovery, issues.jsonl parse fallback, null-not-throw contract (searched: no existing beads reader anywhere in nx/agent; beadboard's is the debugged exemplar per docs/recon/beadboard.md)
   - touches: apps/agent/src/lib/beads-reader.ts
-- [ ] 1.2 Exceptions computation `apps/agent/src/lib/fleet-exceptions.ts`: walk ~/dev/*/.beads, classes P0/P1-open, in_progress>7d, ready-head>30d, unarchived openspec/changes count; skipped-entry for missing/corrupt stores; payload entries capped at 3 offender ids
+- [x] 1.2 Exceptions computation `apps/agent/src/lib/fleet-exceptions.ts`: walk ~/dev/*/.beads, classes P0/P1-open, in_progress>7d, ready-head>30d, unarchived openspec/changes count; skipped-entry for missing/corrupt stores; payload entries capped at 3 offender ids
   - depends on: 1.1
   - touches: apps/agent/src/lib/fleet-exceptions.ts
-- [ ] 1.3 `GET /exceptions` route: SWR cache (5min TTL, detached background refresh — mirror the roadmap-pulse cache shape), fail-soft empty-200
+- [x] 1.3 `GET /exceptions` route: SWR cache (5min TTL, detached background refresh — mirror the roadmap-pulse cache shape), fail-soft empty-200
   - depends on: 1.2
   - touches: apps/agent/src/routes/exceptions.ts, apps/agent/src/server-request-handler.ts
-- [ ] 1.4 Tests: fixture .beads dirs (JSONL-only path, corrupt store skipped, clean fleet -> empty array), class thresholds, cache staleness, offender cap
+- [x] 1.4 Tests: fixture .beads dirs (JSONL-only path, corrupt store skipped, clean fleet -> empty array), class thresholds, cache staleness, offender cap
   - depends on: 1.3
   - touches: apps/agent/src/lib/fleet-exceptions.test.ts, apps/agent/src/routes/exceptions.test.ts
 
