@@ -28,7 +28,7 @@
 
 ## E2E Batch
 
-- [ ] 3.1 Headless swift typecheck gate (xcodegen + swiftc -typecheck via ssh contract) + agent vitest suite green; paste output
+- [x] 3.1 Headless swift typecheck gate (xcodegen + swiftc -typecheck via ssh contract) + agent vitest suite green; paste output
   - depends on: 2.2, 2.3
-- [ ] 3.2 Runtime evidence: `GET /exceptions` against the real ~/dev fleet — paste the payload; confirm current known exceptions (e.g. stale in_progress claims found in the 2026-07-07 audit) appear and clean repos do not
+- [x] 3.2 Runtime evidence: `GET /exceptions` against the real ~/dev fleet — paste the payload; confirm current known exceptions (e.g. stale in_progress claims found in the 2026-07-07 audit) appear and clean repos do not
   - depends on: 3.1
