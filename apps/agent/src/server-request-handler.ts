@@ -76,6 +76,7 @@ import { handleGetQueue } from "./routes/queue";
 import { handleGetDecisions } from "./routes/decisions";
 import { handlePostDecision } from "./routes/decision";
 import { handlePostCapture } from "./routes/capture";
+import { handlePostPaste } from "./routes/paste";
 import { handleGetTriage } from "./routes/triage";
 import { handleGetThread } from "./routes/thread";
 import { handleFailures } from "./routes/failures-route";
@@ -184,6 +185,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/queue" },
   { method: "GET", path: "/decisions" },
   { method: "POST", path: "/requests/:id/decision" },
+  // Paste-to-project drop (add-paste-to-project)
+  { method: "POST", path: "/paste" },
   { method: "GET", path: "/triage" },
   { method: "GET", path: "/thread" },
   { method: "GET", path: "/failures" },
@@ -795,6 +798,22 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       return handlePostCapture(request).then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/capture", method: "POST", err }, "route handler failed");
         // A dropped capture must surface loudly — 502, never a fabricated 200.
+        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
+      });
+    }
+
+    // ── Paste-to-project drop (add-paste-to-project) ──────────────────────
+    // POST /paste writes decoded file bytes into a resolved project dir
+    // (`<cwd>/docs/screenshots`) or an absolute path. Distinct from POST
+    // /capture (mx-gateway proxy) — paste lands on disk, never forwards. NOT
+    // fail-soft: unresolved project -> 404, bad/oversized/undecodable body ->
+    // 400, filesystem error -> 500, never a fabricated success. `db` is
+    // forwarded for project-id resolution; project-code resolution via the
+    // config-loader works without it.
+    if (url.pathname === "/paste" && request.method === "POST") {
+      return handlePostPaste(request, db).then((r) => withCors(request, r)).catch((err) => {
+        logger.error({ route: "/paste", method: "POST", err }, "route handler failed");
+        // A dropped paste must surface loudly — 502, never a fabricated 200.
         return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
       });
     }
