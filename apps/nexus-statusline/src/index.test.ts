@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, spyOn, afterEach } from "bun:test";
 import * as childProcess from "node:child_process";
 
 import {
@@ -27,7 +27,13 @@ import {
   getDriftLine,
   formatDriftLine,
   formatSessionClock,
+  getBarWidth,
+  buildStdinUsage,
+  resolveUsage,
+  resolveContext,
+  getSpeed,
   type CcInput,
+  type UsageResponse,
 } from "./index";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -891,5 +897,346 @@ describe("add-statusline-radar-gate — empty payload regression", () => {
     expect(s).not.toContain("radar:stale");
     expect(s).not.toContain("undefined");
     expect(s).not.toContain("null");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// harden-statusline-context-usage-and-speed
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 1.6 — adaptive bar width ─────────────────────────────────────────────────
+
+describe("getBarWidth — adaptive gauge width", () => {
+  const origCols = process.env.COLUMNS;
+  afterEach(() => {
+    if (origCols === undefined) delete process.env.COLUMNS;
+    else process.env.COLUMNS = origCols;
+  });
+
+  it("COLUMNS=120 → 10 cells (wide)", () => {
+    process.env.COLUMNS = "120";
+    expect(getBarWidth()).toBe(10);
+  });
+
+  it("COLUMNS=50 → 4 cells (narrow)", () => {
+    process.env.COLUMNS = "50";
+    expect(getBarWidth()).toBe(4);
+  });
+
+  it("COLUMNS=60 / 99 → 6 cells (mid bucket boundaries)", () => {
+    process.env.COLUMNS = "60";
+    expect(getBarWidth()).toBe(6);
+    process.env.COLUMNS = "99";
+    expect(getBarWidth()).toBe(6);
+  });
+
+  it("unknown width → 10-cell default (injected NaN)", () => {
+    expect(getBarWidth(NaN)).toBe(10);
+  });
+
+  it("explicit column override buckets deterministically", () => {
+    expect(getBarWidth(120)).toBe(10);
+    expect(getBarWidth(100)).toBe(10);
+    expect(getBarWidth(99)).toBe(6);
+    expect(getBarWidth(60)).toBe(6);
+    expect(getBarWidth(59)).toBe(4);
+    expect(getBarWidth(1)).toBe(4);
+  });
+
+  it("renderStatusline gauge cell count tracks the width (120 vs 50)", () => {
+    process.env.COLUMNS = "120";
+    const wide = strip(
+      renderStatusline({ context_window: { used_percentage: 50 } }, baseDeps),
+    );
+    process.env.COLUMNS = "50";
+    const narrow = strip(
+      renderStatusline({ context_window: { used_percentage: 50 } }, baseDeps),
+    );
+    // Wide bar has more gauge cells than the narrow one.
+    const cells = (s: string) => (s.match(/[═─]/g) ?? []).length;
+    expect(cells(wide)).toBeGreaterThan(cells(narrow));
+  });
+});
+
+// ── 1.6 — prefer stdin usage over the OAuth API ──────────────────────────────
+
+describe("buildStdinUsage + resolveUsage — prefer stdin over OAuth API", () => {
+  it("both used_percentage present → builds usage, no API fetch", async () => {
+    let apiCalled = false;
+    const fetchApi = async (): Promise<UsageResponse | null> => {
+      apiCalled = true;
+      return { five_hour: { utilization: 1 } };
+    };
+    const usage = await resolveUsage(
+      { five_hour: { used_percentage: 40 }, seven_day: { used_percentage: 55 } },
+      fetchApi,
+    );
+    expect(apiCalled).toBe(false);
+    expect(usage).toEqual({
+      five_hour: { utilization: 40 },
+      seven_day: { utilization: 55 },
+    });
+  });
+
+  it("missing one window → falls back to the injected API fetch", async () => {
+    let apiCalled = false;
+    const apiResult: UsageResponse = {
+      five_hour: { utilization: 7 },
+      seven_day: { utilization: 8 },
+    };
+    const fetchApi = async (): Promise<UsageResponse | null> => {
+      apiCalled = true;
+      return apiResult;
+    };
+    const usage = await resolveUsage({ five_hour: { used_percentage: 40 } }, fetchApi);
+    expect(apiCalled).toBe(true);
+    expect(usage).toBe(apiResult);
+  });
+
+  it("buildStdinUsage returns null unless BOTH windows carry used_percentage", () => {
+    expect(buildStdinUsage(undefined)).toBeNull();
+    expect(buildStdinUsage({ five_hour: { used_percentage: 40 } })).toBeNull();
+    expect(buildStdinUsage({ seven_day: { used_percentage: 55 } })).toBeNull();
+    expect(
+      buildStdinUsage({
+        five_hour: { used_percentage: 40 },
+        seven_day: { used_percentage: 55 },
+      }),
+    ).toEqual({ five_hour: { utilization: 40 }, seven_day: { utilization: 55 } });
+  });
+
+  it("stdin-sourced usage renders 5H/7D gauges through renderStatusline", () => {
+    const usage = buildStdinUsage({
+      five_hour: { used_percentage: 40 },
+      seven_day: { used_percentage: 55 },
+    });
+    const out = renderStatusline(
+      {
+        rate_limits: {
+          five_hour: { used_percentage: 40 },
+          seven_day: { used_percentage: 55 },
+        },
+      },
+      { ...baseDeps, usage },
+    );
+    const s = strip(out);
+    expect(s).toContain("5H");
+    expect(s).toContain("7D");
+    expect(s).toContain("40%");
+    expect(s).toContain("55%");
+  });
+});
+
+// ── 1.6 — suspicious-zero context guard ──────────────────────────────────────
+
+describe("resolveContext — suspicious-zero guard", () => {
+  const fixedNow = 1_000_000; // unix seconds
+  const detNowDeps = { now: () => fixedNow, nowMs: () => fixedNow * 1000 };
+
+  it("zero + fresh non-zero snapshot restores the cached value", () => {
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        context_window: { used_percentage: 0, context_window_size: 200000 },
+      },
+      {
+        ...detNowDeps,
+        readSnapshot: () => ({
+          used_percentage: 62,
+          context_window_size: 200000,
+          saved_at: fixedNow - 60,
+        }),
+      },
+    );
+    expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000 });
+  });
+
+  it("restored value renders remaining (NOT 100%) through renderStatusline", () => {
+    const out = renderStatusline(
+      { context_window: { used_percentage: 0 } },
+      { ...baseDeps, resolvedContext: { usedPct: 62, contextWindowSize: 200000 } },
+    );
+    const s = strip(out);
+    expect(s).toContain("CTX");
+    expect(s).toContain("38%"); // 100 - 62 remaining
+    expect(s).not.toContain("100%");
+  });
+
+  it("zero + no snapshot omits the context value (returns null)", () => {
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 0 } },
+      { ...detNowDeps, readSnapshot: () => null },
+    );
+    expect(res).toBeNull();
+  });
+
+  it("zero + STALE snapshot (beyond 10-min window) omits", () => {
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 0 } },
+      {
+        ...detNowDeps,
+        readSnapshot: () => ({ used_percentage: 62, saved_at: fixedNow - 601 }),
+      },
+    );
+    expect(res).toBeNull();
+  });
+
+  it("resolvedContext=null omits the context segment in renderStatusline", () => {
+    const out = renderStatusline(
+      { context_window: { used_percentage: 0 } },
+      { ...baseDeps, resolvedContext: null },
+    );
+    expect(strip(out)).not.toContain("CTX");
+  });
+
+  it("populated (>0) frame refreshes the snapshot and returns the live value", () => {
+    const written: { used?: number; savedAt?: number } = {};
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        context_window: { used_percentage: 45, context_window_size: 1000000 },
+      },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => null, // no existing file → not throttled
+        readSnapshot: () => null,
+        writeSnapshot: (_p, snap) => {
+          written.used = snap.used_percentage;
+          written.savedAt = snap.saved_at;
+        },
+      },
+    );
+    expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
+    expect(written.used).toBe(45);
+    expect(written.savedAt).toBe(fixedNow);
+  });
+
+  it("populated frame within the 3s write-throttle does NOT rewrite", () => {
+    let writes = 0;
+    resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 45 } },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => fixedNow * 1000 - 1000, // 1s old → throttled
+        writeSnapshot: () => {
+          writes++;
+        },
+      },
+    );
+    expect(writes).toBe(0);
+  });
+
+  it("missing session_id on a zero frame omits without reading a snapshot", () => {
+    let reads = 0;
+    const res = resolveContext(
+      { context_window: { used_percentage: 0 } },
+      {
+        ...detNowDeps,
+        readSnapshot: () => {
+          reads++;
+          return { used_percentage: 62, saved_at: fixedNow };
+        },
+      },
+    );
+    expect(res).toBeNull();
+    expect(reads).toBe(0);
+  });
+});
+
+// ── 1.6 — tokens/sec via transcript byte-growth ──────────────────────────────
+
+describe("getSpeed — transcript byte-growth", () => {
+  const base = 100_000; // ms
+
+  it("in-window positive delta → tokens/sec estimate", () => {
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 10000,
+      readCache: () => ({ fileSize: 2000, timestamp: base }),
+      writeCache: () => {},
+      nowMs: () => base + 1000, // 1s later, inside the window
+    });
+    // deltaBytes 8000 → 2000 tokens / 1s = 2000 t/s
+    expect(speed).toBe(2000);
+  });
+
+  it("first sample (no cache) → null and writes a baseline", () => {
+    let wrote = false;
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 2000,
+      readCache: () => null,
+      writeCache: () => {
+        wrote = true;
+      },
+      nowMs: () => base,
+    });
+    expect(speed).toBeNull();
+    expect(wrote).toBe(true);
+  });
+
+  it("stale interval (> SPEED_WINDOW_MS) → null and resets baseline", () => {
+    let wrote = false;
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 10000,
+      readCache: () => ({ fileSize: 2000, timestamp: base }),
+      writeCache: () => {
+        wrote = true;
+      },
+      nowMs: () => base + 2001,
+    });
+    expect(speed).toBeNull();
+    expect(wrote).toBe(true);
+  });
+
+  it("too-short interval (< MIN_DELTA_MS) → null and keeps the baseline", () => {
+    let wrote = false;
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 10000,
+      readCache: () => ({ fileSize: 2000, timestamp: base }),
+      writeCache: () => {
+        wrote = true;
+      },
+      nowMs: () => base + 400,
+    });
+    expect(speed).toBeNull();
+    expect(wrote).toBe(false);
+  });
+
+  it("non-positive delta (no growth) → null", () => {
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 2000,
+      readCache: () => ({ fileSize: 2000, timestamp: base }),
+      writeCache: () => {},
+      nowMs: () => base + 1000,
+    });
+    expect(speed).toBeNull();
+  });
+
+  it("file shrink → null and resets baseline", () => {
+    let wrote = false;
+    const speed = getSpeed("/t", "s1", {
+      statSize: () => 500,
+      readCache: () => ({ fileSize: 2000, timestamp: base }),
+      writeCache: () => {
+        wrote = true;
+      },
+      nowMs: () => base + 1000,
+    });
+    expect(speed).toBeNull();
+    expect(wrote).toBe(true);
+  });
+
+  it("missing transcriptPath / sessionId → null", () => {
+    expect(getSpeed(undefined, "s1")).toBeNull();
+    expect(getSpeed("/t", undefined)).toBeNull();
+  });
+
+  it("renders a ≈Nt/s segment through renderStatusline when speed present", () => {
+    const out = renderStatusline({}, { ...baseDeps, speed: 2000 });
+    expect(strip(out)).toContain("≈2000t/s");
+  });
+
+  it("absent speed renders no throughput segment", () => {
+    const out = renderStatusline({}, { ...baseDeps, speed: null });
+    expect(strip(out)).not.toContain("t/s");
   });
 });

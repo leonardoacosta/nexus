@@ -36,7 +36,7 @@
  *       context_window_size?: number,
  *     },
  *     rate_limits?: {
- *       five_hour?: { resets_at?: number },   // unix seconds
+ *       five_hour?: { used_percentage?: number; resets_at?: number },   // resets_at = unix seconds
  *       seven_day?: { used_percentage?: number; resets_at?: number },
  *     },
  *   }
@@ -45,7 +45,15 @@
  *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: workspace.project_dir, then cwd)
  */
 
-import { readFileSync, writeFileSync, openSync, readSync, closeSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  openSync,
+  readSync,
+  closeSync,
+  statSync,
+  renameSync,
+} from "node:fs";
 import { execSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
@@ -87,7 +95,7 @@ interface CcInput {
     context_window_size?: number;
   };
   rate_limits?: {
-    five_hour?: { resets_at?: number };
+    five_hour?: { used_percentage?: number; resets_at?: number };
     seven_day?: { used_percentage?: number; resets_at?: number };
   };
 }
@@ -134,6 +142,14 @@ interface CachedProfile {
 const FETCH_TIMEOUT_MS = 2_000;
 const USAGE_CACHE_TTL = 300; // 5 minutes (seconds)
 const PROFILE_CACHE_TTL = 3600; // 1 hour (seconds)
+
+// Suspicious-zero context guard
+const CTX_FRESH_WINDOW_SECS = 600; // 10-min last-good snapshot freshness window
+const CTX_WRITE_THROTTLE_MS = 3_000; // skip a snapshot rewrite when the file is <3s old
+
+// tokens/sec via transcript byte-growth
+const SPEED_WINDOW_MS = 2_000; // samples older than this are stale → reset
+const MIN_DELTA_MS = 500; // samples younger than this are too soon → keep, no estimate
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -461,6 +477,43 @@ async function getApiUsage(): Promise<UsageResponse | null> {
   }
 }
 
+/**
+ * Build a `UsageResponse` from the CC stdin `rate_limits` block when BOTH the
+ * `five_hour` and `seven_day` windows carry a `used_percentage` (CC v2.1.6+).
+ * Maps `used_percentage → utilization`. Reset info is NOT copied onto the
+ * `UsagePeriod` here — it flows through the existing `ccInput.rate_limits.*`
+ * `resets_at` precedence in `renderStatusline`/`renderUsageGauge` (CC unix-secs
+ * wins over any API ISO string). Returns null when either window lacks
+ * `used_percentage`, signalling the caller to fall back to the OAuth API.
+ */
+export function buildStdinUsage(
+  rateLimits: CcInput["rate_limits"],
+): UsageResponse | null {
+  const fh = rateLimits?.five_hour?.used_percentage;
+  const sd = rateLimits?.seven_day?.used_percentage;
+  if (fh == null || sd == null) return null;
+  return {
+    five_hour: { utilization: fh },
+    seven_day: { utilization: sd },
+  };
+}
+
+/**
+ * Prefer stdin usage over the OAuth Usage API. When `buildStdinUsage` yields a
+ * value, return it and skip `getApiUsage()` entirely (which transitively skips
+ * the credential read). Otherwise fall back to the injected fetcher (default
+ * `getApiUsage`). `fetchApiUsage` is injectable so the fallback gate is testable
+ * without a live network/credential dependency.
+ */
+export async function resolveUsage(
+  rateLimits: CcInput["rate_limits"],
+  fetchApiUsage: () => Promise<UsageResponse | null> = getApiUsage,
+): Promise<UsageResponse | null> {
+  const stdin = buildStdinUsage(rateLimits);
+  if (stdin != null) return stdin;
+  return fetchApiUsage();
+}
+
 async function getAccountDomain(): Promise<string | null> {
   try {
     const cachePath = profileCachePath();
@@ -498,6 +551,231 @@ async function getAccountDomain(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// ── Suspicious-zero context guard ────────────────────────────────────────────
+
+/** Per-session last-good context snapshot. `saved_at` is unix seconds. */
+interface CtxSnapshot {
+  used_percentage: number;
+  context_window_size?: number;
+  saved_at: number;
+}
+
+/** Context value resolved by the guard for rendering (null = omit segment). */
+interface ResolvedContext {
+  usedPct: number;
+  contextWindowSize?: number;
+}
+
+/** Injectable seams for the context-guard resolver (deterministic in tests). */
+interface CtxResolverDeps {
+  readSnapshot?: (path: string) => CtxSnapshot | null;
+  writeSnapshot?: (path: string, snap: CtxSnapshot) => void;
+  statMtimeMs?: (path: string) => number | null;
+  now?: () => number; // unix seconds
+  nowMs?: () => number; // milliseconds (write-throttle)
+}
+
+function ctxSnapshotPath(sessionId: string): string {
+  return join(
+    homedir(),
+    `.claude/scripts/state/statusline-ctx.${sessionId}.json`,
+  );
+}
+
+function defaultReadSnapshot(path: string): CtxSnapshot | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    if (typeof raw?.used_percentage !== "number") return null;
+    if (typeof raw?.saved_at !== "number") return null;
+    return raw as CtxSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function defaultWriteSnapshot(path: string, snap: CtxSnapshot): void {
+  try {
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(snap), { mode: 0o600 });
+    renameSync(tmp, path);
+  } catch {
+    // fail-soft — a snapshot write never crashes the render
+  }
+}
+
+function defaultStatMtimeMs(path: string): number | null {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the context value to render, guarding against CC's spurious
+ * `used_percentage: 0` frame (design.md §1). On a populated frame (`> 0`) the
+ * per-session snapshot is refreshed (3s write-throttle) and the live value
+ * returned. On a `0`/absent frame the fresh snapshot (≤10 min old) is restored,
+ * else the segment is omitted (returns null) — it MUST NOT render `CTX 100%`.
+ * Missing `session_id` → no snapshot key → treated as fresh (omit on zero). All
+ * fs access is fail-soft.
+ */
+export function resolveContext(
+  ccInput: CcInput,
+  deps: CtxResolverDeps = {},
+): ResolvedContext | null {
+  const readSnapshot = deps.readSnapshot ?? defaultReadSnapshot;
+  const writeSnapshot = deps.writeSnapshot ?? defaultWriteSnapshot;
+  const statMtimeMs = deps.statMtimeMs ?? defaultStatMtimeMs;
+  const now = deps.now ?? nowSecs;
+  const nowMs = deps.nowMs ?? (() => Date.now());
+
+  const usedPct = ccInput.context_window?.used_percentage;
+  const size = ccInput.context_window?.context_window_size;
+  const sessionId = ccInput.session_id;
+
+  // Populated frame: render the live value + refresh the snapshot (throttled).
+  if (usedPct != null && usedPct > 0) {
+    if (sessionId) {
+      const path = ctxSnapshotPath(sessionId);
+      const mtime = statMtimeMs(path);
+      const throttled = mtime != null && nowMs() - mtime < CTX_WRITE_THROTTLE_MS;
+      if (!throttled) {
+        writeSnapshot(path, {
+          used_percentage: usedPct,
+          context_window_size: size,
+          saved_at: now(),
+        });
+      }
+    }
+    return { usedPct, contextWindowSize: size };
+  }
+
+  // Suspicious zero / absent: restore a fresh snapshot, else omit.
+  if (!sessionId) return null;
+  const snap = readSnapshot(ctxSnapshotPath(sessionId));
+  if (
+    snap &&
+    snap.used_percentage > 0 &&
+    now() - snap.saved_at <= CTX_FRESH_WINDOW_SECS
+  ) {
+    return { usedPct: snap.used_percentage, contextWindowSize: snap.context_window_size };
+  }
+  return null;
+}
+
+// ── tokens/sec via transcript byte-growth (stat-only) ────────────────────────
+
+/** Per-session speed sample. `timestamp` is milliseconds. */
+interface SpeedCache {
+  fileSize: number;
+  timestamp: number;
+}
+
+/** Injectable seams for `getSpeed` (deterministic in tests). */
+interface SpeedDeps {
+  statSize?: (path: string) => number | null;
+  readCache?: (path: string) => SpeedCache | null;
+  writeCache?: (path: string, cache: SpeedCache) => void;
+  nowMs?: () => number;
+}
+
+function speedCachePath(sessionId: string): string {
+  return join(
+    homedir(),
+    `.claude/scripts/state/statusline-speed.${sessionId}.json`,
+  );
+}
+
+function defaultStatSize(path: string): number | null {
+  try {
+    return statSync(path).size;
+  } catch {
+    return null;
+  }
+}
+
+function defaultReadSpeedCache(path: string): SpeedCache | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    if (typeof raw?.fileSize !== "number" || typeof raw?.timestamp !== "number") {
+      return null;
+    }
+    return raw as SpeedCache;
+  } catch {
+    return null;
+  }
+}
+
+function defaultWriteSpeedCache(path: string, cache: SpeedCache): void {
+  try {
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(cache), { mode: 0o600 });
+    renameSync(tmp, path);
+  } catch {
+    // fail-soft
+  }
+}
+
+/**
+ * Heuristic tokens/sec from transcript byte-growth between renders (design.md
+ * §3). `statSync(transcriptPath).size` ONLY — the transcript is never read or
+ * parsed. Per-session cache holds the last `{ fileSize, timestamp }`. Guards:
+ * shrink → reset, null; `deltaMs > SPEED_WINDOW_MS` → stale, reset, null;
+ * `deltaMs < MIN_DELTA_MS` → too soon, keep cache, null; `deltaBytes <= 0` →
+ * null. Estimate: `(deltaBytes / 4) / (deltaMs / 1000)`. Fail-soft throughout.
+ */
+export function getSpeed(
+  transcriptPath: string | undefined,
+  sessionId: string | undefined,
+  deps: SpeedDeps = {},
+): number | null {
+  if (!transcriptPath || !sessionId) return null;
+  const statSize = deps.statSize ?? defaultStatSize;
+  const readCache = deps.readCache ?? defaultReadSpeedCache;
+  const writeCache = deps.writeCache ?? defaultWriteSpeedCache;
+  const nowMs = deps.nowMs ?? (() => Date.now());
+
+  const size = statSize(transcriptPath);
+  if (size == null) return null;
+  const now = nowMs();
+  const path = speedCachePath(sessionId);
+  const prev = readCache(path);
+
+  // First sample for this session — establish a baseline, no estimate yet.
+  if (prev == null) {
+    writeCache(path, { fileSize: size, timestamp: now });
+    return null;
+  }
+
+  const deltaMs = now - prev.timestamp;
+  const deltaBytes = size - prev.fileSize;
+
+  // File/counter shrink → reset baseline.
+  if (deltaBytes < 0) {
+    writeCache(path, { fileSize: size, timestamp: now });
+    return null;
+  }
+  // Stale interval → reset baseline.
+  if (deltaMs > SPEED_WINDOW_MS) {
+    writeCache(path, { fileSize: size, timestamp: now });
+    return null;
+  }
+  // Too soon → keep the existing baseline so a later in-window render can measure.
+  if (deltaMs < MIN_DELTA_MS) {
+    return null;
+  }
+  // No growth → no estimate (keep baseline; it will age out to stale).
+  if (deltaBytes <= 0) {
+    return null;
+  }
+
+  const estimatedTokens = deltaBytes / 4;
+  const speed = estimatedTokens / (deltaMs / 1000);
+  writeCache(path, { fileSize: size, timestamp: now });
+  return speed;
 }
 
 // ── Roadmap pulse (cc advisor-plans/026) ─────────────────────────────────────
@@ -852,10 +1130,45 @@ export function formatSessionClock(durationMs: number | undefined): string | nul
 
 // ── Gauge rendering ──────────────────────────────────────────────────────────
 
+/**
+ * Adaptive gauge cell count from the terminal width. Reads `COLUMNS` first
+ * (integer parse), then `process.stdout.columns`, then `process.stderr.columns`;
+ * buckets ≥100→10, ≥60→6, else 4; defaults to 10 when the width is unknown.
+ * `colsOverride` (the raw column count) is injectable for deterministic tests;
+ * the production call is arg-free.
+ */
+export function getBarWidth(colsOverride?: number): number {
+  let cols: number | undefined;
+  if (colsOverride != null && Number.isFinite(colsOverride)) {
+    cols = colsOverride;
+  } else {
+    const envRaw = process.env.COLUMNS;
+    const envCols = envRaw != null ? parseInt(envRaw, 10) : NaN;
+    if (Number.isFinite(envCols) && envCols > 0) {
+      cols = envCols;
+    } else if (
+      typeof process.stdout?.columns === "number" &&
+      process.stdout.columns > 0
+    ) {
+      cols = process.stdout.columns;
+    } else if (
+      typeof process.stderr?.columns === "number" &&
+      process.stderr.columns > 0
+    ) {
+      cols = process.stderr.columns;
+    }
+  }
+  if (cols == null || !Number.isFinite(cols)) return 10;
+  if (cols >= 100) return 10;
+  if (cols >= 60) return 6;
+  return 4;
+}
+
 function renderGauge(label: string, pct: number, suffix: string): string {
   const color = pct <= 20 ? CTX_LOW : pct <= 40 ? CTX_MED : CTX_HIGH;
-  const filled = Math.floor((pct * 7) / 100);
-  const empty = 7 - filled;
+  const width = getBarWidth();
+  const filled = Math.floor((pct * width) / 100);
+  const empty = width - filled;
   const bar = "═".repeat(filled) + "─".repeat(empty);
   return `${DIM}${label}${RESET} ${color}${bar} ${suffix}${RESET}`;
 }
@@ -968,6 +1281,15 @@ interface RenderDeps {
   roadmapLine?: string | null;
   /** Foreign high-urgency queue-head drift line (add-attention-guard); null = silent. */
   driftLine?: string | null;
+  /**
+   * Context value resolved by the suspicious-zero guard (`resolveContext`).
+   * `undefined` = not resolved by the caller → fall back to raw
+   * `ccInput.context_window` (legacy path, used by unit tests). An object
+   * renders that value; explicit `null` omits the context segment.
+   */
+  resolvedContext?: ResolvedContext | null;
+  /** tokens/sec estimate (`getSpeed`); null/absent = no throughput segment. */
+  speed?: number | null;
 }
 
 /**
@@ -1079,13 +1401,33 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
     parts.push(`${DIM}200K+${RESET}`);
   }
 
-  // Context window — CC sends used_percentage; we display remaining
-  const usedPct = ccInput.context_window?.used_percentage;
-  if (usedPct != null) {
-    const remaining = 100 - usedPct;
-    parts.push(
-      renderContext(remaining, usedPct, ccInput.context_window?.context_window_size),
-    );
+  // Context window — CC sends used_percentage; we display remaining.
+  // When the caller resolved context via the suspicious-zero guard, honor it:
+  // an object renders that value, explicit `null` omits the segment (never the
+  // inverted `CTX 100%`). Undefined = legacy raw path (unit tests).
+  let ctxUsedPct: number | undefined;
+  let ctxSize: number | undefined;
+  let ctxOmit = false;
+  if (deps.resolvedContext !== undefined) {
+    if (deps.resolvedContext === null) {
+      ctxOmit = true;
+    } else {
+      ctxUsedPct = deps.resolvedContext.usedPct;
+      ctxSize = deps.resolvedContext.contextWindowSize;
+    }
+  } else {
+    ctxUsedPct = ccInput.context_window?.used_percentage;
+    ctxSize = ccInput.context_window?.context_window_size;
+  }
+  if (!ctxOmit && ctxUsedPct != null) {
+    const remaining = 100 - ctxUsedPct;
+    parts.push(renderContext(remaining, ctxUsedPct, ctxSize));
+  }
+
+  // Live throughput estimate (tokens/sec) — DIM, near the context bar. Absent
+  // (null) on any render with no valid byte-growth sample; that is expected.
+  if (deps.speed != null) {
+    parts.push(`${DIM}≈${Math.round(deps.speed)}t/s${RESET}`);
   }
 
   // Session (5hr) and Weekly (7d) usage
@@ -1150,10 +1492,14 @@ async function main(): Promise<void> {
   const git = getGitStatus(projectDir);
   const agentUrl = getLocalAgentUrl();
 
-  // Parallel fetches: agent statusline, API usage, account domain
+  // Prefer stdin usage; only fetch the OAuth Usage API (+ credential read) when
+  // stdin lacks both rate-limit windows.
+  const usagePromise = resolveUsage(ccInput.rate_limits);
+
+  // Parallel fetches: agent statusline, usage (stdin-or-API), account domain
   const [nexusData, usage, accountDomain] = await Promise.all([
     fetchStatusline(agentUrl),
-    getApiUsage(),
+    usagePromise,
     getAccountDomain(),
   ]);
 
@@ -1163,6 +1509,8 @@ async function main(): Promise<void> {
     usage,
     accountDomain,
     projectDir,
+    resolvedContext: resolveContext(ccInput),
+    speed: getSpeed(ccInput.transcript_path, ccInput.session_id),
     pulse: getRoadmapPulse(projectDir),
     specsLine: getSpecsLine(projectDir, agentUrl),
     roadmapLine: getRoadmapLine(projectDir, agentUrl),
