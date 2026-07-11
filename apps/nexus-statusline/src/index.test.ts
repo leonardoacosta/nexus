@@ -6,7 +6,7 @@
  * it's covered by the section-3 smoke test (`echo '{}' | nexus-statusline`).
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,7 @@ import * as childProcess from "node:child_process";
 import {
   renderStatusline,
   modelEffortToken,
+  modelFamilyLetter,
   isBbProject,
   gatePulseLine,
   stripRadarStale,
@@ -32,6 +33,8 @@ import {
   resolveUsage,
   resolveContext,
   getSpeed,
+  sessionContextPath,
+  writeSessionContext,
   type CcInput,
   type UsageResponse,
 } from "./index";
@@ -752,6 +755,70 @@ describe("modelEffortToken", () => {
     expect(s).not.toContain("Fable");
     // The bare version number "5" must not appear as its own DIM segment
     expect(s).not.toMatch(/\s5\s/);
+  });
+});
+
+describe("modelFamilyLetter — shared letter derivation", () => {
+  it("derives the same letter modelEffortToken uses, without the effort suffix", () => {
+    const model = { id: "claude-sonnet-4-6", display_name: "Sonnet 4.6" };
+    expect(modelFamilyLetter(model)).toBe("S");
+    expect(modelEffortToken(model, { level: "xhigh" })).toBe("Sxh");
+  });
+
+  it("unknown family falls back to display_name initial", () => {
+    expect(modelFamilyLetter({ id: "nova-x1", display_name: "Nova X1" })).toBe("N");
+  });
+
+  it("no model → null", () => {
+    expect(modelFamilyLetter(undefined)).toBeNull();
+    expect(modelFamilyLetter({})).toBeNull();
+  });
+});
+
+// ── cc-tmux-bar-cleanup 1.2 — session-context writer carries the model letter ─
+
+describe("writeSessionContext — per-pane cache (cc-tmux-bar-cleanup)", () => {
+  const pane = "%nx-test-model-letter";
+  const path = sessionContextPath(pane);
+  const origPane = process.env.TMUX_PANE;
+
+  afterEach(() => {
+    if (origPane === undefined) delete process.env.TMUX_PANE;
+    else process.env.TMUX_PANE = origPane;
+    try {
+      unlinkSync(path);
+    } catch {
+      // no file to clean up — fine
+    }
+  });
+
+  it("writes both context_used_pct and the model letter in one JSON object", () => {
+    process.env.TMUX_PANE = pane;
+    writeSessionContext(62, "F");
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(written.context_used_pct).toBe(62);
+    expect(written.model).toBe("F");
+  });
+
+  it("omits the model key (not null/empty) when no model letter is available", () => {
+    process.env.TMUX_PANE = pane;
+    writeSessionContext(62, null);
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(written.context_used_pct).toBe(62);
+    expect("model" in written).toBe(false);
+  });
+
+  it("no other per-render field (cost, lines, speed, style, worktree, spec) is written", () => {
+    process.env.TMUX_PANE = pane;
+    writeSessionContext(62, "O");
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(Object.keys(written).sort()).toEqual(["context_used_pct", "model", "ts"]);
+  });
+
+  it("outside tmux ($TMUX_PANE unset) is a no-op", () => {
+    delete process.env.TMUX_PANE;
+    writeSessionContext(62, "F");
+    expect(() => readFileSync(path, "utf8")).toThrow();
   });
 });
 

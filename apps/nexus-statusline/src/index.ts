@@ -203,14 +203,13 @@ const EFFORT_SUFFIX: Readonly<Record<string, string>> = {
 };
 
 /**
- * Compact row-one model token: family letter (from `model.id`, `display_name`
- * fallback; unknown family → uppercased `display_name` initial) + effort suffix
- * (`low/medium/high/xhigh/max|ultracode` → `l/m/h/xh/u`). Effort absent or
- * unrecognized → letter alone. No model → no token (effort alone never renders).
+ * Family letter alone (from `model.id`, `display_name` fallback; unknown
+ * family → uppercased `display_name` initial). No model → null. Shared by
+ * `modelEffortToken` (row-one token) and the session-context harvest (which
+ * needs the letter without the effort suffix).
  */
-export function modelEffortToken(
+export function modelFamilyLetter(
   model?: { id?: string; display_name?: string },
-  effort?: { level?: string },
 ): string | null {
   if (!model) return null;
   const id = model.id ?? "";
@@ -218,18 +217,24 @@ export function modelEffortToken(
   if (!id && !dn) return null;
 
   const hay = `${id} ${dn}`.toLowerCase();
-  let letter: string | undefined;
   for (const [fam, l] of MODEL_FAMILIES) {
-    if (hay.includes(fam)) {
-      letter = l;
-      break;
-    }
+    if (hay.includes(fam)) return l;
   }
-  if (!letter) {
-    const initial = dn.trim().charAt(0) || id.trim().charAt(0);
-    if (!initial) return null;
-    letter = initial.toUpperCase();
-  }
+  const initial = dn.trim().charAt(0) || id.trim().charAt(0);
+  return initial ? initial.toUpperCase() : null;
+}
+
+/**
+ * Compact row-one model token: family letter (see `modelFamilyLetter`) + effort
+ * suffix (`low/medium/high/xhigh/max|ultracode` → `l/m/h/xh/u`). Effort absent
+ * or unrecognized → letter alone. No model → no token (effort alone never renders).
+ */
+export function modelEffortToken(
+  model?: { id?: string; display_name?: string },
+  effort?: { level?: string },
+): string | null {
+  const letter = modelFamilyLetter(model);
+  if (!letter) return null;
 
   const level = effort?.level?.toLowerCase();
   const suffix = level ? (EFFORT_SUFFIX[level] ?? "") : "";
@@ -654,7 +659,7 @@ export function resolveContext(
 
 // ── Per-pane session-context harvest (cc-tmux-session-usage-bars) ────────────
 
-function sessionContextPath(pane: string): string {
+export function sessionContextPath(pane: string): string {
   return join(
     homedir(),
     `.claude/scripts/state/session-context.${pane}.json`,
@@ -662,18 +667,24 @@ function sessionContextPath(pane: string): string {
 }
 
 /**
- * Harvest the one field only the statusLine's per-render stdin carries —
- * `context_window.used_percentage` — into a per-pane cache file cc-tmux reads
- * for its session bar (proposal §What Changes 2; the sole surviving sliver of
- * the original full-parity harvest). Keyed by `$TMUX_PANE` (tmux's `#{pane_id}`,
- * e.g. `%3`) so cc-tmux resolves the same file for the same pane.
+ * Harvest the two fields cc-tmux's session-bar row needs —
+ * `context_window.used_percentage` and the model family letter (the same
+ * letter `modelEffortToken` computes for row one, via `modelFamilyLetter`) —
+ * into a per-pane cache file (proposal §What Changes 2; the sole surviving
+ * sliver of the original full-parity harvest). Keyed by `$TMUX_PANE` (tmux's
+ * `#{pane_id}`, e.g. `%3`) so cc-tmux resolves the same file for the same pane.
  *
  * Gated on `$TMUX_PANE` — a no-op outside tmux. Atomic write (`.tmp` + rename),
  * fail-soft: never throws, never blocks the render. A null/undefined `usedPct`
  * (the suspicious-zero guard omitted the segment this frame) is a no-op, leaving
- * any prior good value in place rather than clobbering it with a zero.
+ * any prior good value in place rather than clobbering it with a zero. The model
+ * letter is written whenever available — independently of the `usedPct` guard —
+ * and omitted (no `model` key) when there is no model on this frame.
  */
-function writeSessionContext(usedPct: number | null | undefined): void {
+export function writeSessionContext(
+  usedPct: number | null | undefined,
+  modelLetter: string | null | undefined,
+): void {
   try {
     const pane = process.env.TMUX_PANE;
     if (!pane || usedPct == null) return;
@@ -681,7 +692,11 @@ function writeSessionContext(usedPct: number | null | undefined): void {
     const tmp = `${path}.tmp`;
     writeFileSync(
       tmp,
-      JSON.stringify({ context_used_pct: usedPct, ts: nowSecs() }),
+      JSON.stringify({
+        context_used_pct: usedPct,
+        ...(modelLetter ? { model: modelLetter } : {}),
+        ts: nowSecs(),
+      }),
       { mode: 0o600 },
     );
     renameSync(tmp, path);
@@ -1562,7 +1577,7 @@ async function main(): Promise<void> {
   // Resolve context once, harvest it to the per-pane cache for cc-tmux, then
   // pass the same value to the renderer.
   const resolvedContext = resolveContext(ccInput);
-  writeSessionContext(resolvedContext?.usedPct);
+  writeSessionContext(resolvedContext?.usedPct, modelFamilyLetter(ccInput.model));
   gcSessionContext();
 
   const out = renderStatusline(ccInput, {
