@@ -25,6 +25,7 @@ import {
 } from "./services/credential-refresh-job";
 import { getCredentialPool } from "./routes/credentials";
 import { evaluateProactiveSwap } from "./services/proactive-swap";
+import { writeStatuslineUsageFile } from "./services/statusline-usage-file";
 import { lastSwapAt } from "./services/credential-pool/swap-tracker";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import {
@@ -258,14 +259,19 @@ try {
     credentialUsagePoller = startCredentialUsagePoller({
       db,
       pool,
-      // Proactive rotation / graduated exhaustion ladder — runs at the end of
-      // each successful tick on the freshly-polled 5h usage (credential-proactive-swap).
-      onTickComplete: ({ db: tickDb, pool: tickPool }) =>
-        evaluateProactiveSwap({
+      // Runs at the end of each successful tick on the freshly-polled 5h usage:
+      //   1. Proactive rotation / graduated exhaustion ladder (credential-proactive-swap).
+      //   2. Mirror the active credential's polled usage to usage-cache.json so
+      //      nexus-statusline / cc-tmux read it instead of calling Anthropic
+      //      (cc-tmux-session-usage-bars, usage consolidation). Fail-soft.
+      onTickComplete: async ({ db: tickDb, pool: tickPool }) => {
+        await evaluateProactiveSwap({
           db: tickDb,
           pool: tickPool,
           swapTracker: { lastSwapAt },
-        }),
+        });
+        await writeStatuslineUsageFile(tickDb);
+      },
     });
     logger.info("credential usage poller started");
   } else {

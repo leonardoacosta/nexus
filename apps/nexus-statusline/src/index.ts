@@ -53,6 +53,8 @@ import {
   closeSync,
   statSync,
   renameSync,
+  readdirSync,
+  unlinkSync,
 } from "node:fs";
 import { execSync } from "node:child_process";
 import * as childProcess from "node:child_process";
@@ -140,7 +142,6 @@ interface CachedProfile {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const FETCH_TIMEOUT_MS = 2_000;
-const USAGE_CACHE_TTL = 300; // 5 minutes (seconds)
 const PROFILE_CACHE_TTL = 3600; // 1 hour (seconds)
 
 // Suspicious-zero context guard
@@ -441,37 +442,22 @@ async function fetchWithToken<T>(token: string, endpoint: string): Promise<T | n
   }
 }
 
-async function getApiUsage(): Promise<UsageResponse | null> {
+/**
+ * Read the active credential's 5H/7D usage from the shared cache file that
+ * nexus-agent's poller writes (statusline-usage-file.ts). Pure file read +
+ * parse — NO Anthropic API call, NO credential read. The poller is now the sole
+ * caller of `/api/oauth/usage`, which eliminates the uncoordinated dual-caller
+ * 429 (proposal §Why). Matches the existing `CachedUsage` shape
+ * (`{ fetched_at, data }`) so the writer and reader agree on one schema.
+ * Fail-soft: a missing / unreadable / unparseable cache → null (usage segment
+ * omitted, never a crash). Returns a Promise to satisfy `resolveUsage`'s
+ * injectable `fetchApiUsage` signature.
+ */
+async function getPolledUsage(): Promise<UsageResponse | null> {
   try {
-    const cachePath = usageCachePath();
-    // Check cache
-    try {
-      const content = readFileSync(cachePath, "utf-8");
-      const cached: CachedUsage = JSON.parse(content);
-      if (nowSecs() - cached.fetched_at < USAGE_CACHE_TTL) return cached.data;
-    } catch {
-      // Cache miss
-    }
-
-    const token = readAccessToken();
-    if (!token) return null;
-
-    const fresh = await fetchWithToken<UsageResponse>(
-      token,
-      "https://api.anthropic.com/api/oauth/usage",
-    );
-    if (!fresh) return null;
-
-    // Write cache — 0o600 satisfies credential-pool spec requirement for restrictive
-    // permissions on cache files (usage-cache.json is low-sensitivity but spec-gated).
-    try {
-      const cached: CachedUsage = { fetched_at: nowSecs(), data: fresh };
-      writeFileSync(cachePath, JSON.stringify(cached), { mode: 0o600 });
-    } catch {
-      // Non-fatal
-    }
-
-    return fresh;
+    const content = readFileSync(usageCachePath(), "utf-8");
+    const cached: CachedUsage = JSON.parse(content);
+    return cached?.data ?? null;
   } catch {
     return null;
   }
@@ -499,15 +485,15 @@ export function buildStdinUsage(
 }
 
 /**
- * Prefer stdin usage over the OAuth Usage API. When `buildStdinUsage` yields a
- * value, return it and skip `getApiUsage()` entirely (which transitively skips
- * the credential read). Otherwise fall back to the injected fetcher (default
- * `getApiUsage`). `fetchApiUsage` is injectable so the fallback gate is testable
- * without a live network/credential dependency.
+ * Prefer stdin usage over the polled cache. When `buildStdinUsage` yields a
+ * value, return it and skip `getPolledUsage()` entirely. Otherwise fall back to
+ * the injected fetcher (default `getPolledUsage`, a pure file read of the
+ * poller-written cache — no network, no credential access). `fetchApiUsage` is
+ * injectable so the fallback gate is testable without a filesystem dependency.
  */
 export async function resolveUsage(
   rateLimits: CcInput["rate_limits"],
-  fetchApiUsage: () => Promise<UsageResponse | null> = getApiUsage,
+  fetchApiUsage: () => Promise<UsageResponse | null> = getPolledUsage,
 ): Promise<UsageResponse | null> {
   const stdin = buildStdinUsage(rateLimits);
   if (stdin != null) return stdin;
@@ -664,6 +650,76 @@ export function resolveContext(
     return { usedPct: snap.used_percentage, contextWindowSize: snap.context_window_size };
   }
   return null;
+}
+
+// ── Per-pane session-context harvest (cc-tmux-session-usage-bars) ────────────
+
+function sessionContextPath(pane: string): string {
+  return join(
+    homedir(),
+    `.claude/scripts/state/session-context.${pane}.json`,
+  );
+}
+
+/**
+ * Harvest the one field only the statusLine's per-render stdin carries —
+ * `context_window.used_percentage` — into a per-pane cache file cc-tmux reads
+ * for its session bar (proposal §What Changes 2; the sole surviving sliver of
+ * the original full-parity harvest). Keyed by `$TMUX_PANE` (tmux's `#{pane_id}`,
+ * e.g. `%3`) so cc-tmux resolves the same file for the same pane.
+ *
+ * Gated on `$TMUX_PANE` — a no-op outside tmux. Atomic write (`.tmp` + rename),
+ * fail-soft: never throws, never blocks the render. A null/undefined `usedPct`
+ * (the suspicious-zero guard omitted the segment this frame) is a no-op, leaving
+ * any prior good value in place rather than clobbering it with a zero.
+ */
+function writeSessionContext(usedPct: number | null | undefined): void {
+  try {
+    const pane = process.env.TMUX_PANE;
+    if (!pane || usedPct == null) return;
+    const path = sessionContextPath(pane);
+    const tmp = `${path}.tmp`;
+    writeFileSync(
+      tmp,
+      JSON.stringify({ context_used_pct: usedPct, ts: nowSecs() }),
+      { mode: 0o600 },
+    );
+    renameSync(tmp, path);
+  } catch {
+    // fail-soft — a harvest write never crashes the render
+  }
+}
+
+/** Orphaned session-context files older than this are pruned by the GC. */
+const SESSION_CONTEXT_TTL_SECS = 6 * 60 * 60;
+
+/**
+ * Opportunistic GC for orphaned `session-context.<pane>.json` files. A closed
+ * tmux pane leaves its cache file behind forever — tmux pane ids (`%N`) aren't
+ * predictably reused, so nothing else ever unlinks them. Gated behind a 1-in-100
+ * probability (mirroring `skill-list-dedup.sh`'s marker prune) so the directory
+ * scan runs on ~1% of renders and is skipped entirely — no scan, no stat — on
+ * the other 99%. Fail-soft: never throws, never blocks the render.
+ */
+function gcSessionContext(): void {
+  if (Math.floor(Math.random() * 100) !== 0) return; // 1-in-100: skip the scan
+  try {
+    const dir = join(homedir(), ".claude/scripts/state");
+    const cutoff = nowSecs() - SESSION_CONTEXT_TTL_SECS;
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith("session-context.") || !name.endsWith(".json")) {
+        continue;
+      }
+      const full = join(dir, name);
+      try {
+        if (statSync(full).mtimeMs / 1000 < cutoff) unlinkSync(full);
+      } catch {
+        // a file vanishing mid-scan (concurrent render) is fine — skip it
+      }
+    }
+  } catch {
+    // fail-soft — GC never crashes the render
+  }
 }
 
 // ── tokens/sec via transcript byte-growth (stat-only) ────────────────────────
@@ -1503,13 +1559,19 @@ async function main(): Promise<void> {
     getAccountDomain(),
   ]);
 
+  // Resolve context once, harvest it to the per-pane cache for cc-tmux, then
+  // pass the same value to the renderer.
+  const resolvedContext = resolveContext(ccInput);
+  writeSessionContext(resolvedContext?.usedPct);
+  gcSessionContext();
+
   const out = renderStatusline(ccInput, {
     git,
     nexusData,
     usage,
     accountDomain,
     projectDir,
-    resolvedContext: resolveContext(ccInput),
+    resolvedContext,
     speed: getSpeed(ccInput.transcript_path, ccInput.session_id),
     pulse: getRoadmapPulse(projectDir),
     specsLine: getSpecsLine(projectDir, agentUrl),
