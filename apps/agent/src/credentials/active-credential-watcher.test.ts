@@ -16,14 +16,21 @@
  * (usage-poller, probeIdentity, dashboard active-account indicator)
  * stuck on the dead pre-rotation tokens.
  *
- * Post-fix the watcher MUST import the live credential into the pool when
- * the fingerprint doesn't match, so the next pass finds a row and
- * subsequent pollers use the LIVE access token (which IS accepted by
- * api.anthropic.com — only console.anthropic.com's refresh-grant is
- * Cloudflare-guarded, and we don't need to call that).
+ * A second bug (found investigating credential-usage-poller's 100% failure
+ * rate) was that even the rotation-import fix above still gated `pool.add()`
+ * behind "fingerprint not already in the pool". Because
+ * `fingerprint = SHA256(refreshToken)`, an ACCESS-token-only refresh (which
+ * Claude Code performs far more often than a full refresh-token rotation)
+ * leaves the fingerprint unchanged — so a credential's stale access token
+ * was written once on import and never updated again. The fix below calls
+ * `pool.add()` unconditionally on every observation; it is idempotent
+ * (update-in-place on a fingerprint+name match), so this keeps the pool's
+ * access token current with whatever Claude Code has live, whether or not
+ * the refresh token itself rotated.
  *
- * Tests below validate the import-on-rotation contract by injecting a
- * fake pool and overriding the credentials file path via the test seam
+ * Tests below validate both the import-on-rotation contract and the
+ * always-mirror contract by injecting a fake pool and overriding the
+ * credentials file path via the test seam
  * `__testing.runRefresh(pool, credentialPath)`.
  */
 
@@ -110,7 +117,7 @@ describe("active-credential-watcher import-on-rotation (nx-44mby)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("fingerprint matches existing pool row -> no pool.add()", async () => {
+  test("fingerprint matches existing pool row -> pool.add() still called (update-in-place mirror)", async () => {
     const plaintext = validCred("0001");
     const fp = computeCredentialFingerprint(plaintext);
     await writeFile(credPath, plaintext);
@@ -118,8 +125,29 @@ describe("active-credential-watcher import-on-rotation (nx-44mby)", () => {
     const pool = createFakePool([{ id: "row-existing", fingerprint: fp }]);
     await activeTesting.runRefresh(pool, credPath);
 
+    // A fingerprint match no longer skips add() — the dedupe gate was the
+    // bug (stale access tokens never refreshed once a row was imported).
+    // pool.add() is idempotent: this call updates the existing row in place.
     const addCalls = pool.calls.filter((c) => c.method === "add");
-    expect(addCalls).toHaveLength(0);
+    expect(addCalls).toHaveLength(1);
+    expect(addCalls[0]!.arg!.value_plaintext).toBe(plaintext);
+    expect(activeTesting.getSnapshot().fingerprint).toBe(fp);
+  });
+
+  test("pool.list() throws -> pool.add() not attempted, snapshot still gets the live fingerprint (down-detection)", async () => {
+    const plaintext = validCred("DOWN");
+    const fp = computeCredentialFingerprint(plaintext);
+    await writeFile(credPath, plaintext);
+
+    const pool = createFakePool([]);
+    pool.list = async () => {
+      pool.calls.push({ method: "list" });
+      throw new Error("db unreachable");
+    };
+
+    await activeTesting.runRefresh(pool, credPath);
+
+    expect(pool.calls.filter((c) => c.method === "add")).toHaveLength(0);
     expect(activeTesting.getSnapshot().fingerprint).toBe(fp);
   });
 

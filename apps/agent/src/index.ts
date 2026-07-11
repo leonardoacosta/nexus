@@ -19,6 +19,10 @@ import {
   startCredentialUsagePoller,
   type CredentialUsagePollerService,
 } from "./services/credential-usage-poller";
+import {
+  startCredentialRefreshJob,
+  type CredentialRefreshJobService,
+} from "./services/credential-refresh-job";
 import { getCredentialPool } from "./routes/credentials";
 import { evaluateProactiveSwap } from "./services/proactive-swap";
 import { lastSwapAt } from "./services/credential-pool/swap-tracker";
@@ -216,6 +220,32 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "cron service failed to start");
 }
 
+// ── Credential refresh job ─────────────────────────────────────────────────
+// Proactively refreshes OAuth access tokens for pooled credentials whose
+// expiry is within 15 minutes, EXCLUDING the currently-active credential
+// (Claude Code itself keeps that one fresh via active-credential-watcher.ts's
+// unconditional mirror). Fixes the root cause of the usage poller below
+// failing on every poll: nothing was ever refreshing a pooled credential's
+// access token once it wasn't the active CC session anymore. Requires the
+// credential pool (same precondition as the usage poller below).
+let credentialRefreshJob: CredentialRefreshJobService | null = null;
+try {
+  const pool = getCredentialPool();
+  if (pool) {
+    credentialRefreshJob = startCredentialRefreshJob({ db, pool });
+    logger.info("credential refresh job started");
+  } else {
+    logger.warn(
+      "credential refresh job skipped — credential pool not initialised",
+    );
+  }
+} catch (err) {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "credential refresh job failed to start",
+  );
+}
+
 // ── Credential usage poller ────────────────────────────────────────────────
 // Periodically samples Anthropic /api/oauth/usage for every primary,
 // available credential so the dashboard can show 5h / 7d utilization +
@@ -315,6 +345,7 @@ async function shutdown() {
   tailscalePresencePoller?.stop();
   specWatcher?.stop();
   credentialUsagePoller?.stop();
+  credentialRefreshJob?.stop();
   cronService?.stop();
   socketServer?.stop();
   stopConfigLoader();

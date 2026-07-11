@@ -609,6 +609,62 @@ export class CredentialPool {
   }
 
   /**
+   * Overwrite a credential's token material after an out-of-band OAuth
+   * refresh (see `services/credential-refresh-job.ts`).
+   *
+   * Unlike `add()`, this recomputes the fingerprint from
+   * `newPlaintextBlob`'s `claudeAiOauth.refreshToken` — an OAuth refresh
+   * grant rotates the refresh token, so matching by the OLD
+   * `(fingerprint, name)` pair (what `add()` does) would miss and INSERT a
+   * duplicate row instead of updating this one. `duplicateGroupId` is
+   * intentionally left untouched: per the schema comment on
+   * `credentials.duplicateGroupId`, it is the stable per-account anchor and
+   * MUST survive a refresh-token rotation, unlike `fingerprint` itself.
+   * `status`/`leasedBy`/`cooldownUntil`/`isPrimary`/`rateLimitCount` are all
+   * left untouched for the same reason `add()`'s update-in-place path
+   * preserves them.
+   *
+   * @throws {CredentialParseError} if `newPlaintextBlob` does not carry a
+   *   non-empty `claudeAiOauth.refreshToken` — surfaced so a malformed
+   *   refresh response can never silently corrupt a pool row.
+   */
+  async updateSecret(
+    id: string,
+    newPlaintextBlob: object,
+    newExpiresAt: Date,
+  ): Promise<void> {
+    const key = this.requireKey();
+    const plaintext = JSON.stringify(newPlaintextBlob);
+
+    // Re-throws CredentialParseError as-is (same contract as add()) — a
+    // caller passing a blob with no refreshToken is a programming error, not
+    // a runtime condition to swallow.
+    const fingerprint = computeCredentialFingerprint(plaintext);
+    const valueEncrypted = encrypt(plaintext, key);
+
+    await this.db
+      .update(credentials)
+      .set({
+        valueEncrypted,
+        encryptionKeyId: "v1",
+        expiresAt: newExpiresAt,
+        fingerprint,
+        updatedAt: new Date(),
+      })
+      .where(eq(credentials.id, id));
+
+    logger.info(
+      {
+        id,
+        fingerprint: fingerprint.slice(0, 8),
+        event: "credential.secret_updated",
+      },
+      "credential secret updated after OAuth refresh",
+    );
+    void this.emitEvent(id, "secret_updated", null, { fingerprint });
+  }
+
+  /**
    * Promote the given credential to `is_primary = true` within its duplicate
    * group, atomically demoting whoever currently holds the primary slot.
    *

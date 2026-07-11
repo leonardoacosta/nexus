@@ -5,18 +5,29 @@
  * maintains, refreshes, and rotates) and:
  *   1. publishes the SHA-256 refresh-token fingerprint of the currently-active
  *      credential so the dashboard can mark exactly one account as "active";
- *   2. MIRRORS the live credential into the pool on rotation (bd:nx-44mby).
+ *   2. MIRRORS the live credential into the pool on every observation
+ *      (bd:nx-44mby, widened by the fix below).
  *
  * Behaviour:
  *   - Resolves the path via `fs.realpath()` on every change (follows symlinks).
  *   - Debounces watch events (200ms) — rotations can cause multiple fs events.
- *   - Computes the fingerprint via `computeCredentialFingerprint()` and matches
- *     it against the pool's DB rows. If no pool row matches, the live file is
- *     a rotation Claude Code performed since the last pool import — call
- *     `pool.add()` to write the new credential to the pool, then re-match.
- *     The auto-probe inside `pool.add()` hits api.anthropic.com (NOT
- *     Cloudflare-blocked) with the fresh access token and populates
- *     accountEmail/Name/Uuid/orgName/orgUuid for the new row.
+ *   - Computes the fingerprint via `computeCredentialFingerprint()` and calls
+ *     `pool.add()` UNCONDITIONALLY with the live plaintext — not only when the
+ *     fingerprint is missing from the pool. `pool.add()` is idempotent: a
+ *     `(fingerprint, name)` match updates the existing row in place
+ *     (`valueEncrypted`/`expiresAt`/`encryptionKeyId`), a miss inserts a new
+ *     row. This matters because `fingerprint = SHA256(refreshToken)` stays
+ *     identical across an ACCESS-token-only refresh (Claude Code rotates the
+ *     access token far more often than the refresh token) — gating `add()`
+ *     behind "fingerprint not already in the pool" meant a credential's
+ *     stale access token was written once on import and never updated again,
+ *     even though Claude Code kept the live file current. That was the root
+ *     cause of `credential-usage-poller` failing on every poll: it was
+ *     always sending an access token that expired hours or days earlier.
+ *     The auto-probe inside `pool.add()` hits api.anthropic.com (a
+ *     different, un-throttled endpoint from the OAuth refresh-grant below)
+ *     with the fresh access token and populates
+ *     accountEmail/Name/Uuid/orgName/orgUuid for the row.
  *   - All failure modes — file missing, JSON parse error, no `refreshToken`,
  *     pool.add() exception — collapse to `fingerprint: null` without throwing,
  *     so the watcher never crashes the agent.
@@ -176,62 +187,60 @@ async function runRefresh(
   const { plaintext, fingerprint, resolvedPath } = blob;
   snapshot.resolvedPath = resolvedPath;
 
-  // Match against pool — fast path when no rotation has happened.
-  let poolRows: Array<{ id: string; fingerprint: string | null }>;
+  // Down-detection only: confirm the pool is reachable before writing to it.
+  // The row list itself is no longer consulted to decide whether to call
+  // pool.add() — see the file-level comment for why gating on "fingerprint
+  // already in the pool" was the bug.
   try {
-    poolRows = await pool.list();
+    await pool.list();
   } catch (err) {
     // Pool read failed — surface the LIVE fingerprint anyway so the UI can
     // distinguish "Claude Code is up" from "Claude Code is down". Cannot
-    // trigger an import; snapshot retains the unmatched live fingerprint.
+    // safely write; snapshot retains the unmatched live fingerprint.
     log.warn({ error: err }, "pool.list() failed during active-credential match");
     snapshot.fingerprint = fingerprint;
     return;
   }
 
-  const alreadyImported = poolRows.some((r) => r.fingerprint === fingerprint);
-
-  if (!alreadyImported) {
-    // ROTATION CASE (bd:nx-44mby): Claude Code wrote a new credential whose
-    // refresh-token fingerprint isn't in the pool. Import it via pool.add()
-    // — the auto-probe inside add() hits api.anthropic.com (NOT
-    // Cloudflare-blocked, only console.anthropic.com's refresh-grant is)
-    // with the LIVE access token and populates accountEmail/Name/Uuid +
-    // organization fields on the new row.
-    try {
-      await pool.add({
-        id: randomUUID(),
-        name: `acct-${fingerprint.slice(0, 8)}`,
-        type: "oauth",
-        value_plaintext: plaintext,
-      });
-      log.info(
-        {
-          path: resolvedPath,
-          fingerprint: fingerprint.slice(0, 8),
-        },
-        "active-credential: imported rotated credential into pool",
-      );
-    } catch (err) {
-      // Graceful degrade: the snapshot keeps fingerprint=null so the UI
-      // shows "active account not in pool" instead of falsely matching.
-      // The next watcher tick will retry.
-      log.warn(
-        {
-          path: resolvedPath,
-          fingerprint: fingerprint.slice(0, 8),
-          error: err instanceof Error ? err.message : String(err),
-        },
-        "active-credential: failed to import rotated credential",
-      );
-      snapshot.fingerprint = null;
-      return;
-    }
+  // Mirror the live credential into the pool UNCONDITIONALLY, on every
+  // observation — not only on a fingerprint miss. pool.add() is idempotent
+  // (see pool-core.ts's `(fingerprint, name)` re-import guard): a match
+  // updates valueEncrypted/expiresAt/encryptionKeyId in place, preserving
+  // status/leasedBy/cooldownUntil/isPrimary; a miss (real rotation, or
+  // cold-start) inserts a new row. The auto-probe inside add() hits
+  // api.anthropic.com with the LIVE access token and populates
+  // accountEmail/Name/Uuid + organization fields on insert.
+  try {
+    await pool.add({
+      id: randomUUID(),
+      name: `acct-${fingerprint.slice(0, 8)}`,
+      type: "oauth",
+      value_plaintext: plaintext,
+    });
+    log.debug(
+      {
+        path: resolvedPath,
+        fingerprint: fingerprint.slice(0, 8),
+      },
+      "active-credential: mirrored live credential into pool",
+    );
+  } catch (err) {
+    // Graceful degrade: the snapshot keeps fingerprint=null so the UI
+    // shows "active account not in pool" instead of falsely matching.
+    // The next watcher tick will retry.
+    log.warn(
+      {
+        path: resolvedPath,
+        fingerprint: fingerprint.slice(0, 8),
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "active-credential: failed to mirror credential into pool",
+    );
+    snapshot.fingerprint = null;
+    return;
   }
 
-  // Snapshot the LIVE fingerprint — at this point either it was already in
-  // the pool, or we just imported it. Either way the dashboard's
-  // "active account" indicator now matches a real row.
+  // Snapshot the LIVE fingerprint — the pool row is now guaranteed current.
   snapshot.fingerprint = fingerprint;
 }
 
