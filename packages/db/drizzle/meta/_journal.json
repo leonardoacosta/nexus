@@ -344,6 +344,13 @@
       "when": 1783270311770,
       "tag": "0048_fair_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1783872867255,
+      "tag": "0049_thick_ravenous",
+      "breakpoints": true
     }
   ]
 }
