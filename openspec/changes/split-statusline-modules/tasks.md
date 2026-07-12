@@ -132,13 +132,20 @@ pattern depends on the previous step's state, and gates must stay green after ev
       (writeFileSync/renameSync/readdirSync/unlinkSync, nowSecs, StatuslineSession/UsagePeriod/
       UsageResponse/CachedUsage/ResolvedContext type imports) since this step's move emptied
       their last remaining reference in index.ts. Commit `b2d7c0a9`.
-- [ ] 7.1 Extract `agent-lines.ts` (`fetchStatusline`, roadmap pulse, bead/roadmap surface lines, [beads:nx-5jk6b]
+- [x] 7.1 Extract `agent-lines.ts` (`fetchStatusline`, roadmap pulse, bead/roadmap surface lines, [beads:nx-5jk6b]
       attention guard). Keep the exact `import * as childProcess from "node:child_process"`
       namespace-import idiom and `childProcess.spawn(...)` call form — the spawn-spy tests
       mutate that shared namespace and depend on it. Convert the four inline cache paths to
       `statePath(...)`. Whatever spawn shapes plan 026 left (argv vectors / positional shell
       params) move VERBATIM, no re-hardening. Verify: `bun test` 0 fail, N' pass — specifically
       confirm the roadmap-pulse / SWR spawn-spy describe blocks still pass. (plans/031 Step 8)
+      Evidence: `bun test` → 133 pass / 0 fail (N' held), including the 4 `spyOn(childProcess,
+      "spawn")` describe blocks — the shared module-cache singleton means the test file's own
+      `childProcess` namespace import intercepts calls made through agent-lines.ts's separately
+      imported namespace, since both resolve to the same `node:child_process` module object.
+      `pnpm --filter @nexus/statusline typecheck` → exit 0. `PULSE_BIN`'s
+      `join(homedir(), ...)` left as-is (names a binary, not one of the four cache paths the
+      task scoped for `statePath` conversion). Commit `7041c2d9`.
 - [ ] 8.1 Finalize: replace `index.test.ts`'s single big import block with per-module imports [beads:nx-xvve1]
       (exact mapping in plans/031 Step 9) routing any prereq-plan-added symbols to their Module
       Map home; delete every shim re-export from `index.ts` including the `export type {...}`
