@@ -73,16 +73,22 @@ step. **Batch 1 (spawn hygiene) MUST land before Batch 2 (cache correctness)** �
 
 ## E2E Batch
 
-- [ ] 3.1 Point `apps/nexus-statusline/package.json`'s `test` script at [beads:nx-d96u2]
+- [x] 3.1 Point `apps/nexus-statusline/package.json`'s `test` script at [beads:nx-d96u2]
       `bun test src/index.test.ts` (replacing the `echo 'no tests yet'` stub); verify
       `pnpm --filter @nexus/statusline test` now runs the full suite with 0 fail. (plans/027
-      Step 1)
-- [ ] 3.3 Runtime evidence that the new spied suite never touches the real cache file: md5sum [beads:nx-99itu]
+      Step 1) — VERIFIED: 127 pass / 0 fail, 240 expect() calls.
+- [x] 3.3 Runtime evidence that the new spied suite never touches the real cache file: md5sum [beads:nx-99itu]
       `~/.claude/scripts/state/usage-cache.json` before and after running the new test file — the
       diff MUST be empty (identical or both absent). If the file changed, a spy failed to
-      intercept — STOP, do not fall back to `mock.module`. (plans/027 Step 3)
-- [ ] 3.4 Final gates across all three batches: `pnpm typecheck`, `pnpm lint`, [beads:nx-7szxh]
+      intercept — STOP, do not fall back to `mock.module`. (plans/027 Step 3) — VERIFIED: tight-window
+      before/after md5sum identical across two consecutive runs (an initial wide-window check showed
+      drift, traced to a concurrent live CC session's own statusline refresh, not the test).
+- [x] 3.4 Final gates across all three batches: `pnpm typecheck`, `pnpm lint`, [beads:nx-7szxh]
       `bun test apps/agent/src/services/statusline-usage-file.test.ts` (>= 11 pass, 0 fail),
       `bun test apps/agent/src/services/credential-refresh-job.test.ts` (unperturbed pass/fail
       counts), and confirm `git status` shows modifications only to the in-scope file set across
-      all three source plans. (plans/027 Step 4)
+      all three source plans. (plans/027 Step 4) — VERIFIED: typecheck clean on statusline/core/agent
+      (agent's 2 credentials.test.ts TS2300 + db's 2 bun:test-types errors both confirmed pre-existing,
+      ancestor of wave base f1ce950e); lint 0 errors (46 pre-existing agent warnings, 1 pre-existing
+      statusline warning); statusline-usage-file.test.ts 11 pass/0 fail; credential-refresh-job.test.ts
+      6 pass/1 skip/0 fail (unperturbed); git status confined to in-scope files.
