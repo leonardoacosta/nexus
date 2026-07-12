@@ -107,7 +107,9 @@ export function normalizeSpecStatus(raw: unknown): WavePlanWireStatus {
 
 /**
  * Resolve the repository root that owns `docs/apply/`. Priority:
- *   1. `NEXUS_REPO_ROOT` env var (canonical override — systemd unit sets this).
+ *   1. `NEXUS_REPO_ROOT` env var (canonical override — set via `~/.env`,
+ *      loaded through the unit's `EnvironmentFile=-%h/.env`, or the process
+ *      environment; deploy/nexus-agent.service does NOT set it).
  *   2. Walk up from `process.cwd()` looking for `docs/apply/`.
  *   3. Fall back to `<homedir>/dev/nx`.
  *
