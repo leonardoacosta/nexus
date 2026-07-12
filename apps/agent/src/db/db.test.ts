@@ -59,6 +59,15 @@ const SESSION_CRUD_SCHEMA = `nx_dbtest_${Date.now()}_${Math.floor(
 // parent_session_id / child_role) which false-failed `getSessionById`'s
 // full-column SELECT — that drift is the mock-divergence class this spec
 // guards. Keep this in lockstep with the Drizzle schema.
+//
+// nx-w94di root-cause note: the "stop_reason does not exist" failure
+// originally attributed to a schema drop/recreate race under
+// NEXUS_HEAVY_TESTS load was actually THIS block missing stop_reason /
+// error_details (added by nx-f060f) — deterministic DDL drift, not a race.
+// Reproduced 100% across 3 consecutive isolated runs with no concurrent
+// load. Each describe block still creates its own uniquely-named schema
+// (Date.now()+Math.random), so cross-file/cross-run isolation was never the
+// problem.
 const SESSION_CRUD_DDL = `
   CREATE TABLE "agents" (
     "id" text PRIMARY KEY NOT NULL,
@@ -92,6 +101,8 @@ const SESSION_CRUD_DDL = `
     "started_at" timestamp NOT NULL,
     "last_activity" timestamp NOT NULL,
     "ended_at" timestamp,
+    "stop_reason" text,
+    "error_details" text,
     "pid" integer,
     "cwd" text,
     "branch" text,
@@ -735,6 +746,37 @@ const RETENTION_DDL = `
     "session_id" text,
     "metadata" jsonb,
     "created_at" timestamp NOT NULL DEFAULT now()
+  );
+
+  -- Added for nx-w94di: runRetentionCleanup (../db/retention.ts) also
+  -- prunes cron_runs, bloat_radar, and spec_sessions (adopt-reaper-into-
+  -- nx-cron / specs-tab-start-on-spec). This DDL previously omitted all
+  -- three, so every retention-cleanup call failed with "relation ... does
+  -- not exist" deterministically whenever NEXUS_PG_TESTS actually ran.
+  CREATE TABLE "cron_runs" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "timestamp" timestamp NOT NULL,
+    "job" text NOT NULL,
+    "status" text NOT NULL,
+    "details" jsonb,
+    "metrics" jsonb
+  );
+
+  CREATE TABLE "bloat_radar" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "run_timestamp" timestamp NOT NULL,
+    "label" text NOT NULL,
+    "path" text NOT NULL,
+    "size_bytes" integer NOT NULL,
+    "threshold_bytes" integer NOT NULL
+  );
+
+  CREATE TABLE "spec_sessions" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "project" text NOT NULL,
+    "spec_name" text NOT NULL,
+    "session_id" text NOT NULL,
+    "created_at" timestamp with time zone NOT NULL DEFAULT now()
   );
 `;
 
