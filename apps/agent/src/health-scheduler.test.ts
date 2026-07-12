@@ -1,58 +1,59 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { aggregateDiskPercent } from "./health-scheduler";
+import type { HealthMetrics } from "@nexus/core";
 
-// ── 9.1 Disk weighted-average calculation ─────────────────────────────────────
+// ── 9.1 Disk weighted-average calculation (nx-k7xa) ────────────────────────────
+//
+// Exercises the REAL exported `aggregateDiskPercent`, not a local duplicate —
+// a prior version of this file tested a copy-pasted stand-in that had already
+// drifted from the real implementation's all-zero-bytes fallback (disk[0]
+// vs. unweighted average), so the multi-disk fix was never actually verified.
 
-/**
- * Pure helper extracted from health-scheduler tick() logic.
- * Computes the weighted-average disk percent across all mounts by total_bytes.
- */
-function computeDiskPercent(
-  disk: Array<{ total_bytes: number; percent: number }>,
-): number | null {
-  if (disk.length === 0) return null;
-  const totalBytes = disk.reduce((s, d) => s + d.total_bytes, 0);
-  if (totalBytes === 0) return disk[0]?.percent ?? null;
-  const weighted = disk.reduce(
-    (s, d) => s + (d.percent * d.total_bytes) / totalBytes,
-    0,
-  );
-  return Math.round(weighted * 10) / 10;
+type Disk = HealthMetrics["disk"][number];
+
+function disk(mount: string, total_bytes: number, percent: number): Disk {
+  return { mount, total_bytes, used_bytes: Math.round((total_bytes * percent) / 100), percent };
 }
 
-describe("health-scheduler: disk weighted-average calculation (task 9.1)", () => {
+describe("aggregateDiskPercent (task 9.1, nx-k7xa)", () => {
   it("returns null for empty disk array", () => {
-    expect(computeDiskPercent([])).toBeNull();
+    expect(aggregateDiskPercent([])).toBeNull();
   });
 
   it("returns the sole percent for a single disk", () => {
-    expect(computeDiskPercent([{ total_bytes: 500_000, percent: 60 }])).toBe(60);
+    expect(aggregateDiskPercent([disk("/", 500_000, 60)])).toBe(60);
   });
 
   it("weights by total_bytes — large disk dominates", () => {
     // 100 GB at 80% + 10 GB at 10% → weighted avg ≈ 73.6%
-    const disks = [
-      { total_bytes: 100_000_000_000, percent: 80 },
-      { total_bytes: 10_000_000_000, percent: 10 },
-    ];
-    const result = computeDiskPercent(disks);
+    const disks = [disk("/", 100_000_000_000, 80), disk("/data", 10_000_000_000, 10)];
     // Expected: (80*100 + 10*10) / 110 = 8100/110 ≈ 73.6
-    expect(result).toBe(73.6);
+    expect(aggregateDiskPercent(disks)).toBe(73.6);
   });
 
   it("equal-size disks produce arithmetic average", () => {
-    const disks = [
-      { total_bytes: 100_000, percent: 40 },
-      { total_bytes: 100_000, percent: 60 },
-    ];
-    expect(computeDiskPercent(disks)).toBe(50);
+    const disks = [disk("/", 100_000, 40), disk("/data", 100_000, 60)];
+    expect(aggregateDiskPercent(disks)).toBe(50);
   });
 
-  it("returns disk[0].percent when all total_bytes are 0", () => {
+  it("falls back to unweighted average (not disk[0]) when all total_bytes are 0", () => {
+    // Degenerate/pseudo-filesystem case — must not collapse to disk[0]'s value.
+    const disks = [disk("/", 0, 55), disk("/data", 0, 75)];
+    expect(aggregateDiskPercent(disks)).toBe(65); // (55 + 75) / 2, NOT 55
+  });
+
+  it("surfaces data from disks beyond index 0 — three-disk mocked system", () => {
+    // disk[0] alone (old buggy behavior) would report 20 — the true
+    // capacity-weighted aggregate across all three mounts is materially higher.
     const disks = [
-      { total_bytes: 0, percent: 55 },
-      { total_bytes: 0, percent: 75 },
+      disk("/", 50_000_000_000, 20),
+      disk("/data", 500_000_000_000, 90),
+      disk("/backup", 450_000_000_000, 95),
     ];
-    expect(computeDiskPercent(disks)).toBe(55);
+    const result = aggregateDiskPercent(disks);
+    expect(result).not.toBe(20); // proves disk[0] is not silently used alone
+    // Raw weighted avg: (20*50 + 90*500 + 95*450) / 1000 = 88.75, rounded to 1dp → 88.8
+    expect(result).toBe(88.8);
   });
 });
 
@@ -106,7 +107,6 @@ describe("health-scheduler: exponential backoff delays (task 9.2)", () => {
 import { HealthScheduler } from "./health-scheduler";
 import type { HealthCollector } from "./health-collector";
 import type { Db } from "@nexus/db";
-import type { HealthMetrics } from "@nexus/core";
 
 /** Create a minimal stub HealthCollector. */
 function makeCollectorStub(latestMetrics: HealthMetrics | null): HealthCollector {
@@ -181,5 +181,41 @@ describe("HealthScheduler.tick() — uses getLatest() (task 1.3)", () => {
     await (scheduler as unknown as { tick: () => Promise<void> }).tick();
 
     expect(insertMock.mock.calls.length).toBe(1);
+  });
+
+  it("persists a multi-disk aggregate (not disk[0]) and preserves all disks in rawJson (nx-k7xa)", async () => {
+    const multiDiskMetrics: HealthMetrics = {
+      ...baseMetrics,
+      disk: [
+        { mount: "/", total_bytes: 50_000_000_000, used_bytes: 10_000_000_000, percent: 20 },
+        { mount: "/data", total_bytes: 500_000_000_000, used_bytes: 450_000_000_000, percent: 90 },
+        { mount: "/backup", total_bytes: 450_000_000_000, used_bytes: 427_500_000_000, percent: 95 },
+      ],
+    };
+    const collector = makeCollectorStub(multiDiskMetrics);
+    const { db } = makeDbStub();
+    const scheduler = new HealthScheduler(collector, db, 60_000);
+
+    await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+    expect(insertMock.mock.calls.length).toBe(1);
+    const [, persistedSnapshot] = insertMock.mock.calls[0] as unknown as [
+      unknown,
+      { diskPercent: number | null; rawJson: string },
+    ];
+
+    // The old bug persisted disk[0].percent (20) verbatim; the fix aggregates
+    // across all three mounts.
+    expect(persistedSnapshot.diskPercent).not.toBe(20);
+    expect(persistedSnapshot.diskPercent).toBe(88.8);
+
+    // Full per-disk detail — including disks beyond index 0 — must survive in
+    // rawJson even though the primary column is a single number.
+    const rawDisk = (JSON.parse(persistedSnapshot.rawJson) as HealthMetrics).disk;
+    expect(rawDisk).toHaveLength(3);
+    expect(rawDisk[1]?.mount).toBe("/data");
+    expect(rawDisk[1]?.percent).toBe(90);
+    expect(rawDisk[2]?.mount).toBe("/backup");
+    expect(rawDisk[2]?.percent).toBe(95);
   });
 });
