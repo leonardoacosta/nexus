@@ -307,4 +307,37 @@ describe("computeFleetExceptions", () => {
     });
     expect(res).toEqual({ exceptions: [], skipped: [] });
   });
+
+  it("finds a repo nested one category level deep (~/dev/personal/nexus)", async () => {
+    const devRoot = makeDevRoot();
+    // ~/dev/personal is a category dir (no .git, no .beads of its own).
+    writeRepo(join(devRoot, "personal"), "nexus", {
+      issues: [{ id: "nx-p0", priority: 0 }],
+    });
+    const res = await computeFleetExceptions({ devRoot, now });
+    const nx = res.exceptions.find((e) => e.repo === "nexus" && e.class === "p0_open");
+    expect(nx).toBeDefined();
+    expect(nx!.count).toBe(1);
+  });
+
+  it("does not descend into a top-level entry that is itself a git repo", async () => {
+    const devRoot = makeDevRoot();
+    const repoPath = join(devRoot, "some-repo");
+    mkdirSync(join(repoPath, ".git"), { recursive: true });
+    // Nested dir that LOOKS like a leaf, but sits inside a real repo — must
+    // never be discovered, since "some-repo" is a git repo, not a category.
+    writeRepo(repoPath, "nested-fake", { issues: [{ id: "should-not-appear", priority: 0 }] });
+    const res = await computeFleetExceptions({ devRoot, now });
+    expect(res.exceptions).toEqual([]);
+    expect(res.skipped).toEqual([]);
+  });
+
+  it("still finds a flat depth-1 repo alongside a category-nested one", async () => {
+    const devRoot = makeDevRoot();
+    writeRepo(devRoot, "cc", { issues: [{ id: "cc-p0", priority: 0 }] });
+    writeRepo(join(devRoot, "personal"), "nexus", { issues: [{ id: "nx-p0", priority: 0 }] });
+    const res = await computeFleetExceptions({ devRoot, now });
+    const repos = res.exceptions.map((e) => e.repo).sort();
+    expect(repos).toEqual(["cc", "nexus"]);
+  });
 });
