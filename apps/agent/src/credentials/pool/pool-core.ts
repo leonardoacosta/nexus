@@ -404,6 +404,15 @@ export class CredentialPool {
 
           if (expired.length > 0) {
             const recoveredIds = expired.map((c) => c.id);
+            // The status guard here is load-bearing, not redundant with the
+            // `expired` SELECT above: under READ COMMITTED, a concurrent
+            // lease() call's recovery UPDATE can block on this row's lock,
+            // then unblock after this transaction commits. Postgres only
+            // re-evaluates the UPDATE's own WHERE clause against the new row
+            // version (EvalPlanQual) — an `id IN (...)`-only WHERE still
+            // matches and would stomp a freshly-leased row back to
+            // "available", double-leasing it. Requiring status = "cooldown"
+            // makes the re-check fail once this row has moved on.
             await tx
               .update(credentials)
               .set({
@@ -412,7 +421,12 @@ export class CredentialPool {
                 leasedAt: null,
                 cooldownUntil: null,
               })
-              .where(inArray(credentials.id, recoveredIds));
+              .where(
+                and(
+                  inArray(credentials.id, recoveredIds),
+                  eq(credentials.status, "cooldown"),
+                ),
+              );
 
             for (const credential of expired) {
               logger.info(
