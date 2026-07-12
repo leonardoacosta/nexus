@@ -14,14 +14,16 @@ import { describe, expect, it, spyOn, afterEach } from "bun:test";
 import { execFileSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 
+import { getGitStatus } from "./index";
 import {
   renderStatusline,
   modelEffortToken,
   modelFamilyLetter,
-  isBbProject,
-  gatePulseLine,
-  stripRadarStale,
-  getGitStatus,
+  formatSessionClock,
+  getBarWidth,
+} from "./render";
+import { isBbProject, gatePulseLine, stripRadarStale } from "./project";
+import {
   getRoadmapPulse,
   formatSpecsLine,
   formatRoadmapLine,
@@ -29,19 +31,12 @@ import {
   getRoadmapLine,
   getDriftLine,
   formatDriftLine,
-  formatSessionClock,
-  getBarWidth,
-  buildStdinUsage,
-  resolveUsage,
-  resolveContext,
-  getSpeed,
-  sessionContextPath,
-  writeSessionContext,
-  gcSessionContext,
-  polledUsageFromCache,
-  type CcInput,
-  type UsageResponse,
-} from "./index";
+} from "./agent-lines";
+import { buildStdinUsage, resolveUsage, polledUsageFromCache } from "./usage";
+import { resolveContext } from "./context-guard";
+import { getSpeed } from "./speed";
+import { sessionContextPath, writeSessionContext, gcSessionContext } from "./session-context";
+import type { CcInput, UsageResponse } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

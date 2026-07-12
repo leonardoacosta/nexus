@@ -60,7 +60,7 @@ import {
   getRoadmapLine,
   getDriftLine,
 } from "./agent-lines";
-import type { CcInput, StatuslineResponse, GitInfo } from "./types";
+import type { CcInput, GitInfo } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,31 +112,6 @@ export function getGitStatus(dir: string): GitInfo | null {
     return null;
   }
 }
-
-export type { CcInput, GitInfo, StatuslineResponse, UsageResponse } from "./types";
-
-// Shim re-exports for index.test.ts (deleted in the finalize step per plan 031 Step 9).
-export {
-  modelFamilyLetter,
-  modelEffortToken,
-  formatSessionClock,
-  getBarWidth,
-  renderStatusline,
-} from "./render";
-export { isBbProject, stripRadarStale, gatePulseLine } from "./project";
-export { buildStdinUsage, resolveUsage, polledUsageFromCache } from "./usage";
-export { resolveContext } from "./context-guard";
-export { sessionContextPath, writeSessionContext, gcSessionContext } from "./session-context";
-export { getSpeed } from "./speed";
-export {
-  getRoadmapPulse,
-  formatSpecsLine,
-  formatRoadmapLine,
-  getSpecsLine,
-  getRoadmapLine,
-  getDriftLine,
-  formatDriftLine,
-} from "./agent-lines";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
