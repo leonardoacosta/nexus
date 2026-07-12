@@ -233,10 +233,14 @@ export async function handleGetSessionById(db: Db, id: string): Promise<Response
  * Request body: { project: string, path: string }
  * Response: { session_name: string, started: boolean, session_id?: string, pid?: number }
  *
- * Persistence (fix-agent-cc-session-tracking 2.1): after the tmux window is
- * created, we capture the spawned shell PID via
- * `tmux list-windows -t <name> -F '#{pane_pid}'` and persist a new session
- * row carrying `pid`, `tmuxTarget`, `cwd`, and `model = "claude"` so that
+ * Persistence (fix-agent-cc-session-tracking 2.1): the tmux window is
+ * created via `tmux new-window -P -F '<target>|<pid>'`, which atomically
+ * reports the resolved `session:window.pane` target + pane pid in the
+ * SAME command (nx-3ulyn/nx-uytnw fix — a separate `list-windows -t
+ * <windowName>` lookup is ambiguous because `-t` resolves a SESSION
+ * target, not a window name, and fails whenever no session happens to
+ * share that literal name). We persist a new session row carrying `pid`,
+ * `tmuxTarget`, `cwd`, and `model = "claude"` so that
  * `/sessions?withFingerprint=true` immediately surfaces the row. The DB
  * argument is optional — when omitted (legacy callers / tests) the handler
  * still returns 200 but skips persistence.
@@ -289,16 +293,48 @@ export async function handleSessionStart(
   const ts = Date.now();
   const sessionName = `${body.project}-${ts}`;
 
-  // 4. Create tmux window.
+  // 4. Create tmux window AND atomically capture its resolved
+  //    `session:window.pane` target + pane pid via `-P -F`.
+  //
+  //    Bug this replaces (nx-3ulyn/nx-uytnw): `new-window` with no `-t`
+  //    lands the window in tmux's "current" session (whichever session is
+  //    attached / most-recently-used on this machine) — a session name we
+  //    cannot predict, since this agent doesn't own or assume a single
+  //    well-known tmux session (confirmed empirically: no hardcoded session
+  //    name exists anywhere in this codebase, and `list-panes -a` in
+  //    process-watcher.ts scans ALL sessions, not one fixed name). The old
+  //    code then ran a SEPARATE `tmux list-windows -t sessionName` where
+  //    `sessionName` is a WINDOW name, not a session name — `-t` for
+  //    `list-windows` resolves a SESSION target, so that lookup failed
+  //    with "can't find session: <sessionName>" whenever no session
+  //    happened to share that literal name (the common case), silently
+  //    dropping pid resolution.
+  //
+  //    `-P -F` sidesteps the entire ambiguity: tmux reports the actual
+  //    session/window/pane it just created the window under, in the same
+  //    command, so there is nothing left to guess.
+  let tmuxTarget: string | null = null;
+  let pid: number | null = null;
   try {
-    await execText("tmux", [
+    const out = await execText("tmux", [
       "new-window",
       "-d",
       "-c",
       body.path,
       "-n",
       sessionName,
+      "-P",
+      "-F",
+      "#{session_name}:#{window_index}.#{pane_index}|#{pane_pid}",
     ]);
+    const [target, pidStr] = out.trim().split("|");
+    if (target) {
+      tmuxTarget = target;
+    }
+    const parsed = parseInt(pidStr ?? "", 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      pid = parsed;
+    }
   } catch (err) {
     const stderr = err instanceof ExecError ? err.stderr : String(err);
     return new Response(
@@ -307,34 +343,25 @@ export async function handleSessionStart(
     );
   }
 
-  // 4b. Capture the spawned shell PID for the new window. This is the PID
-  //     that will host the `claude` process once `send-keys` fires. Best
-  //     effort — if pgrep / tmux output parsing fails we still surface the
-  //     tmuxTarget so `withFingerprint` filtering succeeds.
-  let pid: number | null = null;
-  try {
-    const out = await execText("tmux", [
-      "list-windows",
-      "-t",
-      sessionName,
-      "-F",
-      "#{pane_pid}",
-    ]);
-    const first = out.trim().split("\n")[0]?.trim() ?? "";
-    const parsed = parseInt(first, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      pid = parsed;
-    }
-  } catch (err) {
+  if (!tmuxTarget) {
     log.warn(
-      { sessionName, error: err instanceof Error ? err.message : String(err) },
-      "tmux list-windows failed; persisting row without pid",
+      { sessionName },
+      "tmux new-window -P output missing target; persisting row without pid/target",
     );
   }
 
-  // 5. Send claude command.
+  // 5. Send claude command. Target the resolved tmuxTarget captured in
+  //    step 4 (falls back to the bare window name only if -P output was
+  //    somehow missing) — a bare window name here carries the identical
+  //    ambiguous-target risk that broke pid resolution above.
   try {
-    await execText("tmux", ["send-keys", "-t", sessionName, "claude", "Enter"]);
+    await execText("tmux", [
+      "send-keys",
+      "-t",
+      tmuxTarget ?? sessionName,
+      "claude",
+      "Enter",
+    ]);
   } catch {
     // Best effort — the window was already created.
   }
@@ -363,7 +390,7 @@ export async function handleSessionStart(
         agent: null,
         tmuxSession: null,
         ccSessionId: null,
-        tmuxTarget: sessionName,
+        tmuxTarget: tmuxTarget ?? sessionName,
         rateLimitUtilization: null,
         rateLimitType: null,
         totalCostUsd: null,

@@ -21,6 +21,7 @@ import {
   it,
   beforeAll,
   afterAll,
+  afterEach,
   mock,
 } from "bun:test";
 
@@ -39,6 +40,18 @@ function setPgrepStub(lines: string[]): void {
   pgrepStubLines = lines;
 }
 
+// ── tmux `new-window -P -F` stub (handleSessionStart pid/target test only) ─
+//
+// Controls the stdout `execText("tmux", ["new-window", ...])` returns, so
+// tests can exercise the nx-3ulyn/nx-uytnw pid/tmuxTarget resolution fix
+// deterministically without a live tmux server. Shape matches what real
+// tmux 3.6a emits for `-F '#{session_name}:#{window_index}.#{pane_index}|#{pane_pid}'`
+// (verified empirically against a live tmux server during the fix).
+let tmuxNewWindowStdout = "";
+function setTmuxNewWindowStdout(out: string): void {
+  tmuxNewWindowStdout = out;
+}
+
 // RESTORABLE spyOn (nx-509z5 class) so the real `../utils/exec` is handed back
 // to sibling suites (utils/exec.test.ts) that load later. ExecError/
 // ExecTimeoutError stay REAL — see testing/mock-exec.ts.
@@ -47,6 +60,12 @@ const execMockHandle = installExecMock({
     if (cmd === "pgrep" && args[0] === "-af" && args[1] === "claude") {
       return pgrepStubLines.join("\n");
     }
+    if (cmd === "which" && args[0] === "tmux") {
+      return "/usr/bin/tmux";
+    }
+    if (cmd === "tmux" && args[0] === "new-window") {
+      return tmuxNewWindowStdout;
+    }
     return "";
   },
   execJson: async () => ({}),
@@ -54,7 +73,7 @@ const execMockHandle = installExecMock({
 
 afterAll(() => execMockHandle.restore());
 
-import { createSessionHandlers } from "./sessions";
+import { createSessionHandlers, handleSessionStart } from "./sessions";
 import { reconcileOnce } from "../services/process-watcher";
 import type { Db } from "@nexus/db";
 import { sessions, projects } from "@nexus/db";
@@ -410,3 +429,52 @@ describe.skipIf(!hasPg)(
     });
   },
 );
+
+// ── POST /session/start pid + tmuxTarget resolution (nx-3ulyn/nx-uytnw) ────
+//
+// No live PG required — `db` is omitted so the handler skips persistence
+// and returns 200 with whatever `pid` it resolved. This isolates the exact
+// regression: the old code ran a SEPARATE `tmux list-windows -t <windowName>`
+// call that failed because `-t` for `list-windows` resolves a SESSION
+// target, not a window name (confirmed against a live tmux 3.6a server:
+// `can't find session: probe-window`). The fix captures target + pid
+// atomically via `tmux new-window -P -F`, so there is no second, fallible
+// lookup at all.
+describe("POST /session/start pid + tmuxTarget resolution", () => {
+  afterEach(() => {
+    setTmuxNewWindowStdout("");
+  });
+
+  it("resolves pid from `new-window -P -F` output in one shot", async () => {
+    // Shape verified against real tmux: session:window.pane|pid.
+    setTmuxNewWindowStdout("basesession:2.1|54321\n");
+
+    const req = new Request("http://localhost/session/start", {
+      method: "POST",
+      body: JSON.stringify({ project: "nx-pid-fix-test", path: "/tmp" }),
+    });
+    const res = await handleSessionStart(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      pid?: number;
+      session_name: string;
+      started: boolean;
+    };
+    expect(body.started).toBe(true);
+    expect(body.pid).toBe(54321);
+  });
+
+  it("degrades to no pid (not a crash or 500) when -P output is empty", async () => {
+    setTmuxNewWindowStdout("");
+
+    const req = new Request("http://localhost/session/start", {
+      method: "POST",
+      body: JSON.stringify({ project: "nx-pid-fix-test-2", path: "/tmp" }),
+    });
+    const res = await handleSessionStart(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { pid?: number; started: boolean };
+    expect(body.started).toBe(true);
+    expect(body.pid).toBeUndefined();
+  });
+});
