@@ -104,12 +104,17 @@ pattern depends on the previous step's state, and gates must stay green after ev
       `"./render.ts"` — the brace-depth body scan and execSync/spawnSync/git-remote assertions are
       otherwise byte-identical. This is not the reshuffling/splitting the Scope section bans, and
       leaving it broken would make every later task's `bun test` gate in this plan unsatisfiable.
-- [ ] 5.1 Extract `usage.ts` (`FETCH_TIMEOUT_MS`, `PROFILE_CACHE_TTL`, the Anthropic Usage API [beads:nx-3g5j1]
+- [x] 5.1 Extract `usage.ts` (`FETCH_TIMEOUT_MS`, `PROFILE_CACHE_TTL`, the Anthropic Usage API [beads:nx-3g5j1]
       section). Convert `usageCachePath`/`profileCachePath` to `statePath(...)` calls.
       `getPolledUsage`'s body becomes a `readJsonCache<CachedUsage>` call — preserve any
       staleness-ceiling logic plan 027 added, wrapping the helper's result. Use
       `writeJsonAtomic` for the profile-cache write too (same cache-file class). Verify:
       `bun test` 0 fail, N' pass; package typecheck exit 0. (plans/031 Step 6)
+      Evidence: `bun test` → 133 pass / 0 fail (N' held). `pnpm --filter @nexus/statusline
+      typecheck` → exit 0. `polledUsageFromCache` (not explicitly named in the plan's Module Map
+      symbol list, but the staleness-ceiling logic the plan directs to preserve) moved to
+      usage.ts and stays exported + shimmed, since index.test.ts imports it directly. Commit
+      `b217f501`.
 - [ ] 6.1 Extract `context-guard.ts`, `session-context.ts`, `speed.ts` — the cache-io [beads:nx-3twi7]
       consolidation step: collapse each section's private read/write helpers onto
       `readJsonCache`/`writeJsonAtomic`. `writeSessionContext`'s inline tmp+rename block becomes
