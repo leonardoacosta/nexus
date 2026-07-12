@@ -679,11 +679,17 @@ export function sessionContextPath(pane: string): string {
  * (the suspicious-zero guard omitted the segment this frame) is a no-op, leaving
  * any prior good value in place rather than clobbering it with a zero. The model
  * letter is written whenever available — independently of the `usedPct` guard —
- * and omitted (no `model` key) when there is no model on this frame.
+ * and omitted (no `model` key) when there is no model on this frame. `git`
+ * (branch/dirty/ahead, already computed per-render at the call site for the
+ * left-status segment) rides along when `getGitStatus` resolved a value;
+ * `null`/`undefined` omits all three keys, so an older cc-tmux (or a fixture
+ * with no git data) sees exactly the pre-existing shape — the reader treats
+ * absent keys as "no data" (plan 004 cross-repo contract).
  */
 export function writeSessionContext(
   usedPct: number | null | undefined,
   modelLetter: string | null | undefined,
+  git?: GitInfo | null,
 ): void {
   try {
     const pane = process.env.TMUX_PANE;
@@ -695,6 +701,7 @@ export function writeSessionContext(
       JSON.stringify({
         context_used_pct: usedPct,
         ...(modelLetter ? { model: modelLetter } : {}),
+        ...(git ? { branch: git.branch, dirty: git.dirty, ahead: git.ahead } : {}),
         ts: nowSecs(),
       }),
       { mode: 0o600 },
@@ -1577,7 +1584,7 @@ async function main(): Promise<void> {
   // Resolve context once, harvest it to the per-pane cache for cc-tmux, then
   // pass the same value to the renderer.
   const resolvedContext = resolveContext(ccInput);
-  writeSessionContext(resolvedContext?.usedPct, modelFamilyLetter(ccInput.model));
+  writeSessionContext(resolvedContext?.usedPct, modelFamilyLetter(ccInput.model), git);
   gcSessionContext();
 
   const out = renderStatusline(ccInput, {

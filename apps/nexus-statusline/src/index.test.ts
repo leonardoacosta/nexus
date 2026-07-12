@@ -815,6 +815,32 @@ describe("writeSessionContext — per-pane cache (cc-tmux-bar-cleanup)", () => {
     expect(Object.keys(written).sort()).toEqual(["context_used_pct", "model", "ts"]);
   });
 
+  it("carries branch/dirty/ahead into the payload when a GitInfo is passed (plan 004)", () => {
+    process.env.TMUX_PANE = pane;
+    writeSessionContext(62, "F", { branch: "main", dirty: true, ahead: 3 });
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(written.branch).toBe("main");
+    expect(written.dirty).toBe(true);
+    expect(written.ahead).toBe(3);
+    expect(Object.keys(written).sort()).toEqual([
+      "ahead",
+      "branch",
+      "context_used_pct",
+      "dirty",
+      "model",
+      "ts",
+    ]);
+  });
+
+  it("omits all three git keys when git is null (same shape as the two-arg call)", () => {
+    process.env.TMUX_PANE = pane;
+    writeSessionContext(62, "F", null);
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect("branch" in written).toBe(false);
+    expect("dirty" in written).toBe(false);
+    expect("ahead" in written).toBe(false);
+  });
+
   it("outside tmux ($TMUX_PANE unset) is a no-op", () => {
     delete process.env.TMUX_PANE;
     writeSessionContext(62, "F");
