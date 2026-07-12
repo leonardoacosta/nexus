@@ -35,10 +35,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { __testing as activeTesting } from "./active-credential-watcher";
+import {
+  __testing as activeTesting,
+  startActiveCredentialWatcher,
+} from "./active-credential-watcher";
 import { computeCredentialFingerprint } from "./credentials.helpers";
 
 interface FakePoolCall {
@@ -223,4 +226,88 @@ describe("active-credential-watcher import-on-rotation (nx-44mby)", () => {
     expect(pool.calls.filter((c) => c.method === "add")).toHaveLength(1);
     expect(activeTesting.getSnapshot().fingerprint).toBeNull();
   });
+});
+
+describe("active-credential-watcher directory-watch survives atomic replace (nx-6uzqi)", () => {
+  let dir: string;
+  let credPath: string;
+  let ac: AbortController | null = null;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "nx-6uzqi-"));
+    credPath = join(dir, ".credentials.json");
+    activeTesting.resetSnapshot();
+  });
+
+  afterEach(async () => {
+    ac?.abort();
+    ac = null;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test(
+    "account switch via atomic rename-over updates activeFingerprint (regression: single-file fs.watch used to die silently after a rename-over, freezing the snapshot on the pre-switch account)",
+    async () => {
+      const oldPlaintext = validCred("PRESWITCH");
+      const oldFp = computeCredentialFingerprint(oldPlaintext);
+      await writeFile(credPath, oldPlaintext);
+
+      const pool = createFakePool([]);
+      // Short poll interval so the test doesn't need a real 60s wait. This
+      // also means the test proves the fix via the POLL FALLBACK path, not
+      // fs.watch: empirically, Bun's fs.watch (file- or directory-level)
+      // fires zero events for a rename-over-an-existing-file, so directory
+      // watching alone would NOT have caught this regression -- only the
+      // poll fallback does, which is exactly what makes this a real
+      // regression test rather than a re-test of the (still correct, but
+      // insufficient alone) directory-watch change.
+      ac = startActiveCredentialWatcher(
+        pool as unknown as Parameters<typeof startActiveCredentialWatcher>[0],
+        credPath,
+        150,
+      );
+
+      // Wait for the initial best-effort read + watcher startup to observe
+      // the pre-switch credential.
+      const deadline1 = Date.now() + 2000;
+      while (
+        activeTesting.getSnapshot().fingerprint !== oldFp &&
+        Date.now() < deadline1
+      ) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(activeTesting.getSnapshot().fingerprint).toBe(oldFp);
+
+      // Simulate the account switch: an ATOMIC replace via temp-file +
+      // rename INTO THE SAME DIRECTORY -- the class of write that kills a
+      // single-file fs.watch by invalidating the inode it's bound to (the
+      // nx-6uzqi root cause). A plain in-place writeFile would not exercise
+      // the regression: the old file-level watch handled in-place mutation
+      // fine and only broke on inode replacement.
+      const newPlaintext = validCred("POSTSWITCH");
+      const newFp = computeCredentialFingerprint(newPlaintext);
+      expect(newFp).not.toBe(oldFp);
+      const tmpFile = join(dir, ".credentials.json.tmp");
+      await writeFile(tmpFile, newPlaintext);
+      await rename(tmpFile, credPath);
+
+      // Give the directory watch + 200ms debounce time to fire and the
+      // fake pool.add() to resolve.
+      const deadline2 = Date.now() + 3000;
+      while (
+        activeTesting.getSnapshot().fingerprint !== newFp &&
+        Date.now() < deadline2
+      ) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+
+      expect(activeTesting.getSnapshot().fingerprint).toBe(newFp);
+      expect(
+        pool.calls.filter(
+          (c) => c.method === "add" && c.arg?.value_plaintext === newPlaintext,
+        ),
+      ).toHaveLength(1);
+    },
+    10000,
+  );
 });

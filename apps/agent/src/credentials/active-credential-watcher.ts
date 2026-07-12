@@ -37,10 +37,29 @@
  * directory contains snapshots that quickly go stale because Claude Code
  * rotates refresh tokens; this watcher is the one that keeps the pool in
  * sync with Claude Code's live rotation cadence.
+ *
+ * Freshness contract (nx-6uzqi): watches the PARENT DIRECTORY (not the file
+ * itself) so an in-place edit, a create, or a rename-into-place all have a
+ * chance to trigger a refresh, mirroring the same directory-watch convention
+ * `startCredentialWatcher()` already uses for the pool directory. That alone
+ * is NOT sufficient, though: empirically verified against this repo's actual
+ * Bun runtime, a rename-over-an-existing-file (the pattern most safe-write
+ * implementations use to replace a file atomically) fires ZERO fs.watch
+ * events under Bun 1.3.11, whether watching the file or its directory — a
+ * real gap in Bun's fs.watch, not a hypothesis. If Claude Code's account
+ * switch writes `.credentials.json` this way, watch-only leaves the
+ * snapshot stuck on the pre-switch account indefinitely (the reported
+ * symptom), same as the pre-fix single-file watch. The fix is defense in
+ * depth: a periodic poll (`POLL_INTERVAL_MS`, matching the 60s cadence
+ * `pool-core.ts`'s `startCleanup()` already uses for background
+ * maintenance in this same module family) unconditionally re-reads the
+ * live file on a fixed cadence regardless of whether any fs.watch event
+ * fired, bounding worst-case staleness to one poll interval instead of
+ * "until the agent restarts."
  */
 
 import { watch, readFile, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@nexus/core/node";
@@ -67,6 +86,8 @@ type WatcherPool = {
 const log = createLogger("agent:active-credential-watcher");
 
 const DEBOUNCE_MS = 200;
+/** Poll-fallback cadence -- mirrors pool-core.ts's `startCleanup()` default. */
+const POLL_INTERVAL_MS = 60_000;
 const CC_CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
 
 /**
@@ -247,17 +268,44 @@ async function runRefresh(
 /**
  * Start the active-credential watcher.
  *
- * Returns an AbortController; calling `abort()` stops the watcher and
- * resolves the outstanding `fs.watch` iterator.
+ * `credentialPath` defaults to `~/.claude/.credentials.json` in production;
+ * tests pass an in-tmpdir path so the real fs.watch wiring below (not just
+ * `runRefresh`'s parsing logic) gets exercised. `pollIntervalMs` defaults to
+ * `POLL_INTERVAL_MS` (60s); tests pass a much shorter interval so the
+ * poll-fallback path (see file-level doc comment, nx-6uzqi) doesn't require
+ * a real 60s wait.
+ *
+ * Returns an AbortController; calling `abort()` stops the watcher, the poll
+ * fallback, and resolves the outstanding `fs.watch` iterator.
  */
 export function startActiveCredentialWatcher(
   pool: CredentialPool,
+  credentialPath: string = CC_CREDENTIALS_PATH,
+  pollIntervalMs: number = POLL_INTERVAL_MS,
 ): AbortController {
   const ac = new AbortController();
+  // Watch the PARENT DIRECTORY, not the file itself (nx-6uzqi root cause).
+  // Claude Code replaces .credentials.json atomically on token rotation AND
+  // on account switch (`claude auth login`) -- most likely a temp-file+
+  // rename swap, matching the "symlink swap works instantly" behaviour
+  // recorded in project memory for how CC re-reads this file. A rename-over
+  // (or symlink repoint) deletes the inode a single-file inotify watch is
+  // bound to: the watch is invalidated (IN_IGNORED) and the fs.watch
+  // iterator silently stops yielding further events -- no error, no more
+  // scheduleRefresh() calls, ever -- freezing the snapshot at whatever
+  // fingerprint was active before the switch until the agent restarts.
+  // Watching the parent directory and filtering by filename survives this:
+  // the watch is bound to the directory's stable inode, and directory-level
+  // inotify events (create/rename/delete of an entry) fire regardless of
+  // inode churn on the target file. This mirrors the pattern already used
+  // by `startCredentialWatcher` in ./credential-watcher.ts for the sibling
+  // pool directory -- same fix, same convention, applied here too.
+  const credentialDir = dirname(credentialPath);
+  const credentialFilename = basename(credentialPath);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function refresh(): Promise<void> {
-    await runRefresh(pool, CC_CREDENTIALS_PATH);
+    await runRefresh(pool, credentialPath);
     log.debug(
       {
         fingerprint: snapshot.fingerprint?.slice(0, 8) ?? null,
@@ -280,6 +328,24 @@ export function startActiveCredentialWatcher(
     }, DEBOUNCE_MS);
   }
 
+  // Poll fallback (nx-6uzqi): unconditionally re-reads the live file on a
+  // fixed cadence regardless of fs.watch. Started unconditionally (not
+  // nested inside the fs.watch try/catch below) so it still bounds
+  // staleness even if the directory doesn't exist yet or the watch loop
+  // errors out. Cleared on abort via the signal listener, independent of
+  // the debounce-timer cleanup in the finally block below.
+  const pollTimer = setInterval(() => {
+    refresh().catch((err) => {
+      log.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "active credential poll-fallback refresh failed",
+      );
+    });
+  }, pollIntervalMs);
+  ac.signal.addEventListener("abort", () => clearInterval(pollTimer), {
+    once: true,
+  });
+
   (async () => {
     // Best-effort initial read — populates the snapshot before the first event.
     try {
@@ -289,21 +355,28 @@ export function startActiveCredentialWatcher(
     }
 
     try {
-      // Verify the file exists before starting a watcher; `fs.watch` on a
-      // missing file throws synchronously on some platforms.
+      // Verify the directory exists before starting a watcher; `fs.watch` on
+      // a missing path throws synchronously on some platforms. Checking the
+      // DIRECTORY (not the file) also means the watcher now starts even
+      // before the first `claude auth login` has ever created the
+      // credentials file -- it'll pick up the create event once it lands.
       try {
-        await stat(CC_CREDENTIALS_PATH);
+        await stat(credentialDir);
       } catch {
         log.info(
-          { path: CC_CREDENTIALS_PATH },
-          "active credential file not found; watcher will not start",
+          { dir: credentialDir },
+          "active credential directory not found; watcher will not start",
         );
         return;
       }
 
-      log.info({ path: CC_CREDENTIALS_PATH }, "active credential watcher started");
-      const watcher = watch(CC_CREDENTIALS_PATH, { signal: ac.signal });
-      for await (const _event of watcher) {
+      log.info(
+        { dir: credentialDir, filename: credentialFilename },
+        "active credential watcher started",
+      );
+      const watcher = watch(credentialDir, { signal: ac.signal });
+      for await (const event of watcher) {
+        if (event.filename !== credentialFilename) continue;
         scheduleRefresh();
       }
     } catch (err) {
