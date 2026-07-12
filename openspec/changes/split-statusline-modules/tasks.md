@@ -177,16 +177,22 @@ pattern depends on the previous step's state, and gates must stay green after ev
 
 ## E2E Batch
 
-- [ ] 9.1 Binary proof: `cd apps/nexus-statusline && bun run build` → exit 0. Pipe a fixture [beads:nx-6y74d]
+- [x] 9.1 Binary proof: `cd apps/nexus-statusline && bun run build` → exit 0. Pipe a fixture [beads:nx-6y74d]
       stdin frame through the real compiled binary (exact command in plans/031 Step 10) and
       confirm the rendered line contains `CTX`, `55%`, `90k/200k`, the project token, and an `O`
       model token — proving the split composes correctly through `bun build --compile`, not just
       through the test runner's module resolution. (plans/031 Step 10)
-- [ ] 9.2 Line-count gate: `wc -l apps/nexus-statusline/src/*.ts` — every file <= 500 except [beads:nx-64wri]
+      Evidence: `bun run build` → exit 0, bundled 9 modules, compiled. Fixture pipe output:
+      `◉ 9  <project>  O  apply/20260712-0826-1fd1fdcb*  ↑16  CTX ═════───── 55% 90k/200k  5H ...`
+      — contains CTX, 55%, 90k/200k, project token, and O model token. Binary correctly stays
+      gitignored (`git status --short apps/nexus-statusline/` empty).
+- [x] 9.2 Line-count gate: `wc -l apps/nexus-statusline/src/*.ts` — every file <= 500 except [beads:nx-64wri]
       `index.test.ts`. If `render.ts` alone exceeds 500, extract the gauge-rendering block into a
       new `src/gauges.ts` imported by `render.ts`, update the test import for `getBarWidth`, and
       re-run this check. (plans/031 Step 10)
-- [ ] 9.3 Full gates: `pnpm typecheck` (exit 0), `pnpm lint` (no new errors in changed files), [beads:nx-xd7y5]
+      Evidence: every file <= 500 except index.test.ts (1537, allowed). render.ts landed at 468 —
+      no gauges.ts split needed.
+- [x] 9.3 Full gates: `pnpm typecheck` (exit 0), `pnpm lint` (no new errors in changed files), [beads:nx-xd7y5]
       root `bun test` (no new failures attributable to changed files), `pnpm lint:sql-safety`
       (exit 0 — plan 023 already landed). `git status --short` shows only in-scope files
       modified. Confirm the specific done-criteria greps: zero `interface CachedUsage` outside
@@ -194,3 +200,54 @@ pattern depends on the previous step's state, and gates must stay green after ev
       `statusline-usage-file.ts`; the `renameSync` grep finds matches only inside `cache-io.ts`
       (plus the one documented exception noted in plans/031 Done criteria, if it applies).
       (plans/031 Step 10)
+      Evidence:
+      - `pnpm typecheck` (repo-wide): FAILS in `@nexus/db` (missing `bun:test` types) and
+        `@nexus/agent` (`credentials.test.ts` duplicate `initCredentialRoutes` import, already
+        documented pre-existing in task 1.2's evidence). Both confirmed pre-existing via
+        `git diff --stat main...HEAD` on those paths = empty. `pnpm --filter @nexus/statusline
+        --filter @nexus/statusline-contract --filter @nexus/agent typecheck` isolates the same:
+        statusline + contract typecheck clean, only agent's pre-existing error surfaces.
+      - `pnpm lint`: found + fixed 1 genuine issue (dead `buildStdinUsage` import left over from
+        8.1's shim removal — commit `9bcb7934`, in scope). Remaining: 1 pre-existing warning
+        (`project.ts`'s `selfName`, verbatim-preserved from the original `getLocalAgentUrl`, left
+        untouched per move-verbatim discipline). `apps/agent` lint: 46 pre-existing warnings, 0
+        errors, none touching `statusline-usage-file.ts`.
+      - `pnpm lint:sql-safety`: exit 0, clean.
+      - `git status --short`: only in-scope files modified (`.session.json` is an untracked
+        harness artifact, not part of this work).
+      - Grep checks: zero `interface CachedUsage` outside `packages/statusline-contract/`;
+        exactly 1 `@nexus/statusline-contract` import line in `statusline-usage-file.ts`; zero
+        `renameSync` outside `cache-io.ts`/tests. All pass.
+      - Root `bun test`: found 37-48 failures depending on run (see deviation note below) —
+        traced every bucket. `parseConfig`, `forwardOrLocal`, and `apps/web/.../
+        radar-hidden.test.ts` (missing `~/lib/agent-radar-client` module) are pre-existing,
+        confirmed by isolated single-file re-runs (0 fail each) — they only fail under the full
+        184-file parallel suite's resource contention, unrelated to this branch.
+      **Third authorized deviation (STOP condition, team-lead-approved before landing,
+      commit `1af1ca02`):** splitting index.ts moved 2 `childProcess.spawn(...)` call sites
+      (roadmap-pulse + bead/roadmap curl refresh) from `index.ts` into the new `agent-lines.ts`.
+      `.audit-suppressions.json`'s D4 (unsuppressed-spawn-call) rule hardcoded the literal path
+      `apps/nexus-statusline/src/index.ts`, so those 2 sites surfaced as new unsuppressed D4
+      findings, regressing `packages/core/src/audit-suppressions.integration.test.ts`'s baseline
+      assertions — a file explicitly on plan 031's OUT-OF-SCOPE list (`packages/core/**`).
+      Fixed by relocating the literal path string to `apps/nexus-statusline/src/agent-lines.ts`
+      in both `.audit-suppressions.json` (repo root) and the test's
+      `EXPECTED_UNSUPPRESSED_D4_FILES` set — nothing else changed in either file. Verified two
+      ways: (1) direct `audit-scan --project . --json --category security` shows zero D4 findings
+      in `agent-lines.ts` post-fix (was 2 pre-fix), `suppressions.by_config` rose 6→8; (2) a
+      deterministic single-file isolated comparison (`bun test packages/core/src/
+      audit-suppressions.integration.test.ts`, run identically against a temp `main`-checkout
+      worktree and against this branch) produced IDENTICAL failure sets both ways — proving the
+      remaining ~18-20 failures in that file (composite score stuck at 78 vs an expected >= 99
+      floor, B4 finding count 13-14 vs expected 0, `ENOENT` on `apps/nextjs/src/components/
+      CredentialsTable.tsx` which doesn't exist) are 100% pre-existing on `main`, unrelated to
+      this migration — a separate, already-broken architecture-audit baseline this change did
+      not introduce and is not responsible for fixing. The full-root-suite `bun test` run count
+      for this one file is flaky under parallel resource contention (each test case shells out to
+      a 3-5s `audit-scan` subprocess; 184 files running concurrently causes intermittent
+      timeouts) — confirmed by re-running the full suite 3 times and getting 3 different
+      fail counts (37/38/48) for the identical committed code, while the isolated single-file
+      run is fully deterministic across repeated runs. Two temporary comparison worktrees used
+      for this investigation were created via `git worktree add --detach main` and removed via
+      `git worktree add --force` immediately after use; neither touched this session's working
+      tree or committed state.
