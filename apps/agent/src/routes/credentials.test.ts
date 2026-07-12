@@ -23,7 +23,6 @@ import {
   handleCredentialHealth,
   handleSwapCredential,
   getCredentialPool,
-  initCredentialRoutes,
 } from "./credentials";
 import {
   readCredentials,
