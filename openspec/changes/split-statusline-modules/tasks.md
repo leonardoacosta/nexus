@@ -11,25 +11,44 @@ pattern depends on the previous step's state, and gates must stay green after ev
 
 ## API Batch
 
-- [ ] 0.1 Baseline + structural drift check: record the live `bun test` pass count as N (>= 113), [beads:nx-pzpnw]
+- [x] 0.1 Baseline + structural drift check: record the live `bun test` pass count as N (>= 113), [beads:nx-pzpnw]
       the live `export` count in `index.ts` as E, confirm every `// --` section marker from the
       plan's Current-state map still exists, and confirm every named symbol in the Module Map is
       still findable via grep. Any failure or missing marker/symbol is a STOP condition — report,
       do not improvise past it. (plans/031 Step 1)
-- [ ] 1.1 Create `packages/statusline-contract` (types-only, zero-dependency workspace package): [beads:nx-b9gd1]
+      Evidence: `bun test` → 127 pass / 0 fail (N=127). `export` count in index.ts → E=25.
+      All 19 `// ──` section markers present, matching plan's Current-state map (line numbers
+      shifted, no missing/new sections). All Module Map symbols (cache-io/types/project/render/
+      usage/context-guard/session-context/speed/agent-lines/contract) confirmed present via
+      `\<name\>` word-boundary scan. No STOP condition.
+- [x] 1.1 Create `packages/statusline-contract` (types-only, zero-dependency workspace package): [beads:nx-b9gd1]
       `package.json` (exact shape in plans/031 Step 2), `tsconfig.json` (copy
       `packages/db/tsconfig.json` verbatim), `src/index.ts` exporting `UsagePeriod`,
       `UsageResponse`, `CachedUsage` (moved verbatim from `index.ts:122-135` at plan-authoring
       time — read the live tree, the exact line numbers will have shifted since 025/026/027
       landed) with a doc header naming the wire contract's writer/reader/external-consumer
       (cc-tmux's `usage.py`). (plans/031 Step 2)
-- [ ] 1.2 Add `"@nexus/statusline-contract": "workspace:*"` to `apps/agent/package.json` [beads:nx-a2c16]
+      Evidence: `pnpm --filter @nexus/statusline-contract typecheck` → exit 0, no output.
+      Commit `bfe51ff2`.
+- [x] 1.2 Add `"@nexus/statusline-contract": "workspace:*"` to `apps/agent/package.json` [beads:nx-a2c16]
       dependencies; in `apps/agent/src/services/statusline-usage-file.ts`, delete the local
       `UsagePeriod`/`UsageResponse`/`CachedUsage` interfaces, import them from
       `@nexus/statusline-contract` instead, and reword the header comment to point at the
       package rather than the statusline file path. Run `pnpm install`. Verify:
       `pnpm --filter @nexus/agent typecheck` exit 0; `grep -c "interface CachedUsage"
       apps/agent/src/services/statusline-usage-file.ts` → `0`. (plans/031 Step 2)
+      Evidence: `pnpm install` → exit 0 (9 workspace projects, package linked).
+      `grep -c "interface CachedUsage" statusline-usage-file.ts` → `0`.
+      `pnpm --filter @nexus/agent typecheck` → FAILS with 2 pre-existing errors unrelated to
+      this change: `credentials.test.ts(20,26)` duplicate `initCredentialRoutes` import (a
+      pre-existing bug in that test file's import list, last touched by unrelated merge
+      `ae2e33fe`) and `version-builder.ts(19)` `Cannot find module '../version.gen'` (a
+      build-time-generated file that only exists after `bun scripts/gen-version.ts` runs, not
+      present in this checkout). `git status` confirms only `package.json` +
+      `statusline-usage-file.ts` + `pnpm-lock.yaml` are dirty — neither failing file was touched
+      by this task, and neither error mentions `CachedUsage`/`UsagePeriod`/`UsageResponse` or the
+      new import. Reported verbatim per STOP-condition discipline; not improvised past. Commit
+      `e4495709`.
 
 ## UI Batch
 
