@@ -152,7 +152,9 @@ export function createSocketEventDispatcher(
 
         // Revive the dormant notification path (nx-f060f D1). A crash stop
         // (crash_flag or stop_reason ∈ CRASH_STOP_REASONS) fires a desktop
-        // notification whose body carries the captured error text. Map the
+        // notification whose body carries the captured error text;
+        // stop_reason "api_error" routes separately to apiErrorRule
+        // (desktop+tts) — see dispatchStopNotification (nx-7tfim). Map the
         // SessionStopEvent wire fields onto the HookEventPayload shape the rule
         // reads, then hand off to the shared trigger orchestrator (suppression
         // + settings filter + manager.send live there). Fire-and-forget — the
@@ -366,6 +368,12 @@ export function createSocketEventDispatcher(
    *
    * The non-crash case is filtered inside `sessionStopRule` itself
    * (`isCrashStop` returns null), so a normal stop produces no notification.
+   *
+   * `stop_reason === "api_error"` is routed to the synthetic `api_error`
+   * eventType key instead of `session_stop` (nx-7tfim), so `apiErrorRule`
+   * (desktop+tts, severity error) fires instead of `sessionStopRule` — which
+   * explicitly excludes `api_error` from CRASH_STOP_REASONS and would
+   * otherwise silently produce no notification for this stop reason.
    */
   function dispatchStopNotification(event: SessionStopEvent): void {
     if (!db || !getNotificationManager) return;
@@ -382,10 +390,18 @@ export function createSocketEventDispatcher(
       error_details: event.error_details,
     };
 
-    evaluateAndDispatch(db, manager, "session_stop", payload).catch(
+    // api_error crash stops route to the `api_error` rule key (desktop+tts,
+    // severity error) — every other stop_reason keeps going through
+    // `session_stop` (`sessionStopRule`, desktop only). See CRASH_STOP_REASONS
+    // in `notifications/hook-rules.ts` for why api_error can't just stay in
+    // that set.
+    const eventType =
+      event.stop_reason === "api_error" ? "api_error" : "session_stop";
+
+    evaluateAndDispatch(db, manager, eventType, payload).catch(
       (err: unknown) => {
         log.warn(
-          { err, sessionId: event.session_id },
+          { err, sessionId: event.session_id, eventType },
           "socket: session_stop notification dispatch rejected (best-effort)",
         );
       },

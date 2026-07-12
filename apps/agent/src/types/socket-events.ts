@@ -30,9 +30,12 @@ export interface SessionStopEvent {
   session_id: string;
   /**
    * Why the session stopped. Sent today on the wire by the CC Stop hook but
-   * previously untyped; one of {error, api_error, crash, timeout, oom} marks a
-   * crash (see `notifications/hook-rules.ts` CRASH_STOP_REASONS). Persisted to
-   * `sessions.stop_reason` via `recordSessionStop` (nx-f060f).
+   * previously untyped; one of {error, crash, timeout, oom} marks a crash via
+   * `crash_flag` / CRASH_STOP_REASONS (see `notifications/hook-rules.ts`).
+   * `"api_error"` is also a crash, but is routed by
+   * `dispatchStopNotification` to the separate `apiErrorRule` (desktop+tts)
+   * instead — see `services/socket-server/dispatcher.ts` (nx-7tfim).
+   * Persisted to `sessions.stop_reason` via `recordSessionStop` (nx-f060f).
    */
   stop_reason?: string;
   /**
@@ -83,16 +86,6 @@ export interface NotificationEvent {
   project?: string;
   question?: string;
   session_id?: string;
-  /**
-   * Optional discriminator marking this `notification` as a synthesized
-   * mid-session emit rather than a generic project notification
-   * (add-api-error-notification, nx-gknjj). Currently the only value is
-   * `"api_error"`, emitted by the token-stream tail-watcher's `onApiError`
-   * callback when an `API Error:` line is observed mid-session. The
-   * `apiErrorRule` reads this to classify the event into desktop+tts error
-   * drafts. Absent on every other notification — generic emits leave it unset.
-   */
-  reason?: "api_error";
 }
 
 export interface AnswerEvent {

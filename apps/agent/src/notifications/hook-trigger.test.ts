@@ -164,7 +164,7 @@ describe("suppression cache", () => {
     const { manager, sends } = makeFakeManager();
 
     const apiErr = (text: string) =>
-      payload({ reason: "api_error", error_message: text, session_id: "sess-1" });
+      payload({ stop_reason: "api_error", error_message: text, session_id: "sess-1" });
 
     await evaluateAndDispatch(db, manager, "api_error", apiErr("API Error: 529 Overloaded"));
     await evaluateAndDispatch(db, manager, "api_error", apiErr("API Error: 529 Overloaded"));
@@ -181,7 +181,7 @@ describe("suppression cache", () => {
     const { manager, sends } = makeFakeManager();
 
     const apiErr = (sessionId: string) =>
-      payload({ reason: "api_error", error_message: "API Error: 529 Overloaded", session_id: sessionId });
+      payload({ stop_reason: "api_error", error_message: "API Error: 529 Overloaded", session_id: sessionId });
 
     // Two distinct sessions, same window: each keys on its own session_id, so
     // each delivers once (desktop + tts) -> 4 sends total.

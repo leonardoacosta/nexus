@@ -7,11 +7,25 @@
  * verify here that the `project` field flows through to the bus envelope.
  */
 
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  expect,
+  test,
+  mock,
+  beforeEach,
+  afterEach,
+  spyOn,
+} from "bun:test";
 import type { SocketEvent } from "../../types/socket-events";
 import type { WatcherEvent } from "@nexus/core";
+import type { Db } from "@nexus/db";
 import type { SessionManager } from "../../session-manager";
 import type { LifecycleEnvelope } from "../lifecycle-bus";
+import type { NotificationManager } from "../../notifications/manager";
+// Restorable spy target for the api_error routing suite below — never
+// `mock.module` a shared module like hook-trigger.ts (contamination class,
+// see reference_bun_mock_module_contamination memory / nx-509z5 precedent).
+import * as hookTrigger from "../../notifications/hook-trigger";
 
 // ─── Module mocks (must register before importing dispatcher) ────────────────
 
@@ -102,5 +116,77 @@ describe("socket-server dispatcher: NotificationFired event project preservation
     expect(received).toHaveLength(1);
     expect(received[0]!.payload.channel.split(",")).toContain("tts");
     expect(received[0]!.payload.body).toBe("spec applied");
+  });
+});
+
+// ─── session_stop api_error routing (nx-7tfim) ───────────────────────────────
+//
+// Regression pin for the wiring gap found while removing the dead mid-session
+// api_error emit path: `dispatchStopNotification` used to ALWAYS call
+// `evaluateAndDispatch(..., "session_stop", ...)`, so a stop_reason ===
+// "api_error" crash stop hit `sessionStopRule` — which explicitly excludes
+// api_error from CRASH_STOP_REASONS — and produced ZERO notifications.
+// `apiErrorRule` (registered under the synthetic `api_error` key) was
+// unreachable in production. These tests drive the real dispatcher (not
+// `evaluateAndDispatch` directly) and assert the eventType key it is called
+// with, proving the routing decision itself — not just the rule body.
+describe("socket-server dispatcher: session_stop api_error routing (nx-7tfim)", () => {
+  let dispatch: (event: SocketEvent) => void;
+  let evalSpy: ReturnType<typeof spyOn<typeof hookTrigger, "evaluateAndDispatch">>;
+
+  beforeEach(async () => {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+
+    evalSpy = spyOn(hookTrigger, "evaluateAndDispatch").mockImplementation(
+      async () => {},
+    );
+
+    dispatch = createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: new LifecycleBus(),
+      db: {} as unknown as Db,
+      getNotificationManager: () => ({}) as unknown as NotificationManager,
+    });
+  });
+
+  afterEach(() => {
+    evalSpy.mockRestore();
+  });
+
+  test("routes a stop_reason='api_error' stop to the synthetic api_error eventType key", async () => {
+    const event: SocketEvent = {
+      event: "session_stop",
+      session_id: "sess-api-err",
+      stop_reason: "api_error",
+      error_details: "API Error: 529 Overloaded",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(evalSpy).toHaveBeenCalledTimes(1);
+    const [, , eventType, payload] = evalSpy.mock.calls[0]!;
+    expect(eventType).toBe("api_error");
+    expect(payload).toMatchObject({
+      stop_reason: "api_error",
+      session_id: "sess-api-err",
+      error_details: "API Error: 529 Overloaded",
+    });
+  });
+
+  test("keeps routing a non-api_error crash stop through the session_stop eventType key", async () => {
+    const event: SocketEvent = {
+      event: "session_stop",
+      session_id: "sess-oom",
+      stop_reason: "oom",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(evalSpy).toHaveBeenCalledTimes(1);
+    const [, , eventType] = evalSpy.mock.calls[0]!;
+    expect(eventType).toBe("session_stop");
   });
 });

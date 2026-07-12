@@ -1,15 +1,19 @@
 /**
  * Hook event → notification rules. Curated routing policy mirrored from
  * `~/.claude/scripts/hooks/telemetry.sh` (see "Event destination routing"
- * section, curated 2026-04-24). Five v1 rules:
+ * section, curated 2026-04-24). Six rules:
  *
  *   tool_use_fail      → desktop                (level 50, error)
  *   permission_request → desktop + tts          (level 40, friction signal)
  *   hook_failure       → desktop                (level 50, error)
  *   session_stop crash → desktop                (when crash_flag === true OR
- *                                                stop_reason ∈ {error,api_error,
- *                                                crash,timeout,oom})
+ *                                                stop_reason ∈ {error,crash,
+ *                                                timeout,oom})
  *   session_summary    → desktop digest         (when cost_usd >= 0.50)
+ *   api_error           → desktop + tts          (stop_reason === "api_error";
+ *                                                routed via the synthetic
+ *                                                `api_error` eventType key —
+ *                                                see apiErrorRule / nx-7tfim)
  *
  * Slack channel was removed by `remove-slack-channel` (spine-migration); the
  * desktop channel carries the same error signal via UNNotificationCenter.
@@ -46,8 +50,12 @@ export const COST_DIGEST_THRESHOLD_USD = 0.5;
  * Stop reasons that count as a crash even when `crash_flag` is unset.
  *
  * `api_error` was REMOVED here (add-api-error-notification, nx-kaxig) and ceded
- * to `apiErrorRule`, which owns the desktop+tts error classification for both
- * mid-session emits and `stop_reason === "api_error"` stops. `sessionStopRule`
+ * to `apiErrorRule`, which owns the desktop+tts error classification for
+ * `stop_reason === "api_error"` stops. `dispatchStopNotification`
+ * (`services/socket-server/dispatcher.ts`) routes those stops to the
+ * synthetic `api_error` eventType key instead of `session_stop` — that
+ * routing was missing until nx-7tfim, so api_error crash stops previously
+ * produced zero notifications despite this exclusion. `sessionStopRule`
  * retains `error`, `crash`, `timeout`, `oom`.
  */
 const CRASH_STOP_REASONS = new Set([
@@ -187,17 +195,18 @@ function isCrashStop(payload: HookEventPayload): boolean {
 
 /**
  * Predicate for the api-error rule (add-api-error-notification, nx-06bbb).
- * Fires for two distinct payload shapes that both mean "Claude hit an API
- * Error (rate-limit / overload / transport)":
+ * Fires when the CC Stop hook reports `stop_reason === "api_error"`.
+ * `sessionStopRule` no longer claims this reason (nx-kaxig).
  *
- *  1. Mid-session emit — the token-stream tail-watcher's `onApiError` callback
- *     posts a `notification` socket event carrying `reason: "api_error"`. The
- *     dispatcher maps it onto a HookEventPayload before this rule runs.
- *  2. Crash stop — the CC Stop hook reports `stop_reason === "api_error"`.
- *     `sessionStopRule` no longer claims this reason (nx-kaxig).
+ * A second payload shape — a mid-session emit carrying `reason: "api_error"`,
+ * sourced from the token-stream tail-watcher's `onApiError` callback —
+ * previously fired this predicate too. `read-cc-telemetry-from-influxdb`
+ * deleted the token-stream module, and nothing in the dispatcher ever read
+ * `reason` off the `"notification"` socket event to reach this rule, so that
+ * shape was dead code with no live producer. Removed nx-7tfim.
  */
 function isApiError(payload: HookEventPayload): boolean {
-  return payload.reason === "api_error" || payload.stop_reason === "api_error";
+  return payload.stop_reason === "api_error";
 }
 
 // ─── Rule bodies ─────────────────────────────────────────────────────────────
@@ -275,19 +284,19 @@ const sessionStopRule: HookRule = (payload) => {
  *
  * Emits BOTH a desktop and a tts draft at `priority: "high"` and
  * `severity: "error"`, with a project-prefixed body `api error: <text>`.
- * Fires for mid-session emits (`reason: "api_error"`) AND `api_error` crash
- * stops — see `isApiError`. Registered in the rule registry under the synthetic
- * key `api_error`; the trigger orchestrator keys suppression on
- * `api_error:<session_id>` so a multi-minute 529 outage alerts once per session
- * (nx-avasg).
+ * Fires for `stop_reason === "api_error"` crash stops — see `isApiError`.
+ * Registered in the rule registry under the synthetic key `api_error`;
+ * `dispatchStopNotification` (`services/socket-server/dispatcher.ts`) routes
+ * a session stop whose `stop_reason` is `"api_error"` to this key instead of
+ * `"session_stop"` (nx-7tfim — this routing was missing until now, so
+ * api_error crash stops previously produced no notification at all). The
+ * trigger orchestrator keys suppression on `api_error:<session_id>` so a
+ * multi-minute 529 outage alerts once per session (nx-avasg).
  *
- * LIVE-SESSION COVERAGE (nx-ybwuz): the mid-session emit path depends on a
- * tail-watcher being active for the session. `TokenStreamLifecycle.startWatcher`
- * is invoked on every `SessionStarted` lifecycle event and resumed on agent
- * restart for non-ended sessions (`apps/agent/src/index.ts`), so live sessions
- * DO have a host — no extra gating is required. The only uncovered window is a
- * session whose transcript could not be located (watcher start skipped); that
- * session still gets the crash-stop path (`stop_reason: "api_error"`).
+ * A mid-session emit path (`reason: "api_error"`, sourced from a token-stream
+ * tail-watcher's `onApiError` callback) previously fed this rule too, but the
+ * token-stream module was deleted by `read-cc-telemetry-from-influxdb` and
+ * nothing replaced it as a producer — removed nx-7tfim. See `isApiError`.
  */
 const apiErrorRule: HookRule = (payload) => {
   if (!isApiError(payload)) return null;

@@ -34,7 +34,6 @@ export interface HookEventPayload {
   compaction_count?: number;
   agent_spawns?: number;
   duration_ms?: number;
-  reason?: string;
   stop_reason?: string;
   // session_summary token + cost fields
   cost_usd?: number;
@@ -93,8 +92,11 @@ export interface HookEventPayload {
   /**
    * `session_stop` crash predicate (Wave 3 notification trigger). When true,
    * the session_stop rule fires desktop+slack. Either this flag or a
-   * `stop_reason` of error/api_error/crash/timeout/oom counts as a crash —
-   * see `notifications/hook-rules.ts`.
+   * `stop_reason` of error/crash/timeout/oom counts as a crash — see
+   * `notifications/hook-rules.ts` CRASH_STOP_REASONS. `stop_reason ===
+   * "api_error"` is also a crash, but routes to the separate `apiErrorRule`
+   * (desktop+tts) via the dispatcher, not this flag — see
+   * `services/socket-server/dispatcher.ts` `dispatchStopNotification`.
    */
   crash_flag?: boolean;
 }

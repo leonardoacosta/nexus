@@ -207,27 +207,6 @@ describe("session_stop rule", () => {
 // ─── api_error rule (add-api-error-notification, nx-4elo3) ──────────────────────
 
 describe("api_error rule", () => {
-  it("fires desktop + tts with severity error for a mid-session emit", () => {
-    // Mid-session emit: the tail-watcher's onApiError maps the api-error text
-    // onto error_message + reason="api_error".
-    const drafts = hookRules.api_error!(
-      payload({
-        reason: "api_error",
-        error_message: "API Error: 529 Overloaded",
-      }),
-    );
-    expect(channels(drafts)).toEqual(["desktop", "tts"]);
-    for (const d of drafts!) {
-      expect(d.severity).toBe("error");
-      expect(d.priority).toBe("high");
-      expect(d.body).toContain("529 Overloaded");
-      expect(d.body.startsWith("nx: ")).toBe(true);
-      expect(d.title).toContain("api error");
-      // mx-7i4k: session id threads through for iOS deep-link.
-      expect(d.sessionId).toBe("sess-test");
-    }
-  });
-
   it("fires desktop + tts with severity error for an api_error crash stop", () => {
     // Crash-stop path: the CC Stop hook reports stop_reason="api_error" and the
     // captured text rides on error_details.
@@ -241,6 +220,8 @@ describe("api_error rule", () => {
     for (const d of drafts!) {
       expect(d.severity).toBe("error");
       expect(d.body).toContain("503 Service Unavailable");
+      // mx-7i4k: session id threads through for iOS deep-link.
+      expect(d.sessionId).toBe("sess-test");
     }
   });
 
@@ -251,8 +232,12 @@ describe("api_error rule", () => {
     expect(hookRules.api_error!(payload({}))).toBeNull();
   });
 
+  // nx-7tfim: the mid-session `reason: "api_error"` shape was removed — the
+  // token-stream tail-watcher that used to produce it is gone and nothing
+  // replaced it. `HookEventPayload.reason` no longer exists on the type
+  // (compile-time guarantee); isApiError now reads stop_reason only.
   it("degrades to a bare api-error body when no error text is present", () => {
-    const drafts = hookRules.api_error!(payload({ reason: "api_error" }));
+    const drafts = hookRules.api_error!(payload({ stop_reason: "api_error" }));
     expect(channels(drafts)).toEqual(["desktop", "tts"]);
     for (const d of drafts!) {
       // "nx: api error" — project-prefixed bare body, no trailing ": <text>".
