@@ -92,12 +92,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "value_plaintext": {
-          "name": "value_plaintext",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "value_encrypted": {
           "name": "value_encrypted",
           "type": "text",
