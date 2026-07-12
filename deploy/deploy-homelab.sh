@@ -10,8 +10,12 @@ set -uo pipefail
 # to the previous binary if it did not.
 #
 # Safety contract (see bd:nx-kizf6):
-#   - No-op (exit 0) when the repo is already at origin/main — no pull,
-#     no rebuild, no restart.
+#   - No-op (exit 0) when origin/main has already been fully deployed
+#     (tracked via a last-deployed-SHA marker, NOT just "HEAD ==
+#     origin/main" — see bd:nx-x9opa: on homelab the same checkout is
+#     also used for interactive dev, so a commit pushed directly from
+#     here already has HEAD == origin/main by construction even though
+#     it was never built/installed/restarted).
 #   - The build runs BEFORE the running service is touched: the
 #     post-merge `02-deploy` hook fails (exit 1) on a build error
 #     before it overwrites the installed binary, so a broken build can
@@ -41,6 +45,12 @@ AGENT_URL="${NX_AGENT_URL:-http://127.0.0.1:7400}"
 SERVICE="${NX_SERVICE:-nexus-agent}"
 AGENT_BIN="$BIN_DIR/nexus-agent"
 BACKUP_BIN="$BIN_DIR/nexus-agent.deploy-backup"
+# Last-deployed-SHA marker (bd:nx-x9opa). Written ONLY after a successful
+# build+install+restart+health-check cycle. Follows the existing
+# XDG_STATE_HOME state-dir convention used by deploy/lib/tier-a-retry.sh
+# and deploy/hooks.d/pre-push/01-deploy.
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nexus"
+DEPLOYED_SHA_FILE="$STATE_DIR/homelab-last-deploy-sha"
 
 # ── Structured logging (timestamped — journal-friendly) ─────────────
 
@@ -91,12 +101,29 @@ fi
 BEFORE="$(git rev-parse HEAD)"
 TARGET="$(git rev-parse origin/main)"
 
-if [[ "$BEFORE" == "$TARGET" ]]; then
-    log "already up to date at ${BEFORE:0:8} — no-op"
+mkdir -p "$STATE_DIR"
+LAST_DEPLOYED=""
+if [[ -f "$DEPLOYED_SHA_FILE" ]]; then
+    LAST_DEPLOYED="$(<"$DEPLOYED_SHA_FILE")"
+fi
+
+# The real no-op condition is "origin/main has already been fully
+# deployed" (marker == TARGET), not "the checkout's HEAD already equals
+# origin/main". On homelab this checkout doubles as the interactive dev
+# tree, so a commit pushed directly from here already satisfies
+# BEFORE == TARGET without ever having been built/installed/restarted
+# (bd:nx-x9opa). A missing marker (first run on this machine) is treated
+# as "not yet deployed", never as a reason to skip.
+if [[ -n "$LAST_DEPLOYED" && "$LAST_DEPLOYED" == "$TARGET" ]]; then
+    log "already deployed at ${TARGET:0:8} (last-deploy marker matches) — no-op"
     exit 0
 fi
 
-log "behind origin/main: ${BEFORE:0:8} -> ${TARGET:0:8}"
+if [[ "$BEFORE" == "$TARGET" ]]; then
+    log "HEAD already at origin/main (${TARGET:0:8}) but last-deploy marker is ${LAST_DEPLOYED:-<none>} — proceeding with defensive build/restart (git pull will be a no-op)"
+else
+    log "behind origin/main: ${BEFORE:0:8} -> ${TARGET:0:8}"
+fi
 
 # ── Refuse to pull over local edits (would break --ff-only / hooks) ─
 
@@ -122,8 +149,19 @@ fi
 # ── Pull. The post-merge hook chain (02-deploy + 03-migrate) fires ──
 #    here: it bun-installs if deps changed, builds (fail-fast BEFORE
 #    overwriting the binary), installs, and restarts the agent.
+#
+#    When BEFORE == TARGET (the marker-stale case above), this pull is a
+#    genuine no-op ("Already up to date.") — git does NOT invoke
+#    post-merge hooks on a no-op pull. FORCE_DEFENSIVE_DEPLOY records
+#    that up front so the defensive section below still runs the
+#    build/install/restart the hook chain would otherwise have done.
 
-log "git pull --ff-only origin main (fires post-merge build/migrate/restart hooks)"
+FORCE_DEFENSIVE_DEPLOY=false
+if [[ "$BEFORE" == "$TARGET" ]]; then
+    FORCE_DEFENSIVE_DEPLOY=true
+fi
+
+log "git pull --ff-only origin main (fires post-merge build/migrate/restart hooks unless already up to date)"
 
 if ! git pull --ff-only origin main; then
     err "git pull --ff-only failed — agent untouched, still at ${BEFORE:0:8}"
@@ -141,13 +179,23 @@ log "repo now at ${AFTER:0:8}"
 
 # ── Defensive build + restart ──────────────────────────────────────
 #    The post-merge `02-deploy` hook normally builds + installs +
-#    restarts on its own. If the hook is missing or skipped (e.g.
-#    no apps/agent/ change detected but binary missing), guarantee the
-#    binary is present and the service is up. This is build-then-restart
-#    safe: a failed build aborts BEFORE we install or restart.
+#    restarts on its own. Two cases require this section to force that
+#    itself, rather than trusting the hook already did it:
+#      1. binary missing (hook skipped/missing, e.g. no apps/agent/
+#         change detected but binary absent for some other reason)
+#      2. FORCE_DEFENSIVE_DEPLOY (bd:nx-x9opa) — the pull above was a
+#         no-op because BEFORE already equaled TARGET, so the
+#         post-merge hook chain never fired at all, regardless of
+#         whether the on-disk binary happens to be current.
+#    This is build-then-restart safe: a failed build aborts BEFORE we
+#    install or restart.
 
-if [[ ! -x "$AGENT_BIN" ]]; then
-    log "agent binary missing after pull — building defensively"
+if [[ ! -x "$AGENT_BIN" ]] || [[ "$FORCE_DEFENSIVE_DEPLOY" == "true" ]]; then
+    if [[ "$FORCE_DEFENSIVE_DEPLOY" == "true" ]]; then
+        log "pull was a no-op (post-merge hooks did not fire) — building/installing/restarting defensively"
+    else
+        log "agent binary missing after pull — building defensively"
+    fi
     if command -v bun &>/dev/null; then
         if (cd "$REPO_DIR/apps/agent" && bun run build); then
             install -m 755 "$REPO_DIR/apps/agent/nexus-agent" "$AGENT_BIN"
@@ -156,6 +204,9 @@ if [[ ! -x "$AGENT_BIN" ]]; then
         else
             err "defensive build failed and no binary present — agent may be down"
         fi
+    elif [[ -x "$AGENT_BIN" ]]; then
+        err "bun not on PATH — cannot rebuild; restarting existing on-disk binary defensively"
+        systemctl --user restart "$SERVICE" || err "defensive restart failed"
     else
         err "bun not on PATH and no agent binary present"
     fi
@@ -167,6 +218,11 @@ log "verifying agent health (systemctl is-active + HTTP $AGENT_URL/sessions)"
 
 if agent_healthy; then
     log "agent healthy at ${AFTER:0:8} — deploy complete"
+    if printf '%s\n' "$AFTER" > "$DEPLOYED_SHA_FILE.tmp" && mv -f "$DEPLOYED_SHA_FILE.tmp" "$DEPLOYED_SHA_FILE"; then
+        log "recorded last-deploy marker -> ${AFTER:0:8} ($DEPLOYED_SHA_FILE)"
+    else
+        err "could not write last-deploy marker at $DEPLOYED_SHA_FILE — next run will re-deploy unnecessarily"
+    fi
     rm -f "$BACKUP_BIN"
     exit 0
 fi
