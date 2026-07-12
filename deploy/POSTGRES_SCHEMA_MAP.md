@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | `cortex` | Cortex CX stack (`~/dev/cx`, dashboards disabled per `hl-51x`) | `cortex` | Stack-specific tables for CX services (CO/CW/CL) when active. ~7.7MB on disk despite "disabled" — retained for rollback. | Created at container init |
 | `immich` | Immich (`~/dev/hl/homelab/compose/photos.yml`) | `immich` (separate role) | Photo backup metadata | Created post-init |
-| `nexus` | Nexus agent (`~/dev/nx`, `apps/agent`) | `cortex` (shared role, isolated schema) | Sessions, events, health snapshots, notifications, hooks. 20 tables, ~54MB live data (757 sessions, 24k snapshots, 1.8k notifications, 13k projects as of 2026-05-27). | Created post-init; schema evolves via committed `db:generate` migrations applied by the deploy with `db:migrate` (historically bootstrapped with `drizzle-kit push` — that path is now banned, see below) |
+| `nexus` | Nexus agent (`~/dev/personal/nexus`, `apps/agent`) | `cortex` (shared role, isolated schema) | Sessions, events, health snapshots, notifications, hooks. 20 tables, ~54MB live data (757 sessions, 24k snapshots, 1.8k notifications, 13k projects as of 2026-05-27). | Created post-init; schema evolves via committed `db:generate` migrations applied by the deploy with `db:migrate` (historically bootstrapped with `drizzle-kit push` — that path is now banned, see below) |
 | `nova` | **Unknown — orphan** | `cortex` | No active service references this DB. ~11MB on disk. See `nx-vlo2p`. | Created post-init, never adopted |
 | `guardian` | Guardian web (`~/dev/gd`, not yet deployed) | `guardian` (dedicated role) | Empty placeholder for future guardian-web deploy. Schema applied on first deploy via committed migrations (`db:migrate`, never `db:push`). | Created 2026-05-27 during `nx-ebszb` consolidation |
 
@@ -68,7 +68,7 @@ POSTGRES_URL="postgres://cortex:cortexdev@100.73.182.4:5436/nexus" \
 **Fallback (no Tailscale, or UFW rule absent)**: apply via `docker exec` from inside the homelab. Use this if you're operating from a non-Tailscale host or the UFW rule has been removed:
 
 ```bash
-ssh nyaptor@100.73.182.4 'cd ~/dev/nx && git pull && docker exec -i homelab-postgres psql -U cortex -d nexus < packages/db/drizzle/NNNN_*.sql'
+ssh nyaptor@100.73.182.4 'cd ~/dev/personal/nexus && git pull && docker exec -i homelab-postgres psql -U cortex -d nexus < packages/db/drizzle/NNNN_*.sql'
 # When applying SQL directly, insert into drizzle.__drizzle_migrations manually using the sha256 of the file content + folderMillis.
 ```
 

@@ -30,12 +30,12 @@ set -uo pipefail
 #   NX_REPO=/path/to/nx nexus-homelab-deploy
 #
 # Overridable env:
-#   NX_REPO      repo checkout                 (default: ~/dev/nx)
+#   NX_REPO      repo checkout                 (default: ~/dev/personal/nexus)
 #   NX_BIN_DIR   installed binary dir          (default: ~/.local/bin)
 #   NX_AGENT_URL agent base URL for health     (default: http://127.0.0.1:7400)
 #   NX_SERVICE   systemd --user unit name      (default: nexus-agent)
 
-REPO_DIR="${NX_REPO:-$HOME/dev/nx}"
+REPO_DIR="${NX_REPO:-$HOME/dev/personal/nexus}"
 BIN_DIR="${NX_BIN_DIR:-$HOME/.local/bin}"
 AGENT_URL="${NX_AGENT_URL:-http://127.0.0.1:7400}"
 SERVICE="${NX_SERVICE:-nexus-agent}"
