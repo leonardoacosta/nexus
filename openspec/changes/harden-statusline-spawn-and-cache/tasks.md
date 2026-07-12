@@ -11,51 +11,51 @@ step. **Batch 1 (spawn hygiene) MUST land before Batch 2 (cache correctness)** �
 
 ## UI Batch
 
-- [ ] 1.1 Convert `getGitStatus`'s three `execSync` calls to argv-vector `execFileSync` [beads:nx-bzyn0]
+- [x] 1.1 Convert `getGitStatus`'s three `execSync` calls to argv-vector `execFileSync` [beads:nx-bzyn0]
       (`git -C <dir> branch --show-current` / `status --porcelain` /
       `rev-list --count @{upstream}..HEAD`); export the function for tests. (plans/025 Step 1)
-- [ ] 1.2 Convert `getRoadmapPulse`'s `sh -c` spawn to a constant single-quoted script [beads:nx-9vtxd]
+- [x] 1.2 Convert `getRoadmapPulse`'s `sh -c` spawn to a constant single-quoted script [beads:nx-9vtxd]
       (`PULSE_REFRESH_SCRIPT`) with `PULSE_BIN`/`cachePath` passed as positional shell params
       (`$1`/`$2`), never interpolated into script text. (plans/025 Step 2)
-- [ ] 1.3 Convert `readCachedAgentJson`'s `sh -c` spawn the same way (`CURL_REFRESH_SCRIPT`, [beads:nx-9whtf]
+- [x] 1.3 Convert `readCachedAgentJson`'s `sh -c` spawn the same way (`CURL_REFRESH_SCRIPT`, [beads:nx-9whtf]
       `$1`=url, `$2`=cachePath). (plans/025 Step 3)
-- [ ] 1.4 Add three regression tests: shell-hostile path survives `getGitStatus`; `getRoadmapPulse` [beads:nx-sbxna]
+- [x] 1.4 Add three regression tests: shell-hostile path survives `getGitStatus`; `getRoadmapPulse` [beads:nx-sbxna]
       spawn args carry cachePath positionally, not in script text; `readCachedAgentJson` (via
       `getSpecsLine`) spawn args carry url positionally. Expect 116 pass, 0 fail.
       (plans/025 Step 4)
-- [ ] 1.5 Narrow `.audit-suppressions.json`'s D4 stanza path to [beads:nx-9hl8m]
+- [x] 1.5 Narrow `.audit-suppressions.json`'s D4 stanza path to [beads:nx-9hl8m]
       `apps/nexus-statusline/src/index.ts` (from the `src/**` glob) and rewrite the reason to
       describe the actual argv-vector/positional-param spawns; confirm `audit-scan` still reports
       zero D4 findings under the narrowed path. (plans/025 Step 5)
-- [ ] 1.6 Fix the typo'd allowlist entry in [beads:nx-igxvk]
+- [x] 1.6 Fix the typo'd allowlist entry in [beads:nx-igxvk]
       `packages/core/src/audit-suppressions.integration.test.ts`
       (`apps/nexus-statuslineline/src/index.ts` → `apps/nexus-statusline/src/index.ts`); confirm
       the integration suite's failure count does not exceed its pre-existing 18-failure baseline.
       (plans/025 Step 6)
-- [ ] 1.7 Full gates for batch 1: `pnpm typecheck`, `pnpm lint`, [beads:nx-thyhm]
+- [x] 1.7 Full gates for batch 1: `pnpm typecheck`, `pnpm lint`, [beads:nx-thyhm]
       `bun test apps/nexus-statusline` (116 pass, 0 fail). (plans/025 Step 7)
-- [ ] 2.1 Fix stale-before-parse in `readCachedAgentJson`: add `stale = true` inside the catch [beads:nx-szpox]
+- [x] 2.1 Fix stale-before-parse in `readCachedAgentJson`: add `stale = true` inside the catch [beads:nx-szpox]
       block so a corrupt-but-fresh cache still triggers a refresh. (plans/026 Step 1)
-- [ ] 2.2 pid-suffix the two shared refresh tmp filenames (`${cachePath}.$$.tmp`) in [beads:nx-q32bq]
+- [x] 2.2 pid-suffix the two shared refresh tmp filenames (`${cachePath}.$$.tmp`) in [beads:nx-q32bq]
       `getRoadmapPulse` and `readCachedAgentJson`, with `|| rm -f` cleanup on producer failure.
       If batch 1 already reshaped these sites into constant-script + positional-param form, adapt
       inside the constant script per plans/026's "Coordination with plan 025" note. (plans/026
       Step 2)
-- [ ] 2.3 Extend `gcSessionContext` to all three per-session file-family prefixes [beads:nx-3yw1p]
+- [x] 2.3 Extend `gcSessionContext` to all three per-session file-family prefixes [beads:nx-3yw1p]
       (`session-context.`, `statusline-ctx.`, `statusline-speed.`) via an injectable-deps seam
       (`GcDeps`); export it for tests. (plans/026 Step 3)
-- [ ] 2.4 Add `USAGE_CACHE_MAX_AGE_SECS = 30 * 60` and a pure exported [beads:nx-7irgh]
+- [x] 2.4 Add `USAGE_CACHE_MAX_AGE_SECS = 30 * 60` and a pure exported [beads:nx-7irgh]
       `polledUsageFromCache(cached, atSecs)` helper; route `getPolledUsage` through it so a cache
       older than 30 minutes is treated as absent instead of rendering frozen bars. (plans/026
       Step 4)
-- [ ] 2.5 Reword the `writeSessionContext` docstring's false "independently of the usedPct guard" [beads:nx-seqgo]
+- [x] 2.5 Reword the `writeSessionContext` docstring's false "independently of the usedPct guard" [beads:nx-seqgo]
       sentence — comment-only, the `usedPct == null` early-return behavior itself is settled by
       design and MUST NOT change. (plans/026 Step 5)
-- [ ] 2.6 Add the regression tests: corrupt-fresh-cache triggers refresh; both refresh spawns use [beads:nx-n16ua]
+- [x] 2.6 Add the regression tests: corrupt-fresh-cache triggers refresh; both refresh spawns use [beads:nx-n16ua]
       pid-unique tmp paths; `gcSessionContext` prunes all three prefixes honoring the gate + TTL;
       `polledUsageFromCache` staleness boundary (fresh / stale / exact-30-min / missing
       `fetched_at`). Expect >= 9 new passing tests. (plans/026 Step 6)
-- [ ] 2.7 Full gates for batch 2: `pnpm typecheck`, `pnpm lint`, `bun test apps/nexus-statusline`, [beads:nx-ouezr]
+- [x] 2.7 Full gates for batch 2: `pnpm typecheck`, `pnpm lint`, `bun test apps/nexus-statusline`, [beads:nx-ouezr]
       root `bun test` shows no new failures attributable to the two changed files. (plans/026
       Step 7)
 
