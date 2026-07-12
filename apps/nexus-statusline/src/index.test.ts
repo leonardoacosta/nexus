@@ -217,8 +217,12 @@ describe("renderStatusline — project resolution", () => {
     // that renderStatusline's body does not reference execSync. This is the
     // most reliable way to verify the contract "no git subprocess per render"
     // without runtime monkey-patching of read-only ESM exports.
+    // NOTE (plan 031 task 4.1, authorized deviation from "index.test.ts beyond
+    // the import block" scope): renderStatusline's implementation now lives in
+    // render.ts, not index.ts (index.ts only re-exports it) — repointed here so
+    // this assertion still targets the file the function actually lives in.
     const { readFileSync } = await import("node:fs");
-    const src = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
+    const src = readFileSync(new URL("./render.ts", import.meta.url), "utf-8");
     // Locate the renderStatusline function body
     const startIdx = src.indexOf("export function renderStatusline");
     expect(startIdx).toBeGreaterThan(0);

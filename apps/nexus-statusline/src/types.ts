@@ -49,4 +49,10 @@ export interface GitInfo {
   ahead: number;
 }
 
+/** Context value resolved by the guard for rendering (null = omit segment). */
+export interface ResolvedContext {
+  usedPct: number;
+  contextWindowSize?: number;
+}
+
 export type { UsagePeriod, UsageResponse, CachedUsage } from "@nexus/statusline-contract";
