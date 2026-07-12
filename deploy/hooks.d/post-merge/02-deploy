@@ -61,14 +61,23 @@ get_remote_agents() {
 
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
-# ── Sync dependencies if lockfile or package.json changed ─────
-if git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(package\.json|bun\.lock|pnpm-lock\.yaml|apps/[^/]+/package\.json|packages/[^/]+/package\.json)$'; then
-    info "package.json or lockfile changed; running bun install"
-    if ! (cd "$REPO_DIR" && bun install --frozen-lockfile); then
-        fail "bun install failed; manual recovery required"
-    fi
-else
-    skip "no dependency changes; skipping bun install"
+# ── Sync dependencies ───────────────────────────────────────────
+#
+# Always run, unconditionally. A diff-based skip (only install when
+# THIS push's commit range touched package.json/lockfile) misses the
+# case where an EARLIER push added a dependency and that machine's
+# install was skipped or failed at the time — this push's diff shows
+# no lockfile change, so a diff-only heuristic would skip forever
+# (nx-qqrte, reproduced 2026-07-05: apps/agent/src/otel.ts deps
+# unresolvable on a Mac after exactly this drift). The outer
+# apps/agent/ or deploy/ gate above already restricts this hook to
+# relevant pushes, and `bun install --frozen-lockfile` is a fast
+# no-op when node_modules already matches the lockfile, so dropping
+# the extra diff check trades a small, bounded cost for eliminating
+# the whole class of "install silently skipped forever" drift.
+info "syncing dependencies (bun install --frozen-lockfile)"
+if ! (cd "$REPO_DIR" && bun install --frozen-lockfile); then
+    fail "bun install failed; manual recovery required"
 fi
 
 info "rebuilding..."
