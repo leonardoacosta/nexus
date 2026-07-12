@@ -26,6 +26,7 @@ import {
   computeBeadRollup,
   computeRollupsForProject,
 } from "../services/bead-rollup";
+import { runPool } from "../utils/run-pool";
 
 const log = createLogger("agent:routes:specs");
 
@@ -72,34 +73,49 @@ interface ProjectSpecStatus {
   specs: Array<SpecSnapshot & { beadRollup: BeadRollup | null }>;
 }
 
+// Bounded fan-out concurrency for the cross-project aggregate. Mirrors
+// GIT_REMOTE_CONCURRENCY in routes/projects-discovered.ts — each project's
+// spec scan + bead rollup involves subprocess spawns (openspec, bd), so an
+// unbounded parallel fan-out would itself risk saturating the box; a
+// sequential for-loop (the prior implementation) let one project's latency
+// or bd contention (concurrent `bd`/dolt callers, 10s per-command timeout in
+// bead-rollup.ts) stack onto every project after it, blowing well past any
+// caller-side request budget (measured 57s+ sequential for 21 eligible
+// projects; nx-64yj6).
+const SPECS_ALL_CONCURRENCY = 8;
+
 export async function handleGetSpecsAll(): Promise<Response> {
   const projects = loadProjects();
-  const results: ProjectSpecStatus[] = [];
+  const eligible = projects.filter((project) =>
+    existsSync(join(project.path, "openspec")),
+  );
 
-  for (const project of projects) {
-    const openspecDir = join(project.path, "openspec");
-    if (!existsSync(openspecDir)) continue;
+  const results = await runPool(
+    eligible,
+    SPECS_ALL_CONCURRENCY,
+    async (project): Promise<ProjectSpecStatus> => {
+      const specs = await pollProjectSpecs(project.path);
+      // ONE `bd list` + ONE `bd ready` for the whole project — never a
+      // per-spec `bd` fan-out. The unbounded per-spec spawn saturated large
+      // projects and tripped the 10s exec timeout, cascading null rollups
+      // to every project after the first (add-bead-proposal-roadmap-surface,
+      // nx-fndhz).
+      const rollups = await computeRollupsForProject(
+        project.path,
+        specs.map((s) => s.name),
+      );
+      const withRollups = specs.map((spec) => ({
+        ...spec,
+        beadRollup: rollups.get(spec.name) ?? null,
+      }));
 
-    const specs = await pollProjectSpecs(project.path);
-    // ONE `bd list` + ONE `bd ready` for the whole project — never a per-spec
-    // `bd` fan-out. The unbounded per-spec spawn saturated large projects and
-    // tripped the 10s exec timeout, cascading null rollups to every project
-    // after the first (add-bead-proposal-roadmap-surface, nx-fndhz).
-    const rollups = await computeRollupsForProject(
-      project.path,
-      specs.map((s) => s.name),
-    );
-    const withRollups = specs.map((spec) => ({
-      ...spec,
-      beadRollup: rollups.get(spec.name) ?? null,
-    }));
-
-    results.push({
-      code: project.code,
-      name: project.name,
-      specs: withRollups,
-    });
-  }
+      return {
+        code: project.code,
+        name: project.name,
+        specs: withRollups,
+      };
+    },
+  );
 
   return new Response(JSON.stringify({ projects: results }), {
     status: 200,
