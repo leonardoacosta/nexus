@@ -93,6 +93,68 @@ Swift sources (audit-scan is TS-only), H1 test-only env flags (excluded by desig
 > plan 013 (CI), which would otherwise land red on day one. Consider a plan 016 to green the
 > baseline before 013 gates on it.
 
+## Wave 3 — /improve:code deep (2026-07-11, audited at `b7096486`)
+
+Provenance: `audit-scan` deterministic scan (116 findings, score 77% B) as seed inventory ->
+8 seams graded by parallel auditors (33 agents) -> adversarial verification (25 claims: 23
+confirmed, 2 refuted, 0 verify failures) -> advisor personally re-read every headline site ->
+9 plan drafters re-verified every cited line before writing. Evidence bundles:
+`/tmp/nx-code-audit/plan-0NN.json`. Seam grades: quality-residue A; db-schema-and-sql,
+perf-sync-io-new, arch-new-god-modules, docs-env-drift, agent-new-services,
+statusline-correctness B; security-spawn-delta C (statusline bypasses safeSpawn wholesale).
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 023 | Re-green lint-sql-safety gate (SAFE annotation + validated HTTP-verb regex hardening) | P1 | S | — | TODO |
+| 024 | Replace banned db:push operator instruction; install db-push pre-commit guard | P2 | S | — | TODO |
+| 025 | Statusline spawn hygiene — 5 shell-string sites, suppression drift, typo'd allowlist | P2 | S | — | TODO |
+| 026 | Statusline cache correctness — stale-before-parse, tmp race, GC gap, usage TTL | P2 | S | 025 (same file) | TODO |
+| 027 | Usage-pipeline test gap — real statusline test script + statusline-usage-file suite | P2 | S | 026 (test-file noise) | TODO |
+| 028 | beads-reader fs/promises conversion + yield; fleet-walk depth gap (operator-gated) | P2 | M | — | TODO |
+| 029 | Extract shared mx-gateway passthrough helper (8 routes, 5 added this delta) | P3 | M | — | TODO |
+| 030 | Env-doc residue — VM_URL, NEXUS_REPO_ROOT comment, ELEVENLABS_VOICE_ID reconcile | P3 | S | — | TODO |
+| 031 | Statusline module split along 5 seams + shared CachedUsage contract (maintainer call) | P3 | L | 025, 026, 027 | TODO |
+
+Suggested order: 023 first (gate repair), then 025 -> 026 -> 027 (statusline chain,
+same-file sequencing), 024/028/030 any order, 029 alone (touches 8 route files), 031 last
+and only on explicit go-ahead (L-effort structural).
+
+### Escalated beads (live defects, advisor-verified)
+
+- **nx-ny1p2 (P1)**: CI red on main since >=2026-07-08 — fresh-DB migration replay broken:
+  `0004_encrypt_credentials_finalize.sql` and `0007_aberrant_silver_fox.sql` BOTH drop
+  `credentials.value_plaintext` (42703 in CI run 29174450052). NOT covered by any plan —
+  fixing an applied migration is policy-sensitive, needs its own decision. Masks every
+  downstream CI gate.
+- **nx-orhbi (P2)**: lint-sql-safety false positive (latent CI failure behind nx-ny1p2) — plan 023.
+- **nx-wvues (P2)**: fleet-exceptions walk is depth-1 only, misses 18 nested stores (~20.6MB)
+  incl. nx itself — operator-gated option in plan 028.
+
+### Rejected / corrected findings this wave (do not re-raise)
+
+- **writeSessionContext "docstring contradicts guard" (index.ts:690)** — REFUTED 2-of-3: the
+  null-usedPct no-op is documented in the preceding docstring sentence; a letter-only write
+  would clobber the preserved pct. Behavior is by design; at most prose polish (026 ride-along).
+- **CI red "solely due to lint-sql-safety"** — advisor's own initial attribution CORRECTED by
+  plan-023 drafter + verified in CI logs: the migration-replay failure (nx-ny1p2) hits first;
+  the lint failure is real but latent.
+- **C2 credentialPolls.ts:29/:33** — false positive, multi-line regex blindness (columns carry
+  mode:'date', withTimezone:true); DDL in 0048 fully timestamptz.
+- **C5 x3 + C13 beads-reader camelCase** — false positives: plan-006 SAFE sites / Dolt-store
+  SQL where camelCase matches the actual schema.
+- **"~13 stores ~10MB" exceptions-refresh figure** — corrected twice: depth-1 walk reads exactly
+  3 stores (~19.5MB, largest central-planning 13.6MB); the missed depth-2 census is 18 stores.
+- **A9/A2/C15/E7 re-reports** — Wave-2 settled classes reconfirmed unchanged.
+
+### Not audited this wave
+
+Swift sources (TS-only scanner), Wave-1-deferred god modules other than the statusline
+(unchanged standing deferral), retired app dirs + packages/ui (deferred), apps/web
+observability F-checks (product decision), pre-existing red baselines discovered during
+drafting (apps/agent `credentials.test.ts` TS2300 duplicate-import typecheck failure at HEAD;
+audit-suppressions integration suite 18 baseline fails) — recorded in the affected plans as
+baseline-attribution gates, not fixed by them.
+
 ## Merge Readiness (executed + independently reviewed, 2026-07-03)
 
 All 15 plans were executed by cheaper subagents in isolated git worktrees, reviewed by the
