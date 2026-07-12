@@ -60,6 +60,7 @@ import { execFileSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
+import { nowSecs } from "./cache-io";
 
 // ── ANSI colors ──────────────────────────────────────────────────────────────
 const RESET = "\x1b[0m";
@@ -157,10 +158,6 @@ const MIN_DELTA_MS = 500; // samples younger than this are too soon → keep, no
 const USAGE_CACHE_MAX_AGE_SECS = 30 * 60;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function nowSecs(): number {
-  return Math.floor(Date.now() / 1000);
-}
 
 function readStdinInput(): CcInput {
   try {
