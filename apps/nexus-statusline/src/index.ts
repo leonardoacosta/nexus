@@ -49,7 +49,7 @@ import { openSync, readSync, closeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { getLocalAgentUrl } from "./project";
 import { modelFamilyLetter, renderStatusline } from "./render";
-import { buildStdinUsage, resolveUsage, getAccountDomain } from "./usage";
+import { resolveUsage, getAccountDomain } from "./usage";
 import { resolveContext } from "./context-guard";
 import { writeSessionContext, gcSessionContext } from "./session-context";
 import { getSpeed } from "./speed";
