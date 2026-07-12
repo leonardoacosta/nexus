@@ -47,43 +47,22 @@
 
 import {
   readFileSync,
-  writeFileSync,
   openSync,
   readSync,
   closeSync,
   statSync,
-  renameSync,
-  readdirSync,
-  unlinkSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { nowSecs } from "./cache-io";
 import { deriveProjectCode, isBbProject, gatePulseLine, getLocalAgentUrl } from "./project";
 import { modelFamilyLetter, renderStatusline } from "./render";
 import { FETCH_TIMEOUT_MS, buildStdinUsage, resolveUsage, getAccountDomain } from "./usage";
-import type {
-  CcInput,
-  StatuslineSession,
-  StatuslineResponse,
-  GitInfo,
-  UsagePeriod,
-  UsageResponse,
-  CachedUsage,
-  ResolvedContext,
-} from "./types";
-
-// ── Config ───────────────────────────────────────────────────────────────────
-
-// Suspicious-zero context guard
-const CTX_FRESH_WINDOW_SECS = 600; // 10-min last-good snapshot freshness window
-const CTX_WRITE_THROTTLE_MS = 3_000; // skip a snapshot rewrite when the file is <3s old
-
-// tokens/sec via transcript byte-growth
-const SPEED_WINDOW_MS = 2_000; // samples older than this are stale → reset
-const MIN_DELTA_MS = 500; // samples younger than this are too soon → keep, no estimate
+import { resolveContext } from "./context-guard";
+import { writeSessionContext, gcSessionContext } from "./session-context";
+import { getSpeed } from "./speed";
+import type { CcInput, StatuslineResponse, GitInfo } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -151,334 +130,6 @@ async function fetchStatusline(agentUrl: string): Promise<StatuslineResponse | n
   } catch {
     return null;
   }
-}
-
-// ── Suspicious-zero context guard ────────────────────────────────────────────
-
-/** Per-session last-good context snapshot. `saved_at` is unix seconds. */
-interface CtxSnapshot {
-  used_percentage: number;
-  context_window_size?: number;
-  saved_at: number;
-}
-
-/** Injectable seams for the context-guard resolver (deterministic in tests). */
-interface CtxResolverDeps {
-  readSnapshot?: (path: string) => CtxSnapshot | null;
-  writeSnapshot?: (path: string, snap: CtxSnapshot) => void;
-  statMtimeMs?: (path: string) => number | null;
-  now?: () => number; // unix seconds
-  nowMs?: () => number; // milliseconds (write-throttle)
-}
-
-function ctxSnapshotPath(sessionId: string): string {
-  return join(
-    homedir(),
-    `.claude/scripts/state/statusline-ctx.${sessionId}.json`,
-  );
-}
-
-function defaultReadSnapshot(path: string): CtxSnapshot | null {
-  try {
-    const raw = JSON.parse(readFileSync(path, "utf-8"));
-    if (typeof raw?.used_percentage !== "number") return null;
-    if (typeof raw?.saved_at !== "number") return null;
-    return raw as CtxSnapshot;
-  } catch {
-    return null;
-  }
-}
-
-function defaultWriteSnapshot(path: string, snap: CtxSnapshot): void {
-  try {
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(snap), { mode: 0o600 });
-    renameSync(tmp, path);
-  } catch {
-    // fail-soft — a snapshot write never crashes the render
-  }
-}
-
-function defaultStatMtimeMs(path: string): number | null {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve the context value to render, guarding against CC's spurious
- * `used_percentage: 0` frame (design.md §1). On a populated frame (`> 0`) the
- * per-session snapshot is refreshed (3s write-throttle) and the live value
- * returned. On a `0`/absent frame the fresh snapshot (≤10 min old) is restored,
- * else the segment is omitted (returns null) — it MUST NOT render `CTX 100%`.
- * Missing `session_id` → no snapshot key → treated as fresh (omit on zero). All
- * fs access is fail-soft.
- */
-export function resolveContext(
-  ccInput: CcInput,
-  deps: CtxResolverDeps = {},
-): ResolvedContext | null {
-  const readSnapshot = deps.readSnapshot ?? defaultReadSnapshot;
-  const writeSnapshot = deps.writeSnapshot ?? defaultWriteSnapshot;
-  const statMtimeMs = deps.statMtimeMs ?? defaultStatMtimeMs;
-  const now = deps.now ?? nowSecs;
-  const nowMs = deps.nowMs ?? (() => Date.now());
-
-  const usedPct = ccInput.context_window?.used_percentage;
-  const size = ccInput.context_window?.context_window_size;
-  const sessionId = ccInput.session_id;
-
-  // Populated frame: render the live value + refresh the snapshot (throttled).
-  if (usedPct != null && usedPct > 0) {
-    if (sessionId) {
-      const path = ctxSnapshotPath(sessionId);
-      const mtime = statMtimeMs(path);
-      const throttled = mtime != null && nowMs() - mtime < CTX_WRITE_THROTTLE_MS;
-      if (!throttled) {
-        writeSnapshot(path, {
-          used_percentage: usedPct,
-          context_window_size: size,
-          saved_at: now(),
-        });
-      }
-    }
-    return { usedPct, contextWindowSize: size };
-  }
-
-  // Suspicious zero / absent: restore a fresh snapshot, else omit.
-  if (!sessionId) return null;
-  const snap = readSnapshot(ctxSnapshotPath(sessionId));
-  if (
-    snap &&
-    snap.used_percentage > 0 &&
-    now() - snap.saved_at <= CTX_FRESH_WINDOW_SECS
-  ) {
-    return { usedPct: snap.used_percentage, contextWindowSize: snap.context_window_size };
-  }
-  return null;
-}
-
-// ── Per-pane session-context harvest (cc-tmux-session-usage-bars) ────────────
-
-export function sessionContextPath(pane: string): string {
-  return join(
-    homedir(),
-    `.claude/scripts/state/session-context.${pane}.json`,
-  );
-}
-
-/**
- * Harvest the two fields cc-tmux's session-bar row needs —
- * `context_window.used_percentage` and the model family letter (the same
- * letter `modelEffortToken` computes for row one, via `modelFamilyLetter`) —
- * into a per-pane cache file (proposal §What Changes 2; the sole surviving
- * sliver of the original full-parity harvest). Keyed by `$TMUX_PANE` (tmux's
- * `#{pane_id}`, e.g. `%3`) so cc-tmux resolves the same file for the same pane.
- *
- * Gated on `$TMUX_PANE` — a no-op outside tmux. Atomic write (`.tmp` + rename),
- * fail-soft: never throws, never blocks the render. A null/undefined `usedPct`
- * (the suspicious-zero guard omitted the segment this frame) is a no-op, leaving
- * any prior good value in place rather than clobbering it with a zero. On frames
- * that pass the `usedPct` gate, the model letter is included whenever available
- * and omitted (no `model` key) when the frame carries no model; a null-`usedPct`
- * frame writes nothing at all, so the prior snapshot's letter is preserved along
- * with its pct. `git` (branch/dirty/ahead, already computed per-render at the
- * call site for the left-status segment) rides along when `getGitStatus` resolved a value;
- * `null`/`undefined` omits all three keys, so an older cc-tmux (or a fixture
- * with no git data) sees exactly the pre-existing shape — the reader treats
- * absent keys as "no data" (plan 004 cross-repo contract).
- */
-export function writeSessionContext(
-  usedPct: number | null | undefined,
-  modelLetter: string | null | undefined,
-  git?: GitInfo | null,
-): void {
-  try {
-    const pane = process.env.TMUX_PANE;
-    if (!pane || usedPct == null) return;
-    const path = sessionContextPath(pane);
-    const tmp = `${path}.tmp`;
-    writeFileSync(
-      tmp,
-      JSON.stringify({
-        context_used_pct: usedPct,
-        ...(modelLetter ? { model: modelLetter } : {}),
-        ...(git ? { branch: git.branch, dirty: git.dirty, ahead: git.ahead } : {}),
-        ts: nowSecs(),
-      }),
-      { mode: 0o600 },
-    );
-    renameSync(tmp, path);
-  } catch {
-    // fail-soft — a harvest write never crashes the render
-  }
-}
-
-/** Orphaned session-context files older than this are pruned by the GC. */
-const SESSION_CONTEXT_TTL_SECS = 6 * 60 * 60;
-
-/** Injectable seams for `gcSessionContext` (deterministic in tests). */
-interface GcDeps {
-  dir?: string; // state dir override (tests use a tmpdir)
-  random?: () => number; // 1-in-100 gate source
-}
-
-/** Per-session state-file prefixes the GC owns. All are session/pane-keyed
- * and never reused by CC, so nothing else ever unlinks them. */
-const GC_STATE_PREFIXES = [
-  "session-context.",
-  "statusline-ctx.",
-  "statusline-speed.",
-] as const;
-
-/**
- * Opportunistic GC for orphaned per-session state files — `session-context.
- * <pane>.json`, `statusline-ctx.<sessionId>.json`, and `statusline-speed.
- * <sessionId>.json`. A closed tmux pane / ended session leaves its cache
- * file(s) behind forever — neither tmux pane ids (`%N`) nor CC session ids
- * are predictably reused, so nothing else ever unlinks them. Gated behind a
- * 1-in-100 probability (mirroring `skill-list-dedup.sh`'s marker prune) so
- * the directory scan runs on ~1% of renders and is skipped entirely — no
- * scan, no stat — on the other 99%. Fail-soft: never throws, never blocks
- * the render.
- */
-export function gcSessionContext(deps: GcDeps = {}): void {
-  const random = deps.random ?? Math.random;
-  if (Math.floor(random() * 100) !== 0) return; // 1-in-100: skip the scan
-  try {
-    const dir = deps.dir ?? join(homedir(), ".claude/scripts/state");
-    const cutoff = nowSecs() - SESSION_CONTEXT_TTL_SECS;
-    for (const name of readdirSync(dir)) {
-      if (
-        !GC_STATE_PREFIXES.some((p) => name.startsWith(p)) ||
-        !name.endsWith(".json")
-      ) {
-        continue;
-      }
-      const full = join(dir, name);
-      try {
-        if (statSync(full).mtimeMs / 1000 < cutoff) unlinkSync(full);
-      } catch {
-        // a file vanishing mid-scan (concurrent render) is fine — skip it
-      }
-    }
-  } catch {
-    // fail-soft — GC never crashes the render
-  }
-}
-
-// ── tokens/sec via transcript byte-growth (stat-only) ────────────────────────
-
-/** Per-session speed sample. `timestamp` is milliseconds. */
-interface SpeedCache {
-  fileSize: number;
-  timestamp: number;
-}
-
-/** Injectable seams for `getSpeed` (deterministic in tests). */
-interface SpeedDeps {
-  statSize?: (path: string) => number | null;
-  readCache?: (path: string) => SpeedCache | null;
-  writeCache?: (path: string, cache: SpeedCache) => void;
-  nowMs?: () => number;
-}
-
-function speedCachePath(sessionId: string): string {
-  return join(
-    homedir(),
-    `.claude/scripts/state/statusline-speed.${sessionId}.json`,
-  );
-}
-
-function defaultStatSize(path: string): number | null {
-  try {
-    return statSync(path).size;
-  } catch {
-    return null;
-  }
-}
-
-function defaultReadSpeedCache(path: string): SpeedCache | null {
-  try {
-    const raw = JSON.parse(readFileSync(path, "utf-8"));
-    if (typeof raw?.fileSize !== "number" || typeof raw?.timestamp !== "number") {
-      return null;
-    }
-    return raw as SpeedCache;
-  } catch {
-    return null;
-  }
-}
-
-function defaultWriteSpeedCache(path: string, cache: SpeedCache): void {
-  try {
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(cache), { mode: 0o600 });
-    renameSync(tmp, path);
-  } catch {
-    // fail-soft
-  }
-}
-
-/**
- * Heuristic tokens/sec from transcript byte-growth between renders (design.md
- * §3). `statSync(transcriptPath).size` ONLY — the transcript is never read or
- * parsed. Per-session cache holds the last `{ fileSize, timestamp }`. Guards:
- * shrink → reset, null; `deltaMs > SPEED_WINDOW_MS` → stale, reset, null;
- * `deltaMs < MIN_DELTA_MS` → too soon, keep cache, null; `deltaBytes <= 0` →
- * null. Estimate: `(deltaBytes / 4) / (deltaMs / 1000)`. Fail-soft throughout.
- */
-export function getSpeed(
-  transcriptPath: string | undefined,
-  sessionId: string | undefined,
-  deps: SpeedDeps = {},
-): number | null {
-  if (!transcriptPath || !sessionId) return null;
-  const statSize = deps.statSize ?? defaultStatSize;
-  const readCache = deps.readCache ?? defaultReadSpeedCache;
-  const writeCache = deps.writeCache ?? defaultWriteSpeedCache;
-  const nowMs = deps.nowMs ?? (() => Date.now());
-
-  const size = statSize(transcriptPath);
-  if (size == null) return null;
-  const now = nowMs();
-  const path = speedCachePath(sessionId);
-  const prev = readCache(path);
-
-  // First sample for this session — establish a baseline, no estimate yet.
-  if (prev == null) {
-    writeCache(path, { fileSize: size, timestamp: now });
-    return null;
-  }
-
-  const deltaMs = now - prev.timestamp;
-  const deltaBytes = size - prev.fileSize;
-
-  // File/counter shrink → reset baseline.
-  if (deltaBytes < 0) {
-    writeCache(path, { fileSize: size, timestamp: now });
-    return null;
-  }
-  // Stale interval → reset baseline.
-  if (deltaMs > SPEED_WINDOW_MS) {
-    writeCache(path, { fileSize: size, timestamp: now });
-    return null;
-  }
-  // Too soon → keep the existing baseline so a later in-window render can measure.
-  if (deltaMs < MIN_DELTA_MS) {
-    return null;
-  }
-  // No growth → no estimate (keep baseline; it will age out to stale).
-  if (deltaBytes <= 0) {
-    return null;
-  }
-
-  const estimatedTokens = deltaBytes / 4;
-  const speed = estimatedTokens / (deltaMs / 1000);
-  writeCache(path, { fileSize: size, timestamp: now });
-  return speed;
 }
 
 // ── Roadmap pulse (cc advisor-plans/026) ─────────────────────────────────────
@@ -840,6 +491,9 @@ export {
 } from "./render";
 export { isBbProject, stripRadarStale, gatePulseLine } from "./project";
 export { buildStdinUsage, resolveUsage, polledUsageFromCache } from "./usage";
+export { resolveContext } from "./context-guard";
+export { sessionContextPath, writeSessionContext, gcSessionContext } from "./session-context";
+export { getSpeed } from "./speed";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
