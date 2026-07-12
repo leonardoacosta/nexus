@@ -52,19 +52,25 @@ pattern depends on the previous step's state, and gates must stay green after ev
 
 ## UI Batch
 
-- [ ] 2.1 Create `apps/nexus-statusline/src/cache-io.ts` (exact content in plans/031 Step 3): [beads:nx-8ruid]
+- [x] 2.1 Create `apps/nexus-statusline/src/cache-io.ts` (exact content in plans/031 Step 3): [beads:nx-8ruid]
       `nowSecs`, `STATE_DIR`, `statePath`, `readJsonCache<T>` (fail-soft read+parse+optional
       type-guard validate), `writeJsonAtomic` (tmp-sibling + 0o600 + rename, fail-soft). Inspect
       the three live write sites first — if ANY already uses a pid-suffixed tmp name (plan 025
       may have landed this), use the pid-suffixed form in `writeJsonAtomic` everywhere; note any
       disagreement in the completion report. Move `nowSecs` here, delete it from `index.ts`,
       import it back temporarily so there is exactly one definition. (plans/031 Step 3)
-- [ ] 2.2 Create `apps/nexus-statusline/src/cache-io.test.ts` — 6 cases: round-trip write+read [beads:nx-h0lbt]
+      Evidence: all three live JSON-cache write sites (`defaultWriteSnapshot`, the inline
+      `writeSessionContext` block, `defaultWriteSpeedCache`) used plain `${path}.tmp` — no pid
+      suffix, no disagreement. `bun test` → 127 pass / 0 fail (N held). `pnpm --filter
+      @nexus/statusline typecheck` → exit 0. Commit `b0e675c2`.
+- [x] 2.2 Create `apps/nexus-statusline/src/cache-io.test.ts` — 6 cases: round-trip write+read [beads:nx-h0lbt]
       (no validator), missing-path read → null, corrupt-JSON read → null, validator
       reject/accept, write to an unwritable path does not throw, a successful write leaves no
       `.tmp` sibling. Verify: `bun test` in the package → 0 fail, pass count == N + 6 (record as
       N', the invariant for every later step). (plans/031 Step 3)
-- [ ] 3.1 Extract `types.ts`: move `CcInput`/`StatuslineSession`/`StatuslineResponse`/`GitInfo` [beads:nx-4ct1w]
+      Evidence: `bun test` → 133 pass / 0 fail (N' = 127 + 6 = 133, held as the invariant for
+      every subsequent task). Commit `e1685707`.
+- [x] 3.1 Extract `types.ts`: move `CcInput`/`StatuslineSession`/`StatuslineResponse`/`GitInfo` [beads:nx-4ct1w]
       into it, re-export the 3 contract types from `@nexus/statusline-contract`, add the
       `@nexus/statusline-contract` workspace dependency to `apps/nexus-statusline/package.json`,
       delete the 3 duplicated interfaces from `index.ts`. Add index.ts shim re-exports for the
@@ -73,13 +79,31 @@ pattern depends on the previous step's state, and gates must stay green after ev
       `apps/nexus-statusline/tsconfig.json` to match `apps/agent/tsconfig.json`'s shape (drop
       `composite`/`rootDir`). Verify: package typecheck exit 0; `bun test` 0 fail, N' pass.
       (plans/031 Step 4)
-- [ ] 4.1 Extract `project.ts` (`deriveProjectCode`, the B&B gate section, `getLocalAgentUrl`) and [beads:nx-2vf4w]
+      Evidence: `pnpm --filter @nexus/statusline typecheck` → exit 0, no TS6059/TS6307 —
+      tsconfig rewrite NOT needed. `bun test` → 133 pass / 0 fail (N' held). Commit `f52583b1`.
+- [x] 4.1 Extract `project.ts` (`deriveProjectCode`, the B&B gate section, `getLocalAgentUrl`) and [beads:nx-2vf4w]
       `render.ts` (ANSI consts, model/effort token section, `shortenOutputStyle`,
       `formatCountdown`, session clock, gauge rendering, the renderer section). Move
       `ResolvedContext` into `types.ts` as part of this step (both `render.ts` and the later
       `context-guard.ts` need it, avoiding a cross-module coupling). Add index.ts shims for the
       test file's imports. Verify: `bun test` 0 fail, N' pass; package typecheck exit 0.
       (plans/031 Step 5)
+      Evidence: `bun test` → 133 pass / 0 fail (N' held). `pnpm --filter @nexus/statusline
+      typecheck` → exit 0. Commit `47ca7466`.
+      **Deviation from plan 031 Scope (STOP condition, authorized by team-lead before landing):**
+      `index.test.ts:221`'s "[2.10b] renderer source contains no execSync / spawnSync / git
+      remote get-url references" test does a raw-source scan hardcoded to read `./index.ts` and
+      grep for the literal string `"export function renderStatusline"`. Since renderStatusline's
+      real implementation now lives in `render.ts` (index.ts only `export {...} from "./render"`
+      re-exports it), that string can never appear in index.ts again under this move — the test
+      would fail permanently regardless of implementation detail. Plan 031's Scope section lists
+      `index.test.ts` as in-scope ONLY for "the import block :16-40" and separately bans "no
+      describe-block reshuffling, no splitting the test file" for anything else, so this was
+      flagged as a STOP condition and reported to team-lead rather than improvised past. team-lead
+      authorized a one-line fix: repoint the `new URL(...)` target from `"./index.ts"` to
+      `"./render.ts"` — the brace-depth body scan and execSync/spawnSync/git-remote assertions are
+      otherwise byte-identical. This is not the reshuffling/splitting the Scope section bans, and
+      leaving it broken would make every later task's `bun test` gate in this plan unsatisfiable.
 - [ ] 5.1 Extract `usage.ts` (`FETCH_TIMEOUT_MS`, `PROFILE_CACHE_TTL`, the Anthropic Usage API [beads:nx-3g5j1]
       section). Convert `usageCachePath`/`profileCachePath` to `statePath(...)` calls.
       `getPolledUsage`'s body becomes a `readJsonCache<CachedUsage>` call — preserve any
