@@ -61,7 +61,7 @@ step. **Batch 1 (spawn hygiene) MUST land before Batch 2 (cache correctness)** â
 
 ## API Batch
 
-- [ ] 3.2 Create `apps/agent/src/services/statusline-usage-file.test.ts` modeled on [beads:nx-pk126]
+- [x] 3.2 Create `apps/agent/src/services/statusline-usage-file.test.ts` modeled on [beads:nx-pk126]
       `apps/agent/src/services/credential-refresh-job.test.ts` (fake-Db chain stub +
       `active-credential-watcher` `__testing` seam). Cover: no-fingerprint skip, no-row skip,
       never-polled skip, empty-windows skip, happy-path `CachedUsage` shape contract (exact keys,
