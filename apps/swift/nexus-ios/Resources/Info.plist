@@ -65,5 +65,7 @@
     <string>$(MEDS_TOKEN)</string>
     <key>PLAID_CONTROL_TOKEN</key>
     <string>$(PLAID_CONTROL_TOKEN)</string>
+    <key>GATEWAY_TOKEN</key>
+    <string>$(GATEWAY_TOKEN)</string>
 </dict>
 </plist>

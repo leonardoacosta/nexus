@@ -12,6 +12,18 @@ import NexusShared
 struct DetailScene: View {
     let item: TriageItem
 
+    // Viewer triage-ledger overlay (mx-dmj1). Seeded from `item.triage`, updated
+    // optimistically from the POST response so the banner/pill reflect a
+    // done/snooze without waiting for the next `/triage` poll.
+    @State private var triage: LedgerEntry?
+    @State private var posting = false
+    @State private var actionError: String?
+
+    init(item: TriageItem) {
+        self.item = item
+        _triage = State(initialValue: item.triage)
+    }
+
     /// Whether to show the conversation thread (comms families only).
     private var isComms: Bool {
         switch item.kind {
@@ -27,6 +39,11 @@ struct DetailScene: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 CommsStatusBanner(item: item)
+
+                if let triage {
+                    LedgerOverlayStrip(triage: triage)
+                        .padding(.horizontal, 16).padding(.top, 8)
+                }
 
                 identityHeader
                     .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 4)
@@ -123,29 +140,102 @@ struct DetailScene: View {
     // MARK: - Actions bar
 
     private var actionsBar: some View {
-        HStack(spacing: 10) {
-            if let url = item.url, let link = URL(string: url) {
-                Link(destination: link) {
-                    Label("Open in \(item.source.capitalized)", systemImage: "arrow.up.right.square")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(Color.blue, in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(.white)
+        VStack(spacing: 6) {
+            if let actionError {
+                Text(actionError)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("detail-triage-error")
+            }
+            HStack(spacing: 10) {
+                if let url = item.url, let link = URL(string: url) {
+                    Link(destination: link) {
+                        Label("Open in \(item.source.capitalized)", systemImage: "arrow.up.right.square")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityIdentifier("detail-open-in-source")
                 }
-                .accessibilityIdentifier("detail-open-in-source")
+                Button {
+                    UIPasteboard.general.string = copyableText
+                } label: {
+                    Label("Copy text", systemImage: "doc.on.doc").font(.system(size: 13))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("detail-copy-text")
+
+                Spacer(minLength: 0)
+
+                if posting { ProgressView().controlSize(.small) }
+                snoozeMenu
+                doneButton
             }
-            Button {
-                UIPasteboard.general.string = copyableText
-            } label: {
-                Label("Copy text", systemImage: "doc.on.doc").font(.system(size: 13))
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("detail-copy-text")
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.bar)
         .overlay(Divider(), alignment: .top)
+    }
+
+    // MARK: - Triage actions (mx-dmj1)
+
+    private var isResolved: Bool { triage?.statusUpper == "RESOLVED" }
+
+    private var doneButton: some View {
+        Button {
+            performStatus("RESOLVED")
+        } label: {
+            Label("Done", systemImage: "checkmark.circle.fill").font(.system(size: 13, weight: .semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.green)
+        .disabled(posting || isResolved)
+        .accessibilityIdentifier("detail-triage-done")
+    }
+
+    private var snoozeMenu: some View {
+        Menu {
+            Button("1 hour")    { performSnooze(interval: 3600) }
+            Button("Tomorrow")  { performSnooze(interval: 86_400) }
+            Button("Next week") { performSnooze(interval: 7 * 86_400) }
+        } label: {
+            Label("Snooze", systemImage: "moon.zzz").font(.system(size: 13))
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .disabled(posting)
+        .accessibilityIdentifier("detail-triage-snooze")
+    }
+
+    private func performStatus(_ status: String) {
+        guard !posting else { return }
+        posting = true
+        actionError = nil
+        Task {
+            do {
+                let updated = try await NexusClient().postTriageStatus(id: item.id, status: status)
+                await MainActor.run { triage = updated; posting = false }
+            } catch {
+                await MainActor.run { actionError = "Couldn't update — try again"; posting = false }
+            }
+        }
+    }
+
+    private func performSnooze(interval: TimeInterval) {
+        guard !posting else { return }
+        posting = true
+        actionError = nil
+        let until = Date().addingTimeInterval(interval)
+        Task {
+            do {
+                let updated = try await NexusClient().postTriageSnooze(id: item.id, until: until)
+                await MainActor.run { triage = updated; posting = false }
+            } catch {
+                await MainActor.run { actionError = "Couldn't snooze — try again"; posting = false }
+            }
+        }
     }
 
     private var copyableText: String {
@@ -309,6 +399,58 @@ private struct CommsStatusBanner: View {
     }
 }
 
+// MARK: - Triage-ledger overlay (viewer decision, mx-dmj1)
+
+/// The overlaid viewer decision: a status pill + a "snoozed until" indicator
+/// when a future snooze is set. Rendered under the disposition banner when the
+/// item carries a ledger row (`item.triage != nil`).
+private struct LedgerOverlayStrip: View {
+    let triage: LedgerEntry
+
+    var body: some View {
+        HStack(spacing: 8) {
+            let s = LedgerStatusStyle.from(triage.statusUpper)
+            Label(s.label, systemImage: s.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(s.tint.opacity(0.16), in: Capsule())
+                .foregroundStyle(s.tint)
+                .accessibilityIdentifier("detail-ledger-status")
+
+            if triage.isSnoozeActive, let until = triage.snoozedUntil {
+                Label(
+                    "Snoozed until \(until.formatted(.dateTime.month().day().hour().minute()))",
+                    systemImage: "moon.zzz.fill"
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("detail-ledger-snooze")
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityIdentifier("detail-ledger-overlay")
+    }
+}
+
+/// Label + SF Symbol + tint for a ledger status token
+/// (INBOX | OPEN | WAITING | RESOLVED | ARCHIVED). Colors mirror the
+/// disposition banner's semantics (green resolved, gray waiting, blue open).
+private struct LedgerStatusStyle {
+    let label: String
+    let symbol: String
+    let tint: Color
+
+    static func from(_ statusUpper: String) -> LedgerStatusStyle {
+        switch statusUpper {
+        case "RESOLVED": return .init(label: "Resolved", symbol: "checkmark.circle.fill", tint: .green)
+        case "WAITING":  return .init(label: "Waiting", symbol: "hourglass", tint: .gray)
+        case "ARCHIVED": return .init(label: "Archived", symbol: "archivebox.fill", tint: Color.secondary)
+        case "OPEN":     return .init(label: "Open", symbol: "tray.full.fill", tint: .blue)
+        default:         return .init(label: statusUpper.capitalized, symbol: "tray.fill", tint: .blue)
+        }
+    }
+}
+
 // MARK: - Conversation thread (on-demand /thread fetch)
 
 /// iOS twin of the macOS ConversationThread — fetches `NexusClient.fetchThread`
@@ -419,5 +561,17 @@ enum FinanceFormat {
 }
 #Preview("Detail (finance)") {
     NavigationStack { DetailScene(item: TriageItem.sampleFinance[2]) }
+}
+#Preview("Detail (triaged + snoozed)") {
+    var item = TriageItem.sampleComms[0]
+    item.triage = LedgerEntry(
+        id: item.id,
+        source: item.source,
+        status: "WAITING",
+        manual: true,
+        statusSetAt: Date(),
+        snoozedUntil: Date().addingTimeInterval(7200)
+    )
+    return NavigationStack { DetailScene(item: item) }
 }
 #endif

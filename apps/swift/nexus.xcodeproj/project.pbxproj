@@ -125,6 +125,7 @@
 		8315F13A574FFAA105B2B22A /* PreferencesScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E053DC27B1EEB7686A0BD2E /* PreferencesScene.swift */; };
 		83255FD1F03B12AC3C33E740 /* DecideSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25FB232F427CFED0B650FC /* DecideSession.swift */; };
 		83D0027640627C437CFE9DE2 /* AttachScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846BA0A95ABC022E926B7E51 /* AttachScene.swift */; };
+		85A0459A7A2A0BF0DD0A80F7 /* NexusClient+Triage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA7B3AC992001B9716A51F2 /* NexusClient+Triage.swift */; };
 		884F160CC005F0383EF3FBC5 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC6909C06ECAA94CA340E4E /* GlobalHotkeyManager.swift */; };
 		8AB3E21ED1CD8990C943405B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAA6C29B3B710A14FFD38CF /* Models.swift */; };
 		8C46C7EB2433AFB2BF14A318 /* DecideScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3922E460A94F1807713E9202 /* DecideScene.swift */; };
@@ -514,6 +515,7 @@
 		79D52B73629D70857001E583 /* SettingsRoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRoutingView.swift; sourceTree = "<group>"; };
 		7B73A9657818F6505743E0E8 /* NotificationAudioFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAudioFieldTests.swift; sourceTree = "<group>"; };
 		7BDEF41337CC27E40C4282CA /* SourceIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceIndexView.swift; sourceTree = "<group>"; };
+		7DA7B3AC992001B9716A51F2 /* NexusClient+Triage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NexusClient+Triage.swift"; sourceTree = "<group>"; };
 		7F08BFDF9076986672E8E4F2 /* FleetPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetPresence.swift; sourceTree = "<group>"; };
 		802E2554253BBA8C591589F2 /* NavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationState.swift; sourceTree = "<group>"; };
 		80841AF19A238A5B1EB7C1D9 /* TTSObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSObserver.swift; sourceTree = "<group>"; };
@@ -1071,6 +1073,7 @@
 				0C602D9379ED1A1F89570914 /* NexusClient+Decision.swift */,
 				C1BA9F2ECCEAC65E465832FD /* NexusClient+Meds.swift */,
 				EF69A5D3F01464184976801B /* NexusClient+Plaid.swift */,
+				7DA7B3AC992001B9716A51F2 /* NexusClient+Triage.swift */,
 				0674A881886D6D227D1A2ECB /* SSEDecoder.swift */,
 				4012F701DE26D1175D7F9F07 /* SSEStreamDelegate.swift */,
 			);
@@ -1775,6 +1778,7 @@
 				C4E918835FE43C5CB5EAFC72 /* NexusClient+Decision.swift in Sources */,
 				B5A3177CD0C711667E81FED5 /* NexusClient+Meds.swift in Sources */,
 				163711F5D303F3F3396A8822 /* NexusClient+Plaid.swift in Sources */,
+				85A0459A7A2A0BF0DD0A80F7 /* NexusClient+Triage.swift in Sources */,
 				BDE7D0FBD98D061FB22F3919 /* NexusClient.swift in Sources */,
 				B91D8D018154470FE334AF06 /* Notification.swift in Sources */,
 				0F2FEFBCE39EA1750F1F14DC /* NotificationActivation.swift in Sources */,

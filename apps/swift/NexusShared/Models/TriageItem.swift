@@ -890,6 +890,110 @@ public struct Verdict: Equatable, Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Triage ledger (viewer decision overlay)
+
+/// A single freeform comment on a ledger row (`comments` JSONB element). Wire
+/// keys are already `ts`/`text`, so synthesized decoding suffices.
+public struct LedgerComment: Equatable, Hashable, Sendable, Decodable {
+    public let ts: String
+    public let text: String
+    public init(ts: String, text: String) {
+        self.ts = ts
+        self.text = text
+    }
+}
+
+/// The viewer's persisted triage decision for an item, spliced onto `/triage`
+/// as the `triage` key (sibling of `verdict`) and returned by the two
+/// triage-ledger POST routes. Mirrors the gateway `ledgerJSON` wire shape
+/// (mx triage-ledger design §2/§4) field-for-field. OMITTED by the gateway
+/// when no ledger row exists yet, so `TriageItem.triage` is nil-tolerant — an
+/// un-triaged item decodes UNCHANGED, exactly like a pre-verdict payload.
+///
+/// Decodes camelCase OR snake_case per the WireDecode convention; the two
+/// timestamps accept ISO8601 (fractional / plain) or numeric epoch.
+public struct LedgerEntry: Identifiable, Equatable, Hashable, Sendable, Decodable {
+    /// `Core.id` this row keys off (e.g. "ado:wi:31482").
+    public var id: String
+    /// Denormalized source, for filtering.
+    public var source: String
+    /// One of INBOX | OPEN | WAITING | RESOLVED | ARCHIVED.
+    public var status: String
+    /// The viewer manually overrode the suggested disposition.
+    public var manual: Bool
+    /// When `status` was last set.
+    public var statusSetAt: Date?
+    /// Non-nil + future => item is snoozed until this instant.
+    public var snoozedUntil: Date?
+    /// Freeform close note.
+    public var resolution: String?
+    /// Promoted-to-beads link, when the item was turned into a bd issue.
+    public var bdId: String?
+    /// The INBOX-vs-keep call has been made.
+    public var triaged: Bool
+    /// Freeform comments, oldest-first as stored.
+    public var comments: [LedgerComment]
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, status, manual
+        case statusSetAt, status_set_at
+        case snoozedUntil, snoozed_until
+        case resolution
+        case bdId, bd_id
+        case triaged
+        case comments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = WireDecode.string(c, .id) ?? ""
+        self.source = WireDecode.string(c, .source) ?? ""
+        self.status = WireDecode.string(c, .status) ?? "INBOX"
+        self.manual = WireDecode.bool(c, .manual)
+        self.statusSetAt = WireDecode.date(c, .statusSetAt, .status_set_at)
+        self.snoozedUntil = WireDecode.date(c, .snoozedUntil, .snoozed_until)
+        self.resolution = WireDecode.nonEmpty(c, .resolution)
+        self.bdId = WireDecode.nonEmpty(c, .bdId, .bd_id)
+        self.triaged = WireDecode.bool(c, .triaged)
+        self.comments = (try? c.decode([LedgerComment].self, forKey: .comments)) ?? []
+    }
+
+    public init(
+        id: String,
+        source: String,
+        status: String,
+        manual: Bool = false,
+        statusSetAt: Date? = nil,
+        snoozedUntil: Date? = nil,
+        resolution: String? = nil,
+        bdId: String? = nil,
+        triaged: Bool = false,
+        comments: [LedgerComment] = []
+    ) {
+        self.id = id
+        self.source = source
+        self.status = status
+        self.manual = manual
+        self.statusSetAt = statusSetAt
+        self.snoozedUntil = snoozedUntil
+        self.resolution = resolution
+        self.bdId = bdId
+        self.triaged = triaged
+        self.comments = comments
+    }
+
+    /// Uppercased status token, normalized for switch/match
+    /// (INBOX | OPEN | WAITING | RESOLVED | ARCHIVED).
+    public var statusUpper: String { status.uppercased() }
+
+    /// A snooze that is set AND still in the future — the overlay's
+    /// "snoozed until <date>" indicator keys off this.
+    public var isSnoozeActive: Bool {
+        guard let until = snoozedUntil else { return false }
+        return until > Date()
+    }
+}
+
 // MARK: - TriageItem (Core spine + payload)
 
 /// The unified item every archetype page renders: the `Core` correlation spine
@@ -916,12 +1020,18 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
     /// decide surface renders such items skip-only. Additive: absence NEVER
     /// changes how the rest of the item decodes.
     public var verdict: Verdict?
+    // --- Viewer triage-ledger decision (optional; sibling of verdict) ---
+    /// The viewer's persisted ledger decision (status / snooze / resolution),
+    /// spliced onto the item as the `triage` key. Nil when no ledger row exists
+    /// (the gateway OMITS the key), same nil-tolerance as `verdict`. Additive:
+    /// absence never changes how the rest of the item decodes.
+    public var triage: LedgerEntry?
 
     /// Item-level coding keys: both the nested-`core` (protojson) shape and the
     /// flattened shape resolve through `init(from:)` below, which probes for a
-    /// `core` object first and falls back to top-level keys. `verdict` is a
-    /// top-level sibling in BOTH shapes.
-    private enum TopKeys: String, CodingKey { case core, payload, verdict }
+    /// `core` object first and falls back to top-level keys. `verdict` and
+    /// `triage` are top-level siblings in BOTH shapes.
+    private enum TopKeys: String, CodingKey { case core, payload, verdict, triage }
     private enum CoreKeys: String, CodingKey {
         case id, source, kind, title, url, author, participants
         case threadKey, thread_key
@@ -966,6 +1076,13 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         } else {
             self.verdict = nil
         }
+        // `triage` is the viewer-decision overlay, a top-level sibling of
+        // `verdict`. Absent key -> nil (the un-triaged steady state).
+        if let top, let decoded = try? top.decodeIfPresent(LedgerEntry.self, forKey: .triage) {
+            self.triage = decoded
+        } else {
+            self.triage = nil
+        }
     }
 
     public init(
@@ -983,7 +1100,8 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         stillPresentUpstream: Bool = true,
         lastSeenAt: Date? = nil,
         payload: TriagePayload,
-        verdict: Verdict? = nil
+        verdict: Verdict? = nil,
+        triage: LedgerEntry? = nil
     ) {
         self.id = id
         self.source = source
@@ -1000,5 +1118,6 @@ public struct TriageItem: Identifiable, Equatable, Hashable, Sendable, Decodable
         self.lastSeenAt = lastSeenAt
         self.payload = payload
         self.verdict = verdict
+        self.triage = triage
     }
 }

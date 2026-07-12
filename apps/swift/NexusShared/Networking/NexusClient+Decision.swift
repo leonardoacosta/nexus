@@ -171,6 +171,13 @@ extension NexusClient {
         req.httpMethod = "POST"
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
         req.addValue("application/json", forHTTPHeaderField: "Accept")
+        // The mx-gateway fails CLOSED on every POST route (triage-ledger design
+        // §4): `/requests/{id}/decision` now requires the gateway bearer. Omit
+        // the header when no token is configured — the write 401s (surfaced as
+        // `.badStatus`) rather than the app failing to build/run.
+        if let token = SettingsStore.shared.gatewayToken, !token.isEmpty {
+            req.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         let response: URLResponse

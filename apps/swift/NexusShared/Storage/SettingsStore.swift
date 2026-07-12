@@ -142,6 +142,24 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.healthIngestToken) }
     }
 
+    // MARK: - Triage gateway (mx-gateway write surface — triage ledger)
+
+    /// Optional bearer token for the mx-gateway WRITE surface: the triage-ledger
+    /// POST routes (`/triage/{id}/status`, `/triage/{id}/snooze`) and the
+    /// decide-flow `/requests/{id}/decision` route. When set, gateway POSTs carry
+    /// `Authorization: Bearer <token>`; when nil, no auth header is sent.
+    ///
+    /// The gateway fails CLOSED on its write routes (mx triage-ledger design §4):
+    /// a token-less client still builds and runs, reads (GET /triage) still work,
+    /// but every POST 401s until a token is configured — the correct degrade, not
+    /// a crash. Resolution order mirrors `medsToken`: a per-device UserDefaults
+    /// override (Mac Tokens pane) wins, else the build-time `GATEWAY_TOKEN`
+    /// Info.plist value seeded from the gitignored `Secrets.xcconfig`.
+    public var gatewayToken: String? {
+        get { Self.resolvedToken(defaults.string(forKey: Keys.gatewayToken), plistKey: "GATEWAY_TOKEN") }
+        set { defaults.set(newValue, forKey: Keys.gatewayToken) }
+    }
+
     // MARK: - Token resolution (UserDefaults override -> Info.plist default)
 
     /// Prefer a non-empty per-device UserDefaults override; else fall back to a
@@ -248,6 +266,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let plaidControlPort      = "nexus.plaid.port"
         static let plaidControlToken     = "nexus.plaid.token"
         static let healthIngestToken     = "nexus.health.ingestToken"
+        static let gatewayToken          = "nexus.gateway.token"
         static let presenceAwareRouting  = "nexus.routing.presenceAware"
         static let unknownNoncriticalMode = "nexus.routing.unknownNoncritical"
         static let unknownCriticalMode   = "nexus.routing.unknownCritical"
