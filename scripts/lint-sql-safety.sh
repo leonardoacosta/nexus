@@ -28,6 +28,8 @@ fi
 #   - Lines with "// SAFE:" annotation
 #   - Lines that are Drizzle sql tagged templates (sql`...`)
 #   - .test.ts and .spec.ts files in the Bun.spawn pattern (already audited)
+#   - Keyword followed by "/" (HTTP-verb route strings like `DELETE /path -> ${status}`,
+#     not SQL — SQL DELETE is "DELETE FROM"; see plans/023)
 
 VIOLATIONS=0
 
@@ -46,7 +48,7 @@ while IFS= read -r line; do
   echo "VIOLATION: $line"
 done < <(
   grep "${GREP_OPTS[@]}" \
-    -E '(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\s.*\$\{' \
+    -E '(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\s+(\$\{|[^/[:space:]].*\$\{)' \
     "${DIRS[@]}" 2>/dev/null \
   | grep -v '// SAFE:' \
   | grep -v 'sql`' \

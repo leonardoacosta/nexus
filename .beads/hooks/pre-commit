@@ -22,3 +22,13 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v0.63.3 ---
+
+# --- nexus repo guards (keep AFTER the beads managed block) ---------------
+# Re-add this block if a future `bd hooks install` reinstall resets this file
+# to the bare managed block. Uses --show-toplevel so the guard runs against
+# the invoking checkout/worktree's own staged diff and script copy.
+_repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_repo_root" ] && [ -f "$_repo_root/scripts/hooks/pre-commit-block-db-push.sh" ]; then
+  bash "$_repo_root/scripts/hooks/pre-commit-block-db-push.sh" || exit $?
+fi
+# --- end nexus repo guards -------------------------------------------------

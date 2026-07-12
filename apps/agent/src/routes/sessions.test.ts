@@ -9,7 +9,7 @@
  *
  * To run locally against a THROWAWAY test database:
  *   1. Start a PostgreSQL instance (see docker-compose.test.yml at project root)
- *   2. Run `pnpm db:push` in packages/db to create tables
+ *   2. Run `pnpm --filter @nexus/db db:migrate` to apply the committed migrations
  *   3. export POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test
  *   4. export NEXUS_PG_TESTS=1
  *   5. bun test apps/agent/src/routes/sessions.test.ts

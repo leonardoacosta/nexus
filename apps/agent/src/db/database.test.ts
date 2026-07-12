@@ -213,10 +213,10 @@ describe.skipIf(!hasPg)("verifySchema (requires live PG) — missing table", () 
     const err = caught as SchemaIncompleteError;
     expect(err.missingTables).toContain("notifications");
     expect(err.missingTables).not.toContain("sessions");
-    // The message MUST be actionable — mention drizzle-kit push and the
-    // POSTGRES_URL hint per the spec.
+    // The message MUST be actionable — mention the sanctioned db:migrate
+    // command and the POSTGRES_URL hint per the spec.
     expect(err.message).toContain("notifications");
-    expect(err.message.toLowerCase()).toContain("drizzle-kit push");
+    expect(err.message).toContain("pnpm --filter @nexus/db db:migrate");
     expect(err.message).toContain("POSTGRES_URL");
   });
 
@@ -270,3 +270,22 @@ describe.skipIf(!hasPg)(
     });
   },
 );
+
+// ─── SchemaIncompleteError message contract (no PG required) ────────────────
+// Pins the operator remediation text to the sanctioned migration-only path.
+// Context: nx-vtzmd (2026-06-20) — the previous message instructed the
+// state-based push command, which skips the migrations journal and can
+// silently drop columns on the shared homelab DB.
+describe("SchemaIncompleteError message", () => {
+  it("instructs db:migrate and never the banned push command", () => {
+    const err = new SchemaIncompleteError(["notifications"], {
+      host: "localhost:5436",
+      database: "nexus",
+    });
+    expect(err.message).toContain("pnpm --filter @nexus/db db:migrate");
+    expect(err.message).toContain("POSTGRES_URL");
+    expect(err.message).toContain("localhost:5436/nexus");
+    expect(err.message).not.toContain("db:push"); // banned (nx-vtzmd)
+    expect(err.message).not.toContain("drizzle-kit push"); // banned (nx-vtzmd)
+  });
+});

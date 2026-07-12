@@ -72,8 +72,8 @@ export interface HealthMetrics {
   /**
    * Companion to `schema_ok` — list of required tables that were absent on
    * the connected database. Empty / omitted when `schema_ok` is true.
-   * Surfaces in `GET /health` so an operator can copy the table list into
-   * the `drizzle-kit push` follow-up without re-running the probe.
+   * Surfaces in `GET /health` so an operator can see which tables the
+   * `db:migrate` follow-up must create without re-running the probe.
    */
   schema_missing?: string[];
 }

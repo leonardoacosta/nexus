@@ -152,7 +152,7 @@ export async function deleteCredentials(
   if (!res.ok && res.status !== 204) {
     throw new AgentHttpError(
       res.status,
-      `DELETE /elevenlabs/credentials -> ${res.status}`,
+      `DELETE /elevenlabs/credentials -> ${res.status}`, // SAFE: HTTP route in an error message, not SQL
     );
   }
 }

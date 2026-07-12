@@ -8,7 +8,7 @@
 #        docker compose -f docker-compose.test.yml ps
 #
 #   3. Apply the schema:
-#        POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test pnpm --filter @nexus/db db:push
+#        POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test pnpm --filter @nexus/db db:migrate
 #
 #   4. Run the agent integration tests:
 #        POSTGRES_URL=postgres://nexus:nexus@localhost:5433/nexus_test bun test apps/agent/src/routes/sessions.test.ts

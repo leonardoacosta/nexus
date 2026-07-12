@@ -50,8 +50,9 @@ export class SchemaIncompleteError extends Error {
       `Schema verification failed: missing tables [${missingTables.join(", ")}]. ` +
         `The \`${locationHint.database ?? "nexus"}\` database at ${location} ` +
         `exists but Drizzle migrations have not been applied. ` +
-        `Run: pnpm --filter @nexus/db db:push (or drizzle-kit push) against ` +
-        `POSTGRES_URL before starting the agent. ` +
+        `Run: pnpm --filter @nexus/db db:migrate against ` +
+        `POSTGRES_URL before starting the agent (applies the committed ` +
+        `drizzle migrations; schema changes are migration-based only). ` +
         `Set ${SKIP_ENV_VAR}=1 to bypass this check (unsafe for production).`,
     );
     this.name = "SchemaIncompleteError";
