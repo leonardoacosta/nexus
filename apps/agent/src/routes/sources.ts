@@ -13,57 +13,15 @@
  * the graceful empty state ("No sources reporting yet") rather than an error.
  */
 
-import { logger } from "@nexus/core/node";
-
-/** mx gateway base URL. Loopback on the homelab; override via env for tests. */
-const GATEWAY_URL = process.env.MX_GATEWAY_URL ?? "http://127.0.0.1:8799";
-
-/** Bound the upstream fetch so a hung gateway can't stall the 30s poll. */
-const FETCH_TIMEOUT_MS = 10_000;
+import { gatewayGetFailSoft } from "../lib/mx-gateway";
 
 /** The fail-soft empty payload — valid SourceIndex the Swift decoder accepts. */
 const EMPTY_INDEX = JSON.stringify({ sources: [], inbox: [] });
 
-function emptyResponse(): Response {
-  return new Response(EMPTY_INDEX, {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 export async function handleGetSources(): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  try {
-    const upstream = await fetch(`${GATEWAY_URL}/sources`, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-
-    if (!upstream.ok) {
-      logger.warn(
-        { route: "/sources", upstreamStatus: upstream.status },
-        "mx gateway returned non-200 — serving empty source index",
-      );
-      return emptyResponse();
-    }
-
-    // Passthrough: return the gateway body verbatim (already the exact wire
-    // shape SourceStatus.swift decodes). Re-emit as a fresh Response so we
-    // control the Content-Type + drop any hop-by-hop headers.
-    const body = await upstream.text();
-    return new Response(body, {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    logger.warn(
-      { route: "/sources", err },
-      "mx gateway unreachable — serving empty source index",
-    );
-    return emptyResponse();
-  } finally {
-    clearTimeout(timer);
-  }
+  return gatewayGetFailSoft({
+    path: "/sources",
+    route: "/sources",
+    emptyPayload: EMPTY_INDEX,
+  });
 }

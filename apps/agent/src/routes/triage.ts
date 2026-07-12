@@ -17,66 +17,19 @@
  * "Sample data — live feed pending" caption) rather than surfacing an error.
  */
 
-import { logger } from "@nexus/core/node";
-
-/** mx gateway base URL. Loopback on the homelab; override via env for tests. */
-const GATEWAY_URL = process.env.MX_GATEWAY_URL ?? "http://127.0.0.1:8799";
-
-/** Bound the upstream fetch so a hung gateway can't stall the poll. */
-const FETCH_TIMEOUT_MS = 12_000;
+import { gatewayGetFailSoft } from "../lib/mx-gateway";
 
 /** The fail-soft empty payload — a valid bare `[TriageItem]` array. */
 const EMPTY_FEED = "[]";
 
-function emptyResponse(): Response {
-  return new Response(EMPTY_FEED, {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 export async function handleGetTriage(url: URL): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  // Forward the optional server-side filters verbatim. The gateway matches
-  // `kind` case-insensitively against the canonical proto name and `source`
-  // exactly against Core.source.
-  const upstreamUrl = new URL(`${GATEWAY_URL}/triage`);
-  const source = url.searchParams.get("source");
-  const kind = url.searchParams.get("kind");
-  if (source) upstreamUrl.searchParams.set("source", source);
-  if (kind) upstreamUrl.searchParams.set("kind", kind);
-
-  try {
-    const upstream = await fetch(upstreamUrl, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-
-    if (!upstream.ok) {
-      logger.warn(
-        { route: "/triage", upstreamStatus: upstream.status },
-        "mx gateway returned non-200 — serving empty triage feed",
-      );
-      return emptyResponse();
-    }
-
-    // Passthrough: return the gateway body verbatim (already the exact wire
-    // shape TriageItem.swift decodes). Re-emit as a fresh Response so we
-    // control the Content-Type + drop any hop-by-hop headers.
-    const body = await upstream.text();
-    return new Response(body, {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    logger.warn(
-      { route: "/triage", err },
-      "mx gateway unreachable — serving empty triage feed",
-    );
-    return emptyResponse();
-  } finally {
-    clearTimeout(timer);
-  }
+  // The gateway matches `kind` case-insensitively against the canonical
+  // proto name and `source` exactly against Core.source.
+  return gatewayGetFailSoft({
+    path: "/triage",
+    route: "/triage",
+    emptyPayload: EMPTY_FEED,
+    incomingUrl: url,
+    forwardParams: ["source", "kind"],
+  });
 }
