@@ -56,7 +56,7 @@ import {
   readdirSync,
   unlinkSync,
 } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -351,16 +351,16 @@ interface GitInfo {
   ahead: number;
 }
 
-function getGitStatus(dir: string): GitInfo | null {
+export function getGitStatus(dir: string): GitInfo | null {
   try {
-    const branch = execSync(`git -C "${dir}" branch --show-current`, {
+    const branch = execFileSync("git", ["-C", dir, "branch", "--show-current"], {
       encoding: "utf-8",
       timeout: 500,
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
     if (!branch) return null;
 
-    const porcelain = execSync(`git -C "${dir}" status --porcelain`, {
+    const porcelain = execFileSync("git", ["-C", dir, "status", "--porcelain"], {
       encoding: "utf-8",
       timeout: 500,
       stdio: ["pipe", "pipe", "pipe"],
@@ -369,8 +369,9 @@ function getGitStatus(dir: string): GitInfo | null {
 
     let ahead = 0;
     try {
-      const revOut = execSync(
-        `git -C "${dir}" rev-list --count @{upstream}..HEAD`,
+      const revOut = execFileSync(
+        "git",
+        ["-C", dir, "rev-list", "--count", "@{upstream}..HEAD"],
         { encoding: "utf-8", timeout: 500, stdio: ["pipe", "pipe", "pipe"] },
       );
       ahead = parseInt(revOut.trim(), 10) || 0;
@@ -861,6 +862,13 @@ export function getSpeed(
 const PULSE_CACHE_TTL_MS = 300_000; // 5 minutes
 const PULSE_BIN = join(homedir(), ".claude/scripts/bin/roadmap-pulse");
 
+// Constant refresh script — values arrive as positional shell parameters
+// ($1 = binary, $2 = cache path), never interpolated into the script text,
+// so shell metacharacters in paths are inert. $0 is set to "sh" by the
+// extra argv entry. Preserves the detached atomic `> tmp && mv` idiom.
+const PULSE_REFRESH_SCRIPT =
+  '"$1" --line > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"';
+
 /**
  * Read the roadmap-pulse segment for a project, stale-while-revalidate.
  *
@@ -892,7 +900,7 @@ export function getRoadmapPulse(projectDir: string): string | null {
     if (stale) {
       const child = childProcess.spawn(
         "sh",
-        ["-c", `"${PULSE_BIN}" --line > "${cachePath}.tmp" 2>/dev/null && mv "${cachePath}.tmp" "${cachePath}"`],
+        ["-c", PULSE_REFRESH_SCRIPT, "sh", PULSE_BIN, cachePath],
         {
           cwd: projectDir,
           detached: true,
@@ -917,6 +925,11 @@ export function getRoadmapPulse(projectDir: string): string | null {
 // ── Bead / roadmap surface lines (add-bead-proposal-roadmap-surface) ─────────
 
 const BEAD_LINE_CACHE_TTL_MS = 300_000; // 5 minutes — same TTL as the pulse cache
+
+// Constant curl-refresh script — $1 = url, $2 = cache path, positional only.
+// `curl -f` + `&&` means a down/erroring agent leaves the cache untouched.
+const CURL_REFRESH_SCRIPT =
+  'curl -sf --max-time 3 "$1" > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"';
 
 /** Task-count block shared by every bead rollup (agent wire shape). */
 interface WireBeadRollup {
@@ -1028,10 +1041,7 @@ function readCachedAgentJson<T>(cachePath: string, url: string): T | null {
   if (stale) {
     const child = childProcess.spawn(
       "sh",
-      [
-        "-c",
-        `curl -sf --max-time 3 "${url}" > "${cachePath}.tmp" 2>/dev/null && mv "${cachePath}.tmp" "${cachePath}"`,
-      ],
+      ["-c", CURL_REFRESH_SCRIPT, "sh", url, cachePath],
       { detached: true, stdio: "ignore" },
     );
     child.unref();

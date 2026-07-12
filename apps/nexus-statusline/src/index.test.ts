@@ -8,9 +8,10 @@
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 import { describe, expect, it, spyOn, afterEach } from "bun:test";
+import { execFileSync } from "node:child_process";
 import * as childProcess from "node:child_process";
 
 import {
@@ -20,6 +21,7 @@ import {
   isBbProject,
   gatePulseLine,
   stripRadarStale,
+  getGitStatus,
   getRoadmapPulse,
   formatSpecsLine,
   formatRoadmapLine,
@@ -436,6 +438,72 @@ describe("getSpecsLine / getRoadmapLine — stale-while-revalidate cache", () =>
     } finally {
       spy.mockRestore();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── plan 025 — spawn hygiene regression pins ─────────────────────────────────
+
+describe("getGitStatus — argv-vector execFileSync", () => {
+  it("survives a shell-hostile path (regression pin for execSync → execFileSync)", () => {
+    const base = mkdtempSync(join(tmpdir(), "nx-git-meta-"));
+    const hostileDir = join(base, 'repo "$(echo pwned)"');
+    try {
+      mkdirSync(hostileDir);
+      execFileSync("git", ["-C", hostileDir, "init", "-b", "main"], {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const info = getGitStatus(hostileDir);
+      expect(info?.branch).toBe("main");
+      expect(info?.dirty).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getRoadmapPulse — refresh spawn carries cachePath positionally", () => {
+  it("script text is the exact constant; cachePath arrives as a positional arg, never in script text", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-pulse-argv-"));
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      getRoadmapPulse(dir); // no cache → stale → spawn fires
+      const args = spy.mock.calls[0]?.[1] as string[];
+      expect(args.length).toBe(5);
+      expect(args[0]).toBe("-c");
+      expect(args[1]).toBe(
+        '"$1" --line > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"',
+      );
+      expect(args[4]).toEndWith(".line");
+      expect(args[4]).toContain(basename(dir));
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readCachedAgentJson (via getSpecsLine) — refresh spawn carries url positionally", () => {
+  it("script text is the exact constant; url and cachePath arrive as positional args", () => {
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      // Unique fake project code → no cache file → stale → spawn fires.
+      expect(
+        getSpecsLine("/home/nyaptor/dev/zzznope-spawn-test", "http://localhost:7400"),
+      ).toBeNull();
+      const args = spy.mock.calls[0]?.[1] as string[];
+      expect(args[1]).toBe(
+        'curl -sf --max-time 3 "$1" > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"',
+      );
+      expect(args[3]).toBe("http://localhost:7400/specs/all");
+      expect(args[4]).toContain("bead-specs.zzznope-spawn-test.json");
+    } finally {
+      spy.mockRestore();
     }
   });
 });

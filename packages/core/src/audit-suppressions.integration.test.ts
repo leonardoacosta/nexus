@@ -77,10 +77,10 @@ const EXPECTED_UNSUPPRESSED_D4_FILES = new Set<string>([
   // The safeSpawn wrapper itself calls Bun.spawn — D4 pattern match hits the
   // implementation, which is by definition the sanctioned spawn site.
   "packages/core/src/safe-spawn.ts",
-  // nexus-statuslineline is a standalone CLI that reads git state via execSync with
-  // constant command strings. Not routed through safeSpawn because it has no
-  // user-supplied input surface.
-  "apps/nexus-statuslineline/src/index.ts",
+  // nexus-statusline is a standalone zero-dependency CLI. Its git probes use
+  // execFileSync argv vectors and its refresh spawns use constant sh scripts
+  // with positional parameters (plan 025) — not routed through safeSpawn.
+  "apps/nexus-statusline/src/index.ts",
   // Tailscale IP lookup in the agent's DB registry — constant args, boots
   // once at startup. Candidate for future safeSpawn migration.
   "apps/agent/src/db/agent-registry.ts",
