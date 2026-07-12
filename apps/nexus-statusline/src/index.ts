@@ -61,6 +61,15 @@ import * as childProcess from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { nowSecs } from "./cache-io";
+import type {
+  CcInput,
+  StatuslineSession,
+  StatuslineResponse,
+  GitInfo,
+  UsagePeriod,
+  UsageResponse,
+  CachedUsage,
+} from "./types";
 
 // ── ANSI colors ──────────────────────────────────────────────────────────────
 const RESET = "\x1b[0m";
@@ -74,66 +83,6 @@ const SPEC = "\x1b[38;5;216m"; // salmon
 const DIM = "\x1b[38;5;240m"; // gray
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface CcInput {
-  hook_event_name?: string;
-  session_id?: string;
-  transcript_path?: string;
-  cwd?: string;
-  model?: { id?: string; display_name?: string };
-  workspace?: { current_dir?: string; project_dir?: string; git_worktree?: string };
-  version?: string;
-  output_style?: { name?: string };
-  effort?: { level?: string };
-  exceeds_200k_tokens?: boolean;
-  cost?: {
-    total_cost_usd?: number;
-    total_duration_ms?: number;
-    total_api_duration_ms?: number;
-    total_lines_added?: number;
-    total_lines_removed?: number;
-  };
-  context_window?: {
-    used_percentage?: number;
-    context_window_size?: number;
-  };
-  rate_limits?: {
-    five_hour?: { used_percentage?: number; resets_at?: number };
-    seven_day?: { used_percentage?: number; resets_at?: number };
-  };
-}
-
-interface StatuslineSession {
-  id: string;
-  project: string | null;
-  status: string;
-  model: string | null;
-  cwd: string | null;
-  idle_seconds: number;
-}
-
-interface StatuslineResponse {
-  sessions: StatuslineSession[];
-  git: { branch: string; dirty: boolean; ahead: number; behind: number } | null;
-  machine: { cpu_percent: number; mem_percent: number; load_1m: number };
-  uptime_seconds: number;
-  daemon_count: number;
-}
-
-interface UsagePeriod {
-  utilization: number;
-  resets_at?: string;
-}
-
-interface UsageResponse {
-  five_hour?: UsagePeriod;
-  seven_day?: UsagePeriod;
-}
-
-interface CachedUsage {
-  fetched_at: number;
-  data: UsageResponse;
-}
 
 interface CachedProfile {
   fetched_at: number;
@@ -345,12 +294,6 @@ function getLocalAgentUrl(): string {
 }
 
 // ── Git status (local) ───────────────────────────────────────────────────────
-
-interface GitInfo {
-  branch: string;
-  dirty: boolean;
-  ahead: number;
-}
 
 export function getGitStatus(dir: string): GitInfo | null {
   try {
@@ -1610,7 +1553,7 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
   return trailing.length > 0 ? `${head}\n${trailing.join("\n")}` : head;
 }
 
-export type { CcInput, GitInfo, StatuslineResponse, UsageResponse };
+export type { CcInput, GitInfo, StatuslineResponse, UsageResponse } from "./types";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 

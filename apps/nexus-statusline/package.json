@@ -13,6 +13,9 @@
     "test": "bun test src/index.test.ts",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@nexus/statusline-contract": "workspace:*"
+  },
   "devDependencies": {
     "@types/bun": "^1.1.0",
     "typescript": "^5.7.0"

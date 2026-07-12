@@ -80,6 +80,10 @@ importers:
         version: 5.9.3
 
   apps/nexus-statusline:
+    dependencies:
+      '@nexus/statusline-contract':
+        specifier: workspace:*
+        version: link:../../packages/statusline-contract
     devDependencies:
       '@types/bun':
         specifier: ^1.1.0
