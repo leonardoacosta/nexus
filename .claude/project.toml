@@ -1,0 +1,59 @@
+[project]
+name = "nexus"
+code = "nx"
+schema = 1
+
+[stack]
+# Cross-tech monorepo: no tRPC (rules out t3), no React web app driving the
+# "UI" category in the classic sense — the closest matches are the swift
+# skill (native macOS/iOS/watchOS targets) and the bun skill (the agent
+# daemon + statusline CLI, both non-HTTP Bun services). drizzle owns the
+# Postgres schema/migrations layer (packages/db).
+skills = ["swift", "bun", "drizzle"]
+
+[stack.overrides]
+# openspec tasks.md only has 4 literal batch headers (DB/API/UI/E2E — see
+# feature/references/spec-format.md), which is coarser than compose-stack's
+# category vocabulary (bun declares "Service", swift declares "Framework").
+# Pin both onto the literal header names so Phase 3c's `.agent_by_category[$PHASE]`
+# lookup actually resolves instead of silently falling through to the t3-turbo
+# legacy defaults (api-engineer/ui-engineer — wrong for this repo; see
+# feedback_applyall_per_spec_nx memory + 2026-07-12 apply:all session).
+API = "bun"
+UI = "swift"
+
+[stack.engineers]
+# bun's own frontmatter engineer is "api-engineer" (tRPC-flavored) — wrong
+# for a Bun daemon with no tRPC. general-purpose is the honest choice until
+# a bun-specific engineer exists.
+API = "general-purpose"
+# swift-engineer is nx's real specialized agent (SwiftUI, XcodeGen, the
+# Linux->Mac headless build contract) — swift skill's own frontmatter still
+# says "ui-engineer" (stale/generic default), override it here.
+UI = "swift-engineer"
+E2E = "general-purpose"
+
+[stack.gates]
+db = "pnpm --filter @nexus/db typecheck"
+api = "pnpm --filter @nexus/agent typecheck"
+ui = "pnpm --filter @nexus/statusline typecheck"
+e2e = "bun test"
+
+[git]
+base_branch = "main"
+push = "direct"
+
+# --- Known gap (do not "fix" by re-narrowing UI to one engineer) ---------
+# "## UI Batch" in this repo's specs means two different things depending
+# on the spec: native Swift work (ios-session-navigation) and the
+# nexus-statusline Bun/TypeScript CLI (harden-statusline-spawn-and-cache,
+# harden-statusline-context-usage-and-speed). A single category->engineer
+# mapping cannot route both correctly. This toml defaults UI to
+# swift-engineer (the harder, more specialized case, and the shape the
+# project-toml-schema doc's own "nexus (cross-tech)" worked example uses).
+# When a wave's actual unchecked UI-batch tasks are pure TypeScript
+# (statusline), /apply[:all] MUST dispatch general-purpose for that spec's
+# UI batch explicitly rather than trusting this default — verify by
+# grepping the unchecked task lines' file paths before dispatch (*.swift
+# vs apps/nexus-statusline/**). A durable fix would split "## UI Batch"
+# into stack-specific headers at spec-authoring time; out of scope here.
