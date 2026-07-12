@@ -105,8 +105,8 @@ statusline-correctness B; security-spawn-delta C (statusline bypasses safeSpawn 
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 023 | Re-green lint-sql-safety gate (SAFE annotation + validated HTTP-verb regex hardening) | P1 | S | — | TODO |
-| 024 | Replace banned db:push operator instruction; install db-push pre-commit guard | P2 | S | — | TODO |
+| 023 | Re-green lint-sql-safety gate (SAFE annotation + validated HTTP-verb regex hardening) | P1 | S | — | DONE (apply/20260712-0711-30188eb2; lint-sql-safety exit 0; fixture 7/7 retained/excluded; repo SAFE-annotated match count 7 not the predicted 8 — the new annotation no longer matches Pattern 1 at all once hardened, per this plan's own Maintenance notes, so it drops out of the pre-SAFE-filter match set; not a detection-power regression, all 7 real SQL shapes still caught; bun test apps/web/src/lib 18/0; typecheck pre-existing unrelated @nexus/db bun:test-types failure; commit+push+CI watch deferred to this wave's E2E-batch phase per tasks.md task 3.1) spec-impact: none |
+| 024 | Replace banned db:push operator instruction; install db-push pre-commit guard | P2 | S | — | DONE (apply/20260712-0711-30188eb2; db:push absent / db:migrate present in database.ts; new "SchemaIncompleteError message" pin test 1/0; 3 sibling prose sites fixed; pre-commit-block-db-push.sh installed + wired after beads END marker; negative test exit 1 + ERROR, positive test exit 0; bun test database.test.ts 3 pass 0 fail; lint 0 errors; lint:sql-safety OK identical; commit+push deferred to this wave's E2E-batch phase per tasks.md task 3.2) spec-impact: none |
 | 025 | Statusline spawn hygiene — 5 shell-string sites, suppression drift, typo'd allowlist | P2 | S | — | TODO |
 | 026 | Statusline cache correctness — stale-before-parse, tmp race, GC gap, usage TTL | P2 | S | 025 (same file) | TODO |
 | 027 | Usage-pipeline test gap — real statusline test script + statusline-usage-file suite | P2 | S | 026 (test-file noise) | TODO |
