@@ -146,13 +146,34 @@ pattern depends on the previous step's state, and gates must stay green after ev
       `pnpm --filter @nexus/statusline typecheck` → exit 0. `PULSE_BIN`'s
       `join(homedir(), ...)` left as-is (names a binary, not one of the four cache paths the
       task scoped for `statePath` conversion). Commit `7041c2d9`.
-- [ ] 8.1 Finalize: replace `index.test.ts`'s single big import block with per-module imports [beads:nx-xvve1]
+- [x] 8.1 Finalize: replace `index.test.ts`'s single big import block with per-module imports [beads:nx-xvve1]
       (exact mapping in plans/031 Step 9) routing any prereq-plan-added symbols to their Module
       Map home; delete every shim re-export from `index.ts` including the `export type {...}`
       line. `index.ts` retains ONLY: doc header, `readStdinInput`, `getGitStatus` (+ whatever
       import plan 026 left it with), `main`, the `Bun.main` guard, and imports — zero exports.
       Do not reorder or delete anything inside test bodies. Verify: `bun test` 0 fail, N' pass;
       `grep -c '^export ' src/index.ts` → `0`; package typecheck exit 0. (plans/031 Step 9)
+      Evidence: `bun test` → 133 pass / 0 fail (N' held). `pnpm --filter @nexus/statusline
+      typecheck` → exit 0. `index.ts` shrunk to 172 lines (doc header, imports, `readStdinInput`,
+      `getGitStatus`, `main`, `Bun.main` guard — nothing else). `wc -l src/*.ts` → every file
+      <= 500 except `index.test.ts` (allowed to stay large; render.ts landed at 468, no
+      gauges.ts split needed). No stray `renameSync` outside `cache-io.ts`/tests. Commit
+      `f8765e79`.
+      **Deviation from plan 031 Done Criteria (STOP condition, authorized by team-lead before
+      landing):** `grep -c '^export ' src/index.ts` → `1`, not `0`. The plan's own Module Map
+      keeps `getGitStatus` resident in `index.ts` ("index.ts keeps: ... `getGitStatus`, ...")
+      while `index.test.ts` genuinely calls it directly (real coverage: "getGitStatus —
+      argv-vector execFileSync" describe block) — since `index.test.ts` is a separate file, ES
+      module semantics require `getGitStatus` to stay `export`ed for that import to resolve; no
+      export syntax avoids a line starting with the literal `export ` prefix. Flagged as a STOP
+      condition and reported to team-lead rather than improvised past (same posture as the
+      earlier `index.test.ts:221` deviation). team-lead confirmed the "0" line reads as an
+      authoring oversight (written before accounting for the one retained symbol with genuine
+      external test coupling) and explicitly declined moving `getGitStatus` to a new module the
+      plan never assigned it to — restructuring around a literal grep count "isn't your call to
+      make unilaterally". Final state: all migration SHIM exports removed (the actual defect the
+      "0" criterion was guarding against, per the plan's own "Why this matters" section); the one
+      remaining export is the pre-existing, deliberately-resident `getGitStatus`.
 
 ## E2E Batch
 
