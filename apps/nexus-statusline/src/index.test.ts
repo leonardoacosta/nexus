@@ -6,8 +6,8 @@
  * it's covered by the section-3 smoke test (`echo '{}' | nexus-statusline`).
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, unlinkSync, utimesSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import { join, basename } from "node:path";
 
 import { describe, expect, it, spyOn, afterEach } from "bun:test";
@@ -37,6 +37,8 @@ import {
   getSpeed,
   sessionContextPath,
   writeSessionContext,
+  gcSessionContext,
+  polledUsageFromCache,
   type CcInput,
   type UsageResponse,
 } from "./index";
@@ -475,7 +477,7 @@ describe("getRoadmapPulse — refresh spawn carries cachePath positionally", () 
       expect(args.length).toBe(5);
       expect(args[0]).toBe("-c");
       expect(args[1]).toBe(
-        '"$1" --line > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"',
+        '"$1" --line > "${2}.$$.tmp" 2>/dev/null && mv "${2}.$$.tmp" "$2" || rm -f "${2}.$$.tmp"',
       );
       expect(args[4]).toEndWith(".line");
       expect(args[4]).toContain(basename(dir));
@@ -498,13 +500,146 @@ describe("readCachedAgentJson (via getSpecsLine) — refresh spawn carries url p
       ).toBeNull();
       const args = spy.mock.calls[0]?.[1] as string[];
       expect(args[1]).toBe(
-        'curl -sf --max-time 3 "$1" > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"',
+        'curl -sf --max-time 3 "$1" > "${2}.$$.tmp" 2>/dev/null && mv "${2}.$$.tmp" "$2" || rm -f "${2}.$$.tmp"',
       );
       expect(args[3]).toBe("http://localhost:7400/specs/all");
       expect(args[4]).toContain("bead-specs.zzznope-spawn-test.json");
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// ── plan 026 — cache correctness regression pins ─────────────────────────────
+
+describe("readCachedAgentJson — corrupt-fresh cache triggers refresh", () => {
+  it("a fresh-mtime but unparseable cache still returns null and fires a refresh", () => {
+    const stateDir = join(homedir(), ".claude/scripts/state");
+    mkdirSync(stateDir, { recursive: true });
+    const cachePath = join(stateDir, "bead-specs.zzcorrupt.json");
+    writeFileSync(cachePath, "{ not json");
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      // This assertion FAILS on unfixed code (stale-before-parse bug): a
+      // corrupt-but-fresh mtime cache would suppress the refresh spawn.
+      expect(getSpecsLine("/home/nyaptor/dev/zzcorrupt", "http://localhost:7400")).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+      unlinkSync(cachePath);
+    }
+  });
+});
+
+describe("refresh spawns use pid-unique tmp paths", () => {
+  it("getSpecsLine's curl refresh script uses a $$-suffixed tmp path with rm -f cleanup", () => {
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      getSpecsLine("/home/nyaptor/dev/zzznope-pidtmp-curl", "http://localhost:7400");
+      const args = spy.mock.calls[0]?.[1] as string[];
+      const script = args[1] as string;
+      expect(script).toContain(".$$.tmp");
+      expect(script).toContain("rm -f");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("getRoadmapPulse's refresh script uses a $$-suffixed tmp path with rm -f cleanup", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-pulse-pidtmp-"));
+    const spy = spyOn(childProcess, "spawn").mockImplementation(
+      (() => ({ unref() {} })) as unknown as typeof childProcess.spawn,
+    );
+    try {
+      getRoadmapPulse(dir);
+      const args = spy.mock.calls[0]?.[1] as string[];
+      const script = args[1] as string;
+      expect(script).toContain(".$$.tmp");
+      expect(script).toContain("rm -f");
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("gcSessionContext — prunes all three prefixes, honors gate and TTL", () => {
+  it("removes aged session-context/statusline-ctx/statusline-speed files, spares fresh + non-owned", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-gc-"));
+    try {
+      const agedSecs = Date.now() / 1000 - 7 * 3600;
+      const aged = [
+        join(dir, "session-context.%9.json"),
+        join(dir, "statusline-ctx.old.json"),
+        join(dir, "statusline-speed.old.json"),
+      ];
+      for (const p of aged) {
+        writeFileSync(p, "{}");
+        utimesSync(p, agedSecs, agedSecs);
+      }
+      const fresh = join(dir, "statusline-ctx.new.json");
+      writeFileSync(fresh, "{}");
+      const nonOwned = join(dir, "usage-cache.json");
+      writeFileSync(nonOwned, "{}");
+      utimesSync(nonOwned, agedSecs, agedSecs);
+
+      gcSessionContext({ dir, random: () => 0 });
+
+      for (const p of aged) {
+        expect(() => readFileSync(p)).toThrow();
+      }
+      expect(() => readFileSync(fresh)).not.toThrow();
+      expect(() => readFileSync(nonOwned)).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the 1-in-100 gate skips the scan when the random source misses", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nx-gc-gate-"));
+    try {
+      const agedSecs = Date.now() / 1000 - 7 * 3600;
+      const p = join(dir, "session-context.old.json");
+      writeFileSync(p, "{}");
+      utimesSync(p, agedSecs, agedSecs);
+
+      gcSessionContext({ dir, random: () => 0.5 });
+
+      expect(() => readFileSync(p)).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("polledUsageFromCache — staleness bound", () => {
+  const data: UsageResponse = { five_hour: { utilization: 40 } };
+
+  it("fresh cache (60s old) returns data", () => {
+    const now = 1_000_000;
+    expect(polledUsageFromCache({ fetched_at: now - 60, data }, now)).toBe(data);
+  });
+
+  it("stale cache (31 min old) returns null", () => {
+    const now = 1_000_000;
+    expect(polledUsageFromCache({ fetched_at: now - 31 * 60, data }, now)).toBeNull();
+  });
+
+  it("exact 30-minute boundary still returns data (bound is strict >)", () => {
+    const now = 1_000_000;
+    expect(polledUsageFromCache({ fetched_at: now - 30 * 60, data }, now)).toBe(data);
+  });
+
+  it("missing fetched_at or null cache returns null", () => {
+    const now = 1_000_000;
+    expect(polledUsageFromCache(null, now)).toBeNull();
+    expect(
+      polledUsageFromCache({ fetched_at: undefined as unknown as number, data }, now),
+    ).toBeNull();
   });
 });
 

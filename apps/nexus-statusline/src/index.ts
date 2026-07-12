@@ -152,6 +152,10 @@ const CTX_WRITE_THROTTLE_MS = 3_000; // skip a snapshot rewrite when the file is
 const SPEED_WINDOW_MS = 2_000; // samples older than this are stale → reset
 const MIN_DELTA_MS = 500; // samples younger than this are too soon → keep, no estimate
 
+// Polled-usage cache: older than this → treat as absent (agent down/undeployed).
+// 30 min = poller cadence + backoff headroom; pre-consolidation intent was 300s.
+const USAGE_CACHE_MAX_AGE_SECS = 30 * 60;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function nowSecs(): number {
@@ -449,6 +453,21 @@ async function fetchWithToken<T>(token: string, endpoint: string): Promise<T | n
 }
 
 /**
+ * Apply the staleness bound to a parsed usage cache. Exported for tests.
+ * Missing/non-numeric `fetched_at` → treat as stale (null). The writer
+ * (apps/agent statusline-usage-file.ts) always writes unix-seconds
+ * `fetched_at`, so a well-formed cache only goes null by aging out.
+ */
+export function polledUsageFromCache(
+  cached: CachedUsage | null | undefined,
+  atSecs: number,
+): UsageResponse | null {
+  if (!cached || typeof cached.fetched_at !== "number") return null;
+  if (atSecs - cached.fetched_at > USAGE_CACHE_MAX_AGE_SECS) return null;
+  return cached.data ?? null;
+}
+
+/**
  * Read the active credential's 5H/7D usage from the shared cache file that
  * nexus-agent's poller writes (statusline-usage-file.ts). Pure file read +
  * parse — NO Anthropic API call, NO credential read. The poller is now the sole
@@ -456,14 +475,16 @@ async function fetchWithToken<T>(token: string, endpoint: string): Promise<T | n
  * 429 (proposal §Why). Matches the existing `CachedUsage` shape
  * (`{ fetched_at, data }`) so the writer and reader agree on one schema.
  * Fail-soft: a missing / unreadable / unparseable cache → null (usage segment
- * omitted, never a crash). Returns a Promise to satisfy `resolveUsage`'s
- * injectable `fetchApiUsage` signature.
+ * omitted, never a crash). Caches older than `USAGE_CACHE_MAX_AGE_SECS` are
+ * treated as absent — a dead or undeployed poller degrades to an omitted
+ * usage segment, never frozen bars. Returns a Promise to satisfy
+ * `resolveUsage`'s injectable `fetchApiUsage` signature.
  */
 async function getPolledUsage(): Promise<UsageResponse | null> {
   try {
     const content = readFileSync(usageCachePath(), "utf-8");
     const cached: CachedUsage = JSON.parse(content);
-    return cached?.data ?? null;
+    return polledUsageFromCache(cached, nowSecs());
   } catch {
     return null;
   }
@@ -678,11 +699,12 @@ export function sessionContextPath(pane: string): string {
  * Gated on `$TMUX_PANE` — a no-op outside tmux. Atomic write (`.tmp` + rename),
  * fail-soft: never throws, never blocks the render. A null/undefined `usedPct`
  * (the suspicious-zero guard omitted the segment this frame) is a no-op, leaving
- * any prior good value in place rather than clobbering it with a zero. The model
- * letter is written whenever available — independently of the `usedPct` guard —
- * and omitted (no `model` key) when there is no model on this frame. `git`
- * (branch/dirty/ahead, already computed per-render at the call site for the
- * left-status segment) rides along when `getGitStatus` resolved a value;
+ * any prior good value in place rather than clobbering it with a zero. On frames
+ * that pass the `usedPct` gate, the model letter is included whenever available
+ * and omitted (no `model` key) when the frame carries no model; a null-`usedPct`
+ * frame writes nothing at all, so the prior snapshot's letter is preserved along
+ * with its pct. `git` (branch/dirty/ahead, already computed per-render at the
+ * call site for the left-status segment) rides along when `getGitStatus` resolved a value;
  * `null`/`undefined` omits all three keys, so an older cc-tmux (or a fixture
  * with no git data) sees exactly the pre-existing shape — the reader treats
  * absent keys as "no data" (plan 004 cross-repo contract).
@@ -716,21 +738,42 @@ export function writeSessionContext(
 /** Orphaned session-context files older than this are pruned by the GC. */
 const SESSION_CONTEXT_TTL_SECS = 6 * 60 * 60;
 
+/** Injectable seams for `gcSessionContext` (deterministic in tests). */
+interface GcDeps {
+  dir?: string; // state dir override (tests use a tmpdir)
+  random?: () => number; // 1-in-100 gate source
+}
+
+/** Per-session state-file prefixes the GC owns. All are session/pane-keyed
+ * and never reused by CC, so nothing else ever unlinks them. */
+const GC_STATE_PREFIXES = [
+  "session-context.",
+  "statusline-ctx.",
+  "statusline-speed.",
+] as const;
+
 /**
- * Opportunistic GC for orphaned `session-context.<pane>.json` files. A closed
- * tmux pane leaves its cache file behind forever — tmux pane ids (`%N`) aren't
- * predictably reused, so nothing else ever unlinks them. Gated behind a 1-in-100
- * probability (mirroring `skill-list-dedup.sh`'s marker prune) so the directory
- * scan runs on ~1% of renders and is skipped entirely — no scan, no stat — on
- * the other 99%. Fail-soft: never throws, never blocks the render.
+ * Opportunistic GC for orphaned per-session state files — `session-context.
+ * <pane>.json`, `statusline-ctx.<sessionId>.json`, and `statusline-speed.
+ * <sessionId>.json`. A closed tmux pane / ended session leaves its cache
+ * file(s) behind forever — neither tmux pane ids (`%N`) nor CC session ids
+ * are predictably reused, so nothing else ever unlinks them. Gated behind a
+ * 1-in-100 probability (mirroring `skill-list-dedup.sh`'s marker prune) so
+ * the directory scan runs on ~1% of renders and is skipped entirely — no
+ * scan, no stat — on the other 99%. Fail-soft: never throws, never blocks
+ * the render.
  */
-function gcSessionContext(): void {
-  if (Math.floor(Math.random() * 100) !== 0) return; // 1-in-100: skip the scan
+export function gcSessionContext(deps: GcDeps = {}): void {
+  const random = deps.random ?? Math.random;
+  if (Math.floor(random() * 100) !== 0) return; // 1-in-100: skip the scan
   try {
-    const dir = join(homedir(), ".claude/scripts/state");
+    const dir = deps.dir ?? join(homedir(), ".claude/scripts/state");
     const cutoff = nowSecs() - SESSION_CONTEXT_TTL_SECS;
     for (const name of readdirSync(dir)) {
-      if (!name.startsWith("session-context.") || !name.endsWith(".json")) {
+      if (
+        !GC_STATE_PREFIXES.some((p) => name.startsWith(p)) ||
+        !name.endsWith(".json")
+      ) {
         continue;
       }
       const full = join(dir, name);
@@ -865,9 +908,13 @@ const PULSE_BIN = join(homedir(), ".claude/scripts/bin/roadmap-pulse");
 // Constant refresh script — values arrive as positional shell parameters
 // ($1 = binary, $2 = cache path), never interpolated into the script text,
 // so shell metacharacters in paths are inert. $0 is set to "sh" by the
-// extra argv entry. Preserves the detached atomic `> tmp && mv` idiom.
+// extra argv entry. Preserves the detached atomic `> tmp && mv` idiom. `$$`
+// (the spawned shell's pid) suffixes the tmp path so two concurrent CC
+// sessions refreshing the same per-project cache never interleave into one
+// shared tmp file; `|| rm -f` cleans up the tmp on producer failure (the `>`
+// redirect creates it even when the command fails).
 const PULSE_REFRESH_SCRIPT =
-  '"$1" --line > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"';
+  '"$1" --line > "${2}.$$.tmp" 2>/dev/null && mv "${2}.$$.tmp" "$2" || rm -f "${2}.$$.tmp"';
 
 /**
  * Read the roadmap-pulse segment for a project, stale-while-revalidate.
@@ -928,8 +975,10 @@ const BEAD_LINE_CACHE_TTL_MS = 300_000; // 5 minutes — same TTL as the pulse c
 
 // Constant curl-refresh script — $1 = url, $2 = cache path, positional only.
 // `curl -f` + `&&` means a down/erroring agent leaves the cache untouched.
+// `$$`-suffixed tmp path (see PULSE_REFRESH_SCRIPT) + `|| rm -f` cleanup on
+// failure closes the same shared-tmp race for this refresh spawn.
 const CURL_REFRESH_SCRIPT =
-  'curl -sf --max-time 3 "$1" > "${2}.tmp" 2>/dev/null && mv "${2}.tmp" "$2"';
+  'curl -sf --max-time 3 "$1" > "${2}.$$.tmp" 2>/dev/null && mv "${2}.$$.tmp" "$2" || rm -f "${2}.$$.tmp"';
 
 /** Task-count block shared by every bead rollup (agent wire shape). */
 interface WireBeadRollup {
@@ -1036,6 +1085,7 @@ function readCachedAgentJson<T>(cachePath: string, url: string): T | null {
     data = JSON.parse(readFileSync(cachePath, "utf-8")) as T;
   } catch {
     // No cache yet / unparseable — treat as stale, return null.
+    stale = true; // a corrupt-but-fresh cache must still trigger a refresh
   }
 
   if (stale) {
