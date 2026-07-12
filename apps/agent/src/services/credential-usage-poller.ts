@@ -9,8 +9,11 @@
  *   2. Decrypt each row's access token via the pool's `getDecrypted`.
  *   3. Fan out 4-concurrent fetches to
  *      `https://api.anthropic.com/api/oauth/usage` (10 s timeout each).
- *   4. Defensively parse the response
- *      (`{ five_hour: {used, limit, resets_at}, seven_day: {...} }`).
+ *   4. Defensively parse the response — live shape (confirmed 2026-07-11,
+ *      nx-8ahjt) is `{ five_hour: {utilization, resets_at, limit_dollars,
+ *      used_dollars, ...}, seven_day: {...}, ... }`; `utilization` (a
+ *      0-100 percent) maps onto `used`/`limit=100`. A legacy `{used, limit}`
+ *      shape is still accepted defensively (see `pickWindow`).
  *   5. Persist the snapshot to the row's seven usage columns plus
  *      `usagePolledAt`. Failures never throw — they are logged and counted.
  *   6. If >50% of attempted calls failed in the tick, the next tick is
@@ -119,9 +122,7 @@ export function parseUsageBody(body: unknown): UsagePayload | null {
 function pickWindow(raw: unknown): WindowSnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
-  const used = toInt(obj.used);
-  const limit = toInt(obj.limit);
-  if (used === null && limit === null) return null;
+
   const resetsRaw = obj.resets_at ?? obj.resetsAt;
   let resetsAt: Date | null = null;
   if (typeof resetsRaw === "string" && resetsRaw.length > 0) {
@@ -133,6 +134,30 @@ function pickWindow(raw: unknown): WindowSnapshot | null {
     const d = new Date(ms);
     if (!Number.isNaN(d.getTime())) resetsAt = d;
   }
+
+  // Live Anthropic /api/oauth/usage shape (confirmed against production,
+  // nx-8ahjt root cause 2026-07-11): each window is `{ utilization: <percent
+  // 0-100 float>, resets_at, limit_dollars, used_dollars, remaining_dollars }`
+  // — there is no `used`/`limit` pair at all, so the pre-fix parser (which
+  // only looked for `used`/`limit`) treated every real response as
+  // unparseable and counted it as a failure. Map the percentage onto the
+  // existing integer used/limit(=100) columns so downstream ratio math
+  // (`(limit - used) / limit` in proactive-swap.ts, Swift dashboard) keeps
+  // working unmodified — no schema migration needed.
+  if (typeof obj.utilization === "number" && Number.isFinite(obj.utilization)) {
+    return {
+      used: Math.round(obj.utilization),
+      limit: 100,
+      resetsAt,
+    };
+  }
+
+  // Defensive fallback: an explicit used+limit shape. Never observed live,
+  // kept in case Anthropic reverts or a different response variant appears
+  // (mirrors this file's existing snake_case/camelCase defensive parsing).
+  const used = toInt(obj.used);
+  const limit = toInt(obj.limit);
+  if (used === null && limit === null) return null;
   return {
     used: used ?? 0,
     limit: limit ?? 0,

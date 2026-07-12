@@ -106,6 +106,49 @@ describe("parseUsageBody", () => {
     expect(parsed?.sevenDay.used).toBe(50);
     expect(parsed?.sevenDay.resetsAt).toBeNull();
   });
+
+  // nx-8ahjt root cause: the live Anthropic /api/oauth/usage response never
+  // sends `used`/`limit` — it sends `utilization` (a 0-100 percent) plus a
+  // handful of dollar fields that are null unless spend-based billing is
+  // enabled. This is the actual shape captured live against production
+  // 2026-07-11 (truncated to the fields pickWindow cares about).
+  it("parses the live Anthropic `utilization`-percent shape (nx-8ahjt)", () => {
+    const body = {
+      five_hour: {
+        utilization: 0.0,
+        resets_at: "2026-07-12T03:39:59.921140+00:00",
+        limit_dollars: null,
+        used_dollars: null,
+        remaining_dollars: null,
+      },
+      seven_day: {
+        utilization: 94.0,
+        resets_at: "2026-07-16T17:59:59.921161+00:00",
+        limit_dollars: null,
+        used_dollars: null,
+        remaining_dollars: null,
+      },
+    };
+    const parsed = parseUsageBody(body);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.fiveHour.used).toBe(0);
+    expect(parsed?.fiveHour.limit).toBe(100);
+    expect(parsed?.fiveHour.resetsAt?.toISOString()).toBe(
+      "2026-07-12T03:39:59.921Z",
+    );
+    expect(parsed?.sevenDay.used).toBe(94);
+    expect(parsed?.sevenDay.limit).toBe(100);
+  });
+
+  it("rounds a fractional `utilization` percent to the nearest integer", () => {
+    const body = {
+      five_hour: { utilization: 42.4, resets_at: null },
+      seven_day: { utilization: 27.6, resets_at: null },
+    };
+    const parsed = parseUsageBody(body);
+    expect(parsed?.fiveHour.used).toBe(42);
+    expect(parsed?.sevenDay.used).toBe(28);
+  });
 });
 
 describe("back-off threshold computation", () => {
