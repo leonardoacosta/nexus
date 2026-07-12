@@ -30,7 +30,8 @@
  * that parses cleanly to zero issues resolves to `[]`, not `null`.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "@nexus/core/node";
 
@@ -80,14 +81,16 @@ interface BeadsMetadata {
  * `.beads/dolt-server.port` sidecar file over the metadata.json port, exactly
  * as BeadBoard does. Never throws.
  */
-export function discoverDolt(beadsDir: string): DoltDiscovery | null {
+export async function discoverDolt(
+  beadsDir: string,
+): Promise<DoltDiscovery | null> {
   try {
     const metaPath = join(beadsDir, "metadata.json");
     if (!existsSync(metaPath)) return null;
 
     let meta: BeadsMetadata;
     try {
-      meta = JSON.parse(readFileSync(metaPath, "utf8")) as BeadsMetadata;
+      meta = JSON.parse(await readFile(metaPath, "utf8")) as BeadsMetadata;
     } catch {
       return null;
     }
@@ -99,7 +102,7 @@ export function discoverDolt(beadsDir: string): DoltDiscovery | null {
     let port: number | null = null;
     const portFile = join(beadsDir, "dolt-server.port");
     if (existsSync(portFile)) {
-      const raw = readFileSync(portFile, "utf8").trim();
+      const raw = (await readFile(portFile, "utf8")).trim();
       const parsed = Number.parseInt(raw, 10);
       if (Number.isFinite(parsed) && parsed > 0) port = parsed;
     }
@@ -261,13 +264,15 @@ function toRowFromJsonl(r: RawJsonlIssue): BeadRow | null {
  * corrupt store — the caller skips it). A file that reads but is genuinely
  * empty (or all-blank) yields `[]`.
  */
-export function readViaJsonl(beadsDir: string): BeadRow[] | null {
+export async function readViaJsonl(
+  beadsDir: string,
+): Promise<BeadRow[] | null> {
   const jsonlPath = join(beadsDir, "issues.jsonl");
   if (!existsSync(jsonlPath)) return null;
 
   let content: string;
   try {
-    content = readFileSync(jsonlPath, "utf8");
+    content = await readFile(jsonlPath, "utf8");
   } catch {
     return null;
   }
@@ -317,14 +322,14 @@ export async function readBeadsStore(
   try {
     if (!existsSync(beadsDir)) return null;
 
-    const discovery = discoverDolt(beadsDir);
+    const discovery = await discoverDolt(beadsDir);
     if (discovery) {
       const doltRows = await readViaDolt(discovery);
       if (doltRows !== null) return doltRows;
       // Dolt discoverable but read failed — fall through to JSONL.
     }
 
-    return readViaJsonl(beadsDir);
+    return await readViaJsonl(beadsDir);
   } catch (err) {
     log.warn({ err, beadsDir }, "readBeadsStore failed; returning null");
     return null;

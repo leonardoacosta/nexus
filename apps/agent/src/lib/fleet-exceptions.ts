@@ -251,6 +251,12 @@ export async function computeFleetExceptions(
     }
     if (!hasBeads) continue;
 
+    // Yield the event loop between stores so consecutive multi-MB JSONL
+    // parses (the sync JSON.parse chunks inside readViaJsonl) cannot
+    // coalesce into one long block (plan 028). One yield per store that
+    // actually participates — dirs without .beads skip it.
+    await Bun.sleep(0);
+
     let rows: BeadRow[] | null;
     try {
       rows = await readStore(beadsDir);

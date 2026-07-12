@@ -95,7 +95,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("beads-reader", () => {
-  it("readViaJsonl parses valid lines and skips malformed ones", () => {
+  it("readViaJsonl parses valid lines and skips malformed ones", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
@@ -108,36 +108,36 @@ describe("beads-reader", () => {
         issueLine({ id: "nx-2", status: "in_progress" }),
       ].join("\n"),
     );
-    const rows = readViaJsonl(beadsDir);
+    const rows = await readViaJsonl(beadsDir);
     expect(rows).not.toBeNull();
     expect(rows!.map((r) => r.id).sort()).toEqual(["nx-1", "nx-2"]);
     expect(rows!.find((r) => r.id === "nx-1")!.priority).toBe(0);
   });
 
-  it("readViaJsonl returns null for a corrupt store (content, zero valid)", () => {
+  it("readViaJsonl returns null for a corrupt store (content, zero valid)", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
     writeFileSync(join(beadsDir, "issues.jsonl"), "garbage\n{bad\nnope");
-    expect(readViaJsonl(beadsDir)).toBeNull();
+    expect(await readViaJsonl(beadsDir)).toBeNull();
   });
 
-  it("readViaJsonl returns null when issues.jsonl is missing", () => {
+  it("readViaJsonl returns null when issues.jsonl is missing", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
-    expect(readViaJsonl(beadsDir)).toBeNull();
+    expect(await readViaJsonl(beadsDir)).toBeNull();
   });
 
-  it("readViaJsonl returns [] for a genuinely empty store", () => {
+  it("readViaJsonl returns [] for a genuinely empty store", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
     writeFileSync(join(beadsDir, "issues.jsonl"), "\n\n");
-    expect(readViaJsonl(beadsDir)).toEqual([]);
+    expect(await readViaJsonl(beadsDir)).toEqual([]);
   });
 
-  it("discoverDolt returns null in embedded mode (no port)", () => {
+  it("discoverDolt returns null in embedded mode (no port)", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
@@ -145,10 +145,10 @@ describe("beads-reader", () => {
       join(beadsDir, "metadata.json"),
       JSON.stringify({ dolt_mode: "embedded", dolt_database: "nx" }),
     );
-    expect(discoverDolt(beadsDir)).toBeNull();
+    expect(await discoverDolt(beadsDir)).toBeNull();
   });
 
-  it("discoverDolt reads the dolt-server.port sidecar when present", () => {
+  it("discoverDolt reads the dolt-server.port sidecar when present", async () => {
     const root = makeDevRoot();
     const beadsDir = join(root, ".beads");
     mkdirSync(beadsDir, { recursive: true });
@@ -157,7 +157,7 @@ describe("beads-reader", () => {
       JSON.stringify({ dolt_database: "nx" }),
     );
     writeFileSync(join(beadsDir, "dolt-server.port"), "3307\n");
-    expect(discoverDolt(beadsDir)).toEqual({ database: "nx", port: 3307 });
+    expect(await discoverDolt(beadsDir)).toEqual({ database: "nx", port: 3307 });
   });
 });
 
