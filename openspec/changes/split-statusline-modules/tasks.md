@@ -115,7 +115,7 @@ pattern depends on the previous step's state, and gates must stay green after ev
       symbol list, but the staleness-ceiling logic the plan directs to preserve) moved to
       usage.ts and stays exported + shimmed, since index.test.ts imports it directly. Commit
       `b217f501`.
-- [ ] 6.1 Extract `context-guard.ts`, `session-context.ts`, `speed.ts` — the cache-io [beads:nx-3twi7]
+- [x] 6.1 Extract `context-guard.ts`, `session-context.ts`, `speed.ts` — the cache-io [beads:nx-3twi7]
       consolidation step: collapse each section's private read/write helpers onto
       `readJsonCache`/`writeJsonAtomic`. `writeSessionContext`'s inline tmp+rename block becomes
       a `writeJsonAtomic` call with the payload built EXACTLY as the live code does — do NOT
@@ -124,6 +124,14 @@ pattern depends on the previous step's state, and gates must stay green after ev
       dep seams (`CtxResolverDeps`, `SpeedDeps`) stay unchanged. Verify: `bun test` 0 fail, N'
       pass — the dep-seam tests prove the seams survived; the `writeSessionContext` tests hit the
       real fs and prove the consolidated write produces the same file shape. (plans/031 Step 7)
+      Evidence: `bun test` → 133 pass / 0 fail (N' held) — dep-seam-injection tests and the
+      real-fs `writeSessionContext` tests all pass, proving both the seams and the write shape
+      survived. `pnpm --filter @nexus/statusline typecheck` → exit 0. `grep -rn "renameSync"
+      src/ --include='*.ts' | grep -v cache-io | grep -v test` → no matches (no stray idiom
+      outside cache-io.ts). Also trimmed now-dead imports left over from steps 3.1-6.1
+      (writeFileSync/renameSync/readdirSync/unlinkSync, nowSecs, StatuslineSession/UsagePeriod/
+      UsageResponse/CachedUsage/ResolvedContext type imports) since this step's move emptied
+      their last remaining reference in index.ts. Commit `b2d7c0a9`.
 - [ ] 7.1 Extract `agent-lines.ts` (`fetchStatusline`, roadmap pulse, bead/roadmap surface lines, [beads:nx-5jk6b]
       attention guard). Keep the exact `import * as childProcess from "node:child_process"`
       namespace-import idiom and `childProcess.spawn(...)` call form — the spawn-spy tests
