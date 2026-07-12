@@ -80,7 +80,7 @@ const EXPECTED_UNSUPPRESSED_D4_FILES = new Set<string>([
   // nexus-statusline is a standalone zero-dependency CLI. Its git probes use
   // execFileSync argv vectors and its refresh spawns use constant sh scripts
   // with positional parameters (plan 025) — not routed through safeSpawn.
-  "apps/nexus-statusline/src/index.ts",
+  "apps/nexus-statusline/src/agent-lines.ts",
   // Tailscale IP lookup in the agent's DB registry — constant args, boots
   // once at startup. Candidate for future safeSpawn migration.
   "apps/agent/src/db/agent-registry.ts",

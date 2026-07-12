@@ -62,7 +62,7 @@
       "id": "D4",
       "paths": [
         "packages/core/src/safe-spawn.ts",
-        "apps/nexus-statusline/src/index.ts",
+        "apps/nexus-statusline/src/agent-lines.ts",
         "apps/agent/src/db/agent-registry.ts"
       ],
       "reason": "Trusted execs: safe-spawn.ts is the wrapper itself (self-reference); nexus-statusline (zero-dependency compiled binary, no @nexus/core) runs argv-vector git probes via execFileSync plus two constant-script sh spawns whose variable values travel as positional shell parameters, never interpolated into script text (plan 025); agent-registry runs `tailscale ip -4` with no interpolation"
