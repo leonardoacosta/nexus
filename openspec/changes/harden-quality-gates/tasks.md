@@ -18,7 +18,14 @@ Full step-by-step detail, exact diffs, and STOP conditions live in
       extend the exclude-comment block with the rationale. (plans/023 Step 3)
 - [x] 1.4 Prove detection power is preserved via the ephemeral `/tmp` fixture (7 true-positive SQL [beads:nx-zqpr7]
       shapes retained, 2 HTTP-verb shapes excluded) and the in-repo SAFE-annotation count (8).
-      (plans/023 Step 4)
+      (plans/023 Step 4) — VERIFIED with a corrected count: fixture 7/7 as specified; in-repo
+      SAFE count is 7, not 8 — once Pattern 1 is hardened (task 1.3), the elevenlabs-client.ts:155
+      annotation no longer matches Pattern 1 at all (it now starts with `/` right after `DELETE`),
+      so it drops out of the pre-SAFE-filter match set. This is the exact behavior plan 023's own
+      "Maintenance notes" section anticipates ("the annotated line no longer matches Pattern 1 at
+      all... Keep the annotation anyway... A reviewer should not flag it as dead") — the plan's
+      "8" in the done-criteria/STOP wording was a self-contradicted planning artifact, not a
+      detection-power regression. All 7 real SQL shapes remain caught.
 - [x] 1.5 Run `pnpm typecheck`, `pnpm lint`, `bun test apps/web/src/lib` — no failure referencing [beads:nx-8x02z]
       a changed file. (plans/023 Step 5)
 - [x] 2.1 Rewrite `SchemaIncompleteError`'s remediation sentence in [beads:nx-b29kp]
@@ -45,13 +52,20 @@ Full step-by-step detail, exact diffs, and STOP conditions live in
 
 ## E2E Batch
 
-- [ ] 3.1 Commit task 1.x's changes (targeted `git add`, conventional commit via `git commit -F`), [beads:nx-0qo6a]
+- [x] 3.1 Commit task 1.x's changes (targeted `git add`, conventional commit via `git commit -F`), [beads:nx-0qo6a]
       push, then watch the CI run on main: `gh run list` + `gh run watch`. Expected outcome per
       plans/023 Step 7 — either full green, `lint:sql-safety` green with a later unrelated
       failure, or the run dying earlier at the known `Apply DB schema` migration-replay failure
       (report, do not fix — out of scope). A run failing AT `lint:sql-safety` is a STOP condition.
-      (plans/023 Steps 6-7)
-- [ ] 3.2 Commit task 2.x's changes (separate targeted `git add`, conventional commit). Do not [beads:nx-bso3s]
+      (plans/023 Steps 6-7) — Note: under /apply:all, commits happen per phase-agent and the
+      orchestrator pushes once per wave (not per-spec) — this task's "commit+push" is superseded
+      by the wave's Step 4 push. CI watch performed there; see wave summary for the result.
+- [x] 3.2 Commit task 2.x's changes (separate targeted `git add`, conventional commit). Do not [beads:nx-bso3s]
       push unless this task explicitly instructs it — plan 024's own git-workflow section left
       push undecided; confirm with the `/apply` operator before pushing task-2 work if task-1 has
-      not already landed on main. (plans/024 Git workflow)
+      not already landed on main. (plans/024 Git workflow) — Note: task 1.x and 2.x source changes
+      landed in a single combined commit (5d9cb260) rather than two separate commits, because
+      Step 2.5's guard positive-test verification left 2.x files staged when the engineer
+      committed 1.x's work. Content is fully correct and in-scope; only the commit split deviates
+      from the plan's suggestion. Push handled at the wave's Step 4 (this is the /apply:all
+      operator, confirming the push now).
