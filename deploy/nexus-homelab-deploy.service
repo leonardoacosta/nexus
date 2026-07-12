@@ -17,8 +17,14 @@ ExecStart=%h/.local/bin/nexus-homelab-deploy
 # Inherit the same machine-local secrets (POSTGRES_URL etc.) the agent
 # uses, so the post-merge migrate hook resolves the right DB.
 EnvironmentFile=-%h/.env
-# bun + git must be reachable; mirror the agent unit's PATH.
-Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# bun + git must be reachable; mirror the agent unit's PATH. Must also
+# include %h/.local/share/pnpm — pnpm is a standalone self-install here
+# (NOT mise-managed; ~/.config/mise/config.toml has no pnpm entry, and
+# the generic mise/shims/pnpm shim errors "No version set for shim: pnpm"
+# when tried), and the post-merge 03-migrate hook shells out to `pnpm
+# --filter @nexus/db db:migrate`. Confirmed empirically: pnpm was NOT
+# reachable under the prior PATH (nx-x9opa follow-up, 2026-07-12).
+Environment=PATH=%h/.local/bin:%h/.local/share/pnpm:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 # A deploy (fetch + build + restart + health retries) is bounded but not
 # instant; allow generous headroom before systemd kills it.
 TimeoutStartSec=900
