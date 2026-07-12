@@ -485,13 +485,30 @@ export class TmuxPtySource implements PtySource {
   }
 
   /**
+   * Serializes `send-keys` invocations so concurrent fast keystrokes cannot
+   * race each other as independent subprocesses (nx-qpsmq). Each queued write
+   * waits for the previous `doWrite` to fully resolve (spawn + process exit)
+   * before starting, while `write()` itself stays synchronous/fire-and-forget
+   * for the caller.
+   */
+  private writeQueue: Promise<void> = Promise.resolve();
+
+  /**
    * Write bytes into the tmux pane via `send-keys`. Best-effort,
-   * fire-and-forget — failures are logged at debug level only.
+   * fire-and-forget — failures are logged at debug level only. Internally
+   * serialized through `writeQueue` (see nx-qpsmq) so keystroke order is
+   * preserved even when `write()` is called rapidly without awaiting.
    */
   write(data: Uint8Array): void {
     if (this.closed) return;
     const text = new TextDecoder().decode(data);
     if (text.length === 0) return;
+    const bytes = data.length;
+    this.writeQueue = this.writeQueue.then(() => this.doWrite(text, bytes));
+  }
+
+  private async doWrite(text: string, bytes: number): Promise<void> {
+    if (this.closed) return;
     const argv = ["tmux", "send-keys", "-t", this.target, "-l", text];
     try {
       const proc = this.spawn.spawn(argv, {
@@ -502,10 +519,9 @@ export class TmuxPtySource implements PtySource {
       // NXPTY-DIAG (mx-rkir.13): log target + byte-count + exit code so we can
       // confirm a received keystroke actually reaches the tmux pane. The literal
       // text is intentionally NOT logged — it can contain pasted secrets.
-      logger.info({ target: this.target, bytes: data.length }, "NXPTY tmux send-keys spawned");
-      void proc.exited.then((code) => {
-        logger.info({ target: this.target, exitCode: code }, "NXPTY tmux send-keys exited");
-      });
+      logger.info({ target: this.target, bytes }, "NXPTY tmux send-keys spawned");
+      const code = await proc.exited;
+      logger.info({ target: this.target, exitCode: code }, "NXPTY tmux send-keys exited");
     } catch (err) {
       logger.debug(
         { target: this.target, error: err instanceof Error ? err.message : String(err) },

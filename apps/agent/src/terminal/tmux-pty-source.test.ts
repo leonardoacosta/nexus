@@ -144,11 +144,14 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
 
   // ── 1.3: write() literal send-keys (auto-Enter regression guard) ──────────
 
-  it("[1.3] write() emits send-keys with the -l literal flag", () => {
+  it("[1.3] write() emits send-keys with the -l literal flag", async () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
 
     source.write(new TextEncoder().encode("hi"));
+    // write() is now internally queued (nx-qpsmq serialization) — flush the
+    // pending microtask so the spawn has actually happened before asserting.
+    await Promise.resolve();
 
     const sendKeys = rec.tmuxCalls("send-keys");
     expect(sendKeys.length).toBe(1);
@@ -159,11 +162,14 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     source.close();
   });
 
-  it("[1.3] write() does not log the literal keystroke text", () => {
+  it("[1.3] write() does not log the literal keystroke text", async () => {
     const rec = makeRecorder();
     const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
     const infoSpy = spyOn(logger, "info");
     source.write(new TextEncoder().encode("some-typed-text"));
+    // write() is now internally queued (nx-qpsmq serialization) — flush the
+    // pending microtask so the spawn has actually happened before asserting.
+    await Promise.resolve();
     const spawnedCall = infoSpy.mock.calls.find((c) => c[1] === "NXPTY tmux send-keys spawned");
     expect(spawnedCall).toBeDefined();
     const fields = spawnedCall![0] as Record<string, unknown>;
@@ -194,6 +200,76 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     source.write(new TextEncoder().encode("hi"));
 
     expect(rec.tmuxCalls("send-keys").length).toBe(0);
+  });
+
+  // ── nx-qpsmq: write() serialization (keystroke reordering regression) ────
+
+  it("[nx-qpsmq] rapid synchronous write() calls are genuinely serialized (Nth spawn waits for (N-1)th's exit)", async () => {
+    const calls: string[][] = [];
+    // Concurrency guard: incremented when a send-keys child is spawned but its
+    // `exited` has not yet resolved, decremented once it resolves. If two
+    // send-keys spawns are ever in flight simultaneously, `maxConcurrent`
+    // captures >1 and the assertion below fails — this is the actual
+    // regression pin (not just spawn-call order, which the OLD fire-and-forget
+    // code would also preserve since spawn() itself ran synchronously inside
+    // write()).
+    let active = 0;
+    let maxConcurrent = 0;
+    const adapter: SpawnFns = {
+      spawnSync: (() => ({
+        exitCode: 0,
+        stdout: Buffer.from(""),
+        stderr: Buffer.from(""),
+      })) as unknown as typeof Bun.spawnSync,
+      spawn: ((argv: string[]) => {
+        calls.push([...argv]);
+        const isSendKeys = argv[0] === "tmux" && argv[1] === "send-keys";
+        if (isSendKeys) {
+          active++;
+          maxConcurrent = Math.max(maxConcurrent, active);
+        }
+        const child = {
+          stdout: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          exited: isSendKeys
+            ? new Promise<number>((resolve) =>
+                setTimeout(() => {
+                  active--;
+                  resolve(0);
+                }, 15),
+              )
+            : Promise.resolve(0),
+          killed: false,
+          kill() {
+            this.killed = true;
+          },
+        };
+        return child as unknown as ReturnType<typeof Bun.spawn>;
+      }) as unknown as typeof Bun.spawn,
+    };
+
+    const source = new TmuxPtySource(TARGET, { spawn: adapter });
+
+    // Fire 4 writes back-to-back with NO await between calls — the exact
+    // shape of a fast browser-side type burst (one WS frame per keystroke).
+    source.write(new TextEncoder().encode("a"));
+    source.write(new TextEncoder().encode("b"));
+    source.write(new TextEncoder().encode("c"));
+    source.write(new TextEncoder().encode("d"));
+
+    // Let the internal write queue drain fully (4 * 15ms serialized + slack).
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const sendKeys = calls.filter((c) => c[0] === "tmux" && c[1] === "send-keys");
+    // Order preserved...
+    expect(sendKeys.map((c) => c[5])).toEqual(["a", "b", "c", "d"]);
+    // ...AND genuinely serialized, not just call-ordered.
+    expect(maxConcurrent).toBe(1);
+
+    source.close();
   });
 
   // ── 1.4: resize path (window-size manual gate + unset release) ────────────
