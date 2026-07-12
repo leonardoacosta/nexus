@@ -10,8 +10,8 @@
  * more sink (the file `nexus-statusline` already cached from) so the
  * statusline stops hitting Anthropic and the uncoordinated 429s stop.
  *
- * The written shape MUST match `nexus-statusline`'s existing `CachedUsage`
- * reader byte-for-byte:
+ * The written shape MUST match the `@nexus/statusline-contract` `CachedUsage`
+ * type byte-for-byte:
  *   { fetched_at: number, data: { five_hour?: { utilization, resets_at? },
  *                                 seven_day?: { utilization, resets_at? } } }
  * where `utilization` is a 0–100 percentage (the reader does
@@ -28,26 +28,13 @@ import { dirname, join } from "node:path";
 
 import type { Db } from "@nexus/db";
 import { credentials } from "@nexus/db";
+import type { CachedUsage, UsagePeriod, UsageResponse } from "@nexus/statusline-contract";
 import { desc, eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 
 import { getActiveCredentialSnapshot } from "../credentials/active-credential-watcher";
 
 const log = createLogger("agent:services:statusline-usage-file");
-
-/** Matches nexus-statusline's `CachedUsage` reader (apps/nexus-statusline/src/index.ts). */
-interface UsagePeriod {
-  utilization: number;
-  resets_at?: string;
-}
-interface UsageResponse {
-  five_hour?: UsagePeriod;
-  seven_day?: UsagePeriod;
-}
-interface CachedUsage {
-  fetched_at: number;
-  data: UsageResponse;
-}
 
 /** Same path nexus-statusline's `usageCachePath()` reads from. */
 function usageCachePath(): string {

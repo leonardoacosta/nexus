@@ -29,6 +29,9 @@ importers:
       '@nexus/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@nexus/statusline-contract':
+        specifier: workspace:*
+        version: link:../../packages/statusline-contract
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -177,6 +180,12 @@ importers:
       drizzle-kit:
         specifier: ^0.31.1
         version: 0.31.10
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/statusline-contract:
+    devDependencies:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
