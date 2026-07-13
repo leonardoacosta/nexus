@@ -1,0 +1,29 @@
+<!-- beads:epic:nx-0bhyl -->
+<!-- beads:feature:nx-fgztu -->
+
+# Implementation Tasks
+
+## DB Batch
+
+- [ ] [1.1] No DB change — this proposal is agent-route + Swift-UI re-composition over existing data; no schema, migration, or retention edits. [owner:db-engineer] [type:db] [beads:nx-eep3y]
+
+## API Batch
+
+- [ ] [2.1] [P-1] Extend `packages/core/src/types/roadmap.ts` and `packages/core/src/types/spec.ts`: optional `project` on `RoadmapCapability` and `UnlinkedBead`, optional `description` on `BeadRef` and `UnlinkedBead`. Additive-only — existing consumers must decode unchanged. [owner:types-engineer] [type:api] [beads:nx-2i959]
+- [ ] [2.2] [P-2] Populate `description` in `apps/agent/src/services/bead-rollup.ts` (BeadRef mapping + `filterUnlinked`) from the `bd list --json` field already fetched; omit when empty. [owner:api-engineer] [type:api] [beads:nx-1kkue]
+- [ ] [2.3] [P-2] Add `project=all` branch to `apps/agent/src/routes/roadmap.ts`: concurrent `computeRoadmap` fan-out over `getProjects()` excluding `hidden`, per-project degradation (warn-log + exclude, never 500), `project` tag on merged entries; single-project path byte-compatible. [owner:api-engineer] [type:api] [beads:nx-48y95]
+- [ ] [2.4] [P-2] Add the same `project=all` branch to `apps/agent/src/routes/beads-unlinked.ts` with shared fan-out helper (place in `apps/agent/src/services/roadmap-aggregate.ts` or a sibling — reuse, don't duplicate the two routes' fan-out). [owner:api-engineer] [type:api] [beads:nx-85xkg]
+- [ ] [2.5] [P-3] Extend `apps/swift/NexusShared` for the additive fields and `all` variants: `Models/Roadmap.swift` (+`project`, `description` optional decode), `Networking/NexusClient.swift` + `NexusAggregateClient.swift` (`fetchRoadmapAll`, `fetchUnlinkedBeadsAll` against the homelab agent). [owner:swift-engineer] [type:api] [beads:nx-bpakq]
+
+## UI Batch
+
+- [ ] [3.1] [P-1] Build the board shell in `apps/swift/nexus-mac/Sources/Dashboard/`: BoardView (rail + work list + detail rail per design § 01), BoardViewModel (roadmap+unlinked fetch, proposal flattening with capability tag, orphan interleave, All-mode tags), BoardDetailRail (description, tasks, deps, spec content, recent TTS, approve/reject + attach). Reuse BeadStatusGlyph and existing Roadmap/Specs fetch logic before writing new code. [owner:swift-engineer] [type:ui] [beads:nx-yihze]
+- [ ] [3.2] [P-2] Collapse navigation in `AppNavigation.swift`: `DashboardSection` → `board` + `settings`, default view `board`, migrate stale `nx.dashboard.defaultView` values, route legacy `DashboardNavigationCoordinator` deep-links to board/settings, titlebar reduced to homelab presence dot (+ process-table popover reusing `ProcessTableView`) and bell. [owner:swift-engineer] [type:ui] [beads:nx-ysk0l]
+- [ ] [3.3] [P-2] Ambient layer: `NotificationDrawer.swift` (slide-over re-homing `NotificationsView` list/replay/meeting-mode + `FAIL` failure entries per design § 05), failure badges on affected rows/rail entries, `AttachSheet.swift` re-homing `PtyViewer` (Stream/Full, writer claim, Esc detach) summoned from session affordances per design § 06. [owner:swift-engineer] [type:ui] [beads:nx-tx5pk]
+- [ ] [3.4] [P-2] `SettingsPane.swift` (⌘,): tabs re-homing existing `CredentialsView`, `IntegrationsView`, `SourceIndexView`, `ProjectVoicesView`, `SettingsView` bodies; amber degraded-integration indicator + drawer entry wiring per design § 07. [owner:swift-engineer] [type:ui] [beads:nx-mftxe]
+- [ ] [3.5] [P-3] Absorb Decide + delete superseded views (deletion inventory in design § Re-home, don't rewrite): approve/reject on rows/detail rail via existing `/specs` endpoints; delete Roadmap/Specs/SpecDetail/Projects/ProjectAccordionRow/Failures/Health/Notifications views + Decide deck; update `project.yml` + xcodegen; grep-sweep deleted type names to zero references. [owner:swift-engineer] [type:ui] [beads:nx-f9myf]
+
+## E2E Batch
+
+- [ ] [4.1] Agent route + service tests (bun): `roadmap?project=all` merge/tags/hidden-excluded/one-project-fails-degrades, `beads/unlinked?project=all` same contract, `description` populated + omitted-when-empty on both surfaces, existing single-project tests stay green (wire back-compat). Use restorable spies, never process-global `mock.module` leaks. [owner:tdd-integration] [type:testing] [beads:nx-9pnkf]
+- [ ] [4.2] [user] Swift verification: headless gate (`ssh mac` — xcodegen + typecheck/build with deletions), then design § Build/verify contract on-device checklist (board launch, All tags, descriptions, drawer, attach sheet, Settings tabs, approve/reject, defaultView migration). searched: no UI test target in project.yml; codesign/GUI gates block headless SwiftUI interaction runs — no documented pattern covers this. [owner:swift-engineer] [type:testing] [beads:nx-xbse5]
