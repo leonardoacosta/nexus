@@ -49,6 +49,8 @@ export interface BeadRef {
   type: string;
   priority: number;
   title: string;
+  /** Bead description from `bd list --json`, when available. Optional. */
+  description?: string;
 }
 
 /**
@@ -81,4 +83,11 @@ export interface UnlinkedBead {
   status: string;
   priority: number;
   type: string;
+  /**
+   * Project code this bead belongs to (e.g. `nx`, `oo`). Populated only in the
+   * future `project=all` aggregation mode; omitted otherwise. Additive.
+   */
+  project?: string;
+  /** Bead description from `bd list --json`, when available. Optional. */
+  description?: string;
 }

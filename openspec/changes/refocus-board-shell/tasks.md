@@ -5,11 +5,11 @@
 
 ## DB Batch
 
-- [ ] [1.1] No DB change — this proposal is agent-route + Swift-UI re-composition over existing data; no schema, migration, or retention edits. [owner:db-engineer] [type:db] [beads:nx-eep3y]
+- [x] [1.1] No DB change — this proposal is agent-route + Swift-UI re-composition over existing data; no schema, migration, or retention edits. [owner:db-engineer] [type:db] [beads:nx-eep3y] — confirmed 2026-07-13: grepped proposal.md + tasks.md for schema/migration/drizzle/packages\/db references, none found beyond this line's own declaration.
 
 ## API Batch
 
-- [ ] [2.1] [P-1] Extend `packages/core/src/types/roadmap.ts` and `packages/core/src/types/spec.ts`: optional `project` on `RoadmapCapability` and `UnlinkedBead`, optional `description` on `BeadRef` and `UnlinkedBead`. Additive-only — existing consumers must decode unchanged. [owner:types-engineer] [type:api] [beads:nx-2i959]
+- [x] [2.1] [P-1] Extend `packages/core/src/types/roadmap.ts` and `packages/core/src/types/spec.ts`: optional `project` on `RoadmapCapability` and `UnlinkedBead`, optional `description` on `BeadRef` and `UnlinkedBead`. Additive-only — existing consumers must decode unchanged. [owner:types-engineer] [type:api] [beads:nx-2i959]
 - [ ] [2.2] [P-2] Populate `description` in `apps/agent/src/services/bead-rollup.ts` (BeadRef mapping + `filterUnlinked`) from the `bd list --json` field already fetched; omit when empty. [owner:api-engineer] [type:api] [beads:nx-1kkue]
 - [ ] [2.3] [P-2] Add `project=all` branch to `apps/agent/src/routes/roadmap.ts`: concurrent `computeRoadmap` fan-out over `getProjects()` excluding `hidden`, per-project degradation (warn-log + exclude, never 500), `project` tag on merged entries; single-project path byte-compatible. [owner:api-engineer] [type:api] [beads:nx-48y95]
 - [ ] [2.4] [P-2] Add the same `project=all` branch to `apps/agent/src/routes/beads-unlinked.ts` with shared fan-out helper (place in `apps/agent/src/services/roadmap-aggregate.ts` or a sibling — reuse, don't duplicate the two routes' fan-out). [owner:api-engineer] [type:api] [beads:nx-85xkg]
