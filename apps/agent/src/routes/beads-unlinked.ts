@@ -61,7 +61,7 @@ export async function handleGetUnlinkedBeads(url: URL): Promise<Response> {
     return json({ unlinked: [] });
   }
 
-  const linked = collectLinkedBeadIds(proj.path);
+  const linked = await collectLinkedBeadIds(proj.path);
   const unlinked: UnlinkedBead[] = filterUnlinked(
     Array.isArray(open) ? open : [],
     linked,

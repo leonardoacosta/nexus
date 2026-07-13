@@ -239,7 +239,7 @@ describe("filterUnlinked", () => {
 // ---------------------------------------------------------------------------
 
 describe("collectLinkedBeadIds", () => {
-  it("unions ids across live proposals and skips archive/", () => {
+  it("unions ids across live proposals and skips archive/", async () => {
     const root = makeProject({
       specs: {
         one: "<!-- beads:epic:e1 -->\n<!-- beads:feature:f1 -->\n[beads:t1]",
@@ -250,7 +250,7 @@ describe("collectLinkedBeadIds", () => {
       },
     });
     try {
-      const linked = collectLinkedBeadIds(root);
+      const linked = await collectLinkedBeadIds(root);
       expect(linked.has("e1")).toBe(true);
       expect(linked.has("f1")).toBe(true);
       expect(linked.has("t1")).toBe(true);

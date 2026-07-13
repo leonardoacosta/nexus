@@ -214,9 +214,9 @@ describe("beads-watcher poll fallback", () => {
 // ─── 3. Missing `.beads/` skips cleanly, siblings unaffected ─────────────────
 
 describe("beads-watcher missing .beads", () => {
-  test("computeBeadCountsFromDisk returns null when .beads/ is absent", () => {
+  test("computeBeadCountsFromDisk returns null when .beads/ is absent", async () => {
     const proj = track(makeTempProject()); // no .beads
-    expect(computeBeadCountsFromDisk(proj)).toBeNull();
+    expect(await computeBeadCountsFromDisk(proj)).toBeNull();
   });
 
   test(
@@ -263,13 +263,13 @@ describe("beads-watcher malformed JSONL", () => {
     expect(parseIssuesJsonl(bad)).toBeNull();
   });
 
-  test("computeBeadCountsFromDisk returns null on malformed issues.jsonl", () => {
+  test("computeBeadCountsFromDisk returns null on malformed issues.jsonl", async () => {
     const proj = track(makeTempProject());
     const beadsDir = join(proj, ".beads");
     mkdirSync(beadsDir, { recursive: true });
     // Truncated mid-write line → whole read is fail-open null.
     writeFileSync(join(beadsDir, "issues.jsonl"), '{"id":"b1","stat');
-    expect(computeBeadCountsFromDisk(proj)).toBeNull();
+    expect(await computeBeadCountsFromDisk(proj)).toBeNull();
   });
 });
 

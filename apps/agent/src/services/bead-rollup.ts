@@ -18,6 +18,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "@nexus/core/node";
 import type { BeadRef, BeadRollup, UnlinkedBead } from "@nexus/core";
@@ -301,14 +302,16 @@ export function resolveTasksMd(
  * scanned — a bead whose only proposal was archived legitimately resurfaces
  * as unlinked open work).
  */
-export function collectLinkedBeadIds(projectPath: string): Set<string> {
+export async function collectLinkedBeadIds(
+  projectPath: string,
+): Promise<Set<string>> {
   const linked = new Set<string>();
   const changesRoot = join(projectPath, "openspec", "changes");
   if (!existsSync(changesRoot)) return linked;
 
   let entries: string[];
   try {
-    entries = readdirSync(changesRoot);
+    entries = await readdir(changesRoot);
   } catch {
     return linked;
   }
@@ -319,7 +322,7 @@ export function collectLinkedBeadIds(projectPath: string): Set<string> {
     if (!existsSync(tasksPath)) continue;
     let body: string;
     try {
-      body = readFileSync(tasksPath, "utf8");
+      body = await readFile(tasksPath, "utf8");
     } catch {
       continue;
     }

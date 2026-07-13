@@ -30,8 +30,7 @@
  * ADDED — beads filesystem watching).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { stat, watch } from "node:fs/promises";
+import { stat, watch, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "@nexus/core/node";
 import type { BeadUnlinkedCounts } from "@nexus/core";
@@ -49,6 +48,10 @@ const log = createLogger("agent:services:beads-watcher");
 const DEBOUNCE_MS = 300;
 const POLL_INTERVAL_MS = 60_000;
 const ISSUES_FILE = "issues.jsonl";
+/** Max projects to set up in one batch before pausing (mirrors spec-watcher/constants.ts). */
+const BATCH_SIZE = 4;
+/** Delay between setup batches (ms; mirrors spec-watcher/constants.ts). */
+const BATCH_DELAY_MS = 200;
 
 // ---------------------------------------------------------------------------
 // Parsing (pure, fail-open)
@@ -128,15 +131,20 @@ export function deriveUnlinkedCounts(
  *
  * Zero `bd` CLI calls — parses the export file directly.
  */
-export function computeBeadCountsFromDisk(
+export async function computeBeadCountsFromDisk(
   projectPath: string,
-): BeadUnlinkedCounts | null {
+): Promise<BeadUnlinkedCounts | null> {
   const jsonlPath = join(projectPath, ".beads", ISSUES_FILE);
-  if (!existsSync(jsonlPath)) return null;
+
+  try {
+    await stat(jsonlPath);
+  } catch {
+    return null; // missing file — fail-open, no log (matches today's existsSync branch)
+  }
 
   let content: string;
   try {
-    content = readFileSync(jsonlPath, "utf8");
+    content = await readFile(jsonlPath, "utf8");
   } catch (err) {
     log.warn({ projectPath, err }, "beads-watcher: read failed; keeping counts");
     return null;
@@ -151,7 +159,7 @@ export function computeBeadCountsFromDisk(
     return null;
   }
 
-  const linked = collectLinkedBeadIds(projectPath);
+  const linked = await collectLinkedBeadIds(projectPath);
   return deriveUnlinkedCounts(beads, linked);
 }
 
@@ -197,6 +205,10 @@ function countsEqual(a: BeadUnlinkedCounts, b: BeadUnlinkedCounts): boolean {
   );
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Start the beads watcher: a per-project `.beads/` directory watch (filtered
  * to `issues.jsonl`) plus an unconditional poll fallback, feeding recounts to
@@ -225,8 +237,8 @@ export function startBeadsWatcher(deps: BeadsWatcherDeps): BeadsWatcherHandle {
   // Per-project last good counts — fail-open baseline + change gate.
   const lastCounts = new Map<string, BeadUnlinkedCounts>();
 
-  function recount(project: BeadsWatcherProject): void {
-    const counts = computeBeadCountsFromDisk(project.path);
+  async function recount(project: BeadsWatcherProject): Promise<void> {
+    const counts = await computeBeadCountsFromDisk(project.path);
     if (counts === null) return; // fail-open: keep previous
     const prev = lastCounts.get(project.code);
     if (prev && countsEqual(prev, counts)) return; // no change
@@ -246,12 +258,16 @@ export function startBeadsWatcher(deps: BeadsWatcherDeps): BeadsWatcherHandle {
     projects = [];
   }
 
-  for (const project of projects) {
+  function setupProject(project: BeadsWatcherProject): void {
     const beadsDir = join(project.path, ".beads");
 
     // Poll fallback is unconditional — started outside the fs.watch try so it
     // still bounds staleness even when the dir is absent or the watch errors.
-    const pollTimer = setInterval(() => recount(project), pollIntervalMs);
+    const pollTimer = setInterval(() => {
+      void recount(project).catch((err) => {
+        log.warn({ project: project.code, err }, "beads-watcher: poll recount failed");
+      });
+    }, pollIntervalMs);
     ac.signal.addEventListener("abort", () => clearInterval(pollTimer), {
       once: true,
     });
@@ -261,7 +277,9 @@ export function startBeadsWatcher(deps: BeadsWatcherDeps): BeadsWatcherHandle {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        recount(project);
+        void recount(project).catch((err) => {
+          log.warn({ project: project.code, err }, "beads-watcher: debounced recount failed");
+        });
       }, debounceMs);
     };
     ac.signal.addEventListener(
@@ -274,7 +292,7 @@ export function startBeadsWatcher(deps: BeadsWatcherDeps): BeadsWatcherHandle {
 
     void (async () => {
       // Best-effort initial recount so the baseline is set before any event.
-      recount(project);
+      await recount(project);
 
       // Missing `.beads/` skips cleanly — no watch, poll fallback still runs.
       try {
@@ -302,6 +320,19 @@ export function startBeadsWatcher(deps: BeadsWatcherDeps): BeadsWatcherHandle {
       }
     })();
   }
+
+  void (async () => {
+    for (let i = 0; i < projects.length; i += BATCH_SIZE) {
+      if (ac.signal.aborted) return;
+      const batch = projects.slice(i, i + BATCH_SIZE);
+      for (const project of batch) {
+        setupProject(project);
+      }
+      if (i + BATCH_SIZE < projects.length) {
+        await delay(BATCH_DELAY_MS);
+      }
+    }
+  })();
 
   log.info(
     { projectCount: projects.length, pollIntervalMs, debounceMs },
