@@ -35,6 +35,11 @@ const ALLOWED_KEYS = new Set([
   "unknown_critical_mode",
   // ios-presence-reporter (Phase 2): the bedtime-source policy.
   "bedtime_sources",
+  // Rate-throttle for repeat TTS notifications (noise-reduction audit,
+  // 2026-07-13, plan 041).
+  "rate_throttle_enabled",
+  "rate_throttle_max_per_window",
+  "rate_throttle_window_minutes",
 ]);
 const DUCKING_MODES = new Set(["full", "half", "mute"]);
 const FAIL_MODES = new Set(["fail-safe", "fail-open"]);
@@ -53,6 +58,9 @@ interface SettingsResponse {
   unknown_noncritical_mode: FailMode;
   unknown_critical_mode: FailMode;
   bedtime_sources: BedtimeSources;
+  rate_throttle_enabled: boolean;
+  rate_throttle_max_per_window: number;
+  rate_throttle_window_minutes: number;
   updated_at: string;
 }
 
@@ -65,6 +73,9 @@ interface SettingsRow {
   unknownNoncriticalMode: FailMode;
   unknownCriticalMode: FailMode;
   bedtimeSources: BedtimeSources;
+  rateThrottleEnabled: boolean;
+  rateThrottleMaxPerWindow: number;
+  rateThrottleWindowMinutes: number;
   updatedAt: Date;
 }
 
@@ -85,6 +96,9 @@ function toResponse(row: SettingsRow): SettingsResponse {
     unknown_noncritical_mode: row.unknownNoncriticalMode,
     unknown_critical_mode: row.unknownCriticalMode,
     bedtime_sources: row.bedtimeSources,
+    rate_throttle_enabled: row.rateThrottleEnabled,
+    rate_throttle_max_per_window: row.rateThrottleMaxPerWindow,
+    rate_throttle_window_minutes: row.rateThrottleWindowMinutes,
     updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -190,6 +204,9 @@ export async function handlePatchNotificationSettings(
     unknownNoncriticalMode: FailMode;
     unknownCriticalMode: FailMode;
     bedtimeSources: BedtimeSources;
+    rateThrottleEnabled: boolean;
+    rateThrottleMaxPerWindow: number;
+    rateThrottleWindowMinutes: number;
   }> = {};
 
   if ("tts_enabled" in patch) {
@@ -268,6 +285,35 @@ export async function handlePatchNotificationSettings(
     update.bedtimeSources = m as BedtimeSources;
   }
 
+  if ("rate_throttle_enabled" in patch) {
+    if (typeof patch.rate_throttle_enabled !== "boolean") {
+      return jsonResponse({ error: "rate_throttle_enabled must be a boolean" }, 400);
+    }
+    update.rateThrottleEnabled = patch.rate_throttle_enabled;
+  }
+
+  if ("rate_throttle_max_per_window" in patch) {
+    const v = patch.rate_throttle_max_per_window;
+    if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+      return jsonResponse(
+        { error: "rate_throttle_max_per_window must be a positive integer" },
+        400,
+      );
+    }
+    update.rateThrottleMaxPerWindow = v;
+  }
+
+  if ("rate_throttle_window_minutes" in patch) {
+    const v = patch.rate_throttle_window_minutes;
+    if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+      return jsonResponse(
+        { error: "rate_throttle_window_minutes must be a positive integer" },
+        400,
+      );
+    }
+    update.rateThrottleWindowMinutes = v;
+  }
+
   // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
   // SELECT the current row, merge the candidate patch, and if every field
   // matches the existing value, return 200 WITHOUT issuing an UPDATE and
@@ -296,7 +342,13 @@ export async function handlePatchNotificationSettings(
     (update.unknownCriticalMode !== undefined &&
       update.unknownCriticalMode !== current.unknownCriticalMode) ||
     (update.bedtimeSources !== undefined &&
-      update.bedtimeSources !== current.bedtimeSources);
+      update.bedtimeSources !== current.bedtimeSources) ||
+    (update.rateThrottleEnabled !== undefined &&
+      update.rateThrottleEnabled !== current.rateThrottleEnabled) ||
+    (update.rateThrottleMaxPerWindow !== undefined &&
+      update.rateThrottleMaxPerWindow !== current.rateThrottleMaxPerWindow) ||
+    (update.rateThrottleWindowMinutes !== undefined &&
+      update.rateThrottleWindowMinutes !== current.rateThrottleWindowMinutes);
 
   if (!changed) {
     // No-op: return current row, do NOT UPDATE, do NOT emit.

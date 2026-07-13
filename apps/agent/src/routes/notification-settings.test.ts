@@ -62,6 +62,9 @@ interface FakeRow {
   unknownNoncriticalMode: "fail-safe" | "fail-open";
   unknownCriticalMode: "fail-open" | "fail-safe";
   bedtimeSources: "hk" | "focus" | "either" | "both";
+  rateThrottleEnabled: boolean;
+  rateThrottleMaxPerWindow: number;
+  rateThrottleWindowMinutes: number;
   updatedAt: Date;
 }
 
@@ -75,6 +78,9 @@ function defaultRow(): FakeRow {
     unknownNoncriticalMode: "fail-safe",
     unknownCriticalMode: "fail-open",
     bedtimeSources: "either",
+    rateThrottleEnabled: true,
+    rateThrottleMaxPerWindow: 5,
+    rateThrottleWindowMinutes: 5,
     updatedAt: new Date("2026-04-26T00:00:00.000Z"),
   };
 }
@@ -249,6 +255,9 @@ describe("PATCH /notifications/settings — partial update semantics", () => {
       unknownNoncriticalMode: "fail-safe",
       unknownCriticalMode: "fail-open",
       bedtimeSources: "either",
+      rateThrottleEnabled: true,
+      rateThrottleMaxPerWindow: 5,
+      rateThrottleWindowMinutes: 5,
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
     const { db, rows } = makeFakeDb(initial);
@@ -495,6 +504,62 @@ describe("PATCH /notifications/settings — bedtime_sources", () => {
     expect(res.status).toBe(200);
     expect(received).toBe(0);
     lifecycleBus.removeAllListeners();
+  });
+});
+
+// ── Rate-throttle for repeat TTS notifications (noise-reduction audit,
+// 2026-07-13, plan 041) ─────────────────────────────────────────────────────
+
+describe("PATCH /notifications/settings — rate_throttle_enabled", () => {
+  it("GET surfaces the 3 rate-throttle fields with their defaults", async () => {
+    const { db } = makeFakeDb();
+    const res = await handleGetNotificationSettings(db, makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.rate_throttle_enabled).toBe(true);
+    expect(body.rate_throttle_max_per_window).toBe(5);
+    expect(body.rate_throttle_window_minutes).toBe(5);
+  });
+
+  it("rejects invalid values for each rate-throttle field with 400", async () => {
+    const { db } = makeFakeDb();
+    const badEnabled = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { rate_throttle_enabled: "yes" }),
+    );
+    expect(badEnabled.status).toBe(400);
+
+    const badMax = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { rate_throttle_max_per_window: 0 }),
+    );
+    expect(badMax.status).toBe(400);
+
+    const badWindow = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { rate_throttle_window_minutes: -1 }),
+    );
+    expect(badWindow.status).toBe(400);
+  });
+
+  it("persists valid rate-throttle values and returns them in the response", async () => {
+    const { db, rows } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", {
+        rate_throttle_enabled: false,
+        rate_throttle_max_per_window: 10,
+        rate_throttle_window_minutes: 15,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.rate_throttle_enabled).toBe(false);
+    expect(body.rate_throttle_max_per_window).toBe(10);
+    expect(body.rate_throttle_window_minutes).toBe(15);
+    expect(rows[0]!.rateThrottleEnabled).toBe(false);
+    expect(rows[0]!.rateThrottleMaxPerWindow).toBe(10);
+    expect(rows[0]!.rateThrottleWindowMinutes).toBe(15);
   });
 });
 

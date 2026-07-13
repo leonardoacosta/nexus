@@ -42,6 +42,21 @@ export const notificationSettings = pgTable("notification_settings", {
     .$type<"hk" | "focus" | "either" | "both">()
     .notNull()
     .default("either"),
+  /**
+   * Project-scoped TTS rate throttle (noise-reduction audit, 2026-07-13).
+   * When a project has fired `rateThrottleMaxPerWindow` or more TTS
+   * notifications within the trailing `rateThrottleWindowMinutes`, further
+   * non-critical (priority != "high") TTS notifications for that project are
+   * delivered as a silent desktop notification instead — see
+   * NotificationManager.send() in apps/agent/src/notifications/manager.ts.
+   */
+  rateThrottleEnabled: boolean("rate_throttle_enabled").notNull().default(true),
+  rateThrottleMaxPerWindow: integer("rate_throttle_max_per_window")
+    .notNull()
+    .default(5),
+  rateThrottleWindowMinutes: integer("rate_throttle_window_minutes")
+    .notNull()
+    .default(5),
   updatedAt: timestamp("updated_at", { mode: "date" })
     .notNull()
     .defaultNow(),
