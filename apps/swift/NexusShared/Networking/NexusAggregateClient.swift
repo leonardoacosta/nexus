@@ -355,6 +355,37 @@ public actor NexusAggregateClient {
         return merged.values.sorted { $0.name < $1.name }
     }
 
+    /// All-projects unlinked beads across the fleet. Each agent fans out over
+    /// its OWN non-hidden projects (`project=all`), and this layer merges those
+    /// per-agent results deduped by bead `id`. Since a project lives on exactly
+    /// one agent, cross-agent id collisions shouldn't occur; the dedup is the
+    /// same last-writer-wins safety net as the single-project path.
+    ///
+    /// Spec: openspec/changes/refocus-board-shell (task 2.5)
+    public func fetchUnlinkedBeadsAll() async -> [UnlinkedBead] {
+        let (perAgent, _) = await fanOut("fetchUnlinkedBeadsAll") { client in
+            try await client.fetchUnlinkedBeadsAll()
+        }
+        var merged: [String: UnlinkedBead] = [:]
+        for rows in perAgent { for b in rows { merged[b.id] = b } }
+        return merged.values.sorted { $0.id < $1.id }
+    }
+
+    /// All-projects roadmap across the fleet. Each agent fans out over its OWN
+    /// non-hidden projects (`project=all`); this layer merges those per-agent
+    /// results deduped by capability `epicId`. Single-owner semantics
+    /// (each project lives on one agent); partial failure tolerant.
+    ///
+    /// Spec: openspec/changes/refocus-board-shell (task 2.5)
+    public func fetchRoadmapAll() async -> [RoadmapCapability] {
+        let (perAgent, _) = await fanOut("fetchRoadmapAll") { client in
+            try await client.fetchRoadmapAll()
+        }
+        var merged: [String: RoadmapCapability] = [:]
+        for rows in perAgent { for c in rows { merged[c.epicId] = c } }
+        return merged.values.sorted { $0.name < $1.name }
+    }
+
     /// Active /apply wave plan from the agent that owns the currently-running
     /// run (specs-tab-accordion-with-topology, task 2.2).
     ///
