@@ -386,6 +386,13 @@
       "when": 1783953852100,
       "tag": "0054_nice_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1783986202784,
+      "tag": "0055_supreme_strong_guy",
+      "breakpoints": true
     }
   ]
 }
