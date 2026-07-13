@@ -28,6 +28,7 @@ import { evaluateProactiveSwap } from "./services/proactive-swap";
 import { writeStatuslineUsageFile } from "./services/statusline-usage-file";
 import { lastSwapAt } from "./services/credential-pool/swap-tracker";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
+import { startBeadsWatcher, type BeadsWatcherHandle } from "./services/beads-watcher";
 import {
   startTailscalePresencePoller,
   type TailscalePresencePollerService,
@@ -36,7 +37,7 @@ import { handleCommand } from "./services/command-handler";
 import { getNotificationManager } from "./routes/notifications";
 import { initSendTextRoute } from "./routes/commands-send-text";
 import { initResizeRoute } from "./routes/commands-resize";
-import { stopConfigLoader } from "./services/config-loader";
+import { stopConfigLoader, getProjects } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
 import { ensureAudioDir } from "./notifications/audio-store";
@@ -296,6 +297,20 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "spec watcher failed to start");
 }
 
+// ── Beads watcher ────────────────────────────────────────────────────────────
+// Watches each registered project's .beads/issues.jsonl (bd's export.auto
+// signal) and recomputes unlinked ready/blocked counts into
+// project_status_snapshots — zero bd CLI shell-outs on the hot path
+// (add-project-status-snapshots). Default sink is recordProjectStatusFromBeads
+// since `db` is supplied; projects come from the config-loader registry.
+let beadsWatcher: BeadsWatcherHandle | null = null;
+try {
+  beadsWatcher = startBeadsWatcher({ db, listProjects: getProjects });
+  logger.info("beads watcher started");
+} catch (err) {
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "beads watcher failed to start");
+}
+
 // ── Tailscale presence poller ───────────────────────────────────────────────
 // Low-frequency `tailscale status --json` poll that derives the phone's
 // home/away/absent state (zero iOS permission) and reports phonePresent /
@@ -349,6 +364,7 @@ async function shutdown() {
 
   // Stop new services first.
   tailscalePresencePoller?.stop();
+  beadsWatcher?.stop();
   specWatcher?.stop();
   credentialUsagePoller?.stop();
   credentialRefreshJob?.stop();
