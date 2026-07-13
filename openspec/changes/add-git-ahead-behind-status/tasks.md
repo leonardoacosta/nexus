@@ -35,11 +35,11 @@
 
 ## UI Batch
 
-- [ ] 3.1 No UI change in this proposal — no consumer of the new fields exists yet. (Non-goal, [beads:nx-93lqs]
+- [x] 3.1 No UI change in this proposal — no consumer of the new fields exists yet. (Non-goal, [beads:nx-93lqs]
       see proposal.md.)
       - touches: (none)
 
 ## E2E Batch
 
-- [ ] 4.1 No E2E change — backend data-shape addition only, no user-facing flow to exercise. [beads:nx-oeful]
+- [x] 4.1 No E2E change — backend data-shape addition only, no user-facing flow to exercise. [beads:nx-oeful]
       - touches: (none)

@@ -55,7 +55,7 @@
 
 ## UI Batch
 
-- [ ] 3.1 No new UI — `apps/nexus-statusline`'s render output is unchanged (same letter, same [beads:nx-hri7x]
+- [x] 3.1 No new UI — `apps/nexus-statusline`'s render output is unchanged (same letter, same [beads:nx-hri7x]
       position); only its source of the mapping function moves. No dashboard UI consumes
       `GET /statusline`'s `model` field yet in this proposal (that's a future dashboard-side
       follow-up, not blocked by this work).
@@ -63,6 +63,6 @@
 
 ## E2E Batch
 
-- [ ] 4.1 No E2E change — no new user-facing flow to exercise; existing statusline rendering [beads:nx-tonnj]
+- [x] 4.1 No E2E change — no new user-facing flow to exercise; existing statusline rendering [beads:nx-tonnj]
       behavior is unchanged (verified by unit coverage in task 2.7).
       - touches: (none)
