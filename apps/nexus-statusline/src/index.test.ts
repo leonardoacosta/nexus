@@ -35,7 +35,7 @@ import {
 import { buildStdinUsage, resolveUsage, polledUsageFromCache } from "./usage";
 import { resolveContext } from "./context-guard";
 import { getSpeed } from "./speed";
-import { sessionContextPath, writeSessionContext, gcSessionContext } from "./session-context";
+import { gcSessionContext } from "./session-context";
 import type { CcInput, UsageResponse } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -974,79 +974,6 @@ describe("modelFamilyLetter — shared letter derivation", () => {
   it("no model → null", () => {
     expect(modelFamilyLetter(undefined)).toBeNull();
     expect(modelFamilyLetter({})).toBeNull();
-  });
-});
-
-// ── cc-tmux-bar-cleanup 1.2 — session-context writer carries the model letter ─
-
-describe("writeSessionContext — per-pane cache (cc-tmux-bar-cleanup)", () => {
-  const pane = "%nx-test-model-letter";
-  const path = sessionContextPath(pane);
-  const origPane = process.env.TMUX_PANE;
-
-  afterEach(() => {
-    if (origPane === undefined) delete process.env.TMUX_PANE;
-    else process.env.TMUX_PANE = origPane;
-    try {
-      unlinkSync(path);
-    } catch {
-      // no file to clean up — fine
-    }
-  });
-
-  it("writes both context_used_pct and the model letter in one JSON object", () => {
-    process.env.TMUX_PANE = pane;
-    writeSessionContext(62, "F");
-    const written = JSON.parse(readFileSync(path, "utf8"));
-    expect(written.context_used_pct).toBe(62);
-    expect(written.model).toBe("F");
-  });
-
-  it("omits the model key (not null/empty) when no model letter is available", () => {
-    process.env.TMUX_PANE = pane;
-    writeSessionContext(62, null);
-    const written = JSON.parse(readFileSync(path, "utf8"));
-    expect(written.context_used_pct).toBe(62);
-    expect("model" in written).toBe(false);
-  });
-
-  it("no other per-render field (cost, lines, speed, style, worktree, spec) is written", () => {
-    process.env.TMUX_PANE = pane;
-    writeSessionContext(62, "O");
-    const written = JSON.parse(readFileSync(path, "utf8"));
-    expect(Object.keys(written).sort()).toEqual(["context_used_pct", "model", "ts"]);
-  });
-
-  it("carries branch/dirty/ahead into the payload when a GitInfo is passed (plan 004)", () => {
-    process.env.TMUX_PANE = pane;
-    writeSessionContext(62, "F", { branch: "main", dirty: true, ahead: 3 });
-    const written = JSON.parse(readFileSync(path, "utf8"));
-    expect(written.branch).toBe("main");
-    expect(written.dirty).toBe(true);
-    expect(written.ahead).toBe(3);
-    expect(Object.keys(written).sort()).toEqual([
-      "ahead",
-      "branch",
-      "context_used_pct",
-      "dirty",
-      "model",
-      "ts",
-    ]);
-  });
-
-  it("omits all three git keys when git is null (same shape as the two-arg call)", () => {
-    process.env.TMUX_PANE = pane;
-    writeSessionContext(62, "F", null);
-    const written = JSON.parse(readFileSync(path, "utf8"));
-    expect("branch" in written).toBe(false);
-    expect("dirty" in written).toBe(false);
-    expect("ahead" in written).toBe(false);
-  });
-
-  it("outside tmux ($TMUX_PANE unset) is a no-op", () => {
-    delete process.env.TMUX_PANE;
-    writeSessionContext(62, "F");
-    expect(() => readFileSync(path, "utf8")).toThrow();
   });
 });
 

@@ -48,10 +48,10 @@
 import { openSync, readSync, closeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { getLocalAgentUrl } from "./project";
-import { modelFamilyLetter, renderStatusline } from "./render";
+import { renderStatusline } from "./render";
 import { resolveUsage, getAccountDomain } from "./usage";
 import { resolveContext } from "./context-guard";
-import { writeSessionContext, gcSessionContext } from "./session-context";
+import { gcSessionContext } from "./session-context";
 import { getSpeed } from "./speed";
 import {
   fetchStatusline,
@@ -139,10 +139,11 @@ async function main(): Promise<void> {
     getAccountDomain(),
   ]);
 
-  // Resolve context once, harvest it to the per-pane cache for cc-tmux, then
-  // pass the same value to the renderer.
+  // Resolve context once and pass it to the renderer. The former per-pane
+  // session-context harvest was removed (add-session-context-api); cc-tmux now
+  // reads context via the nx-agent GET endpoint instead. The GC below still
+  // sweeps pre-existing orphaned pane-keyed files.
   const resolvedContext = resolveContext(ccInput);
-  writeSessionContext(resolvedContext?.usedPct, modelFamilyLetter(ccInput.model), git);
   gcSessionContext();
 
   const out = renderStatusline(ccInput, {

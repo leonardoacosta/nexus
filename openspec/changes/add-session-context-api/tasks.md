@@ -12,7 +12,7 @@
 ## UI Batch
 
 - [x] [3.1] [P-1] Add the fire-and-forget push in `apps/nexus-statusline/src/context-guard.ts` after `resolveContext()` resolves a value (guard logic itself unchanged) — see proposal.md § Requirements and design.md § Push mechanism / § Local agent URL resolution for the exact contract (non-blocking, timeout, URL fallback, error-swallowing). [owner:api-engineer] [type:api] [beads:nx-n7tc1]
-- [ ] [3.2] [P-2] Remove `session-context.ts`'s `writeSessionContext()` export + call site — see proposal.md § Requirements ("SHALL NOT write the tmux-pane-keyed session-context file") for exactly what must and must not change, including keeping `gcSessionContext`/`GC_STATE_PREFIXES` intact for orphan cleanup. [owner:api-engineer] [type:api] [beads:nx-550kj]
+- [x] [3.2] [P-2] Remove `session-context.ts`'s `writeSessionContext()` export + call site — see proposal.md § Requirements ("SHALL NOT write the tmux-pane-keyed session-context file") for exactly what must and must not change, including keeping `gcSessionContext`/`GC_STATE_PREFIXES` intact for orphan cleanup. [owner:api-engineer] [type:api] [beads:nx-550kj]
 
 ## E2E Batch
 
