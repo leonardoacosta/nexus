@@ -32,6 +32,7 @@ export const ALLOWED_BINARIES = [
   "bash", // PTY shell for interactive sessions
   "sh", // POSIX shell fallback
   "cat", // session log tailing
+  "mkfifo", // create the named pipe tmux-pty-source.ts streams pane output through (plans/032)
   "nexus", // self-invocation (CLI tests, register)
   "openspec", // spec list/show for spec-watcher + specs route
   "which", // binary discovery for environment route + tmux availability check

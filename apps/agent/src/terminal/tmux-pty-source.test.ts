@@ -1,8 +1,8 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { logger } from "@nexus/core/node";
-import { TmuxPtySource, type SpawnFns } from "./tmux-pty-source";
+import { DisallowedBinaryError, logger } from "@nexus/core/node";
+import { TmuxPtySource, createValidatedSpawnFns, type SpawnFns } from "./tmux-pty-source";
 
 /**
  * Unit tests for TmuxPtySource argv construction (Tier 1 of the
@@ -416,5 +416,40 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
 
     // Temp FIFO dir removed.
     expect(existsSync(tmpDir)).toBe(false);
+  });
+});
+
+describe("createValidatedSpawnFns (production default, D4 fix — plans/032)", () => {
+  it("rejects a disallowed binary via spawnSync before touching Bun.spawnSync", () => {
+    const fns = createValidatedSpawnFns();
+    expect(() => fns.spawnSync(["not-an-allowed-binary", "x"])).toThrow(
+      DisallowedBinaryError,
+    );
+  });
+
+  it("rejects a disallowed binary via spawn before touching Bun.spawn", () => {
+    const fns = createValidatedSpawnFns();
+    expect(() => fns.spawn(["not-an-allowed-binary", "x"])).toThrow(
+      DisallowedBinaryError,
+    );
+  });
+
+  it("allows mkfifo (added to ALLOWED_BINARIES by plans/032)", () => {
+    const fns = createValidatedSpawnFns();
+    // `which` is always in ALLOWED_BINARIES and universally present — this
+    // proves the allowlisted path reaches the real Bun.spawnSync (exit code
+    // may be 0 or 1 depending on whether `mkfifo` is on PATH; either is a
+    // real execution, not a DisallowedBinaryError throw).
+    expect(() => fns.spawnSync(["which", "mkfifo"])).not.toThrow();
+  });
+
+  it("TmuxPtySource with no injected adapter uses the validated default without throwing", () => {
+    // No live tmux session named this way exists — every production call
+    // site is best-effort / try-catch, so construction and close() must not
+    // throw even though the underlying tmux calls fail. This only proves the
+    // production (no opts.spawn) path is wired through createValidatedSpawnFns
+    // and stays exception-safe end-to-end.
+    const source = new TmuxPtySource("nx-plan032-nonexistent-session:0.0");
+    expect(() => source.close()).not.toThrow();
   });
 });

@@ -3,10 +3,16 @@
     {
       "id": "D4",
       "paths": [
-        "apps/agent/src/terminal/pty-source.ts",
-        "apps/agent/src/services/pty*"
+        "apps/agent/src/terminal/pty-source.ts"
       ],
-      "reason": "tmux harness management is the product \u2014 spawn is core capability, wrapped by safeSpawn"
+      "reason": "Spawns via node-pty's own pty.spawn(), a different mechanism from Bun.spawn/safeSpawn entirely \u2014 no safeSpawn wrapping applies or is needed here. The apps/agent/src/services/pty* glob (matched zero files) was removed by plans/032."
+    },
+    {
+      "id": "D4",
+      "paths": [
+        "apps/agent/src/terminal/tmux-pty-source.ts"
+      ],
+      "reason": "TmuxPtySource's default spawn adapter (createValidatedSpawnFns, added by plans/032) validates every binary against safeSpawn's ALLOWED_BINARIES via assertAllowedBinary before delegating to Bun.spawn/Bun.spawnSync. Literal safeSpawn() is not called directly because 9 of the file's 11 spawn call sites are synchronous and safeSpawn is async-only \u2014 see plans/032 Design decision."
     },
     {
       "id": "D4",

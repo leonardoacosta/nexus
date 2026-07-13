@@ -34,7 +34,7 @@
  *   viewer-driven resize + auto-restore.
  */
 
-import { logger } from "@nexus/core/node";
+import { assertAllowedBinary, logger } from "@nexus/core/node";
 import type { PtySource } from "./pty-source";
 import type { Subprocess } from "bun";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -125,6 +125,45 @@ export interface SpawnFns {
   spawnSync: typeof Bun.spawnSync;
 }
 
+/**
+ * Production spawn adapter — validates the binary against safeSpawn's
+ * ALLOWED_BINARIES (packages/core/src/safe-spawn.ts) before delegating to
+ * the real Bun.spawn/Bun.spawnSync.
+ *
+ * This is NOT a call to safeSpawn() itself: safeSpawn is fully async
+ * (SafeSpawnHandle.exitCode is a Promise), but 9 of this file's 11 spawn
+ * call sites run synchronously (the constructor, resize(), unsetWindowSize(),
+ * setWindowSizeOption(), close()) and there is no sync safeSpawn equivalent.
+ * Reusing assertAllowedBinary here gives every call site the same allowlist
+ * guarantee safeSpawn provides, at the single choke point where the default
+ * adapter is constructed, without an architecture change to make
+ * construction/resize/close async (see plans/032 Design decision).
+ *
+ * Arg-CONTENT validation (safeSpawn's other guarantee, isSafeArg) is
+ * deliberately NOT applied here: doWrite()'s `tmux send-keys -l <text>` call
+ * sends arbitrary client keystrokes that legitimately contain shell
+ * metacharacters. Every call in this file is an argv-vector spawn (no shell
+ * on our side), so arg content can never cause OS-level injection regardless
+ * of characters; the tmux TARGET is validated separately by
+ * isValidTmuxTarget() before it reaches this class's constructor.
+ */
+export function createValidatedSpawnFns(): SpawnFns {
+  function checkBinary(argv: readonly string[]): void {
+    const binary = argv[0];
+    if (binary !== undefined) assertAllowedBinary(binary);
+  }
+  return {
+    spawn: ((argv: string[], opts?: unknown) => {
+      checkBinary(argv);
+      return Bun.spawn(argv, opts as Parameters<typeof Bun.spawn>[1]);
+    }) as typeof Bun.spawn,
+    spawnSync: ((argv: string[], opts?: unknown) => {
+      checkBinary(argv);
+      return Bun.spawnSync(argv, opts as Parameters<typeof Bun.spawnSync>[1]);
+    }) as typeof Bun.spawnSync,
+  };
+}
+
 export interface TmuxPtySourceOptions {
   /** Scrollback buffer capacity (default 10 000). */
   scrollbackCapacity?: number;
@@ -199,7 +238,7 @@ export class TmuxPtySource implements PtySource {
     private readonly target: string,
     opts: TmuxPtySourceOptions = {},
   ) {
-    this.spawn = opts.spawn ?? { spawn: Bun.spawn, spawnSync: Bun.spawnSync };
+    this.spawn = opts.spawn ?? createValidatedSpawnFns();
     const capacity = opts.scrollbackCapacity ?? DEFAULT_SCROLLBACK_CAPACITY;
     this.scrollback = new RingBuffer(capacity);
     this.seedScrollback();
