@@ -5,7 +5,10 @@
 # A failing hook logs a warning but does NOT block subsequent hooks.
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
-HOOKS_DIR="$REPO_DIR/deploy/hooks.d/post-merge"
+# HOOKS_DIR defaults to the production dir; POST_MERGE_HOOKS_DIR overrides it
+# for isolated testing (see deploy/tests/post-merge-hook-order.test.sh). Git
+# never sets this env var, so production behavior is unchanged.
+HOOKS_DIR="${POST_MERGE_HOOKS_DIR:-$REPO_DIR/deploy/hooks.d/post-merge}"
 
 if [ ! -d "$HOOKS_DIR" ]; then
     exit 0
