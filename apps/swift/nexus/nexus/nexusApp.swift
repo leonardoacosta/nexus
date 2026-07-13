@@ -207,14 +207,16 @@ struct nexusApp: App {
         dashboardScene
             .windowResizability(.contentMinSize)
 
-        // Decide-flow pilot (openspec/changes/add-decide-flow-menubar): a second
-        // MenuBarExtra whose window popover hosts the session deck. Independent of
-        // the dashboard menubar item + its viewModel — owns its own DecideSession.
-        DecideScene()
+        // refocus-board-shell task 3.5: the Decide deck is absorbed into the
+        // board (approve/reject on proposal rows via the /specs endpoints), so
+        // its standalone MenuBarExtra scene is removed.
 
+        // refocus-board-shell task 3.4: the ⌘, Settings scene now hosts the
+        // SettingsPane (Credentials / Integrations / Sources / Voices /
+        // General tabs re-homing the existing views). The legacy menubar
+        // PreferencesScene is retained on disk but no longer wired.
         Settings {
-            PreferencesScene()
-                .environmentObject(viewModel)
+            SettingsPane()
         }
     }
 
