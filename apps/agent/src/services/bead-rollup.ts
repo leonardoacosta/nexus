@@ -51,8 +51,6 @@ export interface RawBead {
 export interface RollupBeadSource {
   /** Batch-fetch beads by id (`bd list --id <csv> --json`). */
   listBeads(ids: string[], cwd: string): Promise<RawBead[]>;
-  /** The ready set (`bd ready --json`). */
-  listReady(cwd: string): Promise<RawBead[]>;
 }
 
 export const defaultRollupBeadSource: RollupBeadSource = {
@@ -61,16 +59,12 @@ export const defaultRollupBeadSource: RollupBeadSource = {
     // `--all` is MANDATORY: without it `bd list --id` excludes closed beads,
     // so every rollup's `closed` count is 0 and `total` is undercounted
     // (only open task beads come back). The progress bar is closed/total, so
-    // omitting `--all` silently breaks the whole feature. Do NOT add `--all`
-    // to `bd ready` below — the ready set is a distinct, open-only query.
+    // omitting `--all` silently breaks the whole feature.
     return execJson<RawBead[]>(
       "bd",
       ["list", "--id", ids.join(","), "--all", "--json"],
       { cwd },
     );
-  },
-  async listReady(cwd) {
-    return execJson<RawBead[]>("bd", ["ready", "--json"], { cwd });
   },
 };
 
@@ -175,18 +169,21 @@ export function emptyRollup(): BeadRollup {
 }
 
 /**
- * Fold parsed markers + resolved beads + the ready set into a
- * {@link BeadRollup}. Task counts consider ONLY the beads whose ids appear
- * in `markers.taskIds` AND that `bd` actually returned, so a deleted /
- * renamed task bead simply drops out (never inflates `total`).
+ * Fold parsed markers + resolved beads into a {@link BeadRollup}. Task counts
+ * consider ONLY the beads whose ids appear in `markers.taskIds` AND that `bd`
+ * actually returned, so a deleted / renamed task bead simply drops out
+ * (never inflates `total`).
+ *
+ * `ready` is derived purely from `beads` (mirrors beads-watcher's
+ * `deriveUnlinkedCounts`): a task bead is ready when it is not closed and not
+ * blocked (per `deriveBlockedIds`). This is a BEHAVIOR CHANGE vs the old
+ * `bd ready` CLI semantics — `bd ready` also excludes `in_progress` beads,
+ * so an in_progress-but-unblocked task now counts as ready where it
+ * previously did not. No separate `bd ready` call is issued.
  *
  * Pure — no IO.
  */
-export function aggregateRollup(
-  markers: BeadMarkers,
-  beads: RawBead[],
-  readyIds: Set<string>,
-): BeadRollup {
+export function aggregateRollup(markers: BeadMarkers, beads: RawBead[]): BeadRollup {
   const byId = new Map<string, RawBead>();
   for (const b of beads) byId.set(b.id, b);
 
@@ -203,7 +200,7 @@ export function aggregateRollup(
   let blocked = 0;
   for (const b of taskBeads) {
     if (b.status === "closed") closed++;
-    if (readyIds.has(b.id)) ready++;
+    if (b.status !== "closed" && !blockedIds.has(b.id)) ready++;
     if (blockedIds.has(b.id)) blocked++;
   }
 
@@ -363,14 +360,8 @@ export async function computeBeadRollup(
   );
 
   try {
-    const [beads, ready] = await Promise.all([
-      source.listBeads(ids, projectPath),
-      source.listReady(projectPath),
-    ]);
-    const readyIds = new Set(
-      (Array.isArray(ready) ? ready : []).map((b) => b.id),
-    );
-    return aggregateRollup(markers, Array.isArray(beads) ? beads : [], readyIds);
+    const beads = await source.listBeads(ids, projectPath);
+    return aggregateRollup(markers, Array.isArray(beads) ? beads : []);
   } catch (err) {
     // Previously a silent `catch { return null }` — the swallow is WHY this
     // failure mode (bd timeout under per-spec fan-out) was invisible in the
@@ -385,10 +376,15 @@ export async function computeBeadRollup(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute rollups for MANY proposals with exactly ONE `bd list` + ONE
- * `bd ready` for the whole project — the fix for the unbounded per-spec `bd`
- * fan-out that saturated the box and tripped the 10s exec timeout on
- * large projects (every project after the first returned null rollups).
+ * Compute rollups for MANY proposals with exactly ONE `bd list` for the
+ * whole project — the fix for the unbounded per-spec `bd` fan-out that
+ * saturated the box and tripped the 10s exec timeout on large projects
+ * (every project after the first returned null rollups). There is no
+ * `bd ready` call at all: "ready" is derived purely from the fetched bead
+ * set (see {@link aggregateRollup}), which also fixes a latent undercounting
+ * bug — the old `bd ready` call carried no `--limit`, so it silently
+ * inherited the bd CLI's default `--limit 10` and truncated the ready set
+ * for any project/spec with more than 10 ready tasks.
  *
  * `bd`/dolt is a 137MB binary (~1.2s cold); a 38-spec project spawning ~38
  * concurrent `bd` is the root cause. Bounding concurrency did not help — the
@@ -402,8 +398,8 @@ export async function computeBeadRollup(
  *                                    `null` (never throws; logs a warn).
  *   - Empty id union              -> no bd spawn at all.
  *
- * Each spec's rollup is folded from the SHARED bead/ready maps but partitioned
- * down to that spec's own linked ids first, so `rollup.beads` (the detail-view
+ * Each spec's rollup is folded from the SHARED bead map but partitioned down
+ * to that spec's own linked ids first, so `rollup.beads` (the detail-view
  * set) never leaks another spec's beads.
  */
 export async function computeRollupsForProject(
@@ -440,24 +436,20 @@ export async function computeRollupsForProject(
   //    zeroed rollup (no bd spawn — the empty-marker case is bd-independent).
   if (unionIds.size === 0) {
     for (const [name, markers] of markersBySpec) {
-      out.set(name, aggregateRollup(markers, [], new Set()));
+      out.set(name, aggregateRollup(markers, []));
     }
     return out;
   }
 
-  // 3. ONE `bd list --id <union> --all` + ONE `bd ready` for the whole
-  //    project — the whole point of this function.
+  // 3. ONE `bd list --id <union> --all` for the whole project — the whole
+  //    point of this function. No `bd ready` call — ready is derived from
+  //    the fetched beads (see aggregateRollup).
   let byId: Map<string, RawBead>;
-  let readyIds: Set<string>;
   try {
-    const [beads, ready] = await Promise.all([
-      source.listBeads([...unionIds], projectPath),
-      source.listReady(projectPath),
-    ]);
+    const beads = await source.listBeads([...unionIds], projectPath);
     byId = new Map(
       (Array.isArray(beads) ? beads : []).map((b) => [b.id, b] as const),
     );
-    readyIds = new Set((Array.isArray(ready) ? ready : []).map((b) => b.id));
   } catch (err) {
     log.warn(
       { err, projectPath, specCount: markersBySpec.size },
@@ -478,7 +470,7 @@ export async function computeRollupsForProject(
       const b = byId.get(id);
       if (b) specBeads.push(b);
     }
-    out.set(name, aggregateRollup(markers, specBeads, readyIds));
+    out.set(name, aggregateRollup(markers, specBeads));
   }
 
   return out;

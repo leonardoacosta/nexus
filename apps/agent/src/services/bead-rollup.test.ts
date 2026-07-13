@@ -50,15 +50,15 @@ function makeProject(opts: {
   return root;
 }
 
-/** Build a fake source from a fixed bead list + ready-id set. */
-function fakeSource(beads: RawBead[], readyIds: string[] = []): RollupBeadSource {
-  const ready = beads.filter((b) => readyIds.includes(b.id));
+/**
+ * Build a fake source from a fixed bead list. Ready is derived purely from
+ * bead status/blocked state (see `aggregateRollup`) — there is no separate
+ * ready-id fixture input anymore.
+ */
+function fakeSource(beads: RawBead[]): RollupBeadSource {
   return {
     async listBeads(ids) {
       return beads.filter((b) => ids.includes(b.id));
-    },
-    async listReady() {
-      return ready;
     },
   };
 }
@@ -165,13 +165,16 @@ describe("aggregateRollup", () => {
       { id: "nx-t2", status: "open", issue_type: "task", priority: 2, title: "t2" },
       { id: "nx-t3", status: "open", issue_type: "task", priority: 2, title: "t3" },
     ];
-    const rollup = aggregateRollup(markers, beads, new Set(["nx-t2"]));
+    const rollup = aggregateRollup(markers, beads);
 
     expect(rollup.epic?.id).toBe("nx-epic1");
     expect(rollup.feature?.id).toBe("nx-feat1");
     expect(rollup.tasks.total).toBe(3); // task beads only, epic+feature excluded
     expect(rollup.tasks.closed).toBe(1);
-    expect(rollup.tasks.ready).toBe(1); // nx-t2 in ready set
+    // ready is derived purely from status/blocked: both nx-t2 and nx-t3 are
+    // open and unblocked, so both count ready (pure derivation, no bd ready
+    // call to arbitrarily narrow the set further).
+    expect(rollup.tasks.ready).toBe(2);
     expect(rollup.tasks.blocked).toBe(0);
     expect(rollup.beads).toHaveLength(5); // full linked set for the detail view
   });
@@ -183,7 +186,7 @@ describe("aggregateRollup", () => {
       { id: "nx-t1", status: "closed", issue_type: "task" },
       { id: "nx-t2", status: "open", issue_type: "task" },
     ];
-    const rollup = aggregateRollup(markers, beads, new Set());
+    const rollup = aggregateRollup(markers, beads);
     expect(rollup.tasks.total).toBe(2);
     expect(rollup.tasks.closed).toBe(1);
     expect(rollup.epic).toBeNull(); // epic bead not returned
@@ -201,18 +204,29 @@ describe("aggregateRollup", () => {
       },
       { id: "t2", status: "open", issue_type: "task" },
     ];
-    // bd `ready` would never include a blocked task, so readyIds omits t1.
-    const rollup = aggregateRollup(markers, beads, new Set(["t2"]));
+    const rollup = aggregateRollup(markers, beads);
     expect(rollup.tasks.blocked).toBe(1);
-    expect(rollup.tasks.ready).toBe(1); // only t2
+    expect(rollup.tasks.ready).toBe(1); // only t2 (t1 is blocked, so excluded)
+  });
+
+  it("an in_progress, unblocked task counts as ready (behavior change vs old bd ready)", () => {
+    // `bd ready` (the old CLI-backed source) excludes in_progress issues.
+    // The new pure derivation only excludes closed + blocked, so an
+    // in_progress-but-unblocked task now counts as ready — pin this down
+    // explicitly since it's a real behavior change, not an implementation
+    // detail.
+    const markers = parseBeadMarkers("[beads:t1]");
+    const beads: RawBead[] = [
+      { id: "t1", status: "in_progress", issue_type: "task" },
+    ];
+    const rollup = aggregateRollup(markers, beads);
+    expect(rollup.tasks.ready).toBe(1);
+    expect(rollup.tasks.closed).toBe(0);
+    expect(rollup.tasks.blocked).toBe(0);
   });
 
   it("empty markers yield a zeroed rollup", () => {
-    const rollup = aggregateRollup(
-      { epicId: null, featureId: null, taskIds: [] },
-      [],
-      new Set(),
-    );
+    const rollup = aggregateRollup({ epicId: null, featureId: null, taskIds: [] }, []);
     expect(rollup).toEqual(emptyRollup());
   });
 });
@@ -308,7 +322,7 @@ describe("computeBeadRollup", () => {
         { id: "nx-t2", status: "open", issue_type: "task" },
         { id: "nx-t3", status: "open", issue_type: "task" },
       ];
-      const rollup = await computeBeadRollup(root, "s", fakeSource(beads, ["nx-t2", "nx-t3"]));
+      const rollup = await computeBeadRollup(root, "s", fakeSource(beads));
       expect(rollup).not.toBeNull();
       expect(rollup!.epic?.id).toBe("nx-epic1");
       expect(rollup!.tasks.total).toBe(3);
@@ -324,9 +338,6 @@ describe("computeBeadRollup", () => {
     const throwing: RollupBeadSource = {
       async listBeads() {
         throw new Error("bd exploded");
-      },
-      async listReady() {
-        return [];
       },
     };
     try {
@@ -377,7 +388,7 @@ describe("computeRollupsForProject", () => {
     spyOn(exec, "execJson").mockRestore();
   });
 
-  it("issues exactly ONE bd list + ONE bd ready for N specs (deduped union)", async () => {
+  it("issues exactly ONE bd call (list, never ready) for N specs (deduped union)", async () => {
     const root = makeProject({
       specs: {
         s1: "<!-- beads:feature:nx-f1 -->\n[beads:nx-t1]\n[beads:nx-shared]",
@@ -389,11 +400,14 @@ describe("computeRollupsForProject", () => {
     try {
       await computeRollupsForProject(root, ["s1", "s2", "s3"]);
 
+      // The whole point: exactly one `bd` spawn total for THREE specs, and
+      // it's a `list`, never a `ready` — `RollupBeadSource` no longer has a
+      // `listReady` method to call.
+      expect(spy).toHaveBeenCalledTimes(1);
       const listCalls = spy.mock.calls.filter((c) => c[1][0] === "list");
       const readyCalls = spy.mock.calls.filter((c) => c[1][0] === "ready");
-      // The whole point: one list + one ready for THREE specs.
       expect(listCalls).toHaveLength(1);
-      expect(readyCalls).toHaveLength(1);
+      expect(readyCalls).toHaveLength(0);
 
       const [, args] = listCalls[0]!;
       expect(args).toContain("--all"); // closed-inclusive flag preserved
@@ -430,7 +444,7 @@ describe("computeRollupsForProject", () => {
       const m = await computeRollupsForProject(
         root,
         ["withMarkers", "shared", "noMarkers", "gone"],
-        fakeSource(beads, ["nx-t2"]),
+        fakeSource(beads),
       );
 
       // withMarkers -> full rollup, only its OWN 5 linked beads.
@@ -438,7 +452,9 @@ describe("computeRollupsForProject", () => {
       expect(wm).not.toBeNull();
       expect(wm!.tasks.total).toBe(3);
       expect(wm!.tasks.closed).toBe(1);
-      expect(wm!.tasks.ready).toBe(1); // nx-t2
+      // ready derived purely from status/blocked: nx-t2 and nx-t3 are both
+      // open + unblocked, so both count ready.
+      expect(wm!.tasks.ready).toBe(2);
       expect(wm!.beads).toHaveLength(5);
 
       // shared -> ONLY nx-t1 (partitioned; NOT polluted by withMarkers' beads).
@@ -489,9 +505,6 @@ describe("computeRollupsForProject", () => {
       async listBeads() {
         throw new Error("bd exploded");
       },
-      async listReady() {
-        return [];
-      },
     };
     try {
       const m = await computeRollupsForProject(root, ["s"], throwing);
@@ -529,16 +542,5 @@ describe("defaultRollupBeadSource — bd arg strings", () => {
 
     expect(out).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
-  });
-
-  it("listReady stays open-only — never leaks --all into bd ready", async () => {
-    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
-
-    await defaultRollupBeadSource.listReady("/tmp/proj");
-
-    const [cmd, args] = spy.mock.calls[0]!;
-    expect(cmd).toBe("bd");
-    expect(args).toEqual(["ready", "--json"]);
-    expect(args).not.toContain("--all");
   });
 });

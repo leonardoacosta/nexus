@@ -41,14 +41,15 @@ function makeProject(opts: {
 /**
  * Build a fake source from: epics, all beads (for parent lookup), a
  * feature-id -> spec_id map, and the linked task/epic/feature beads keyed by
- * id (returned by listBeads). `ready` ids are marked ready.
+ * id (returned by listBeads). Ready is derived purely from each bead's own
+ * status/blocked state (see `bead-rollup.ts` `aggregateRollup`) — there is
+ * no separate ready-id fixture input or `listReady` call anymore.
  */
 function fakeSource(opts: {
   epics: RawBead[];
   all: RawBead[];
   specIds: Record<string, string>;
   linkBeads: RawBead[];
-  readyIds?: string[];
 }): RoadmapBeadSource {
   return {
     async listEpics() {
@@ -62,10 +63,6 @@ function fakeSource(opts: {
     },
     async listBeads(ids) {
       return opts.linkBeads.filter((b) => ids.includes(b.id));
-    },
-    async listReady() {
-      const ready = new Set(opts.readyIds ?? []);
-      return opts.linkBeads.filter((b) => ready.has(b.id));
     },
   };
 }
