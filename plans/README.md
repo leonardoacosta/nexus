@@ -114,6 +114,12 @@ statusline-correctness B; security-spawn-delta C (statusline bypasses safeSpawn 
 | 029 | Extract shared mx-gateway passthrough helper (8 routes, 5 added this delta) | P3 | M | — | DONE (apply/20260712-0711-30188eb2:90dce2ec; mx-gateway.ts gatewayGetFailSoft/gatewayPostRelay extracted, all 8 routes folded on, 3 recorded unifications applied (10s timeout, value!==null forwarding, try-scoped URL construction); combined suite 31/0 — 23 baseline+8 new; 1 non-test MX_GATEWAY_URL site; 0 AbortController remaining in route files) spec-impact: mx-gateway-passthrough |
 | 030 | Env-doc residue — VM_URL, NEXUS_REPO_ROOT comment, ELEVENLABS_VOICE_ID reconcile | P3 | S | — | DONE (apply/20260712-0711-30188eb2:912c5bfb + eb7b59bb; ELEVENLABS_VOICE_ID re-documented with deprecation note (code fallback untouched, spec-mandated), VM_URL cross-referenced, false systemd-unit docstring claim fixed; H1 audit-scan 15→13 exactly, neither var in remaining list; wave-plans+tts-credential-resolve guard suites 17/0) spec-impact: env-doc-hygiene |
 | 031 | Statusline module split along 5 seams + shared CachedUsage contract (maintainer call) | P3 | L | 025, 026, 027 | DONE (apply/20260712-0826-1fd1fdcb:f0bdbd02; index.ts 1675→172 lines, split into 9 modules per the Module Map + new packages/statusline-contract; bun test held 133/133 clean through every one of 9 sequential steps; binary-proof smoke test confirmed CTX/55%/90k-200k render correctly through bun build --compile; 3 authorized deviations from literal plan text — index.test.ts:221 source-scan repointed to render.ts (unavoidable, function moved), getGitStatus stays exported (E=1 not 0, plan's own Module Map + Done Criteria self-contradicted), .audit-suppressions.json D4 path relocated to agent-lines.ts + packages/core/src/audit-suppressions.integration.test.ts updated to match (external side effect, confirmed zero regression via isolated main-vs-branch worktree diff) — all three documented in tasks.md with full rationale) spec-impact: statusline-renderer |
+| 032 | Give TmuxPtySource's 11 spawn call sites safeSpawn's allowlist guarantee (core terminal-attach security gap) | P1 | M | — | TODO |
+| 033 | Route 8 new-service spawn sites through safeSpawn (git-observer, git-project x2, git-project-resolver, reaper-job, process-watcher, handlers-status, tailscale-presence) | P2 | M | — | TODO |
+| 034 | SAFE-annotate integration-client.ts HTTP-verb false positive in lint-sql-safety.sh | P2 | S | — | TODO |
+| 035 | Convert beads-watcher.ts + bead-rollup.ts to async fs and batch the startup recount fan-out | P2 | S | — | TODO |
+| 036 | Document 6 operator-facing env vars missing from .env.example (retention-days + poll-intervals) | P3 | S | — | TODO |
+| 037 | Add narrow A2 suppression entry for 4 guarded test-skip-reason console.log sites | P3 | S | — | TODO |
 
 Suggested order: 023 first (gate repair), then 025 -> 026 -> 027 (statusline chain,
 same-file sequencing), 024/028/030 any order, 029 alone (touches 8 route files), 031 last
@@ -154,6 +160,92 @@ observability F-checks (product decision), pre-existing red baselines discovered
 drafting (apps/agent `credentials.test.ts` TS2300 duplicate-import typecheck failure at HEAD;
 audit-suppressions integration suite 18 baseline fails) — recorded in the affected plans as
 baseline-attribution gates, not fixed by them.
+
+## Wave 4 — /improve:code deep (2026-07-13, audited at `089e0338`)
+
+Provenance: `audit-scan` deterministic scan (115 findings, score 77% B, 368 suppressed) as seed
+inventory -> 7 seams (one per category with material counts: A quality-residue, B arch-structure,
+C db-schema-and-sql, D security-spawn-delta, E perf-sync-io, F observability-gaps, H
+docs-env-drift) graded by 7 parallel auditors -> 11 violations adversarially verified (9 confirmed,
+1 corrected [path fix], 1 already-settled per plan 022's do-not-document list) -> advisor personally
+read every verifier excerpt before drafting -> 6 plan drafters re-verified every cited line against
+a fresh checkout (repo had drifted one commit past the audited HEAD to `6796f8ab`; zero drift found
+in any in-scope file for any plan). Evidence bundles: `/tmp/nexus-code-audit/plan-0NN.json`. Seam
+grades: quality-residue A, observability-gaps A, arch-structure B, db-schema-and-sql B,
+perf-sync-io B, docs-env-drift C, **security-spawn-delta D**.
+
+**Headline finding**: the "safeSpawn invariant holds fleet-wide" status recorded in Waves 2/3 is
+no longer true. `apps/agent/src/terminal/tmux-pty-source.ts` — the core terminal-attach PTY harness,
+11 spawn call sites, the single largest concentration of spawn calls in the codebase, on the path
+that carries live client keystrokes — never actually routed through `safeSpawn`; its own doc
+comments and the repo's `.audit-suppressions.json` D4 entry both assert a `DisallowedBinaryError`
+protection that cannot fire because the wrapper is never invoked. The suppression entry is pointed
+at a different file entirely (`pty-source.ts`, a node-pty-based file, unrelated mechanism) — a
+rename/drift that masked the gap from two prior full audit cycles. Not an active exploit today
+(current callers validate `target`/`text`/`fifoPath` adequately by other means), but a
+maintainability/audit-trail failure in the highest-value security surface in the repo (plan 032,
+P1). A second, lower-blast-radius instance of the same drift: 8 more spawn/exec sites across 6
+services added since Wave 3 bypass `safeSpawn` with hand-rolled timeout/kill plumbing instead
+(plan 033, P2) — no live injection risk (all hardcoded or locally-sourced inputs), but the
+allowlist's defense-in-depth is silently absent from every one of them.
+
+Plans 032-037 touch **disjoint files** except 032/033 which share the `security-spawn-delta` seam
+but not a single file (tmux-pty-source.ts vs. 6 unrelated service files) — no merge conflicts.
+Suggested order: 032 first (highest priority, core security surface) -> 033 (mechanical follow-on,
+same pattern) -> 034 (unblocks the CI lint gate before it's needed) -> 035 (perf hygiene,
+independent) -> 036 (docs, independent) -> 037 last (pure noise-reduction, lowest priority, safe to
+skip under time pressure).
+
+### Escalated beads this wave
+
+None. Every confirmed violation is real-but-not-urgent debt with a clear executor plan (P1-P3,
+S-M effort) — none met the "live P0/P1 defect, active user harm or blocked critical journey" bar
+that would warrant a beads bug ahead of its plan. D4-01 (the highest-impact finding) was explicitly
+verified as NOT an active exploit by its own adversarial verifier — current callers happen to
+validate inputs adequately through other means; the defect is an audit-trail/maintainability gap
+in the security wrapper's coverage, not a live vulnerability.
+
+### Rejected / corrected findings this wave (do not re-raise)
+
+- **A2 console.log at 4 test-skip-reason sites** — false positive at the source-defect level
+  (deliberate, eslint-disable-guarded, by-design); the real gap is a `.audit-suppressions.json`
+  config omission (A2 missing from `autoSkipTestFiles`), which plan 037 closes narrowly (paths-only,
+  not a global `autoSkipTestFiles` add, which would mask genuine future debug residue).
+- **A9 Promise.then-without-catch (db/health.ts, agent-ws-client.ts, tmux-pty-source.ts)** —
+  re-confirmed false positive, same guarded patterns as Wave 2/3 (line numbers shifted by 1 only).
+- **A12 commented-out-code (router.ts:232, server-websocket.ts:325)** — pure regex false positives;
+  English prose ("var" = environment variable, "for" = preposition), no actual dead code.
+- **B3/B4 god-modules and long files (13 flagged)** — re-measured against the Wave 3 baseline: 8 of
+  13 grew zero lines in 111 commits; the other 5 grew only incrementally via scoped feature commits.
+  Maintainer-deferred stance holds unchanged; none crossed from "defer" to "needs a plan."
+- **B12 packages/ui missing package.json** — re-confirmed dead (no package.json, zero git-tracked
+  files, pnpm silently skips it); a zero-risk local `rm -rf` at Leo's convenience, not a repo defect
+  requiring a plan.
+- **C2/C5/C13/C15 db-schema findings (bare timestamp, raw-SQL interpolation, camelCase, unbounded
+  findMany)** — every site re-verified as a genuine, still-valid false positive at HEAD `089e0338`.
+- **F1/F5/F8 apps/web observability gaps (no Sentry/PostHog/health endpoint)** — re-verified with
+  fresh evidence (not just re-asserted): apps/web carries no deploy unit anywhere in `deploy/`, and
+  every new error path added since Wave 3 surfaces to user-visible UI state rather than swallowing
+  silently. F1/F5/F8's implicit baseline (the old `apps/nextjs` dashboard, which HAD full Sentry
+  instrumentation) was retired wholesale in commit `ed6cf2af` — comparing apps/web against a
+  since-deleted sibling is comparing it to the wrong baseline. Stays a product-scope decision.
+  Housekeeping note: `openspec/specs/sentry-nextjs-instrumentation/spec.md` documents a pattern
+  whose implementing app no longer exists — not filed as a finding, but worth archiving next time
+  that spec is touched.
+- **NEXUS_PHONE_PEER / NEXUS_PRESENCE_USER env vars** — ALREADY_SETTLED per plan 022's explicit
+  do-not-document list; do not add to `.env.example` even though they are technically undocumented.
+- **NEXUS_HEAVY_TESTS / NEXUS_PG_TESTS / NEXUS_RUN_LIVE_REAPER_TESTS / NEXUS_SKIP_SCHEMA_CHECK /
+  NX_BUNDLE_DERIVED_DATA / COLUMNS / USER / NEXUS_REPO_ROOT** — test-gate flags, ambient POSIX vars,
+  or already-settled per prior waves; correctly excluded from plan 036's scope.
+
+### Not audited this wave
+
+Swift sources (audit-scan is TS-only). God-module/long-file splits beyond the statusline (already
+executed in plan 031) remain maintainer-deferred — none escalated this wave. `packages/ui` deletion
+(zero-risk local cleanup, not wired into any plan). `openspec/specs/sentry-nextjs-instrumentation/
+spec.md` archival (stale doc for a retired app, noted above, not planned). A docs-sweep enforcement
+gate for `.env.example` drift (would prevent recurrence of the Wave 4 docs-env-drift pattern
+per-feature, but is a separate tooling decision — raised as a follow-up note in plan 036, not built).
 
 ## Merge Readiness (executed + independently reviewed, 2026-07-03)
 
