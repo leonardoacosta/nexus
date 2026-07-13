@@ -94,6 +94,7 @@ import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
 import { tryHandleSessionContextRoute } from "./routes/session-context";
+import { tryHandleProjectStatusRoute } from "./routes/project-status";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -135,6 +136,10 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/projects" },
   { method: "PATCH", path: "/projects/:id" },
   { method: "GET", path: "/projects/discovered" },
+  // Per-project status snapshots (add-project-status-snapshots, delegated to
+  // routes/project-status.ts). 4-segment match, no collision with the PATCH
+  // /projects/:id sibling.
+  { method: "GET", path: "/projects/:id/status" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
   { method: "GET", path: "/notifications" },
@@ -375,6 +380,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
+
+      // GET /projects/:id/status[?history=<days>] — per-project status
+      // snapshots (add-project-status-snapshots). MUST dispatch before the
+      // PATCH /projects/:id match below; the 4-segment path can't collide but
+      // registering it with the projects group keeps the surface legible.
+      const projectStatusResult = tryHandleProjectStatusRoute(request, url, db);
+      if (projectStatusResult !== null) return projectStatusResult;
 
       // PATCH /projects/:id — update mutable project metadata (tags, description)
       const projectUpdateMatch = url.pathname.match(/^\/projects\/([^/]+)$/);

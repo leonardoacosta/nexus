@@ -21,6 +21,8 @@ import { POLL_INTERVAL_MS, BATCH_SIZE, BATCH_DELAY_MS } from "./constants";
 import { parseSpecList as _parseSpecList, processProjectSpecs as _processProjectSpecs, type SpecSnapshot, type SpecEvent } from "./parser";
 import { pollProjectSpecs as _pollProjectSpecs, loadProjectRegistry as _loadProjectRegistry, loadProjectRegistryFromDb as _loadProjectRegistryFromDb, type ProjectPath } from "./poller";
 import { startChangesFsWatchers as _startChangesFsWatchers, refreshSingleSpec as _refreshSingleSpec } from "./watcher";
+import { recordSpecTickSnapshots } from "../status-snapshots";
+import { safeFireAndForget } from "../../utils/safe-fire-and-forget";
 
 const log = createLogger("agent:spec-watcher");
 
@@ -149,6 +151,18 @@ export function startSpecWatcher(db?: Db): SpecWatcherService {
           projectState,
         );
         allEvents.push(...events);
+
+        // Persist change-only status snapshots (per-spec completion +
+        // proposals_unarchived). Runs on every tick — including firstTick —
+        // because the writer compares against the latest persisted row, so a
+        // restart re-tick is a no-op when nothing changed. Fire-and-forget so
+        // a DB hiccup never aborts the poll loop or blocks transition emits.
+        if (db) {
+          safeFireAndForget(
+            recordSpecTickSnapshots(db, project.code, specs),
+            "spec-tick-snapshots",
+          );
+        }
       }
 
       if (i + BATCH_SIZE < projects.length) {

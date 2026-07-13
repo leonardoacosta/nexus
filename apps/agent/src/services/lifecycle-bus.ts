@@ -14,6 +14,7 @@
 
 import { EventEmitter } from "node:events";
 import { createLogger } from "@nexus/core/node";
+import type { BeadTransitionPayload } from "@nexus/core";
 
 const log = createLogger("agent:lifecycle-bus");
 
@@ -291,6 +292,22 @@ export interface PresenceHoldReleasedPayload {
   id: string;
 }
 
+/**
+ * Emitted by `services/status-snapshots.ts` when a project's unlinked
+ * ready/blocked bead counts change (the change-only snapshot comparison
+ * doubles as the emission gate). Symmetric with `SpecTransition`: carries the
+ * project, the before/after counts, and the change time.
+ *
+ * Field shape is reused verbatim from `@nexus/core`'s `beadTransitionPayload`
+ * so the wire contract stays single-sourced with the DB columns and the
+ * `GET /projects/:id/status` response. No SSE special-casing is needed — the
+ * `subscribeStreamToBus` wildcard (`onAny`) forwards every envelope, so this
+ * event reaches the SSE stream for free.
+ *
+ * Spec: openspec/changes/add-project-status-snapshots/ (spec-watcher delta).
+ */
+export type { BeadTransitionPayload };
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -313,6 +330,7 @@ export interface LifecycleEventMap {
   ProcessWatcherStalled: ProcessWatcherStalledPayload;
   PresenceChanged: PresenceChangedPayload;
   PresenceHoldReleased: PresenceHoldReleasedPayload;
+  BeadTransition: BeadTransitionPayload;
 }
 
 export type LifecycleEventName = keyof LifecycleEventMap;
