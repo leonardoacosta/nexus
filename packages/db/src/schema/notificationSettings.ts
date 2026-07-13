@@ -57,6 +57,19 @@ export const notificationSettings = pgTable("notification_settings", {
   rateThrottleWindowMinutes: integer("rate_throttle_window_minutes")
     .notNull()
     .default(5),
+  /**
+   * Wall-clock quiet-hours gate (noise-reduction audit, 2026-07-13, plan
+   * 042). Applies ONLY on the presence-unknown / legacy notification path
+   * (see NotificationManager.applyQuietHoursIfNeeded() in
+   * apps/agent/src/notifications/manager.ts) — it does not affect the
+   * presence-aware rules engine's own Rule 1 (active Mac beats bedtime, by
+   * design) or Rule 3 (phone-reported bedtime). `startHour`/`endHour` are
+   * hour-of-day (0-23, server local time); a window that wraps past midnight
+   * (e.g. start=22, end=7) is supported.
+   */
+  quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(true),
+  quietHoursStartHour: integer("quiet_hours_start_hour").notNull().default(0),
+  quietHoursEndHour: integer("quiet_hours_end_hour").notNull().default(7),
   updatedAt: timestamp("updated_at", { mode: "date" })
     .notNull()
     .defaultNow(),
