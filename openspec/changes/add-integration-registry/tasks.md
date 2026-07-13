@@ -26,5 +26,5 @@
 ## E2E Batch
 
 - [x] [4.1] Unit tests for `apps/agent/src/routes/integration-credentials.ts` — encrypted round trip, masked GET response never exposes the secret, unknown-provider 404 before DB query, metadata validation failure (empty `chatId`) returns 400 without writing, missing encryption key returns 400. [owner:tdd-integration] [type:testing] [beads:nx-g8s3d]
-- [ ] [4.2] Unit tests for `sendTelegramNotification` — DB row wins over env, env fallback when no row, fail-open unchanged when neither present, rotation propagates without restart (no secret caching). [owner:tdd-integration] [type:testing] [beads:nx-je3mv]
+- [x] [4.2] Unit tests for `sendTelegramNotification` — DB row wins over env, env fallback when no row, fail-open unchanged when neither present, rotation propagates without restart (no secret caching). [owner:tdd-integration] [type:testing] [beads:nx-je3mv]
 - [ ] [4.3] Playwright test for the Telegram integration panel at `/integrations/telegram` — save token + chat id, run test connection, delete, and confirm an unregistered provider route (`/integrations/nope`) 404s. [owner:e2e-engineer] [type:testing] [beads:nx-i03l4]

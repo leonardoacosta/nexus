@@ -744,3 +744,263 @@ describe("router: telegram channel", () => {
     }
   });
 });
+
+// ─── Telegram channel: DB-first credential precedence (add-integration-registry)
+//
+// Spec (proposal.md § Requirements): "The Telegram notification channel MUST
+// prefer the DB row over env vars, preserving existing fail-open behavior."
+// The encrypted `integration_credentials` row (provider="telegram") is resolved
+// FRESH on every dispatch — bot token = decrypt(value_encrypted), chat id =
+// metadata.chatId — with NO in-memory cache, so a dashboard save rotates the
+// secret without an agent restart. Env vars are the legacy fallback only.
+//
+// We mock global fetch (fetchWithTimeout calls it underneath) and install a
+// fake DB handle via setTtsDbHandle so no real HTTP or Postgres is touched.
+
+describe("router: telegram channel DB-first (add-integration-registry)", () => {
+  // Valid 64-char hex → 32-byte AES-256 key (matches loadEncryptionKey).
+  const KEY_HEX =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  let originalFetch: typeof globalThis.fetch;
+  let originalToken: string | undefined;
+  let originalChatId: string | undefined;
+  let originalKey: string | undefined;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalToken = process.env.TELEGRAM_BOT_TOKEN;
+    originalChatId = process.env.TELEGRAM_CHAT_ID;
+    originalKey = process.env.NEXUS_ENCRYPTION_KEY;
+  });
+
+  async function restore() {
+    const { setTtsDbHandle } = await import("./router");
+    setTtsDbHandle(null);
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+    if (originalChatId === undefined) delete process.env.TELEGRAM_CHAT_ID;
+    else process.env.TELEGRAM_CHAT_ID = originalChatId;
+    if (originalKey === undefined) delete process.env.NEXUS_ENCRYPTION_KEY;
+    else process.env.NEXUS_ENCRYPTION_KEY = originalKey;
+  }
+
+  // A fake Db whose query.integrationCredentials.findFirst yields `row`.
+  function fakeDb(row: unknown) {
+    return {
+      query: {
+        integrationCredentials: {
+          findFirst: mock(async () => row),
+        },
+      },
+    } as never;
+  }
+
+  type Captured = { url: string; body: string };
+  function captureFetch(calls: Captured[]) {
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("api.telegram.org")) {
+        calls.push({ url, body: String(init?.body ?? "") });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch in telegram DB-first test: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  it("DB row wins over env — POSTs with the decrypted DB token + metadata.chatId, ignoring env", async () => {
+    process.env.NEXUS_ENCRYPTION_KEY = KEY_HEX;
+    // Env vars ALSO set, to different values — must NOT be used.
+    process.env.TELEGRAM_BOT_TOKEN = "ENVTOKEN:should-not-appear";
+    process.env.TELEGRAM_CHAT_ID = "env-chat-should-not-appear";
+
+    const { encrypt } = await import("../credentials/encryption");
+    const key = Buffer.from(KEY_HEX, "hex");
+    const dbToken = "DBTOKEN:11111";
+    const dbChatId = "db-chat-42";
+    const valueEncrypted = encrypt(dbToken, key);
+
+    const calls: Captured[] = [];
+    captureFetch(calls);
+
+    try {
+      const { setRoutingRules, routeNotificationParallel, setTtsDbHandle } =
+        await import("./router");
+      setTtsDbHandle(fakeDb({ valueEncrypted, metadata: { chatId: dbChatId } }));
+      setRoutingRules([
+        { project: "tg-db", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-db-${Date.now()}`,
+        project: "tg-db",
+        channel: "telegram",
+        body: "db creds win",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+
+      // Exactly one POST, using the DB token + DB chat id — not the env values.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toContain("/botDBTOKEN:11111/sendMessage");
+      expect(calls[0]!.url).not.toContain("ENVTOKEN");
+      const payload = JSON.parse(calls[0]!.body) as { chat_id: string; text: string };
+      expect(payload.chat_id).toBe("db-chat-42");
+      expect(payload.chat_id).not.toBe("env-chat-should-not-appear");
+      expect(payload.text).toBe("db creds win");
+    } finally {
+      await restore();
+    }
+  });
+
+  it("env fallback — no DB row → POSTs with the env token + chat id", async () => {
+    process.env.NEXUS_ENCRYPTION_KEY = KEY_HEX;
+    process.env.TELEGRAM_BOT_TOKEN = "ENVTOKEN:22222";
+    process.env.TELEGRAM_CHAT_ID = "env-chat-7";
+
+    const calls: Captured[] = [];
+    captureFetch(calls);
+
+    try {
+      const { setRoutingRules, routeNotificationParallel, setTtsDbHandle } =
+        await import("./router");
+      // DB handle present but the row is absent → must fall through to env.
+      setTtsDbHandle(fakeDb(undefined));
+      setRoutingRules([
+        { project: "tg-envfb", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-envfb-${Date.now()}`,
+        project: "tg-envfb",
+        channel: "telegram",
+        body: "env fallback path",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toContain("/botENVTOKEN:22222/sendMessage");
+      const payload = JSON.parse(calls[0]!.body) as { chat_id: string; text: string };
+      expect(payload.chat_id).toBe("env-chat-7");
+    } finally {
+      await restore();
+    }
+  });
+
+  it("fail-open unchanged — no DB row + no env → accepted + no-op, never fetches", async () => {
+    process.env.NEXUS_ENCRYPTION_KEY = KEY_HEX;
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+
+    let fetched = false;
+    globalThis.fetch = mock(async () => {
+      fetched = true;
+      throw new Error("telegram fetch must not run when unprovisioned");
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const { setRoutingRules, routeNotificationParallel, setTtsDbHandle } =
+        await import("./router");
+      setTtsDbHandle(fakeDb(undefined));
+      setRoutingRules([
+        { project: "tg-failopen", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const notif = makeNotification({
+        id: `tg-failopen-${Date.now()}`,
+        project: "tg-failopen",
+        channel: "telegram",
+        body: "no creds anywhere",
+      });
+
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+
+      // Fail-open: delivered (success), never failed, never fetched.
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.channel).toBe("telegram");
+      expect(fetched).toBe(false);
+    } finally {
+      await restore();
+    }
+  });
+
+  it("rotation without restart — second dispatch uses the NEW DB value (no in-memory cache)", async () => {
+    process.env.NEXUS_ENCRYPTION_KEY = KEY_HEX;
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+
+    const { encrypt } = await import("../credentials/encryption");
+    const key = Buffer.from(KEY_HEX, "hex");
+
+    // Two distinct rows simulating a rotation between dispatches. findFirst
+    // returns the first row once, then the second row — a genuine per-dispatch
+    // re-query. A cached credential would send the OLD value on call 2.
+    const rowOld = { valueEncrypted: encrypt("OLDTOKEN:00001", key), metadata: { chatId: "old-chat" } };
+    const rowNew = { valueEncrypted: encrypt("NEWTOKEN:00002", key), metadata: { chatId: "new-chat" } };
+    let n = 0;
+    const rotatingDb = {
+      query: {
+        integrationCredentials: {
+          findFirst: mock(async () => (n++ === 0 ? rowOld : rowNew)),
+        },
+      },
+    } as never;
+
+    const calls: Captured[] = [];
+    captureFetch(calls);
+
+    try {
+      const { setRoutingRules, routeNotificationParallel, setTtsDbHandle } =
+        await import("./router");
+      setTtsDbHandle(rotatingDb);
+      setRoutingRules([
+        { project: "tg-rot", channels: ["telegram"], meeting_behavior: "allow" },
+      ]);
+
+      const mk = (suffix: string) =>
+        makeNotification({
+          id: `tg-rot-${suffix}-${Date.now()}`,
+          project: "tg-rot",
+          channel: "telegram",
+          body: `rotation ${suffix}`,
+        });
+
+      const first = await routeNotificationParallel(mk("1") as never);
+      const second = await routeNotificationParallel(mk("2") as never);
+
+      expect(first.failed).toHaveLength(0);
+      expect(second.failed).toHaveLength(0);
+      expect(calls).toHaveLength(2);
+
+      // Call 1 used the pre-rotation credential.
+      expect(calls[0]!.url).toContain("/botOLDTOKEN:00001/sendMessage");
+      expect((JSON.parse(calls[0]!.body) as { chat_id: string }).chat_id).toBe("old-chat");
+
+      // Call 2 used the NEW credential — proves the resolve is not cached.
+      expect(calls[1]!.url).toContain("/botNEWTOKEN:00002/sendMessage");
+      expect(calls[1]!.url).not.toContain("OLDTOKEN");
+      expect((JSON.parse(calls[1]!.body) as { chat_id: string }).chat_id).toBe("new-chat");
+    } finally {
+      await restore();
+    }
+  });
+});
