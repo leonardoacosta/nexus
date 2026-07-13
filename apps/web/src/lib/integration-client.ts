@@ -139,7 +139,10 @@ export async function deleteIntegrationCredentials(
     signal,
   });
   if (!res.ok && res.status !== 204) {
-    throw new AgentHttpError(res.status, `DELETE ${path} -> ${res.status}`);
+    throw new AgentHttpError(
+      res.status,
+      `DELETE ${path} -> ${res.status}`, // SAFE: HTTP route in an error message, not SQL
+    );
   }
 }
 
