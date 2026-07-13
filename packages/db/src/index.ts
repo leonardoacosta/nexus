@@ -85,6 +85,16 @@ export {
   type NewElevenlabsCredential,
 } from "./schema";
 
+// integration_credentials — per-agent encrypted third-party integration
+// credentials (add-integration-registry). Backs the integration registry
+// endpoints + channel credential resolution.
+export {
+  integrationCredentials,
+  integrationCredentialsRelations,
+  type IntegrationCredential,
+  type NewIntegrationCredential,
+} from "./schema";
+
 // credential_polls — append-only utilization time-series, one row per polled
 // account per successful 5-minute usage poll (credential-usage-history).
 // Mirrors health_snapshots; the usage poller inserts + the weekly reaper prunes
