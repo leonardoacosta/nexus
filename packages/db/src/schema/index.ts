@@ -132,3 +132,14 @@ export {
   type CredentialPoll,
   type NewCredentialPoll,
 } from "./credentialPolls";
+// Per-project status snapshots — add-project-status-snapshots.
+export {
+  specSnapshots,
+  type SpecSnapshot,
+  type NewSpecSnapshot,
+} from "./specSnapshots";
+export {
+  projectStatusSnapshots,
+  type ProjectStatusSnapshot,
+  type NewProjectStatusSnapshot,
+} from "./projectStatusSnapshots";

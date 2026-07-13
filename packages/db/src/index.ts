@@ -118,6 +118,20 @@ export {
   type NewSpecSession,
 } from "./schema";
 
+// spec_snapshots + project_status_snapshots — per-project change-only status
+// time-series (add-project-status-snapshots). spec_snapshots holds per-spec
+// completed/total; project_status_snapshots holds per-project aggregate counts
+// (unarchived proposals + ready/blocked-unlinked beads). Both pruned at 90 days
+// by retention.ts. Spec: openspec/changes/add-project-status-snapshots.
+export {
+  specSnapshots,
+  type SpecSnapshot,
+  type NewSpecSnapshot,
+  projectStatusSnapshots,
+  type ProjectStatusSnapshot,
+  type NewProjectStatusSnapshot,
+} from "./schema";
+
 // process_watcher_state — append-only tick history for the
 // process-watcher health monitor (process-watcher-health-monitoring).
 // Pruned to the last 100 rows by the watcher itself; no retention.ts hook

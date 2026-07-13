@@ -365,6 +365,13 @@
       "when": 1783904720123,
       "tag": "0051_harsh_lady_ursula",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1783913183401,
+      "tag": "0052_real_vance_astro",
+      "breakpoints": true
     }
   ]
 }

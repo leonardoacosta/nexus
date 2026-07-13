@@ -4,8 +4,10 @@ import {
   credentialEvents,
   cronRuns,
   healthSnapshots,
+  projectStatusSnapshots,
   sessionEvents,
   specSessions,
+  specSnapshots,
 } from "@nexus/db";
 import { lt } from "drizzle-orm";
 import { logger } from "@nexus/core/node";
@@ -30,6 +32,15 @@ const BLOAT_RADAR_RETENTION_DAYS = Number(
 const SPEC_SESSIONS_RETENTION_DAYS = Number(
   process.env.SPEC_SESSIONS_RETENTION_DAYS ?? "365",
 );
+// Per add-project-status-snapshots: 90-day window mirrors cron_runs/bloat_radar
+// — long enough for trend/velocity dashboards, short enough to keep the
+// change-only time-series tables small. Override via env for ops sweeps.
+const SPEC_SNAPSHOTS_RETENTION_DAYS = Number(
+  process.env.SPEC_SNAPSHOTS_RETENTION_DAYS ?? "90",
+);
+const PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS = Number(
+  process.env.PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS ?? "90",
+);
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
@@ -40,6 +51,8 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
  *   - cron_runs          > 90 days   (adopt-reaper-into-nx-cron)
  *   - bloat_radar        > 90 days   (adopt-reaper-into-nx-cron)
  *   - spec_sessions      > 365 days  (specs-tab-start-on-spec)
+ *   - spec_snapshots            > 90 days  (add-project-status-snapshots)
+ *   - project_status_snapshots  > 90 days  (add-project-status-snapshots)
  */
 export async function runRetentionCleanup(db: Db): Promise<void> {
   const healthCutoff = new Date(
@@ -60,6 +73,12 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const specSessionsCutoff = new Date(
     Date.now() - SPEC_SESSIONS_RETENTION_DAYS * 86_400_000,
   );
+  const specSnapshotsCutoff = new Date(
+    Date.now() - SPEC_SNAPSHOTS_RETENTION_DAYS * 86_400_000,
+  );
+  const projectStatusSnapshotsCutoff = new Date(
+    Date.now() - PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS * 86_400_000,
+  );
 
   const healthDeleted = await db
     .delete(healthSnapshots)
@@ -79,6 +98,12 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const specSessionsDeleted = await db
     .delete(specSessions)
     .where(lt(specSessions.createdAt, specSessionsCutoff));
+  const specSnapshotsDeleted = await db
+    .delete(specSnapshots)
+    .where(lt(specSnapshots.createdAt, specSnapshotsCutoff));
+  const projectStatusSnapshotsDeleted = await db
+    .delete(projectStatusSnapshots)
+    .where(lt(projectStatusSnapshots.createdAt, projectStatusSnapshotsCutoff));
 
   logger.info({
     health_deleted: healthDeleted.count,
@@ -87,6 +112,8 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
     cron_runs_deleted: cronRunsDeleted.count,
     bloat_radar_deleted: bloatRadarDeleted.count,
     spec_sessions_deleted: specSessionsDeleted.count,
+    spec_snapshots_deleted: specSnapshotsDeleted.count,
+    project_status_snapshots_deleted: projectStatusSnapshotsDeleted.count,
   }, "retention cleanup complete");
 }
 

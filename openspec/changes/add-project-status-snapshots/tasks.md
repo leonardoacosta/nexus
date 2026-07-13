@@ -5,8 +5,8 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add `packages/db/src/schema/specSnapshots.ts` + `packages/db/src/schema/projectStatusSnapshots.ts` (identity pk, `project` text, counts, `created_at`; header comments citing this spec + retention window, mirroring `specSessions.ts`'s conventions) and export both from `packages/db/src/schema/index.ts`. Generate the migration via `pnpm --filter @nexus/db db:generate` and commit the `.sql` file — migration-based only, never `db:push`. [owner:db-engineer] [type:db] [beads:nx-t8fi4]
-- [ ] [1.2] [P-2] Extend `apps/agent/src/db/retention.ts` with 90d env-overridable cutoffs + deletes + log fields for `spec_snapshots` and `project_status_snapshots` (one cutoff const + one delete each, matching the `cron_runs` shape). [owner:db-engineer] [type:db] [beads:nx-2fuos]
+- [x] [1.1] [P-1] Add `packages/db/src/schema/specSnapshots.ts` + `packages/db/src/schema/projectStatusSnapshots.ts` (identity pk, `project` text, counts, `created_at`; header comments citing this spec + retention window, mirroring `specSessions.ts`'s conventions) and export both from `packages/db/src/schema/index.ts`. Generate the migration via `pnpm --filter @nexus/db db:generate` and commit the `.sql` file — migration-based only, never `db:push`. [owner:db-engineer] [type:db] [beads:nx-t8fi4]
+- [x] [1.2] [P-2] Extend `apps/agent/src/db/retention.ts` with 90d env-overridable cutoffs + deletes + log fields for `spec_snapshots` and `project_status_snapshots` (one cutoff const + one delete each, matching the `cron_runs` shape). [owner:db-engineer] [type:db] [beads:nx-2fuos]
 
 ## API Batch
 
