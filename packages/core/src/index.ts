@@ -99,6 +99,18 @@ export type {
   BeadUnlinkedCounts,
   BeadTransitionPayload,
 } from "./types/project-status";
+export {
+  gitDirtyCounts,
+  gitStatusObject,
+  gitEventRecord,
+  gitEventsResponse,
+} from "./types/git-status";
+export type {
+  GitDirtyCounts,
+  GitStatusObject,
+  GitEventRecord,
+  GitEventsResponse,
+} from "./types/git-status";
 export type {
   SpecTransitionEvent,
   SpecTransitionKind,

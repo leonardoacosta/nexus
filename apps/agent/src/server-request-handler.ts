@@ -94,7 +94,10 @@ import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
 import { tryHandleSessionContextRoute } from "./routes/session-context";
-import { tryHandleProjectStatusRoute } from "./routes/project-status";
+import {
+  tryHandleProjectStatusRoute,
+  tryHandleGitEventsRoute,
+} from "./routes/project-status";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -140,6 +143,10 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // routes/project-status.ts). 4-segment match, no collision with the PATCH
   // /projects/:id sibling.
   { method: "GET", path: "/projects/:id/status" },
+  // Per-project git-event history (add-git-status-orbit, delegated to
+  // routes/project-status.ts). Same 4-segment match; `git-events` segment
+  // cannot collide with `status` or the PATCH /projects/:id sibling.
+  { method: "GET", path: "/projects/:id/git-events" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
   { method: "GET", path: "/notifications" },
@@ -387,6 +394,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // registering it with the projects group keeps the surface legible.
       const projectStatusResult = tryHandleProjectStatusRoute(request, url, db);
       if (projectStatusResult !== null) return projectStatusResult;
+
+      // GET /projects/:id/git-events[?days=<n>] — persisted git transition
+      // history (add-git-status-orbit). 4-segment match; the `git-events`
+      // segment cannot collide with the `status` route above or the PATCH
+      // /projects/:id match below.
+      const gitEventsResult = tryHandleGitEventsRoute(request, url, db);
+      if (gitEventsResult !== null) return gitEventsResult;
 
       // PATCH /projects/:id — update mutable project metadata (tags, description)
       const projectUpdateMatch = url.pathname.match(/^\/projects\/([^/]+)$/);

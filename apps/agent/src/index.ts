@@ -29,6 +29,7 @@ import { writeStatuslineUsageFile } from "./services/statusline-usage-file";
 import { lastSwapAt } from "./services/credential-pool/swap-tracker";
 import { startSpecWatcher, type SpecWatcherService } from "./services/spec-watcher";
 import { startBeadsWatcher, type BeadsWatcherHandle } from "./services/beads-watcher";
+import { startGitObserver, type GitObserverHandle } from "./services/git-observer";
 import {
   startTailscalePresencePoller,
   type TailscalePresencePollerService,
@@ -311,6 +312,24 @@ try {
   logger.warn({ error: err instanceof Error ? err.message : String(err) }, "beads watcher failed to start");
 }
 
+// ── Git observer ──────────────────────────────────────────────────────────────
+// 60s staggered poll over registered local project locations, persisting
+// branch-switch / new-commit / detached-head transitions into git_events and
+// folding current git state into the /projects/:id/status payload — zero fs
+// watches (dirty state is working-tree-wide) (add-git-status-orbit). Projects
+// come from the config-loader registry; fail-open per project.
+let gitObserver: GitObserverHandle | null = null;
+try {
+  gitObserver = startGitObserver({
+    db,
+    listProjects: () =>
+      getProjects().map((p) => ({ code: p.code, path: p.path })),
+  });
+  logger.info("git observer started");
+} catch (err) {
+  logger.warn({ error: err instanceof Error ? err.message : String(err) }, "git observer failed to start");
+}
+
 // ── Tailscale presence poller ───────────────────────────────────────────────
 // Low-frequency `tailscale status --json` poll that derives the phone's
 // home/away/absent state (zero iOS permission) and reports phonePresent /
@@ -364,6 +383,7 @@ async function shutdown() {
 
   // Stop new services first.
   tailscalePresencePoller?.stop();
+  gitObserver?.stop();
   beadsWatcher?.stop();
   specWatcher?.stop();
   credentialUsagePoller?.stop();
