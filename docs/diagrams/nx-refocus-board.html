@@ -560,26 +560,36 @@ table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowr
   <div class="cols2">
     <div class="panel">
       <h4>Before</h4>
-      <div class="sub">7 peer destinations · nav-tab sprawl</div>
-      <div class="tree"><span class="dim">nexus-mac</span>
-├─ Sources
-├─ Sessions
-├─ Roadmap
-├─ Credentials
-├─ Failures
-├─ Integrations
-└─ PTY Viewer</div>
+      <div class="sub">12 peer destinations + decide deck · 2 mac apps</div>
+      <div class="tree"><span class="dim">nexus-mac · AppNavigation.swift (12 sections)</span>
+├─ Sources        <span class="dim">1290 ln</span>
+├─ Sessions        <span class="dim">500 ln</span>
+├─ Specs           <span class="dim">791 + 401 ln</span>
+├─ Roadmap         <span class="dim">246 ln</span>
+├─ Projects        <span class="dim">196 + 204 ln</span>
+├─ Credentials     <span class="dim">353 + 191 ln</span>
+├─ Failures        <span class="dim">355 ln</span>
+├─ Notifications   <span class="dim">541 ln</span>
+├─ Health          <span class="dim">313 + 177 ln</span>
+├─ Integrations    <span class="dim">147 ln</span>
+├─ Settings        <span class="dim">100 ln</span>
+├─ PTY Viewer      <span class="dim">816 ln</span>
+├─ Decide deck     <span class="dim">820 ln, off-sidebar</span>
+└─ <span class="warn">apps/swift/nexus/ — older menubar app, parallel client</span></div>
     </div>
     <div class="panel">
       <h4>After</h4>
       <div class="sub">1 board · 1 ambient layer · settings</div>
       <div class="tree"><span class="hot">Board</span>  projects ▾ → proposals → tasks → descriptions
 │        <span class="warn">orphan beads at top level</span>
+│        detail rail: spec content · approve/reject · deps · TTS
 │        session rail · attach (PTY absorbed here)
 ├─ <span class="hot">Ambient</span>  TTS ticker · notification drawer · presence dots
 ├─ Settings  credentials · integrations · sources · voices
-└─ <span class="dead">Failures tab</span> → badge on row + drawer entry
-   <span class="dead">Roadmap tab</span> → IS the board now
+└─ <span class="dead">Roadmap + Specs tabs</span> → ARE the board now
+   <span class="dead">Projects tab</span> → the board's rail
+   <span class="dead">Decide deck</span> → approve/reject on proposal rows
+   <span class="dead">Failures / Health tabs</span> → badges + drawer entries
    <span class="dead">PTY Viewer tab</span> → attach action on session</div>
     </div>
   </div>
@@ -592,12 +602,18 @@ table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowr
   <table class="ia">
     <thead><tr><th>Surface</th><th>Verdict</th><th>Where it goes</th></tr></thead>
     <tbody>
-      <tr><td>Roadmap</td><td><span class="verdict keep">Becomes the app</span></td>
-        <td>Promoted to the main board. Capability level demoted to a tag on proposal rows — the proposal is the unit Leo triages, matching <code>bd</code>'s feature-primary priority model.</td></tr>
+      <tr><td>Roadmap + Specs</td><td><span class="verdict keep">Become the app</span></td>
+        <td>Merged into the main board — today they are two separate tabs rendering the same beads data (<code>RoadmapView</code> 246 ln, <code>SpecsView</code> 791 + <code>SpecDetailView</code> 401 ln). Spec content, approval status, and sessions render in the detail rail. Capability level demoted to a tag on proposal rows — the proposal is the unit Leo triages, matching <code>bd</code>'s feature-primary priority model. <code>BeadStatusGlyph</code> and the Roadmap/Specs view models are direct build-on material.</td></tr>
+      <tr><td>Projects tab</td><td><span class="verdict absorb">Absorb</span></td>
+        <td>The board's project rail IS the projects view (counts, presence, hidden toggle). <code>ProjectsView</code> + <code>ProjectAccordionRow</code> (400 ln) retire.</td></tr>
+      <tr><td>Decide deck</td><td><span class="verdict absorb">Absorb</span></td>
+        <td>Swipe-card approval queue (~820 ln off-sidebar) becomes approve/reject actions on proposal rows + detail rail — the approval gate lives where the proposal lives.</td></tr>
       <tr><td>Sessions</td><td><span class="verdict keep">Keep · reframed</span></td>
         <td>Session rail under each project + live count in the project list. A session is context <em>about</em> a project, not a peer destination.</td></tr>
       <tr><td>TTS + Notifications</td><td><span class="verdict keep">Keep · ambient</span></td>
-        <td>One-line ticker at top + history drawer (⌘H) + per-proposal recent-TTS in the detail rail. Never a modal, never a tab.</td></tr>
+        <td>One-line ticker at top + history drawer (⌘H) + per-proposal recent-TTS in the detail rail. Never a modal, never a tab. The drawer inherits everything <code>NotificationsView</code> (541 ln) does today — history, replay, meeting mode, drop-TTS — and <code>TTSObserver</code> (813 ln) is untouched: it subscribes to the <code>NotificationFired</code> SSE bus, not to any view.</td></tr>
+      <tr><td>Health</td><td><span class="verdict absorb">Absorb</span></td>
+        <td>Machine presence dots in the titlebar + a health badge that expands to the process table on demand. <code>HealthView</code> (490 ln) stops being a destination.</td></tr>
       <tr><td>PTY Viewer</td><td><span class="verdict absorb">Absorb</span></td>
         <td>Becomes the <code>Attach</code> action on a session row. The viewer stays as a sheet/window you summon, not a place you visit.</td></tr>
       <tr><td>Failures</td><td><span class="verdict absorb">Absorb</span></td>
@@ -608,7 +624,9 @@ table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowr
         <td>Settings pane, same reasoning. Health of an integration surfaces as a badge, not a page.</td></tr>
       <tr><td>Sources</td><td><span class="verdict demote">Demote</span></td>
         <td>Settings pane (project/agent registry management). The <em>output</em> of sources — the project list — is the board's rail.</td></tr>
-      <tr><td>Analytics / Health / Decisions / Wave-plans routes</td><td><span class="verdict deprecate">Deprecate candidates</span></td>
+      <tr><td>Older menubar app (<code>apps/swift/nexus/</code>)</td><td><span class="verdict deprecate">Deprecate candidate</span></td>
+        <td>A parallel mac app with its own <code>Models.swift</code>/<code>NexusClient.swift</code> copy — a standing drift source. Fold its at-a-glance popover into nexus-mac's menu-bar extra, or retire it. Leo's call (clean replacement vs keep).</td></tr>
+      <tr><td>Analytics / Wave-plans / misc routes</td><td><span class="verdict deprecate">Deprecate candidates</span></td>
         <td>Agent routes with no surviving primary surface get a usage audit; anything the board and drawer don't consume within a release gets removed per the clean-replacement default.</td></tr>
     </tbody>
   </table>
