@@ -19,9 +19,9 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-2] Add `apps/web/src/lib/integration-client.ts` — generic fetch helpers (`getCredentials`, `patchCredentials`, `deleteCredentials`, `testConnection`) parameterized by `provider`, mirroring `apps/web/src/lib/elevenlabs-client.ts`'s shape. [owner:ui-engineer] [type:ui] [beads:nx-taczp]
-- [ ] [3.2] [P-2] Add `apps/web/src/app/integrations/[provider]/page.tsx` — resolves `provider` against a `PROVIDER_UI_REGISTRY` map (display name + panel component), calls `notFound()` for an unregistered provider, otherwise mounts the registered panel using the same agent-URL-gate shell as the existing `/integrations/elevenlabs/page.tsx`. [owner:ui-engineer] [type:ui] [beads:nx-gwnmw]
-- [ ] [3.3] [P-2] Add `apps/web/src/app/integrations/[provider]/TelegramPanel.tsx` — reuses the existing `MaskedKeyInput` component for the bot token, a plain text field for `chatId`, and save/test-connection/delete actions against `integration-client.ts`. Register it in `PROVIDER_UI_REGISTRY` under `"telegram"`. [owner:ui-engineer] [type:ui] [beads:nx-w6jlh]
+- [x] [3.1] [P-2] Add `apps/web/src/lib/integration-client.ts` — generic fetch helpers (`getCredentials`, `patchCredentials`, `deleteCredentials`, `testConnection`) parameterized by `provider`, mirroring `apps/web/src/lib/elevenlabs-client.ts`'s shape. [owner:ui-engineer] [type:ui] [beads:nx-taczp]
+- [x] [3.2] [P-2] Add `apps/web/src/app/integrations/[provider]/page.tsx` — resolves `provider` against a `PROVIDER_UI_REGISTRY` map (display name + panel component), calls `notFound()` for an unregistered provider, otherwise mounts the registered panel using the same agent-URL-gate shell as the existing `/integrations/elevenlabs/page.tsx`. [owner:ui-engineer] [type:ui] [beads:nx-gwnmw]
+- [x] [3.3] [P-2] Add `apps/web/src/app/integrations/[provider]/TelegramPanel.tsx` — reuses the existing `MaskedKeyInput` component for the bot token, a plain text field for `chatId`, and save/test-connection/delete actions against `integration-client.ts`. Register it in `PROVIDER_UI_REGISTRY` under `"telegram"`. [owner:ui-engineer] [type:ui] [beads:nx-w6jlh]
 
 ## E2E Batch
 
