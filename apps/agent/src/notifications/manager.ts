@@ -118,22 +118,49 @@ export interface CrossMachineWiring {
   deps: ForwardDeps;
 }
 
+/**
+ * Rate-throttle collaborator (noise-reduction audit, 2026-07-13, plan 041).
+ * Strictly additive: when omitted, no throttling occurs (byte-identical to
+ * today). When wired, `send()` downgrades a non-critical, project-scoped
+ * `tts` notification to `desktop` once the project has fired
+ * `maxPerWindow` TTS notifications within the last `windowMinutes`.
+ */
+export interface RateThrottleWiring {
+  /** Reads the live rate-throttle settings (from notification_settings). */
+  settings: () => Promise<RateThrottleSettings> | RateThrottleSettings;
+  /** Counts `channel` notifications for `project` created since `since`. */
+  countRecent: (
+    project: string,
+    channel: string,
+    since: Date,
+  ) => Promise<number>;
+}
+
+export interface RateThrottleSettings {
+  enabled: boolean;
+  maxPerWindow: number;
+  windowMinutes: number;
+}
+
 export class NotificationManager {
   private meetingState: MeetingState;
   private db: Db;
   private presence: PresenceWiring | null;
   private crossMachine: CrossMachineWiring | null;
+  private rateThrottle: RateThrottleWiring | null;
 
   constructor(
     db: Db,
     meetingState?: MeetingState,
     presence?: PresenceWiring,
     crossMachine?: CrossMachineWiring,
+    rateThrottle?: RateThrottleWiring,
   ) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
     this.presence = presence ?? null;
     this.crossMachine = crossMachine ?? null;
+    this.rateThrottle = rateThrottle ?? null;
   }
 
   /** Get the meeting state instance. */
@@ -178,6 +205,33 @@ export class NotificationManager {
       audioPath: notification.audioPath ?? null,
       voiceUsed: notification.voiceUsed ?? null,
     };
+
+    // ── Rate-based throttle (noise-reduction, plan 041) ────────────────────
+    // Applies uniformly regardless of presence-routing state — a burst of
+    // same-project TTS pings shouldn't fire individually even when Leo is
+    // sitting right at his desk (Rule 1 would otherwise deliver every one).
+    // Critical-priority notifications (crash/permission/hook-failure/
+    // api-error, priority:"high") are never downgraded. Project-less
+    // notifications are never throttled (no meaningful family to rate-limit).
+    if (row.channel === "tts" && row.priority !== "high" && row.project && this.rateThrottle) {
+      const throttleSettings = await this.rateThrottle.settings();
+      if (throttleSettings.enabled) {
+        const since = new Date(Date.now() - throttleSettings.windowMinutes * 60_000);
+        const recentCount = await this.rateThrottle.countRecent(row.project, "tts", since);
+        if (recentCount >= throttleSettings.maxPerWindow) {
+          logger.info(
+            {
+              id: row.id,
+              project: row.project,
+              recentCount,
+              maxPerWindow: throttleSettings.maxPerWindow,
+            },
+            "notification TTS downgraded to desktop (rate-throttle)",
+          );
+          row.channel = "desktop";
+        }
+      }
+    }
 
     // Always persist to the notifications table first
     await insertNotification(this.db, row);
