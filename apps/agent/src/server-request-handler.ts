@@ -764,14 +764,14 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // handlers (empty payload, never 500) — the catch here is defense in
     // depth for an unexpected throw.
     if (url.pathname === "/beads/unlinked" && request.method === "GET") {
-      return handleGetUnlinkedBeads(url).then((r) => withCors(request, r)).catch((err) => {
+      return handleGetUnlinkedBeads(url, db).then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/beads/unlinked", method: "GET", err }, "route handler failed");
         return withCors(request, new Response(JSON.stringify({ unlinked: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
       });
     }
 
     if (url.pathname === "/roadmap" && request.method === "GET") {
-      return handleGetRoadmap(url).then((r) => withCors(request, r)).catch((err) => {
+      return handleGetRoadmap(url, db).then((r) => withCors(request, r)).catch((err) => {
         logger.error({ route: "/roadmap", method: "GET", err }, "route handler failed");
         return withCors(request, new Response(JSON.stringify({ capabilities: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
       });

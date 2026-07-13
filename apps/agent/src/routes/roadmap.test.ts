@@ -22,6 +22,18 @@ mock.module("../services/config-loader", () => ({
 }));
 
 import { handleGetRoadmap } from "./roadmap";
+import type { RoadmapCapability } from "@nexus/core";
+import type { FanOutProject } from "../services/project-fanout";
+
+function cap(name: string): RoadmapCapability {
+  return {
+    name,
+    epicId: `epic-${name}`,
+    epicStatus: "open",
+    proposals: [],
+    progress: { totalTasks: 0, closedTasks: 0 },
+  };
+}
 
 describe("handleGetRoadmap", () => {
   it("returns 400 when the project param is missing", async () => {
@@ -55,6 +67,65 @@ describe("handleGetRoadmap", () => {
     } finally {
       fixtureProjects.length = 0;
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  describe("project=all", () => {
+    const projects: FanOutProject[] = [
+      { code: "a", path: "/dev/a" },
+      { code: "b", path: "/dev/b" },
+      { code: "c", path: "/dev/c" },
+    ];
+
+    it("merges resolvable projects' capabilities tagged with project, drops empties", async () => {
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          // `c` has no .beads/ (empty) — contributes nothing.
+          computeRoadmap: async (path) =>
+            path === "/dev/c" ? [] : [cap(path)],
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      expect(body.capabilities).toHaveLength(2);
+      expect(body.capabilities.map((c) => c.project).sort()).toEqual(["a", "b"]);
+    });
+
+    it("degrades when one project's computeRoadmap throws (200, others survive)", async () => {
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          computeRoadmap: async (path) => {
+            if (path === "/dev/b") throw new Error("bd exploded");
+            return [cap(path)];
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      expect(body.capabilities.map((c) => c.project).sort()).toEqual(["a", "c"]);
+    });
+  });
+
+  it("single-project shape carries no project tag (byte-compatible)", async () => {
+    fixtureProjects.push({ code: "nx", name: "nexus", path: "/dev/nx" });
+    try {
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=nx"),
+        undefined,
+        { computeRoadmap: async () => [cap("only")] },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      expect(body.capabilities).toHaveLength(1);
+      expect("project" in body.capabilities[0]!).toBe(false);
+    } finally {
+      fixtureProjects.length = 0;
     }
   });
 });
