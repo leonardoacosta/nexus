@@ -443,6 +443,48 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /beads/unlinked?project=all` — unlinked beads merged ACROSS every
+    /// non-hidden project the agent hosts, each row carrying a `project` tag
+    /// (agent-side fan-out; single-agent scope). Mirrors `fetchUnlinkedBeads`'
+    /// 404-to-empty degradation for older agents without the route.
+    ///
+    /// Spec: openspec/changes/refocus-board-shell (task 2.5)
+    public func fetchUnlinkedBeadsAll() async throws -> [UnlinkedBead] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("beads/unlinked"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "project", value: "all")]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: UnlinkedBeadsResponse = try await getJSON(url: url)
+            return envelope.unlinked
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
+    /// `GET /roadmap?project=all` — `[CAPABILITY]` epics merged ACROSS every
+    /// non-hidden project the agent hosts, each capability carrying a `project`
+    /// tag (agent-side fan-out; single-agent scope). Mirrors `fetchRoadmap`'s
+    /// 404-to-empty degradation for older agents without the route.
+    ///
+    /// Spec: openspec/changes/refocus-board-shell (task 2.5)
+    public func fetchRoadmapAll() async throws -> [RoadmapCapability] {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("roadmap"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "project", value: "all")]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        do {
+            let envelope: RoadmapResponse = try await getJSON(url: url)
+            return envelope.capabilities
+        } catch NexusClientError.badStatus(404) {
+            return []
+        }
+    }
+
     /// `GET /specs/{project}/{name}/{file}` — raw markdown content for a
     /// single spec document. `file` MUST be one of "proposal", "design",
     /// "tasks". Returns `nil` on 404 (file/spec/project absent); throws on

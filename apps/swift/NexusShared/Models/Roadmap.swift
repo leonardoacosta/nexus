@@ -61,6 +61,10 @@ public struct RoadmapCapability: Identifiable, Equatable, Hashable, Codable, Sen
     public var epicStatus: String
     public var proposals: [RoadmapProposal]
     public var progress: RoadmapProgress
+    /// Owning project code — populated ONLY on the `project=all` fan-out
+    /// (additive; single-project responses omit the key → nil). Source:
+    /// packages/core/src/types/roadmap.ts optional `project`.
+    public var project: String?
 
     /// The capability's epic bead id is its stable identity across renders.
     public var id: String { epicId }
@@ -70,13 +74,15 @@ public struct RoadmapCapability: Identifiable, Equatable, Hashable, Codable, Sen
         epicId: String,
         epicStatus: String,
         proposals: [RoadmapProposal],
-        progress: RoadmapProgress
+        progress: RoadmapProgress,
+        project: String? = nil
     ) {
         self.name = name
         self.epicId = epicId
         self.epicStatus = epicStatus
         self.proposals = proposals
         self.progress = progress
+        self.project = project
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,6 +93,7 @@ public struct RoadmapCapability: Identifiable, Equatable, Hashable, Codable, Sen
         self.proposals  = try c.decodeIfPresent([RoadmapProposal].self, forKey: .proposals) ?? []
         self.progress   = try c.decodeIfPresent(RoadmapProgress.self, forKey: .progress)
             ?? RoadmapProgress(totalTasks: 0, closedTasks: 0)
+        self.project    = try c.decodeIfPresent(String.self, forKey: .project)
     }
 }
 

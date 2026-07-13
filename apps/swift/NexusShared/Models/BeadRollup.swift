@@ -25,19 +25,26 @@ public struct BeadRef: Identifiable, Equatable, Hashable, Codable, Sendable {
     public var type: String
     public var priority: Int
     public var title: String
+    /// One-line bead description, when present. Additive optional (source:
+    /// packages/core/src/types/spec.ts `BeadRef.description?`, populated from
+    /// `bd list --json` and omitted when empty). Synthesized Decodable treats
+    /// a missing key as nil, so older agents decode unchanged.
+    public var description: String?
 
     public init(
         id: String,
         status: String,
         type: String,
         priority: Int,
-        title: String
+        title: String,
+        description: String? = nil
     ) {
         self.id = id
         self.status = status
         self.type = type
         self.priority = priority
         self.title = title
+        self.description = description
     }
 }
 
@@ -112,19 +119,30 @@ public struct UnlinkedBead: Identifiable, Equatable, Hashable, Codable, Sendable
     public var status: String
     public var priority: Int
     public var type: String
+    /// Owning project code — populated ONLY on the `project=all` fan-out
+    /// (additive; single-project responses omit the key → nil).
+    public var project: String?
+    /// One-line bead description, when present. Additive optional (source:
+    /// packages/core/src/types/spec.ts `UnlinkedBead.description?`). Synthesized
+    /// Decodable treats a missing key as nil, so older agents decode unchanged.
+    public var description: String?
 
     public init(
         id: String,
         title: String,
         status: String,
         priority: Int,
-        type: String
+        type: String,
+        project: String? = nil,
+        description: String? = nil
     ) {
         self.id = id
         self.title = title
         self.status = status
         self.priority = priority
         self.type = type
+        self.project = project
+        self.description = description
     }
 }
 
