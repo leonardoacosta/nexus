@@ -3,6 +3,7 @@ import {
   bloatRadar,
   credentialEvents,
   cronRuns,
+  gitEvents,
   healthSnapshots,
   projectStatusSnapshots,
   sessionEvents,
@@ -41,6 +42,12 @@ const SPEC_SNAPSHOTS_RETENTION_DAYS = Number(
 const PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS = Number(
   process.env.PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS ?? "90",
 );
+// Per add-git-status-orbit: 90-day window mirrors cron_runs/project_status_
+// snapshots — long enough for orbital git-history review, short enough to keep
+// the append-only event table small. Override via env for ops sweeps.
+const GIT_EVENTS_RETENTION_DAYS = Number(
+  process.env.GIT_EVENTS_RETENTION_DAYS ?? "90",
+);
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
@@ -53,6 +60,7 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
  *   - spec_sessions      > 365 days  (specs-tab-start-on-spec)
  *   - spec_snapshots            > 90 days  (add-project-status-snapshots)
  *   - project_status_snapshots  > 90 days  (add-project-status-snapshots)
+ *   - git_events                > 90 days  (add-git-status-orbit)
  */
 export async function runRetentionCleanup(db: Db): Promise<void> {
   const healthCutoff = new Date(
@@ -79,6 +87,9 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const projectStatusSnapshotsCutoff = new Date(
     Date.now() - PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS * 86_400_000,
   );
+  const gitEventsCutoff = new Date(
+    Date.now() - GIT_EVENTS_RETENTION_DAYS * 86_400_000,
+  );
 
   const healthDeleted = await db
     .delete(healthSnapshots)
@@ -104,6 +115,9 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const projectStatusSnapshotsDeleted = await db
     .delete(projectStatusSnapshots)
     .where(lt(projectStatusSnapshots.createdAt, projectStatusSnapshotsCutoff));
+  const gitEventsDeleted = await db
+    .delete(gitEvents)
+    .where(lt(gitEvents.createdAt, gitEventsCutoff));
 
   logger.info({
     health_deleted: healthDeleted.count,
@@ -114,6 +128,7 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
     spec_sessions_deleted: specSessionsDeleted.count,
     spec_snapshots_deleted: specSnapshotsDeleted.count,
     project_status_snapshots_deleted: projectStatusSnapshotsDeleted.count,
+    git_events_deleted: gitEventsDeleted.count,
   }, "retention cleanup complete");
 }
 

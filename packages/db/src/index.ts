@@ -132,6 +132,16 @@ export {
   type NewProjectStatusSnapshot,
 } from "./schema";
 
+// git_events — append-only history of observed git transitions per registered
+// project (branch_switch / new_commit / detached_head). Written by the
+// git-observer's 60s staggered poll; read by GET /projects/:id/git-events.
+// Pruned at 90 days by retention.ts. Spec: openspec/changes/add-git-status-orbit.
+export {
+  gitEvents,
+  type GitEvent,
+  type NewGitEvent,
+} from "./schema";
+
 // process_watcher_state — append-only tick history for the
 // process-watcher health monitor (process-watcher-health-monitoring).
 // Pruned to the last 100 rows by the watcher itself; no retention.ts hook

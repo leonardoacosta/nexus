@@ -5,8 +5,8 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-1] Add `packages/db/src/schema/gitEvents.ts` (identity pk, `project` text, `event_type` text, `from_ref`/`to_ref`/`sha` nullable text, `created_at`; header comment citing this spec + retention window, mirroring `specSessions.ts`'s conventions) and export from `packages/db/src/schema/index.ts`. Generate the migration via `pnpm --filter @nexus/db db:generate` and commit the `.sql` file — migration-based only, never `db:push`. [owner:db-engineer] [type:db] [beads:nx-zi4mm]
-- [ ] [1.2] [P-2] Extend `apps/agent/src/db/retention.ts` with a 90d env-overridable cutoff + delete + log field for `git_events` (one cutoff const + one delete, matching the `cron_runs` shape). [owner:db-engineer] [type:db] [beads:nx-qq6yh]
+- [x] [1.1] [P-1] Add `packages/db/src/schema/gitEvents.ts` (identity pk, `project` text, `event_type` text, `from_ref`/`to_ref`/`sha` nullable text, `created_at`; header comment citing this spec + retention window, mirroring `specSessions.ts`'s conventions) and export from `packages/db/src/schema/index.ts`. Generate the migration via `pnpm --filter @nexus/db db:generate` and commit the `.sql` file — migration-based only, never `db:push`. [owner:db-engineer] [type:db] [beads:nx-zi4mm]
+- [x] [1.2] [P-2] Extend `apps/agent/src/db/retention.ts` with a 90d env-overridable cutoff + delete + log field for `git_events` (one cutoff const + one delete, matching the `cron_runs` shape). [owner:db-engineer] [type:db] [beads:nx-qq6yh]
 
 ## API Batch
 

@@ -143,3 +143,8 @@ export {
   type ProjectStatusSnapshot,
   type NewProjectStatusSnapshot,
 } from "./projectStatusSnapshots";
+export {
+  gitEvents,
+  type GitEvent,
+  type NewGitEvent,
+} from "./gitEvents";
