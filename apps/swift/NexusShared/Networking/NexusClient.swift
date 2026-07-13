@@ -653,6 +653,75 @@ public actor NexusClient {
         return data
     }
 
+    /// `POST /specs/{project}/{name}/approve` — run `openspec approve` on the
+    /// owning agent, moving the proposal into the approved gate. Throws
+    /// `NexusClientError.badStatus` on non-2xx (404 = unknown project/spec,
+    /// 500 = openspec failure). Refocus-board-shell task 3.5 — the proposal
+    /// approval gate lives on the proposal row, calling the same endpoint the
+    /// deleted Decide deck used to hit.
+    @discardableResult
+    public func approveSpec(project: String, name: String) async throws -> Data {
+        let url = endpoint.baseURL
+            .appendingPathComponent("specs")
+            .appendingPathComponent(project)
+            .appendingPathComponent(name)
+            .appendingPathComponent("approve")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        return data
+    }
+
+    /// `POST /specs/{project}/{name}/reject` — run `openspec reject` on the
+    /// owning agent, optionally recording a `reason`. Throws
+    /// `NexusClientError.badStatus` on non-2xx. Refocus-board-shell task 3.5.
+    @discardableResult
+    public func rejectSpec(
+        project: String,
+        name: String,
+        reason: String? = nil
+    ) async throws -> Data {
+        let url = endpoint.baseURL
+            .appendingPathComponent("specs")
+            .appendingPathComponent(project)
+            .appendingPathComponent(name)
+            .appendingPathComponent("reject")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        if let reason, !reason.isEmpty {
+            req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["reason": reason])
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw NexusClientError.transport(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw NexusClientError.badStatus(0)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusClientError.badStatus(http.statusCode)
+        }
+        return data
+    }
+
     /// `GET /credentials` — list every CC profile the agent currently manages.
     /// Returns the flat profile array; callers needing the active fingerprint
     /// hit `fetchCredentialsEnvelope()` instead.
