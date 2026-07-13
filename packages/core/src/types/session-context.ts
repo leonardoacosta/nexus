@@ -25,11 +25,17 @@ export type SessionContextPatchInput = z.infer<typeof sessionContextPatchInput>;
 /**
  * GET /sessions/:id/context response for a fresh entry. `contextWindowSize` is
  * nullable (absent when the writer never supplied it); `updatedAt` is ISO 8601.
+ * `model` is the derived single-letter family tag (matching `GET /statusline`'s
+ * `modelFamilyLetter` convention, e.g. `"O"` for an Opus model) — looked up
+ * fresh from `sessions.model` on every request, never cached alongside the
+ * in-memory context-window entry. `null` when the session row has no model yet
+ * or cannot be looked up.
  */
 export const sessionContextResponse = z.object({
   sessionId: z.string(),
   usedPercentage: z.number(),
   contextWindowSize: z.number().nullable(),
   updatedAt: z.string(),
+  model: z.string().nullable(),
 });
 export type SessionContextResponse = z.infer<typeof sessionContextResponse>;

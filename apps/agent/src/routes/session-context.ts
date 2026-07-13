@@ -21,10 +21,11 @@
 
 import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
-import { sessionContextPatchInput } from "@nexus/core";
+import { sessionContextPatchInput, modelFamilyLetter } from "@nexus/core";
 import type { SessionContextResponse } from "@nexus/core";
 
 import { withCors } from "../server-origin";
+import { getSessionById } from "../db/sessions";
 
 interface ContextEntry {
   usedPercentage: number;
@@ -55,17 +56,35 @@ function jsonResponse(body: unknown, status = 200): Response {
 /**
  * GET /sessions/:id/context — return the fresh entry for `id`, or
  * `404 {"error": "no context data for session"}` when absent or stale.
+ *
+ * `model` is looked up fresh from `sessions.model` on every call (not cached
+ * alongside the in-memory context-window entry) via `getSessionById`, then
+ * mapped to the shared single-letter family tag via `modelFamilyLetter` — the
+ * same derivation `GET /statusline` already uses. When `db` is omitted, or
+ * `getSessionById` finds no row, or the row's `model` is `null`, this
+ * fails open to `model: null` rather than throwing or altering the
+ * fresh/stale/unknown-session status codes above.
  */
-export function handleGetSessionContext(_request: Request, id: string): Response {
+export async function handleGetSessionContext(
+  _request: Request,
+  id: string,
+  db?: Db,
+): Promise<Response> {
   const entry = store.get(id);
   if (!entry || Date.now() - entry.updatedAt >= CACHE_TTL_MS) {
     return jsonResponse({ error: "no context data for session" }, 404);
+  }
+  let model: string | null = null;
+  if (db) {
+    const row = await getSessionById(db, id);
+    model = modelFamilyLetter({ id: row?.model ?? undefined }) ?? null;
   }
   const body: SessionContextResponse = {
     sessionId: id,
     usedPercentage: entry.usedPercentage,
     contextWindowSize: entry.contextWindowSize,
     updatedAt: new Date(entry.updatedAt).toISOString(),
+    model,
   };
   return jsonResponse(body);
 }
@@ -111,8 +130,9 @@ export async function handlePatchSessionContext(
  * Parses the `:id` path segment from `/sessions/:id/context` and delegates to
  * the handler for the method. Returns a Response when the URL matches, or
  * `null` when it does not (callers fall through). The `db?` param mirrors the
- * sibling dispatcher signature convention but is unused — this store is
- * in-memory, not Postgres.
+ * sibling dispatcher signature convention and is used to derive the `model`
+ * field on GET (see `handleGetSessionContext`) — the in-memory context-window
+ * store itself is still not Postgres-backed.
  *
  * MUST be dispatched BEFORE the catch-all `GET /sessions/:id` route in
  * `server-request-handler.ts`, whose `/^\/sessions\/(.+)$/` pattern would
@@ -121,7 +141,7 @@ export async function handlePatchSessionContext(
 export function tryHandleSessionContextRoute(
   request: Request,
   url: URL,
-  _db?: Db,
+  db?: Db,
 ): Response | Promise<Response> | null {
   // ["", "sessions", ":id", "context"]
   const segments = url.pathname.split("/");
@@ -154,7 +174,7 @@ export function tryHandleSessionContextRoute(
       });
 
   if (request.method === "GET") {
-    return wrap(handleGetSessionContext(request, id), "GET");
+    return wrap(handleGetSessionContext(request, id, db), "GET");
   }
   if (request.method === "PATCH") {
     return wrap(handlePatchSessionContext(request, id), "PATCH");

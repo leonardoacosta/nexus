@@ -21,12 +21,35 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, spyOn } from "bun:test";
+import type { Db } from "@nexus/db";
 
 import {
   handleGetSessionContext,
   handlePatchSessionContext,
   resetSessionContextStore,
 } from "./session-context";
+
+/**
+ * Minimal chainable stub satisfying the `db.select().from().where().limit()`
+ * shape `getSessionById` (`../db/sessions`) issues. Passed directly as the
+ * `db` param rather than via `mock.module("../db/sessions", ...)` — a
+ * non-spreading module-level override there is process-global and forward-
+ * leaks into sibling suites importing the same module (the nx-jlx1c class
+ * documented in `split-routes.test.ts`: an earlier `getSessionById: () =>
+ * null` override broke `session-cost-read.test.ts`'s unrelated assertions).
+ * A plain object cast avoids that class entirely.
+ */
+function fakeDb(row: { model: string | null } | null): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve(row ? [row] : []),
+        }),
+      }),
+    }),
+  } as unknown as Db;
+}
 
 const TTL_MS = 600 * 1_000;
 
@@ -68,7 +91,7 @@ describe("session-context — fresh entry round trip", () => {
     );
     expect(patchRes.status).toBe(204);
 
-    const getRes = handleGetSessionContext(getRequest("abc"), "abc");
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
     expect(getRes.status).toBe(200);
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.sessionId).toBe("abc");
@@ -88,7 +111,7 @@ describe("session-context — stale entry treated as absent", () => {
     // Advance the clock just past the TTL so the entry is now stale.
     nowMs += TTL_MS + 1;
 
-    const getRes = handleGetSessionContext(getRequest("abc"), "abc");
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
     expect(getRes.status).toBe(404);
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.error).toBe("no context data for session");
@@ -104,7 +127,7 @@ describe("session-context — invalid PATCH body rejected", () => {
     expect(patchRes.status).toBe(400);
 
     // Nothing was written — a subsequent GET still 404s.
-    const getRes = handleGetSessionContext(getRequest("abc"), "abc");
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
     expect(getRes.status).toBe(404);
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.error).toBe("no context data for session");
@@ -113,7 +136,7 @@ describe("session-context — invalid PATCH body rejected", () => {
 
 describe("session-context — unknown session", () => {
   it("GET for a session that was never PATCHed returns 404", async () => {
-    const getRes = handleGetSessionContext(getRequest("never-set"), "never-set");
+    const getRes = await handleGetSessionContext(getRequest("never-set"), "never-set");
     expect(getRes.status).toBe(404);
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.error).toBe("no context data for session");
@@ -128,10 +151,76 @@ describe("session-context — optional contextWindowSize omitted", () => {
     );
     expect(patchRes.status).toBe(204);
 
-    const getRes = handleGetSessionContext(getRequest("abc"), "abc");
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
     expect(getRes.status).toBe(200);
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.usedPercentage).toBe(10);
     expect(body.contextWindowSize).toBeNull();
+  });
+});
+
+describe("session-context — GET model field (add-session-context-model-field)", () => {
+  it("derives the single-letter family tag from a session row with a model", async () => {
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42 }),
+      "abc",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb({ model: "claude-opus-4-8" }),
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("O");
+  });
+
+  it("returns model: null when the row's model column is null", async () => {
+    await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42 }),
+      "abc",
+    );
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb({ model: null }),
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+  });
+
+  it("returns model: null when getSessionById finds no row", async () => {
+    await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42 }),
+      "abc",
+    );
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb(null),
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+  });
+
+  it("returns model: null when db is omitted entirely, without changing status or existing fields", async () => {
+    await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42, contextWindowSize: 200000 }),
+      "abc",
+    );
+
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+    expect(body.sessionId).toBe("abc");
+    expect(body.usedPercentage).toBe(42);
+    expect(body.contextWindowSize).toBe(200000);
   });
 });

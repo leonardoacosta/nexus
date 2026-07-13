@@ -11,12 +11,12 @@
 
 ## API Batch
 
-- [ ] 2.1 Add `model: string | null` to `SessionContextResponse` in [beads:nx-eni36]
+- [x] 2.1 Add `model: string | null` to `SessionContextResponse` in [beads:nx-eni36]
       `packages/core/src/types/session-context.ts`, updating the doc comment to describe it as
       the derived single-letter family tag (matching `GET /statusline`'s convention), refreshed
       per request, not cached.
       - touches: `packages/core/src/types/session-context.ts`
-- [ ] 2.2 In `apps/agent/src/routes/session-context.ts`: make `handleGetSessionContext` accept an [beads:nx-b2wlo]
+- [x] 2.2 In `apps/agent/src/routes/session-context.ts`: make `handleGetSessionContext` accept an [beads:nx-b2wlo]
       optional `db?: Db` parameter and become `async`; when `db` is present, call the existing
       `getSessionById(db, id)` from `../db/sessions`, derive the letter via the existing
       `modelFamilyLetter({ id: row?.model ?? undefined }) ?? null` from `@nexus/core`, and
@@ -30,7 +30,7 @@
       reflect that it is now used for the model lookup.
       - touches: `apps/agent/src/routes/session-context.ts`
       - depends on: (none — task 2.1 lands first within this same batch)
-- [ ] 2.3 Unit tests in `apps/agent/src/routes/session-context.test.ts`: `handleGetSessionContext` [beads:nx-ud0ef]
+- [x] 2.3 Unit tests in `apps/agent/src/routes/session-context.test.ts`: `handleGetSessionContext` [beads:nx-ud0ef]
       with a mocked `db`/`getSessionById` returning a row with `model: "claude-opus-4-8"` returns
       `model: "O"`; with a row whose `model` is `null`, or with `getSessionById` returning `null`,
       or with `db` omitted entirely, returns `model: null` alongside the existing fields (never a
@@ -40,12 +40,12 @@
 
 ## UI Batch
 
-- [ ] 3.1 No UI change in this proposal — the only consumer (cc-tmux) lives in a separate repo [beads:nx-tom28]
+- [x] 3.1 No UI change in this proposal — the only consumer (cc-tmux) lives in a separate repo [beads:nx-tom28]
       and is out of scope here (see proposal.md Non-Goals).
       - touches: (none)
 
 ## E2E Batch
 
-- [ ] 4.1 No E2E change — backend response-shape addition only, no nx-owned user-facing flow to [beads:nx-dfjnl]
+- [x] 4.1 No E2E change — backend response-shape addition only, no nx-owned user-facing flow to [beads:nx-dfjnl]
       exercise (see proposal.md Testing).
       - touches: (none)
