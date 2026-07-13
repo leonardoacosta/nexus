@@ -1,0 +1,305 @@
+/**
+ * Generic integration-credential route handler tests.
+ *
+ * Coverage backfill for the already-implemented handlers in
+ * `routes/integration-credentials.ts`. Substitutes a fake DB satisfying the
+ * relational query surface the handlers use
+ * (`db.query.integrationCredentials.findFirst`, `db.update`, `db.insert`,
+ * `db.delete`), mocks `getAgentId`, and drives the real encryption helpers via
+ * a stub `NEXUS_ENCRYPTION_KEY` env var — same shape as
+ * `elevenlabs-credentials.test.ts`.
+ *
+ * Covers the spec § "HTTP endpoints ... generic CRUD + test" scenarios:
+ * encrypted round trip + mask, unknown-provider 404 (no DB query), metadata
+ * validation failure, missing encryption key, and DELETE→GET emptiness.
+ *
+ * Spec: openspec/changes/add-integration-registry/
+ */
+
+import { describe, expect, it, beforeEach, afterAll, mock } from "bun:test";
+import type { Db } from "@nexus/db";
+import * as coreNode from "@nexus/core/node";
+
+// ─── Mocks (must be installed BEFORE importing the SUT) ───────────────────
+// mock.module is PROCESS-GLOBAL; spread the real barrel so sibling suites keep
+// every other @nexus/core/node export.
+
+mock.module("@nexus/core/node", () => ({
+  ...coreNode,
+  logger: {
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+    debug: mock(() => {}),
+  },
+  createLogger: () => ({
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+    debug: mock(() => {}),
+  }),
+  getAgentId: mock(() => "test-agent"),
+}));
+
+// ─── SUT imports (after mocks) ────────────────────────────────────────────
+
+import {
+  handleGetCredentials,
+  handlePatchCredentials,
+  handleDeleteCredentials,
+  handleTestConnection,
+} from "./integration-credentials";
+import { decrypt } from "../credentials/encryption";
+
+// The SUT reads the key fresh from NEXUS_ENCRYPTION_KEY via
+// `tryLoadEncryptionKey()`. STUB_KEY is a 32-byte buffer; its hex form is the
+// 64-char string loadEncryptionKey accepts, decoding back to the same bytes.
+const STUB_KEY = Buffer.alloc(32, 7);
+const savedEnvKey = process.env.NEXUS_ENCRYPTION_KEY;
+
+function setKey(key: Buffer | undefined): void {
+  if (key) process.env.NEXUS_ENCRYPTION_KEY = key.toString("hex");
+  else delete process.env.NEXUS_ENCRYPTION_KEY;
+}
+
+afterAll(() => {
+  if (savedEnvKey === undefined) delete process.env.NEXUS_ENCRYPTION_KEY;
+  else process.env.NEXUS_ENCRYPTION_KEY = savedEnvKey;
+});
+
+// ─── Fake DB ──────────────────────────────────────────────────────────────
+
+interface FakeRow {
+  id: string;
+  provider: string;
+  agentId: string;
+  valueEncrypted: string | null;
+  encryptionKeyId: string | null;
+  metadata: Record<string, unknown>;
+  lastTestOkAt: Date | null;
+  lastTestStatusCode: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function makeFakeDb(initial: FakeRow[] = []): {
+  db: Db;
+  rows: FakeRow[];
+  findFirst: ReturnType<typeof mock>;
+} {
+  const rows: FakeRow[] = [...initial];
+  const findFirst = mock(async () => rows[0] ?? undefined);
+
+  const db = {
+    query: {
+      integrationCredentials: { findFirst },
+    },
+    insert: mock(() => ({
+      values: mock(async (row: Partial<FakeRow>) => {
+        rows.push({
+          id: row.id ?? "row-1",
+          provider: row.provider ?? "telegram",
+          agentId: row.agentId ?? "test-agent",
+          valueEncrypted: row.valueEncrypted ?? null,
+          encryptionKeyId: row.encryptionKeyId ?? "v1",
+          metadata: row.metadata ?? {},
+          lastTestOkAt: row.lastTestOkAt ?? null,
+          lastTestStatusCode: row.lastTestStatusCode ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }),
+    })),
+    update: mock(() => ({
+      set: mock((patch: Partial<FakeRow>) => ({
+        where: mock(async () => {
+          if (rows[0]) Object.assign(rows[0], patch);
+        }),
+      })),
+    })),
+    delete: mock(() => ({
+      where: mock(async () => {
+        rows.length = 0;
+      }),
+    })),
+  } as unknown as Db;
+
+  return { db, rows, findFirst };
+}
+
+function makeRequest(
+  url: string,
+  init: { method: string; body?: unknown },
+): Request {
+  return new Request(url, {
+    method: init.method,
+    headers: { "Content-Type": "application/json" },
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+  });
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+describe("integration-credentials — encrypted round trip + mask", () => {
+  beforeEach(() => setKey(STUB_KEY));
+
+  it("PATCH persists decryptable ciphertext; GET exposes hasSecret without leaking the secret", async () => {
+    const secret = "telegram-bot-token-AAA";
+    const { db, rows } = makeFakeDb([]);
+
+    const patchRes = await handlePatchCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "PATCH",
+        body: { secret, metadata: { chatId: "111" } },
+      }),
+      "telegram",
+    );
+    expect(patchRes.status).toBe(200);
+
+    // Ciphertext persisted and decryptable back to the input secret.
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.valueEncrypted).toBeTruthy();
+    expect(rows[0]!.valueEncrypted).not.toBe(secret);
+    expect(decrypt(rows[0]!.valueEncrypted!, STUB_KEY)).toBe(secret);
+    expect(rows[0]!.metadata).toEqual({ chatId: "111" });
+
+    // GET never leaks the plaintext or the ciphertext column.
+    const getRes = await handleGetCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "GET",
+      }),
+      "telegram",
+    );
+    const text = await getRes.text();
+    expect(getRes.status).toBe(200);
+    expect(text).not.toContain(secret);
+    expect(text).not.toContain(rows[0]!.valueEncrypted);
+    expect(text).not.toContain("value_encrypted");
+    expect(text).not.toContain("valueEncrypted");
+
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(body.hasSecret).toBe(true);
+    expect(body.metadata).toEqual({ chatId: "111" });
+    expect(body.agentId).toBe("test-agent");
+  });
+});
+
+describe("integration-credentials — unknown provider is a 404 before any DB query", () => {
+  beforeEach(() => setKey(STUB_KEY));
+
+  it("GET/PATCH/DELETE/test all return 404 {error:'unknown provider'} without touching the DB", async () => {
+    const { db, findFirst } = makeFakeDb([]);
+    const url = "http://127.0.0.1/integrations/nope/credentials";
+
+    const results = await Promise.all([
+      handleGetCredentials(db, makeRequest(url, { method: "GET" }), "nope"),
+      handlePatchCredentials(
+        db,
+        makeRequest(url, { method: "PATCH", body: { secret: "x" } }),
+        "nope",
+      ),
+      handleDeleteCredentials(
+        db,
+        makeRequest(url, { method: "DELETE" }),
+        "nope",
+      ),
+      handleTestConnection(
+        db,
+        makeRequest(`${url}/test`, { method: "POST" }),
+        "nope",
+      ),
+    ]);
+
+    for (const res of results) {
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as Record<string, string>;
+      expect(body.error).toBe("unknown provider");
+    }
+    // 404 fires ahead of any relational read.
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("integration-credentials — metadata validation failure", () => {
+  beforeEach(() => setKey(STUB_KEY));
+
+  it("PATCH telegram with empty chatId returns 400 and writes no row", async () => {
+    const { db, rows } = makeFakeDb([]);
+    const res = await handlePatchCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "PATCH",
+        body: { metadata: { chatId: "" } },
+      }),
+      "telegram",
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("invalid metadata");
+    expect(rows.length).toBe(0);
+  });
+});
+
+describe("integration-credentials — missing encryption key", () => {
+  beforeEach(() => setKey(undefined));
+
+  it("PATCH with a secret returns 400 'encryption key not configured' and writes no row", async () => {
+    const { db, rows } = makeFakeDb([]);
+    const res = await handlePatchCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "PATCH",
+        body: { secret: "would-be-token", metadata: { chatId: "111" } },
+      }),
+      "telegram",
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("encryption key not configured");
+    expect(rows.length).toBe(0);
+  });
+});
+
+describe("integration-credentials — DELETE removes the row", () => {
+  beforeEach(() => setKey(STUB_KEY));
+
+  it("DELETE returns 204; subsequent GET reports hasSecret=false", async () => {
+    const { db, rows } = makeFakeDb([
+      {
+        id: "row-1",
+        provider: "telegram",
+        agentId: "test-agent",
+        valueEncrypted: "ciphertext",
+        encryptionKeyId: "v1",
+        metadata: { chatId: "111" },
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const delRes = await handleDeleteCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "DELETE",
+      }),
+      "telegram",
+    );
+    expect(delRes.status).toBe(204);
+    expect(rows.length).toBe(0);
+
+    const getRes = await handleGetCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials", {
+        method: "GET",
+      }),
+      "telegram",
+    );
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.hasSecret).toBe(false);
+    expect(body.metadata).toEqual({});
+  });
+});
