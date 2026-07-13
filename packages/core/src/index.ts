@@ -77,6 +77,14 @@ export type {
   IntegrationCredentialsResponse,
   IntegrationPatchInput,
 } from "./types/integrations";
+export {
+  sessionContextPatchInput,
+  sessionContextResponse,
+} from "./types/session-context";
+export type {
+  SessionContextPatchInput,
+  SessionContextResponse,
+} from "./types/session-context";
 export type {
   SpecTransitionEvent,
   SpecTransitionKind,
