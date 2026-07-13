@@ -93,6 +93,7 @@ import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
+import { tryHandleSessionContextRoute } from "./routes/session-context";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -125,6 +126,11 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/sessions/:id" },
   { method: "POST", path: "/session/start" },
   { method: "POST", path: "/sessions/probe" },
+  // Session context-window store (add-session-context-api, delegated to
+  // routes/session-context.ts). MUST dispatch before the /sessions/:id
+  // catch-all so /sessions/:id/context is not swallowed as an :id lookup.
+  { method: "GET", path: "/sessions/:id/context" },
+  { method: "PATCH", path: "/sessions/:id/context" },
   // Projects
   { method: "GET", path: "/projects" },
   { method: "PATCH", path: "/projects/:id" },
@@ -320,6 +326,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         return withCors(request, new Response("Bad Request", { status: 400 }));
       }
     }
+
+    // ── Session context-window store (in-memory; no DB) ──────────────────
+    // add-session-context-api. Delegated to routes/session-context.ts. MUST
+    // dispatch BEFORE the `if (db)` block's `/^\/sessions\/(.+)$/` catch-all,
+    // which would otherwise swallow `/sessions/:id/context` as an :id lookup.
+    const sessionContextResult = tryHandleSessionContextRoute(request, url, db);
+    if (sessionContextResult !== null) return sessionContextResult;
 
     // ── Session & project routes (require DB) ────────────────────────────
     if (db) {

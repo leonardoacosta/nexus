@@ -6,8 +6,8 @@
 ## API Batch
 
 - [x] [2.1] [P-1] Add `packages/core/src/types/session-context.ts` — shared Zod schemas for the PATCH body and GET response (see proposal.md § Requirements for exact field shapes). Export from `packages/core/src/index.ts`, mirroring `types/integrations.ts`'s conventions. [owner:types-engineer] [type:api] [beads:nx-sh5rm]
-- [ ] [2.2] [P-2] Add `apps/agent/src/routes/session-context.ts` — in-memory TTL-cached session-context store + GET/PATCH handlers + dispatcher (see design.md § Data flow and proposal.md § Requirements for the exact store shape, TTL, and route contract; mirror `elevenlabs-voices.ts`'s cache pattern and `integration-credentials.ts`'s path-parsing/dispatcher shape). [owner:api-engineer] [type:api] [beads:nx-ggsys]
-- [ ] [2.3] [P-3] Register the new routes in `apps/agent/src/server-request-handler.ts` (same delegation pattern as `tryHandleElevenlabsRoute`/`tryHandleIntegrationCredentialsRoute` — add the entry to `LEGACY_DISPATCH_ROUTES` and the dispatch-body delegation call). [owner:api-engineer] [type:api] [beads:nx-vti4u]
+- [x] [2.2] [P-2] Add `apps/agent/src/routes/session-context.ts` — in-memory TTL-cached session-context store + GET/PATCH handlers + dispatcher (see design.md § Data flow and proposal.md § Requirements for the exact store shape, TTL, and route contract; mirror `elevenlabs-voices.ts`'s cache pattern and `integration-credentials.ts`'s path-parsing/dispatcher shape). [owner:api-engineer] [type:api] [beads:nx-ggsys]
+- [x] [2.3] [P-3] Register the new routes in `apps/agent/src/server-request-handler.ts` (same delegation pattern as `tryHandleElevenlabsRoute`/`tryHandleIntegrationCredentialsRoute` — add the entry to `LEGACY_DISPATCH_ROUTES` and the dispatch-body delegation call). [owner:api-engineer] [type:api] [beads:nx-vti4u]
 
 ## UI Batch
 
