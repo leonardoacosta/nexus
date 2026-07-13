@@ -33,6 +33,7 @@ const log = createLogger("agent:services:bead-rollup");
 export interface RawBead {
   id: string;
   title?: string;
+  description?: string;
   status?: string;
   issue_type?: string;
   priority?: number;
@@ -155,13 +156,16 @@ export function deriveBlockedIds(beads: RawBead[]): Set<string> {
 // ---------------------------------------------------------------------------
 
 function toBeadRef(b: RawBead): BeadRef {
-  return {
+  const ref: BeadRef = {
     id: b.id,
     status: b.status ?? "unknown",
     type: b.issue_type ?? "unknown",
     priority: typeof b.priority === "number" ? b.priority : 0,
     title: b.title ?? "",
   };
+  // Omit the key entirely when bd has no description — never an empty string.
+  if (b.description) ref.description = b.description;
+  return ref;
 }
 
 /** A zeroed rollup — used for empty-marker proposals and null coercion. */
@@ -229,13 +233,16 @@ export function filterUnlinked(
   const out: UnlinkedBead[] = [];
   for (const b of open) {
     if (linked.has(b.id)) continue;
-    out.push({
+    const ub: UnlinkedBead = {
       id: b.id,
       title: b.title ?? "",
       status: b.status ?? "unknown",
       priority: typeof b.priority === "number" ? b.priority : 0,
       type: b.issue_type ?? "unknown",
-    });
+    };
+    // Omit the key entirely when bd has no description — never an empty string.
+    if (b.description) ub.description = b.description;
+    out.push(ub);
   }
   return out;
 }
