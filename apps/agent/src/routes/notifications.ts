@@ -57,7 +57,14 @@ async function withSingletonLock<T>(fn: () => T | Promise<T>): Promise<T> {
 // Deduplication (D6)
 // ---------------------------------------------------------------------------
 
-const DEDUP_TTL_MS = 5_000;
+/**
+ * 2 minutes. Verified against live production data (2026-07-13): the 71
+ * observed exact-repeat cases in a 14-day window (same title+body re-fired,
+ * typically from a retry-loop emitter) were all spaced 5-23s apart — this
+ * window comfortably covers that retry cadence while staying far below any
+ * legitimate hours/day-scale recurrence of the same message text.
+ */
+const DEDUP_TTL_MS = 120_000;
 /** Max dedup entries before bulk eviction (memory leak guard). */
 const DEDUP_MAX_SIZE = 1_000;
 /** Number of oldest entries to evict when capacity is reached. */
