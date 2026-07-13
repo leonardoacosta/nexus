@@ -802,6 +802,21 @@ const RETENTION_DDL = `
     "beads_blocked_unlinked" integer NOT NULL,
     "created_at" timestamp with time zone NOT NULL DEFAULT now()
   );
+
+  -- Added for add-git-status-orbit (task 4.2): runRetentionCleanup
+  -- (../db/retention.ts) also prunes git_events at 90 days
+  -- (GIT_EVENTS_RETENTION_DAYS). Omitting it would fail the retention-cleanup
+  -- call with "relation git_events does not exist" — same drift class as the
+  -- spec_snapshots / project_status_snapshots omission above.
+  CREATE TABLE "git_events" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "project" text NOT NULL,
+    "event_type" text NOT NULL,
+    "from_ref" text,
+    "to_ref" text,
+    "sha" text,
+    "created_at" timestamp with time zone NOT NULL DEFAULT now()
+  );
 `;
 
 describe.skipIf(!hasPg)("retention cleanup (requires live PG)", () => {
@@ -923,6 +938,29 @@ describe.skipIf(!hasPg)("retention cleanup (requires live PG)", () => {
     const proposals = projRows.map((r) => Number(r.proposals_unarchived));
     expect(proposals).toContain(2); // fresh row survives
     expect(proposals).not.toContain(1); // aged row purged
+  });
+
+  it("deletes aged git_events rows and keeps in-window", async () => {
+    // add-git-status-orbit task 4.2: git_events is pruned at 90 days
+    // (GIT_EVENTS_RETENTION_DAYS), matching the cron_runs / project_status_
+    // snapshots trend-window tables.
+    const old = new Date(Date.now() - 120 * 86_400_000).toISOString();
+    const fresh = new Date().toISOString();
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".git_events
+         ("project", "event_type", "sha", "created_at")
+       VALUES ('nx', 'new_commit', 'aged-sha', '${old}'),
+              ('nx', 'new_commit', 'fresh-sha', '${fresh}')`,
+    );
+
+    await runRetentionCleanup(db);
+
+    const rows = (await adminSql.unsafe(
+      `SELECT sha FROM "${RETENTION_SCHEMA}".git_events`,
+    )) as Array<Record<string, unknown>>;
+    const shas = rows.map((r) => r.sha);
+    expect(shas).toContain("fresh-sha"); // in-window survives
+    expect(shas).not.toContain("aged-sha"); // 120-day-old purged
   });
 
   it("handles cleanup on empty tables without error", async () => {

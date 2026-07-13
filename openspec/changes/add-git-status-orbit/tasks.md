@@ -17,4 +17,4 @@
 ## E2E Batch
 
 - [ ] [4.1] Unit tests for git-observer: baseline-then-transition detection for branch_switch/new_commit/detached_head against a temp-repo fixture, first observation emits no events, non-repo/missing location fail-open with others unaffected, per-project timeout abandonment, staggered batch bounds. [owner:tdd-integration] [type:testing] [beads:nx-p3uqv]
-- [ ] [4.2] Unit + PG-gated tests for serving and retention: status payload includes `git` object when observed and omits it when not, git-events history days window + oldest-first ordering + 404 unknown project, retention prune deletes aged git_events rows. [owner:tdd-integration] [type:testing] [beads:nx-v4axa]
+- [x] [4.2] Unit + PG-gated tests for serving and retention: status payload includes `git` object when observed and omits it when not, git-events history days window + oldest-first ordering + 404 unknown project, retention prune deletes aged git_events rows. [owner:tdd-integration] [type:testing] [beads:nx-v4axa]
