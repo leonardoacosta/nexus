@@ -1,5 +1,14 @@
 import { describe, test, expect } from "bun:test";
-import { execJson, execText, ExecError, ExecTimeoutError } from "./exec";
+import {
+  execJson,
+  execText,
+  ExecError,
+  ExecTimeoutError,
+  isGatedCommand,
+  GATED_COMMANDS,
+  BD_DOLT_MAX_CONCURRENT,
+  __getBdDoltInFlightForTest,
+} from "./exec";
 
 // NOTE: These tests use `sh` as the subprocess binary because `exec.ts`
 // now routes through `safeSpawn`, which enforces an allowlist. `echo` /
@@ -87,5 +96,71 @@ describe("execJson", () => {
   test("parses array JSON", async () => {
     const result = await execJson<number[]>("sh", ["-c", "echo [1,2,3]"]);
     expect(result).toEqual([1, 2, 3]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bd/dolt concurrency gate (nx-b6trw)
+//
+// `bd`/`dolt` aren't installed in the test sandbox, so these tests
+// temporarily register `sh` in GATED_COMMANDS as a stand-in — `sh -c
+// "sleep ..."` gives controllable, measurable subprocess duration. The gate
+// itself only ever fires on the literal strings "bd"/"dolt" in production;
+// mutating the exported GATED_COMMANDS set is a narrow, test-only seam.
+// ---------------------------------------------------------------------------
+
+describe("isGatedCommand", () => {
+  test("matches bd and dolt only", () => {
+    expect(isGatedCommand("bd")).toBe(true);
+    expect(isGatedCommand("dolt")).toBe(true);
+    expect(isGatedCommand("git")).toBe(false);
+    expect(isGatedCommand("sh")).toBe(false);
+    expect(isGatedCommand("tmux")).toBe(false);
+  });
+});
+
+describe("bd/dolt concurrency gate", () => {
+  test("bounds concurrency at the ceiling, drains the queue without starvation, and leaves non-gated commands unthrottled", async () => {
+    GATED_COMMANDS.add("sh");
+    try {
+      const numCalls = BD_DOLT_MAX_CONCURRENT * 2;
+      const sleepSeconds = 0.15;
+
+      let inFlightMax = 0;
+      const poll = setInterval(() => {
+        inFlightMax = Math.max(inFlightMax, __getBdDoltInFlightForTest());
+      }, 5);
+
+      const gatedStart = Date.now();
+      const gatedCalls = Array.from({ length: numCalls }, () =>
+        execText("sh", ["-c", `sleep ${sleepSeconds}`]),
+      );
+
+      // Fire a non-gated call while the gated batch is queued/running. It
+      // must complete quickly regardless of gated queue depth.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const nonGatedStart = Date.now();
+      await execText("which", ["sh"]);
+      const nonGatedDuration = Date.now() - nonGatedStart;
+
+      // (2) Queued calls still eventually complete — no deadlock/starvation.
+      await Promise.all(gatedCalls);
+      const gatedDuration = Date.now() - gatedStart;
+
+      clearInterval(poll);
+
+      // (1) Concurrency never exceeds the configured ceiling, and the
+      // batch was large enough (2x ceiling) that it actually saturated it.
+      expect(inFlightMax).toBeLessThanOrEqual(BD_DOLT_MAX_CONCURRENT);
+      expect(inFlightMax).toBe(BD_DOLT_MAX_CONCURRENT);
+
+      // (3) The non-gated call was not queued behind gated traffic.
+      expect(nonGatedDuration).toBeLessThan(sleepSeconds * 1000);
+
+      // Two queued rounds of sleeps at the ceiling take at least 2x one round.
+      expect(gatedDuration).toBeGreaterThanOrEqual(sleepSeconds * 1000 * 2 - 50);
+    } finally {
+      GATED_COMMANDS.delete("sh");
+    }
   });
 });

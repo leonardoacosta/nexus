@@ -62,6 +62,74 @@ export class ExecTimeoutError extends Error {
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
+// bd/dolt concurrency gate (nx-b6trw)
+//
+// `bd` (and the `dolt` it shells out to internally) is a Go binary that
+// crashes with `pthread_create failed` under host-wide thread/memory
+// pressure. Bounding how many `bd`/`dolt` subprocesses nexus-agent spawns
+// concurrently keeps our own fan-out from compounding that pressure.
+// ---------------------------------------------------------------------------
+
+export const BD_DOLT_MAX_CONCURRENT = Number(process.env.BD_DOLT_MAX_CONCURRENT ?? 4);
+
+/**
+ * Commands gated by {@link bdDoltSemaphore}. Exported (not a private
+ * constant) so tests can temporarily register a stand-in command name —
+ * `bd`/`dolt` aren't installed in the test sandbox, so concurrency tests
+ * exercise the gate via a substitute like `sh`.
+ */
+export const GATED_COMMANDS = new Set(["bd", "dolt"]);
+
+export function isGatedCommand(cmd: string): boolean {
+  return GATED_COMMANDS.has(cmd);
+}
+
+/** Minimal FIFO async semaphore: a counter plus a queue of resolvers. */
+class Semaphore {
+  private available: number;
+  private readonly queue: Array<() => void> = [];
+  private readonly concurrency: number;
+
+  constructor(concurrency: number) {
+    this.concurrency = concurrency;
+    this.available = concurrency;
+  }
+
+  /** Resolves once a slot is free. Unbounded wait — that's the intended backpressure. */
+  acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available--;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+    });
+  }
+
+  /** Hand the freed slot to the next waiter (if any), else return it to the pool. */
+  release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+    } else {
+      this.available++;
+    }
+  }
+
+  /** Number of slots currently held (i.e. calls past the gate, mid-spawn). */
+  get inFlight(): number {
+    return this.concurrency - this.available;
+  }
+}
+
+const bdDoltSemaphore = new Semaphore(BD_DOLT_MAX_CONCURRENT);
+
+/** Test-only diagnostic — current count of in-flight gated subprocess calls. */
+export function __getBdDoltInFlightForTest(): number {
+  return bdDoltSemaphore.inFlight;
+}
+
+// ---------------------------------------------------------------------------
 // Internal helper: read a SafeSpawnHandle to completion
 // ---------------------------------------------------------------------------
 
@@ -108,29 +176,43 @@ export async function execText(
   opts?: ExecOptions,
 ): Promise<string> {
   const timeoutMs = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
+  const gated = isGatedCommand(cmd);
 
-  const handle = safeSpawn(cmd, args, {
-    cwd: opts?.cwd,
-    env: opts?.env,
-    trustArgs: opts?.trustArgs,
-  });
-
-  const timeoutPromise = new Promise<"timeout">((resolve) => {
-    setTimeout(() => resolve("timeout"), timeoutMs);
-  });
-
-  const result = await Promise.race([awaitOutput(handle), timeoutPromise]);
-
-  if (result === "timeout") {
-    await handle.abort();
-    throw new ExecTimeoutError(cmd, args, timeoutMs);
+  if (gated) {
+    // Unbounded wait for a slot — the queue itself is the backpressure.
+    // The per-call timeout below starts AFTER the slot is acquired, so
+    // queued callers never time out merely for having waited.
+    await bdDoltSemaphore.acquire();
   }
 
-  if (result.exitCode !== 0) {
-    throw new ExecError(cmd, args, result.exitCode, result.stderr);
-  }
+  try {
+    const handle = safeSpawn(cmd, args, {
+      cwd: opts?.cwd,
+      env: opts?.env,
+      trustArgs: opts?.trustArgs,
+    });
 
-  return result.stdout;
+    const timeoutPromise = new Promise<"timeout">((resolve) => {
+      setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+
+    const result = await Promise.race([awaitOutput(handle), timeoutPromise]);
+
+    if (result === "timeout") {
+      await handle.abort();
+      throw new ExecTimeoutError(cmd, args, timeoutMs);
+    }
+
+    if (result.exitCode !== 0) {
+      throw new ExecError(cmd, args, result.exitCode, result.stderr);
+    }
+
+    return result.stdout;
+  } finally {
+    if (gated) {
+      bdDoltSemaphore.release();
+    }
+  }
 }
 
 /**
