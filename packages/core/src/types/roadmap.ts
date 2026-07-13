@@ -30,6 +30,12 @@ export interface RoadmapProposal {
 export interface RoadmapCapability {
   /** Capability name, i.e. the epic title minus the `[CAPABILITY] ` prefix. */
   name: string;
+  /**
+   * Project code this capability belongs to (e.g. `nx`, `oo`). Populated only
+   * in the future `project=all` aggregation mode; omitted in single-project
+   * responses. Additive — existing decoders ignore it.
+   */
+  project?: string;
   epicId: string;
   epicStatus: string;
   proposals: RoadmapProposal[];
