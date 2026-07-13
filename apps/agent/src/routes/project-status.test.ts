@@ -326,7 +326,7 @@ describe.skipIf(!hasPg)(
         branch: "feat",
         headSha: "abc1234def",
         detached: false,
-        dirty: { modified: 2, untracked: 1 },
+        dirty: { modified: 2, untracked: 1, deleted: 0, renamed: 0 },
         ahead: 3,
         behind: 1,
         observedAt: new Date().toISOString(),

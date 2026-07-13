@@ -19,12 +19,15 @@ import { z } from "zod";
 
 /**
  * Dirty working-tree counts from `git status --porcelain`: tracked
- * modifications and untracked files, kept separate so a client can render "N
- * changed, M new" without re-shelling out. Non-negative integers.
+ * modifications, untracked files, deletions, and renames/copies, kept
+ * separate so a client can render "N changed, M new" (or finer-grained
+ * "D deleted, R renamed") without re-shelling out. Non-negative integers.
  */
 export const gitDirtyCounts = z.object({
   modified: z.number().int().nonnegative(),
   untracked: z.number().int().nonnegative(),
+  deleted: z.number().int().nonnegative(),
+  renamed: z.number().int().nonnegative(),
 });
 export type GitDirtyCounts = z.infer<typeof gitDirtyCounts>;
 

@@ -80,7 +80,9 @@ export type GitObservation = Omit<GitStatusObject, "observedAt">;
  *
  * Pulls `# branch.oid` (HEAD sha), `# branch.head` (`(detached)` => detached),
  * `# branch.ab +X -Y` (ahead/behind vs upstream), and counts entry lines:
- * `1 `/`2 `/`u ` are tracked modifications, `? ` are untracked. `ahead`/`behind`
+ * `1 `/`2 `/`u ` are tracked modifications, `? ` are untracked. Within those,
+ * `deleted` additionally increments when either XY status char is `D`, and
+ * `renamed` increments for every `2 ` (rename/copy) line. `ahead`/`behind`
  * default to `0` when the `# branch.ab` line is absent (no upstream configured).
  * Returns `null` when the output is missing the branch header (not a v2 status
  * block).
@@ -93,7 +95,12 @@ export function parseGitStatusV2(raw: string): GitObservation | null {
   let sawHead = false;
   let ahead = 0;
   let behind = 0;
-  const dirty: GitDirtyCounts = { modified: 0, untracked: 0 };
+  const dirty: GitDirtyCounts = {
+    modified: 0,
+    untracked: 0,
+    deleted: 0,
+    renamed: 0,
+  };
 
   for (const line of raw.split(/\r?\n/)) {
     if (line.startsWith("# branch.oid ")) {
@@ -128,6 +135,13 @@ export function parseGitStatusV2(raw: string): GitObservation | null {
       line.startsWith("u ")
     ) {
       dirty.modified++;
+      if (line.startsWith("1 ") || line.startsWith("2 ")) {
+        const xy = line.slice(2, 4);
+        if (xy.includes("D")) dirty.deleted++;
+      }
+      if (line.startsWith("2 ")) {
+        dirty.renamed++;
+      }
     } else if (line.startsWith("? ")) {
       dirty.untracked++;
     }

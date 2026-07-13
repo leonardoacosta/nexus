@@ -1448,7 +1448,7 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
     // Exercises the real defaultPushContext: fetch is stubbed to hang, proving
     // the PATCH is not awaited in resolveContext's return path.
     const spy = spyOn(globalThis, "fetch").mockImplementation(
-      () => new Promise<Response>(() => {}), // never resolves
+      (() => new Promise<Response>(() => {})) as unknown as typeof fetch, // never resolves
     );
     try {
       const res = resolveContext(

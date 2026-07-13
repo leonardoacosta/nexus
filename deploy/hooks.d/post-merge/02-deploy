@@ -32,7 +32,12 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 DEPLOY_DIR="$REPO_DIR/deploy"
 
 # Parse agents.toml for remote deploy targets.
-# Returns lines of "user@host" for agents that are NOT self_name or localhost.
+# Returns tab-delimited lines "user@host<TAB>repo_dir" for agents that are NOT
+# self_name or localhost. repo_dir is the per-remote checkout path to deploy
+# from; when a block omits the optional `repo_dir` key it defaults to ~/dev/nx
+# for backward compat (existing installs like the Mac need zero config change).
+# A single hardcoded path can't be correct for every remote — the homelab's
+# real checkout moved to ~/dev/personal/nexus during a repo reorg (nx-ybcs3).
 get_remote_agents() {
     local config="$HOME/.config/nexus/agents.toml"
     [[ ! -f "$config" ]] && return
@@ -40,22 +45,20 @@ get_remote_agents() {
     local self_name
     self_name=$(grep '^self_name' "$config" | sed 's/.*= *"//;s/".*//')
 
-    # Parse [[agents]] blocks — extract name, host, user
+    # Parse [[agents]] blocks — extract name, host, user, repo_dir
     awk -v self="$self_name" '
-        /^\[\[agents\]\]/ { name=""; host=""; user="" }
-        /^name/ { gsub(/.*= *"|"/, "", $0); name=$0 }
-        /^host/ { gsub(/.*= *"|"/, "", $0); host=$0 }
-        /^user/ { gsub(/.*= *"|"/, "", $0); user=$0 }
-        /^$/ || /^\[/ {
+        function emit() {
             if (name != "" && name != self && host != "localhost" && host != "127.0.0.1") {
-                print user "@" host
+                print user "@" host "\t" (repo_dir != "" ? repo_dir : "~/dev/nx")
             }
         }
-        END {
-            if (name != "" && name != self && host != "localhost" && host != "127.0.0.1") {
-                print user "@" host
-            }
-        }
+        /^\[\[agents\]\]/ { name=""; host=""; user=""; repo_dir="" }
+        /^name/     { gsub(/.*= *"|"/, "", $0); name=$0 }
+        /^host/     { gsub(/.*= *"|"/, "", $0); host=$0 }
+        /^user/     { gsub(/.*= *"|"/, "", $0); user=$0 }
+        /^repo_dir/ { gsub(/.*= *"|"/, "", $0); repo_dir=$0 }
+        /^$/ || /^\[/ { emit() }
+        END { emit() }
     ' "$config"
 }
 
@@ -153,13 +156,13 @@ fi
 REMOTES=$(get_remote_agents)
 if [[ -n "$REMOTES" ]]; then
     info "deploying to remote agents..."
-    while IFS= read -r target; do
+    while IFS=$'\t' read -r target repo_dir; do
         [[ -z "$target" ]] && continue
-        info "  → $target (backgrounded)"
+        info "  → $target ($repo_dir, backgrounded)"
         (
             sleep 2
             if ssh -o ConnectTimeout=5 -o BatchMode=yes "$target" \
-                "cd ~/dev/nx && git pull --ff-only && deploy/hooks.d/post-merge/02-deploy --force" \
+                "cd $repo_dir && git pull --ff-only && deploy/hooks.d/post-merge/02-deploy --force" \
                 2>&1; then
                 echo "{\"event\":\"notification\",\"message\":\"Deploy succeeded on $target\"}" \
                     | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true

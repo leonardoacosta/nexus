@@ -177,6 +177,61 @@ describe("parseGitStatusV2 ahead/behind", () => {
   });
 });
 
+// ─── 0b. parseGitStatusV2 deleted/renamed counting (nx-c62s2) ─────────────────
+
+describe("parseGitStatusV2 deleted/renamed counts", () => {
+  const HEAD =
+    "# branch.oid abc123def456abc123def456abc123def456abc1\n# branch.head main\n";
+
+  test("counts a deleted file (`1 .D ...`) into both modified and deleted", () => {
+    const line =
+      "1 .D N... 100644 100644 000000 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 file.txt";
+    const obs = parseGitStatusV2(`${HEAD}${line}\n`);
+    expect(obs).not.toBeNull();
+    expect(obs!.dirty.modified).toBe(1);
+    expect(obs!.dirty.deleted).toBe(1);
+    expect(obs!.dirty.renamed).toBe(0);
+  });
+
+  test("counts a staged deletion (`1 D. ...`) into deleted as well", () => {
+    const line =
+      "1 D. N... 100644 000000 000000 1111111111111111111111111111111111111111 0000000000000000000000000000000000000000 file.txt";
+    const obs = parseGitStatusV2(`${HEAD}${line}\n`);
+    expect(obs).not.toBeNull();
+    expect(obs!.dirty.deleted).toBe(1);
+  });
+
+  test("counts a renamed/copied entry (`2 ...`) into both modified and renamed", () => {
+    const line =
+      "2 R. N... 100644 100644 100644 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 R100 new.txt\told.txt";
+    const obs = parseGitStatusV2(`${HEAD}${line}\n`);
+    expect(obs).not.toBeNull();
+    expect(obs!.dirty.modified).toBe(1);
+    expect(obs!.dirty.renamed).toBe(1);
+    expect(obs!.dirty.deleted).toBe(0);
+  });
+
+  test("mixed status line set: modified/untracked semantics unchanged, deleted/renamed additive", () => {
+    const lines = [
+      // plain modification, no delete
+      "1 M. N... 100644 100644 100644 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 changed.txt",
+      // deletion
+      "1 .D N... 100644 100644 000000 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 gone.txt",
+      // rename
+      "2 R. N... 100644 100644 100644 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 R100 renamed-new.txt\trenamed-old.txt",
+      // untracked
+      "? new-file.txt",
+    ].join("\n");
+    const obs = parseGitStatusV2(`${HEAD}${lines}\n`);
+    expect(obs).not.toBeNull();
+    // modified counts every `1 `/`2 ` line, same as before this change (3 here).
+    expect(obs!.dirty.modified).toBe(3);
+    expect(obs!.dirty.untracked).toBe(1);
+    expect(obs!.dirty.deleted).toBe(1);
+    expect(obs!.dirty.renamed).toBe(1);
+  });
+});
+
 // ─── 1. Baseline → transition (new_commit / branch_switch / detached_head) ────
 
 describe("git-observer baseline-then-transition", () => {

@@ -41,6 +41,7 @@ e2e tests do not need to set `NEXUS_ATTACH_SECRET` in their environment.
 | File | Tasks | What it proves |
 |------|-------|----------------|
 | `attach-websocket.test.ts` | [5.3] nx-cjz0 | Attach path `/sessions/:id/stream` still delivers PTY output via WebSocket when the agent is up. Regression guard: the dual-path collapse must not have broken the live attach boundary. |
+| `credential-watcher.test.ts` | [4.1] nx-urgv | File watcher's LIVE `fs.watch` loop (not just the boot-time initial scan) detects a new `acct-*.json` dropped into the credential directory post-start and inserts a real row via `pool.add()` against real Postgres. |
 
 ## Playwright suite (`playwright/`)
 
