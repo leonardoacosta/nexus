@@ -1,7 +1,7 @@
 /**
  * active-credential-watcher unit tests.
  *
- * Spec: bd:nx-44mby
+ * Spec: bd:nx-44mby. Rotation-in-place behavior: nx-lp8v/nx-m5q6.
  *
  * The watcher's job is to track `~/.claude/.credentials.json` — the live
  * credential Claude Code maintains and refreshes continuously. Claude Code
@@ -22,16 +22,26 @@
  * `fingerprint = SHA256(refreshToken)`, an ACCESS-token-only refresh (which
  * Claude Code performs far more often than a full refresh-token rotation)
  * leaves the fingerprint unchanged — so a credential's stale access token
- * was written once on import and never updated again. The fix below calls
- * `pool.add()` unconditionally on every observation; it is idempotent
- * (update-in-place on a fingerprint+name match), so this keeps the pool's
- * access token current with whatever Claude Code has live, whether or not
- * the refresh token itself rotated.
+ * was written once on import and never updated again. The fix called
+ * `pool.add()` unconditionally on every observation, relying on it being
+ * idempotent (update-in-place on a fingerprint+name match).
  *
- * Tests below validate both the import-on-rotation contract and the
- * always-mirror contract by injecting a fake pool and overriding the
- * credentials file path via the test seam
- * `__testing.runRefresh(pool, credentialPath)`.
+ * A THIRD bug (nx-lp8v/nx-m5q6: `credentials` table growing to thousands of
+ * rows with only one ever `isActive`): unconditional `pool.add()` on a
+ * REAL rotation (fingerprint actually changes) computes a fingerprint-derived
+ * name (`acct-<fp8>`), which never matches the old row's name either — so
+ * `add()` fell into its insert branch and minted a brand-new `isPrimary=true`
+ * row every single rotation, permanently orphaning the previous one. The fix
+ * below detects a rotation (new fingerprint != previously observed
+ * fingerprint) and, when the old fingerprint still has a pool row, calls
+ * `pool.updateSecret()` to update that row's token material in place instead
+ * of inserting a new one. `pool.add()` remains the fallback for cold starts
+ * and for a rotation whose previous row can no longer be found.
+ *
+ * Tests below validate the import-on-rotation contract, the rotate-in-place
+ * contract, and the always-mirror-on-unchanged-fingerprint contract by
+ * injecting a fake pool and overriding the credentials file path via the
+ * test seam `__testing.runRefresh(pool, credentialPath)`.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -45,12 +55,17 @@ import {
 import { computeCredentialFingerprint } from "./credentials.helpers";
 
 interface FakePoolCall {
-  method: "add" | "list";
+  method: "add" | "list" | "updateSecret";
   arg?: {
     id: string;
     name: string;
     type: string;
     value_plaintext: string;
+  };
+  updateSecretArg?: {
+    id: string;
+    newPlaintextBlob: object;
+    newExpiresAt: Date;
   };
 }
 
@@ -62,6 +77,11 @@ interface FakePool {
     value_plaintext: string;
   }): Promise<"inserted" | "updated">;
   list(): Promise<Array<{ id: string; fingerprint: string | null }>>;
+  updateSecret(
+    id: string,
+    newPlaintextBlob: object,
+    newExpiresAt: Date,
+  ): Promise<void>;
   calls: FakePoolCall[];
   /** Rows the fake pool returns from list(). Tests mutate this between calls. */
   rows: Array<{ id: string; fingerprint: string | null }>;
@@ -92,6 +112,18 @@ function createFakePool(initialRows: FakePool["rows"] = []): FakePool {
     async list() {
       pool.calls.push({ method: "list" });
       return pool.rows.map((r) => ({ ...r }));
+    },
+    async updateSecret(id, newPlaintextBlob, newExpiresAt) {
+      pool.calls.push({
+        method: "updateSecret",
+        updateSecretArg: { id, newPlaintextBlob, newExpiresAt },
+      });
+      // Mirror the production updateSecret(): the row's fingerprint changes
+      // in place, same id, no new row.
+      const plaintext = JSON.stringify(newPlaintextBlob);
+      const fp = computeCredentialFingerprint(plaintext);
+      const row = pool.rows.find((r) => r.id === id);
+      if (row) row.fingerprint = fp;
     },
   };
   return pool;
@@ -154,14 +186,18 @@ describe("active-credential-watcher import-on-rotation (nx-44mby)", () => {
     expect(activeTesting.getSnapshot().fingerprint).toBe(fp);
   });
 
-  test("rotation: fingerprint missing from pool -> pool.add() called with live plaintext", async () => {
+  test("rotation with no prior observation this process (cold pool lookup): fingerprint missing from pool -> pool.add() called with live plaintext", async () => {
     const oldPlaintext = validCred("OLD");
     const oldFp = computeCredentialFingerprint(oldPlaintext);
     const newPlaintext = validCred("NEW");
     const newFp = computeCredentialFingerprint(newPlaintext);
     expect(oldFp).not.toBe(newFp); // sanity: different content -> different fp
 
-    // Pool only has the OLD row; live file has the NEW (rotated) credential.
+    // Pool has the OLD row, but the watcher has NEVER observed it in this
+    // process (snapshot.fingerprint starts null via resetSnapshot() in
+    // beforeEach) — so there is no "previous fingerprint" to diff against,
+    // and this looks identical to a cold start from the watcher's point of
+    // view. add() is the correct fallback here.
     await writeFile(credPath, newPlaintext);
     const pool = createFakePool([{ id: "row-old", fingerprint: oldFp }]);
 
@@ -171,12 +207,71 @@ describe("active-credential-watcher import-on-rotation (nx-44mby)", () => {
     expect(addCalls).toHaveLength(1);
     expect(addCalls[0]!.arg!.value_plaintext).toBe(newPlaintext);
     expect(addCalls[0]!.arg!.type).toBe("oauth");
-    // The synthetic name should be derived from the new fingerprint so
-    // the row is recognisable in /credentials listings.
     expect(addCalls[0]!.arg!.name).toMatch(/^acct-[0-9a-f]{8}$/);
+    expect(pool.calls.filter((c) => c.method === "updateSecret")).toHaveLength(0);
 
-    // After import the snapshot should reflect the NEW fingerprint (now
-    // a match in the post-add pool state).
+    expect(activeTesting.getSnapshot().fingerprint).toBe(newFp);
+  });
+
+  test("rotation: previously observed fingerprint has a pool row -> updateSecret() updates it in place (nx-lp8v/nx-m5q6, no new row)", async () => {
+    const oldPlaintext = validCred("ROT-OLD");
+    const oldFp = computeCredentialFingerprint(oldPlaintext);
+    const newPlaintext = validCred("ROT-NEW");
+    const newFp = computeCredentialFingerprint(newPlaintext);
+    expect(oldFp).not.toBe(newFp);
+
+    // First observation: pool already has the row (as if a prior tick
+    // imported it), and the live file matches it.
+    await writeFile(credPath, oldPlaintext);
+    const pool = createFakePool([{ id: "row-live", fingerprint: oldFp }]);
+    await activeTesting.runRefresh(pool, credPath);
+    expect(activeTesting.getSnapshot().fingerprint).toBe(oldFp);
+    pool.calls.length = 0; // reset call log before the rotation
+
+    // Rotation: Claude Code rewrites the live file with a new refresh token.
+    await writeFile(credPath, newPlaintext);
+    await activeTesting.runRefresh(pool, credPath);
+
+    // No new row minted — the fix's entire point.
+    expect(pool.calls.filter((c) => c.method === "add")).toHaveLength(0);
+    const updateCalls = pool.calls.filter((c) => c.method === "updateSecret");
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]!.updateSecretArg!.id).toBe("row-live");
+    expect(
+      computeCredentialFingerprint(
+        JSON.stringify(updateCalls[0]!.updateSecretArg!.newPlaintextBlob),
+      ),
+    ).toBe(newFp);
+
+    // Still exactly one row in the pool, now carrying the new fingerprint.
+    expect(pool.rows).toHaveLength(1);
+    expect(pool.rows[0]!.fingerprint).toBe(newFp);
+    expect(activeTesting.getSnapshot().fingerprint).toBe(newFp);
+  });
+
+  test("rotation: previous fingerprint's row was deleted out from under the watcher -> falls back to pool.add()", async () => {
+    const oldPlaintext = validCred("GONE-OLD");
+    const oldFp = computeCredentialFingerprint(oldPlaintext);
+    const newPlaintext = validCred("GONE-NEW");
+    const newFp = computeCredentialFingerprint(newPlaintext);
+    expect(oldFp).not.toBe(newFp);
+
+    await writeFile(credPath, oldPlaintext);
+    const pool = createFakePool([{ id: "row-live", fingerprint: oldFp }]);
+    await activeTesting.runRefresh(pool, credPath);
+    expect(activeTesting.getSnapshot().fingerprint).toBe(oldFp);
+
+    // Row deleted externally (e.g. DELETE /credentials/:id) between polls.
+    pool.rows.length = 0;
+    pool.calls.length = 0;
+
+    await writeFile(credPath, newPlaintext);
+    await activeTesting.runRefresh(pool, credPath);
+
+    expect(pool.calls.filter((c) => c.method === "updateSecret")).toHaveLength(0);
+    const addCalls = pool.calls.filter((c) => c.method === "add");
+    expect(addCalls).toHaveLength(1);
+    expect(addCalls[0]!.arg!.value_plaintext).toBe(newPlaintext);
     expect(activeTesting.getSnapshot().fingerprint).toBe(newFp);
   });
 
@@ -302,11 +397,25 @@ describe("active-credential-watcher directory-watch survives atomic replace (nx-
       }
 
       expect(activeTesting.getSnapshot().fingerprint).toBe(newFp);
+      // The account switch is a rotation of a row already tracked by this
+      // watcher (inserted by the initial cold-start add() above), so it goes
+      // through updateSecret() in place (nx-lp8v/nx-m5q6) rather than
+      // minting a second row via add().
+      expect(
+        pool.calls.filter(
+          (c) =>
+            c.method === "updateSecret" &&
+            computeCredentialFingerprint(
+              JSON.stringify(c.updateSecretArg!.newPlaintextBlob),
+            ) === newFp,
+        ),
+      ).toHaveLength(1);
       expect(
         pool.calls.filter(
           (c) => c.method === "add" && c.arg?.value_plaintext === newPlaintext,
         ),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
+      expect(pool.rows).toHaveLength(1);
     },
     10000,
   );

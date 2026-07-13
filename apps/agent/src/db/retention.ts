@@ -2,6 +2,7 @@ import type { Db } from "@nexus/db";
 import {
   bloatRadar,
   credentialEvents,
+  credentials,
   cronRuns,
   gitEvents,
   healthSnapshots,
@@ -10,7 +11,7 @@ import {
   specSessions,
   specSnapshots,
 } from "@nexus/db";
-import { lt } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { logger } from "@nexus/core/node";
 import { safeFireAndForget } from "../utils/safe-fire-and-forget";
 
@@ -48,7 +49,69 @@ const PROJECT_STATUS_SNAPSHOTS_RETENTION_DAYS = Number(
 const GIT_EVENTS_RETENTION_DAYS = Number(
   process.env.GIT_EVENTS_RETENTION_DAYS ?? "90",
 );
+// Per nx-lp8v/nx-m5q6 (credentials table bloat — 2,709 rows / 4.03MB payload
+// with only 1 isActive): mirrors credential_events' 30-day precedent above.
+// Deliberately conservative — see the predicate comment on
+// deleteStaleCredentials() for exactly which rows this window applies to.
+const CREDENTIALS_RETENTION_DAYS = Number(
+  process.env.CREDENTIALS_RETENTION_DAYS ?? "30",
+);
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Delete `credentials` rows we can prove are safely dead, past
+ * `CREDENTIALS_RETENTION_DAYS` since last touched. Two independent
+ * predicates, either of which qualifies a row for deletion:
+ *
+ *   1. `status = 'refresh_failed'` — the OAuth server explicitly rejected
+ *      this row's refresh token (`credential-refresh-job.ts` sets this on
+ *      `invalid_grant`). This is the primary sweep for the nx-lp8v/nx-m5q6
+ *      root cause: `active-credential-watcher.ts` used to mint a brand-new
+ *      `isPrimary = true`, singleton-duplicate-group row on every refresh-
+ *      token rotation instead of updating the previous row in place. Those
+ *      orphaned rows are NOT `isPrimary = false` (each is first-and-only in
+ *      its own group), so a naive `isPrimary = false` filter would miss
+ *      almost the entire backlog — confirmed by reading `pool-core.ts`'s
+ *      `add()` duplicate-group logic, not assumed. `credential-refresh-job`
+ *      already sweeps every `available` row with an expired access token
+ *      (excluding only the live active fingerprint) every 5 minutes and
+ *      flips it to `refresh_failed` on `invalid_grant`, so this predicate
+ *      catches the backlog once that job has had a chance to run.
+ *   2. `is_primary = false` — non-primary duplicate-group members are
+ *      already excluded from `CredentialPool.lease()` by design (see
+ *      `pool-core.ts` lease()'s `eq(credentials.isPrimary, true)` filter),
+ *      so an old, unleased one carries zero operational value — it can
+ *      never be leased regardless of its `status`.
+ *
+ * Both predicates additionally require `leased_by IS NULL` as a hard safety
+ * belt (never delete a row currently checked out to a caller) and
+ * `updated_at` older than the retention window (never delete something
+ * touched recently, even if it happens to match on status/isPrimary).
+ *
+ * Deliberately does NOT delete `isPrimary = true, status = 'available'`
+ * rows regardless of age — those may be legitimate secondary accounts that
+ * simply haven't been leased yet, and this repo has no query-time signal to
+ * distinguish "idle backup account" from "not-yet-marked-dead rotation
+ * orphan" without risking a false-positive delete of a real credential.
+ */
+async function deleteStaleCredentials(
+  db: Db,
+  cutoff: Date,
+): Promise<number> {
+  const deleted = await db
+    .delete(credentials)
+    .where(
+      and(
+        isNull(credentials.leasedBy),
+        lt(credentials.updatedAt, cutoff),
+        or(
+          eq(credentials.status, "refresh_failed"),
+          eq(credentials.isPrimary, false),
+        ),
+      ),
+    );
+  return deleted.count;
+}
 
 /**
  * Delete telemetry rows past their retention window:
@@ -61,6 +124,8 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
  *   - spec_snapshots            > 90 days  (add-project-status-snapshots)
  *   - project_status_snapshots  > 90 days  (add-project-status-snapshots)
  *   - git_events                > 90 days  (add-git-status-orbit)
+ *   - credentials        > 30 days   (nx-lp8v/nx-m5q6, conditional — see
+ *                                      deleteStaleCredentials())
  */
 export async function runRetentionCleanup(db: Db): Promise<void> {
   const healthCutoff = new Date(
@@ -90,6 +155,9 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const gitEventsCutoff = new Date(
     Date.now() - GIT_EVENTS_RETENTION_DAYS * 86_400_000,
   );
+  const credentialsCutoff = new Date(
+    Date.now() - CREDENTIALS_RETENTION_DAYS * 86_400_000,
+  );
 
   const healthDeleted = await db
     .delete(healthSnapshots)
@@ -118,6 +186,10 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
   const gitEventsDeleted = await db
     .delete(gitEvents)
     .where(lt(gitEvents.createdAt, gitEventsCutoff));
+  const credentialsDeleted = await deleteStaleCredentials(
+    db,
+    credentialsCutoff,
+  );
 
   logger.info({
     health_deleted: healthDeleted.count,
@@ -129,6 +201,7 @@ export async function runRetentionCleanup(db: Db): Promise<void> {
     spec_snapshots_deleted: specSnapshotsDeleted.count,
     project_status_snapshots_deleted: projectStatusSnapshotsDeleted.count,
     git_events_deleted: gitEventsDeleted.count,
+    credentials_deleted: credentialsDeleted,
   }, "retention cleanup complete");
 }
 

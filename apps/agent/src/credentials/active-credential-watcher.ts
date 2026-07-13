@@ -11,23 +11,33 @@
  * Behaviour:
  *   - Resolves the path via `fs.realpath()` on every change (follows symlinks).
  *   - Debounces watch events (200ms) — rotations can cause multiple fs events.
- *   - Computes the fingerprint via `computeCredentialFingerprint()` and calls
- *     `pool.add()` UNCONDITIONALLY with the live plaintext — not only when the
- *     fingerprint is missing from the pool. `pool.add()` is idempotent: a
- *     `(fingerprint, name)` match updates the existing row in place
- *     (`valueEncrypted`/`expiresAt`/`encryptionKeyId`), a miss inserts a new
- *     row. This matters because `fingerprint = SHA256(refreshToken)` stays
- *     identical across an ACCESS-token-only refresh (Claude Code rotates the
- *     access token far more often than the refresh token) — gating `add()`
- *     behind "fingerprint not already in the pool" meant a credential's
- *     stale access token was written once on import and never updated again,
- *     even though Claude Code kept the live file current. That was the root
- *     cause of `credential-usage-poller` failing on every poll: it was
- *     always sending an access token that expired hours or days earlier.
- *     The auto-probe inside `pool.add()` hits api.anthropic.com (a
- *     different, un-throttled endpoint from the OAuth refresh-grant below)
- *     with the fresh access token and populates
- *     accountEmail/Name/Uuid/orgName/orgUuid for the row.
+ *   - Computes the fingerprint via `computeCredentialFingerprint()` on every
+ *     observation. Claude Code performs FULL refresh-token rotation on (at
+ *     least some) OAuth grants — each grant can return a new `refreshToken`
+ *     alongside the new `accessToken` — so `fingerprint = SHA256(refreshToken)`
+ *     is NOT a stable identity across time for the live file; see
+ *     `pool-core.ts`'s `updateSecret()` doc, which exists for exactly this
+ *     reason.
+ *   - When the newly observed fingerprint differs from the PREVIOUSLY
+ *     observed one (a rotation happened) AND the old fingerprint still has a
+ *     matching pool row, calls `pool.updateSecret(oldRow.id, ...)` to update
+ *     that row's token material IN PLACE. This is the fix for nx-lp8v/nx-m5q6
+ *     (`credentials` table growing unbounded): the prior implementation
+ *     called `pool.add()` unconditionally with a fingerprint-derived name
+ *     (`acct-<fp8>`), so every rotation minted a BRAND NEW `isPrimary=true`
+ *     row under the new fingerprint (a new `duplicateGroupId`, since that
+ *     column is set to `fingerprint` itself on insert) and permanently
+ *     orphaned the previous row — nothing ever demoted or cleaned it up.
+ *     With real accounts rotating multiple times a day, this is what grew
+ *     the table to thousands of rows with only one ever `isActive`.
+ *   - Falls back to `pool.add()` (unconditional, idempotent — a
+ *     `(fingerprint, name)` match updates in place, a miss inserts) when
+ *     there is no previous fingerprint to compare against (cold start) or
+ *     the previous fingerprint's row can no longer be found (e.g. deleted
+ *     out from under the watcher). The auto-probe inside `pool.add()` hits
+ *     api.anthropic.com (a different, un-throttled endpoint from the OAuth
+ *     refresh-grant below) with the fresh access token and populates
+ *     accountEmail/Name/Uuid/orgName/orgUuid for a newly inserted row.
  *   - All failure modes — file missing, JSON parse error, no `refreshToken`,
  *     pool.add() exception — collapse to `fingerprint: null` without throwing,
  *     so the watcher never crashes the agent.
@@ -65,13 +75,15 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@nexus/core/node";
 import {
   computeCredentialFingerprint,
+  extractCredentialMetadata,
   CredentialParseError,
 } from "./credentials.helpers";
 import type { CredentialPool } from "./pool";
 
 /**
  * Minimal pool surface the watcher consumes. Tests inject a fake satisfying
- * just `list()` and `add()` — no DB or encryption setup required.
+ * just `list()`, `add()`, and `updateSecret()` — no DB or encryption setup
+ * required.
  */
 type WatcherPool = {
   list: () => Promise<Array<{ id: string; fingerprint: string | null }>>;
@@ -81,6 +93,11 @@ type WatcherPool = {
     type: string;
     value_plaintext: string;
   }) => Promise<"inserted" | "updated">;
+  updateSecret: (
+    id: string,
+    newPlaintextBlob: object,
+    newExpiresAt: Date,
+  ) => Promise<void>;
 };
 
 const log = createLogger("agent:active-credential-watcher");
@@ -194,6 +211,12 @@ async function runRefresh(
 ): Promise<void> {
   const blob = await readActiveCredentialBlob(credentialPath);
 
+  // Capture the PREVIOUSLY observed fingerprint before it gets overwritten
+  // below — this is what lets us recognize a rotation (new fingerprint,
+  // same underlying live session) instead of treating every rotation as a
+  // brand-new credential.
+  const previousFingerprint = snapshot.fingerprint;
+
   // Stamp the snapshot first so callers see a fresh observedAt even on
   // failure paths. fingerprint/resolvedPath default to null and are
   // overwritten below when the live file is readable.
@@ -208,12 +231,12 @@ async function runRefresh(
   const { plaintext, fingerprint, resolvedPath } = blob;
   snapshot.resolvedPath = resolvedPath;
 
-  // Down-detection only: confirm the pool is reachable before writing to it.
-  // The row list itself is no longer consulted to decide whether to call
-  // pool.add() — see the file-level comment for why gating on "fingerprint
-  // already in the pool" was the bug.
+  // Fetch the pool listing once: it doubles as a down-detection check
+  // (confirm the pool is reachable before writing to it) and, on a
+  // rotation, as the lookup for the row to update in place.
+  let poolRows: Array<{ id: string; fingerprint: string | null }>;
   try {
-    await pool.list();
+    poolRows = await pool.list();
   } catch (err) {
     // Pool read failed — surface the LIVE fingerprint anyway so the UI can
     // distinguish "Claude Code is up" from "Claude Code is down". Cannot
@@ -223,14 +246,60 @@ async function runRefresh(
     return;
   }
 
-  // Mirror the live credential into the pool UNCONDITIONALLY, on every
-  // observation — not only on a fingerprint miss. pool.add() is idempotent
-  // (see pool-core.ts's `(fingerprint, name)` re-import guard): a match
-  // updates valueEncrypted/expiresAt/encryptionKeyId in place, preserving
-  // status/leasedBy/cooldownUntil/isPrimary; a miss (real rotation, or
-  // cold-start) inserts a new row. The auto-probe inside add() hits
-  // api.anthropic.com with the LIVE access token and populates
-  // accountEmail/Name/Uuid + organization fields on insert.
+  // Rotation-in-place: the live fingerprint changed since the last
+  // observation and the OLD fingerprint still has a matching pool row.
+  // Update that row's secret material in place via updateSecret() instead
+  // of add() — see the file-level comment for why calling add() here (with
+  // a fingerprint-derived name) used to mint a permanent orphaned duplicate
+  // on every rotation.
+  if (previousFingerprint && previousFingerprint !== fingerprint) {
+    const existingRow = poolRows.find(
+      (r) => r.fingerprint === previousFingerprint,
+    );
+    if (existingRow) {
+      try {
+        const parsedBlob = JSON.parse(plaintext) as object;
+        const { expiresAt } = extractCredentialMetadata(plaintext);
+        // Fall back to "already expired" (not a future guess) when the live
+        // blob is missing expiresAt — the credential-refresh-job will pick
+        // it up on its next tick rather than the row carrying a fabricated
+        // expiry.
+        const newExpiresAt = expiresAt ?? new Date();
+        await pool.updateSecret(existingRow.id, parsedBlob, newExpiresAt);
+        log.info(
+          {
+            path: resolvedPath,
+            id: existingRow.id,
+            previousFingerprint: previousFingerprint.slice(0, 8),
+            fingerprint: fingerprint.slice(0, 8),
+          },
+          "active-credential: rotated token material updated in place",
+        );
+        snapshot.fingerprint = fingerprint;
+      } catch (err) {
+        log.warn(
+          {
+            path: resolvedPath,
+            id: existingRow.id,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "active-credential: failed to update rotated credential in place",
+        );
+        snapshot.fingerprint = null;
+      }
+      return;
+    }
+    // No pool row for the previous fingerprint (e.g. it was deleted) — fall
+    // through to the add() path below, same as a genuine cold start.
+  }
+
+  // Mirror the live credential into the pool. pool.add() is idempotent (see
+  // pool-core.ts's `(fingerprint, name)` re-import guard): a match updates
+  // valueEncrypted/expiresAt/encryptionKeyId in place, preserving
+  // status/leasedBy/cooldownUntil/isPrimary; a miss (cold-start, or a
+  // rotation whose previous row is gone) inserts a new row. The auto-probe
+  // inside add() hits api.anthropic.com with the LIVE access token and
+  // populates accountEmail/Name/Uuid + organization fields on insert.
   try {
     await pool.add({
       id: randomUUID(),
