@@ -14,6 +14,7 @@ import type { Db } from "@nexus/db";
 import {
   handleAnalyticsHealth,
   handleAnalyticsNotifications,
+  handleAnalyticsNotificationsSummary,
   handleAnalyticsSpecs,
   handleAnalyticsCredentials,
   handleAnalyticsGit,
@@ -611,6 +612,55 @@ describe.skipIf(!hasPg)("handleAnalyticsNotifications (requires live PG)", () =>
       expect(c!.voice_used).toBe("voice-ccc");
     });
   });
+
+  it("summary: by_title groups repeated (title, project) pairs and orders by count desc", async () => {
+    // Insert 2 more "Build OK foo" rows so that title now has 3 occurrences
+    // total (an-1 + these 2), while "Build OK bar" and "Build dropped foo"
+    // stay at 1 each.
+    const now = new Date();
+    await adminClient.unsafe(`
+      INSERT INTO "${AN_SCHEMA}".notifications
+        ("id", "channel", "title", "body", "project", "status", "created_at")
+      VALUES
+        ('an-4', 'desktop', 'Build OK foo', 'foo body 2', 'foo', 'delivered', '${now.toISOString()}'),
+        ('an-5', 'desktop', 'Build OK foo', 'foo body 3', 'foo', 'delivered', '${now.toISOString()}')
+    `);
+
+    const url = new URL("http://localhost/analytics/notifications/summary?hours=24");
+    const response = await handleAnalyticsNotificationsSummary(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      window_hours: number;
+      by_title: Array<{ title: string; project: string | null; count: number }>;
+      by_hour: Array<{ hour: number; count: number }>;
+    };
+    expect(body.window_hours).toBe(24);
+    expect(body.by_title[0]).toEqual({ title: "Build OK foo", project: "foo", count: 3 });
+    expect(body.by_title).toHaveLength(3); // 3 distinct (title, project) pairs total
+    expect(body.by_hour).toHaveLength(24); // always exactly 24 entries
+    // Boundary-safe invariant: total count across all 24 hour buckets must
+    // equal the total row count in the window (5 seeded rows), regardless of
+    // which specific hour-of-day buckets they fall into. Do NOT assert a
+    // specific single non-zero hour here — an-1 is seeded 1 hour before
+    // `now` (see beforeEach above), which is ALWAYS a different hour-of-day
+    // than `now` (never the same bucket), so "all rows share one hour" is
+    // never a valid assumption for this fixture.
+    const totalByHour = body.by_hour.reduce((sum, h) => sum + h.count, 0);
+    expect(totalByHour).toBe(5);
+    // Every bucket count must be non-negative and the array must stay
+    // sorted by hour 0-23 (zero-filled shape contract).
+    body.by_hour.forEach((h, i) => expect(h.hour).toBe(i));
+  });
+
+  it("summary: respects ?limit=", async () => {
+    const url = new URL("http://localhost/analytics/notifications/summary?hours=24&limit=1");
+    const response = await handleAnalyticsNotificationsSummary(db, url);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { by_title: unknown[] };
+    expect(body.by_title).toHaveLength(1);
+  });
 });
 
 describe("handleAnalyticsNotifications input validation (no DB)", () => {
@@ -702,6 +752,26 @@ describe("handleAnalyticsNotifications input validation (no DB)", () => {
     // Without a db this will 500 on the actual query attempt — but it must
     // NOT 400 on cursor validation. Accept either 500 (no PG) or 200 (PG up).
     expect(response.status).not.toBe(400);
+  });
+});
+
+describe("handleAnalyticsNotificationsSummary input validation (no DB)", () => {
+  it("rejects hours=0", async () => {
+    const url = new URL("http://localhost/analytics/notifications/summary?hours=0");
+    const response = await handleAnalyticsNotificationsSummary(null as never, url);
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects limit=0", async () => {
+    const url = new URL("http://localhost/analytics/notifications/summary?limit=0");
+    const response = await handleAnalyticsNotificationsSummary(null as never, url);
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects limit > 100", async () => {
+    const url = new URL("http://localhost/analytics/notifications/summary?limit=101");
+    const response = await handleAnalyticsNotificationsSummary(null as never, url);
+    expect(response.status).toBe(400);
   });
 });
 
