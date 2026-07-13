@@ -85,6 +85,20 @@ export type {
   SessionContextPatchInput,
   SessionContextResponse,
 } from "./types/session-context";
+export {
+  projectStatusSnapshot,
+  projectStatusLatestResponse,
+  projectStatusHistoryResponse,
+  beadUnlinkedCounts,
+  beadTransitionPayload,
+} from "./types/project-status";
+export type {
+  ProjectStatusSnapshot,
+  ProjectStatusLatestResponse,
+  ProjectStatusHistoryResponse,
+  BeadUnlinkedCounts,
+  BeadTransitionPayload,
+} from "./types/project-status";
 export type {
   SpecTransitionEvent,
   SpecTransitionKind,
