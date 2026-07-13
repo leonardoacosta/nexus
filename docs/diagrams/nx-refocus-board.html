@@ -152,6 +152,25 @@ body::before {
 .ticker__msg b { color: var(--ink); font-weight: 500; }
 .ticker__time { color: var(--ink-4); margin-left: auto; flex-shrink: 0; font-size: 10px; }
 
+/* TTL countdown — ◕ pie drains over 30s while a notification is queued behind */
+@property --ttl { syntax: "<percentage>"; inherits: false; initial-value: 100%; }
+.ttl {
+  width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+  background: conic-gradient(var(--phosphor) var(--ttl), var(--substrate-4) 0);
+  animation: drain 30s linear infinite, ttlpulse 1.6s ease-in-out infinite;
+}
+@keyframes drain { from { --ttl: 100%; } to { --ttl: 0%; } }
+@keyframes ttlpulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(82,255,140,0.45); }
+  50% { box-shadow: 0 0 0 4px rgba(82,255,140,0); }
+}
+.queued {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--amber); border: 1px solid var(--amber-dim); background: var(--amber-ghost);
+  border-radius: 8px; padding: 2px 8px;
+}
+@media (prefers-reduced-motion: reduce) { .ttl { animation: none; --ttl: 66%; } }
+
 .frame-body { display: grid; grid-template-columns: 208px 1fr 322px; min-height: 660px; }
 
 /* ---------- rail: projects ---------- */
@@ -453,8 +472,10 @@ table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowr
 
     <div class="ticker">
       <span class="ticker__tag"><span class="pulse"></span>TTS</span>
-      <span class="ticker__msg">Leo, merged session context model field — agent exposes model via context endpoint. <b>nx · 2 min ago</b></span>
+      <span class="ticker__msg">Leo, merged session context model field — agent exposes model via context endpoint. <b>nx · just now</b></span>
       <span class="ticker__time">history ⌘H</span>
+      <span class="queued">+2</span>
+      <span class="ttl" title="30s until next notification"></span>
     </div>
 
     <div class="frame-body">
@@ -771,6 +792,20 @@ table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowr
     the affected row, not a destination. <code>TTSObserver</code> keeps speaking regardless; this is
     just where the history is read back.
   </p>
+
+  <div class="panel" style="margin-bottom:32px">
+    <h4>Ticker queue contract</h4>
+    <div class="sub">bursts are the norm — the ticker paginates, audio does not</div>
+    <div class="tree">ticker idle          → new notification renders immediately, no TTL
+notification showing → newcomers QUEUE; current holds a <span class="hot">30s read window</span>
+                       <span class="hot">◕ pie drains linearly</span> (conic-gradient, 1.6s pulse)
+                       <span class="warn">+N chip</span> shows queue depth · click ◕ = skip now
+TTL expiry           → FIFO advance, next entry gets its own 30s
+queue &gt; 5            → collapse oldest into one “+N earlier” drawer entry
+audio                → unchanged — TTSObserver serializes speech on its own;
+                       the TTL governs the <span class="hot">visual</span> lane only
+unread               → anything advanced past unseen stays bold in the drawer</div>
+  </div>
 
   <div class="drawer" role="img" aria-label="Notification drawer mockup">
     <div class="drawer__head">◍ Notifications <span style="color:var(--ink-4);font-weight:400">· 3 unread</span> <span class="kbd">⌘H</span></div>
