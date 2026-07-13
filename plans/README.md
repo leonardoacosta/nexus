@@ -364,6 +364,105 @@ Recorded for a future run; the maintainer did not select these:
 - **God modules** (`server-request-handler.ts`, `pool-core.ts`, `process-watcher.ts`) —
   extract a route-table; split the pool along lease/cooldown/cleanup seams.
 
+## Wave 5 — `/improve` notification-noise audit (2026-07-13, audited at `6796f8ab`)
+
+Provenance: scoped `/improve` pass ("Audit nx tts and notify history,
+determine how we improve reducing noise") — NOT the `audit-scan` deterministic
+scanner used by prior waves (this domain — notification/TTS pipeline behavior
+— isn't something a static code scanner can see; the real signal was live
+production data). Recon found the checked-in `docs/tts-pipeline.mmd` +
+`.claude/commands/audit/notification-engine.md` describe a Rust architecture
+(`crates/nexus-agent/notification_engine.rs`) that no longer exists in this
+repo (`crates/` confirmed absent) — those were ignored as stale and the real
+TypeScript pipeline (`apps/agent/src/notifications/`,
+`apps/agent/src/routes/notifications*.ts`) was audited directly instead.
+4 parallel Explore agents covered trigger/classification, dedup/batching,
+presence/quiet-hours, and history-data-model/aggregation; every headline
+finding was independently re-verified by the advisor against live code AND
+live production Postgres data (read-only queries against the `notifications`
+table, 14-day window, 12,028 total historical rows) before being written up —
+one sub-agent hypothesis (dedup should be title-aware to collapse the "mx" /
+"mx cred" / "mx cred — daily" title family) was checked against real body
+content and REFUTED (those bodies are genuinely distinct, information-bearing
+alerts — a bursty-distinct-messages problem, not a dedup problem) before any
+plan was written for it.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 038 | Fix `deliveryState` never updating past insert + regenerate stale Rust-era TTS pipeline docs | P2 | S | — | TODO |
+| 039 | Widen the notification dedup TTL from 5s to 2 minutes | P2 | S | — | TODO |
+| 040 | Add a self-service notification noise-diagnosis endpoint (noisiest titles / busiest hours) | P2 | M | — | TODO |
+| 041 | Downgrade repeat TTS notifications to silent desktop when a project exceeds a rate threshold | P2 | L | — | TODO |
+| 042 | Add a wall-clock quiet-hours gate for non-critical TTS on the presence-unknown / legacy fallback path | P2 | M | 041 | TODO |
+
+Suggested order: 038 first (cheapest, zero-risk correctness + docs fix),
+then 039 (isolated one-file change), then 040 (additive, no interaction with
+041/042), then **041 before 042** (042's constructor-parameter insertion
+point in `manager.ts` builds directly on 041's — see each plan's Sequencing
+note). 038/039/040 have no ordering constraint relative to each other or to
+041/042 and can run in any order or in parallel worktrees.
+
+### Empirical baseline (for post-deploy comparison)
+
+Measured 2026-07-13 against live production data, 14-day window
+(2026-06-29 to 2026-07-13): ~200-750 notifications/day, TTS the dominant
+channel (3976 of ~4461 in a 14-day sample); top-volume title
+`🔗 Wholesale Architecture` at 1,112 occurrences/14d (~79/day, all distinct
+real progress-update content from a continuously-running autonomous
+session); hourly counts on 2026-07-12 showed 20-31 TTS notifications firing
+every hour through 00:00-06:00, dropping to 1 at hour 07. Once plans
+040-042 land, `GET /analytics/notifications/summary?hours=336` (plan 040)
+is the way to re-measure this same baseline and confirm the reduction.
+
+### Findings considered and rejected this wave (do not re-raise)
+
+- **Dedup key should include `title` to collapse the "mx" / "mx cred" /
+  "mx cred — daily" title cluster** — REFUTED against live data: those 3
+  titles carry 164/172/140 occurrences over 14 days with 164/16/114
+  *distinct* bodies respectively (each names a different failing credential
+  or discovered PIM role — real, non-duplicate alerts fired in a several-
+  second burst by what's clearly a batch credential-health-check job). A
+  title-aware or fuzzy-normalized dedup key would not have collapsed this
+  family (the bodies already differ, which is why dedup correctly does NOT
+  suppress them) and risks hiding genuinely distinct alerts. This is a
+  bursty-distinct-messages problem, addressed by plan 041's rate-throttle
+  instead, not a dedup problem. Do not re-introduce this idea under a future
+  dedup-focused plan.
+- **`presence_aware_routing` defaults off / is disabled in production** —
+  an initial hypothesis from one sub-agent, corrected by the advisor
+  querying the live `notification_settings` row directly: the flag IS
+  `true` in production (`ducking_mode='full'`). The real gap is narrower —
+  see plan 042's "Why this matters" for the actual mechanism (the
+  all-unknown-vector legacy fallback, not the flag being off).
+- **Rule 1 (`rules-engine.ts`) overriding bedtime for an active Mac is a
+  bug** — it is not; it's an explicit, documented decision ("Q1: an active
+  Mac beats bedtime — TTS at your desk even at 2am"). Plan 042 deliberately
+  does not touch this rule; it only gates the path taken when
+  `decidePresenceRoute()` returns `null` (flag off, or the vector has zero
+  known fields).
+- **A richer "N updates" coalesced-summary UX for the rate-throttle**
+  (mirroring Rule 2's meeting-hold digest), instead of plan 041's simpler
+  flat channel-downgrade — considered and deliberately deferred: it would
+  require reusing `held-queue.ts`'s flush-trigger machinery, whose exact
+  behavior for non-meeting holds this audit did not fully trace. Building
+  against an unconfirmed mechanism risked a notification silently never
+  being delivered; plan 041's channel-downgrade is independently correct
+  and lower-risk. A future richer version should first independently
+  confirm that machinery's semantics.
+- **`buffer.ts` misleadingly named (no longer buffers anything)** — real,
+  but purely cosmetic (a rename would touch many call sites for zero
+  behavior change); noted in plan 038's evidence but not elevated to its
+  own plan. Rename opportunistically if `buffer.ts` is touched for an
+  unrelated reason in the future.
+
+### Not audited this wave
+
+Telegram channel noise, cross-machine delivery forwarding correctness,
+iOS/watch-side notification UX, cost-digest threshold tuning, and any Swift
+dashboard UI work (all 5 plans in this wave are backend-only — see each
+plan's Maintenance notes for the Swift follow-up each one unblocks but does
+not build).
+
 ## Direction options (maintainer's call — not ranked against bugs)
 
 Grounded suggestions surfaced by the audit; each would be a design/spike plan, not a
