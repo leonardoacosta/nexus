@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Refocus — Project Structure Board</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --substrate: #0a0b0d; --substrate-2: #0f1114; --substrate-3: #15181c;
+  --substrate-4: #1a1e23;
+  --hairline: #1f2225; --hairline-strong: #2a2e33;
+  --ink: #e6e8ea; --ink-2: #a8aeb5; --ink-3: #7a8088; --ink-4: #4b5158;
+  --phosphor: #52ff8c; --phosphor-dim: #2ba85c; --phosphor-ghost: rgba(82,255,140,0.08);
+  --amber: #ffb547; --amber-dim: #8c5f1f; --amber-ghost: rgba(255,181,71,0.08);
+  --critical: #ff5470; --critical-dim: #80293a; --critical-ghost: rgba(255,84,112,0.08);
+  --cyan: #5cd6ff; --cyan-ghost: rgba(92,214,255,0.08);
+  --violet: #b18cff;
+  --radius-s: 4px; --radius-m: 8px; --radius-l: 14px;
+  --shadow-panel: 0 32px 80px -20px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,255,255,0.04),
+    0 1px 0 rgba(255,255,255,0.06) inset;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, #1a1d22 0%, transparent 55%),
+    radial-gradient(900px 500px at 88% 110%, #161922 0%, transparent 55%),
+    linear-gradient(180deg, #0e1013 0%, #08090b 100%);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  min-height: 100vh; padding: 56px 48px 96px;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1, 0 0 0 0 1, 0 0 0 0 1, 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.04; pointer-events: none; z-index: 99; mix-blend-mode: overlay;
+}
+
+/* ---------- doc chrome ---------- */
+.doc-head { max-width: 1480px; margin: 0 auto 48px; }
+.doc-head__crumbs {
+  font-size: 11px; color: var(--ink-3); letter-spacing: 0.18em;
+  text-transform: uppercase; display: flex; gap: 14px; align-items: center;
+  margin-bottom: 18px;
+}
+.doc-head__crumbs .dot {
+  width: 4px; height: 4px; background: var(--phosphor); border-radius: 50%;
+  box-shadow: 0 0 8px var(--phosphor);
+}
+.doc-head h1 {
+  margin: 0; font-size: clamp(40px, 5vw, 64px); font-weight: 600;
+  letter-spacing: -0.02em; line-height: 0.95;
+}
+.doc-head h1 .accent { color: var(--phosphor); }
+.doc-head__sub {
+  margin-top: 18px; font-size: 13px; color: var(--ink-2);
+  max-width: 720px; line-height: 1.6;
+}
+.doc-head__meta {
+  display: flex; gap: 36px; margin-top: 32px; flex-wrap: wrap;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.doc-head__meta b { color: var(--ink); font-weight: 500; letter-spacing: 0.12em; }
+
+.section {
+  max-width: 1480px; margin: 0 auto 84px; padding-top: 36px;
+  border-top: 1px solid var(--hairline); position: relative;
+}
+.section__label {
+  position: absolute; top: -1px; left: 0; padding-top: 14px;
+  border-top: 2px solid var(--phosphor);
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--phosphor);
+}
+.section h2 {
+  margin: 34px 0 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.01em;
+}
+.section__note { font-size: 12.5px; color: var(--ink-2); max-width: 760px; line-height: 1.65; margin-bottom: 32px; }
+.section__note code, td code, .cell-desc code {
+  background: var(--substrate-3); border: 1px solid var(--hairline);
+  padding: 1px 5px; border-radius: 3px; font-size: 0.92em; color: var(--cyan);
+}
+
+/* ---------- the app frame ---------- */
+.app {
+  border-radius: var(--radius-l); overflow: hidden;
+  background: var(--substrate);
+  box-shadow: var(--shadow-panel);
+  border: 1px solid var(--hairline-strong);
+  animation: rise 0.7s cubic-bezier(0.16,1,0.3,1) both;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+.titlebar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 18px; background: var(--substrate-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.traffic { display: flex; gap: 7px; }
+.traffic i { width: 11px; height: 11px; border-radius: 50%; background: var(--hairline-strong); }
+.traffic i:nth-child(1) { background: #ff5f57; } .traffic i:nth-child(2) { background: #febc2e; } .traffic i:nth-child(3) { background: #28c840; }
+.wordmark { font-size: 12px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase; }
+.wordmark .x { color: var(--phosphor); }
+
+.proj-dd {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--substrate-3); border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-m); padding: 7px 14px;
+  font-size: 12.5px; font-weight: 600; cursor: default;
+  box-shadow: 0 0 0 3px var(--phosphor-ghost);
+}
+.proj-dd .caret { color: var(--phosphor); font-size: 10px; }
+.proj-dd .count { color: var(--ink-3); font-weight: 400; font-size: 11px; }
+
+.titlebar__right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.presence { display: flex; gap: 10px; align-items: center; font-size: 10.5px; color: var(--ink-3); }
+.presence b { color: var(--ink-2); font-weight: 500; }
+.presence .up { width: 6px; height: 6px; border-radius: 50%; background: var(--phosphor); box-shadow: 0 0 6px var(--phosphor); display: inline-block; }
+.presence .off { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); display: inline-block; }
+.bell { position: relative; color: var(--ink-2); font-size: 14px; }
+.bell::after {
+  content: "3"; position: absolute; top: -7px; right: -10px;
+  background: var(--critical); color: #fff; font-size: 8.5px; font-weight: 700;
+  border-radius: 8px; padding: 1px 4.5px;
+}
+
+/* TTS ticker — the kept surface, ambient not modal */
+.ticker {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 18px; background: linear-gradient(90deg, var(--phosphor-ghost), transparent 60%);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11.5px; color: var(--ink-2);
+  overflow: hidden; white-space: nowrap;
+}
+.ticker__tag {
+  color: var(--phosphor); font-weight: 700; font-size: 9.5px;
+  letter-spacing: 0.2em; text-transform: uppercase; flex-shrink: 0;
+  display: flex; align-items: center; gap: 7px;
+}
+.ticker__tag .pulse {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--phosphor);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(82,255,140,0.5);} 50% { box-shadow: 0 0 0 5px rgba(82,255,140,0);} }
+.ticker__msg b { color: var(--ink); font-weight: 500; }
+.ticker__time { color: var(--ink-4); margin-left: auto; flex-shrink: 0; font-size: 10px; }
+
+.frame-body { display: grid; grid-template-columns: 208px 1fr 322px; min-height: 660px; }
+
+/* ---------- rail: projects ---------- */
+.rail {
+  background: var(--substrate-2); border-right: 1px solid var(--hairline);
+  padding: 18px 0; display: flex; flex-direction: column;
+}
+.rail__label {
+  font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-4); padding: 0 18px 10px;
+}
+.proj {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px; font-size: 12px; color: var(--ink-2); cursor: default;
+}
+.proj:hover { background: var(--substrate-3); }
+.proj.active {
+  background: linear-gradient(90deg, var(--phosphor-ghost), transparent);
+  color: var(--ink); border-left: 2px solid var(--phosphor); padding-left: 16px;
+}
+.proj .k { font-weight: 600; }
+.proj .n { margin-left: auto; font-size: 10px; color: var(--ink-4); }
+.proj .n.hot { color: var(--amber); }
+.rail__foot {
+  margin-top: auto; padding: 14px 18px 0; border-top: 1px solid var(--hairline);
+  font-size: 10px; color: var(--ink-4); line-height: 1.7;
+}
+.rail__foot b { color: var(--ink-3); font-weight: 500; }
+
+/* ---------- board ---------- */
+.board { padding: 20px 24px; overflow: hidden; }
+.board__bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.chip {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--hairline-strong); border-radius: 20px;
+  padding: 4px 12px; color: var(--ink-3);
+}
+.chip.on { border-color: var(--phosphor-dim); color: var(--phosphor); background: var(--phosphor-ghost); }
+.board__bar .spacer { flex: 1; }
+.board__bar .stat { font-size: 10.5px; color: var(--ink-3); }
+.board__bar .stat b { color: var(--ink); font-weight: 600; }
+
+.row {
+  border: 1px solid var(--hairline); border-radius: var(--radius-m);
+  background: var(--substrate-2); margin-bottom: 8px; overflow: hidden;
+  animation: rise 0.5s cubic-bezier(0.16,1,0.3,1) both;
+}
+.row:nth-child(2) { animation-delay: 40ms; } .row:nth-child(3) { animation-delay: 80ms; }
+.row:nth-child(4) { animation-delay: 120ms; } .row:nth-child(5) { animation-delay: 160ms; }
+.row:nth-child(6) { animation-delay: 200ms; } .row:nth-child(7) { animation-delay: 240ms; }
+
+.row__head {
+  display: grid; grid-template-columns: 20px 92px 74px 1fr 130px 62px 56px;
+  align-items: center; gap: 12px; padding: 11px 16px; cursor: default;
+}
+.row__head:hover { background: var(--substrate-3); }
+.tw { color: var(--ink-4); font-size: 10px; transition: transform 0.2s; }
+.row.open > .row__head .tw { transform: rotate(90deg); color: var(--phosphor); }
+.bid { font-size: 11px; color: var(--cyan); }
+.badge {
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 3px; text-align: center;
+}
+.badge.proposal { background: var(--phosphor-ghost); color: var(--phosphor); border: 1px solid var(--phosphor-dim); }
+.badge.task { background: var(--cyan-ghost); color: var(--cyan); border: 1px solid rgba(92,214,255,0.3); }
+.badge.bug { background: var(--critical-ghost); color: var(--critical); border: 1px solid var(--critical-dim); }
+.badge.orphan { background: var(--amber-ghost); color: var(--amber); border: 1px solid var(--amber-dim); }
+.rtitle { font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtitle .cap { color: var(--ink-4); font-size: 10px; margin-left: 8px; }
+.rtitle .projtag {
+  font-size: 9px; color: var(--violet); border: 1px solid rgba(177,140,255,0.3);
+  border-radius: 3px; padding: 1px 5px; margin-right: 8px; vertical-align: 1px;
+}
+.progress { display: flex; align-items: center; gap: 8px; }
+.progress .track { flex: 1; height: 3px; background: var(--substrate-4); border-radius: 2px; overflow: hidden; }
+.progress .fill { height: 100%; background: var(--phosphor); border-radius: 2px; box-shadow: 0 0 6px rgba(82,255,140,0.5); }
+.progress .fill.warn { background: var(--amber); box-shadow: 0 0 6px rgba(255,181,71,0.5); }
+.progress .pct { font-size: 9.5px; color: var(--ink-3); min-width: 38px; text-align: right; }
+.status { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; text-align: center; }
+.status.inprog { color: var(--phosphor); } .status.open { color: var(--ink-3); } .status.blocked { color: var(--critical); }
+.prio { font-size: 9.5px; font-weight: 700; text-align: center; border-radius: 3px; padding: 3px 0; }
+.prio.p0 { color: var(--critical); background: var(--critical-ghost); }
+.prio.p1 { color: var(--amber); background: var(--amber-ghost); }
+.prio.p2 { color: var(--cyan); background: var(--cyan-ghost); }
+.prio.p3, .prio.p4 { color: var(--ink-3); background: var(--substrate-3); }
+
+.row__kids { border-top: 1px solid var(--hairline); background: var(--substrate); padding: 4px 0 8px; }
+.kid {
+  display: grid; grid-template-columns: 20px 92px 74px 1fr 130px 62px 56px;
+  align-items: center; gap: 12px; padding: 8px 16px 8px 40px; font-size: 12px;
+}
+.kid:hover { background: var(--substrate-2); }
+.kid .rtitle { font-size: 12px; color: var(--ink-2); }
+.kid.done .rtitle { color: var(--ink-4); text-decoration: line-through; text-decoration-color: var(--hairline-strong); }
+.kid.done .bid { color: var(--ink-4); }
+.check { color: var(--phosphor); font-size: 11px; text-align: center; }
+.check.pending { color: var(--ink-4); }
+.cell-desc {
+  grid-column: 4 / -1; font-size: 11px; color: var(--ink-3); line-height: 1.6;
+  padding: 2px 0 6px; max-width: 620px;
+}
+
+/* ---------- detail rail ---------- */
+.detail {
+  background: var(--substrate-2); border-left: 1px solid var(--hairline);
+  padding: 22px 20px; font-size: 12px;
+}
+.detail__ids { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.detail h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; line-height: 1.4; }
+.detail__spec { font-size: 10.5px; color: var(--cyan); margin-bottom: 18px; }
+.detail__sec {
+  border-top: 1px solid var(--hairline); padding: 14px 0;
+  font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+}
+.detail__sec + div { font-size: 11.5px; color: var(--ink-2); line-height: 1.65; padding-bottom: 6px; }
+.dep { display: flex; gap: 8px; align-items: center; padding: 5px 0; font-size: 11px; }
+.dep .bid { font-size: 10.5px; }
+.detail .actions { display: flex; gap: 8px; margin-top: 18px; }
+.btn {
+  flex: 1; text-align: center; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--hairline-strong); border-radius: var(--radius-s);
+  padding: 8px 0; color: var(--ink-2); cursor: default;
+}
+.btn.primary { border-color: var(--phosphor-dim); color: var(--phosphor); background: var(--phosphor-ghost); }
+.tts-log { font-size: 10.5px; color: var(--ink-3); line-height: 1.7; }
+.tts-log b { color: var(--ink-2); font-weight: 500; }
+.tts-log .t { color: var(--ink-4); }
+
+/* ---------- IA tables ---------- */
+table.ia { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.ia th {
+  text-align: left; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-4); font-weight: 600; padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+table.ia td { padding: 11px 14px; border-bottom: 1px solid var(--hairline); color: var(--ink-2); vertical-align: top; line-height: 1.55; }
+table.ia td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+.verdict { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; white-space: nowrap; }
+.verdict.keep { background: var(--phosphor-ghost); color: var(--phosphor); border: 1px solid var(--phosphor-dim); }
+.verdict.demote { background: var(--amber-ghost); color: var(--amber); border: 1px solid var(--amber-dim); }
+.verdict.deprecate { background: var(--critical-ghost); color: var(--critical); border: 1px solid var(--critical-dim); }
+.verdict.absorb { background: var(--cyan-ghost); color: var(--cyan); border: 1px solid rgba(92,214,255,0.3); }
+
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.panel {
+  background: var(--substrate-2); border: 1px solid var(--hairline);
+  border-radius: var(--radius-m); padding: 22px 24px;
+}
+.panel h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.panel .sub { font-size: 10px; color: var(--ink-4); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 16px; }
+.tree { font-size: 11.5px; line-height: 1.9; color: var(--ink-2); white-space: pre; overflow-x: auto; }
+.tree .dim { color: var(--ink-4); }
+.tree .hot { color: var(--phosphor); }
+.tree .warn { color: var(--amber); }
+.tree .dead { color: var(--ink-4); text-decoration: line-through; text-decoration-color: var(--critical-dim); }
+
+@media (max-width: 1100px) {
+  .frame-body { grid-template-columns: 180px 1fr; }
+  .detail { display: none; }
+  .cols2 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="doc-head__crumbs"><span class="dot"></span> NEXUS &nbsp;/&nbsp; DESIGN &nbsp;/&nbsp; REFOCUS &nbsp;·&nbsp; 2026-07-13</div>
+  <h1>The fleet, seen through<br>its <span class="accent">project structure</span></h1>
+  <p class="doc-head__sub">
+    Nexus stops being seven dashboards in a trenchcoat. One board: projects &rarr; proposals as
+    first-class citizens &rarr; tasks with descriptions &rarr; orphan beads surfaced at the top level.
+    TTS and notifications stay as the ambient layer. Everything else is demoted, absorbed, or removed.
+  </p>
+  <div class="doc-head__meta">
+    <span>DATA <b>GET /roadmap + GET /beads/unlinked (shipped)</b></span>
+    <span>REFERENCE <b>beads-task-issue-tracker</b></span>
+    <span>SURFACE <b>nexus-mac · iOS · watch</b></span>
+  </div>
+</header>
+
+<!-- ================= SECTION 01: THE BOARD ================= -->
+<section class="section">
+  <div class="section__label">01 · The Board</div>
+  <h2>Main window — project structure board</h2>
+  <p class="section__note">
+    Project dropdown (with <code>All</code>) drives everything. Proposals render as expandable
+    first-class rows with live task rollups; orphan beads (from <code>/beads/unlinked</code>) sit at
+    the same top level, badged <code>ORPHAN</code> so unplanned work is never invisible. In
+    <code>All</code> mode each row carries a project tag. The TTS ticker is the kept notification
+    surface — ambient, one line, never a modal.
+  </p>
+
+  <div class="app" role="img" aria-label="Nexus main window mockup">
+    <div class="titlebar">
+      <div class="traffic"><i></i><i></i><i></i></div>
+      <span class="wordmark">NE<span class="x">X</span>US</span>
+      <div class="proj-dd">⌘P &nbsp;All Projects <span class="count">· 11 repos</span> <span class="caret">▾</span></div>
+      <div class="titlebar__right">
+        <div class="presence"><span class="up"></span><b>homelab</b> <span class="up"></span><b>mac</b> <span class="off"></span>serval</div>
+        <div class="bell">◍</div>
+      </div>
+    </div>
+
+    <div class="ticker">
+      <span class="ticker__tag"><span class="pulse"></span>TTS</span>
+      <span class="ticker__msg">Leo, merged session context model field — agent exposes model via context endpoint. <b>nx · 2 min ago</b></span>
+      <span class="ticker__time">history ⌘H</span>
+    </div>
+
+    <div class="frame-body">
+      <!-- project rail -->
+      <nav class="rail">
+        <div class="rail__label">Projects</div>
+        <div class="proj active"><span class="k">All</span><span class="n hot">41</span></div>
+        <div class="proj"><span class="k">nx</span> nexus <span class="n hot">17</span></div>
+        <div class="proj"><span class="k">cc</span> claude-config <span class="n">9</span></div>
+        <div class="proj"><span class="k">oo</span> otaku-odyssey <span class="n">6</span></div>
+        <div class="proj"><span class="k">tc</span> <span class="n">4</span></div>
+        <div class="proj"><span class="k">mx</span> metrics <span class="n">3</span></div>
+        <div class="proj"><span class="k">ap</span> apothecary <span class="n">2</span></div>
+        <div class="proj"><span class="k">xx</span> <span class="n">0</span></div>
+        <div class="rail__foot">
+          <b>3 sessions live</b><br>
+          nx /apply · cc idle · oo test<br>
+          attach ⌘A
+        </div>
+      </nav>
+
+      <!-- the board -->
+      <main class="board">
+        <div class="board__bar">
+          <span class="chip on">Open</span>
+          <span class="chip on">In progress</span>
+          <span class="chip">Closed</span>
+          <span class="chip">Orphans only</span>
+          <span class="spacer"></span>
+          <span class="stat"><b>5</b> proposals · <b>17</b> orphans · <b>2</b> blocked</span>
+        </div>
+
+        <!-- proposal, expanded -->
+        <div class="row open">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">nx-bwfba</span>
+            <span class="badge proposal">Proposal</span>
+            <span class="rtitle"><span class="projtag">nx</span>add-session-context-api <span class="cap">· session-persistence</span></span>
+            <span class="progress"><span class="track"><span class="fill" style="width:66%"></span></span><span class="pct">8/12</span></span>
+            <span class="status inprog">In&nbsp;prog</span>
+            <span class="prio p2">P2</span>
+          </div>
+          <div class="row__kids">
+            <div class="kid done">
+              <span class="check">✓</span>
+              <span class="bid">nx-k3d0q</span>
+              <span class="badge task">Task</span>
+              <span class="rtitle">1.1 DB batch — no-op, schema already carries model column</span>
+              <span></span><span></span><span></span>
+            </div>
+            <div class="kid done">
+              <span class="check">✓</span>
+              <span class="bid">nx-p8s2m</span>
+              <span class="badge task">Task</span>
+              <span class="rtitle">2.1 expose model field via GET /sessions/:id/context</span>
+              <span></span><span></span><span></span>
+            </div>
+            <div class="kid">
+              <span class="check pending">○</span>
+              <span class="bid">nx-tom28</span>
+              <span class="badge task">Task</span>
+              <span class="rtitle">3.1 UI — surface model chip in session detail header</span>
+              <span></span><span class="status open">Open</span><span></span>
+            </div>
+            <div class="kid">
+              <span></span><span></span><span></span>
+              <span class="cell-desc">Render <code>context.model</code> as a compact chip beside the session title; falls back to statusline model letter when context is stale.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- proposal, collapsed -->
+        <div class="row">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">nx-fkmao</span>
+            <span class="badge proposal">Proposal</span>
+            <span class="rtitle"><span class="projtag">nx</span>ios-healthkit-push <span class="cap">· health-ingest</span></span>
+            <span class="progress"><span class="track"><span class="fill warn" style="width:20%"></span></span><span class="pct">2/10</span></span>
+            <span class="status open">Open</span>
+            <span class="prio p2">P2</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">cc-rczft</span>
+            <span class="badge proposal">Proposal</span>
+            <span class="rtitle"><span class="projtag">cc</span>add-config-ownership-ratchet <span class="cap">· config-ratchet</span></span>
+            <span class="progress"><span class="track"><span class="fill" style="width:90%"></span></span><span class="pct">9/10</span></span>
+            <span class="status inprog">In&nbsp;prog</span>
+            <span class="prio p1">P1</span>
+          </div>
+        </div>
+
+        <!-- orphan bead, expanded to show description -->
+        <div class="row open">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">nx-zpbqi</span>
+            <span class="badge orphan">Orphan</span>
+            <span class="rtitle"><span class="projtag">nx</span>Homelab deploy: bun.lock frozen-install drift blocks post-merge</span>
+            <span></span>
+            <span class="status blocked">Blocked</span>
+            <span class="prio p1">P1</span>
+          </div>
+          <div class="row__kids">
+            <div class="kid">
+              <span></span><span></span><span></span>
+              <span class="cell-desc">Post-merge hook fails on <code>bun install --frozen-lockfile</code> when a merged branch regenerated bun.lock. Needs either lockfile-tolerant deploy or a pre-merge lock check. Unplanned — not referenced by any live proposal's tasks.md.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- orphan bug -->
+        <div class="row">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">nx-qq3qu</span>
+            <span class="badge bug">Bug</span>
+            <span class="rtitle"><span class="projtag">nx</span>iOS interact channel: keystrokes never reach agent PTY</span>
+            <span></span>
+            <span class="status open">Open</span>
+            <span class="prio p1">P1</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row__head">
+            <span class="tw">▶</span>
+            <span class="bid">nx-bu1r5</span>
+            <span class="badge orphan">Orphan</span>
+            <span class="rtitle"><span class="projtag">nx</span>SessionDoneView ephemeral celebration: stateless one-shot flag</span>
+            <span></span>
+            <span class="status open">Open</span>
+            <span class="prio p3">P3</span>
+          </div>
+        </div>
+      </main>
+
+      <!-- detail rail -->
+      <aside class="detail">
+        <div class="detail__ids">
+          <span class="bid">nx-bwfba</span>
+          <span class="badge proposal">Proposal</span>
+          <span class="prio p2" style="padding:3px 8px">P2</span>
+        </div>
+        <h3>add-session-context-api</h3>
+        <div class="detail__spec">openspec/changes/add-session-context-api · capability: session-persistence</div>
+
+        <div class="detail__sec">Description</div>
+        <div>Expose per-session context (model, cwd, transcript stats) over the agent HTTP surface so Swift clients stop shelling into transcripts.</div>
+
+        <div class="detail__sec">Tasks · 8/12</div>
+        <div>
+          <div class="dep"><span class="check">✓</span><span class="bid">nx-k3d0q</span> DB batch no-op</div>
+          <div class="dep"><span class="check">✓</span><span class="bid">nx-p8s2m</span> context endpoint</div>
+          <div class="dep"><span class="check pending">○</span><span class="bid">nx-tom28</span> model chip UI</div>
+        </div>
+
+        <div class="detail__sec">Dependencies</div>
+        <div>
+          <div class="dep"><span style="color:var(--critical)">⊘</span><span class="bid">nx-merge-slot</span> merge slot (P0)</div>
+        </div>
+
+        <div class="detail__sec">Recent TTS</div>
+        <div class="tts-log">
+          <b>“Merged session context model field.”</b> <span class="t">2m</span><br>
+          <b>“API batch green, 31 tests passing.”</b> <span class="t">1h</span><br>
+          <b>“Started apply on session context spec.”</b> <span class="t">3h</span>
+        </div>
+
+        <div class="actions">
+          <span class="btn primary">Attach ⌘A</span>
+          <span class="btn">bd show</span>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SECTION 02: IA ================= -->
+<section class="section">
+  <div class="section__label">02 · Information Architecture</div>
+  <h2>Seven surfaces in, one spine out</h2>
+  <p class="section__note">
+    The board is the app. Sessions become a rail + attach affordance hanging off the projects they
+    belong to. Notifications/TTS become the ambient ticker + a history drawer. Everything operational
+    (credentials, integrations, sources) leaves the daily surface and moves behind a Settings pane.
+    Failures and health collapse into badges on the thing that failed, not destinations of their own.
+  </p>
+
+  <div class="cols2">
+    <div class="panel">
+      <h4>Before</h4>
+      <div class="sub">7 peer destinations · nav-tab sprawl</div>
+      <div class="tree"><span class="dim">nexus-mac</span>
+├─ Sources
+├─ Sessions
+├─ Roadmap
+├─ Credentials
+├─ Failures
+├─ Integrations
+└─ PTY Viewer</div>
+    </div>
+    <div class="panel">
+      <h4>After</h4>
+      <div class="sub">1 board · 1 ambient layer · settings</div>
+      <div class="tree"><span class="hot">Board</span>  projects ▾ → proposals → tasks → descriptions
+│        <span class="warn">orphan beads at top level</span>
+│        session rail · attach (PTY absorbed here)
+├─ <span class="hot">Ambient</span>  TTS ticker · notification drawer · presence dots
+├─ Settings  credentials · integrations · sources · voices
+└─ <span class="dead">Failures tab</span> → badge on row + drawer entry
+   <span class="dead">Roadmap tab</span> → IS the board now
+   <span class="dead">PTY Viewer tab</span> → attach action on session</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SECTION 03: DISPOSITION ================= -->
+<section class="section">
+  <div class="section__label">03 · Disposition</div>
+  <h2>Keep, demote, deprecate</h2>
+  <table class="ia">
+    <thead><tr><th>Surface</th><th>Verdict</th><th>Where it goes</th></tr></thead>
+    <tbody>
+      <tr><td>Roadmap</td><td><span class="verdict keep">Becomes the app</span></td>
+        <td>Promoted to the main board. Capability level demoted to a tag on proposal rows — the proposal is the unit Leo triages, matching <code>bd</code>'s feature-primary priority model.</td></tr>
+      <tr><td>Sessions</td><td><span class="verdict keep">Keep · reframed</span></td>
+        <td>Session rail under each project + live count in the project list. A session is context <em>about</em> a project, not a peer destination.</td></tr>
+      <tr><td>TTS + Notifications</td><td><span class="verdict keep">Keep · ambient</span></td>
+        <td>One-line ticker at top + history drawer (⌘H) + per-proposal recent-TTS in the detail rail. Never a modal, never a tab.</td></tr>
+      <tr><td>PTY Viewer</td><td><span class="verdict absorb">Absorb</span></td>
+        <td>Becomes the <code>Attach</code> action on a session row. The viewer stays as a sheet/window you summon, not a place you visit.</td></tr>
+      <tr><td>Failures</td><td><span class="verdict absorb">Absorb</span></td>
+        <td>Failure badge on the affected project/session row + entries in the notification drawer. A failures <em>tab</em> is a graveyard nobody checks.</td></tr>
+      <tr><td>Credentials</td><td><span class="verdict demote">Demote</span></td>
+        <td>Settings pane. Operational config, touched monthly — zero reason to sit beside daily triage.</td></tr>
+      <tr><td>Integrations</td><td><span class="verdict demote">Demote</span></td>
+        <td>Settings pane, same reasoning. Health of an integration surfaces as a badge, not a page.</td></tr>
+      <tr><td>Sources</td><td><span class="verdict demote">Demote</span></td>
+        <td>Settings pane (project/agent registry management). The <em>output</em> of sources — the project list — is the board's rail.</td></tr>
+      <tr><td>Analytics / Health / Decisions / Wave-plans routes</td><td><span class="verdict deprecate">Deprecate candidates</span></td>
+        <td>Agent routes with no surviving primary surface get a usage audit; anything the board and drawer don't consume within a release gets removed per the clean-replacement default.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ================= SECTION 04: DATA CONTRACT ================= -->
+<section class="section">
+  <div class="section__label">04 · Data Contract</div>
+  <h2>Already shipped — the board is a rendering problem</h2>
+  <p class="section__note">
+    The <code>add-bead-proposal-roadmap-surface</code> capability already landed the aggregation:
+    <code>GET /roadmap?project=&lt;code&gt;</code> returns capabilities &rarr; proposals with
+    <code>BeadRollup</code> progress, and <code>GET /beads/unlinked?project=&lt;code&gt;</code>
+    returns exactly the orphan set. Both degrade to empty on bd failure, never 500. The only new
+    agent work is an <code>All</code> aggregator (fan-out across the project registry, merge, tag
+    rows with project code) and task-level descriptions in the rollup.
+  </p>
+  <div class="cols2">
+    <div class="panel">
+      <h4>GET /roadmap?project=nx</h4>
+      <div class="sub">shipped · roadmap-aggregate.ts</div>
+      <div class="tree">{ capabilities: [{
+    name, epicId, epicStatus,
+    proposals: [{ slug, specStatus,
+      rollup: { tasks, closed, … } }],
+    progress: { totalTasks, closedTasks }
+}] }</div>
+    </div>
+    <div class="panel">
+      <h4>GET /beads/unlinked?project=nx</h4>
+      <div class="sub">shipped · bead-rollup.ts filterUnlinked</div>
+      <div class="tree">{ unlinked: [{
+    id, title, status,
+    priority, issue_type, …
+}] }  <span class="dim">// open+in_progress beads not in any
+   // live proposal's tasks.md — the
+   // board's top-level orphans, verbatim</span></div>
+    </div>
+  </div>
+</section>
+
+<footer style="max-width:1480px;margin:0 auto;font-size:10px;color:var(--ink-4);letter-spacing:0.14em;text-transform:uppercase">
+  nexus refocus · docs/diagrams/nx-refocus-board.html · phosphor instrument language v2
+</footer>
+
+</body>
+</html>
