@@ -9,6 +9,12 @@ export {
   type ElevenlabsCredential,
   type NewElevenlabsCredential,
 } from "./elevenlabsCredentials";
+export {
+  integrationCredentials,
+  integrationCredentialsRelations,
+  type IntegrationCredential,
+  type NewIntegrationCredential,
+} from "./integrationCredentials";
 export { agents, agentsRelations, type Agent, type NewAgent } from "./agents";
 export * from "./projects";
 export * from "./projectLocations";

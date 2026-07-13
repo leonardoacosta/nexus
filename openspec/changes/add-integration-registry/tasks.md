@@ -5,8 +5,8 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-2] Add `packages/db/src/schema/integrationCredentials.ts` — `integration_credentials` table (`provider`, `agent_id` FK cascade, `value_encrypted`, `encryption_key_id`, `metadata` jsonb, `last_test_ok_at`, `last_test_status_code`, timestamps) with a unique index on `(agent_id, provider)`; export table + relations + `IntegrationCredential`/`NewIntegrationCredential` types from `packages/db/src/schema/index.ts`. [owner:db-engineer] [type:db] [beads:nx-juxwl]
-- [ ] [1.2] [P-2] Run `drizzle-kit generate` and commit the resulting migration `.sql` — never `db:push`. [owner:db-engineer] [type:db] [beads:nx-l0mt0]
+- [x] [1.1] [P-2] Add `packages/db/src/schema/integrationCredentials.ts` — `integration_credentials` table (`provider`, `agent_id` FK cascade, `value_encrypted`, `encryption_key_id`, `metadata` jsonb, `last_test_ok_at`, `last_test_status_code`, timestamps) with a unique index on `(agent_id, provider)`; export table + relations + `IntegrationCredential`/`NewIntegrationCredential` types from `packages/db/src/schema/index.ts`. [owner:db-engineer] [type:db] [beads:nx-juxwl]
+- [x] [1.2] [P-2] Run `drizzle-kit generate` and commit the resulting migration `.sql` — never `db:push`. [owner:db-engineer] [type:db] [beads:nx-l0mt0]
 
 ## API Batch
 
