@@ -293,6 +293,7 @@ describe.skipIf(!hasPg)("credential-refresh-job: live-PG active-fingerprint excl
         const fakeWatcherPool = {
           list: async () => [{ id: "n/a", fingerprint: activeFingerprint }],
           add: async () => "updated" as const,
+          updateSecret: async () => {},
         };
         await activeTesting.runRefresh(fakeWatcherPool, credPath);
 

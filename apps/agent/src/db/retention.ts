@@ -93,8 +93,13 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
  * simply haven't been leased yet, and this repo has no query-time signal to
  * distinguish "idle backup account" from "not-yet-marked-dead rotation
  * orphan" without risking a false-positive delete of a real credential.
+ *
+ * Exported (not just called internally via `runRetentionCleanup`) so
+ * `retention-credentials.test.ts` can exercise the predicate directly
+ * against a fixture set of duplicate rows without needing to seed every
+ * other table `runRetentionCleanup` touches.
  */
-async function deleteStaleCredentials(
+export async function deleteStaleCredentials(
   db: Db,
   cutoff: Date,
 ): Promise<number> {

@@ -106,6 +106,7 @@ describe("writeStatuslineUsageFile", () => {
     const fakeWatcherPool = {
       list: async () => [],
       add: async () => "updated" as const,
+      updateSecret: async () => {},
     };
     await activeTesting.runRefresh(fakeWatcherPool, credPath);
     await rm(dir, { recursive: true, force: true });
