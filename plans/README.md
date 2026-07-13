@@ -389,7 +389,7 @@ plan was written for it.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 038 | Fix `deliveryState` never updating past insert + regenerate stale Rust-era TTS pipeline docs | P2 | S | — | TODO |
+| 038 | Fix `deliveryState` never updating past insert + regenerate stale Rust-era TTS pipeline docs | P2 | S | — | DONE (reviewed, worktree 20260713-0857-4d449c81, branch apply/20260713-0857-4d449c81 @ ab72b555, NOT merged to main yet — Leo's call; buffer.test.ts 4/0; deliveryState="delivered"/"failed" confirmed at buffer.ts:47/55; zero stale Rust refs in either doc; `pnpm --filter @nexus/agent typecheck` exits 2 but independently confirmed pre-existing/unrelated — the 3 errors are in version-builder.ts + 2 unrelated test files, none touched by this diff's 4-file scope; docs/tts-pipeline.svg/.png NOT regenerated — puppeteer Chrome missing on this machine, plan explicitly allows this skip, still stale relative to the corrected .mmd) spec-impact: none
 | 039 | Widen the notification dedup TTL from 5s to 2 minutes | P2 | S | — | TODO |
 | 040 | Add a self-service notification noise-diagnosis endpoint (noisiest titles / busiest hours) | P2 | M | — | TODO |
 | 041 | Downgrade repeat TTS notifications to silent desktop when a project exceeds a rate threshold | P2 | L | — | TODO |
