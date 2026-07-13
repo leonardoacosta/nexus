@@ -318,12 +318,17 @@ describe.skipIf(!hasPg)(
       }
     });
 
-    it("folds the observer git object into the latest status when observed", async () => {
+    it("folds the observer git object (with ahead/behind) into the latest status when observed", async () => {
+      // add-git-ahead-behind-status: a simulated ahead/behind state is folded
+      // through unchanged so `GET /projects/:id/status` surfaces git.ahead /
+      // git.behind alongside the rest of the observer's in-memory git object.
       const observed: GitStatusObject = {
         branch: "feat",
         headSha: "abc1234def",
         detached: false,
         dirty: { modified: 2, untracked: 1 },
+        ahead: 3,
+        behind: 1,
         observedAt: new Date().toISOString(),
       };
       const spy = spyOn(gitObserver, "getObservedGitState").mockReturnValue(
@@ -338,6 +343,9 @@ describe.skipIf(!hasPg)(
         };
         expect(body.project).toBe("gob");
         expect(body.git).toEqual(observed);
+        // Explicit ahead/behind surfacing (the point of this proposal).
+        expect(body.git?.ahead).toBe(3);
+        expect(body.git?.behind).toBe(1);
       } finally {
         spy.mockRestore();
       }

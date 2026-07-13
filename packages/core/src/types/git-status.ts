@@ -37,12 +37,19 @@ export type GitDirtyCounts = z.infer<typeof gitDirtyCounts>;
  * are kept as distinct fields so the detached case is explicit rather than
  * inferred from a null branch. `observedAt` is ISO 8601 — the poll time the
  * state was last refreshed, so a client can tell fresh state from stale.
+ *
+ * `ahead` / `behind` are the commit counts relative to the configured upstream
+ * (from the poll's `# branch.ab +X -Y` line). Both default to `0` when no
+ * upstream is configured (the line is absent), so a client never has to
+ * distinguish "no upstream" from "in sync" for rendering purposes.
  */
 export const gitStatusObject = z.object({
   branch: z.string().nullable(),
   headSha: z.string(),
   detached: z.boolean(),
   dirty: gitDirtyCounts,
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
   observedAt: z.string(),
 });
 export type GitStatusObject = z.infer<typeof gitStatusObject>;

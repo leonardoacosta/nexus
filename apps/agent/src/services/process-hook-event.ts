@@ -36,6 +36,7 @@ import {
   backfillSessionCwd,
   deriveAgentState,
   updateSessionAgentState,
+  updateSessionModel,
 } from "../db/sessions";
 
 const log = createLogger("agent:process-hook-event");
@@ -146,7 +147,27 @@ export async function processHookEvent(
   try {
     switch (input.eventType) {
       case "session_start": {
-        if (!input.sessionId || !input.cwd) break;
+        if (!input.sessionId) break;
+        // add-session-model-authority: persist the raw model from the hook
+        // payload (last-write-wins). Independent of cwd/git-origin — a
+        // session_start with no cwd still carries a model. Own inner try/catch:
+        // model persistence is orthogonal enrichment, so a hiccup here must not
+        // flip enrichmentOk or block the git-origin branch below (mirrors the
+        // fire-and-forget, swallow-on-failure shape of the cwd-backfill block).
+        if (db) {
+          const model = input.payload.model;
+          if (typeof model === "string" && model.length > 0) {
+            try {
+              await updateSessionModel(db, input.sessionId, model);
+            } catch (err) {
+              log.warn(
+                { err, sessionId: input.sessionId, source: input.source },
+                "process-hook-event: model persist threw (non-fatal)",
+              );
+            }
+          }
+        }
+        if (!input.cwd) break;
         if (!db) break;
         // nx-cvyxt: backfill the row's cwd FIRST. The process-watcher inserts
         // a row with an empty cwd whenever a live `claude` PID doesn't match a

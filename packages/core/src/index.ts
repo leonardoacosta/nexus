@@ -124,4 +124,5 @@ export {
   specEventsFrameSchema,
   SPEC_EVENTS_EVENT_NAME,
 } from "./types/spec-events";
+export { modelFamilyLetter } from "./model-letter";
 export { fetchWithTimeout } from "./fetch";

@@ -79,9 +79,11 @@ export type GitObservation = Omit<GitStatusObject, "observedAt">;
  * Parse `git status --porcelain=v2 --branch` output into a {@link GitObservation}.
  *
  * Pulls `# branch.oid` (HEAD sha), `# branch.head` (`(detached)` => detached),
- * and counts entry lines: `1 `/`2 `/`u ` are tracked modifications, `? ` are
- * untracked. Returns `null` when the output is missing the branch header
- * (not a v2 status block).
+ * `# branch.ab +X -Y` (ahead/behind vs upstream), and counts entry lines:
+ * `1 `/`2 `/`u ` are tracked modifications, `? ` are untracked. `ahead`/`behind`
+ * default to `0` when the `# branch.ab` line is absent (no upstream configured).
+ * Returns `null` when the output is missing the branch header (not a v2 status
+ * block).
  */
 export function parseGitStatusV2(raw: string): GitObservation | null {
   if (!raw) return null;
@@ -89,6 +91,8 @@ export function parseGitStatusV2(raw: string): GitObservation | null {
   let branch: string | null = null;
   let detached = false;
   let sawHead = false;
+  let ahead = 0;
+  let behind = 0;
   const dirty: GitDirtyCounts = { modified: 0, untracked: 0 };
 
   for (const line of raw.split(/\r?\n/)) {
@@ -107,6 +111,16 @@ export function parseGitStatusV2(raw: string): GitObservation | null {
       }
       continue;
     }
+    if (line.startsWith("# branch.ab ")) {
+      // Mirrors `parseGitMetadata` in git-project.ts: `+<ahead> -<behind>`.
+      const rest = line.slice("# branch.ab ".length).trim();
+      const m = /^\+(-?\d+)\s+-(-?\d+)$/.exec(rest);
+      if (m) {
+        ahead = parseInt(m[1]!, 10);
+        behind = parseInt(m[2]!, 10);
+      }
+      continue;
+    }
     if (line.startsWith("#")) continue;
     if (
       line.startsWith("1 ") ||
@@ -120,7 +134,7 @@ export function parseGitStatusV2(raw: string): GitObservation | null {
   }
 
   if (!sawHead || !headSha) return null;
-  return { branch, headSha, detached, dirty };
+  return { branch, headSha, detached, dirty, ahead, behind };
 }
 
 /**

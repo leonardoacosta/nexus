@@ -81,6 +81,9 @@ importers:
 
   apps/nexus-statusline:
     dependencies:
+      '@nexus/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@nexus/statusline-contract':
         specifier: workspace:*
         version: link:../../packages/statusline-contract

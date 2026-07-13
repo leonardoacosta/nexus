@@ -52,6 +52,7 @@
         "nexus-statusline": "src/index.ts",
       },
       "dependencies": {
+        "@nexus/core": "workspace:*",
         "@nexus/statusline-contract": "workspace:*",
       },
       "devDependencies": {

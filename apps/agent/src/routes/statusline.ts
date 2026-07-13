@@ -6,6 +6,7 @@
 
 import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
+import { modelFamilyLetter } from "@nexus/core";
 import os from "node:os";
 import { queryActiveSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
@@ -122,7 +123,10 @@ export async function handleStatusline(db: Db): Promise<Response> {
     // Until a join is added (capability 3), callers receive the raw uuid here.
     project: s.projectId,
     status: s.status,
-    model: null,
+    // add-session-model-authority: derive the single-letter family tag from the
+    // row's raw stored model (populated by the hook-ingest spine) instead of a
+    // hardcoded null. `null` still results when the row has no model yet.
+    model: modelFamilyLetter({ id: s.model ?? undefined }) ?? null,
     cwd: s.cwd,
     idle_seconds: s.lastActivity
       ? Math.floor((Date.now() - s.lastActivity.getTime()) / 1000)

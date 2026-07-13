@@ -19,6 +19,9 @@ import {
 import type { SocketEvent } from "../../types/socket-events";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
+// Restorable spy target for the session_heartbeat model-persist suite below —
+// dispatcher.ts imports `updateSessionModel` named from this module.
+import * as sessionsDb from "../../db/sessions";
 import type { SessionManager } from "../../session-manager";
 import type { LifecycleEnvelope } from "../lifecycle-bus";
 import type { NotificationManager } from "../../notifications/manager";
@@ -188,5 +191,52 @@ describe("socket-server dispatcher: session_stop api_error routing (nx-7tfim)", 
     expect(evalSpy).toHaveBeenCalledTimes(1);
     const [, , eventType] = evalSpy.mock.calls[0]!;
     expect(eventType).toBe("session_stop");
+  });
+});
+
+// ─── session_heartbeat model persistence (add-session-model-authority) ───────
+
+describe("socket-server dispatcher: session_heartbeat model persistence", () => {
+  let dispatch: (event: SocketEvent) => void;
+  let updateModelSpy: ReturnType<typeof spyOn<typeof sessionsDb, "updateSessionModel">>;
+  const fakeDb = {} as unknown as Db;
+
+  beforeEach(async () => {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+    // Restorable spy so the sibling suites' real updateSessionModel is intact.
+    updateModelSpy = spyOn(sessionsDb, "updateSessionModel").mockResolvedValue(1);
+    dispatch = createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: new LifecycleBus(),
+      db: fakeDb,
+    });
+  });
+
+  afterEach(() => {
+    updateModelSpy.mockRestore();
+  });
+
+  test("persists the raw model when the heartbeat carries one", () => {
+    const event: SocketEvent = {
+      event: "session_heartbeat",
+      session_id: "s-hb",
+      model: "claude-opus-4-8",
+    };
+    dispatch(event);
+    expect(updateModelSpy).toHaveBeenCalledWith(fakeDb, "s-hb", "claude-opus-4-8");
+  });
+
+  test("last-write-wins: a later heartbeat model issues a fresh unconditional UPDATE", () => {
+    dispatch({ event: "session_heartbeat", session_id: "s-hb", model: "claude-opus-4-8" });
+    dispatch({ event: "session_heartbeat", session_id: "s-hb", model: "claude-sonnet-4-6" });
+    expect(updateModelSpy).toHaveBeenCalledTimes(2);
+    // The most recent call carries the newer value — later write wins.
+    expect(updateModelSpy.mock.calls[1]).toEqual([fakeDb, "s-hb", "claude-sonnet-4-6"]);
+  });
+
+  test("no-clobber: a heartbeat with no model does NOT call updateSessionModel", () => {
+    dispatch({ event: "session_heartbeat", session_id: "s-hb" });
+    expect(updateModelSpy).not.toHaveBeenCalled();
   });
 });
