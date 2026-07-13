@@ -25,6 +25,10 @@ public final class SessionObserver: ObservableObject {
     @Published public private(set) var lastHeartbeat: Date?
     @Published public private(set) var peerReachable: Bool = false
     @Published public private(set) var connectionStatus: String = "connecting"
+    /// Most recent `BeadTransition` seen on the SSE stream (per project's
+    /// unlinked ready/blocked count change). Decode-only surface for now —
+    /// no dashboard UI consumes it yet (add-project-status-snapshots task 3.1).
+    @Published public private(set) var lastBeadTransition: BeadTransition?
 
     /// Multi-agent fan-out (agents.toml). Replaces the single-endpoint
     /// `NexusClient` field — partial-failure tolerant per nx-4ohfs.
@@ -121,6 +125,10 @@ public final class SessionObserver: ObservableObject {
             if let ev = event.decodeNotification() {
                 prependNotification(ev)
                 postLocalNotification(for: ev)
+            }
+        case "BeadTransition":
+            if let t = event.decodeBeadTransition() {
+                self.lastBeadTransition = t
             }
         default:
             break

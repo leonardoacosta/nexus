@@ -18,7 +18,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] Add minimal `BeadTransition` decode to NexusShared — Codable model in `apps/swift/NexusShared/Models` + SSE observer wiring in `apps/swift/NexusShared/Observers`, following the existing SpecTransition decode shape; no new dashboard surface in this change. [owner:swift-engineer] [type:ui] [beads:nx-wtyz8]
+- [x] [3.1] Add minimal `BeadTransition` decode to NexusShared — Codable model in `apps/swift/NexusShared/Models` + SSE observer wiring in `apps/swift/NexusShared/Observers`, following the existing SpecTransition decode shape; no new dashboard surface in this change. [owner:swift-engineer] [type:ui] [beads:nx-wtyz8]
 
 ## E2E Batch
 
