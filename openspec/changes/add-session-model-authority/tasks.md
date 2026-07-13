@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] 1.1 No schema change. `sessions.model` (migration 0005) already exists as a `text` column [beads:nx-fjr6s]
+- [x] 1.1 No schema change. `sessions.model` (migration 0005) already exists as a `text` column [beads:nx-fjr6s]
       — this proposal changes what writes to it and what reads from it, not its shape.
       - touches: (none)
 

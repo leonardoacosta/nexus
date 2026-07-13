@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] 1.1 No schema change. `git_events`/`project_status_snapshots` tables are unaffected — the [beads:nx-a68pm]
+- [x] 1.1 No schema change. `git_events`/`project_status_snapshots` tables are unaffected — the [beads:nx-a68pm]
       new fields live only in the observer's in-memory `GitStatusObject`, not persisted.
       - touches: (none)
 
