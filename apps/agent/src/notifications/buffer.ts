@@ -17,7 +17,7 @@
 import type { Db } from "@nexus/db";
 import { notifications } from "@nexus/db";
 import type { NotificationStatus } from "@nexus/core";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and, gte, isNull, sql } from "drizzle-orm";
 
 /** Row shape returned from the `notifications` table. */
 export type NotificationRow = typeof notifications.$inferSelect;
@@ -67,4 +67,31 @@ export async function getNotificationById(
     .where(eq(notifications.id, id))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Count notifications for a given (project, channel) pair created since
+ * `since` — used by the rate-throttle in manager.ts (plan 041,
+ * noise-reduction audit 2026-07-13). `project` is matched with `IS NULL`
+ * when null, `= project` otherwise, mirroring the dedup key convention in
+ * routes/notifications.ts.
+ */
+export async function countRecentNotifications(
+  db: Db,
+  project: string | null,
+  channel: string,
+  since: Date,
+): Promise<number> {
+  const conditions = [
+    eq(notifications.channel, channel),
+    gte(notifications.createdAt, since),
+    project === null
+      ? isNull(notifications.project)
+      : eq(notifications.project, project),
+  ];
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(notifications)
+    .where(and(...conditions));
+  return Number(rows[0]?.count ?? 0);
 }

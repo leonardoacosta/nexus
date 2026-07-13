@@ -25,6 +25,7 @@ import {
   markNotificationDelivered,
   markNotificationExpired,
   getNotificationById,
+  countRecentNotifications,
 } from "./buffer";
 
 describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () => {
@@ -73,5 +74,26 @@ describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () 
 
     const row = await getNotificationById(db, "missing");
     expect(row).toBeNull();
+  });
+
+  it("countRecentNotifications issues a COUNT query scoped to project+channel+since", async () => {
+    const where = mock(async () => [{ count: 3 }]);
+    const from = mock(() => ({ where }));
+    const select = mock(() => ({ from }));
+    const db = { select } as unknown as import("@nexus/db").Db;
+
+    const count = await countRecentNotifications(db, "nx", "tts", new Date());
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(count).toBe(3);
+  });
+
+  it("countRecentNotifications handles a null project", async () => {
+    const where = mock(async () => [{ count: 0 }]);
+    const from = mock(() => ({ where }));
+    const select = mock(() => ({ from }));
+    const db = { select } as unknown as import("@nexus/db").Db;
+
+    const count = await countRecentNotifications(db, null, "tts", new Date());
+    expect(count).toBe(0);
   });
 });
