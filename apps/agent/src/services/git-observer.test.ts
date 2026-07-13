@@ -51,6 +51,7 @@ import type { GitStatusObject } from "@nexus/core";
 import {
   observeGitState,
   detectGitTransition,
+  parseGitStatusV2,
   startGitObserver,
   type GitObservation,
   type GitTransition,
@@ -154,6 +155,27 @@ async function observe(path: string): Promise<GitObservation> {
   if (obs === null) throw new Error(`expected an observation for ${path}`);
   return obs;
 }
+
+// ─── 0. parseGitStatusV2 ahead/behind parsing (add-git-ahead-behind-status) ──
+
+describe("parseGitStatusV2 ahead/behind", () => {
+  const HEAD =
+    "# branch.oid abc123def456abc123def456abc123def456abc1\n# branch.head main\n";
+
+  test("parses `# branch.ab +3 -1` into ahead: 3, behind: 1", () => {
+    const obs = parseGitStatusV2(`${HEAD}# branch.ab +3 -1\n`);
+    expect(obs).not.toBeNull();
+    expect(obs!.ahead).toBe(3);
+    expect(obs!.behind).toBe(1);
+  });
+
+  test("defaults to ahead: 0, behind: 0 when no `# branch.ab` line (no upstream)", () => {
+    const obs = parseGitStatusV2(HEAD);
+    expect(obs).not.toBeNull();
+    expect(obs!.ahead).toBe(0);
+    expect(obs!.behind).toBe(0);
+  });
+});
 
 // ─── 1. Baseline → transition (new_commit / branch_switch / detached_head) ────
 

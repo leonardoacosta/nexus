@@ -364,6 +364,33 @@ export async function updateSessionAgentState(
 }
 
 /**
+ * Persist a session's raw `model` string, keyed by session id
+ * (add-session-model-authority). Called from the hook-ingest spine on any event
+ * carrying a fresh model value (`session_start`, `session_heartbeat`),
+ * last-write-wins — a later event's value replaces an earlier one.
+ *
+ * No-clobber guard: an empty/blank `model` is a no-op (returns 0) so a hook
+ * that omits the field never overwrites a previously-stored model with "".
+ * Mirrors the fail-soft, single-targeted-UPDATE shape of
+ * `updateSessionAgentState`. Stores the RAW value (not a derived letter) so a
+ * future change to the family-mapping heuristic never needs a data backfill.
+ * Returns the number of rows touched (0 when blank, or the id does not exist).
+ */
+export async function updateSessionModel(
+  db: Db,
+  id: string,
+  model: string,
+): Promise<number> {
+  if (!model || !model.trim()) return 0;
+  const updated = await db
+    .update(sessions)
+    .set({ model })
+    .where(eq(sessions.id, id))
+    .returning({ id: sessions.id });
+  return updated.length;
+}
+
+/**
  * Refresh `last_activity = now` for every open, active session whose `pid`
  * is in `pids`. This is a liveness heartbeat sourced from process-aliveness
  * (the process-watcher reconcile tick), NOT from inbound CC hook traffic — a

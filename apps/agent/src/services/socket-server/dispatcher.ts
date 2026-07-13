@@ -10,7 +10,7 @@ import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { credentials, eq } from "@nexus/db";
-import { recordSessionStop } from "../../db/sessions";
+import { recordSessionStop, updateSessionModel } from "../../db/sessions";
 import type { SocketEvent, SessionStopEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
@@ -184,6 +184,20 @@ export function createSocketEventDispatcher(
           event as unknown as Record<string, unknown>,
           { sessionManager, db: db ?? null },
         );
+        // add-session-model-authority: persist the raw model when the heartbeat
+        // carries one (last-write-wins captures mid-session `/model` switches).
+        // Fire-and-forget keyed UPDATE, mirroring deriveAndPersistAgentState —
+        // updateSessionModel no-ops on a blank/absent value.
+        if (db && event.model) {
+          updateSessionModel(db, event.session_id, event.model).catch(
+            (err: unknown) => {
+              log.warn(
+                { err, sessionId: event.session_id },
+                "socket: updateSessionModel(heartbeat) rejected (best-effort)",
+              );
+            },
+          );
+        }
         lifecycleBus.emit("SessionHeartbeat", {
           sessionId: event.session_id,
           timestamp: new Date().toISOString(),

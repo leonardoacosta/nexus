@@ -49,6 +49,14 @@ export interface SessionStopEvent {
 export interface SessionHeartbeatEvent {
   event: "session_heartbeat";
   session_id: string;
+  /**
+   * Active model at heartbeat time. CC hook payloads carry `model` on every
+   * invocation (not just SessionStart), so a mid-session `/model` switch shows
+   * up here — persisted to `sessions.model` last-write-wins by the dispatcher
+   * (add-session-model-authority). Optional: a heartbeat that omits it is a
+   * no-op for model persistence (the value is never clobbered with "").
+   */
+  model?: string;
 }
 
 export interface NotificationEvent {

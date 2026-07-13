@@ -55,6 +55,11 @@ const backfillSessionCwdMock = mock(
 const updateSessionAgentStateMock = mock(
   async (_db: Db, _id: string, _state: string) => 1 as number,
 );
+// add-session-model-authority: the helper persists the raw model on
+// session_start. Mock the write-through so the call is observable without a DB.
+const updateSessionModelMock = mock(
+  async (_db: Db, _id: string, _model: string) => 1 as number,
+);
 function deriveAgentStateImpl(eventType: string): "blocked" | "waiting" | "ready" | null {
   switch (eventType) {
     case "PreToolUse":
@@ -77,6 +82,7 @@ mock.module("../db/sessions", () => ({
   updateSessionGitOrigin: updateSessionGitOriginMock,
   backfillSessionCwd: backfillSessionCwdMock,
   updateSessionAgentState: updateSessionAgentStateMock,
+  updateSessionModel: updateSessionModelMock,
   deriveAgentState: deriveAgentStateImpl,
 }));
 
@@ -128,6 +134,8 @@ describe("processHookEvent", () => {
     backfillSessionCwdMock.mockImplementation(async () => 1);
     updateSessionAgentStateMock.mockClear();
     updateSessionAgentStateMock.mockImplementation(async () => 1);
+    updateSessionModelMock.mockClear();
+    updateSessionModelMock.mockImplementation(async () => 1);
     ({ processHookEvent } = await import("./process-hook-event"));
   });
 
@@ -282,6 +290,87 @@ describe("processHookEvent", () => {
 
     expect(resolveGitOriginMock).toHaveBeenCalled();
     expect(updateSessionGitOriginMock).not.toHaveBeenCalled();
+  });
+
+  test("session_start persists the raw model from the payload (add-session-model-authority)", async () => {
+    resolveGitOriginMock.mockImplementation(async () => null);
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-model",
+        payload: { session_id: "sess-model", cwd: "/x", model: "claude-opus-4-8" },
+        source: "socket",
+        cwd: "/x",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionModelMock).toHaveBeenCalledTimes(1);
+    expect(updateSessionModelMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-model",
+      "claude-opus-4-8",
+    );
+  });
+
+  test("session_start with no model does NOT call updateSessionModel (no-clobber)", async () => {
+    resolveGitOriginMock.mockImplementation(async () => null);
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-no-model",
+        payload: { session_id: "sess-no-model", cwd: "/x" },
+        source: "socket",
+        cwd: "/x",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionModelMock).not.toHaveBeenCalled();
+  });
+
+  test("session_start persists model even when the hook carries no cwd", async () => {
+    // Model persistence is independent of the git-origin (cwd) branch: a
+    // cwd-less session_start still carries a model and must persist it.
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-model-nocwd",
+        payload: { session_id: "sess-model-nocwd", model: "claude-sonnet-4-6" },
+        source: "socket",
+        cwd: null,
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionModelMock).toHaveBeenCalledWith(
+      fakeDb,
+      "sess-model-nocwd",
+      "claude-sonnet-4-6",
+    );
+    // The cwd-dependent git-origin branch was skipped (no cwd).
+    expect(updateSessionGitOriginMock).not.toHaveBeenCalled();
+  });
+
+  test("session_start model persist failure is non-fatal (helper still resolves ok)", async () => {
+    updateSessionModelMock.mockImplementation(async () => {
+      throw new Error("UPDATE failed");
+    });
+    resolveGitOriginMock.mockImplementation(async () => null);
+    const sm = createMockSessionManager();
+    const result = await processHookEvent(
+      {
+        eventType: "session_start",
+        sessionId: "sess-model-throws",
+        payload: { session_id: "sess-model-throws", cwd: "/x", model: "claude-opus-4-8" },
+        source: "socket",
+        cwd: "/x",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+    expect(updateSessionModelMock).toHaveBeenCalled();
+    // Swallowed in its own try/catch — enrichmentOk stays true.
+    expect(result.enrichmentOk).toBe(true);
   });
 
   test("agent_spawn populates parent_session_id and child_role on the in-memory session", async () => {

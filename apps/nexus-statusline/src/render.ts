@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { modelFamilyLetter } from "@nexus/core";
 import { nowSecs } from "./cache-io";
 import { deriveProjectCode } from "./project";
 import type {
@@ -21,14 +22,12 @@ const SPEC = "\x1b[38;5;216m"; // salmon
 const DIM = "\x1b[38;5;240m"; // gray
 
 // ── Model/effort token ────────────────────────────────────────────────────────
-
-/** Family letter keyed by substring found in model.id / display_name. */
-const MODEL_FAMILIES: ReadonlyArray<readonly [string, string]> = [
-  ["fable", "F"],
-  ["opus", "O"],
-  ["sonnet", "S"],
-  ["haiku", "H"],
-];
+//
+// `modelFamilyLetter` now lives in `@nexus/core` (add-session-model-authority) —
+// one canonical mapping shared with the agent's `/statusline` route. Only the
+// effort-suffix half stays local (below). Re-exported so existing local import
+// sites (`./render`) keep resolving it without reaching across packages.
+export { modelFamilyLetter } from "@nexus/core";
 
 /** Effort-level → compact suffix. `ultracode` mapped defensively alongside `max`. */
 const EFFORT_SUFFIX: Readonly<Record<string, string>> = {
@@ -39,28 +38,6 @@ const EFFORT_SUFFIX: Readonly<Record<string, string>> = {
   max: "u",
   ultracode: "u",
 };
-
-/**
- * Family letter alone (from `model.id`, `display_name` fallback; unknown
- * family → uppercased `display_name` initial). No model → null. Shared by
- * `modelEffortToken` (row-one token) and the session-context harvest (which
- * needs the letter without the effort suffix).
- */
-export function modelFamilyLetter(
-  model?: { id?: string; display_name?: string },
-): string | null {
-  if (!model) return null;
-  const id = model.id ?? "";
-  const dn = model.display_name ?? "";
-  if (!id && !dn) return null;
-
-  const hay = `${id} ${dn}`.toLowerCase();
-  for (const [fam, l] of MODEL_FAMILIES) {
-    if (hay.includes(fam)) return l;
-  }
-  const initial = dn.trim().charAt(0) || id.trim().charAt(0);
-  return initial ? initial.toUpperCase() : null;
-}
 
 /**
  * Compact row-one model token: family letter (see `modelFamilyLetter`) + effort
