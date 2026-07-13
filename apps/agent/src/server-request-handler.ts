@@ -92,6 +92,7 @@ import { CREDENTIAL_ID_RE } from "./server-auth";
 import { handleHealthGet, handleHealthIngest } from "./server-health-handler";
 import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
+import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -162,6 +163,11 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "DELETE", path: "/elevenlabs/credentials" },
   { method: "POST", path: "/elevenlabs/credentials/test" },
   { method: "GET", path: "/elevenlabs/voices" },
+  // Generic integration credentials (delegated to routes/integration-credentials.ts)
+  { method: "GET", path: "/integrations/:provider/credentials" },
+  { method: "PATCH", path: "/integrations/:provider/credentials" },
+  { method: "DELETE", path: "/integrations/:provider/credentials" },
+  { method: "POST", path: "/integrations/:provider/credentials/test" },
   // Agents (settings)
   { method: "GET", path: "/agent/self" },
   { method: "POST", path: "/agents" },
@@ -553,6 +559,14 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // ── ElevenLabs credential routes (delegated) ─────────────────────
       const elevenlabsResult = tryHandleElevenlabsRoute(request, url, db);
       if (elevenlabsResult !== null) return elevenlabsResult;
+
+      // ── Generic integration credential routes (delegated) ────────────
+      const integrationResult = tryHandleIntegrationCredentialsRoute(
+        request,
+        url,
+        db,
+      );
+      if (integrationResult !== null) return integrationResult;
 
       // ── Analytics routes ──────────────────────────────────────────────
       if (url.pathname === "/analytics/health" && request.method === "GET") {
