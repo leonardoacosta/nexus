@@ -17,4 +17,4 @@
 ## E2E Batch
 
 - [x] [4.1] Unit tests for the session-context store + routes — fresh-entry read, stale-entry-treated-as-absent (TTL), 204 on valid write, 400 on invalid `usedPercentage`/`contextWindowSize`, 404 on unknown/stale session id. [owner:tdd-integration] [type:testing] [beads:nx-h6y76]
-- [ ] [4.2] Unit tests for `context-guard.ts`'s push behavior (non-blocking, carries resolved not raw value, existing guard coverage stays green) and `session-context.ts`'s removal (no pane file written; GC still sweeps a pre-seeded orphan fixture) — see proposal.md § Testing for the seam-to-task mapping. [owner:tdd-integration] [type:testing] [beads:nx-5s0vf]
+- [x] [4.2] Unit tests for `context-guard.ts`'s push behavior (non-blocking, carries resolved not raw value, existing guard coverage stays green) and `session-context.ts`'s removal (no pane file written; GC still sweeps a pre-seeded orphan fixture) — see proposal.md § Testing for the seam-to-task mapping. [owner:tdd-integration] [type:testing] [beads:nx-5s0vf]

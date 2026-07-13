@@ -1365,6 +1365,107 @@ describe("resolveContext — suspicious-zero guard", () => {
   });
 });
 
+// ── 4.2 — resolved-value push (add-session-context-api) ──────────────────────
+
+describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
+  const fixedNow = 1_000_000; // unix seconds
+  const detNowDeps = { now: () => fixedNow, nowMs: () => fixedNow * 1000 };
+
+  it("populated frame pushes the live value (sessionId, usedPct, size)", () => {
+    const pushes: Array<[string, number, number | undefined]> = [];
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        context_window: { used_percentage: 45, context_window_size: 1000000 },
+      },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => null,
+        readSnapshot: () => null,
+        writeSnapshot: () => {},
+        pushContext: (id, used, size) => pushes.push([id, used, size]),
+      },
+    );
+    expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
+    expect(pushes).toEqual([["s1", 45, 1000000]]);
+  });
+
+  it("spurious-zero restore pushes the snapshot value, NEVER the raw 0 frame", () => {
+    const pushes: Array<[string, number, number | undefined]> = [];
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        context_window: { used_percentage: 0, context_window_size: 200000 },
+      },
+      {
+        ...detNowDeps,
+        readSnapshot: () => ({
+          used_percentage: 62,
+          context_window_size: 200000,
+          saved_at: fixedNow - 60,
+        }),
+        pushContext: (id, used, size) => pushes.push([id, used, size]),
+      },
+    );
+    expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000 });
+    // the pushed value is the guarded snapshot (62), not the spurious 0.
+    expect(pushes).toEqual([["s1", 62, 200000]]);
+    expect(pushes.every(([, used]) => used !== 0)).toBe(true);
+  });
+
+  it("does NOT push on a zero frame with no restorable snapshot (omit path)", () => {
+    let pushed = 0;
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 0 } },
+      { ...detNowDeps, readSnapshot: () => null, pushContext: () => pushed++ },
+    );
+    expect(res).toBeNull();
+    expect(pushed).toBe(0);
+  });
+
+  it("returns the guarded value even when the injected push hangs (fire-and-forget)", () => {
+    // A push seam that kicks off never-settling async work must not delay or
+    // break the synchronous resolve return path.
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        context_window: { used_percentage: 45, context_window_size: 1000000 },
+      },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => null,
+        readSnapshot: () => null,
+        writeSnapshot: () => {},
+        pushContext: () => {
+          void new Promise(() => {}); // never resolves
+        },
+      },
+    );
+    expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
+  });
+
+  it("default push path returns synchronously when fetch never resolves", () => {
+    // Exercises the real defaultPushContext: fetch is stubbed to hang, proving
+    // the PATCH is not awaited in resolveContext's return path.
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => {}), // never resolves
+    );
+    try {
+      const res = resolveContext(
+        {
+          session_id: "s1",
+          context_window: { used_percentage: 45, context_window_size: 1000000 },
+        },
+        // stub fs seams so only the default pushContext (real fetch) runs
+        { ...detNowDeps, statMtimeMs: () => null, writeSnapshot: () => {} },
+      );
+      expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 // ── 1.6 — tokens/sec via transcript byte-growth ──────────────────────────────
 
 describe("getSpeed — transcript byte-growth", () => {
