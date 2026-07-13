@@ -101,12 +101,23 @@ function createFakePool(initialRows: FakePool["rows"] = []): FakePool {
           value_plaintext: input.value_plaintext,
         },
       });
-      // Mirror the production add(): on success, the row becomes visible
-      // to subsequent list() calls. Test-only — real pool also writes to DB.
+      // Mirror production CredentialPool.add()'s re-import guard
+      // (pool-core.ts ~line 213-266): a row whose fingerprint already
+      // matches is the same pool file re-imported (name is deterministically
+      // derived from the fingerprint at every callsite in this file, so a
+      // fingerprint match implies a name match too) — update it IN PLACE
+      // (same id, no new row) instead of inserting a duplicate. Only a miss
+      // falls through to the insert branch. Getting this wrong (always
+      // pushing) is what caused nx-dwoqv: a cold-start add() whose live
+      // fingerprint happens to match an already-seeded row silently minted a
+      // second row that a later updateSecret() call never touched.
       const fp = computeCredentialFingerprint(input.value_plaintext);
+      const existing = pool.rows.find((r) => r.fingerprint === fp);
+      if (existing) {
+        existing.fingerprint = fp;
+        return "updated";
+      }
       pool.rows.push({ id: input.id, fingerprint: fp });
-      // Return value is ignored by the active watcher's rotation path; return
-      // the "inserted" discriminant to satisfy CredentialPool.add's new type.
       return "inserted";
     },
     async list() {
