@@ -17,7 +17,7 @@ import OSLog
 /// PTY WebSocket transport logger (nx-gsk4h). `process:nexus` filter in
 /// Console.app surfaces the open → replay_done → close lifecycle.
 private let ptyLog = Logger(
-    subsystem: "dev.leonardoacosta.nexus.mac",
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.leonardoacosta.nexus.mac",
     category: "NexusClient.pty"
 )
 
@@ -1669,10 +1669,11 @@ final class PtyInteractChannel: @unchecked Sendable {
         }
 
         // Receive loop — we don't consume PTY OUTPUT here (the read-only stream
-        // channel owns that). We listen ONLY to catch the agent's application
-        // close frame (4009 writer-denied) so we can flip read-only with the
-        // precise reason. Binary/text data frames on the interact socket are
-        // the agent's "not the interactive writer" error replies; we log them.
+        // channel owns that). We listen to catch the agent's application close
+        // frame (4009 writer-denied) so we can flip read-only with the precise
+        // reason, and to parse text control frames: ONLY `{"type":"error"}` is
+        // a writer denial. Benign viewer frames (`geometry`, `replay_done`,
+        // `writer_disconnected`) also arrive here and must NOT flip read-only.
         receiveLoop()
         connection.start(queue: queue)
     }
@@ -1699,14 +1700,28 @@ final class PtyInteractChannel: @unchecked Sendable {
                     return
                 }
                 if meta.opcode == .text, let data, !data.isEmpty {
-                    // Agent control reply (e.g. {"type":"error","message":
-                    // "not the interactive writer"}). Treat as a denial signal.
+                    // Text control frame. ONLY `{"type":"error"}` (e.g.
+                    // {"type":"error","message":"not the interactive writer"})
+                    // is a writer denial. Every OTHER text frame the agent
+                    // sends to a viewer socket — `geometry` (broadcast right
+                    // after addViewer, milliseconds after open), `replay_done`,
+                    // `writer_disconnected`, and anything unknown — is benign
+                    // and must NOT flip read-only (nx-qq3qu). Parse, decide,
+                    // and CONTINUE the loop for non-denial frames.
                     let msg = String(decoding: data, as: UTF8.self)
-                    ptyLog.warning(
-                        "interact WS agent error (sessionId=\(self.sessionId, privacy: .public)): \(msg, privacy: .public) — input read-only"
+                    let type = (try? JSONSerialization.jsonObject(with: data))
+                        .flatMap { ($0 as? [String: Any])?["type"] as? String }
+                    if type == "error" {
+                        ptyLog.warning(
+                            "interact WS agent error (sessionId=\(self.sessionId, privacy: .public)): \(msg, privacy: .public) — input read-only"
+                        )
+                        self.markReadOnly()
+                        return
+                    }
+                    // Benign viewer frame — log and keep listening.
+                    ptyLog.debug(
+                        "interact WS text frame (sessionId=\(self.sessionId, privacy: .public), type=\(type ?? "nil", privacy: .public)): \(msg, privacy: .public)"
                     )
-                    self.markReadOnly()
-                    return
                 }
             }
             // Benign frame — keep listening for the close.
