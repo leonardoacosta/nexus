@@ -22,5 +22,5 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Unit tests for beads-watcher + derivation: rename-over rewrite triggers exactly one recount (debounce), poll fallback fires without fs events, missing `.beads/` skips cleanly, malformed JSONL keeps previous counts, and the parity fixture where the live beads-unlinked derivation and the JSONL recount report identical ready/blocked-unlinked totals (specs/bead-proposal-roadmap delta); BeadTransition emitted once on change, silent on no-change. [owner:tdd-integration] [type:testing] [beads:nx-kwea5]
+- [x] [4.1] Unit tests for beads-watcher + derivation: rename-over rewrite triggers exactly one recount (debounce), poll fallback fires without fs events, missing `.beads/` skips cleanly, malformed JSONL keeps previous counts, and the parity fixture where the live beads-unlinked derivation and the JSONL recount report identical ready/blocked-unlinked totals (specs/bead-proposal-roadmap delta); BeadTransition emitted once on change, silent on no-change. [owner:tdd-integration] [type:testing] [beads:nx-kwea5]
 - [ ] [4.2] Unit + PG-gated tests for snapshot writer and routes: change-only insert semantics for both tables, restart-compare-against-latest-row, GET latest/history/404, history capped at retention window, and retention prune deletes aged rows from both tables. [owner:tdd-integration] [type:testing] [beads:nx-vtmmm]
