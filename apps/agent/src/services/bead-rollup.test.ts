@@ -229,6 +229,22 @@ describe("aggregateRollup", () => {
     const rollup = aggregateRollup({ epicId: null, featureId: null, taskIds: [] }, []);
     expect(rollup).toEqual(emptyRollup());
   });
+
+  it("populates BeadRef.description when present, omits when empty/absent", () => {
+    const markers = parseBeadMarkers("[beads:nx-t1] [beads:nx-t2] [beads:nx-t3]");
+    const beads: RawBead[] = [
+      { id: "nx-t1", status: "open", issue_type: "task", description: "has one" },
+      { id: "nx-t2", status: "open", issue_type: "task", description: "" }, // empty
+      { id: "nx-t3", status: "open", issue_type: "task" }, // absent
+    ];
+    const rollup = aggregateRollup(markers, beads, new Set());
+    const byId = new Map(rollup.beads.map((b) => [b.id, b]));
+
+    expect(byId.get("nx-t1")?.description).toBe("has one");
+    // Omitted entirely — no empty string leaks through.
+    expect(byId.get("nx-t2")).not.toHaveProperty("description");
+    expect(byId.get("nx-t3")).not.toHaveProperty("description");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -245,6 +261,20 @@ describe("filterUnlinked", () => {
     const out = filterUnlinked(open, linked);
     expect(out.map((b) => b.id)).toEqual(["nx-adhoc"]);
     expect(out[0]).toMatchObject({ id: "nx-adhoc", type: "bug", title: "ad-hoc" });
+  });
+
+  it("populates description when present, omits when empty/absent", () => {
+    const open: RawBead[] = [
+      { id: "nx-desc", status: "open", issue_type: "task", title: "d", description: "why" },
+      { id: "nx-empty", status: "open", issue_type: "task", title: "e", description: "" },
+      { id: "nx-none", status: "open", issue_type: "bug", title: "n" },
+    ];
+    const out = filterUnlinked(open, new Set());
+    const byId = new Map(out.map((b) => [b.id, b]));
+
+    expect(byId.get("nx-desc")?.description).toBe("why");
+    expect(byId.get("nx-empty")).not.toHaveProperty("description");
+    expect(byId.get("nx-none")).not.toHaveProperty("description");
   });
 });
 
