@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] 1.1 No schema change. `sessions.model` (text, nullable) already exists and is already [beads:nx-0dyaq]
+- [x] 1.1 No schema change. `sessions.model` (text, nullable) already exists and is already [beads:nx-0dyaq]
       populated by `add-session-model-authority` — this proposal only reads it.
       - touches: (none)
 
