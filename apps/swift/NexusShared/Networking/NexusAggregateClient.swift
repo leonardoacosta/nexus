@@ -939,6 +939,67 @@ public actor NexusAggregateClient {
         return anySuccess
     }
 
+    /// `POST /specs/{project}/{name}/approve` — fan out to every agent; the
+    /// owner runs `openspec approve`, non-owners 404 harmlessly. Returns true
+    /// when at least one agent succeeded, else throws the most informative
+    /// error (same single-writer contract as `patchSpecStatus`).
+    /// Refocus-board-shell task 3.5.
+    @discardableResult
+    public func approveSpec(project: String, name: String) async throws -> Bool {
+        try await specAction(label: "approveSpec") { client in
+            try await client.approveSpec(project: project, name: name)
+        }
+    }
+
+    /// `POST /specs/{project}/{name}/reject` — fan out with the same
+    /// single-writer semantics as `approveSpec`. Refocus-board-shell task 3.5.
+    @discardableResult
+    public func rejectSpec(
+        project: String,
+        name: String,
+        reason: String? = nil
+    ) async throws -> Bool {
+        try await specAction(label: "rejectSpec") { client in
+            try await client.rejectSpec(project: project, name: name, reason: reason)
+        }
+    }
+
+    /// Shared fan-out for owner-scoped spec mutations (approve/reject). At
+    /// least one success returns true; when every agent fails, the most
+    /// informative error is rethrown (409 > non-404 > 404 > transport).
+    private func specAction(
+        label: String,
+        _ body: @Sendable @escaping (NexusClient) async throws -> Data
+    ) async throws -> Bool {
+        var lastError: Error?
+        var anySuccess = false
+        await withTaskGroup(of: Result<Bool, Error>.self) { group in
+            for client in clients {
+                group.addTask {
+                    do { _ = try await body(client); return .success(true) }
+                    catch { return .failure(error) }
+                }
+            }
+            for await result in group {
+                switch result {
+                case .success: anySuccess = true
+                case .failure(let err):
+                    if case NexusClientError.badStatus(409) = err {
+                        lastError = err
+                    } else if lastError == nil {
+                        lastError = err
+                    } else if case NexusClientError.badStatus(let code) = err,
+                              code != 404,
+                              case NexusClientError.badStatus(404)? = lastError {
+                        lastError = err
+                    }
+                }
+            }
+        }
+        if !anySuccess, let err = lastError { throw err }
+        return anySuccess
+    }
+
     /// Run a streaming subscription against every agent, each with its own
     /// exponential-backoff retry. Runs until the surrounding task is
     /// cancelled.
