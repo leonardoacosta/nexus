@@ -1,138 +1,86 @@
 // AppNavigation — full-window dashboard scene for nexus-mac.
 //
-// Spec: openspec/changes/swift-dashboard-feature-parity (task 1.1)
-// bd:nx-gaquu
+// Spec: openspec/changes/refocus-board-shell (task 3.2)
 //
-// The menu-bar popover (`NexusPanel`) remains the at-a-glance surface.
-// This NavigationSplitView is the expanded dashboard parity replacement
-// for the web `apps/nextjs/src/app/*` routes. All 10 parity views live
-// behind a single sidebar so the user can park the window on a second
-// monitor and watch everything at once.
+// Refocused from a 12-section NavigationSplitView into a single
+// project-structure board (design § 01/02). The sidebar of peer destinations
+// is gone: `DashboardSection` collapses to `.board` + `.settings`, the board
+// IS the window, and the titlebar reduces to one homelab presence dot (with a
+// process-table popover reusing `ProcessTableView`) plus a bell that summons
+// the notification drawer. Settings is a separate ⌘, scene (SettingsLink).
 //
-// Wired into `nexusApp.swift` as a `WindowGroup("Nexus Dashboard")` scene
-// alongside the existing `MenuBarExtra` + `Settings` scenes.
+// Operational surfaces (roadmap, specs, projects, failures, health,
+// notifications-as-a-tab, PTY-as-a-tab, decide deck) are absorbed per the
+// design disposition table and deleted in task 3.5.
 
 import AppKit
 import SwiftUI
 import NexusShared
 
+/// Collapsed navigation surface. Retained (rather than deleted outright) so
+/// the persisted `nx.dashboard.defaultView` key and any legacy deep-link can
+/// still resolve to a valid case; every legacy value migrates to `.board`.
 enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
-    case sources
-    case sessions
-    case specs
-    case roadmap
-    case projects
-    case credentials
-    case failures
-    case notifications
-    case health
-    case integrations
+    case board
     case settings
-    case pty
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .sources:       return "Sources"
-        case .sessions:      return "Sessions"
-        case .specs:         return "Specs"
-        case .roadmap:       return "Roadmap"
-        case .projects:      return "Projects"
-        case .credentials:   return "Credentials"
-        case .failures:      return "Failures"
-        case .notifications: return "Notifications"
-        case .health:        return "Health"
-        case .integrations:  return "Integrations"
-        case .settings:      return "Settings"
-        case .pty:           return "PTY Viewer"
+        case .board:    return "Board"
+        case .settings: return "Settings"
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .sources:       return "square.stack.3d.up"
-        case .sessions:      return "terminal"
-        case .specs:         return "doc.text"
-        case .roadmap:       return "map"
-        case .projects:      return "folder"
-        case .credentials:   return "key"
-        case .failures:      return "exclamationmark.triangle"
-        case .notifications: return "bell"
-        case .health:        return "waveform.path.ecg"
-        case .integrations:  return "link"
-        case .settings:      return "gearshape"
-        case .pty:           return "rectangle.on.rectangle"
-        }
+    /// Migrate a persisted `nx.dashboard.defaultView` value. Every legacy
+    /// section (`sessions`, `specs`, `roadmap`, …) folds into the board.
+    static func migrated(fromDefault raw: String?) -> DashboardSection {
+        DashboardSection(rawValue: raw ?? "") ?? .board
     }
 }
 
 struct AppNavigation: View {
-    @State private var selection: DashboardSection = defaultSection()
-    @State private var ptySessionId: String = ""
-
-    // Multi-agent observer — OWNED by `nexusApp` as an `@StateObject`
-    // and injected here via `init(observer:)` so the SSE + polling
-    // pumps begin at @main scope (bd:nx-q7lmb). Pre-fix this was an
-    // inline `@StateObject private var observer = SessionObserver()`,
-    // which gated stream startup on the dashboard `Window`'s view tree
-    // mounting — SwiftUI Window scenes lazy-mount, so cold launches
-    // showed ZERO TCP sockets to homelab until the user clicked the
-    // menu bar item. The `.task { observer.startStreams() }` modifier
-    // below stays as a defensive idempotent retry (the underlying
-    // `if sseTask == nil` guard short-circuits when streams are
-    // already running). See the `bd:nx-t9wrj` note carried forward:
-    // SessionsView is lazy-instantiated by NavigationSplitView, so the
-    // observer MUST live above it — that constraint is preserved by
-    // App-scope ownership.
     @ObservedObject private var observer: SessionObserver
-
-    // Cross-tab deep-link router. ProjectAccordionRow (Projects tab) calls
-    // `coordinator.openSession(_:)`, which flips a published
-    // `pendingDeepLink`. We watch the published value here and switch the
-    // active tab to `.sessions`; `SessionsView` then drains the link in
-    // its own `.task`. Spec: projects-tab-accordion-deeplink task 2.2.
     @StateObject private var coordinator = DashboardNavigationCoordinator()
 
-    /// Injected by `nexusApp` so SSE/polling begin at @main scope
-    /// (bd:nx-q7lmb). Callers in tests that need a fresh observer can
-    /// pass `SessionObserver()` directly.
+    @State private var showDrawer = false
+    @State private var seenNotificationCount = 0
+    @State private var showProcessPopover = false
+
     init(observer: SessionObserver) {
         self.observer = observer
+        // Task 3.2: one-time migration of a stale persisted default view. Any
+        // value that is not `board`/`settings` (the only surviving sections)
+        // is rewritten to `board` so a returning user lands on the board.
+        let key = "nx.dashboard.defaultView"
+        let stored = UserDefaults.standard.string(forKey: key)
+        if DashboardSection(rawValue: stored ?? "") == nil {
+            UserDefaults.standard.set(DashboardSection.board.rawValue, forKey: key)
+        }
+    }
+
+    private var unreadCount: Int {
+        max(0, observer.notifications.count - seenNotificationCount)
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(DashboardSection.allCases, selection: $selection) { section in
-                NavigationLink(value: section) {
-                    Label(section.label, systemImage: section.systemImage)
-                }
-                // Stable hook for the render-all-pages XCUITest guard
-                // (spec 2.2, bd:nx-u17ua) — fault #4 (SessionsView never
-                // mounts) regression surface.
-                .accessibilityIdentifier("sidebar-\(section.rawValue)")
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
-            detailView
-                .frame(minWidth: 480, minHeight: 360)
-                // Identifies which detail destination actually mounted so
-                // the guard test asserts the pane rendered (not just that
-                // the sidebar row exists). `.contain` exposes this as a
-                // single queryable container even when the section view
-                // nests its own ScrollView/Stack.
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("detail-\(selection.rawValue)")
+        VStack(spacing: 0) {
+            titlebar
+            ticker
+            Divider().overlay(Color.nx.hairline)
+            BoardView(observer: observer)
         }
-        .navigationTitle("Nexus")
+        .background(Color.nx.substrate)
         .environmentObject(coordinator)
-        // Bridge to the underlying NSWindow so we can (a) opt the
-        // dashboard `Window` into native green-button fullscreen via
-        // `.fullScreenPrimary`, and (b) claim foreground focus on
-        // launch — SwiftUI `Window` does not auto-activate the app
-        // even with LSUIElement=false. Spec: bd:nx-chztj (nx-2pmzs
-        // follow-up).
+        .overlay(alignment: .trailing) {
+            if showDrawer {
+                NotificationDrawer(onClose: { withAnimation { showDrawer = false } })
+                    .frame(width: 420)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(10)
+            }
+        }
         .background(WindowAccessor { window in
             window.collectionBehavior.insert(.fullScreenPrimary)
             NSApp.activate(ignoringOtherApps: true)
@@ -141,96 +89,146 @@ struct AppNavigation: View {
             observer.startStreams()
             await observer.refreshSessions()
         }
-        // Tab-switch hook: when a producer flips `pendingDeepLink`, jump
-        // to Sessions so SessionsView's drain task fires. Leaving the
-        // pending link in place hands the drain off to SessionsView; it
-        // calls `coordinator.clear()` once the PTY mount commits.
+        // Legacy deep-links now route to the board (the only work surface);
+        // draining a pending link just clears it.
         .onChange(of: coordinator.pendingDeepLink) { _, newValue in
-            guard newValue != nil else { return }
-            if selection != .sessions {
-                selection = .sessions
+            if newValue != nil { coordinator.clear() }
+        }
+    }
+
+    // MARK: - Titlebar
+
+    private var titlebar: some View {
+        HStack(spacing: 16) {
+            Text("NE")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(2.4)
+                .foregroundStyle(Color.nx.ink)
+            + Text("X")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.nx.phosphor)
+            + Text("US")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(2.4)
+                .foregroundStyle(Color.nx.ink)
+
+            Spacer()
+
+            presenceDot
+            SettingsLink {
+                Image(systemName: "gearshape")
+                    .foregroundStyle(Color.nx.ink2)
+            }
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
+            bell
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(Color.nx.substrate2)
+    }
+
+    private var presenceDot: some View {
+        Button {
+            showProcessPopover.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(observer.peerReachable ? Color.nx.phosphor : Color.nx.ink4)
+                    .frame(width: 6, height: 6)
+                Text("homelab")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color.nx.ink2)
             }
         }
-    }
-
-    @ViewBuilder
-    private var detailView: some View {
-        switch selection {
-        case .sources:       SourceIndexView()
-        case .sessions:      SessionsView(observer: observer)
-        case .specs:         SpecsView(sessionObserver: observer)
-        case .roadmap:       RoadmapView()
-        case .projects:      ProjectsView(sessionObserver: observer)
-        case .credentials:   CredentialsView()
-        case .failures:      FailuresView()
-        case .notifications: NotificationsView()
-        case .health:        HealthView()
-        case .integrations:  IntegrationsView()
-        case .settings:      SettingsView()
-        case .pty:           ptyDetail
+        .buttonStyle(.plain)
+        .help("Homelab agent presence — click for process table")
+        .accessibilityIdentifier("titlebar-presence-dot")
+        .popover(isPresented: $showProcessPopover) {
+            ProcessTablePopover()
+                .frame(width: 420, height: 320)
         }
     }
 
-    private var ptyDetail: some View {
-        // Source the picker options from the SAME live aggregate session
-        // list the dashboard already renders (SessionsView binds the same
-        // `observer.activeSessions`). Replacing the prior free-text field
-        // (bd:nx-zqntf) removes the "paste a stale id" foot-gun: the picker
-        // can only offer sessions that are currently streaming. Selecting a
-        // row drives the unchanged attach flow — `PtyViewer(sessionId:)` —
-        // with the same label/meta/type the Sessions tab passes, so the
-        // header degradation + managed-gate behave identically.
-        let liveSessions = observer.activeSessions
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("PTY VIEWER")
-                    .font(.system(.caption, design: .monospaced))
-                    .tracking(2)
-                    .foregroundStyle(.secondary)
-                Picker("Session", selection: $ptySessionId) {
-                    Text("Select a session").tag("")
-                    ForEach(liveSessions) { session in
-                        Text(Session.projectLabel(for: session))
-                            .tag(session.id)
+    private var bell: some View {
+        Button {
+            withAnimation { showDrawer.toggle() }
+            if showDrawer { seenNotificationCount = observer.notifications.count }
+        } label: {
+            Image(systemName: "bell")
+                .foregroundStyle(Color.nx.ink2)
+                .overlay(alignment: .topTrailing) {
+                    if unreadCount > 0 {
+                        Text("\(min(unreadCount, 99))")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.nx.critical)
+                            .clipShape(Capsule())
+                            .offset(x: 8, y: -7)
                     }
                 }
-                .labelsHidden()
-                .frame(maxWidth: 360)
-                .disabled(liveSessions.isEmpty)
-                .accessibilityIdentifier("pty-session-picker")
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-            // Picker selection may point at a session that has since dropped
-            // off the live list (agent restart, session ended). Resolve the
-            // current selection against the live list so a stale tag falls
-            // through to the empty-state prompt rather than attaching to a
-            // dead id.
-            if let session = liveSessions.first(where: { $0.id == ptySessionId }) {
-                PtyViewer(
-                    sessionId: session.id,
-                    sessionLabel: Session.projectLabel(for: session),
-                    sessionMeta: Session.metaLine(for: session),
-                    sessionType: session.sessionType
-                )
-            } else {
-                ContentUnavailableView(
-                    liveSessions.isEmpty ? "No live sessions" : "Select a session",
-                    systemImage: "rectangle.on.rectangle",
-                    description: Text(
-                        liveSessions.isEmpty
-                            ? "No Claude Code sessions are currently streaming. They appear here once an agent reports an active session."
-                            : "Pick a live session above to subscribe to its PTY stream."
-                    )
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         }
+        .buttonStyle(.plain)
+        .help("Notifications (⌘H)")
+        .keyboardShortcut("h", modifiers: .command)
+        .accessibilityIdentifier("titlebar-bell")
     }
 
-    private static func defaultSection() -> DashboardSection {
-        let raw = UserDefaults.standard.string(forKey: "nx.dashboard.defaultView") ?? "sessions"
-        return DashboardSection(rawValue: raw) ?? .sessions
+    // MARK: - TTS ticker (ambient, one line)
+
+    private var ticker: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 7) {
+                Circle().fill(Color.nx.phosphor).frame(width: 5, height: 5)
+                Text("TTS")
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .tracking(2)
+                    .foregroundStyle(Color.nx.phosphor)
+            }
+            if let latest = observer.notifications.first {
+                Text(latest.title?.isEmpty == false ? latest.title! : latest.body)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(Color.nx.ink2)
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 0)
+                Text(latest.receivedAt, style: .relative)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color.nx.ink4)
+            } else {
+                Text("Ambient notification ticker — waiting for the next event.")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(Color.nx.ink4)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(
+            LinearGradient(
+                colors: [Color.nx.phosphor.opacity(0.06), .clear],
+                startPoint: .leading, endPoint: .trailing)
+        )
+    }
+}
+
+/// Titlebar process-table popover — reuses `ProcessTableView` (design § 03:
+/// Health collapses into presence dot + process table on demand). Fetches the
+/// homelab agent's top-CPU/RAM snapshot lazily on open.
+struct ProcessTablePopover: View {
+    @State private var processes = HealthProcessesResponse(topCpu: [], topRam: [], collectedAt: nil)
+    private let client = NexusShared.NexusAggregateClient()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PROCESSES · homelab")
+                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                .tracking(2)
+                .foregroundStyle(Color.nx.ink4)
+                .padding(.horizontal, 14).padding(.top, 12)
+            ProcessTableView(processes: processes)
+            Spacer(minLength: 0)
+        }
+        .task { processes = await client.fetchHealthProcesses(limit: 8) }
     }
 }
