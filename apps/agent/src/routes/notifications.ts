@@ -18,6 +18,7 @@ import {
   DEFAULT_PRESENCE_USER,
 } from "../notifications/presence-context";
 import { audioExists } from "../notifications/audio-store";
+import { countRecentNotifications } from "../notifications/buffer";
 
 const log = createLogger("agent:routes:notifications");
 
@@ -128,6 +129,28 @@ async function readPresenceAwareRouting(db: Db): Promise<boolean> {
   }
 }
 
+/** Reads the live rate-throttle settings from notification_settings. */
+async function readRateThrottleSettings(
+  db: Db,
+): Promise<{ enabled: boolean; maxPerWindow: number; windowMinutes: number }> {
+  try {
+    const row = await db.query.notificationSettings.findFirst({
+      where: eq(notificationSettings.id, 1),
+    });
+    return {
+      enabled: row?.rateThrottleEnabled ?? true,
+      maxPerWindow: row?.rateThrottleMaxPerWindow ?? 5,
+      windowMinutes: row?.rateThrottleWindowMinutes ?? 5,
+    };
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "rate-throttle: failed to read settings (defaulting to enabled, 5/5min)",
+    );
+    return { enabled: true, maxPerWindow: 5, windowMinutes: 5 };
+  }
+}
+
 /** Initialize notification routes with a database connection. */
 export async function initNotificationRoutes(db: Db): Promise<void> {
   await withSingletonLock(() => {
@@ -157,6 +180,12 @@ export async function initNotificationRoutes(db: Db): Promise<void> {
         // in-memory vector + the all-unknown guard when no live console
         // resolves (no regression for single-machine fleets).
         fleetTtlMs: FLEET_HEARTBEAT_TTL_MS,
+      },
+      undefined, // crossMachine — not wired at this call site today
+      {
+        settings: () => readRateThrottleSettings(db),
+        countRecent: (project, channel, since) =>
+          countRecentNotifications(db, project, channel, since),
       },
     );
 
