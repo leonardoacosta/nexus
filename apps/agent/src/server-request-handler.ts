@@ -54,6 +54,7 @@ import { handleGetPresenceFleet } from "./routes/presence-fleet";
 import {
   handleAnalyticsHealth,
   handleAnalyticsNotifications,
+  handleAnalyticsNotificationsSummary,
   handleAnalyticsSpecs,
   handleAnalyticsCredentials,
   handleAnalyticsGit,
@@ -193,6 +194,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // Analytics
   { method: "GET", path: "/analytics/health" },
   { method: "GET", path: "/analytics/notifications" },
+  { method: "GET", path: "/analytics/notifications/summary" },
   { method: "GET", path: "/analytics/specs" },
   { method: "GET", path: "/analytics/credentials" },
   { method: "GET", path: "/analytics/git" },
@@ -618,6 +620,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       if (url.pathname === "/analytics/notifications" && request.method === "GET") {
         return handleAnalyticsNotifications(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/analytics/notifications", method: "GET", err }, "route handler failed");
+          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
+        });
+      }
+
+      if (url.pathname === "/analytics/notifications/summary" && request.method === "GET") {
+        return handleAnalyticsNotificationsSummary(db, url).then((r) => withCors(request, r)).catch((err) => {
+          logger.error({ route: "/analytics/notifications/summary", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }

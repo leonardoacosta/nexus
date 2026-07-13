@@ -11,7 +11,7 @@
 
 import type { Db } from "@nexus/db";
 import { notifications as notificationsTable } from "@nexus/db";
-import { and, desc, eq, gte, or, lt, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, or, lt, sql, type SQL } from "drizzle-orm";
 import { queryHealthTimeSeries } from "../db/health";
 import { audioExists } from "../notifications/audio-store";
 import { createLogger } from "@nexus/core/node";
@@ -462,4 +462,121 @@ export async function handleAnalyticsCron(
     JSON.stringify([]),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
+}
+
+// ---------------------------------------------------------------------------
+// GET /analytics/notifications/summary
+// ---------------------------------------------------------------------------
+
+/** Default number of top-title rows returned. */
+const SUMMARY_DEFAULT_LIMIT = 20;
+/** Hard maximum for ?limit= on the summary endpoint. */
+const SUMMARY_MAX_LIMIT = 100;
+
+interface NotificationTitleSummaryRow {
+  title: string;
+  project: string | null;
+  count: number;
+}
+
+interface NotificationHourSummaryRow {
+  hour: number;
+  count: number;
+}
+
+/**
+ * GET /analytics/notifications/summary?hours=N&limit=L
+ *
+ * Self-service noise-diagnosis view (noise-reduction audit, 2026-07-13):
+ * answers "what's noisiest" and "what hour is loudest" without ad-hoc SQL.
+ *
+ * - `by_title`: top `limit` (title, project) pairs by notification count in
+ *   the window, ordered descending by count.
+ * - `by_hour`: all 24 hours-of-day (server local time, via Postgres
+ *   `EXTRACT(HOUR FROM created_at)`), zero-filled for any hour with no
+ *   notifications in the window — the response always has exactly 24
+ *   entries regardless of data sparsity.
+ *
+ * Defaults to a 24h window (`hours` param, same convention as
+ * `/analytics/notifications`); pass a wider window (e.g. `?hours=336` for
+ * 14 days) to reproduce a longer-range noise audit.
+ */
+export async function handleAnalyticsNotificationsSummary(
+  db: Db,
+  url: URL,
+): Promise<Response> {
+  const hoursParam = url.searchParams.get("hours");
+  const limitParam = url.searchParams.get("limit");
+
+  const hours = hoursParam ? Number(hoursParam) : 24;
+  if (Number.isNaN(hours) || hours <= 0) {
+    return new Response(
+      JSON.stringify({ error: "hours must be a positive number" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  let limit = SUMMARY_DEFAULT_LIMIT;
+  if (limitParam !== null) {
+    const parsed = Number(limitParam);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > SUMMARY_MAX_LIMIT) {
+      return new Response(
+        JSON.stringify({ error: `limit must be between 1 and ${SUMMARY_MAX_LIMIT}` }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    limit = Math.floor(parsed);
+  }
+
+  const cutoff = new Date(Date.now() - hours * 3600_000);
+
+  try {
+    const titleRows = await db
+      .select({
+        title: notificationsTable.title,
+        project: notificationsTable.project,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(notificationsTable)
+      .where(gte(notificationsTable.createdAt, cutoff))
+      .groupBy(notificationsTable.title, notificationsTable.project)
+      .orderBy(desc(sql`COUNT(*)`))
+      .limit(limit);
+
+    const hourRows = await db
+      .select({
+        hour: sql<number>`EXTRACT(HOUR FROM ${notificationsTable.createdAt})::int`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(notificationsTable)
+      .where(gte(notificationsTable.createdAt, cutoff))
+      .groupBy(sql`EXTRACT(HOUR FROM ${notificationsTable.createdAt})::int`);
+
+    const hourMap = new Map<number, number>();
+    for (const r of hourRows) hourMap.set(Number(r.hour), Number(r.count));
+    const by_hour: NotificationHourSummaryRow[] = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      count: hourMap.get(hour) ?? 0,
+    }));
+
+    const by_title: NotificationTitleSummaryRow[] = titleRows.map((r) => ({
+      title: r.title,
+      project: r.project,
+      count: Number(r.count),
+    }));
+
+    return new Response(
+      JSON.stringify({ window_hours: hours, by_title, by_hour }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "analytics/notifications/summary query failed",
+    );
+    return new Response(
+      JSON.stringify({ error: "internal error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
 }
