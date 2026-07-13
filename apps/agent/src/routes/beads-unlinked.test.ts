@@ -10,6 +10,7 @@ import { describe, it, expect, mock } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Db } from "@nexus/db";
 
 const fixtureProjects: Array<{ code: string; name: string; path: string }> = [];
 
@@ -22,7 +23,7 @@ mock.module("../services/config-loader", () => ({
 
 import { handleGetUnlinkedBeads } from "./beads-unlinked";
 import type { UnlinkedBead } from "@nexus/core";
-import type { FanOutProject } from "../services/project-fanout";
+import { resolveAllProjects, type FanOutProject } from "../services/project-fanout";
 
 function bead(id: string): UnlinkedBead {
   return { id, title: id, status: "open", priority: 2, type: "task" };
@@ -102,6 +103,53 @@ describe("handleGetUnlinkedBeads", () => {
       const body = (await response.json()) as { unlinked: UnlinkedBead[] };
       expect(body.unlinked.map((b) => b.project)).toEqual(["a"]);
     });
+
+    it("description flows through to the merged response — populated and omitted-when-empty", async () => {
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          computeUnlinked: async (path) =>
+            path === "/dev/a"
+              ? [{ ...bead("a-1"), description: "why this exists" }]
+              : [bead("b-1")],
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      const a1 = body.unlinked.find((b) => b.id === "a-1")!;
+      const b1 = body.unlinked.find((b) => b.id === "b-1")!;
+      expect(a1.description).toBe("why this exists");
+      expect(b1).not.toHaveProperty("description");
+    });
+
+    it("excludes a hidden project from the merged response (real resolveAllProjects, DI seam)", async () => {
+      const threeProjects: FanOutProject[] = [
+        { code: "a", path: "/dev/a" },
+        { code: "b", path: "/dev/b" },
+        { code: "c", path: "/dev/c" },
+      ];
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=all"),
+        {} as Db,
+        {
+          resolveProjects: (db) =>
+            resolveAllProjects(db, {
+              listProjects: () =>
+                threeProjects.map((p) => ({ code: p.code, path: p.path })),
+              listHidden: async () => [
+                { path: "/dev/b", hidden: true },
+                { path: "/dev/c", hidden: false },
+              ],
+            }),
+          computeUnlinked: async (path) => [bead(path)],
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      expect(body.unlinked.map((b) => b.project).sort()).toEqual(["a", "c"]);
+    });
   });
 
   it("single-project shape carries no project tag (byte-compatible)", async () => {
@@ -116,6 +164,29 @@ describe("handleGetUnlinkedBeads", () => {
       const body = (await response.json()) as { unlinked: UnlinkedBead[] };
       expect(body.unlinked).toHaveLength(1);
       expect("project" in body.unlinked[0]!).toBe(false);
+    } finally {
+      fixtureProjects.length = 0;
+    }
+  });
+
+  it("single-project response: description populated when present, omitted when absent", async () => {
+    fixtureProjects.push({ code: "nx", name: "nexus", path: "/dev/nx" });
+    try {
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=nx"),
+        undefined,
+        {
+          computeUnlinked: async () => [
+            { ...bead("solo-desc"), description: "solo description" },
+            bead("solo-empty"),
+          ],
+        },
+      );
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      const withDesc = body.unlinked.find((b) => b.id === "solo-desc")!;
+      const withoutDesc = body.unlinked.find((b) => b.id === "solo-empty")!;
+      expect(withDesc.description).toBe("solo description");
+      expect(withoutDesc).not.toHaveProperty("description");
     } finally {
       fixtureProjects.length = 0;
     }

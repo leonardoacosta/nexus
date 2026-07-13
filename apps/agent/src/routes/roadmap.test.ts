@@ -11,6 +11,7 @@ import { describe, it, expect, mock } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Db } from "@nexus/db";
 
 const fixtureProjects: Array<{ code: string; name: string; path: string }> = [];
 
@@ -22,8 +23,8 @@ mock.module("../services/config-loader", () => ({
 }));
 
 import { handleGetRoadmap } from "./roadmap";
-import type { RoadmapCapability } from "@nexus/core";
-import type { FanOutProject } from "../services/project-fanout";
+import type { RoadmapCapability, RoadmapProposal } from "@nexus/core";
+import { resolveAllProjects, type FanOutProject } from "../services/project-fanout";
 
 function cap(name: string): RoadmapCapability {
   return {
@@ -32,6 +33,27 @@ function cap(name: string): RoadmapCapability {
     epicStatus: "open",
     proposals: [],
     progress: { totalTasks: 0, closedTasks: 0 },
+  };
+}
+
+/** A minimal proposal whose feature bead carries (or omits) a description. */
+function proposalWithDescription(description?: string): RoadmapProposal {
+  return {
+    slug: "test-proposal",
+    specStatus: "active",
+    rollup: {
+      epic: null,
+      feature: {
+        id: "nx-1",
+        status: "open",
+        type: "feature",
+        priority: 2,
+        title: "t",
+        ...(description !== undefined ? { description } : {}),
+      },
+      tasks: { total: 0, closed: 0, ready: 0, blocked: 0 },
+      beads: [],
+    },
   };
 }
 
@@ -110,6 +132,56 @@ describe("handleGetRoadmap", () => {
       const body = (await response.json()) as { capabilities: RoadmapCapability[] };
       expect(body.capabilities.map((c) => c.project).sort()).toEqual(["a", "c"]);
     });
+
+    it("description flows through to the merged response — populated and omitted-when-empty", async () => {
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          computeRoadmap: async (path) => {
+            if (path === "/dev/a") {
+              const withDesc = cap("a");
+              withDesc.proposals = [proposalWithDescription("why this exists")];
+              return [withDesc];
+            }
+            if (path === "/dev/b") {
+              const withoutDesc = cap("b");
+              withoutDesc.proposals = [proposalWithDescription()];
+              return [withoutDesc];
+            }
+            return [];
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      const a = body.capabilities.find((c) => c.project === "a")!;
+      const b = body.capabilities.find((c) => c.project === "b")!;
+      expect(a.proposals[0]!.rollup.feature?.description).toBe("why this exists");
+      expect(b.proposals[0]!.rollup.feature).not.toHaveProperty("description");
+    });
+
+    it("excludes a hidden project from the merged response (real resolveAllProjects, DI seam)", async () => {
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=all"),
+        {} as Db,
+        {
+          resolveProjects: (db) =>
+            resolveAllProjects(db, {
+              listProjects: () => projects.map((p) => ({ code: p.code, path: p.path })),
+              listHidden: async () => [
+                { path: "/dev/b", hidden: true },
+                { path: "/dev/c", hidden: false },
+              ],
+            }),
+          computeRoadmap: async (path) => [cap(path)],
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      expect(body.capabilities.map((c) => c.project).sort()).toEqual(["a", "c"]);
+    });
   });
 
   it("single-project shape carries no project tag (byte-compatible)", async () => {
@@ -124,6 +196,25 @@ describe("handleGetRoadmap", () => {
       const body = (await response.json()) as { capabilities: RoadmapCapability[] };
       expect(body.capabilities).toHaveLength(1);
       expect("project" in body.capabilities[0]!).toBe(false);
+    } finally {
+      fixtureProjects.length = 0;
+    }
+  });
+
+  it("single-project response: description populated when present, omitted when absent", async () => {
+    fixtureProjects.push({ code: "nx", name: "nexus", path: "/dev/nx" });
+    try {
+      const withDesc = cap("only");
+      withDesc.proposals = [proposalWithDescription("solo description")];
+      const response = await handleGetRoadmap(
+        new URL("http://localhost/roadmap?project=nx"),
+        undefined,
+        { computeRoadmap: async () => [withDesc] },
+      );
+      const body = (await response.json()) as { capabilities: RoadmapCapability[] };
+      expect(body.capabilities[0]!.proposals[0]!.rollup.feature?.description).toBe(
+        "solo description",
+      );
     } finally {
       fixtureProjects.length = 0;
     }
