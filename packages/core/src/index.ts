@@ -67,6 +67,16 @@ export type {
   ElevenlabsTestResponse,
   ElevenlabsVoicesResponse,
 } from "./types/elevenlabs";
+export {
+  INTEGRATION_PROVIDERS,
+  integrationMetadataSchemas,
+  integrationCredentialsResponse,
+  integrationPatchInput,
+} from "./types/integrations";
+export type {
+  IntegrationCredentialsResponse,
+  IntegrationPatchInput,
+} from "./types/integrations";
 export type {
   SpecTransitionEvent,
   SpecTransitionKind,
