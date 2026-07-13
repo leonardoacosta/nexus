@@ -10,7 +10,12 @@ import { captureException, addBreadcrumb } from "@sentry/node";
 import { fetchWithTimeout } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { projectVoiceOverrides, elevenlabsCredentials } from "@nexus/db";
-import { eq } from "drizzle-orm";
+// integration_credentials is not re-exported from the top-level @nexus/db
+// barrel yet (elevenlabs is, right beside it) — pull it from the first-class
+// `@nexus/db/schema` public subpath, the same module createDb loads, so the
+// table object matches the one backing db.query.integrationCredentials.
+import { integrationCredentials } from "@nexus/db/schema";
+import { and, eq } from "drizzle-orm";
 import type { NotificationRow } from "./buffer";
 import { isUnspeakable, stripBeadIds } from "./speakability";
 import { writeAudio } from "./audio-store";
@@ -295,9 +300,15 @@ async function sendTtsNotification(
  * Telegram channel handler — a general-purpose, low-priority message lane
  * delivered to a configured Telegram chat via the Bot API.
  *
- * Provisioning is env-driven (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`),
- * operator-owned and OUT of scope for this change — the agent only delivers
- * when both are present.
+ * Credential precedence (add-integration-registry) — resolved fresh on EVERY
+ * dispatch (NO in-memory cache) so a dashboard save rotates the secret without
+ * an agent restart:
+ *   1. Encrypted `integration_credentials` row for `provider="telegram"` on
+ *      this agent — bot token = `decrypt(value_encrypted)`, chat id =
+ *      `metadata.chatId`. Used only when the row yields BOTH.
+ *   2. `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env vars (legacy / unmigrated
+ *      agents). A DB miss, decrypt failure, absent encryption key, or missing
+ *      `chatId` metadata falls through here.
  *
  * FAIL-OPEN (mirrors `sendTtsNotification`'s discipline): this handler NEVER
  * returns `success: false` and NEVER `captureException`s. Every path returns
@@ -305,15 +316,68 @@ async function sendTtsNotification(
  * marks the notification failed and never spams Sentry during a Bot-API
  * outage:
  *
- *   - token / chat id unset → `{ success: true }` (signal-only no-op). Info log.
+ *   - neither DB row nor env provisioned → `{ success: true }` (signal-only
+ *     no-op). Info log.
  *   - Bot API non-2xx → `{ success: true }` (degrade to no-op). Warn log.
  *   - network timeout / throw → `{ success: true }` (no-op). Warn log.
  */
 async function sendTelegramNotification(
   notification: NotificationRow,
 ): Promise<ChannelResult> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  let token: string | undefined;
+  let chatId: string | undefined;
+
+  // DB-first: prefer the encrypted integration_credentials row for this agent.
+  // Reuses the shared router DB handle (installed at boot via setTtsDbHandle);
+  // when it's null the block is skipped and we fall through to env — identical
+  // to the pre-registry behavior. Re-queried + re-decrypted per dispatch (no
+  // cache) so a rotated secret takes effect on the very next notification.
+  const db = ttsDbHandle;
+  if (db) {
+    try {
+      const row = await db.query.integrationCredentials.findFirst({
+        where: and(
+          eq(integrationCredentials.agentId, getAgentId()),
+          eq(integrationCredentials.provider, "telegram"),
+        ),
+      });
+      if (row?.valueEncrypted) {
+        const key = tryLoadEncryptionKey();
+        if (key) {
+          try {
+            const decrypted = decrypt(row.valueEncrypted, key);
+            const meta = row.metadata;
+            const metaChatId =
+              typeof meta === "object" && meta !== null && "chatId" in meta
+                ? (meta as { chatId?: unknown }).chatId
+                : undefined;
+            if (typeof metaChatId === "string" && metaChatId.length > 0) {
+              token = decrypted;
+              chatId = metaChatId;
+            }
+          } catch (err) {
+            log.warn(
+              { err: err instanceof Error ? err.message : String(err) },
+              "telegram: decrypt of stored bot token failed — falling back to env",
+            );
+          }
+        }
+      }
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "telegram: credential lookup failed (non-fatal) — falling back to env",
+      );
+    }
+  }
+
+  // Env fallback (unchanged legacy path) when the DB row did not yield a full
+  // token+chatId pair. We only reach here when the DB source is unusable.
+  if (!token || !chatId) {
+    token = process.env.TELEGRAM_BOT_TOKEN;
+    chatId = process.env.TELEGRAM_CHAT_ID;
+  }
+
   if (!token || token.length === 0 || !chatId || chatId.length === 0) {
     log.info(
       { notificationId: notification.id },
