@@ -778,6 +778,30 @@ const RETENTION_DDL = `
     "session_id" text NOT NULL,
     "created_at" timestamp with time zone NOT NULL DEFAULT now()
   );
+
+  -- Added for add-project-status-snapshots (task 4.2): runRetentionCleanup
+  -- (../db/retention.ts) also prunes spec_snapshots and
+  -- project_status_snapshots at 90 days. The DDL previously omitted both, so
+  -- every retention-cleanup call would fail with "relation ... does not exist"
+  -- deterministically once these deletes landed — same drift class as the
+  -- nx-w94di cron_runs/bloat_radar/spec_sessions omission above.
+  CREATE TABLE "spec_snapshots" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "project" text NOT NULL,
+    "spec_name" text NOT NULL,
+    "completed" integer NOT NULL,
+    "total" integer NOT NULL,
+    "created_at" timestamp with time zone NOT NULL DEFAULT now()
+  );
+
+  CREATE TABLE "project_status_snapshots" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "project" text NOT NULL,
+    "proposals_unarchived" integer NOT NULL,
+    "beads_ready_unlinked" integer NOT NULL,
+    "beads_blocked_unlinked" integer NOT NULL,
+    "created_at" timestamp with time zone NOT NULL DEFAULT now()
+  );
 `;
 
 describe.skipIf(!hasPg)("retention cleanup (requires live PG)", () => {
@@ -863,6 +887,42 @@ describe.skipIf(!hasPg)("retention cleanup (requires live PG)", () => {
     const types = rows.map((r) => r.event_type);
     expect(types).toContain("fresh-evt");
     expect(types).not.toContain("old-evt");
+  });
+
+  it("deletes aged spec_snapshots and project_status_snapshots from both tables", async () => {
+    // add-project-status-snapshots task 4.2, retention requirement #7: both
+    // change-only time-series tables are pruned at 90 days.
+    const old = new Date(Date.now() - 120 * 86_400_000).toISOString();
+    const fresh = new Date().toISOString();
+
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".spec_snapshots
+         ("project", "spec_name", "completed", "total", "created_at")
+       VALUES ('nx', 'aged-spec', 1, 2, '${old}'),
+              ('nx', 'fresh-spec', 3, 4, '${fresh}')`,
+    );
+    await adminSql.unsafe(
+      `INSERT INTO "${RETENTION_SCHEMA}".project_status_snapshots
+         ("project", "proposals_unarchived", "beads_ready_unlinked", "beads_blocked_unlinked", "created_at")
+       VALUES ('nx', 1, 0, 0, '${old}'),
+              ('nx', 2, 0, 0, '${fresh}')`,
+    );
+
+    await runRetentionCleanup(db);
+
+    const specRows = (await adminSql.unsafe(
+      `SELECT spec_name FROM "${RETENTION_SCHEMA}".spec_snapshots`,
+    )) as Array<Record<string, unknown>>;
+    const specNames = specRows.map((r) => r.spec_name);
+    expect(specNames).toContain("fresh-spec"); // in-window survives
+    expect(specNames).not.toContain("aged-spec"); // 120-day-old purged
+
+    const projRows = (await adminSql.unsafe(
+      `SELECT proposals_unarchived FROM "${RETENTION_SCHEMA}".project_status_snapshots`,
+    )) as Array<Record<string, unknown>>;
+    const proposals = projRows.map((r) => Number(r.proposals_unarchived));
+    expect(proposals).toContain(2); // fresh row survives
+    expect(proposals).not.toContain(1); // aged row purged
   });
 
   it("handles cleanup on empty tables without error", async () => {
