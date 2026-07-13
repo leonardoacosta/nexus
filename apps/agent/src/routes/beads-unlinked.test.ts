@@ -21,6 +21,12 @@ mock.module("../services/config-loader", () => ({
 }));
 
 import { handleGetUnlinkedBeads } from "./beads-unlinked";
+import type { UnlinkedBead } from "@nexus/core";
+import type { FanOutProject } from "../services/project-fanout";
+
+function bead(id: string): UnlinkedBead {
+  return { id, title: id, status: "open", priority: 2, type: "task" };
+}
 
 describe("handleGetUnlinkedBeads", () => {
   it("returns 400 when the project param is missing", async () => {
@@ -56,6 +62,62 @@ describe("handleGetUnlinkedBeads", () => {
     } finally {
       fixtureProjects.length = 0;
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  describe("project=all", () => {
+    const projects: FanOutProject[] = [
+      { code: "a", path: "/dev/a" },
+      { code: "b", path: "/dev/b" },
+    ];
+
+    it("merges both projects' unlinked beads tagged with project", async () => {
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          computeUnlinked: async (path) => [bead(`${path}-1`)],
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      expect(body.unlinked).toHaveLength(2);
+      expect(body.unlinked.map((b) => b.project).sort()).toEqual(["a", "b"]);
+    });
+
+    it("a failing project contributes nothing while the route returns 200", async () => {
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=all"),
+        undefined,
+        {
+          resolveProjects: async () => projects,
+          computeUnlinked: async (path) => {
+            if (path === "/dev/b") throw new Error("bd list failed");
+            return [bead(path)];
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      expect(body.unlinked.map((b) => b.project)).toEqual(["a"]);
+    });
+  });
+
+  it("single-project shape carries no project tag (byte-compatible)", async () => {
+    fixtureProjects.push({ code: "nx", name: "nexus", path: "/dev/nx" });
+    try {
+      const response = await handleGetUnlinkedBeads(
+        new URL("http://localhost/beads/unlinked?project=nx"),
+        undefined,
+        { computeUnlinked: async () => [bead("solo")] },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { unlinked: UnlinkedBead[] };
+      expect(body.unlinked).toHaveLength(1);
+      expect("project" in body.unlinked[0]!).toBe(false);
+    } finally {
+      fixtureProjects.length = 0;
     }
   });
 });
