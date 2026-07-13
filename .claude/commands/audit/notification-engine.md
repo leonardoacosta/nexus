@@ -1,6 +1,6 @@
 ---
 name: audit:notification-engine
-description: Reliability and correctness audit of the Notification Engine domain — notification_engine.rs, Bun notifications/, TTS delivery.
+description: Reliability and correctness audit of the Notification Engine domain — Bun notifications/, TTS delivery.
 ---
 
 # Notification Engine Domain Audit
@@ -23,7 +23,6 @@ Task({
 Check tests:
 ```bash
 find /home/nyaptor/dev/nx -name "notifications*.test.ts" | xargs ls -la 2>/dev/null
-cargo test -p nexus-agent 2>&1 | grep -E "notification|FAILED|ok" | head -20
 ```
 
 ---
@@ -36,34 +35,29 @@ Task({
   model: "haiku",
   run_in_background: true,
   prompt: "Read these files in /home/nyaptor/dev/nx:
-  - crates/nexus-agent/src/notification_engine.rs
   - apps/agent/src/notifications/manager.ts
   - apps/agent/src/notifications/buffer.ts
   - apps/agent/src/notifications/router.ts
   - apps/agent/src/notifications/meeting-state.ts
+  - apps/agent/src/notifications/rules-engine.ts
+  - apps/agent/src/notifications/hook-rules.ts
+  - apps/agent/src/notifications/hook-trigger.ts
+  - apps/agent/src/notifications/held-queue.ts
+  - apps/agent/src/notifications/presence-context.ts
   - apps/agent/src/routes/notifications.ts
-  Focus on: delivery guarantees, buffer overflow, config reload atomicity, meeting state transitions."
+  - apps/agent/src/routes/notification-settings.ts
+  Focus on: delivery guarantees, meeting-hold durability, presence-rule correctness, meeting state transitions."
 })
 ```
-
-### Rust Notification Engine (`notification_engine.rs`)
-
-| # | Area | What to check |
-|---|------|---------------|
-| 1 | Config hot-reload | `spawn_config_watcher` — 100ms debounce — atomic swap? |
-| 2 | TTS delivery | `speak_from_socket` — failure recovery? |
-| 3 | Error notifications | `announce_errors` flag respected correctly? |
-| 4 | Channel close | Engine stop breadcrumb emitted? |
-| 5 | `Notification` struct | All fields validated before delivery? |
 
 ### TypeScript Notifications (`apps/agent/src/notifications/`)
 
 | # | Area | What to check |
 |---|------|---------------|
-| 1 | Buffer | Overflow behavior — drop oldest or newest? |
+| 1 | Held-queue | `held-queue.ts` / `presence_holds` table — held notifications durable across agent restart? |
 | 2 | Manager | Multiple concurrent notifications — queued or parallel? |
 | 3 | Meeting state | State machine — transitions complete? Invalid state handled? |
-| 4 | Routes | `POST /notify` → input validation, 400 on bad payload? |
+| 4 | Routes | `POST /notifications/send` → input validation, 400 on bad payload? |
 
 ---
 
