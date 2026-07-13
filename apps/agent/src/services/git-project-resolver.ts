@@ -5,7 +5,7 @@
  * Supersedes the narrower git-project.ts (which only returns provider/ownerRepo).
  *
  * Given a cwd, this resolver:
- *   1. Spawns `git -C <cwd> remote get-url origin` via `Bun.spawn` (arg-vector,
+ *   1. Spawns `git -C <cwd> remote get-url origin` via `execText` (arg-vector,
  *      no shell — injection-safe).
  *   2. Parses the origin URL into `{provider, ownerRepo}` for 4 providers:
  *      github.com, dev.azure.com (+ *.visualstudio.com), gitlab.com,
@@ -28,6 +28,7 @@ import type { Db } from "@nexus/db";
 import { projects } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
+import { execText } from "../utils/exec";
 
 const log = createLogger("agent:services:git-project-resolver");
 
@@ -176,26 +177,16 @@ export function parseOriginUrl(url: string): ProviderHit | null {
  * Run `git -C <cwd> remote get-url origin` and return the captured stdout
  * (trimmed). Returns `null` on non-zero exit, empty output, or spawn error.
  *
- * Uses `Bun.spawn` with an arg-vector (no shell) — cwd is passed as an
+ * Uses `execText` with an arg-vector (no shell) — cwd is passed as an
  * argument to `git -C`, never interpolated into a shell string.
  *
  * Exported for unit tests that want to override the subprocess.
  */
 export async function execGitRemoteUrl(cwd: string): Promise<string | null> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], {
-      stdout: "pipe",
-      stderr: "pipe",
-      // Ignore stdin — git remote does not read it.
-      stdin: "ignore",
-    });
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) return null;
-    const out = stdout.trim();
-    return out.length > 0 ? out : null;
+    const out = await execText("git", ["-C", cwd, "remote", "get-url", "origin"]);
+    const trimmed = out.trim();
+    return trimmed.length > 0 ? trimmed : null;
   } catch (err) {
     log.debug(
       { err: err instanceof Error ? err.message : String(err), cwd },

@@ -33,6 +33,7 @@ import { createLogger } from "@nexus/core/node";
 import type { GitDirtyCounts, GitStatusObject } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { gitEvents } from "@nexus/db";
+import { execText } from "../utils/exec";
 
 const log = createLogger("agent:services:git-observer");
 
@@ -134,29 +135,15 @@ export async function observeGitState(
 ): Promise<GitObservation | null> {
   if (!existsSync(path)) return null;
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const proc = Bun.spawn(
-      ["git", "-C", path, "status", "--porcelain=v2", "--branch"],
-      { stdout: "pipe", stderr: "ignore", stdin: "ignore" },
+    const stdout = await execText(
+      "git",
+      ["-C", path, "status", "--porcelain=v2", "--branch"],
+      { timeout: timeoutMs },
     );
-    timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* already exited */
-      }
-    }, timeoutMs);
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) return null;
     return parseGitStatusV2(stdout);
   } catch {
     return null;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

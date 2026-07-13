@@ -40,6 +40,7 @@ export const ALLOWED_BINARIES = [
   "gh", // GitHub CLI auth status for environment route
   "bd", // beads issue tracker queries for recommend + project-detail
   "nexus-watcher", // sibling Bun-compiled binary — file system event watcher relayed by watcher-bridge
+  "tailscale", // presence poller (tailscale-presence.ts) — `tailscale status --json`
 ] as const;
 
 export type AllowedBinary = (typeof ALLOWED_BINARIES)[number];

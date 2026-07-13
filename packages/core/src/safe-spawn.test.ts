@@ -20,6 +20,10 @@ describe("safeSpawn allowlist", () => {
     expect(exit).toBe(0);
   });
 
+  test("allows 'tailscale' (added for tailscale-presence.ts)", () => {
+    expect(() => assertAllowedBinary("tailscale")).not.toThrow();
+  });
+
   test("rejects a binary not in ALLOWED_BINARIES", () => {
     expect(() => safeSpawn("rm", ["-rf", "/tmp/nonexistent"])).toThrow(DisallowedBinaryError);
   });

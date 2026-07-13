@@ -27,8 +27,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-import { createLogger } from "@nexus/core/node";
+import { createLogger, safeSpawn } from "@nexus/core/node";
 import { resolveSpecDir } from "../../services/session-spec-link";
 import { lifecycleBus } from "../../services/lifecycle-bus";
 
@@ -47,14 +46,19 @@ export interface PatchStatusBody {
  * user.email` first; fall back to `$USER`, then the literal string
  * `"unknown"` so the key is always present when status flips to approved.
  */
-function resolveApprover(): string {
+async function resolveApprover(): Promise<string> {
   try {
-    const r = spawnSync("git", ["config", "user.email"], {
-      encoding: "utf8",
+    const proc = safeSpawn("git", ["config", "user.email"], {
       stdio: ["ignore", "pipe", "ignore"],
     });
-    if (r.status === 0 && r.stdout) {
-      const email = r.stdout.trim();
+    const [stdout, exitCode] = await Promise.all([
+      proc.stdout instanceof ReadableStream
+        ? new Response(proc.stdout).text()
+        : Promise.resolve(""),
+      proc.exitCode,
+    ]);
+    if (exitCode === 0 && stdout) {
+      const email = stdout.trim();
       if (email) return email;
     }
   } catch {
@@ -227,7 +231,7 @@ export async function handlePatchSpecStatus(
   let updates: Record<string, string>;
   let removes: Set<string>;
   if (body.status === "approved") {
-    const actor = resolveApprover();
+    const actor = await resolveApprover();
     // ISO-8601 with TZ offset (not Z). The Node Date.toISOString() emits a
     // UTC `Z` string; we want the local offset to match the existing
     // `triage` convention. Reuse the small helper at the bottom.

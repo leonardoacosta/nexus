@@ -25,6 +25,7 @@
  */
 
 import { createLogger } from "@nexus/core/node";
+import { execText } from "../utils/exec";
 
 const log = createLogger("agent:services:git-project");
 
@@ -36,24 +37,15 @@ export interface GitOrigin {
 /**
  * Execute `git remote get-url origin` and capture stdout.
  *
- * Uses `Bun.spawn` with an arg-vector (cwd passed via `-C`) — mirrors the
- * canonical pattern in `git-project-resolver.ts#execGitRemoteUrl`. Returns
- * `null` on any spawn error, non-zero exit, or empty output.
+ * Uses `execText` (arg-vector, cwd passed via `-C`) — mirrors the canonical
+ * pattern in `git-project-resolver.ts#execGitRemoteUrl`. Returns `null` on
+ * any spawn error, non-zero exit, or empty output.
  */
 async function gitRemoteUrl(cwd: string): Promise<string | null> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-    });
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) return null;
-    const out = stdout.trim();
-    return out.length > 0 ? out : null;
+    const out = await execText("git", ["-C", cwd, "remote", "get-url", "origin"]);
+    const trimmed = out.trim();
+    return trimmed.length > 0 ? trimmed : null;
   } catch {
     return null;
   }
@@ -153,12 +145,12 @@ export function clearGitMetadataCache(): void {
 /**
  * Spawn `git status --porcelain=v2 --branch && git log -1` in a single
  * shell. Returns combined stdout, or null on timeout / non-zero exit /
- * missing git / cwd not a repo. AbortController kills the subprocess
- * tree if it exceeds the 2s budget.
+ * missing git / cwd not a repo. `execText`'s internal abort wiring kills
+ * the subprocess if it exceeds the 2s budget.
  *
- * Uses `Bun.spawn` (mirrors `git-project-resolver.ts` pattern). The cwd
- * is interpolated into the shell `$0` positional so we never embed
- * user-controlled paths into shell strings.
+ * Uses `execText` with `trustArgs: true` (the joined command string
+ * contains `&&`). The cwd is interpolated into the shell `$0` positional
+ * so we never embed user-controlled paths into shell strings.
  */
 async function spawnGitMetadata(cwd: string): Promise<string | null> {
   // `--untracked-files=no` skips the (often huge) untracked-file
@@ -168,30 +160,13 @@ async function spawnGitMetadata(cwd: string): Promise<string | null> {
     "git -C \"$0\" log -1 --format=%aN%n%aI",
   ].join(" && ");
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const proc = Bun.spawn(["/bin/sh", "-c", cmd, cwd], {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
+    return await execText("/bin/sh", ["-c", cmd, cwd], {
+      timeout: GIT_METADATA_TIMEOUT_MS,
+      trustArgs: true,
     });
-    timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* already exited */
-      }
-    }, GIT_METADATA_TIMEOUT_MS);
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) return null;
-    return stdout;
   } catch {
     return null;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

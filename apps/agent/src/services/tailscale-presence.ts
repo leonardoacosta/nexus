@@ -29,12 +29,10 @@
  * Tailscale IP when the hostname is the generic `localhost`.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { createLogger } from "@nexus/core/node";
 import { getPresenceContext } from "../notifications/presence-context";
+import { execJson } from "../utils/exec";
 
-const execFileAsync = promisify(execFile);
 const log = createLogger("agent:services:tailscale-presence");
 
 /** Default poll interval (a few seconds). Override via `NEXUS_TAILSCALE_POLL_MS`. */
@@ -167,12 +165,9 @@ export interface StartTailscalePresencePollerOpts {
 /** Shell `tailscale status --json` and parse it. Returns null on any failure. */
 async function defaultFetchStatus(): Promise<TailscaleStatus | null> {
   try {
-    const { stdout } = await execFileAsync("tailscale", ["status", "--json"], {
+    return await execJson<TailscaleStatus>("tailscale", ["status", "--json"], {
       timeout: STATUS_TIMEOUT_MS,
-      encoding: "utf8",
-      maxBuffer: 8 * 1024 * 1024,
     });
-    return JSON.parse(stdout) as TailscaleStatus;
   } catch (err) {
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },

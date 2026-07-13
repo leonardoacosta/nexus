@@ -27,7 +27,7 @@
 import { join } from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { createLogger } from "@nexus/core/node";
+import { createLogger, safeSpawn } from "@nexus/core/node";
 import type { Db, NewBloatRadar, NewCronRun } from "@nexus/db";
 import { bloatRadar, cronRuns } from "@nexus/db";
 import { lifecycleBus } from "./lifecycle-bus";
@@ -221,40 +221,40 @@ export async function runReaper(opts: RunReaperOptions = {}): Promise<ReaperResu
     // best-effort
   }
 
-  const proc = Bun.spawn([bashBin, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    // Explicitly forward `process.env` so tests that override $HOME on the
-    // parent process propagate to the child (`Bun.spawn` defaults to a
-    // sanitized env on some platforms). NEXUS_REAPER_NO_REDIRECT=1 tells
-    // the bash core to leave stdout/stderr untouched so the wrapper can
-    // parse the NEXUS_RESULT / NEXUS_BLOAT lines AND tee them to the log
-    // file on the parent side.
-    env: { ...process.env, NEXUS_REAPER_NO_REDIRECT: "1" },
+  // `safeSpawn` already merges `opts.env` over `process.env` internally, so
+  // tests that override $HOME on the parent process still propagate to the
+  // child. NEXUS_REAPER_NO_REDIRECT=1 tells the bash core to leave
+  // stdout/stderr untouched so the wrapper can parse the NEXUS_RESULT /
+  // NEXUS_BLOAT lines AND tee them to the log file on the parent side.
+  const ac = new AbortController();
+  const proc = safeSpawn(bashBin, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { NEXUS_REAPER_NO_REDIRECT: "1" },
+    signal: ac.signal,
   });
 
   let timedOut = false;
   const timeoutHandle = setTimeout(() => {
     timedOut = true;
-    try {
-      proc.kill();
-    } catch {
-      // best-effort
-    }
+    ac.abort();
   }, timeoutMs);
 
   let stdout = "";
   let stderr = "";
   try {
     [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      proc.stdout instanceof ReadableStream
+        ? new Response(proc.stdout).text()
+        : Promise.resolve(""),
+      proc.stderr instanceof ReadableStream
+        ? new Response(proc.stderr).text()
+        : Promise.resolve(""),
     ]);
   } finally {
     clearTimeout(timeoutHandle);
   }
 
-  const exitCode = await proc.exited;
+  const exitCode = await proc.exitCode;
   const durationMs = Math.round(performance.now() - start);
 
   // Tee captured output into the per-run log file. Replaces the `exec >>`

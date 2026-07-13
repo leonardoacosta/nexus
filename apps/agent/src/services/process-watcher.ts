@@ -49,6 +49,7 @@ import type { Db } from "@nexus/db";
 import { sessions, eq, processWatcherState } from "@nexus/db";
 import { and, isNull, isNotNull, gt, lt, sql } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
+import { safeSpawn } from "@nexus/core/node";
 import { execText } from "../utils/exec";
 import {
   upsertSession,
@@ -118,22 +119,19 @@ async function resolveBranch(
   }
 
   let value: string | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), BRANCH_RESOLVE_TIMEOUT_MS);
   try {
-    const proc = Bun.spawn(
-      ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
-      { stdout: "pipe", stderr: "pipe", stdin: "ignore" },
+    const proc = safeSpawn(
+      "git",
+      ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+      { stdio: ["ignore", "pipe", "pipe"], signal: ac.signal },
     );
-    timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* already exited */
-      }
-    }, BRANCH_RESOLVE_TIMEOUT_MS);
     const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
+      proc.stdout instanceof ReadableStream
+        ? new Response(proc.stdout).text()
+        : Promise.resolve(""),
+      proc.exitCode,
     ]);
     if (exitCode === 0) {
       const out = stdout.trim();
@@ -148,7 +146,7 @@ async function resolveBranch(
     );
     value = null;
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
   }
 
   branchCache.set(cwd, { value, expiresAt: now + BRANCH_CACHE_TTL_MS });
