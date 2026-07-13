@@ -134,18 +134,7 @@ final class ProcessTableViewTests: XCTestCase {
         XCTAssertNil(result.label)
     }
 
-    // ── Machine-switch clears processes ──────────────────────────────────
-
-    @MainActor
-    func test_machineSwitchClearsProcesses() {
-        let vm = HealthViewModel()
-        vm.setProcessesForTest(HealthProcessesResponse(
-            topCpu: [processInfo()],
-            topRam: [processInfo()],
-            collectedAt: Date()
-        ))
-        XCTAssertNotNil(vm.processes)
-        vm.clearProcessesForMachineSwitch()
-        XCTAssertNil(vm.processes)
-    }
+    // Machine-switch clearing moved to the board's ProcessTablePopover
+    // (refocus-board-shell task 3.5) — HealthViewModel was deleted with the
+    // Health tab, so its clear-on-switch test retired with it.
 }
