@@ -46,8 +46,9 @@ describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () 
 
     await markNotificationDelivered(db, "n1");
     expect(set).toHaveBeenCalledTimes(1);
-    const patch = set.mock.calls[0]![0] as { status: string; sentAt: Date };
+    const patch = set.mock.calls[0]![0] as { status: string; deliveryState: string; sentAt: Date };
     expect(patch.status).toBe("delivered");
+    expect(patch.deliveryState).toBe("delivered");
     expect(patch.sentAt).toBeInstanceOf(Date);
   });
 
@@ -58,8 +59,9 @@ describe("buffer DB-CRUD (in-memory ring removed by context-aware-routing)", () 
     const db = { update } as unknown as import("@nexus/db").Db;
 
     await markNotificationExpired(db, "n1");
-    const patch = set.mock.calls[0]![0] as { status: string };
+    const patch = set.mock.calls[0]![0] as { status: string; deliveryState: string };
     expect(patch.status).toBe("expired");
+    expect(patch.deliveryState).toBe("failed");
   });
 
   it("getNotificationById returns null when no row matches", async () => {
