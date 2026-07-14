@@ -597,6 +597,80 @@ describe("socket-server dispatcher: session_start pane-based correlation", () =>
     expect(paneMapSpy).not.toHaveBeenCalled();
     expect(receivedWatcherEvents).toHaveLength(1);
   });
+
+  // ── [2.3 correction] processHookEvent sequenced off the resolved target id ─
+  //
+  // Regression pin for the bug found during live verification of 2.1/2.2:
+  // `bindSessionCredential` and `processHookEvent` used to fire independently
+  // off `event.session_id`, unconditionally. When correlation succeeded, no
+  // row with `id = event.session_id` existed — those two silently no-op'd
+  // (0 rows matched, no error), defeating model/cwd/git-origin enrichment for
+  // exactly the sessions this fix was meant to help. `processHookEvent`'s
+  // `session_start` branch calls `updateSessionModel(db, input.sessionId,
+  // model)` first (process-hook-event.ts) when the event payload carries a
+  // `model` — that's the spy target already used elsewhere in this file
+  // (`sessionsDb.updateSessionModel`), reused here as the observable effect.
+  test("match found: processHookEvent's model persist targets the MATCHED row's id, not the raw event session_id", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%7", "main:0.2"]]),
+    );
+    const fakeDb = createFakeSessionsLookupDb([{ id: "watcher-row-1" }]);
+    const updateModelSpy = spyOn(sessionsDb, "updateSessionModel").mockResolvedValue(1);
+    try {
+      const dispatch = await buildDispatch(fakeDb);
+
+      dispatch({ ...startEvent, model: "claude-opus-4-8" } as unknown as SocketEvent);
+      await flush();
+
+      expect(updateModelSpy).toHaveBeenCalledTimes(1);
+      expect(updateModelSpy).toHaveBeenCalledWith(fakeDb, "watcher-row-1", "claude-opus-4-8");
+    } finally {
+      updateModelSpy.mockRestore();
+    }
+  });
+
+  test("no match: processHookEvent's model persist targets event.session_id exactly as before (regression guard)", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%7", "main:0.2"]]),
+    );
+    const fakeDb = createFakeSessionsLookupDb([]);
+    const updateModelSpy = spyOn(sessionsDb, "updateSessionModel").mockResolvedValue(1);
+    try {
+      const dispatch = await buildDispatch(fakeDb);
+
+      dispatch({ ...startEvent, model: "claude-opus-4-8" } as unknown as SocketEvent);
+      await flush();
+
+      expect(updateModelSpy).toHaveBeenCalledTimes(1);
+      expect(updateModelSpy).toHaveBeenCalledWith(fakeDb, "cc-real-uuid-1", "claude-opus-4-8");
+    } finally {
+      updateModelSpy.mockRestore();
+    }
+  });
+
+  test("match found: bindSessionCredential looks up the session by the MATCHED row's id, not the raw event session_id", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%7", "main:0.2"]]),
+    );
+    const fakeDb = createFakeSessionsLookupDb([{ id: "watcher-row-1" }]);
+    const getByIdCalls: string[] = [];
+    sessionManager = {
+      ...sessionManager,
+      getById: (id: string) => {
+        getByIdCalls.push(id);
+        return null;
+      },
+    } as unknown as SessionManager;
+    const dispatch = await buildDispatch(fakeDb);
+
+    dispatch({
+      ...startEvent,
+      credential_fingerprint: "fp-abc",
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(getByIdCalls).toEqual(["watcher-row-1"]);
+  });
 });
 
 // ─── findUnlinkedSessionByTmuxTarget — SQL query semantics (live PG) ─────────

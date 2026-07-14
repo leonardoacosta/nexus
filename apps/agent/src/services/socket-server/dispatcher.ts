@@ -76,43 +76,71 @@ export function createSocketEventDispatcher(
           cc_session_id: event.cc_session_id,
         };
         // Pane-based session correlation (reconcile-session-id-universes,
-        // tasks 2.1/2.2): before letting `handleWatcherEvent` create a second
-        // (UUID-keyed) row, try to link this hook-sourced event to an
+        // tasks 2.1/2.2/2.3): before letting `handleWatcherEvent` create a
+        // second (UUID-keyed) row, try to link this hook-sourced event to an
         // existing process-watcher row via the hook's `tmux_target`. Pane
         // translation + the DB lookup are both async, so this is fired via a
-        // small helper rather than awaited inline — matching this file's
-        // existing fire-and-forget shape for other async work (see
-        // `bindSessionCredential` a few lines below, which is also started
-        // with `.catch()` and never awaited at this level). Internally the
-        // helper is sequential: it awaits both the pane translation and the
-        // DB lookup before deciding which branch to take, so the "call
+        // small helper rather than awaited inline. Internally the helper is
+        // sequential: it awaits both the pane translation and the DB lookup
+        // before deciding which branch to take, so the "call
         // handleWatcherEvent" and "skip it, correlate instead" branches can
         // never race each other. See design.md § Fix.
-        correlateSessionStart(event, watcherEvent, sessionManager, db).catch(
-          (err: unknown) => {
+        //
+        // Task 2.3 correction: `resolveSessionStartTarget` RESOLVES the row
+        // id that everything downstream must write against — the matched
+        // process-watcher row's id when correlation succeeds, or
+        // `event.session_id` on the unchanged fallback. `bindSessionCredential`
+        // and `processHookEvent` are chained off that resolution (`.then`)
+        // instead of being fired independently off the raw event: when
+        // correlation succeeds, NO row with `id = event.session_id` exists,
+        // so firing those two unconditionally against `event.session_id` (the
+        // prior shape) silently no-op'd — 0 rows matched, no error — and
+        // defeated model/cwd/git-origin/credential enrichment for exactly the
+        // sessions this fix is meant to help.
+        resolveSessionStartTarget(event, watcherEvent, sessionManager, db)
+          .then((targetId) => {
+            // Best-effort credential binding: if the event includes a
+            // credential fingerprint, look up the credential and populate
+            // credentialId + credentialFingerprint on the session.
+            if (event.credential_fingerprint && db) {
+              bindSessionCredential(
+                sessionManager,
+                db,
+                targetId,
+                event.credential_fingerprint,
+              ).catch((err: unknown) => {
+                log.warn(
+                  { error: err, sessionId: event.session_id, targetId },
+                  "socket: credential binding failed (best-effort)",
+                );
+              });
+            }
+
+            // Shared spine: schema-drift + git origin resolver. Fire-and-forget
+            // (the dispatcher is sync; the helper handles its own errors).
+            // Wires add-schema-drift-detector 1.3 + add-git-project-resolver 1.3.
+            processHookEvent(
+              {
+                eventType: "session_start",
+                sessionId: targetId,
+                payload: event as unknown as Record<string, unknown>,
+                source: "socket",
+                cwd: event.cwd ?? null,
+              },
+              { sessionManager, db: db ?? null },
+            ).catch((err: unknown) => {
+              log.warn(
+                { err, sessionId: event.session_id, targetId },
+                "socket: processHookEvent(session_start) rejected unexpectedly",
+              );
+            });
+          })
+          .catch((err: unknown) => {
             log.warn(
               { err, sessionId: event.session_id },
               "socket: session_start correlation failed unexpectedly",
             );
-          },
-        );
-
-        // Best-effort credential binding: if the event includes a
-        // credential fingerprint, look up the credential and populate
-        // credentialId + credentialFingerprint on the session.
-        if (event.credential_fingerprint && db) {
-          bindSessionCredential(
-            sessionManager,
-            db,
-            event.session_id,
-            event.credential_fingerprint,
-          ).catch((err: unknown) => {
-            log.warn(
-              { error: err, sessionId: event.session_id },
-              "socket: credential binding failed (best-effort)",
-            );
           });
-        }
 
         // Bridge-column backfill (fix-cc-session-id-bridge, nx-22xz8): the
         // value is threaded through `watcherEvent.cc_session_id` above so it
@@ -122,25 +150,6 @@ export function createSocketEventDispatcher(
         // UPDATE here, but that raced the (unawaited) row-creating INSERT
         // inside `writeThroughSafe` and silently no-op'd when the UPDATE ran
         // before the row existed.
-
-        // Shared spine: schema-drift + git origin resolver. Fire-and-forget
-        // (the dispatcher is sync; the helper handles its own errors).
-        // Wires add-schema-drift-detector 1.3 + add-git-project-resolver 1.3.
-        processHookEvent(
-          {
-            eventType: "session_start",
-            sessionId: event.session_id,
-            payload: event as unknown as Record<string, unknown>,
-            source: "socket",
-            cwd: event.cwd ?? null,
-          },
-          { sessionManager, db: db ?? null },
-        ).catch((err: unknown) => {
-          log.warn(
-            { err, sessionId: event.session_id },
-            "socket: processHookEvent(session_start) rejected unexpectedly",
-          );
-        });
 
         lifecycleBus.emit("SessionStarted", {
           sessionId: event.session_id,
@@ -560,34 +569,42 @@ export function createSocketEventDispatcher(
 
 /**
  * Pane-based session correlation for `session_start` (reconcile-session-id-
- * universes, tasks 2.1/2.2). Attempts to link this hook-sourced event to an
- * existing, not-yet-linked process-watcher row (Universe 1) via the hook's
- * `tmux_target` (raw `%N` pane-id), so the two "session universes" merge into
- * one row instead of `handleWatcherEvent` creating a second, UUID-keyed row.
+ * universes, tasks 2.1/2.2/2.3). Attempts to link this hook-sourced event to
+ * an existing, not-yet-linked process-watcher row (Universe 1) via the
+ * hook's `tmux_target` (raw `%N` pane-id), so the two "session universes"
+ * merge into one row instead of `handleWatcherEvent` creating a second,
+ * UUID-keyed row.
+ *
+ * Returns the row id that every downstream, session-id-keyed write (git
+ * origin, model, cwd backfill, credential binding) MUST target:
  *
  * **Match found**: writes `event.session_id` onto the matched row's
- * `cc_session_id` column via `updateSessionCcSessionId` and returns WITHOUT
- * calling `handleWatcherEvent` — no second row is created for this session.
+ * `cc_session_id` column via `updateSessionCcSessionId`, does NOT call
+ * `handleWatcherEvent` (no second row is created for this session), and
+ * resolves to the MATCHED ROW'S id — not `event.session_id`, which no row
+ * carries in this branch.
  *
  * **No match** (no `tmux_target` on the event, no `db` configured, the pane-
  * translation lookup misses, no matching DB row, or any lookup step throws):
  * falls back to TODAY'S UNCHANGED BEHAVIOR — calls `handleWatcherEvent`
- * exactly as before. This is a strict regression guard (design.md § Fix,
- * Non-Goals): the new path can only ADD correlation, never leave an unmatched
- * session worse off than it is today, which is why lookup failures are
- * caught here and folded into the same fallback rather than left to reject
- * the returned promise (that would skip the `handleWatcherEvent` call the
- * caller's `.catch()` doesn't restore).
+ * exactly as before and resolves to `event.session_id` (the id
+ * `handleWatcherEvent` creates the row under). This is a strict regression
+ * guard (design.md § Fix, Non-Goals): the new path can only ADD correlation,
+ * never leave an unmatched session worse off than it is today, which is why
+ * lookup failures are caught here and folded into the same fallback rather
+ * than left to reject the returned promise (that would skip both the
+ * `handleWatcherEvent` call AND the downstream writes the caller chains off
+ * this promise).
  *
  * The two decisions (call `handleWatcherEvent` vs. correlate instead) can
  * never race: both awaits below resolve before either branch runs.
  */
-async function correlateSessionStart(
+async function resolveSessionStartTarget(
   event: SessionStartEvent,
   watcherEvent: WatcherEvent,
   sessionManager: SessionManager,
   db: Db | undefined,
-): Promise<void> {
+): Promise<string> {
   if (event.tmux_target && db) {
     try {
       const paneMap = await fetchPaneTranslationMap();
@@ -604,7 +621,7 @@ async function correlateSessionStart(
             },
             "socket: session_start correlated to existing process-watcher row",
           );
-          return;
+          return matched.id;
         }
       }
     } catch (err: unknown) {
@@ -621,6 +638,7 @@ async function correlateSessionStart(
     "socket: session_start — no pane correlation match, calling handleWatcherEvent",
   );
   sessionManager.handleWatcherEvent(watcherEvent);
+  return event.session_id;
 }
 
 /**
