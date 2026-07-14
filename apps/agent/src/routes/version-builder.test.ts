@@ -9,7 +9,7 @@
  *   cd apps/agent && bun run test src/routes/version-builder.test.ts
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { buildVersionRoutes, type Route } from "./version-builder";
 
@@ -53,6 +53,7 @@ describe("buildVersionRoutes — response payload shape", () => {
       "buildSha",
       "builtAt",
       "capabilities",
+      "otel",
     ]);
 
     // buildSha: 7-40 lowercase hex chars.
@@ -105,6 +106,34 @@ describe("buildVersionRoutes — capabilities derivation", () => {
     const res = await invoke(routes);
     const body = (await res.json()) as { capabilities: string[] };
     expect(body.capabilities).toContain("GET /a");
+  });
+});
+
+describe("buildVersionRoutes — otel field", () => {
+  const ORIGINAL_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+  afterEach(() => {
+    if (ORIGINAL_ENDPOINT === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = ORIGINAL_ENDPOINT;
+    }
+  });
+
+  test("reports disabled + null endpoint when env var is unset", async () => {
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    const routes = buildVersionRoutes([]);
+    const res = await invoke(routes);
+    const body = (await res.json()) as { otel: { enabled: boolean; endpoint: string | null } };
+    expect(body.otel).toEqual({ enabled: false, endpoint: null });
+  });
+
+  test("reports enabled + the endpoint value when env var is set", async () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector:4318";
+    const routes = buildVersionRoutes([]);
+    const res = await invoke(routes);
+    const body = (await res.json()) as { otel: { enabled: boolean; endpoint: string | null } };
+    expect(body.otel).toEqual({ enabled: true, endpoint: "http://collector:4318" });
   });
 });
 
