@@ -1156,17 +1156,16 @@
       <details class="payload">
         <summary><span class="field">session_start</span><span class="desc">primary session boot &mdash; one per CC process</span></summary>
         <div class="body">
-          <p>Fired by <em>~/.claude/hooks/session-start.sh</em> when CC initialises a new chat. Carries the cc_session_id (CC's UUID), the model in use, and the cwd. Distinguishes primary from sub-agent via <em>is_subagent: false</em>.</p>
+          <p>Fired by <em>~/.claude/hooks/session-start.sh</em> when CC initialises a new chat, relayed through <em>nexus-emit</em> to the socket. Carries the cc_session_id (CC's UUID), the model in use, and the cwd. The discriminant field is <em>event</em>, not <em>hook_event_name</em> &mdash; that older name belongs to an aspirational wire-ingest spec, not the actual type.</p>
           <pre>{
-  <span class="k">"hook_event_name"</span>: <span class="s">"session_start"</span>,
-  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
-  <span class="k">"cc_session_id"</span>: <span class="s">"01J5K2..."</span>,
-  <span class="k">"pid"</span>:           4421,
-  <span class="k">"machine"</span>:       <span class="s">"homelab"</span>,
-  <span class="k">"cwd"</span>:           <span class="s">"/home/leo/dev/oo"</span>,
-  <span class="k">"model"</span>:         <span class="s">"claude-opus-4-7"</span>,
-  <span class="k">"agent"</span>:         <span class="s">"primary"</span>,
-  <span class="k">"is_subagent"</span>:   false
+  <span class="k">"event"</span>:              <span class="s">"session_start"</span>,
+  <span class="k">"session_id"</span>:         <span class="s">"oo-7f3a"</span>,
+  <span class="k">"cc_session_id"</span>:      <span class="s">"01J5K2..."</span>,
+  <span class="k">"project"</span>:            <span class="s">"oo"</span>,
+  <span class="k">"cwd"</span>:                <span class="s">"/home/leo/dev/oo"</span>,
+  <span class="k">"model"</span>:              <span class="s">"claude-opus-4-7"</span>,
+  <span class="k">"pid"</span>:                4421,
+  <span class="k">"branch"</span>:             <span class="s">"main"</span>
 }</pre>
         </div>
       </details>
@@ -1174,35 +1173,14 @@
       <details class="payload">
         <summary><span class="field">agent_spawn</span><span class="desc">sub-agent dispatched via Task() &mdash; tree relationship tracked</span></summary>
         <div class="body">
-          <p>Emitted by the parent CC process when it calls the Task tool to launch a sub-agent. <em>parent_agent</em> ties the child back to its caller; <em>child_role</em> names the role (Explore, plan, ui-engineer, etc).</p>
+          <p>Emitted by the parent CC process when it calls the Task tool to launch a sub-agent. <em>parent_session_id</em> ties the child back to its caller (the type also accepts the older <em>parent_agent</em> field for back-compat with CC hook payloads); <em>child_role</em> names the role (Explore, plan, ui-engineer, etc).</p>
           <pre>{
-  <span class="k">"hook_event_name"</span>: <span class="s">"agent_spawn"</span>,
-  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a-child-01"</span>,
-  <span class="k">"parent_agent"</span>:  <span class="s">"oo-7f3a"</span>,
-  <span class="k">"child_role"</span>:    <span class="s">"Explore"</span>,
-  <span class="k">"agent_type"</span>:    <span class="s">"subagent"</span>,
-  <span class="k">"agent_name"</span>:    <span class="s">"map nx network topology"</span>,
-  <span class="k">"model"</span>:         <span class="s">"claude-haiku-4-5"</span>,
-  <span class="k">"is_subagent"</span>:   true
-}</pre>
-        </div>
-      </details>
-
-      <details class="payload">
-        <summary><span class="field">tool_use_end</span><span class="desc">single tool invocation result &middot; throttled 500ms</span></summary>
-        <div class="body">
-          <p>The highest-volume hook. CC fires one per tool call &mdash; Bash, Read, Edit, Grep, Agent dispatch, MCP call, etc. <em>500ms coalesce window</em> per (eventType, sessionId): the throttle layer emits a single envelope with <em>count</em> indicating suppressed siblings.</p>
-          <pre>{
-  <span class="k">"hook_event_name"</span>: <span class="s">"tool_use_end"</span>,
-  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
-  <span class="k">"tool_name"</span>:     <span class="s">"Bash"</span>,
-  <span class="k">"command"</span>:       <span class="s">"pnpm test --filter @nx/db"</span>,
-  <span class="k">"exit_code"</span>:     0,
-  <span class="k">"duration_ms"</span>:   1834,
-  <span class="k">"input_tokens"</span>:  142,
-  <span class="k">"output_tokens"</span>: 1029,
-  <span class="k">"cost_usd"</span>:      0.0083
-  <span class="c">// throttle envelope adds: count: 4 (suppressed siblings)</span>
+  <span class="k">"event"</span>:              <span class="s">"agent_spawn"</span>,
+  <span class="k">"session_id"</span>:         <span class="s">"oo-7f3a-child-01"</span>,
+  <span class="k">"parent_session_id"</span>:  <span class="s">"oo-7f3a"</span>,
+  <span class="k">"agent_type"</span>:         <span class="s">"Explore"</span>,
+  <span class="k">"model"</span>:              <span class="s">"claude-haiku-4-5"</span>,
+  <span class="k">"child_role"</span>:         <span class="s">"explore"</span>
 }</pre>
         </div>
       </details>
@@ -1210,35 +1188,36 @@
       <details class="payload">
         <summary><span class="field">notification</span><span class="desc">CC's own Notification hook &mdash; the "monitor" channel</span></summary>
         <div class="body">
-          <p>CC fires this when it wants attention &mdash; permission requests, idle prompts, the orange "do this next" banner. We route the payload's body straight into our notification dispatcher. <em>This is how monitor telemetry from CC enters our system today.</em></p>
+          <p>CC fires this when it wants attention &mdash; permission requests, idle prompts, the orange "do this next" banner. We route <em>message</em> straight into our notification dispatcher. <em>project</em> may be omitted, null, or empty &mdash; all three read as "no project context," with no default substitution. <em>Note:</em> this is a different path from <em>nx_notify</em>/TTS, which goes through <code>POST /notifications/send</code> entirely and never touches this dispatcher case.</p>
           <pre>{
-  <span class="k">"hook_event_name"</span>: <span class="s">"notification"</span>,
-  <span class="k">"session_id"</span>:    <span class="s">"oo-7f3a"</span>,
-  <span class="k">"title"</span>:         <span class="s">"Permission required"</span>,
-  <span class="k">"body"</span>:          <span class="s">"Bash(rm -rf .next/)"</span>,
-  <span class="k">"channel"</span>:       [<span class="s">"tts"</span>, <span class="s">"desktop"</span>]
+  <span class="k">"event"</span>:              <span class="s">"notification"</span>,
+  <span class="k">"message"</span>:            <span class="s">"Bash(rm -rf .next/) needs permission"</span>,
+  <span class="k">"message_type"</span>:       <span class="s">"permission_request"</span>,
+  <span class="k">"channels"</span>:           [<span class="s">"tts"</span>, <span class="s">"desktop"</span>],
+  <span class="k">"project"</span>:            <span class="s">"oo"</span>,
+  <span class="k">"session_id"</span>:         <span class="s">"oo-7f3a"</span>
 }</pre>
         </div>
       </details>
 
       <details class="payload">
-        <summary><span class="field">command_end</span><span class="desc">shell-style telemetry &middot; explicit Bash command result</span></summary>
+        <summary><span class="field">agent_complete</span><span class="desc">sub-agent finished &mdash; closes the spawn/complete pair</span></summary>
         <div class="body">
-          <p>A more specific shape of tool_use_end for Bash tool calls. Includes exit code, stderr capture, duration. <em>This is the shell telemetry channel</em> &mdash; if a command run by CC fails non-zero, it lands here with the full stderr buffer.</p>
+          <p>Emitted on CC's SubagentStop hook. Pairs with the <em>agent_spawn</em> event above by <em>session_id</em> to compute the child's wall-clock duration for the subagent tree.</p>
           <pre>{
-  <span class="k">"hook_event_name"</span>: <span class="s">"command_end"</span>,
-  <span class="k">"command"</span>:       <span class="s">"git push"</span>,
-  <span class="k">"exit_code"</span>:     128,
-  <span class="k">"duration_ms"</span>:   3120,
-  <span class="k">"stderr_tail"</span>:   <span class="s">"! [rejected] main -&gt; main (non-fast-forward)"</span>
+  <span class="k">"event"</span>:              <span class="s">"agent_complete"</span>,
+  <span class="k">"session_id"</span>:         <span class="s">"oo-7f3a-child-01"</span>,
+  <span class="k">"agent_type"</span>:         <span class="s">"Explore"</span>,
+  <span class="k">"duration_ms"</span>:        48210
 }</pre>
         </div>
       </details>
 
       <details class="payload">
-        <summary><span class="field">+20 more event types</span><span class="desc">user_prompt, pre_compact, post_compact, crash_flag, stop_failure, permission_request, worktree_create, ...</span></summary>
+        <summary><span class="field">the other 6 SocketEvent types</span><span class="desc">session_stop, session_heartbeat, session_summary, answer, telemetry, deploy_status &mdash; mixed liveness</span></summary>
         <div class="body">
-          <p>The <em>SocketEvent</em> discriminated union in socket-events.ts:160-170 lists 10 types. Unknown event types are accepted, persisted, and emitted &mdash; the dispatcher is permissive by design so a new CC hook surfaces in the TUI immediately without an agent upgrade.</p>
+          <p>The <em>SocketEvent</em> discriminated union in socket-events.ts:160-170 has exactly 10 variants, all four shown above included, every one discriminated on <em>event</em>. Of the remaining six: <em>session_stop</em> and <em>session_summary</em> are live and hook-driven, same as the four above. <em>deploy_status</em> is genuinely socket-native but git-hook-driven (post-merge/pre-push) &mdash; a different origin from the other five, which are all CC-hook-driven. <em>session_heartbeat</em>'s server-side dispatcher case still exists but its client-side emitter was deliberately deleted (hook-noise-remediation task 1.8) &mdash; intentionally-unfed dead capacity, not a bug. <em>answer</em> is an unwired stub: dispatcher.ts's own comment reads "not yet wired to tmux dispatch," an unfinished feature rather than dead code. <em>telemetry</em> has no live emitter anywhere in the current repo; it only appears in an old archived proposal.</p>
+          <p>Separately: CC itself ships around 30 official hook event types. nx only maps a named subset of those into these 10 typed variants &mdash; anything else CC sends is still accepted and persisted, just ungated through the schema-drift detector rather than checked against a fixed allowlist. There is no single countable "N recognized types" the way the old <em>RECOGNIZED_EVENTS</em> framing implied; that fixed-allowlist model was deliberately replaced.</p>
         </div>
       </details>
     </div>
