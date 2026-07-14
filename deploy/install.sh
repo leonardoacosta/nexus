@@ -125,6 +125,17 @@ mkdir -p "$BIN_DIR"
 info "Installing nexus-agent to $BIN_DIR/"
 install -m 755 "$AGENT_BIN" "$BIN_DIR/nexus-agent"
 
+# reaper-core.sh is spawned by the compiled nexus-agent binary as a raw
+# shell path at runtime (never statically imported), so Bun's compiler has
+# no static reference to embed it. Ship it as a sibling of the installed
+# binary so defaultScriptPath()'s execPath-sibling candidate resolves it —
+# see apps/agent/src/services/reaper-job.ts (nx-reaper-path incident).
+REAPER_CORE_SRC="$REPO_DIR/apps/agent/src/services/reaper-core.sh"
+if [[ -f "$REAPER_CORE_SRC" ]]; then
+    info "Installing reaper-core.sh to $BIN_DIR/"
+    install -m 755 "$REAPER_CORE_SRC" "$BIN_DIR/reaper-core.sh"
+fi
+
 if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
     info "Installing nexus-statusline to $BIN_DIR/"
     install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"

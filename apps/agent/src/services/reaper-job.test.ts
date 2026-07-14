@@ -19,6 +19,48 @@ import {
 } from "./reaper-job";
 
 // ---------------------------------------------------------------------------
+// defaultScriptPath — compiled-binary path resolution (nx-reaper-path)
+// ---------------------------------------------------------------------------
+
+describe("defaultScriptPath", () => {
+  test("resolves to the execPath-sibling script when it exists there", () => {
+    // Regression test for the production bug: `import.meta.dir` only
+    // resolves correctly when running from source. A compiled binary's
+    // `process.execPath` sibling is the real production location — this
+    // proves that candidate is actually tried and preferred, using a fake
+    // execPath pointing at a temp dir so the real `process.execPath` global
+    // is never touched.
+    const fakeBinDir = mkdtempSync(join(tmpdir(), "nx-reaper-execpath-"));
+    const fakeExecPath = join(fakeBinDir, "nexus-agent");
+    const fakeScript = join(fakeBinDir, "reaper-core.sh");
+    writeFileSync(fakeScript, "#!/usr/bin/env bash\necho fake\n", { mode: 0o755 });
+
+    try {
+      const resolved = defaultScriptPath(fakeExecPath);
+      expect(resolved).toBe(fakeScript);
+    } finally {
+      rmSync(fakeBinDir, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to the import.meta.dir sibling when no execPath-sibling script exists", () => {
+    // No `reaper-core.sh` at the fake execPath location — must fall back
+    // to the real source-tree sibling (dev/bun-test behavior), not the
+    // execPath candidate.
+    const emptyBinDir = mkdtempSync(join(tmpdir(), "nx-reaper-execpath-empty-"));
+    const fakeExecPath = join(emptyBinDir, "nexus-agent");
+
+    try {
+      const resolved = defaultScriptPath(fakeExecPath);
+      expect(resolved).toBe(join(import.meta.dir, "reaper-core.sh"));
+      expect(existsSync(resolved)).toBe(true);
+    } finally {
+      rmSync(emptyBinDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // parseReaperOutput
 // ---------------------------------------------------------------------------
 

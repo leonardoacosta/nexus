@@ -24,8 +24,8 @@
  *     (emitted by the `_on_exit` trap on any early exit)
  */
 
-import { join } from "node:path";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { createLogger, safeSpawn } from "@nexus/core/node";
 import type { Db, NewBloatRadar, NewCronRun } from "@nexus/db";
@@ -80,11 +80,39 @@ export interface RunReaperOptions {
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 
-/** Absolute path to the vendored bash core. */
-export function defaultScriptPath(): string {
-  // import.meta.dir resolves to apps/agent/src/services at runtime.
-  // Avoid the `dist/` flavor in production by using the .sh sibling.
-  return join(import.meta.dir, "reaper-core.sh");
+/**
+ * Absolute path to the vendored bash core.
+ *
+ * Two candidates, tried in priority order via `existsSync` (nx-reaper-path
+ * incident — production runs the `bun build --compile` binary, and
+ * `reaper-core.sh` is never statically imported so Bun's compiler cannot
+ * embed it; every scheduled run failed silently for 8 straight weeks
+ * because `import.meta.dir` alone only resolves correctly from source):
+ *
+ * 1. Sibling of the running executable (`dirname(process.execPath)`) — the
+ *    real production case. `deploy/install.sh` now installs
+ *    `reaper-core.sh` alongside the compiled `nexus-agent` binary in
+ *    `$BIN_DIR`, so a compiled binary finds its sibling script here.
+ * 2. `import.meta.dir` sibling — what makes dev / `bun test` / `bun run`
+ *    keep working unchanged, since `import.meta.dir` correctly resolves to
+ *    `apps/agent/src/services/` when running from source.
+ *
+ * `execPathOverride` lets tests exercise candidate 1 in isolation without
+ * mutating the real `process.execPath` global.
+ */
+export function defaultScriptPath(execPathOverride?: string): string {
+  const execPath = execPathOverride ?? process.execPath;
+  const execSibling = join(dirname(execPath), "reaper-core.sh");
+  if (existsSync(execSibling)) return execSibling;
+
+  const sourceSibling = join(import.meta.dir, "reaper-core.sh");
+  if (existsSync(sourceSibling)) return sourceSibling;
+
+  // Neither candidate exists — return the execPath-sibling path anyway so
+  // the caller gets a path (matches prior behavior of "return a path, let
+  // the spawn fail loudly downstream" rather than throwing from a
+  // path-resolution helper).
+  return execSibling;
 }
 
 // ---------------------------------------------------------------------------
