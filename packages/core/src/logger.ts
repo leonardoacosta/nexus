@@ -6,22 +6,6 @@ const level = process.env.LOG_LEVEL ?? "info";
 const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 /**
- * Build transport config — only used when OTEL_EXPORTER_OTLP_ENDPOINT is set.
- * pino-opentelemetry-transport forwards logs to an OTLP receiver.
- */
-function buildTransport(): pino.TransportSingleOptions | undefined {
-  if (!otelEndpoint) return undefined;
-  return {
-    target: "pino-opentelemetry-transport",
-    options: {
-      resourceAttributes: {
-        "service.name": process.env.OTEL_SERVICE_NAME ?? "nexus",
-      },
-    },
-  };
-}
-
-/**
  * Mixin that injects active OTel trace/span IDs into every log record.
  * Falls back gracefully when @opentelemetry/api is not installed or no
  * active span exists (returns empty object — no log fields added).
@@ -43,26 +27,24 @@ function buildMixin(): (() => Record<string, string>) | undefined {
   }
 }
 
-const transport = buildTransport();
 const mixin = buildMixin();
 
 /**
  * Root Pino logger instance.
  * All module loggers are children of this root — LOG_LEVEL changes propagate automatically.
- * When OTEL_EXPORTER_OTLP_ENDPOINT is set, logs are forwarded to the OTLP receiver and
- * active trace/span IDs are injected into every log record.
+ * Logs are always written to plain stdout; active trace/span IDs are injected into every
+ * log record only when an active OTel span exists (independent of any endpoint env var).
  */
 const root = pino({
   level,
   base: undefined, // omit pid/hostname from every line
   timestamp: pino.stdTimeFunctions.isoTime,
   ...(mixin ? { mixin } : {}),
-  ...(transport ? { transport } : {}),
 });
 
 /**
  * Create a named child logger for a specific module or component.
- * Each child inherits the root level and transport config.
+ * Each child inherits the root level and mixin config.
  *
  * When `attachScriptErrorSink()` has been called by the script entry point,
  * warn/error/fatal records are also persisted to the `script_errors` table
