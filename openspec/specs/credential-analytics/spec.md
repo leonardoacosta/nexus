@@ -106,39 +106,21 @@ emitted once per `(session_id, model)` pair.
 - **AND** a WARN log is emitted with the model name and session ID
 - **AND** subsequent turns of the same `(session_id, model)` pair do NOT re-emit the WARN
 
-### Requirement: The system SHALL expose GET /sessions/{id}/tokens
-
-The agent HTTP server SHALL expose `GET /sessions/{id}/tokens` returning a
-JSON body `{ turns: [...], aggregates: { input_tokens, output_tokens,
-cache_creation_input_tokens, cache_read_input_tokens, cost_usd, turn_count } }`.
-The `turns` array SHALL contain all `session_token_turns` rows for the given
-session ordered by `ts ASC`. The `aggregates` object SHALL be computed from
-the same rows.
-
-#### Scenario: Returns turns and aggregates for tracked session
-- **GIVEN** session "s1" has 5 turns totaling 12000 input / 4000 output tokens
-- **WHEN** `GET /sessions/s1/tokens` is called
-- **THEN** the response is 200 with a `turns` array of length 5 and `aggregates.input_tokens = 12000`, `aggregates.output_tokens = 4000`, `aggregates.turn_count = 5`
-
-#### Scenario: Unknown session returns 404
-- **GIVEN** no session with id "missing" exists
-- **WHEN** `GET /sessions/missing/tokens` is called
-- **THEN** the response status is 404
-
-#### Scenario: Session with no tracked turns returns empty aggregates
-- **GIVEN** session "s2" exists but has no `session_token_turns` rows (watcher never attached)
-- **WHEN** `GET /sessions/s2/tokens` is called
-- **THEN** the response is 200 with `turns = []` and all aggregate fields equal to 0
-
 ### Requirement: The system SHALL expose GET /credentials/{id}/usage with time-window rollups
 
 The agent HTTP server SHALL expose `GET /credentials/{id}/usage?window=<W>`
-returning `{ input_tokens, output_tokens, cache_creation_input_tokens,
-cache_read_input_tokens, cost_usd, turn_count, session_count }` computed from
-`session_token_turns` rows filtered by the target credential's `fingerprint`
-(NOT its `credential_id`, so duplicate-group members roll up together) and by
-`ts >= now() - window`. Supported window values SHALL be `1h`, `6h`, `24h`,
-and `7d`. An unrecognized `window` value SHALL return HTTP 400.
+returning `{ input, output, cache_creation, cache_read, cost_usd, turn_count,
+session_count }` computed from `session_token_turns` rows filtered by the
+target credential's `fingerprint` (NOT its `credential_id`, so duplicate-group
+members roll up together) and by `ts >= now() - window`. Supported window
+values SHALL be `1h`, `6h`, `24h`, and `7d`. An unrecognized `window` value
+SHALL return HTTP 400. (Field names corrected 2026-07-14, `nx-ysmwm`: prior
+spec text read `input_tokens`/`output_tokens`/`cache_creation_input_tokens`/
+`cache_read_input_tokens`, which never matched the shipped handler
+(`apps/agent/src/routes/credentials/handlers-health-usage.ts`,
+`handleCredentialUsage`) — this endpoint has zero live callers anywhere in
+the fleet as of this correction, so the spec was fixed to match the real
+code rather than the reverse.)
 
 #### Scenario: Rollup aggregates across duplicate group
 - **GIVEN** credentials "c1" and "c2" share `fingerprint = "fp-a"` (duplicate group)
@@ -248,4 +230,19 @@ display-only layer; no collection or persistence runs there.
 - **GIVEN** the history endpoint returns `{ points: [] }` for an account
 - **WHEN** `CredentialsView` renders that account row
 - **THEN** the trend chart is omitted and the current-usage bar still renders
+
+## REMOVED Requirements
+
+### Requirement: The system SHALL expose GET /sessions/{id}/tokens
+
+**Reason**: Retired by `redesign-status-usage-endpoints` task 2.5 as part of collapsing the
+status/usage surface into `GET /statusline`. Discovered as stale drift 2026-07-14 while
+resolving `nx-ysmwm` — the original proposal's delta authoring never touched this capability,
+so this requirement kept describing a route that had already been removed from
+`apps/agent/src/server-request-handler.ts`.
+
+**Migration**: Callers of `GET /sessions/{id}/tokens` now use
+`GET /statusline?sessionId=<id>` and read `session.usage` (composed via
+`readSessionCostTokens`, per the `cc-telemetry-read` delta of the same proposal) instead of
+the retired route's `{ turns, aggregates }` shape.
 
