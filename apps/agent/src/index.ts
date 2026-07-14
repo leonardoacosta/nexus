@@ -42,6 +42,7 @@ import { stopConfigLoader, getProjects } from "./services/config-loader";
 import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
 import { ensureAudioDir } from "./notifications/audio-store";
+import { startMemoryPressureMonitor } from "./services/memory-pressure";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -136,6 +137,12 @@ logger.info({ queryWindowHours: 24 }, "Project discovery query window configured
 // Health snapshot scheduler — persists metrics to PostgreSQL every 30s
 const healthScheduler = new HealthScheduler(healthCollector, db);
 healthScheduler.start();
+
+// Diagnostic memory-pressure sampler (nx-t9wlb): logs a structured WARN when
+// the agent's cgroup memory usage approaches its systemd MemoryMax cap, so a
+// future SIGABRT/SIGILL-under-load crash leaves an investigable trail. No-op on
+// non-Linux / unbounded-cgroup hosts.
+const stopMemoryPressureMonitor = startMemoryPressureMonitor();
 
 // HealthKit silent-push scheduler — wakes the Nexus iOS app on a guaranteed
 // cadence to flush biometric samples to the homelab mx-health ingest (Wave 2).
@@ -393,6 +400,7 @@ async function shutdown() {
   stopConfigLoader();
   // Stop existing services.
   healthScheduler.stop();
+  stopMemoryPressureMonitor();
   stopRetention();
   stopProjectCleanup();
   stopProjectDiscovery();

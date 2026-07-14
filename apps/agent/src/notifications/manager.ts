@@ -32,6 +32,7 @@ import {
   forwardOrLocal,
   type ForwardDeps,
 } from "./cross-machine-delivery";
+import { isWithinQuietHours } from "./quiet-hours";
 
 /**
  * Transient transport-only fields threaded through the `NotificationFired`
@@ -142,12 +143,29 @@ export interface RateThrottleSettings {
   windowMinutes: number;
 }
 
+/**
+ * Quiet-hours collaborator (noise-reduction audit, 2026-07-13, plan 042).
+ * Strictly additive: when omitted, no gating occurs (byte-identical to
+ * today). Applies ONLY on the legacy delivery path — see
+ * `applyQuietHoursIfNeeded()`.
+ */
+export interface QuietHoursWiring {
+  settings: () => Promise<QuietHoursSettings> | QuietHoursSettings;
+}
+
+export interface QuietHoursSettings {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+}
+
 export class NotificationManager {
   private meetingState: MeetingState;
   private db: Db;
   private presence: PresenceWiring | null;
   private crossMachine: CrossMachineWiring | null;
   private rateThrottle: RateThrottleWiring | null;
+  private quietHours: QuietHoursWiring | null;
 
   constructor(
     db: Db,
@@ -155,12 +173,14 @@ export class NotificationManager {
     presence?: PresenceWiring,
     crossMachine?: CrossMachineWiring,
     rateThrottle?: RateThrottleWiring,
+    quietHours?: QuietHoursWiring,
   ) {
     this.db = db;
     this.meetingState = meetingState ?? new MeetingState();
     this.presence = presence ?? null;
     this.crossMachine = crossMachine ?? null;
     this.rateThrottle = rateThrottle ?? null;
+    this.quietHours = quietHours ?? null;
   }
 
   /** Get the meeting state instance. */
@@ -331,6 +351,7 @@ export class NotificationManager {
       // "allow" — fall through to delivery
     }
 
+    await this.applyQuietHoursIfNeeded(row);
     // Deliver now
     await this.deliverNotification(row, extras);
     return row;
@@ -346,7 +367,10 @@ export class NotificationManager {
 
     // Parallel delivery — partial failures are isolated (D4).
     const results = await Promise.allSettled(
-      queued.map((n) => this.deliverNotification(n)),
+      queued.map(async (n) => {
+        await this.applyQuietHoursIfNeeded(n);
+        return this.deliverNotification(n);
+      }),
     );
 
     const delivered = results.filter(
@@ -431,6 +455,27 @@ export class NotificationManager {
       "notification held-batch flushed (coalesced summary)",
     );
     return summaryRow;
+  }
+
+  /**
+   * Downgrade a non-critical `tts` notification to `desktop` when the
+   * current wall-clock hour falls within the configured quiet-hours
+   * window. No-op when `quietHours` wiring is absent, the feature is
+   * disabled, the notification is `priority: "high"`, or the channel
+   * isn't `tts` (see plan 042 for why this applies only to the legacy /
+   * presence-unknown delivery path).
+   */
+  private async applyQuietHoursIfNeeded(row: NotificationRow): Promise<void> {
+    if (row.channel !== "tts" || row.priority === "high" || !this.quietHours) return;
+    const settings = await this.quietHours.settings();
+    if (!settings.enabled) return;
+    if (isWithinQuietHours(settings.startHour, settings.endHour, new Date())) {
+      logger.info(
+        { id: row.id, startHour: settings.startHour, endHour: settings.endHour },
+        "notification TTS downgraded to desktop (quiet hours)",
+      );
+      row.channel = "desktop";
+    }
   }
 
   /** Deliver a single notification via the router using parallel channel delivery. */

@@ -5,9 +5,9 @@
 
 ## API Batch
 
-- [ ] [2.1] Include `registryId` in `GET /projects/discovered` response by querying the `projects` table for a matching row; `null` when no registry row exists yet [owner:api-engineer] [type:api] [beads:nx-4uwok]
-- [ ] [2.2] Add `registryId: string | null` to the agent-side `AgentDiscoveredProject` interface [owner:api-engineer] [type:api] [beads:nx-nio52]
-- [ ] [2.3] Add `registryId?: string | null` to `packages/core`'s `DiscoveredProject` type [owner:types-engineer] [type:api] [beads:nx-apjib]
+- [x] [2.1] Include `registryId` in `GET /projects/discovered` response by querying the `projects` table for a matching row; `null` when no registry row exists yet [owner:api-engineer] [type:api] [beads:nx-4uwok]
+- [x] [2.2] Add `registryId: string | null` to the agent-side `AgentDiscoveredProject` interface [owner:api-engineer] [type:api] [beads:nx-nio52]
+- [x] [2.3] Add `registryId?: string | null` to `packages/core`'s `DiscoveredProject` type [owner:types-engineer] [type:api] [beads:nx-apjib]
 
 ## UI Batch
 

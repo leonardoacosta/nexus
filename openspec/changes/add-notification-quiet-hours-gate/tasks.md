@@ -10,10 +10,10 @@
 
 ## API Batch
 
-- [ ] [2.1] Create pure helper `apps/agent/src/notifications/quiet-hours.ts` exporting `isWithinQuietHours(startHour, endHour, now)`, supporting a midnight-wrapping window and treating a zero-width window as disabled, per Step 3 [owner:api-engineer] [type:api] [beads:nx-j4k4k]
-- [ ] [2.2] Extend `apps/agent/src/routes/notification-settings.ts`: add `quiet_hours_enabled`/`quiet_hours_start_hour`/`quiet_hours_end_hour` to `ALLOWED_KEYS`, `SettingsResponse`/`SettingsRow`, `toResponse()`, per-field validation (boolean for enabled; integer 0-23 for the two hour fields), and the `changed` check, mirroring plan 041's Step 3 pattern [owner:api-engineer] [type:api] [beads:nx-mbszu]
-- [ ] [2.3] Add `QuietHoursWiring`/`QuietHoursSettings` interfaces, a `private quietHours` field, a 6th constructor parameter (after plan 041's `rateThrottle`), and the private `applyQuietHoursIfNeeded()` method to `apps/agent/src/notifications/manager.ts`; call it at both legacy delivery points (`send()` immediate-delivery branch, `flush()`'s queued-delivery map), per Step 7 [owner:api-engineer] [type:api] [beads:nx-hwq6c]
-- [ ] [2.4] Add `readQuietHoursSettings()` to `apps/agent/src/routes/notifications.ts` and wire it as the 6th `NotificationManager` constructor argument in `initNotificationRoutes`, per Step 9 [owner:api-engineer] [type:api] [beads:nx-t8w9v]
+- [x] [2.1] Create pure helper `apps/agent/src/notifications/quiet-hours.ts` exporting `isWithinQuietHours(startHour, endHour, now)`, supporting a midnight-wrapping window and treating a zero-width window as disabled, per Step 3 [owner:api-engineer] [type:api] [beads:nx-j4k4k]
+- [x] [2.2] Extend `apps/agent/src/routes/notification-settings.ts`: add `quiet_hours_enabled`/`quiet_hours_start_hour`/`quiet_hours_end_hour` to `ALLOWED_KEYS`, `SettingsResponse`/`SettingsRow`, `toResponse()`, per-field validation (boolean for enabled; integer 0-23 for the two hour fields), and the `changed` check, mirroring plan 041's Step 3 pattern [owner:api-engineer] [type:api] [beads:nx-mbszu]
+- [x] [2.3] Add `QuietHoursWiring`/`QuietHoursSettings` interfaces, a `private quietHours` field, a 6th constructor parameter (after plan 041's `rateThrottle`), and the private `applyQuietHoursIfNeeded()` method to `apps/agent/src/notifications/manager.ts`; call it at both legacy delivery points (`send()` immediate-delivery branch, `flush()`'s queued-delivery map), per Step 7 [owner:api-engineer] [type:api] [beads:nx-hwq6c]
+- [x] [2.4] Add `readQuietHoursSettings()` to `apps/agent/src/routes/notifications.ts` and wire it as the 6th `NotificationManager` constructor argument in `initNotificationRoutes`, per Step 9 [owner:api-engineer] [type:api] [beads:nx-t8w9v]
 
 ## E2E Batch
 

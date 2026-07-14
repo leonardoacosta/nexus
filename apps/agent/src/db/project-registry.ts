@@ -114,6 +114,36 @@ export async function listAllRegisteredProjects(
   }
 }
 
+/**
+ * Resolve canonical `projects.id` values for a set of discovered project names.
+ *
+ * Returns a `name -> projects.id` map for every name that has a matching
+ * registry row. Names with no registry row are simply absent from the map, so
+ * a caller reads `map.get(name) ?? null` to get the registryId-or-null contract
+ * (`close-registry-id-propagation-gap`). Returns an empty map on any error so
+ * the discovery path degrades to `registryId: null` rather than failing.
+ */
+export async function getRegistryIdsByNames(
+  db: Db,
+  names: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (names.length === 0) return map;
+  try {
+    const rows = await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(inArray(projects.name, names));
+    for (const r of rows) map.set(r.name, r.id);
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "getRegistryIdsByNames query failed — returning empty map",
+    );
+  }
+  return map;
+}
+
 export async function upsertProjectLocations(
   db: Db,
   agentId: string,

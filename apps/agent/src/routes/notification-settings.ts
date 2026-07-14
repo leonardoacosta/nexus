@@ -40,6 +40,10 @@ const ALLOWED_KEYS = new Set([
   "rate_throttle_enabled",
   "rate_throttle_max_per_window",
   "rate_throttle_window_minutes",
+  // Wall-clock quiet-hours gate (noise-reduction audit, 2026-07-13, plan 042).
+  "quiet_hours_enabled",
+  "quiet_hours_start_hour",
+  "quiet_hours_end_hour",
 ]);
 const DUCKING_MODES = new Set(["full", "half", "mute"]);
 const FAIL_MODES = new Set(["fail-safe", "fail-open"]);
@@ -61,6 +65,9 @@ interface SettingsResponse {
   rate_throttle_enabled: boolean;
   rate_throttle_max_per_window: number;
   rate_throttle_window_minutes: number;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start_hour: number;
+  quiet_hours_end_hour: number;
   updated_at: string;
 }
 
@@ -76,6 +83,9 @@ interface SettingsRow {
   rateThrottleEnabled: boolean;
   rateThrottleMaxPerWindow: number;
   rateThrottleWindowMinutes: number;
+  quietHoursEnabled: boolean;
+  quietHoursStartHour: number;
+  quietHoursEndHour: number;
   updatedAt: Date;
 }
 
@@ -99,6 +109,9 @@ function toResponse(row: SettingsRow): SettingsResponse {
     rate_throttle_enabled: row.rateThrottleEnabled,
     rate_throttle_max_per_window: row.rateThrottleMaxPerWindow,
     rate_throttle_window_minutes: row.rateThrottleWindowMinutes,
+    quiet_hours_enabled: row.quietHoursEnabled,
+    quiet_hours_start_hour: row.quietHoursStartHour,
+    quiet_hours_end_hour: row.quietHoursEndHour,
     updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -207,6 +220,9 @@ export async function handlePatchNotificationSettings(
     rateThrottleEnabled: boolean;
     rateThrottleMaxPerWindow: number;
     rateThrottleWindowMinutes: number;
+    quietHoursEnabled: boolean;
+    quietHoursStartHour: number;
+    quietHoursEndHour: number;
   }> = {};
 
   if ("tts_enabled" in patch) {
@@ -314,6 +330,35 @@ export async function handlePatchNotificationSettings(
     update.rateThrottleWindowMinutes = v;
   }
 
+  if ("quiet_hours_enabled" in patch) {
+    if (typeof patch.quiet_hours_enabled !== "boolean") {
+      return jsonResponse({ error: "quiet_hours_enabled must be a boolean" }, 400);
+    }
+    update.quietHoursEnabled = patch.quiet_hours_enabled;
+  }
+
+  if ("quiet_hours_start_hour" in patch) {
+    const v = patch.quiet_hours_start_hour;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 23) {
+      return jsonResponse(
+        { error: "quiet_hours_start_hour must be an integer between 0 and 23" },
+        400,
+      );
+    }
+    update.quietHoursStartHour = v;
+  }
+
+  if ("quiet_hours_end_hour" in patch) {
+    const v = patch.quiet_hours_end_hour;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 23) {
+      return jsonResponse(
+        { error: "quiet_hours_end_hour must be an integer between 0 and 23" },
+        400,
+      );
+    }
+    update.quietHoursEndHour = v;
+  }
+
   // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
   // SELECT the current row, merge the candidate patch, and if every field
   // matches the existing value, return 200 WITHOUT issuing an UPDATE and
@@ -348,7 +393,13 @@ export async function handlePatchNotificationSettings(
     (update.rateThrottleMaxPerWindow !== undefined &&
       update.rateThrottleMaxPerWindow !== current.rateThrottleMaxPerWindow) ||
     (update.rateThrottleWindowMinutes !== undefined &&
-      update.rateThrottleWindowMinutes !== current.rateThrottleWindowMinutes);
+      update.rateThrottleWindowMinutes !== current.rateThrottleWindowMinutes) ||
+    (update.quietHoursEnabled !== undefined &&
+      update.quietHoursEnabled !== current.quietHoursEnabled) ||
+    (update.quietHoursStartHour !== undefined &&
+      update.quietHoursStartHour !== current.quietHoursStartHour) ||
+    (update.quietHoursEndHour !== undefined &&
+      update.quietHoursEndHour !== current.quietHoursEndHour);
 
   if (!changed) {
     // No-op: return current row, do NOT UPDATE, do NOT emit.

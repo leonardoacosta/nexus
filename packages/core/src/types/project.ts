@@ -66,6 +66,12 @@ export interface DiscoveredProject {
   machineCount?: number;
   /** Git remote URL for origin; stable cross-machine identity key. Optional — old agents omit it. */
   gitRemoteUrl?: string | null;
+  /**
+   * Canonical registry id (`projects.id`) for this project, or `null` when no
+   * registry row exists yet (`close-registry-id-propagation-gap`). Optional so
+   * older agents that omit the field still decode.
+   */
+  registryId?: string | null;
 }
 
 /** Response wrapper from GET /projects/discovered */

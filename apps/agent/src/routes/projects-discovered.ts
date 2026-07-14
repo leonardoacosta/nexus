@@ -33,12 +33,15 @@ let fs: FsShim = {
 interface DepsShim {
   queryRecentSessions: typeof sessionsModule.queryRecentSessions;
   upsertProjectLocations: typeof projectRegistryModule.upsertProjectLocations;
+  getRegistryIdsByNames: typeof projectRegistryModule.getRegistryIdsByNames;
 }
 
 let deps: DepsShim = {
   queryRecentSessions: (...args) => sessionsModule.queryRecentSessions(...args),
   upsertProjectLocations: (...args) =>
     projectRegistryModule.upsertProjectLocations(...args),
+  getRegistryIdsByNames: (...args) =>
+    projectRegistryModule.getRegistryIdsByNames(...args),
 };
 
 /** Test-only: replace fs accessors. */
@@ -66,6 +69,8 @@ export function __resetDepsForTesting(): void {
     queryRecentSessions: (...args) => sessionsModule.queryRecentSessions(...args),
     upsertProjectLocations: (...args) =>
       projectRegistryModule.upsertProjectLocations(...args),
+    getRegistryIdsByNames: (...args) =>
+      projectRegistryModule.getRegistryIdsByNames(...args),
   };
 }
 
@@ -121,6 +126,13 @@ export interface AgentDiscoveredProject {
   totalSessions: number;
   /** Git remote URL for origin, used as a stable cross-machine dedup key. Null when unavailable. */
   gitRemoteUrl: string | null;
+  /**
+   * Canonical registry id (`projects.id`) for this discovered project, or
+   * `null` when no registry row exists yet (`close-registry-id-propagation-gap`).
+   * Lets a consumer join a filesystem-discovered project against its
+   * `projects`/`project_locations` registry entry without a second lookup.
+   */
+  registryId: string | null;
 }
 
 /** Legacy wire format returned by GET /projects/discovered (no cursor/limit). */
@@ -335,12 +347,21 @@ async function scanProjects(
     (c) => resolveGitRemote(c.canonicalPath),
   );
 
+  // Resolve each candidate's canonical registry id (projects.id), or null when
+  // no registry row exists yet (close-registry-id-propagation-gap). One batched
+  // lookup keyed by name — the same key the discovery upsert uses.
+  const registryIds = await deps.getRegistryIdsByNames(
+    db,
+    candidates.map((c) => c.name),
+  );
+
   const projects: AgentDiscoveredProject[] = candidates.map((c, i) => ({
     name: c.name,
     path: c.canonicalPath,
     activeSessions: c.activeSessions,
     totalSessions: c.totalSessions,
     gitRemoteUrl: remoteUrls[i]!,
+    registryId: registryIds.get(c.name) ?? null,
   }));
 
   return { ok: true, projects, truncated };

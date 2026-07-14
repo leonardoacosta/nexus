@@ -80,7 +80,23 @@ mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 # the whole class of "install silently skipped forever" drift.
 info "syncing dependencies (bun install --frozen-lockfile)"
 if ! (cd "$REPO_DIR" && bun install --frozen-lockfile); then
-    fail "bun install failed; manual recovery required"
+    # Lockfile drift (nx-zpbqi): the committed bun.lock no longer matches what
+    # bun resolves, so --frozen-lockfile refuses to install. Continuing here
+    # would leave nexus-agent running on a STALE node_modules. Recover by
+    # running a non-frozen install so the agent gets fresh deps, then discard
+    # any local bun.lock change so this deploy checkout stays clean for future
+    # `git pull --ff-only`. The durable fix (regenerate + commit bun.lock) lives
+    # upstream — surface that as an actionable, non-silent alert.
+    warn "frozen-lockfile install failed — committed bun.lock has drifted from what bun resolves"
+    warn "attempting recovery: non-frozen 'bun install' to refresh node_modules for nexus-agent"
+    if (cd "$REPO_DIR" && bun install); then
+        (cd "$REPO_DIR" && git checkout -- bun.lock) 2>/dev/null || true
+        echo "{\"event\":\"notification\",\"message\":\"nexus-agent deploy on $(hostname -s): bun.lock drift auto-recovered via non-frozen install — regenerate and commit bun.lock upstream to stop this recurring\"}" \
+            | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true
+        warn "recovery succeeded — UPSTREAM ACTION REQUIRED: run 'bun install' and commit the refreshed bun.lock"
+    else
+        fail "bun install failed even without --frozen-lockfile; manual recovery required"
+    fi
 fi
 
 info "rebuilding..."
