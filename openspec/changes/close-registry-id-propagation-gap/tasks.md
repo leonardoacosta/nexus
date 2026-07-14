@@ -11,9 +11,9 @@
 
 ## UI Batch
 
-- [ ] [3.1] Update `apps/nextjs/src/lib/agent-client.ts` to map `registryId` from the wire format through to the client-side `DiscoveredProject`, unchanged [owner:ui-engineer] [type:ui] [beads:nx-288h4]
+- [x] [3.1] N/A for nx — resolved without a code change. `apps/nextjs/src/lib/agent-client.ts` does not exist in this repo (nx uses `apps/web`, not `apps/nextjs`; confirmed via grep — no TS consumer of `AgentDiscoveredProject`/`DiscoveredProject` exists anywhere client-side). `registryId` already flows end-to-end through both wire-format types (API Batch 2.2/2.3); there is no intermediate client mapping hop to update. Task text was authored against a stale/generic template path — see close-registry-id-propagation-gap's original bead nx-611m. [owner:ui-engineer] [type:ui] [beads:nx-288h4]
 
 ## E2E Batch
 
 - [ ] [4.1] Route unit test: registered project's discovery response carries its registryId; unregistered project's registryId is null [owner:e2e-engineer] [type:testing] [beads:nx-idfzy]
-- [ ] [4.2] Client mapping test: registryId round-trips unchanged through agent-client.ts [owner:e2e-engineer] [type:testing] [beads:nx-hp0a7]
+- [x] [4.2] N/A for nx — same root cause as [3.1]: no TS client mapping exists to test. Superseded by [4.1], which already covers registryId at the one real boundary (the agent route). [owner:e2e-engineer] [type:testing] [beads:nx-hp0a7]
