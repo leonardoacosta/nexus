@@ -20,7 +20,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-2] Migrate Swift dashboard Credentials view off `Account.usagePercent`/`resetsAt` onto `GET /statusline?accountId=` [owner:swift-engineer] [type:ui] [beads:nx-rqpio]
+- [x] [3.1] [P-2] Migrate Swift dashboard Credentials view off `Account.usagePercent`/`resetsAt` onto `GET /statusline?accountId=` [owner:swift-engineer] [type:ui] [beads:nx-rqpio]
 - [x] [3.2] [P-2] Migrate `apps/web`'s credentials consumer (`integration-client.ts`) off the retired `Account` usage fields [owner:ui-engineer] [type:ui] [beads:nx-fgrs2] — VACUOUS: apps/web/src/lib/integration-client.ts is a provider-credential client (ElevenLabs/Telegram secrets), never referenced Account.usagePercent/resetsAt; apps/web has no @nexus/core dependency at all. grep + `git log -S` across apps/web confirm zero references, ever. Nothing to migrate. typecheck clean (exit 0).
 - [x] [3.3] [P-2] Update `apps/nexus-statusline` (`render.ts`/`agent-lines.ts`) to consume the composed `sessionId`-mode fields where applicable [owner:api-engineer] [type:ui] [beads:nx-m7hc0] — NO REGRESSION, no change needed: render.ts/agent-lines.ts never called the retired routes (they poll neither-mode /statusline + /specs/all + /roadmap + /queue + cc roadmap-pulse, none retired). Opportunistic adoption declined: every composed sessionId-mode field is already sourced more cheaply from CC stdin (cost/model/5H/7D) or more richly/correctly from local git + per-proposal specs/roadmap lines; adding a /statusline?sessionId= round-trip per render would duplicate existing data and reintroduce the bd-ready latency class design.md's Risks table warns against. typecheck clean (exit 0) + rendered smoke against live agent confirms neither-mode contract intact end-to-end.
 
