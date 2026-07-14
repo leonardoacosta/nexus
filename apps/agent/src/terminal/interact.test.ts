@@ -1,5 +1,6 @@
 import { describe, expect, it, afterAll, beforeAll, afterEach } from "bun:test";
 import { MockPtySource } from "./pty-source";
+import type { PtySource } from "./pty-source";
 
 // Bind the SHARED @nexus/core/node logger spy (nx-509z5) BEFORE importing
 // `../server`. `../server` transitively loads cross-machine-delivery.ts, which
@@ -220,6 +221,103 @@ describe("WebSocket interact: mutex", () => {
     writer2.close();
     anchor.close();
     await delay(20);
+  });
+});
+
+// ── Task 4.1: interact binary frame never dropped for a claimed writer ───────
+//
+// Regression guard for nx-qq3qu / nx-uql03. The underlying interact-channel bug
+// was fixed client-side in f2e99d20 (iOS PtyInteractChannel no longer markReadOnly
+// on a benign geometry broadcast). This test locks the AGENT-side receive contract
+// that keystrokes depend on: for a socket that holds the writer mutex, EVERY binary
+// interact frame reaches `pty.write()` — none is rejected as "not the interactive
+// writer" and none takes the `DROPPED — no PTY attached` branch (there is always a
+// PTY here, and the byte-exact capture proves each frame landed).
+//
+// A `RecordingPtySource` records every write() call so we can assert byte-for-byte
+// that N repeated keystroke frames produce N writes with the exact bytes, i.e. zero
+// drops.
+
+class RecordingPtySource implements PtySource {
+  readonly writes: Uint8Array[] = [];
+  private listeners = new Set<(d: Uint8Array) => void>();
+  private _cols = 80;
+  private _rows = 24;
+  private closed = false;
+
+  onData(cb: (d: Uint8Array) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+  getScrollback(): string[] {
+    return [];
+  }
+  write(data: Uint8Array): void {
+    if (this.closed) return;
+    // Copy — the caller may reuse the backing buffer.
+    this.writes.push(new Uint8Array(data));
+    // Echo so viewer machinery behaves like the real/mock source.
+    for (const cb of this.listeners) {
+      try {
+        cb(data);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  resize(cols: number, rows: number): void {
+    this._cols = cols;
+    this._rows = rows;
+  }
+  geometry(): { cols: number; rows: number } {
+    return { cols: this._cols, rows: this._rows };
+  }
+  close(): void {
+    this.closed = true;
+    this.listeners.clear();
+  }
+}
+
+describe("WebSocket interact: binary frame delivery (task 4.1, nx-qq3qu regression)", () => {
+  it("[4.1] every repeated binary keystroke from the writer reaches pty.write(), zero drops", async () => {
+    const sid = "test-interact-no-drop";
+    const rec = new RecordingPtySource();
+    streamManager.attach(sid, rec);
+
+    const { ws, messages, opened } = await connectWs(`/sessions/${sid}/interact`);
+    await opened;
+    // Let the open() writer-claim settle before sending input.
+    await delay(20);
+
+    // Simulate repeated keystrokes: N discrete single-byte binary frames, the
+    // exact shape the iOS PtyInteractChannel sends per keypress.
+    const keystrokes = [..."echo hi\r"].map((c) => c.charCodeAt(0));
+    for (const code of keystrokes) {
+      ws.send(new Uint8Array([code]));
+    }
+
+    await delay(80);
+
+    // Each keystroke frame produced exactly one pty.write() with the right byte.
+    expect(rec.writes.length).toBe(keystrokes.length);
+    const flattened = rec.writes.map((w) => w[0]);
+    expect(flattened).toEqual(keystrokes);
+
+    // No frame was rejected as "not the interactive writer" — the writer mutex
+    // held for the whole burst.
+    const errorFrames = messages.filter((m) => {
+      if (typeof m !== "string") return false;
+      try {
+        return JSON.parse(m).type === "error";
+      } catch {
+        return false;
+      }
+    });
+    expect(errorFrames).toEqual([]);
+
+    ws.close();
+    await delay(20);
+    streamManager.endSession(sid);
   });
 });
 
