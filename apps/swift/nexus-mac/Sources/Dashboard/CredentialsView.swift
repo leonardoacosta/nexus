@@ -134,9 +134,28 @@ private struct CredentialRow: View {
     /// Loaded on `.task`; empty until the agent answers (or forever on older
     /// agents / accounts with no history yet — the chart hides itself).
     @State private var usageHistory: [NexusShared.UsageHistoryPoint] = []
+    /// Composed 5h / 7d usage from `GET /statusline?accountId=` — the
+    /// authoritative source now that `GET /credentials` no longer carries usage
+    /// fields (redesign-status-usage-endpoints, bd:nx-rqpio). Loaded on `.task`;
+    /// `nil` until the agent answers, or forever on an agent older than the
+    /// accountId-mode endpoint — in which case the bars fall back to the
+    /// `CcProfile` usage fields below.
+    @State private var accountUsage: NexusShared.Account5H7D?
+
+    // MARK: - Usage resolvers (statusline accountId-mode -> CcProfile fallback)
+    //
+    // Prefer the composed `GET /statusline?accountId=` window; fall back to the
+    // legacy `CcProfile` usage fields when the endpoint hasn't answered yet
+    // (older agent / in-flight load), so the bars never regress to empty.
+    private var used5h: Int { accountUsage?.fiveHour.used ?? profile.usage5hUsed ?? 0 }
+    private var limit5h: Int { accountUsage?.fiveHour.limit ?? profile.usage5hLimit ?? 0 }
+    private var reset5h: Date? { accountUsage?.fiveHour.resetsAt ?? profile.usage5hResetAt }
+    private var used7d: Int { accountUsage?.sevenDay.used ?? profile.usage7dUsed ?? 0 }
+    private var limit7d: Int { accountUsage?.sevenDay.limit ?? profile.usage7dLimit ?? 0 }
+    private var reset7d: Date? { accountUsage?.sevenDay.resetsAt ?? profile.usage7dResetAt }
 
     private var showUsageBars: Bool {
-        profile.usage5hLimit != nil && profile.usage7dLimit != nil
+        limit5h > 0 && limit7d > 0
     }
 
     private var showRefreshIdentity: Bool {
@@ -219,6 +238,7 @@ private struct CredentialRow: View {
         .padding(.vertical, 6)
         .task(id: profile.id) {
             usageHistory = await model.usageHistory(id: profile.id)
+            accountUsage = await model.accountUsage(id: profile.id)
         }
     }
 
@@ -283,15 +303,15 @@ private struct CredentialRow: View {
         TimelineView(.periodic(from: .now, by: 60)) { _ in
             VStack(alignment: .leading, spacing: 4) {
                 CredentialsUsageBar(
-                    used: profile.usage5hUsed ?? 0,
-                    limit: profile.usage5hLimit ?? 0,
-                    resetAt: profile.usage5hResetAt,
+                    used: used5h,
+                    limit: limit5h,
+                    resetAt: reset5h,
                     label: "5h"
                 )
                 CredentialsUsageBar(
-                    used: profile.usage7dUsed ?? 0,
-                    limit: profile.usage7dLimit ?? 0,
-                    resetAt: profile.usage7dResetAt,
+                    used: used7d,
+                    limit: limit7d,
+                    resetAt: reset7d,
                     label: "7d"
                 )
             }
@@ -415,6 +435,15 @@ final class CredentialsViewModel: ObservableObject {
     /// older agent) — the chart hides itself.
     func usageHistory(id: String) async -> [NexusShared.UsageHistoryPoint] {
         await client.fetchUsageHistory(id: id, window: "5h")
+    }
+
+    /// Composed 5h / 7d usage for one account via `GET /statusline?accountId=`.
+    /// The aggregate client fans out; the owning agent answers and the rest
+    /// 404 (dropped). Returns `nil` when no agent has this account or every
+    /// agent is older than the accountId-mode endpoint — the row then falls
+    /// back to the `CcProfile` usage fields. bd:nx-rqpio.
+    func accountUsage(id: String) async -> NexusShared.Account5H7D? {
+        await client.fetchAccountUsage(accountId: id)
     }
 
     /// Re-probe a single credential's identity and optimistically update
