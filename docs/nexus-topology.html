@@ -1612,17 +1612,22 @@
   </div>
 
   <div class="subsection" data-region="sse">
-    <div class="sub-num">03.3 &middot; TRANSMITTED  (live, streaming)</div>
-    <h3 class="sub-head">What goes out on the wire while clients are watching</h3>
+    <div class="sub-num">03.3 &middot; TRANSMITTED  (live streams &middot; and the request/response surface behind them)</div>
+    <h3 class="sub-head">What goes out on the wire while clients are watching &mdash; and what answers a plain GET</h3>
     <p class="sub-deck">
-      Four live streams leave the agent. <strong>Where:</strong> bound to
-      the agent's HTTP server on 7400. <strong>When:</strong> push-only;
-      each envelope is sent the moment the bus emits. <strong>How:</strong>
-      long-lived HTTP/1.1 connections (SSE) or WebSocket upgrades.
-      <strong>Why streaming:</strong> the alternative &mdash; clients
-      polling &mdash; would either be slow or expensive. SSE is cheaper
-      than WebSocket for one-way push; WebSocket is mandatory for the
-      bidirectional cases.
+      Three channels leave the agent as genuinely <em>live</em> streams; a
+      much larger set of routes &mdash; roughly <strong>75</strong> &mdash;
+      answer as ordinary request/response. <strong>Where:</strong> all bound
+      to the agent's HTTP server on 7400. <strong>When (streams):</strong>
+      push-only, each envelope sent the moment the bus emits.
+      <strong>How:</strong> long-lived HTTP/1.1 connections (SSE) or
+      WebSocket upgrades for the streams; ordinary fetch/JSON for everything
+      else. <strong>Why streaming for some, not others:</strong> SSE/WS earn
+      their keep only where a client must react the instant state changes
+      &mdash; attach and the Mac notifier. Everything that merely reads
+      current state (dashboards, the status line, peer presence) is served
+      fine by a plain GET, and that's most of the surface &mdash; see
+      &sect;04 for the consumer breakdown.
     </p>
     <div class="sub-grid">
       <div class="sub-card">
@@ -1630,8 +1635,8 @@
         <div class="body">Server-Sent Events. Subscribes to the lifecycle bus with a wildcard listener; every envelope becomes a <em>data:</em> frame. 30-second comment keepalives so reverse proxies don't drop the connection. <em>The mac notifier is the primary consumer.</em></div>
       </div>
       <div class="sub-card">
-        <div class="name">/ws/federation  &middot; WS bidi</div>
-        <div class="body">Peer-to-peer WebSocket. Forwards every <code>source: 'local'</code> envelope; ingests peer envelopes tagged <code>source: 'peer'</code> &mdash; the source tag is the entire echo-suppression protocol. Per-peer buffer of 1000 events absorbs short disconnects.</div>
+        <div class="name">HTTP request/response  &middot; ~75 routes</div>
+        <div class="body">Not a stream at all &mdash; the bulk of the surface. Sessions, health, projects, credentials, notifications, analytics, specs, presence, and more, all bound to <code>:7400</code>. Peer agents pull this surface directly rather than subscribing to a push channel &mdash; see the Peer presence card below.</div>
       </div>
       <div class="sub-card">
         <div class="name">/sessions/$id/stream  &middot; WS read</div>
@@ -1672,8 +1677,8 @@
         <div class="body">HTTP POST to a configured incoming-webhook URL. The shared secret lives in the credential pool, decrypted at send time. Per-channel acknowledgement is tracked in the <em>notifications</em> table.</div>
       </div>
       <div class="sub-card">
-        <div class="name">Peer fan-out</div>
-        <div class="body">Every <code>source: 'local'</code> envelope is mirrored to every connected peer over <em>/ws/federation</em>. The 1000-event ring buffer protects against short network drops; longer disconnects rely on the DB as the ultimate replay source.</div>
+        <div class="name">Peer presence  &middot; HTTP, not push</div>
+        <div class="body"><code>fleet-presence.ts</code> / <code>tailscale-presence.ts</code> poll each peer's own <code>:7400</code> directly over Tailscale &mdash; <code>GET /presence/fleet</code>, <code>/health</code> &mdash; to aggregate cross-machine session state. There is no dedicated peer channel; the old <em>/ws/federation</em> WebSocket and <code>peer-connector.ts</code> were removed (<code>remove-peer-connector</code>). Plain HTTP polling is the actual P2P mesh mechanism today.</div>
       </div>
     </div>
   </div>
@@ -1695,12 +1700,18 @@
 <section class="chapter" id="ch-04" data-region="tui">
   <div class="chap-head">
     <div class="chap-num">04 <span class="dot">&middot;</span> client reception</div>
-    <h2 class="chap-title">Three readers,<br><span class="strong">three protocols.</span></h2>
+    <h2 class="chap-title">A wide door,<br><span class="strong">not a narrow one.</span></h2>
     <p class="chap-deck">
-      Each client picks the protocol that matches its job. The TUI fans out
-      <strong>HTTP queries</strong> for snapshots. The Mac listener holds an
-      <strong>SSE stream</strong> for push. Peer agents speak
-      <strong>WebSocket</strong> for bidirectional federation.
+      Each client picks the protocol that matches its job, but most of them
+      walk through the same door: a roughly <strong>75-route HTTP+WS
+      surface</strong> on <code>:7400</code> &mdash; sessions, health,
+      projects, credentials, notifications, analytics, specs, presence, and
+      more. <code>nexus-statusline</code> and the Swift dashboard suite
+      (<code>NexusShared</code>, shared by nexus-mac / nexus-ios /
+      nexus-watch) pull from it directly; the Mac notifier holds an
+      <strong>SSE stream</strong> for push; peer agents poll each other's
+      plain <strong>HTTP</strong> to aggregate fleet state &mdash; there is
+      no dedicated peer protocol.
     </p>
   </div>
 
@@ -1715,10 +1726,22 @@
     </thead>
     <tbody>
       <tr>
-        <td><span class="name">nexus (TUI)</span><br><span class="muted">apps/nexus-status &middot; ratatui</span></td>
+        <td><span class="name">nexus-statusline</span><br><span class="muted">apps/nexus-statusline &middot; Bun, CC statusline plugin</span></td>
+        <td>HTTP &middot; poll</td>
+        <td><code>GET /statusline</code><br><code>GET /specs/all</code><br>context-guard endpoint</td>
+        <td>Fetched inside the CC statusline render on every prompt. Pulls the current agent's summary line plus proposal/spec progress; a dead or unreachable agent is swallowed, never breaks the status line.</td>
+      </tr>
+      <tr>
+        <td><span class="name">NexusShared</span><br><span class="muted">apps/swift/NexusShared &middot; shared by nexus-mac / nexus-ios / nexus-watch</span></td>
+        <td>HTTP + WS &middot; fan-out</td>
+        <td>most of the ~75-route surface: <code>GET /sessions</code>, <code>/health/history</code>, <code>/projects</code>, <code>/presence/fleet</code>, <code>/notifications/*</code>, <code>/analytics/*</code>, plus the attach WS routes</td>
+        <td>Reads <code>~/.config/nexus/agents.toml</code> on launch, holds a client per agent, aggregates across the mesh. One framework, three targets &mdash; the multi-platform dashboard suite that superseded the ratatui TUI below.</td>
+      </tr>
+      <tr>
+        <td><span class="name">nexus (TUI) <em>&middot; retired</em></span><br><span class="muted">apps/nexus-status &middot; ratatui</span></td>
         <td>HTTP &middot; fan-out</td>
-        <td><code>GET /sessions</code><br><code>GET /health</code><br><code>GET /projects</code></td>
-        <td>Reads <code>~/.config/nexus/agents.toml</code> on launch, holds a HTTP client per peer, polls in parallel, dedupes by <em>session.id</em>. No streams &mdash; refresh on user keystroke.</td>
+        <td><code>GET /sessions</code> <em>(historical)</em></td>
+        <td>Legacy CLI dashboard. Superseded by NexusShared's Swift dashboard suite above; kept here for the historical record, not as a live consumer.</td>
       </tr>
       <tr>
         <td><span class="name">com.nexus.notifier</span><br><span class="muted">deploy/nexus-notifier.sh</span></td>
@@ -1727,10 +1750,10 @@
         <td>launchd-supervised on macOS. Subscribes to local <code>http://localhost:7400</code> for envelope frames. Caches settings in-process; mutates on <code>SettingsChanged</code> without restart.</td>
       </tr>
       <tr>
-        <td><span class="name">peer agents</span><br><span class="muted">peer-connector.ts</span></td>
-        <td>WebSocket &middot; bidi</td>
-        <td><code>/ws/federation</code></td>
-        <td>Exponential backoff 1s &rarr; 30s on connect failure. Forward every <code>source: 'local'</code> envelope, ingest every peer envelope with <code>source: 'peer'</code> to prevent echo. 1000-event buffer per peer.</td>
+        <td><span class="name">peer agents</span><br><span class="muted">fleet-presence.ts &middot; tailscale-presence.ts</span></td>
+        <td>HTTP &middot; poll</td>
+        <td><code>GET /presence/fleet</code><br><code>GET /health</code></td>
+        <td>Each agent polls its peers' own <code>:7400</code> directly over Tailscale to aggregate cross-machine session state. <em>The former <code>/ws/federation</code> WebSocket and <code>peer-connector.ts</code> were removed (<code>remove-peer-connector</code>) &mdash; this HTTP polling is the actual P2P mesh mechanism today.</em></td>
       </tr>
       <tr>
         <td><span class="name">attach client</span><br><span class="muted">TUI or external CLI</span></td>
