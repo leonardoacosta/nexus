@@ -21,7 +21,7 @@
 ## UI Batch
 
 - [ ] [3.1] [P-2] Migrate Swift dashboard Credentials view off `Account.usagePercent`/`resetsAt` onto `GET /statusline?accountId=` [owner:swift-engineer] [type:ui] [beads:nx-rqpio]
-- [ ] [3.2] [P-2] Migrate `apps/web`'s credentials consumer (`integration-client.ts`) off the retired `Account` usage fields [owner:ui-engineer] [type:ui] [beads:nx-fgrs2]
+- [x] [3.2] [P-2] Migrate `apps/web`'s credentials consumer (`integration-client.ts`) off the retired `Account` usage fields [owner:ui-engineer] [type:ui] [beads:nx-fgrs2] — VACUOUS: apps/web/src/lib/integration-client.ts is a provider-credential client (ElevenLabs/Telegram secrets), never referenced Account.usagePercent/resetsAt; apps/web has no @nexus/core dependency at all. grep + `git log -S` across apps/web confirm zero references, ever. Nothing to migrate. typecheck clean (exit 0).
 - [ ] [3.3] [P-2] Update `apps/nexus-statusline` (`render.ts`/`agent-lines.ts`) to consume the composed `sessionId`-mode fields where applicable [owner:api-engineer] [type:ui] [beads:nx-m7hc0]
 
 ## E2E Batch
