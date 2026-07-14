@@ -540,6 +540,22 @@ public actor NexusAggregateClient {
         return perAgent.first(where: { !$0.isEmpty }) ?? []
     }
 
+    /// Composed account-mode usage for one account via
+    /// `GET /statusline?accountId=<id>`. A credential lives on exactly one
+    /// agent; fan out to all — the owner answers with its `Account5H7D` and
+    /// non-owners 404 (dropped by `fanOut`). First responder wins. Returns
+    /// `nil` when no agent has this account (or every agent is older than the
+    /// accountId-mode endpoint) so the caller falls back to the `CcProfile`
+    /// usage fields.
+    ///
+    /// Spec: openspec/changes/redesign-status-usage-endpoints (task 3.1) — bd:nx-rqpio
+    public func fetchAccountUsage(accountId: String) async -> Account5H7D? {
+        let (perAgent, _) = await fanOut("fetchAccountUsage") { client in
+            try await client.fetchAccountUsage(accountId: accountId)
+        }
+        return perAgent.first
+    }
+
     /// Best-effort refresh-identity-all across every reachable agent.
     /// Returns the summed `{ probed, succeeded, failed }` so the UI can
     /// render a single toast. Per-agent failures are dropped.

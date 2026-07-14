@@ -892,6 +892,29 @@ public actor NexusClient {
         }
     }
 
+    /// `GET /statusline?accountId=<id>` — the composed account-mode read model:
+    /// this account's current 5h / 7d usage windows (`{ account: Account5H7D }`).
+    /// This is the authoritative usage source now that `Account.usagePercent` /
+    /// `Account.resetsAt` are gone from `GET /credentials`.
+    ///
+    /// `accountId` is the credential id (`CcProfile.id`). Throws
+    /// `NexusClientError.badStatus(404)` when the id is unknown OR the agent is
+    /// older than this endpoint's accountId-mode (the caller / aggregate wrapper
+    /// swallows that to fall back on the `CcProfile` usage fields). Throws
+    /// `.decoding` / `.transport` for other failures.
+    ///
+    /// Spec: openspec/changes/redesign-status-usage-endpoints (task 3.1) — bd:nx-rqpio
+    public func fetchAccountUsage(accountId: String) async throws -> Account5H7D {
+        var comps = URLComponents(
+            url: endpoint.baseURL.appendingPathComponent("statusline"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "accountId", value: accountId)]
+        guard let url = comps.url else { throw NexusClientError.badStatus(0) }
+        let envelope: AccountStatusEnvelope = try await getJSON(url: url)
+        return envelope.account
+    }
+
     /// `GET /failures?days=N` — recent script + notification failures.
     /// `limit` constrains the rendered top-N (server may return more).
     public func fetchScriptErrors(limit: Int = 50, days: Int = 7) async throws -> [ScriptError] {
