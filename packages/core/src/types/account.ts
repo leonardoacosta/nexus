@@ -119,14 +119,32 @@ export interface Account {
   fingerprint: string;
   /** True iff this account is currently read by Claude Code on the agent host. */
   isActiveForCc: boolean;
-  /** Null when the usage poller has not yet captured this account. */
-  usagePercent: number | null;
-  /** Null when the usage poller has not yet captured this account. */
-  resetsAt: string | null;
   /** Subscription tier label ("max", "team", …) — lower-case as emitted by OAuth blob. */
   plan: string | null;
   /** Rate-limit tier raw string ("default_claude_max_20x" …). */
   tier: string | null;
   /** All files (≥1) observed on disk for this account. First element is primary. */
   snapshots: CredentialFile[];
+}
+
+/**
+ * Per-account 5-hour / 7-day usage windows, as composed into the
+ * `GET /statusline` response — `{ account: Account5H7D }` (accountId mode) and
+ * `{ accounts: Account5H7D[] }` (neither mode). Added by
+ * `redesign-status-usage-endpoints`.
+ *
+ * Sourced from the `credentials.usage5hUsed/Limit/ResetAt` and
+ * `usage7dUsed/Limit/ResetAt` columns (written by the Anthropic usage poller).
+ * `resetsAt` is ISO-8601 or `null` when the poller has not observed a reset
+ * instant yet.
+ *
+ * This carries the raw `used`/`limit` counts rather than a pre-computed percent:
+ * it replaces the removed `Account.usagePercent`/`Account.resetsAt` fields so a
+ * client derives its own ratio. `accountId` is the credential row id (the same
+ * id `GET /statusline?accountId=` is keyed on).
+ */
+export interface Account5H7D {
+  accountId: string;
+  fiveHour: { used: number; limit: number; resetsAt: string | null };
+  sevenDay: { used: number; limit: number; resetsAt: string | null };
 }
