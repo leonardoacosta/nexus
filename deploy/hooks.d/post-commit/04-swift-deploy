@@ -67,5 +67,21 @@ source "$LIB_PATH"
 
 if ! macos_swift_deploy_run "$@"; then
     printf '\033[1;33mswift-deploy: %s\033[0m\n' "rebuild failed (fail-soft); Nexus.app may be stale" >&2
-    exit 0  # Fail-soft: a stale app is recoverable; never break the commit.
+    # Fail-soft: a stale app is recoverable; don't skip the iOS install or break
+    # the commit.
 fi
+
+# ── iOS device install (task 2.3 / nx-detes) ────────────────────────
+# When the just-created commit touched apps/swift/nexus-ios/ or the shared
+# NexusShared framework it links, also (re)install the signed nexus-ios build on
+# the paired iPhone via the GUI-agent kickstart. `$changed` was captured above
+# in the non-force path; on --force it is unset, so short-circuit on --force
+# first (bash-3.2 + set -u safe via "${changed:-}").
+if [[ "${1:-}" == "--force" ]] || \
+   printf '%s\n' "${changed:-}" | grep -qE '^apps/swift/(nexus-ios|NexusShared)/'; then
+    if ! macos_swift_deploy_ios_run "$@"; then
+        printf '\033[1;33mswift-deploy: %s\033[0m\n' "iOS device install failed (fail-soft); paired iPhone may be stale" >&2
+    fi
+fi
+
+exit 0  # Fail-soft: never break the commit.
