@@ -239,20 +239,6 @@ NOT be performed for ended sessions.
 - **WHEN** `session_stop` fires for "s3"
 - **THEN** the watcher-state row is deleted in the same transaction as the final batch insert
 
-### Requirement: Sessions table populates total_cost_usd from session_summary
-
-The SessionRegistry SHALL update `sessions.total_cost_usd` when a `session_summary` event is received that carries either an explicit `cost_usd` field OR sufficient token fields to compute cost server-side. The update SHALL be idempotent: a second `session_summary` for the same `session_id` SHALL OVERWRITE the prior value (last-write-wins for in-progress sessions; same value for completed sessions).
-
-#### Scenario: First session_summary populates cost
-- **GIVEN** session "abc" exists with `total_cost_usd=NULL`
-- **WHEN** a `session_summary` event with `cost_usd: 12.50` arrives
-- **THEN** `total_cost_usd` becomes `12.50`
-
-#### Scenario: Second summary overwrites cost
-- **GIVEN** session "abc" has `total_cost_usd=12.50`
-- **WHEN** a second `session_summary` with `cost_usd: 18.75` arrives (e.g., session continued)
-- **THEN** `total_cost_usd` becomes `18.75` (overwrite, not sum)
-
 ### Requirement: Stale active sessions get retired by date heuristic
 
 After deployment of `restore-hooks-event-persistence`, a one-time cleanup SHALL UPDATE all sessions with `started_at < 2026-04-24` AND `status='active'` to set `status='ended'` and `ended_at=started_at + INTERVAL '8 hours'` (heuristic median session length). This retires the 147 sessions stranded by the regression. The cleanup SHALL run as a startup migration, idempotent if re-applied.
@@ -473,23 +459,81 @@ switches rather than capturing it only once at session start.
 - **WHEN** a hook event's payload has no `model` field, or an empty one
 - **THEN** the session's existing `model` value SHALL be left unchanged
 
-### Requirement: GET /statusline surfaces a live model letter
+### Requirement: GET /statusline surfaces a live model letter and composed session/account status
 
 `GET /statusline` SHALL derive each session's `model` field in its response from the session
 row's stored (raw) model value via the shared single-letter family mapping, rather than the
-literal `null` it returns today regardless of what the row holds.
+literal `null` it returned before `add-session-model-authority`. In addition, `GET /statusline`
+SHALL accept optional `sessionId` and `accountId` query parameters, mutually exclusive, that
+narrow the response to a single-entity composed status view:
 
-#### Scenario: Session with a captured model returns its letter
+- Neither param present: today's existing response (`sessions[]`, `git`, `machine`,
+  `uptime_seconds`) is returned unchanged.
+- `accountId` present, `sessionId` absent: the response is `{ account: Account5H7D }` — that
+  account's 5-hour and 7-day Anthropic usage windows (`used`, `limit`, `resetsAt` for each),
+  sourced from `credentials.usage5hUsed/Limit/ResetAt` and `usage7dUsed/Limit/ResetAt`. 404 when
+  the account id is unknown.
+- `sessionId` present, `accountId` absent: the response is `{ session: SessionStatus }`,
+  composing: the session's model letter; its active credential's 5H/7D usage windows (via
+  `sessions.credentialId`), null when unresolved; per-session cost usage from
+  `readSessionCostTokens` (VictoriaMetrics-backed, per `cc-telemetry-read`); per-session-project
+  beads/openspec/git status resolved via `sessions.projectId -> projects.name ->
+  project_status_snapshots` latest row (null when the session has no resolvable project); and the
+  next-action recommendation (same computation `GET /recommend` performed). 404 when the session
+  id is unknown.
+- Both params present: `400 { error: "sessionId and accountId are mutually exclusive" }`.
+
+#### Scenario: Session with a captured model returns its letter (unchanged base behavior)
 
 - **GIVEN** a session row whose `model` column holds `"claude-opus-4-8"`
-- **WHEN** a client requests `GET /statusline`
-- **THEN** that session's entry in the response has `model: "O"`
+- **WHEN** a client requests `GET /statusline` with no query params
+- **THEN** that session's entry in the `sessions[]` response has `model: "O"`
 
 #### Scenario: Session with no captured model returns null
 
 - **GIVEN** a session row whose `model` column is `null` or empty
-- **WHEN** a client requests `GET /statusline`
-- **THEN** that session's entry in the response has `model: null`
+- **WHEN** a client requests `GET /statusline` with no query params
+- **THEN** that session's entry has `model: null`
+
+#### Scenario: accountId mode returns 5H/7D usage for one account
+
+- **GIVEN** account "acct-1" has `usage5hUsed=30, usage5hLimit=50` and
+  `usage7dUsed=200, usage7dLimit=500`
+- **WHEN** a client requests `GET /statusline?accountId=acct-1`
+- **THEN** the response is `200 { account: { accountId: "acct-1", fiveHour: { used: 30, limit: 50, ... }, sevenDay: { used: 200, limit: 500, ... } } }`
+
+#### Scenario: accountId mode 404s on unknown account
+
+- **GIVEN** no credential row with id "ghost" exists
+- **WHEN** a client requests `GET /statusline?accountId=ghost`
+- **THEN** the response status is 404
+
+#### Scenario: sessionId mode composes model, usage, cost, and project status
+
+- **GIVEN** session "s1" has `model="claude-sonnet-5"`, `credentialId="acct-1"`, and
+  `projectId` resolving to project "nexus" with a `project_status_snapshots` row
+  `{ beadsReadyUnlinked: 3, beadsBlockedUnlinked: 1, proposalsUnarchived: 2 }`
+- **WHEN** a client requests `GET /statusline?sessionId=s1`
+- **THEN** the response is `200` with `session.model === "S"`, `session.fiveHour`/`sevenDay`
+  populated from account "acct-1", `session.project.beadsReadyUnlinked === 3`, and
+  `session.usage.cost_usd` populated from `readSessionCostTokens`
+
+#### Scenario: sessionId mode 404s on unknown session
+
+- **GIVEN** no session with id "missing" exists
+- **WHEN** a client requests `GET /statusline?sessionId=missing`
+- **THEN** the response status is 404
+
+#### Scenario: sessionId mode with unresolvable project returns null project status
+
+- **GIVEN** session "s2" has `projectId=null`
+- **WHEN** a client requests `GET /statusline?sessionId=s2`
+- **THEN** the response is `200` with `session.project === null`
+
+#### Scenario: Both params rejected
+
+- **WHEN** a client requests `GET /statusline?sessionId=s1&accountId=acct-1`
+- **THEN** the response is `400 { error: "sessionId and accountId are mutually exclusive" }`
 
 ### Requirement: Model family letter mapping is a single shared implementation
 

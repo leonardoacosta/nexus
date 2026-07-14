@@ -60,30 +60,21 @@ recount produces totals that differ from the project's most recent row. Rows fol
 - **When** the first watcher tick completes
 - **Then** counts are compared against the latest persisted row, so an unchanged project inserts nothing after restart
 
+## REMOVED Requirements
+
 ### Requirement: The system MUST expose project status over HTTP
 
-The agent MUST serve `GET /projects/:id/status` returning the project's latest
-`project_status_snapshots` row (200) or 404 when the project is unknown or has no snapshot.
-A `?history=<days>` query parameter (capped at the retention window) MUST return the time
-series ordered oldest-first. Request/response shapes MUST be defined as Zod schemas in
-`packages/core/src/types/project-status.ts`, and the route MUST register through the same
-`tryHandle*` delegation used by the session-context routes.
+**Reason**: `GET /projects/:id/status` is absorbed into `GET /statusline?sessionId=<id>`'s
+`session.project` field (`redesign-status-usage-endpoints`, `session-persistence` delta), which
+resolves the same `project_status_snapshots` latest row via `sessions.projectId -> projects.name`
+instead of requiring the caller to know the project code directly. The underlying persistence
+(`project_status_snapshots` writes, retention, the `?history=` time-series shape) is entirely
+unchanged — only the direct-by-project-code HTTP GET is retired.
 
-#### Scenario: Latest snapshot returned
-
-- **Given** project "nexus" has snapshot rows
-- **When** a client requests GET /projects/nexus/status
-- **Then** the response is 200 with the most recent row's counts and timestamp
-
-#### Scenario: History window returned
-
-- **Given** project "nexus" has 30 days of snapshot rows
-- **When** a client requests GET /projects/nexus/status?history=7
-- **Then** the response contains only rows from the last 7 days, oldest first
-
-#### Scenario: Unknown project
-
-- **Given** no project named "ghost" is registered
-- **When** a client requests GET /projects/ghost/status
-- **Then** the response is 404
+**Migration**: Callers that queried `GET /projects/:id/status` for a project's latest status now
+resolve a session belonging to that project and call `GET /statusline?sessionId=<id>` instead.
+Callers needing the `?history=<days>` time series (unchanged, not retired by this proposal)
+continue to need a project-code-keyed lookup — this proposal does not add a `?history=` mode to
+`GET /statusline`; a follow-up may restore a narrow `GET /projects/:id/status?history=` route
+scoped to that use case if a real caller needs it.
 
