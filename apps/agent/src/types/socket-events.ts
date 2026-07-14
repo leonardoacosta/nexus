@@ -156,6 +156,59 @@ export interface DeployStatusEvent {
   service?: string;
 }
 
+/**
+ * Tool-execution failure (CC PostToolUse error). Routed to `toolUseFailRule`
+ * (desktop, priority high) with a 30s per-tool suppression window. Field
+ * aliases (`tool`/`tool_name`, `error`/`error_message`) mirror
+ * `HookEventPayload` — rules read either upstream key. Added nx-z0vm4: this
+ * event was silently dropped at `isSocketEvent` (never in `VALID_EVENTS`) so
+ * the `add-hooks-notification-triggers` feature was dead in production from
+ * 2026-04-27 until 2026-07-14.
+ */
+export interface ToolUseFailEvent {
+  event: "tool_use_fail";
+  session_id?: string;
+  project?: string;
+  tool?: string;
+  tool_name?: string;
+  error?: string;
+  error_message?: string;
+  command?: string;
+}
+
+/**
+ * Permission prompt raised by CC (friction signal). Routed to
+ * `permissionRequestRule` (desktop + tts, priority normal); never suppressed
+ * (always fires). Added nx-z0vm4 alongside `tool_use_fail` / `hook_failure`.
+ */
+export interface PermissionRequestEvent {
+  event: "permission_request";
+  session_id?: string;
+  project?: string;
+  tool?: string;
+  tool_name?: string;
+  session_name?: string;
+  cc_session_id?: string;
+}
+
+/**
+ * CC hook handler failure. Routed to `hookFailureRule` (desktop, priority
+ * high) with a 30s per-hook suppression window. `handler`/`hook_name` are
+ * aliases (rules read either). Added nx-z0vm4 alongside `tool_use_fail` /
+ * `permission_request`.
+ */
+export interface HookFailureEvent {
+  event: "hook_failure";
+  session_id?: string;
+  project?: string;
+  handler?: string;
+  hook_name?: string;
+  error?: string;
+  error_message?: string;
+  exit_code?: number;
+  stderr?: string;
+}
+
 /** Discriminated union of all socket events. */
 export type SocketEvent =
   | SessionStartEvent
@@ -167,7 +220,10 @@ export type SocketEvent =
   | AgentCompleteEvent
   | TelemetryEvent
   | SessionSummaryEvent
-  | DeployStatusEvent;
+  | DeployStatusEvent
+  | ToolUseFailEvent
+  | PermissionRequestEvent
+  | HookFailureEvent;
 
 // ---------------------------------------------------------------------------
 // Socket Commands (request/response, client -> agent -> client)
@@ -292,6 +348,13 @@ const VALID_EVENTS = new Set([
   "telemetry",
   "session_summary",
   "deploy_status",
+  // Notification-trigger events (add-hooks-notification-triggers, nx-z0vm4).
+  // These have rules in `notifications/hook-rules.ts` but were never in this
+  // set, so `isSocketEvent` rejected them and the socket dropped every one as
+  // "unrecognised JSON" — the feature was dead in production since 2026-04-27.
+  "tool_use_fail",
+  "permission_request",
+  "hook_failure",
 ]);
 
 const VALID_COMMANDS = new Set([

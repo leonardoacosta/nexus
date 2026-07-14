@@ -194,6 +194,114 @@ describe("socket-server dispatcher: session_stop api_error routing (nx-7tfim)", 
   });
 });
 
+// ─── notification-trigger event wiring (nx-z0vm4) ────────────────────────────
+//
+// Regression pin for the second dead layer found in nx-z0vm4: the switch in
+// `dispatchEventInner` had NO cases for tool_use_fail / permission_request /
+// hook_failure, and `evaluateAndDispatch` was reached ONLY from
+// `dispatchStopNotification` (session_stop / api_error). So even after these 3
+// event types were added to `VALID_EVENTS` (passing `isSocketEvent`), they fell
+// through to `default: "socket: unknown event type"` and produced ZERO
+// notifications — the `add-hooks-notification-triggers` feature was dead in
+// production. These tests drive the real dispatcher and assert
+// `evaluateAndDispatch` is reached with the correct eventType key + mapped
+// payload for each of the 3 events.
+describe("socket-server dispatcher: notification-trigger event wiring (nx-z0vm4)", () => {
+  let dispatch: (event: SocketEvent) => void;
+  let evalSpy: ReturnType<typeof spyOn<typeof hookTrigger, "evaluateAndDispatch">>;
+
+  beforeEach(async () => {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+
+    evalSpy = spyOn(hookTrigger, "evaluateAndDispatch").mockImplementation(
+      async () => {},
+    );
+
+    dispatch = createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: new LifecycleBus(),
+      db: {} as unknown as Db,
+      getNotificationManager: () => ({}) as unknown as NotificationManager,
+    });
+  });
+
+  afterEach(() => {
+    evalSpy.mockRestore();
+  });
+
+  test("routes a tool_use_fail event to evaluateAndDispatch with its payload", async () => {
+    const event: SocketEvent = {
+      event: "tool_use_fail",
+      session_id: "sess-tuf",
+      project: "nx",
+      tool: "Bash",
+      error: "command failed with exit 1",
+      command: "false",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(evalSpy).toHaveBeenCalledTimes(1);
+    const [, , eventType, payload] = evalSpy.mock.calls[0]!;
+    expect(eventType).toBe("tool_use_fail");
+    expect(payload).toMatchObject({
+      event: "tool_use_fail",
+      session_id: "sess-tuf",
+      tool: "Bash",
+      error: "command failed with exit 1",
+      command: "false",
+    });
+  });
+
+  test("routes a permission_request event to evaluateAndDispatch with its payload", async () => {
+    const event: SocketEvent = {
+      event: "permission_request",
+      session_id: "sess-perm",
+      project: "nx",
+      tool: "Write",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(evalSpy).toHaveBeenCalledTimes(1);
+    const [, , eventType, payload] = evalSpy.mock.calls[0]!;
+    expect(eventType).toBe("permission_request");
+    expect(payload).toMatchObject({
+      event: "permission_request",
+      session_id: "sess-perm",
+      tool: "Write",
+    });
+  });
+
+  test("routes a hook_failure event to evaluateAndDispatch with its payload", async () => {
+    const event: SocketEvent = {
+      event: "hook_failure",
+      session_id: "sess-hook",
+      project: "nx",
+      handler: "PostToolUse",
+      error: "hook exited 1",
+      exit_code: 1,
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(evalSpy).toHaveBeenCalledTimes(1);
+    const [, , eventType, payload] = evalSpy.mock.calls[0]!;
+    expect(eventType).toBe("hook_failure");
+    expect(payload).toMatchObject({
+      event: "hook_failure",
+      session_id: "sess-hook",
+      handler: "PostToolUse",
+      error: "hook exited 1",
+      exit_code: 1,
+    });
+  });
+});
+
 // ─── session_heartbeat model persistence (add-session-model-authority) ───────
 
 describe("socket-server dispatcher: session_heartbeat model persistence", () => {

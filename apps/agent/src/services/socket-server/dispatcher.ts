@@ -377,6 +377,81 @@ export function createSocketEventDispatcher(
         break;
       }
 
+      // Notification-trigger events (add-hooks-notification-triggers, nx-z0vm4).
+      // These reach `hookRules` + suppression ONLY via `evaluateAndDispatch`.
+      // Before nx-z0vm4 the switch had no cases for them, so even after they
+      // passed `isSocketEvent` they fell through to `default` and produced zero
+      // notifications — the feature was dead in production from 2026-04-27.
+      // Map the wire fields onto the `HookEventPayload` the rules read (rules
+      // consume both the cc-side key and its alias via `??`) and hand off to the
+      // shared trigger orchestrator, which owns suppression + settings filter +
+      // `manager.send`. Fire-and-forget — see `fireHookNotification`.
+      case "tool_use_fail": {
+        log.info(
+          {
+            sessionId: event.session_id,
+            tool: event.tool_name ?? event.tool,
+            project: event.project,
+          },
+          "socket: tool_use_fail",
+        );
+        fireHookNotification("tool_use_fail", {
+          event: "tool_use_fail",
+          session_id: event.session_id,
+          project: event.project,
+          tool: event.tool,
+          tool_name: event.tool_name,
+          error: event.error,
+          error_message: event.error_message,
+          command: event.command,
+        });
+        break;
+      }
+
+      case "permission_request": {
+        log.info(
+          {
+            sessionId: event.session_id,
+            tool: event.tool_name ?? event.tool,
+            project: event.project,
+          },
+          "socket: permission_request",
+        );
+        fireHookNotification("permission_request", {
+          event: "permission_request",
+          session_id: event.session_id,
+          cc_session_id: event.cc_session_id,
+          project: event.project,
+          tool: event.tool,
+          tool_name: event.tool_name,
+          session_name: event.session_name,
+        });
+        break;
+      }
+
+      case "hook_failure": {
+        log.info(
+          {
+            sessionId: event.session_id,
+            hook: event.hook_name ?? event.handler,
+            project: event.project,
+          },
+          "socket: hook_failure",
+        );
+        fireHookNotification("hook_failure", {
+          event: "hook_failure",
+          session_id: event.session_id,
+          project: event.project,
+          handler: event.handler,
+          hook_name: event.hook_name,
+          error: event.error,
+          error_message: event.error_message,
+          exit_code: event.exit_code,
+          stderr: event.stderr,
+        });
+        break;
+      }
+
       default: {
         log.warn({ event }, "socket: unknown event type");
       }
@@ -400,10 +475,6 @@ export function createSocketEventDispatcher(
    * otherwise silently produce no notification for this stop reason.
    */
   function dispatchStopNotification(event: SessionStopEvent): void {
-    if (!db || !getNotificationManager) return;
-    const manager = getNotificationManager();
-    if (!manager) return;
-
     // Map the SessionStopEvent wire shape onto the HookEventPayload the rule
     // reads. `stop_reason` drives the crash predicate (CRASH_STOP_REASONS);
     // `error_details` flows into the per-reason body.
@@ -422,11 +493,32 @@ export function createSocketEventDispatcher(
     const eventType =
       event.stop_reason === "api_error" ? "api_error" : "session_stop";
 
+    fireHookNotification(eventType, payload);
+  }
+
+  /**
+   * Shared notification hand-off (nx-z0vm4). Resolves the lazily-created
+   * NotificationManager singleton and forwards to the trigger orchestrator
+   * (`evaluateAndDispatch` — suppression + settings filter + `manager.send`
+   * live there). No-ops when the DB or manager accessor is absent (unit-test
+   * wiring) or the manager is not yet ready. Fire-and-forget: the orchestrator
+   * never throws, but we `.catch` the lazy-manager edge. Used by
+   * `dispatchStopNotification` (session_stop / api_error) and the
+   * tool_use_fail / permission_request / hook_failure switch cases.
+   */
+  function fireHookNotification(
+    eventType: string,
+    payload: HookEventPayload,
+  ): void {
+    if (!db || !getNotificationManager) return;
+    const manager = getNotificationManager();
+    if (!manager) return;
+
     evaluateAndDispatch(db, manager, eventType, payload).catch(
       (err: unknown) => {
         log.warn(
-          { err, sessionId: event.session_id, eventType },
-          "socket: session_stop notification dispatch rejected (best-effort)",
+          { err, sessionId: payload.session_id, eventType },
+          "socket: notification dispatch rejected (best-effort)",
         );
       },
     );
