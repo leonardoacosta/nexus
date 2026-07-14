@@ -73,6 +73,7 @@
 		49E6F51BAF32E7CB435154C6 /* SessionObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3923F629707730C5EE840D38 /* SessionObserver.swift */; };
 		49EA3D1F02E4BA847C026CB2 /* AggregateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910FFCDAA0AD2FCA24472FAC /* AggregateStateTests.swift */; };
 		4BEB608CB505F9F87F097D04 /* TriageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DCE17269484CDDB258A764 /* TriageItem.swift */; };
+		50676569DC94226C9E820631 /* SessionSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2222EBED1DA928544BF6A6AB /* SessionSearchTests.swift */; };
 		519831CDA678D71168F824FF /* BeadRollup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81F5634C81DF6FAEF9B71853 /* BeadRollup.swift */; };
 		5224ED8142D833BD558692C7 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1387D70399F82E187F0A74D6 /* AudioPlayer.swift */; };
 		53E975392F5F6625BCBB79CE /* SpeechController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ACDC8E0EFE97A8CAA8FD106 /* SpeechController.swift */; };
@@ -123,6 +124,7 @@
 		83255FD1F03B12AC3C33E740 /* DecideSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C25FB232F427CFED0B650FC /* DecideSession.swift */; };
 		83D0027640627C437CFE9DE2 /* AttachScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846BA0A95ABC022E926B7E51 /* AttachScene.swift */; };
 		85A0459A7A2A0BF0DD0A80F7 /* NexusClient+Triage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA7B3AC992001B9716A51F2 /* NexusClient+Triage.swift */; };
+		87EFD7C0EC9A6525841CF046 /* SessionSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21EC449F1AFE0D403430E15A /* SessionSearch.swift */; };
 		884F160CC005F0383EF3FBC5 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC6909C06ECAA94CA340E4E /* GlobalHotkeyManager.swift */; };
 		8AB3E21ED1CD8990C943405B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAA6C29B3B710A14FFD38CF /* Models.swift */; };
 		90B5B13B7613B0481AE9ABAD /* SSEIdleWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA516F3D5162415BE5A75C2 /* SSEIdleWatchdogTests.swift */; };
@@ -420,6 +422,8 @@
 		1E7B82DF5B008BBF1832D3D6 /* AgentsConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsConfigStore.swift; sourceTree = "<group>"; };
 		1ED50A4C95555C16FF3CC37F /* NotificationActionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActionRegistry.swift; sourceTree = "<group>"; };
 		20A04A5ADD9CECA92F460DA3 /* PresenceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceObserverTests.swift; sourceTree = "<group>"; };
+		21EC449F1AFE0D403430E15A /* SessionSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSearch.swift; sourceTree = "<group>"; };
+		2222EBED1DA928544BF6A6AB /* SessionSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSearchTests.swift; sourceTree = "<group>"; };
 		24DF09B4007851DB417A324F /* SettingsAgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAgentsView.swift; sourceTree = "<group>"; };
 		278962BB6B1C1506565B02F5 /* nexus-mac-Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "nexus-mac-Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		27F8967872A72450315AC519 /* AutostartInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutostartInstaller.swift; sourceTree = "<group>"; };
@@ -876,6 +880,7 @@
 				94E85554EEEE538FB89007B4 /* ReaperNotificationTests.swift */,
 				485C6438A301BAA3877C99D8 /* SessionDecodingTests.swift */,
 				6AE52B60B24AE9A37AB78265 /* SessionRowTests.swift */,
+				2222EBED1DA928544BF6A6AB /* SessionSearchTests.swift */,
 				1A9AF8C66BD065438059BCF0 /* SettingsStoreTests.swift */,
 				3AA516F3D5162415BE5A75C2 /* SSEIdleWatchdogTests.swift */,
 				06710683263B71F5965F745C /* SystemSpeechSynthesizerTests.swift */,
@@ -971,6 +976,7 @@
 				54F6C2F91C3C00ED9F1EED1B /* Roadmap.swift */,
 				AB2C93268B41859AEFAA71CA /* ScriptError.swift */,
 				012FF0DFB2DB82FE9B710D15 /* Session.swift */,
+				21EC449F1AFE0D403430E15A /* SessionSearch.swift */,
 				03867DDBEA04CD56980E1A93 /* SourceStatus.swift */,
 				5ACE708CDB42EDEDD9D53523 /* SpecSession.swift */,
 				061D5EC0E89F0B566B9CFB42 /* SpecSummary.swift */,
@@ -1634,6 +1640,7 @@
 				90B5B13B7613B0481AE9ABAD /* SSEIdleWatchdogTests.swift in Sources */,
 				0572D733D77B83BFDBB9E450 /* SessionDecodingTests.swift in Sources */,
 				3E320883E4FA025DE7B1A1BE /* SessionRowTests.swift in Sources */,
+				50676569DC94226C9E820631 /* SessionSearchTests.swift in Sources */,
 				5C7487DDB6C2CFBCBC57AD08 /* SettingsStoreTests.swift in Sources */,
 				BD10EE040BEE7CD968E5D12F /* SystemSpeechSynthesizerTests.swift in Sources */,
 				6335303D621CAD5DB26654A4 /* WavePlanStatusTests.swift in Sources */,
@@ -1744,6 +1751,7 @@
 				174B26DFC4458341673382E2 /* ScriptError.swift in Sources */,
 				2C3849FCFA7819DFCD63D248 /* Session.swift in Sources */,
 				49E6F51BAF32E7CB435154C6 /* SessionObserver.swift in Sources */,
+				87EFD7C0EC9A6525841CF046 /* SessionSearch.swift in Sources */,
 				AA4C8647C6E33974DF124621 /* SettingsStore.swift in Sources */,
 				6364EAC1E30154DDA1BCDF6A /* SourceIndexObserver.swift in Sources */,
 				B6BA9B5512A733804BBA9042 /* SourceStatus.swift in Sources */,

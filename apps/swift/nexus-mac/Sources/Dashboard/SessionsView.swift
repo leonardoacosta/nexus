@@ -51,6 +51,16 @@ struct SessionsView: View {
     /// Spec: session-deep-link-from-projects § deep-link to unknown session ID.
     @State private var unknownSessionBanner: String?
 
+    /// Fuzzy-search state (bd:nx-0pfb — GCF). `/` enters search mode (a
+    /// TextField appears under the header); ESC exits and clears the query.
+    /// The query is applied as a pure filter (`Session.fuzzyFilter`) over
+    /// `observer.activeSessions` before sorting/rendering — see
+    /// `displaySessions`. Matches project name, status, or agent hostname
+    /// (plus branch/spec/model) via subsequence match.
+    @State private var isSearching: Bool = false
+    @State private var searchQuery: String = ""
+    @FocusState private var searchFieldFocused: Bool
+
     public init() {
         _observer = StateObject(wrappedValue: SessionObserver())
         ownsLifecycle = true
@@ -65,6 +75,9 @@ struct SessionsView: View {
         HSplitView {
             VStack(alignment: .leading, spacing: 8) {
                 header
+                if isSearching {
+                    searchField
+                }
                 if let toast = staleSessionToast {
                     staleToast(toast)
                 }
@@ -73,10 +86,17 @@ struct SessionsView: View {
                 }
                 if observer.activeSessions.isEmpty {
                     emptyState
+                } else if displaySessions.isEmpty {
+                    noMatchesState
                 } else {
                     listBody
                 }
             }
+            // `/` enters search mode; ESC exits. The hotkey is only present
+            // when not already searching, so typing "/" inside the query
+            // field (e.g. searching "leonardoacosta/oo") is never intercepted.
+            .background(searchHotkey)
+            .onExitCommand { if isSearching { exitSearch() } }
             .padding(.vertical, 8)
             .frame(minWidth: 320, idealWidth: 420)
             // XCUITest guard hooks (spec 2.2 + 2.4, bd:nx-fkewy):
@@ -250,6 +270,86 @@ struct SessionsView: View {
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Fuzzy search (bd:nx-0pfb)
+
+    /// Hidden control binding `/` to entering search mode. Rendered via
+    /// `.background()` so it never affects layout, and only while NOT
+    /// searching so a literal "/" typed into the query field is passed
+    /// through instead of re-triggering the shortcut.
+    @ViewBuilder
+    private var searchHotkey: some View {
+        if !isSearching {
+            Button(action: enterSearch) { EmptyView() }
+                .keyboardShortcut("/", modifiers: [])
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Inline search bar shown under the header while in search mode. Bound
+    /// to `searchQuery`; the trailing count reflects `displaySessions`.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("filter sessions…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(.body, design: .monospaced))
+                .focused($searchFieldFocused)
+                .accessibilityIdentifier("sessions-search-field")
+            if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text("\(displaySessions.count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("sessions-search-count")
+            }
+            Button(action: exitSearch) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Exit search (esc)")
+            .accessibilityIdentifier("sessions-search-clear")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .background(Color.secondary.opacity(0.08))
+        .accessibilityIdentifier("sessions-search-bar")
+    }
+
+    /// Empty state when a non-empty query filters every live session out —
+    /// distinct from `emptyState` (no sessions on the fleet at all).
+    private var noMatchesState: some View {
+        VStack(alignment: .center, spacing: 6) {
+            Text("no match")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text("“\(searchQuery)”")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("sessions-search-no-match")
+    }
+
+    private func enterSearch() {
+        isSearching = true
+        searchFieldFocused = true
+    }
+
+    private func exitSearch() {
+        isSearching = false
+        searchQuery = ""
+        searchFieldFocused = false
+    }
+
     private var listBody: some View {
         // ScrollViewReader so the deep-link drain can scroll a
         // programmatically-opened session into view in the same frame
@@ -258,7 +358,7 @@ struct SessionsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(sortedSessions) { session in
+                    ForEach(displaySessions) { session in
                         sessionRow(session)
                             // Per-row hook so the 2.4 client-transport
                             // test can assert the EXACT deterministic
@@ -285,7 +385,11 @@ struct SessionsView: View {
         }
     }
 
-    /// Stable display order for the session list.
+    /// Fuzzy-filtered + sorted session list actually rendered (bd:nx-0pfb).
+    ///
+    /// The filter layer (`Session.fuzzyFilter`) runs first over
+    /// `observer.activeSessions` — an empty/whitespace query is a no-op, so
+    /// outside search mode this is the full list. Sort order is then:
     ///
     /// 1. Active sessions first (status == "active") so the row Leo most
     ///    likely wants to tap is always at the top.
@@ -294,8 +398,8 @@ struct SessionsView: View {
     ///    by cwd path which leaks raw filesystem ordering.
     /// 3. Final tie-break on session id for deterministic rendering
     ///    (avoids row jitter across refetches when names collide).
-    private var sortedSessions: [Session] {
-        observer.activeSessions.sorted { a, b in
+    private var displaySessions: [Session] {
+        Session.fuzzyFilter(observer.activeSessions, query: searchQuery).sorted { a, b in
             if (a.status == "active") != (b.status == "active") {
                 return a.status == "active"
             }
