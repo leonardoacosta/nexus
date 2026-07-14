@@ -519,9 +519,9 @@
       <!-- ingestion paths -->
       <g data-region="hooks">
         <rect x="36" y="144" width="168" height="60" class="node-box"/>
-        <text x="48" y="166" class="lbl lbl-strong">POST /hooks</text>
-        <text x="48" y="182" class="lbl">remote + local CC</text>
-        <text x="48" y="196" class="lbl lbl-cyan">cross-machine ingress</text>
+        <text x="48" y="166" class="lbl lbl-strong">nexus-emit</text>
+        <text x="48" y="182" class="lbl">Bun.connect socket client</text>
+        <text x="48" y="196" class="lbl lbl-cyan">same-machine CC hooks</text>
       </g>
       <g data-region="socket">
         <rect x="216" y="144" width="168" height="60" class="node-box"/>
@@ -572,11 +572,11 @@
       <line x1="20" y1="50" x2="400" y2="50" stroke="rgba(244,237,225,0.16)"/>
 
       <g data-region="federation">
-        <path d="M 60 80 L 60 200" class="wire-amber" marker-end="url(#s-amber)"/>
-        <path d="M 75 200 L 75 80" class="wire-amber" marker-end="url(#s-amber)"/>
-        <text x="100" y="100" class="lbl lbl-amber">/ws/federation</text>
-        <text x="100" y="114" class="lbl">envelope { event, source, seq }</text>
-        <text x="100" y="128" class="lbl">bidirectional, 1000-buf</text>
+        <path d="M 60 80 L 60 200" class="wire-solid" stroke-dasharray="2 4" marker-end="url(#s-pale)"/>
+        <path d="M 75 200 L 75 80" class="wire-solid" stroke-dasharray="2 4" marker-end="url(#s-pale)"/>
+        <text x="100" y="100" class="lbl">GET /presence/fleet &middot; /health</text>
+        <text x="100" y="114" class="lbl">plain HTTP poll, not a channel</text>
+        <text x="100" y="128" class="lbl-italic" style="font-size:11px;">/ws/federation removed</text>
       </g>
 
       <g data-region="sse">
@@ -676,7 +676,8 @@
       Two machines, two daemons. <strong>homelab</strong> runs the long-lived
       sessions and the Postgres of record; <strong>macbook</strong> runs the
       developer's TUI and the audio stack. They discover each other through
-      <code>agents.toml</code> and federate over a single WebSocket. There is
+      <code>agents.toml</code> and poll each other's REST surface directly
+      over Tailscale &mdash; there is no dedicated federation channel. There is
       no hub, no broker, no proxy.
     </p>
   </div>
@@ -715,7 +716,7 @@
           <text x="32" y="204" class="lbl lbl-strong">claude code &middot; managed</text>
           <text x="32" y="226" class="lbl">tmux: cc-oo &middot; cc-mv</text>
           <text x="32" y="240" class="lbl">tmux: cc-xx &middot; cc-tl</text>
-          <text x="32" y="262" class="lbl lbl-cyan">POST /hooks &rarr; agent</text>
+          <text x="32" y="262" class="lbl lbl-cyan">nexus-emit &rarr; agent.sock</text>
           <text x="32" y="278" class="lbl">SessionStart / Stop / ...</text>
           <line x1="32" y1="296" x2="208" y2="296" stroke="rgba(244,237,225,0.16)"/>
           <text x="32" y="318" class="lbl lbl-strong">claude code &middot; unmanaged</text>
@@ -776,11 +777,11 @@
           <text x="32" y="416" class="lbl lbl-strong">nexus &middot; TUI &middot; ratatui &mdash; fans HTTP to both agents</text>
         </g>
 
-        <!-- federation wire (single bidi between the two) -->
-        <path d="M 580 220 Q 700 180 820 220" class="wire-amber" marker-end="url(#arrow-amber)"/>
-        <path d="M 820 260 Q 700 300 580 260" class="wire-amber" marker-end="url(#arrow-amber)"/>
-        <text x="700" y="180" text-anchor="middle" class="lbl lbl-amber">ws://peer/ws/federation</text>
-        <text x="700" y="302" text-anchor="middle" class="lbl">lifecycle envelope &middot; source: local|peer</text>
+        <!-- peer presence poll (plain HTTP, not a push channel) -->
+        <path d="M 580 220 Q 700 180 820 220" class="wire-solid" stroke-dasharray="2 4" marker-end="url(#arrow-pale)"/>
+        <path d="M 820 260 Q 700 300 580 260" class="wire-solid" stroke-dasharray="2 4" marker-end="url(#arrow-pale)"/>
+        <text x="700" y="180" text-anchor="middle" class="lbl">GET /presence/fleet &middot; /health</text>
+        <text x="700" y="302" text-anchor="middle" class="lbl">plain HTTP poll &middot; each agent pulls its peer's :7400</text>
 
         <!-- TUI fan-out (cyan, from macbook TUI to homelab) -->
         <path d="M 830 410 Q 700 470 580 380" class="wire-cyan" stroke-dasharray="2 4" marker-end="url(#arrow-cyan)"/>
@@ -806,15 +807,15 @@
 <section class="chapter" id="ch-01">
   <div class="chap-head">
     <div class="chap-num">01 <span class="dot">&middot;</span> session registration</div>
-    <h2 class="chap-title">Two ingress paths.<br><span class="strong">One Map</span> behind them.</h2>
+    <h2 class="chap-title">One ingress path.<br><span class="strong">One Map</span> behind it.</h2>
     <p class="chap-deck">
-      Sessions enter through one of three doors. <strong>Two are real
-      ingress paths</strong> for session events: HTTP <code>POST /hooks</code>
-      and AF_UNIX <code>agent.sock</code>. <strong>One is a reconciliation
-      sweep</strong> that finds CC processes that never installed hooks. The
-      third (lifecycle bus) isn't really a drain &mdash; it's fan-out. All
-      paths converge on the same write-through cache and produce
-      <em>byte-identical envelopes</em> downstream.
+      Sessions enter through one of two doors. <strong>One is the real
+      ingress path</strong> for session events: AF_UNIX <code>agent.sock</code>,
+      fed by <code>nexus-emit</code>. <strong>The other is a reconciliation
+      sweep</strong> that finds CC processes that never installed hooks. A
+      third mechanism (lifecycle bus) isn't really a drain &mdash; it's
+      fan-out. Both doors converge on the same write-through cache and
+      produce <em>byte-identical envelopes</em> downstream.
     </p>
   </div>
 
@@ -822,35 +823,29 @@
     <div class="canvas" data-region="hooks">
       <div class="canvas-head">
         <span class="name">Plate 01a &middot; <span class="id">MANAGED &middot; ingress</span></span>
-        <span>POST /hooks + AF_UNIX &middot; both feed dispatcher</span>
+        <span>nexus-emit &rarr; AF_UNIX &middot; the only ingress path</span>
       </div>
       <div class="canvas-body">
         <svg viewBox="0 0 1400 640" class="schematic" preserveAspectRatio="xMidYMid meet">
 
-          <!-- Left lane: HTTP /hooks -->
+          <!-- Stage 1: CC hook scripts fire -->
           <g>
             <rect x="40" y="30" width="280" height="92" class="node-box-cyan"/>
-            <text x="56" y="54" class="lbl lbl-cyan">claude code (any machine)</text>
+            <text x="56" y="54" class="lbl lbl-cyan">claude code (same machine only)</text>
             <text x="56" y="74" class="lbl">~/.claude/hooks/*.sh</text>
             <text x="56" y="90" class="lbl">SessionStart, Stop, PreToolUse, ...</text>
             <text x="56" y="106" class="lbl lbl-amber">primary-agent OR sub-agent</text>
-
-            <path d="M 180 122 L 180 170" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
-            <text x="194" y="146" class="lbl lbl-cyan">curl --data @-</text>
-            <text x="194" y="160" class="lbl">~50ms RTT loopback</text>
-
-            <rect x="40" y="170" width="280" height="60" class="node-box"/>
-            <text x="56" y="194" class="lbl lbl-strong">HTTP POST /hooks  :7400</text>
-            <text x="56" y="212" class="lbl">axum &middot; loopback OR tailnet</text>
-            <text x="56" y="226" class="lbl">always returns 200 (fire-and-forget)</text>
           </g>
 
-          <!-- Right lane: AF_UNIX -->
+          <path d="M 320 76 L 380 76" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <text x="326" y="66" class="lbl lbl-cyan">spawns</text>
+
+          <!-- Stage 2: nexus-emit -> AF_UNIX socket (the only ingress path) -->
           <g>
             <rect x="380" y="30" width="280" height="92" class="node-box"/>
-            <text x="396" y="54" class="lbl lbl-strong">claude code (same machine only)</text>
-            <text x="396" y="74" class="lbl">socket client (writeline NDJSON)</text>
-            <text x="396" y="90" class="lbl">~10us local write</text>
+            <text x="396" y="54" class="lbl lbl-strong">nexus-emit</text>
+            <text x="396" y="74" class="lbl">Bun.connect() socket client</text>
+            <text x="396" y="90" class="lbl">writeline NDJSON &middot; ~10us local write</text>
             <text x="396" y="106" class="lbl lbl-amber">uid-checked by kernel</text>
 
             <path d="M 520 122 L 520 170" class="wire-solid" marker-end="url(#arrow-pale)"/>
@@ -863,12 +858,11 @@
             <text x="396" y="226" class="lbl">SOCK_STREAM &middot; NDJSON frames</text>
           </g>
 
-          <!-- shared dispatcher -->
-          <path d="M 180 230 L 180 280" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
+          <!-- dispatcher -->
           <path d="M 520 230 L 520 280" class="wire-solid" marker-end="url(#arrow-pale)"/>
 
           <rect x="40" y="280" width="620" height="80" fill="rgba(255,176,0,0.08)" stroke="#ffb000" stroke-width="1.5"/>
-          <text x="56" y="306" class="lbl lbl-amber">shared dispatcher &middot; handleWatcherEvent(event)</text>
+          <text x="56" y="306" class="lbl lbl-amber">dispatcher &middot; handleWatcherEvent(event)</text>
           <text x="56" y="324" class="lbl">parse payload &rarr; normalize to WatcherEvent shape</text>
           <text x="56" y="338" class="lbl">classify: lifecycle | tool_use | agent_spawn | notification | diagnostic</text>
           <text x="56" y="352" class="lbl lbl-cyan">bind credentialFingerprint, agentId, parentAgent, childRole</text>
@@ -1020,20 +1014,16 @@
       <div class="canvas-body">
         <svg viewBox="0 0 1400 580" class="schematic" preserveAspectRatio="xMidYMid meet">
 
-          <!-- three sources collapsed -->
-          <rect x="40" y="40" width="220" height="48" class="node-box-cyan"/>
-          <text x="56" y="60" class="lbl lbl-cyan">A &middot; HTTP /hooks</text>
-          <text x="56" y="78" class="lbl">HookEventPayload</text>
-          <rect x="40" y="100" width="220" height="48" class="node-box"/>
-          <text x="56" y="120" class="lbl lbl-strong">B &middot; AF_UNIX socket</text>
-          <text x="56" y="138" class="lbl">NDJSON same shape</text>
-          <rect x="40" y="160" width="220" height="48" class="node-box-amber"/>
-          <text x="56" y="180" class="lbl lbl-amber">C &middot; pgrep reconcile</text>
-          <text x="56" y="198" class="lbl">synthetic envelope</text>
+          <!-- two sources collapsed -->
+          <rect x="40" y="40" width="220" height="48" class="node-box"/>
+          <text x="56" y="60" class="lbl lbl-strong">A &middot; AF_UNIX socket</text>
+          <text x="56" y="78" class="lbl">NDJSON via nexus-emit</text>
+          <rect x="40" y="100" width="220" height="48" class="node-box-amber"/>
+          <text x="56" y="120" class="lbl lbl-amber">B &middot; pgrep reconcile</text>
+          <text x="56" y="138" class="lbl">synthetic envelope</text>
 
-          <path d="M 260 64 L 460 130" class="wire-cyan" marker-end="url(#arrow-cyan)"/>
-          <path d="M 260 124 L 460 130" class="wire-solid" marker-end="url(#arrow-pale)"/>
-          <path d="M 260 184 L 460 130" class="wire-amber" marker-end="url(#arrow-amber)"/>
+          <path d="M 260 64 L 460 130" class="wire-solid" marker-end="url(#arrow-pale)"/>
+          <path d="M 260 124 L 460 130" class="wire-amber" marker-end="url(#arrow-amber)"/>
 
           <!-- sessionManager -->
           <rect x="460" y="40" width="440" height="200" fill="rgba(255,176,0,0.06)" stroke="#ffb000" stroke-width="1.5"/>
@@ -1079,17 +1069,17 @@
 
           <!-- envelope contract -->
           <rect x="40" y="400" width="1320" height="160" fill="rgba(38,212,255,0.05)" stroke="#26d4ff" stroke-width="1.2"/>
-          <text x="56" y="426" class="lbl lbl-cyan">ENVELOPE CONTRACT &middot; identical payload regardless of origin (A / B / C)</text>
+          <text x="56" y="426" class="lbl lbl-cyan">ENVELOPE CONTRACT &middot; identical payload regardless of origin (A / B)</text>
           <text x="56" y="446" class="lbl">{ event, payload, source: 'local' | 'peer', seq: monotonic, ts: ISO8601, origin: machine }</text>
 
           <text x="56" y="476" class="lbl lbl-amber">WHEN  emitted</text>
           <text x="240" y="476" class="lbl">on every state mutation (created, status change, ended) &middot; on every event class above</text>
 
           <text x="56" y="498" class="lbl lbl-amber">WHY   the same shape</text>
-          <text x="240" y="498" class="lbl">downstream code (TUI render, notifier rules, peer federation) is origin-blind by design</text>
+          <text x="240" y="498" class="lbl">downstream code (TUI render, notifier rules) is origin-blind by design</text>
 
           <text x="56" y="520" class="lbl lbl-amber">HOW   transported</text>
-          <text x="240" y="520" class="lbl">in-process EventEmitter on local agent &middot; over /ws/federation to peers &middot; out as SSE frame</text>
+          <text x="240" y="520" class="lbl">in-process EventEmitter on local agent &middot; out as SSE frame &middot; peers poll GET /presence/fleet (no push channel)</text>
 
           <text x="56" y="546" class="lbl lbl-amber">WHAT  the payload</text>
           <text x="240" y="546" class="lbl">full session row + classified hook details &middot; sized so subscribers never read-through to DB</text>
@@ -1112,15 +1102,18 @@
   <div class="marginalia">
     <div class="note-num">Note &middot; 01.2</div>
     <div class="note-body">
-      <em>On the "three drains" framing:</em> there are really <strong>two
-      ingress paths</strong> (HTTP /hooks + AF_UNIX) feeding <strong>one
-      dispatcher</strong>, then <strong>one fan-out bus</strong> distributing
-      to consumers. The dispatcher is the single source of normalisation; the
-      bus is the single source of distribution. The two ingress paths exist
-      for one good reason &mdash; HTTP works across machines (Tailscale), the
-      socket doesn't &mdash; and that asymmetry justifies keeping both. See
-      <a href="#ch-08" style="color:var(--amber);">&sect;08</a> for the
-      collapse analysis.
+      <em>On the "three drains" framing:</em> there is really <strong>one
+      ingress path</strong> (AF_UNIX via <code>nexus-emit</code>) feeding
+      <strong>one dispatcher</strong>, then <strong>one fan-out bus</strong>
+      distributing to consumers. The dispatcher is the single source of
+      normalisation; the bus is the single source of distribution. A second,
+      HTTP-based ingress path (<code>POST /hooks</code>) once existed for
+      cross-machine reach, but was removed
+      (<code>delete-http-hooks-endpoint</code>, 2026-05-18) &mdash; peer
+      visibility is now covered by HTTP polling of the standard REST surface
+      (<code>GET /presence/fleet</code>), not a second event-ingress channel.
+      See <a href="#ch-08" style="color:var(--amber);">&sect;08</a> for how
+      that collapse played out.
     </div>
   </div>
 </section>
@@ -2160,24 +2153,26 @@
     </p>
   </div>
 
-  <!-- 08.1 — collapse ingress -->
+  <!-- 08.1 — HTTP /hooks retrospective -->
   <div class="subsection" data-region="hooks">
-    <div class="sub-num">08.1 &middot; collapse HTTP /hooks + AF_UNIX into one drain</div>
-    <h3 class="sub-head">Do we really need two ingress paths?</h3>
+    <div class="sub-num">08.1 &middot; HTTP /hooks is gone &middot; the single-ingress decision, in retrospect</div>
+    <h3 class="sub-head">Did dropping the HTTP path cost us anything?</h3>
     <p class="sub-deck">
-      Today both <strong>POST /hooks</strong> and <strong>~/.nexus/agent.sock</strong>
-      flow into the same dispatcher. The HTTP path exists so a CC session
-      on a peer machine can reach a local agent. The socket exists for
-      same-machine latency and kernel-level uid auth. <em>Could one
-      handle both?</em>
+      This section originally weighed two live ingress paths against each
+      other. <strong>HTTP <code>POST /hooks</code> was removed</strong>
+      (<code>delete-http-hooks-endpoint</code>, 2026-05-18) before that
+      proposal was ever acted on &mdash; <strong>AF_UNIX
+      <code>agent.sock</code></strong> is the only ingress path today. What
+      follows is kept as a retrospective: the reasoning that led here, and
+      what keeping the HTTP path would have cost.
     </p>
     <table class="trade">
       <thead><tr><th style="width:30%">Option</th><th style="width:35%">Pros</th><th style="width:35%">Cons</th></tr></thead>
       <tbody>
         <tr>
-          <td><span class="change">Keep both (today)</span><br><span class="verdict do">KEEP</span></td>
-          <td>HTTP works across the Tailnet for remote CC; socket is ~50&times; faster for local; either can fail and the other still works; debugging via <em>curl</em> is trivial.</td>
-          <td>Two code paths to throttle, validate, and instrument. Slight risk of divergence if either evolves independently.</td>
+          <td><span class="change">Keep both (pre-2026-05-18)</span><br><span class="verdict skip">SUPERSEDED</span></td>
+          <td>HTTP worked across the Tailnet for remote CC; socket was ~50&times; faster for local; either could fail and the other still worked; debugging via <em>curl</em> was trivial.</td>
+          <td>Two code paths to throttle, validate, and instrument. Slight risk of divergence if either evolved independently.</td>
         </tr>
         <tr>
           <td><span class="change">HTTP-only</span><br><span class="verdict skip">SKIP</span></td>
@@ -2185,16 +2180,25 @@
           <td>Adds ~5-10ms per local hook event. CC's hook scripts must shell out to <em>curl</em> instead of writing a socket &mdash; thousands of forks per session.</td>
         </tr>
         <tr>
-          <td><span class="change">Socket-only</span><br><span class="verdict skip">SKIP</span></td>
-          <td>Lowest latency. Kernel uid auth is free.</td>
-          <td>Peer CC sessions become invisible &mdash; no Tailnet-reachable socket. Would need a per-peer SSH tunnel just to deliver events. Federation has to carry hook payloads, which is a different contract from envelope fan-out.</td>
+          <td><span class="change">Socket-only (shipped)</span><br><span class="verdict do">DO</span></td>
+          <td>Lowest latency. Kernel uid auth is free. One code path, one throttle, one auth model.</td>
+          <td>Was thought to make peer CC sessions invisible for event ingress &mdash; that concern didn't materialise: peer visibility runs through the separate HTTP polling surface (<code>GET /presence/fleet</code>), which never needed a second event-ingress channel.</td>
         </tr>
       </tbody>
     </table>
     <div class="marginalia">
-      <div class="note-num">verdict</div>
+      <div class="note-num">verdict &middot; superseded</div>
       <div class="note-body">
-        Keep both. The asymmetry is justified: HTTP is the only Tailnet-reachable ingress, the socket is the only local-fast ingress, and they share 100% of the dispatcher code after the first parse. <em>The "three drains" framing was actually a misread &mdash; the lifecycle bus is fan-out, not ingress.</em>
+        This was written when HTTP <code>POST /hooks</code> was still live. It
+        was removed before the "keep both" argument was acted on
+        (<code>delete-http-hooks-endpoint</code>, 2026-05-18) &mdash;
+        <strong>AF_UNIX <code>agent.sock</code> is the sole ingress path</strong>
+        today. The "peer CC sessions become invisible" worry in the
+        socket-only row above didn't happen: peer visibility comes from plain
+        HTTP polling of the standard REST surface
+        (<code>GET /presence/fleet</code>), a mechanism that already existed
+        independent of event ingress. <em>The "three drains" framing was
+        always a misread &mdash; the lifecycle bus is fan-out, not ingress.</em>
       </div>
     </div>
   </div>
