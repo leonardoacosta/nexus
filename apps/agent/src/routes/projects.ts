@@ -37,6 +37,16 @@ interface SessionAgg {
 }
 
 /**
+ * Sentinel name for every session bucket that does not resolve to a named
+ * registry row — sessions with a null `projectId` AND sessions whose
+ * `projectId` UUID matches no ACTIVE registry row (project removed, or its
+ * location is inactive/archived). Both collapse under this ONE name so an
+ * unresolvable `projectId` never leaks as a project literally named after the
+ * raw UUID (nx-2yy5p — the phantom-rail-row explosion).
+ */
+const UNREGISTERED = "(unregistered)";
+
+/**
  * Bucket sessions by `projectId` (null → the `(unregistered)` sentinel key).
  *
  * Kept as a map so the registry merge can overlay session counts onto a
@@ -44,7 +54,6 @@ interface SessionAgg {
  * still surfaces (preserves the legacy session-derived behaviour).
  */
 function bucketSessions(sessions: SessionRow[]): Map<string, SessionAgg> {
-  const UNREGISTERED = "(unregistered)";
   const map = new Map<string, SessionAgg>();
   for (const session of sessions) {
     const key = session.projectId ?? UNREGISTERED;
@@ -125,18 +134,30 @@ export function aggregateProjects(
     });
   }
 
-  // 2. Session-only buckets with no registry row (fallback — never regress).
-  //    No registry id exists for these — emit `id: null` (never fabricate).
-  //    Synthetic buckets always emit `hidden: false` per spec. They have no
-  //    registry cwd, so `git_metadata` is always `null`.
+  // 2. Session buckets with no registry row (fallback — never regress).
+  //    A bucket key is either the literal `(unregistered)` sentinel (session
+  //    had a null projectId) OR a `projectId` UUID that matched no ACTIVE
+  //    registry row. The old code emitted `name: key` per bucket, so every
+  //    orphaned projectId UUID became its own phantom project — one phantom
+  //    rail row apiece in the Swift dashboard (nx-2yy5p). Collapse ALL
+  //    unresolved buckets into a SINGLE `(unregistered)` sentinel row so an
+  //    unresolvable projectId can never leak as a fake, UUID-named project.
+  //    id is always null (never fabricate); no registry cwd → git_metadata null.
+  let unresolved: SessionAgg | null = null;
   for (const [key, agg] of sessionBuckets) {
     if (consumedKeys.has(key)) continue;
+    if (!unresolved) unresolved = { active: 0, total: 0, machines: new Set() };
+    unresolved.active += agg.active;
+    unresolved.total += agg.total;
+    for (const machine of agg.machines) unresolved.machines.add(machine);
+  }
+  if (unresolved) {
     projects.push({
       id: null,
-      name: key,
-      active_sessions: agg.active,
-      total_sessions: agg.total,
-      machines: Array.from(agg.machines).sort(),
+      name: UNREGISTERED,
+      active_sessions: unresolved.active,
+      total_sessions: unresolved.total,
+      machines: Array.from(unresolved.machines).sort(),
       hidden: false,
       git_metadata: null,
     });

@@ -84,6 +84,60 @@ describe("aggregateProjects — hidden emission (agent-payload-completeness)", (
   });
 });
 
+// nx-2yy5p — a session whose `projectId` (a UUID) matches no ACTIVE registry
+// row used to fall through section 2 and be emitted as a project literally
+// NAMED after the UUID. Each distinct orphaned projectId minted one phantom
+// project → one phantom rail row in the Swift dashboard. The fix collapses
+// every unresolvable bucket into the single `(unregistered)` sentinel.
+describe("aggregateProjects — orphaned projectId UUID collapse (nx-2yy5p)", () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ORPHAN_A = "07af4ec4-4a3c-4629-bb1f-39b1e7059350";
+  const ORPHAN_B = "3a46f002-f1e2-46e4-b6f8-1df7c4c3295b";
+
+  it("never emits a project whose name is a raw projectId UUID", () => {
+    const rows = aggregateProjects(
+      [
+        session({ projectId: ORPHAN_A, machine: "host-a" }),
+        session({ projectId: ORPHAN_B, machine: "host-b" }),
+      ],
+      [], // no registry rows resolve these projectIds
+    );
+    expect(rows.some((r) => UUID_RE.test(r.name))).toBe(false);
+  });
+
+  it("collapses multiple orphaned projectIds into one (unregistered) row", () => {
+    const rows = aggregateProjects(
+      [
+        session({ projectId: ORPHAN_A, machine: "host-a", status: "active" }),
+        session({ projectId: ORPHAN_B, machine: "host-b", status: "active" }),
+        session({ projectId: null, machine: "host-c", status: "active" }),
+      ],
+      [],
+    );
+    const unreg = rows.filter((r) => r.name === "(unregistered)");
+    expect(unreg).toHaveLength(1);
+    // All three unresolved sessions aggregate into the single sentinel.
+    expect(unreg[0]!.total_sessions).toBe(3);
+    expect(unreg[0]!.active_sessions).toBe(3);
+    expect(unreg[0]!.machines).toEqual(["host-a", "host-b", "host-c"]);
+    expect(unreg[0]!.id).toBeNull();
+  });
+
+  it("still overlays a resolvable projectId onto its named registry row", () => {
+    const rows = aggregateProjects(
+      [
+        session({ projectId: REG_ID_VISIBLE, machine: "host-a" }),
+        session({ projectId: ORPHAN_A, machine: "host-b" }),
+      ],
+      [{ projectId: REG_ID_VISIBLE, name: "alpha", hidden: false }],
+    );
+    // The registered project keeps its friendly name; the orphan collapses.
+    expect(rows.find((r) => r.name === "alpha")?.total_sessions).toBe(1);
+    expect(rows.some((r) => UUID_RE.test(r.name))).toBe(false);
+    expect(rows.find((r) => r.name === "(unregistered)")?.total_sessions).toBe(1);
+  });
+});
+
 // projects-tab-accordion-deeplink — `git_metadata` threading on the row.
 // Pure-function test against `aggregateProjects` with a stubbed metadata
 // map (avoids real git subprocess in unit scope).
