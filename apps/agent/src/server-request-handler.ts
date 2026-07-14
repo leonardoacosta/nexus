@@ -127,6 +127,9 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/sessions" },
   { method: "GET", path: "/sessions/:id" },
   { method: "POST", path: "/session/start" },
+  // /sessions-family-consistent alias of POST /session/start (same handler)
+  // — redesign-status-usage-endpoints task 2.7. Singular path stays live.
+  { method: "POST", path: "/sessions/start" },
   { method: "POST", path: "/sessions/probe" },
   // Session context-window store (add-session-context-api, delegated to
   // routes/session-context.ts). MUST dispatch before the /sessions/:id
@@ -710,9 +713,20 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       }
 
       // ── Session start (requires DB context) ───────────────────────────
-      if (url.pathname === "/session/start" && request.method === "POST") {
+      // `/session/start` (singular, original) and `/sessions/start` (plural,
+      // /sessions-route-family alias — redesign-status-usage-endpoints task
+      // 2.7) both route to the SAME handleSessionStart handler. Neither path
+      // is removed; the alias exists purely so the /sessions family is
+      // discoverable under one naming convention. The plural `/sessions/start`
+      // cannot collide with the `/sessions/:id` GET catch-all (GET-only) or
+      // the `/sessions/probe` exact match above.
+      if (
+        (url.pathname === "/session/start" ||
+          url.pathname === "/sessions/start") &&
+        request.method === "POST"
+      ) {
         return handleSessionStart(request, db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/session/start", method: "POST", err }, "route handler failed");
+          logger.error({ route: url.pathname, method: "POST", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
