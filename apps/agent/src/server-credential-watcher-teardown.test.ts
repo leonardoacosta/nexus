@@ -18,7 +18,7 @@
  * stubs are bound first.
  */
 
-import { describe, expect, it, beforeAll, afterAll, mock } from "bun:test";
+import { describe, expect, it, beforeAll, afterAll, mock, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,11 +54,8 @@ const startedControllers: AbortController[] = [];
 //   - initCredentialRoutes(db) is lazy (`new CredentialPool(db)`, no I/O) and
 //     getCredentialPool() then returns that truthy pool so the watcher branch
 //     runs.
-// Only the WATCHER factories (below) are stubbed — this file's whole purpose is
-// to inspect the AbortControllers they return, and the real ones would spawn
-// live fs.watch loops. Those two modules (credential-watcher, process-watcher)
-// are consumed real only by suites that load before this one, so the stubs
-// don't contaminate them.
+// These spread-only overrides re-export the real module verbatim (no behaviour
+// change), so their forward-leak is inert.
 mock.module("./routes/notifications", () => ({ ...realNotifications }));
 mock.module("./routes/credentials", () => ({ ...realCredentialsRoute }));
 mock.module("./notifications/router", () => ({ ...realRouter }));
@@ -66,19 +63,32 @@ mock.module("./services/process-watcher", () => ({
   ...realProcessWatcher,
   startProcessWatcher: () => ({ stop: () => {} }),
 }));
-mock.module("./credentials/credential-watcher", () => ({
-  ...realCredentialWatcher,
-  startCredentialWatcher: () => {
-    const ac = new AbortController();
-    startedControllers.push(ac);
-    return ac;
-  },
-  startActiveCredentialWatcher: () => {
-    const ac = new AbortController();
-    startedControllers.push(ac);
-    return ac;
-  },
-}));
+
+// Stub ONLY the two credential-watcher factories so `startServer` returns
+// inspectable AbortControllers instead of spawning live fs.watch loops.
+//
+// nx-uwive: a `mock.module("./credentials/credential-watcher", ...)` here was
+// process-global + IRREVERSIBLE and forward-leaked into the sibling suite
+// credentials/active-credential-watcher.test.ts — because credential-watcher.ts
+// RE-EXPORTS `startActiveCredentialWatcher` from active-credential-watcher.ts,
+// mocking this module corrupted that later suite's snapshot module resolution,
+// freezing its poll-fallback assertion at a null fingerprint (2s timeout).
+// Restorable `spyOn` on the shared namespace is scoped and torn down in
+// afterAll, so it cannot leak. `startServer` reads these via live ESM bindings,
+// so the spies are what it calls (verified: startedControllers.length === 2).
+const makeStubController = (): AbortController => {
+  const ac = new AbortController();
+  startedControllers.push(ac);
+  return ac;
+};
+const startCredentialWatcherSpy = spyOn(
+  realCredentialWatcher,
+  "startCredentialWatcher",
+).mockImplementation(makeStubController as never);
+const startActiveCredentialWatcherSpy = spyOn(
+  realCredentialWatcher,
+  "startActiveCredentialWatcher",
+).mockImplementation(makeStubController as never);
 
 const { startServer } = await import("./server");
 
@@ -94,6 +104,8 @@ describe("server credential-watcher teardown (plan 009)", () => {
   });
 
   afterAll(() => {
+    startCredentialWatcherSpy.mockRestore();
+    startActiveCredentialWatcherSpy.mockRestore();
     if (prevCfgDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
     else process.env.NEXUS_CONFIG_DIR = prevCfgDir;
     rmSync(cfgDir, { recursive: true, force: true });

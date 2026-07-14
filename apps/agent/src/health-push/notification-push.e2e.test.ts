@@ -80,8 +80,16 @@ beforeAll(async () => {
   // Point the sender at the sandbox endpoint over plaintext HTTP/2.
   process.env.APNS_HOST = `http://127.0.0.1:${port}`;
 
-  // A device must be registered for the subscriber to have a target.
-  await getDeviceTokenStore().register({
+  // getDeviceTokenStore() is a PROCESS-GLOBAL singleton keyed at first
+  // construction. A sibling suite (routes/apns-register.test.ts) registers
+  // throwaway tokens ("a"×64 / "b"×64) into that same singleton earlier in the
+  // full-suite run, and the subscriber fans a push out to ALL registered
+  // devices — so without draining, captured[0] is a leaked foreign token and
+  // the path assertion below fails (nx-uwive). Drain any leaked tokens first so
+  // this e2e asserts against exactly its own registered device.
+  const store = getDeviceTokenStore();
+  for (const existing of await store.all()) await store.remove(existing.token);
+  await store.register({
     token: DEVICE_TOKEN,
     platform: "ios",
     bundleId: "dev.leonardoacosta.nexus.ios",
