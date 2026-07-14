@@ -92,7 +92,15 @@ public actor NexusClient {
     // dashboard views + SessionObserver honor the endpoint override
     // transparently. Explicit `init(endpoint:)` callers (iOS/watch) are
     // unaffected.
-    public init(endpoint: NexusEndpoint = .resolved) {
+    /// - Parameter protocolClasses: test-only seam — when non-nil, prepended
+    ///   to the request session's `URLSessionConfiguration.protocolClasses` so
+    ///   an in-process `URLProtocol` stub can answer without a real socket
+    ///   (the app-sandbox test host forbids binding a loopback server). nil in
+    ///   all production paths.
+    public init(
+        endpoint: NexusEndpoint = .resolved,
+        protocolClasses: [AnyClass]? = nil
+    ) {
         self.endpoint = endpoint
 
         let cfg = URLSessionConfiguration.default
@@ -100,6 +108,9 @@ public actor NexusClient {
         cfg.timeoutIntervalForResource = 60
         cfg.waitsForConnectivity = false
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        if let protocolClasses {
+            cfg.protocolClasses = protocolClasses + (cfg.protocolClasses ?? [])
+        }
         self.session = URLSession(configuration: cfg)
 
         let streamCfg = URLSessionConfiguration.default

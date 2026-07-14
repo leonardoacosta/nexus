@@ -33,6 +33,13 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
     /// True when this fingerprint matches the agent's `activeFingerprint`.
     public var isActive: Bool
 
+    /// Comma-joined full MCP provider names the agent detected for this
+    /// profile (e.g. `"figma,posthog,slack"`). Ships from the server via
+    /// `GET /credentials` (`extractCredentialMetadata`); nil / empty when the
+    /// profile has no associated MCP providers. Rendered as per-provider pills.
+    /// Spec: implement-native-credential-page-status (task 2.2, bd:nx-maemn)
+    public var mcpProviders: String?
+
     // MARK: - Usage snapshot (credentials-account-resolve-and-usage)
     //
     // Populated by the agent's `credential-usage-poller` service every
@@ -67,6 +74,7 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         case rateLimit429Count = "rateLimit429Count"
         case lastSwapAt = "lastSwapAt"
         case isActive = "isActive"
+        case mcpProviders
         case usage5hUsed
         case usage5hLimit
         case usage5hResetAt
@@ -93,6 +101,7 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.rateLimit429Count = (try? c.decode(Int.self, forKey: .rateLimit429Count)) ?? 0
         self.lastSwapAt = CcProfile.decodePermissiveDate(c, .lastSwapAt)
         self.isActive = (try? c.decode(Bool.self, forKey: .isActive)) ?? false
+        self.mcpProviders = try? c.decode(String.self, forKey: .mcpProviders)
         self.usage5hUsed = try? c.decode(Int.self, forKey: .usage5hUsed)
         self.usage5hLimit = try? c.decode(Int.self, forKey: .usage5hLimit)
         self.usage5hResetAt = CcProfile.decodePermissiveDate(c, .usage5hResetAt)
@@ -118,6 +127,7 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         rateLimit429Count: Int = 0,
         lastSwapAt: Date? = nil,
         isActive: Bool = false,
+        mcpProviders: String? = nil,
         usage5hUsed: Int? = nil,
         usage5hLimit: Int? = nil,
         usage5hResetAt: Date? = nil,
@@ -141,6 +151,7 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         self.rateLimit429Count = rateLimit429Count
         self.lastSwapAt = lastSwapAt
         self.isActive = isActive
+        self.mcpProviders = mcpProviders
         self.usage5hUsed = usage5hUsed
         self.usage5hLimit = usage5hLimit
         self.usage5hResetAt = usage5hResetAt
@@ -159,6 +170,19 @@ public struct CcProfile: Identifiable, Equatable, Hashable, Codable, Sendable {
         var copy = self
         copy.isActive = true
         return copy
+    }
+
+    /// Parsed MCP provider list — full lowercase names, split from the
+    /// comma-joined `mcpProviders` string. Empty when nil / blank so the row
+    /// renders no pill row. Order preserves the server's comma order.
+    /// Spec: implement-native-credential-page-status (task 3.4, bd:nx-7kll2)
+    public var mcpProviderList: [String] {
+        guard let raw = mcpProviders?.trimmingCharacters(in: .whitespaces),
+              !raw.isEmpty else { return [] }
+        return raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
     }
 
     /// Human-readable OAuth state: "valid", "expired", "refreshing", or "unknown".

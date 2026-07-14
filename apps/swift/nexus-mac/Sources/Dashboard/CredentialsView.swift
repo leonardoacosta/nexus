@@ -24,14 +24,20 @@ struct CredentialsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            if model.profiles.isEmpty {
+            if model.noAgentReachable {
+                // Zero agents reachable: distinct warning banner (not the
+                // benign empty-data message). The credentials table is not
+                // rendered in this state.
+                unreachableBanner(model.unreachableAgents)
+                Spacer(minLength: 0)
+            } else if model.profiles.isEmpty {
                 ContentUnavailableView(
                     "No CC profiles",
                     systemImage: "person.crop.circle.badge.questionmark",
                     description: Text(
                         model.isLoading
                             ? "Loading…"
-                            : (model.lastError ?? "Agent reachable but no credential rows configured.")
+                            : "Agent reachable but no credential rows configured."
                     )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -61,6 +67,12 @@ struct CredentialsView: View {
             Text("\(model.profiles.count)")
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.tertiary)
+            if let source = model.sourceAgentName {
+                Text("via \(source)")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("credentials-source-attribution")
+            }
             Toggle("Dedupe", isOn: $dedupeEnabled)
                 .toggleStyle(.switch)
                 .controlSize(.mini)
@@ -75,6 +87,31 @@ struct CredentialsView: View {
             .keyboardShortcut("r", modifiers: .command)
         }
         .padding(.horizontal, 14)
+    }
+
+    /// Warning banner shown only when zero agents are reachable — modeled on
+    /// `SessionsView.unknownSessionBannerView` (thin bar under the header) but
+    /// warning-tinted per `ElevenLabsStatusChip`'s `.keyInvalid` case
+    /// (exclamationmark.triangle + red). Names the agents that failed to
+    /// respond. Spec: implement-native-credential-page-status (task 3.2, bd:nx-6q4dt)
+    private func unreachableBanner(_ agents: [String]) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+            Text(
+                agents.isEmpty
+                    ? "No agent reachable — credential pool unavailable."
+                    : "No agent reachable — \(agents.joined(separator: ", ")) did not respond."
+            )
+            .font(.caption.monospaced())
+            .foregroundStyle(.red)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .background(Color.red.opacity(0.10))
+        .accessibilityIdentifier("credentials-unreachable-banner")
     }
 
     private var listBody: some View {
@@ -157,6 +194,9 @@ private struct CredentialRow: View {
                             .font(.caption2.monospaced())
                             .foregroundStyle(oauthColor)
                     }
+                    if !profile.mcpProviderList.isEmpty {
+                        mcpPills
+                    }
                 }
                 Spacer()
                 trailingControls
@@ -180,6 +220,26 @@ private struct CredentialRow: View {
         .task(id: profile.id) {
             usageHistory = await model.usageHistory(id: profile.id)
         }
+    }
+
+    /// One colored pill per MCP provider (full lowercase name), reusing the
+    /// same inline pill recipe as the ACTIVE / duplicates badges above
+    /// (padded Text + `.background(color.opacity(0.18))` + cornerRadius 3).
+    /// Renders nothing when the profile has no MCP providers.
+    /// Spec: implement-native-credential-page-status (task 3.4, bd:nx-7kll2)
+    private var mcpPills: some View {
+        HStack(spacing: 4) {
+            ForEach(profile.mcpProviderList, id: \.self) { provider in
+                Text(provider)
+                    .font(.caption2.monospaced())
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.purple.opacity(0.18))
+                    .foregroundStyle(Color.purple)
+                    .cornerRadius(3)
+            }
+        }
+        .accessibilityIdentifier("credentials-mcp-pills")
     }
 
     @ViewBuilder
@@ -295,25 +355,58 @@ final class CredentialsViewModel: ObservableObject {
     @Published private(set) var profiles: [NexusShared.CcProfile] = []
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var lastError: String?
+    /// True only when the most recent `load()` found ZERO reachable agents.
+    /// Drives the distinct warning banner (vs. the empty-data message shown
+    /// when an agent IS reachable but returned no credential rows).
+    /// Spec: implement-native-credential-page-status (task 3.1, bd:nx-w28ae)
+    @Published private(set) var noAgentReachable: Bool = false
+    /// Agents that failed to respond on the most recent `load()` — named in
+    /// the warning banner. Empty when at least one agent is reachable.
+    @Published private(set) var unreachableAgents: [String] = []
+    /// The reachable agent that supplied the loaded credentials (first
+    /// responder) — surfaced as "via <agent-name>" in the header. Nil until a
+    /// successful load with at least one reachable agent.
+    @Published private(set) var sourceAgentName: String?
     /// Per-row refresh-identity error stamps. Cleared after 2 s. The view
     /// keys its red-dot indicator off this dict.
     @Published var refreshError: [String: Date] = [:]
 
-    private let client = NexusShared.NexusAggregateClient()
+    private let client: NexusShared.NexusAggregateClient
+
+    init() {
+        self.client = NexusShared.NexusAggregateClient()
+    }
+
+    /// Test seam: inject an aggregate client (e.g. one wired to a loopback
+    /// stub or an unreachable port) so `load()`'s reachability distinction
+    /// can be exercised without the config-driven agent pool.
+    init(client: NexusShared.NexusAggregateClient) {
+        self.client = client
+    }
 
     func load(dedupe: Bool) async {
         isLoading = true
         defer { isLoading = false }
         // Aggregate merges every reachable agent; per-agent failure is
-        // swallowed. Only flag an error when nothing came back at all.
+        // swallowed. Distinguish "no agent reachable at all" (scary warning
+        // banner) from "agent reachable, zero credential rows" (benign
+        // empty-data message) using the reachability signal fetchCredentials
+        // now captures.
         let rows = await client.fetchCredentials(dedupe: dedupe)
+        let reachable = await client.reachableAgentNames
+        let configured = await client.configuredAgentNames
         profiles = rows.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive { return lhs.isActive }
             let lhsKey = lhs.accountEmail ?? lhs.name
             let rhsKey = rhs.accountEmail ?? rhs.name
             return lhsKey < rhsKey
         }
-        lastError = rows.isEmpty ? "No agent reachable — credential pool not available." : nil
+        noAgentReachable = reachable.isEmpty
+        unreachableAgents = configured.filter { !reachable.contains($0) }
+        sourceAgentName = reachable.first
+        lastError = reachable.isEmpty
+            ? "No agent reachable — credential pool not available."
+            : nil
     }
 
     /// Fetch the per-account 5h utilization series for the sparkline. The

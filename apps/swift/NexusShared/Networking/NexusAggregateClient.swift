@@ -63,6 +63,14 @@ public actor NexusAggregateClient {
         self.agentNames = [name]
     }
 
+    /// Test: wrap an explicit list of clients + parallel display names
+    /// (multi-agent aggregate). Lets a test build a mix of reachable and
+    /// unreachable agents to exercise the reachability signal.
+    public init(clients: [NexusClient], names: [String]) {
+        self.clients = clients
+        self.agentNames = names
+    }
+
     deinit {
         if let token = configChangedObserver {
             NotificationCenter.default.removeObserver(token)
@@ -141,8 +149,14 @@ public actor NexusAggregateClient {
 
     public var agentCount: Int { clients.count }
 
-    /// Names of agents that answered the most recent `fetchSessions()`.
-    /// Populated lazily; empty until the first fan-out completes.
+    /// All configured agent display names (parallel to `clients`), regardless
+    /// of reachability. Lets a caller compute "which agents failed to respond"
+    /// as `configuredAgentNames − reachableAgentNames`.
+    public var configuredAgentNames: [String] { agentNames }
+
+    /// Names of agents that answered the most recent fan-out read
+    /// (`fetchSessions()` / `fetchCredentials()`). Populated lazily; empty
+    /// until the first fan-out completes.
     private(set) var lastReachable: [String] = []
     public var reachableAgentNames: [String] { lastReachable }
 
@@ -423,9 +437,14 @@ public actor NexusAggregateClient {
     /// the cross-agent merge by `id` still applies (rare two agents would
     /// own the same credential).
     public func fetchCredentials(dedupe: Bool = false) async -> [CcProfile] {
-        let (perAgent, _) = await fanOut("fetchCredentials") { client in
+        let (perAgent, reachable) = await fanOut("fetchCredentials") { client in
             try await client.fetchCredentials(dedupe: dedupe)
         }
+        // Capture the reachability signal (mirrors `fetchSessions()`), so the
+        // caller can distinguish "no agent reachable" from "agent reachable,
+        // zero credential rows" via `reachableAgentNames`.
+        // Spec: implement-native-credential-page-status (task 2.1, bd:nx-9xecw)
+        self.lastReachable = reachable
         var merged: [String: CcProfile] = [:]
         for rows in perAgent { for c in rows { merged[c.id] = c } }
         return Array(merged.values)
