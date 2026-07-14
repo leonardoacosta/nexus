@@ -1,13 +1,19 @@
 /**
  * Version route builder for the nexus-agent HTTP API.
  *
- * Exposes `GET /version` returning `{ buildSha, builtAt, capabilities }`.
+ * Exposes `GET /version` returning `{ buildSha, builtAt, capabilities, otel }`.
  *
  * - `buildSha` / `builtAt` come from the build-time generated `version.gen.ts`.
  * - `capabilities` is auto-introspected from the live `Route[]` table passed in
  *   by the caller. Each entry is `"<METHOD> <path>"`, deduplicated and
  *   alphabetically sorted. The list is computed ONCE at builder construction
  *   and cached in the closure — never recomputed per request.
+ * - `otel` reports whether OTel export is wired, per `OTEL_EXPORTER_OTLP_ENDPOINT`
+ *   (same env var `otel.ts` gates on). Read once at construction time, not
+ *   per-request — env vars don't change for a running process, and the whole
+ *   payload is already a construction-time singleton (see below). Only the
+ *   endpoint value is exposed; `OTEL_EXPORTER_OTLP_HEADERS` (auth credential)
+ *   is never included.
  *
  * The caller (see routes.ts) is responsible for including the `/version`
  * route itself in `allRoutes` so it appears in its own capability list.
@@ -61,7 +67,11 @@ export function buildVersionRoutes(allRoutes: Route[]): Route[] {
     new Set(allRoutes.map((r) => `${r.method.toUpperCase()} ${r.path}`)),
   ).sort();
 
-  const payload = { buildSha: BUILD_SHA, builtAt: BUILT_AT, capabilities };
+  // Same env var + presence check as otel.ts's exporter-selection guard.
+  const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const otel = { enabled: Boolean(otelEndpoint), endpoint: otelEndpoint ?? null };
+
+  const payload = { buildSha: BUILD_SHA, builtAt: BUILT_AT, capabilities, otel };
   const body = JSON.stringify(payload);
 
   return [
