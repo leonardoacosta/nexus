@@ -32,12 +32,20 @@ import {
   beforeAll,
   afterAll,
   beforeEach,
-  mock,
+  spyOn,
 } from "bun:test";
-// Captured before the `mock.module("node:fs", ...)` call below registers the
-// mock, so this namespace holds the REAL fs — the mock's readlinkSync delegates
-// to it after recording the call (nx-9jz0v /proc-readlink regression guard).
+// nx-06o3m/nx-rzaej: hold the REAL fs namespace. The nx-9jz0v /proc-readlink
+// guard below spies `readlinkSync` on THIS namespace via the RESTORABLE
+// `spyOn`+`afterAll` pattern (mirroring `installExecMock`), NOT process-global
+// `mock.module` — a wholesale `mock.module("node:fs", ...)` leaked into every
+// later suite that reads fs for real (fs.watch, NodePtySource, etc.), the
+// documented forward-leaking contamination class.
 import * as realFs from "node:fs";
+// nx-06o3m/nx-rzaej: same restorable treatment for the resolver mock — spied
+// on this namespace in `beforeAll`, restored in `afterAll`, so the real
+// `resolveProject` is back for `git-project-resolver.test.ts` (which loads in
+// the same process and calls the REAL module).
+import * as gitResolverNs from "./git-project-resolver";
 import { installExecMock, type ExecMockHandle } from "../testing/mock-exec";
 import { ExecError, ExecTimeoutError } from "../utils/exec";
 
@@ -115,14 +123,47 @@ async function execTextImpl(cmd: string, args: string[]): Promise<string> {
 }
 
 let execHandle: ExecMockHandle;
+// nx-06o3m/nx-rzaej: restorable spies for git-project-resolver + node:fs.
+// These replace two file-scope `mock.module(...)` calls that were process-
+// global + forward-leaking (never restored) — the exact contamination the
+// same file's `installExecMock` was built to avoid.
+const restorableSpies: Array<{ mockRestore(): void }> = [];
 beforeAll(() => {
   execHandle = installExecMock({
     execText: execTextImpl,
     execJson: async () => null,
   });
+  restorableSpies.push(
+    // resolveProject is fully controlled by `setResolverResult`. spyOn only
+    // overrides this one export; every other resolver export stays REAL and,
+    // crucially, is restored in afterAll for git-project-resolver.test.ts.
+    spyOn(gitResolverNs, "resolveProject").mockImplementation(
+      (async () => resolverResult) as typeof gitResolverNs.resolveProject,
+    ),
+    // nx-9jz0v guard: record every readlinkSync call and fail loudly on a
+    // /proc/<pid>/cwd read. spyOn keeps the rest of fs real and restorable;
+    // the recorded-real impl (captured at module load) handles delegation.
+    spyOn(realFs, "readlinkSync").mockImplementation(((
+      path: string,
+      ...rest: unknown[]
+    ) => {
+      if (typeof path === "string") {
+        readlinkCalls.push({ path });
+        if (/^\/proc\/\d+\/cwd$/.test(path)) {
+          throw new Error(
+            `nx-9jz0v regression: watcher attempted readlinkSync(${path}) — ` +
+              `/proc cwd reads are banned (CAP_SYS_PTRACE inert under user-instance systemd)`,
+          );
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (realReadlinkSync as any)(path, ...rest);
+    }) as typeof realFs.readlinkSync),
+  );
 });
 afterAll(() => {
   execHandle.restore();
+  for (const spy of restorableSpies) spy.mockRestore();
 });
 
 // session-row-enrichment-v1 § 1.8: mock the git-project-resolver so each
@@ -138,10 +179,8 @@ let resolverResult: ResolverResult | null = null;
 function setResolverResult(result: ResolverResult | null): void {
   resolverResult = result;
 }
-mock.module("./git-project-resolver", () => ({
-  resolveProject: mock(async (_cwd: string | null | undefined) => resolverResult),
-  __resetCacheForTests: () => {},
-}));
+// nx-06o3m/nx-rzaej: the `resolveProject` spy is installed in `beforeAll`
+// (restorable), NOT via file-scope `mock.module` — see the spy block below.
 
 // nx-9jz0v: the watcher MUST NOT introspect /proc/<pid>/cwd because
 // user-instance systemd cannot grant CAP_SYS_PTRACE under Yama=1. We mock
@@ -153,25 +192,9 @@ const readlinkCalls: ReadlinkCall[] = [];
 function clearReadlinkCalls(): void {
   readlinkCalls.length = 0;
 }
-mock.module("node:fs", () => {
-  const real = realFs;
-  return {
-    ...real,
-    readlinkSync: (path: string, ..._args: unknown[]) => {
-      if (typeof path === "string") {
-        readlinkCalls.push({ path });
-        if (/^\/proc\/\d+\/cwd$/.test(path)) {
-          throw new Error(
-            `nx-9jz0v regression: watcher attempted readlinkSync(${path}) — ` +
-              `/proc cwd reads are banned (CAP_SYS_PTRACE inert under user-instance systemd)`,
-          );
-        }
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (real.readlinkSync as any)(path, ..._args);
-    },
-  };
-});
+// Captured at module load, before the `spyOn(realFs, "readlinkSync")` in
+// `beforeAll` replaces it — the guard delegates real reads here.
+const realReadlinkSync = realFs.readlinkSync;
 
 // Now safe to import the module under test + DB plumbing.
 import { reconcileOnce, __testing } from "./process-watcher";

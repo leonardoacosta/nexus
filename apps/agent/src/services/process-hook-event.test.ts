@@ -16,6 +16,16 @@ import type { Db } from "@nexus/db";
 import type { SessionManager } from "../session-manager";
 import type { WatcherEvent, Session } from "@nexus/core";
 import * as schemaDriftNs from "./schema-drift";
+// nx-06o3m/nx-rzaej: hold the REAL barrels so the git-project + db/sessions
+// mocks below are RESTORABLE spies, not process-global strip-style
+// `mock.module` factories. The prior `mock.module("../db/sessions", () => ({…}))`
+// listed only 5 exports and NEVER spread the real module, so it STRIPPED
+// `upsertSession` (and every other export) for the WHOLE process — later files
+// that import it (process-watcher.ts, socket-server/dispatcher.ts) then died
+// with `Export named 'upsertSession' not found`. spyOn keeps every real export
+// present and reverts in afterAll.
+import * as gitProjectNs from "./git-project";
+import * as sessionsNs from "../db/sessions";
 
 // ─── Module mocks (must register before importing helper) ──────────────────
 
@@ -35,9 +45,11 @@ afterAll(() => {
 const resolveGitOriginMock = mock(async (_cwd: string | null | undefined) => null as
   | { provider: string; ownerRepo: string }
   | null);
-mock.module("./git-project", () => ({
-  resolveGitOrigin: resolveGitOriginMock,
-}));
+// nx-06o3m/nx-rzaej: restorable spy — every other git-project export stays REAL
+// and present, and resolveGitOrigin reverts in afterAll for sibling suites.
+const resolveGitOriginSpy = spyOn(gitProjectNs, "resolveGitOrigin").mockImplementation(
+  resolveGitOriginMock as unknown as typeof gitProjectNs.resolveGitOrigin,
+);
 
 const updateSessionGitOriginMock = mock(
   async (_db: Db, _id: string, _origin: { provider: string; ownerRepo: string }) => {},
@@ -60,31 +72,29 @@ const updateSessionAgentStateMock = mock(
 const updateSessionModelMock = mock(
   async (_db: Db, _id: string, _model: string) => 1 as number,
 );
-function deriveAgentStateImpl(eventType: string): "blocked" | "waiting" | "ready" | null {
-  switch (eventType) {
-    case "PreToolUse":
-    case "PostToolUse":
-    case "UserPromptSubmit":
-    case "SubagentStart":
-    case "session_heartbeat":
-      return "blocked";
-    case "Notification":
-    case "notification":
-      return "waiting";
-    case "Stop":
-    case "session_stop":
-      return "ready";
-    default:
-      return null;
-  }
-}
-mock.module("../db/sessions", () => ({
-  updateSessionGitOrigin: updateSessionGitOriginMock,
-  backfillSessionCwd: backfillSessionCwdMock,
-  updateSessionAgentState: updateSessionAgentStateMock,
-  updateSessionModel: updateSessionModelMock,
-  deriveAgentState: deriveAgentStateImpl,
-}));
+// nx-06o3m/nx-rzaej: spy ONLY the four write-through helpers the SUT exercises.
+// `deriveAgentState` (and `upsertSession` + every other export) stay REAL and
+// present — the SUT's real `deriveAgentState` mapping is used directly, so no
+// inline re-implementation is needed. All spies revert in afterAll, so later
+// files that import `upsertSession` etc. get the untouched module back.
+const sessionsSpies = [
+  spyOn(sessionsNs, "updateSessionGitOrigin").mockImplementation(
+    updateSessionGitOriginMock as unknown as typeof sessionsNs.updateSessionGitOrigin,
+  ),
+  spyOn(sessionsNs, "backfillSessionCwd").mockImplementation(
+    backfillSessionCwdMock as unknown as typeof sessionsNs.backfillSessionCwd,
+  ),
+  spyOn(sessionsNs, "updateSessionAgentState").mockImplementation(
+    updateSessionAgentStateMock as unknown as typeof sessionsNs.updateSessionAgentState,
+  ),
+  spyOn(sessionsNs, "updateSessionModel").mockImplementation(
+    updateSessionModelMock as unknown as typeof sessionsNs.updateSessionModel,
+  ),
+];
+afterAll(() => {
+  resolveGitOriginSpy.mockRestore();
+  for (const spy of sessionsSpies) spy.mockRestore();
+});
 
 // ─── Mock SessionManager ───────────────────────────────────────────────────
 
