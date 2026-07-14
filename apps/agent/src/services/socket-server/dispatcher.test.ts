@@ -240,3 +240,57 @@ describe("socket-server dispatcher: session_heartbeat model persistence", () => 
     expect(updateModelSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─── session_start ccSessionId bridge persistence (fix-cc-session-id-bridge, nx-22xz8) ──
+
+describe("socket-server dispatcher: session_start ccSessionId bridge persistence", () => {
+  let dispatch: (event: SocketEvent) => void;
+  let updateCcSessionIdSpy: ReturnType<
+    typeof spyOn<typeof sessionsDb, "updateSessionCcSessionId">
+  >;
+  const fakeDb = {} as unknown as Db;
+
+  beforeEach(async () => {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+    // Restorable spy so the sibling suites' real updateSessionCcSessionId is
+    // intact (same restorable-spy discipline as updateModelSpy above —
+    // never mock.module a shared db helper module).
+    updateCcSessionIdSpy = spyOn(
+      sessionsDb,
+      "updateSessionCcSessionId",
+    ).mockResolvedValue(1);
+    dispatch = createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: new LifecycleBus(),
+      db: fakeDb,
+    });
+  });
+
+  afterEach(() => {
+    updateCcSessionIdSpy.mockRestore();
+  });
+
+  test("persists cc_session_id onto the row keyed by the event's own session_id", () => {
+    const event: SocketEvent = {
+      event: "session_start",
+      session_id: "nx-internal-id-1",
+      cc_session_id: "cc-raw-session-xyz",
+    };
+    dispatch(event);
+    expect(updateCcSessionIdSpy).toHaveBeenCalledWith(
+      fakeDb,
+      "nx-internal-id-1",
+      "cc-raw-session-xyz",
+    );
+  });
+
+  test("does NOT call updateSessionCcSessionId when the event omits cc_session_id", () => {
+    const event: SocketEvent = {
+      event: "session_start",
+      session_id: "nx-internal-id-2",
+    };
+    dispatch(event);
+    expect(updateCcSessionIdSpy).not.toHaveBeenCalled();
+  });
+});

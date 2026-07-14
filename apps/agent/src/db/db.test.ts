@@ -23,7 +23,9 @@ import { createDb, agents as agentsTable, eq as eqOp } from "@nexus/db";
 import type { Db } from "@nexus/db";
 import {
   getSessionById,
+  getSessionByCcSessionId,
   insertSession,
+  updateSessionCcSessionId,
   updateSessionStatus,
   queryActiveSessions,
   queryRecentSessions,
@@ -392,6 +394,49 @@ describe.skipIf(!hasPg)("session CRUD — remaining (requires live PG)", () => {
     const ids = rows.map((r) => r.id);
     expect(ids).toContain("crud2-recent-1");
     expect(ids).not.toContain("crud2-stale-1");
+  });
+
+  // ── ccSessionId bridge column (fix-cc-session-id-bridge, nx-22xz8) ────────
+
+  it("updateSessionCcSessionId sets the bridge column; getSessionByCcSessionId resolves the row by it", async () => {
+    await insertSession(db, makeSessionRow({ id: "crud2-ccbridge-1" }));
+
+    const touched = await updateSessionCcSessionId(
+      db,
+      "crud2-ccbridge-1",
+      "cc-raw-session-abc",
+    );
+    expect(touched).toBe(1);
+
+    const fetched = await getSessionByCcSessionId(db, "cc-raw-session-abc");
+    expect(fetched).not.toBeNull();
+    expect(fetched!.id).toBe("crud2-ccbridge-1");
+    expect(fetched!.ccSessionId).toBe("cc-raw-session-abc");
+  });
+
+  it("getSessionByCcSessionId returns null when no row is bound to that cc session id", async () => {
+    const result = await getSessionByCcSessionId(
+      db,
+      "cc-raw-session-never-bound",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("updateSessionCcSessionId no-ops on an empty string (no-clobber guard)", async () => {
+    await insertSession(
+      db,
+      makeSessionRow({
+        id: "crud2-ccbridge-2",
+        ccSessionId: "cc-existing-value",
+      }),
+    );
+
+    const touched = await updateSessionCcSessionId(db, "crud2-ccbridge-2", "");
+    expect(touched).toBe(0);
+
+    // The existing value must survive the no-op call untouched.
+    const fetched = await getSessionById(db, "crud2-ccbridge-2");
+    expect(fetched!.ccSessionId).toBe("cc-existing-value");
   });
 });
 

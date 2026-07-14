@@ -388,6 +388,35 @@ export async function updateSessionModel(
 }
 
 /**
+ * Persist a session row's `cc_session_id` bridge column, keyed by nx's own
+ * `sessions.id` (universe 1). This is the write half of the universe-1 ->
+ * universe-2 bridge (fix-cc-session-id-bridge, nx-22xz8): `sessions.ccSessionId`
+ * was declared on the schema and the `cc_session_id` field was already arriving
+ * on `SessionStartEvent`, but nothing ever wrote it — `handleGetSessionContext`
+ * (keyed by CC's raw session id, universe 2) could therefore never resolve a
+ * row via `getSessionByCcSessionId` below.
+ *
+ * No-clobber guard: an empty/blank `ccSessionId` is a no-op (returns 0) so a
+ * hook payload that omits `cc_session_id` never overwrites a previously-bound
+ * value with "". Mirrors the fail-soft, single-targeted-UPDATE shape of
+ * `updateSessionModel`. Returns the number of rows touched (0 when blank, or
+ * the id does not exist).
+ */
+export async function updateSessionCcSessionId(
+  db: Db,
+  id: string,
+  ccSessionId: string,
+): Promise<number> {
+  if (!ccSessionId || !ccSessionId.trim()) return 0;
+  const updated = await db
+    .update(sessions)
+    .set({ ccSessionId })
+    .where(eq(sessions.id, id))
+    .returning({ id: sessions.id });
+  return updated.length;
+}
+
+/**
  * Refresh `last_activity = now` for every open, active session whose `pid`
  * is in `pids`. This is a liveness heartbeat sourced from process-aliveness
  * (the process-watcher reconcile tick), NOT from inbound CC hook traffic — a
@@ -458,5 +487,29 @@ export async function getSessionById(
   id: string,
 ): Promise<SessionRow | null> {
   const rows = await db.select().from(sessions).where(eq(sessions.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Get a single session row by its `cc_session_id` bridge column (universe 2 —
+ * Claude Code's own raw hook session id), or null if no row has been bound to
+ * it yet. Companion read to `updateSessionCcSessionId` above
+ * (fix-cc-session-id-bridge, nx-22xz8).
+ *
+ * Callers that only have CC's raw session id in hand (e.g.
+ * `handleGetSessionContext`, `context-guard.ts`, `cc-tmux`) MUST resolve via
+ * this helper rather than `getSessionById`, which queries the primary key
+ * (nx's own internal `sessions.id`, universe 1) — a different value for any
+ * session created via the file-watcher or HTTP session-start paths.
+ */
+export async function getSessionByCcSessionId(
+  db: Db,
+  ccSessionId: string,
+): Promise<SessionRow | null> {
+  const rows = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.ccSessionId, ccSessionId))
+    .limit(1);
   return rows[0] ?? null;
 }

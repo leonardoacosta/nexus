@@ -10,7 +10,11 @@ import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { credentials, eq } from "@nexus/db";
-import { recordSessionStop, updateSessionModel } from "../../db/sessions";
+import {
+  recordSessionStop,
+  updateSessionCcSessionId,
+  updateSessionModel,
+} from "../../db/sessions";
 import type { SocketEvent, SessionStopEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
@@ -80,6 +84,26 @@ export function createSocketEventDispatcher(
             log.warn(
               { error: err, sessionId: event.session_id },
               "socket: credential binding failed (best-effort)",
+            );
+          });
+        }
+
+        // Bridge-column backfill (fix-cc-session-id-bridge, nx-22xz8):
+        // persist CC's raw hook session id (universe 2) onto this row's
+        // `cc_session_id` column, keyed by nx's own internal session id
+        // (universe 1, this event's `session_id`). Fire-and-forget keyed
+        // UPDATE, mirroring `recordSessionStop`'s guard-then-.catch shape —
+        // `updateSessionCcSessionId` no-ops on a blank/absent value, so a
+        // payload that omits `cc_session_id` never clobbers a prior binding.
+        if (db && event.cc_session_id) {
+          updateSessionCcSessionId(
+            db,
+            event.session_id,
+            event.cc_session_id,
+          ).catch((err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: updateSessionCcSessionId rejected (best-effort)",
             );
           });
         }

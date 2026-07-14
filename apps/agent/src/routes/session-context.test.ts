@@ -28,6 +28,12 @@ import {
   handlePatchSessionContext,
   resetSessionContextStore,
 } from "./session-context";
+// Restorable spy target for the ccSessionId-lookup suite below
+// (fix-cc-session-id-bridge, nx-22xz8) — session-context.ts imports
+// `getSessionByCcSessionId` named from this module; spying on the module
+// namespace intercepts that live binding (same pattern dispatcher.test.ts
+// uses for `updateSessionModel`).
+import * as sessionsDb from "../db/sessions";
 
 /**
  * Minimal chainable stub satisfying the `db.select().from().where().limit()`
@@ -222,5 +228,36 @@ describe("session-context — GET model field (add-session-context-model-field)"
     expect(body.sessionId).toBe("abc");
     expect(body.usedPercentage).toBe(42);
     expect(body.contextWindowSize).toBe(200000);
+  });
+});
+
+describe("session-context — model lookup resolves via ccSessionId, not the primary id (fix-cc-session-id-bridge, nx-22xz8)", () => {
+  it("calls getSessionByCcSessionId (not getSessionById) with the route's own id param", async () => {
+    const spy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue(
+      { model: "claude-opus-4-8" } as unknown as sessionsDb.SessionRow,
+    );
+    const getByIdSpy = spyOn(sessionsDb, "getSessionById");
+
+    try {
+      await handlePatchSessionContext(
+        patchRequest("cc-raw-session-1", { usedPercentage: 42 }),
+        "cc-raw-session-1",
+      );
+
+      const getRes = await handleGetSessionContext(
+        getRequest("cc-raw-session-1"),
+        "cc-raw-session-1",
+        {} as unknown as Db,
+      );
+
+      expect(getRes.status).toBe(200);
+      const body = (await getRes.json()) as Record<string, unknown>;
+      expect(body.model).toBe("O");
+      expect(spy).toHaveBeenCalledWith({} as unknown as Db, "cc-raw-session-1");
+      expect(getByIdSpy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      getByIdSpy.mockRestore();
+    }
   });
 });

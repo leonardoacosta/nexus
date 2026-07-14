@@ -25,7 +25,7 @@ import { sessionContextPatchInput, modelFamilyLetter } from "@nexus/core";
 import type { SessionContextResponse } from "@nexus/core";
 
 import { withCors } from "../server-origin";
-import { getSessionById } from "../db/sessions";
+import { getSessionByCcSessionId } from "../db/sessions";
 
 interface ContextEntry {
   usedPercentage: number;
@@ -58,12 +58,22 @@ function jsonResponse(body: unknown, status = 200): Response {
  * `404 {"error": "no context data for session"}` when absent or stale.
  *
  * `model` is looked up fresh from `sessions.model` on every call (not cached
- * alongside the in-memory context-window entry) via `getSessionById`, then
- * mapped to the shared single-letter family tag via `modelFamilyLetter` — the
- * same derivation `GET /statusline` already uses. When `db` is omitted, or
- * `getSessionById` finds no row, or the row's `model` is `null`, this
+ * alongside the in-memory context-window entry) via `getSessionByCcSessionId`,
+ * then mapped to the shared single-letter family tag via `modelFamilyLetter` —
+ * the same derivation `GET /statusline` already uses. When `db` is omitted, or
+ * `getSessionByCcSessionId` finds no row, or the row's `model` is `null`, this
  * fails open to `model: null` rather than throwing or altering the
  * fresh/stale/unknown-session status codes above.
+ *
+ * Fixed (fix-cc-session-id-bridge, nx-22xz8): this route's `id` path param is
+ * CC's own raw hook session id (universe 2 — the same value context-guard.ts
+ * and cc-tmux send), NOT nx's internal `sessions.id` primary key (universe 1).
+ * The lookup previously called `getSessionById(db, id)`, which queries the
+ * primary key — a category mismatch that meant `model` never resolved for any
+ * session whose row was created via the file-watcher or HTTP session-start
+ * paths (both mint their own internal id, distinct from CC's real session id).
+ * The in-memory `store` Map above is unaffected — both PATCH and GET already
+ * key it consistently by the same universe-2 id.
  */
 export async function handleGetSessionContext(
   _request: Request,
@@ -76,7 +86,7 @@ export async function handleGetSessionContext(
   }
   let model: string | null = null;
   if (db) {
-    const row = await getSessionById(db, id);
+    const row = await getSessionByCcSessionId(db, id);
     model = modelFamilyLetter({ id: row?.model ?? undefined }) ?? null;
   }
   const body: SessionContextResponse = {
