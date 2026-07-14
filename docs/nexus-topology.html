@@ -1138,7 +1138,7 @@
       <div class="acc-head">
         <div>
           <div class="acc-num">Source 02.1</div>
-          <div class="acc-title">Hook events <span class="lit">POST /hooks</span></div>
+          <div class="acc-title">Hook events <span class="lit">nexus-emit</span></div>
           <p class="acc-intent">Captures Claude Code's view of its own lifecycle &mdash; sessions starting and stopping, every tool invocation, every sub-agent spawn, every cost-bearing token. <em>This is the highest-fidelity stream we have</em>; everything else is corroboration.</p>
         </div>
         <div style="text-align:right;">
@@ -1149,8 +1149,8 @@
       <dl class="acc-stats">
         <div><dt>Trigger</dt><dd>CC hook scripts</dd></div>
         <div><dt>Cadence</dt><dd class="amber">~1000/min active</dd></div>
-        <div><dt>Path</dt><dd>routes/hooks.ts:251</dd></div>
-        <div><dt>Guarantee</dt><dd>fire-and-forget, always 200</dd></div>
+        <div><dt>Path</dt><dd>socket-server/dispatcher.ts:60</dd></div>
+        <div><dt>Guarantee</dt><dd>fire-and-forget, errors logged not surfaced</dd></div>
       </dl>
 
       <details class="payload">
@@ -1238,7 +1238,7 @@
       <details class="payload">
         <summary><span class="field">+20 more event types</span><span class="desc">user_prompt, pre_compact, post_compact, crash_flag, stop_failure, permission_request, worktree_create, ...</span></summary>
         <div class="body">
-          <p>The full <em>RECOGNIZED_EVENTS</em> set in routes/hooks.ts:112-147 lists 27 types. Unknown event types are accepted, persisted, and emitted &mdash; the dispatcher is permissive by design so a new CC hook surfaces in the TUI immediately without an agent upgrade.</p>
+          <p>The <em>SocketEvent</em> discriminated union in socket-events.ts:160-170 lists 10 types. Unknown event types are accepted, persisted, and emitted &mdash; the dispatcher is permissive by design so a new CC hook surfaces in the TUI immediately without an agent upgrade.</p>
         </div>
       </details>
     </div>
@@ -1679,10 +1679,11 @@
   <div class="marginalia">
     <div class="note-num">Note &middot; 03.1</div>
     <div class="note-body">
-      Hooks are <em>fire-and-forget by contract</em> (<code>routes/hooks.ts:327-335</code>).
+      Hooks are <em>fire-and-forget by contract</em> (<code>socket-server/server.ts:154-168</code>).
       Whatever happens downstream &mdash; DB write failure, bus saturation, peer
-      unreachable &mdash; the HTTP response is <em>always</em> 200. CC must
-      never block on a broken agent.
+      unreachable &mdash; the socket read loop swallows and logs the error
+      rather than propagating it back to the sender. CC must never block on a
+      broken agent.
     </div>
   </div>
 </section>
