@@ -34,6 +34,43 @@ describe("session-manager", () => {
     expect(manager.getActive()).toHaveLength(1);
   });
 
+  // fix-cc-session-id-bridge (nx-22xz8): the bridge value must land in the
+  // SAME insert/session-object that creates the row — a prior version of
+  // this fix issued a separate follow-up UPDATE from the dispatcher, which
+  // raced the (unawaited) row-creating write-through and silently no-op'd.
+  test("session_start with cc_session_id sets ccSessionId on the created session", () => {
+    manager = createSessionManager();
+
+    const event: WatcherEvent = {
+      type: "session_start",
+      session_id: "sess-bridge",
+      project: "my-project",
+      path: "/home/user/dev/my-project",
+      cc_session_id: "cc-raw-session-abc",
+    };
+
+    manager.handleWatcherEvent(event);
+
+    const session = manager.getById("sess-bridge");
+    expect(session).not.toBeNull();
+    expect(session!.ccSessionId).toBe("cc-raw-session-abc");
+  });
+
+  test("session_start with no cc_session_id leaves ccSessionId null", () => {
+    manager = createSessionManager();
+
+    const event: WatcherEvent = {
+      type: "session_start",
+      session_id: "sess-no-bridge",
+      project: "my-project",
+      path: "/home/user/dev/my-project",
+    };
+
+    manager.handleWatcherEvent(event);
+
+    expect(manager.getById("sess-no-bridge")!.ccSessionId).toBeNull();
+  });
+
   test("sweepIdle marks session as idle when last_activity > 60 min ago", () => {
     manager = createSessionManager();
 

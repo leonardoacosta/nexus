@@ -10,11 +10,7 @@ import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { credentials, eq } from "@nexus/db";
-import {
-  recordSessionStop,
-  updateSessionCcSessionId,
-  updateSessionModel,
-} from "../../db/sessions";
+import { recordSessionStop, updateSessionModel } from "../../db/sessions";
 import type { SocketEvent, SessionStopEvent } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
@@ -68,6 +64,7 @@ export function createSocketEventDispatcher(
           session_id: event.session_id,
           project: event.project ?? "",
           path: event.cwd ?? "",
+          cc_session_id: event.cc_session_id,
         };
         sessionManager.handleWatcherEvent(watcherEvent);
 
@@ -88,25 +85,14 @@ export function createSocketEventDispatcher(
           });
         }
 
-        // Bridge-column backfill (fix-cc-session-id-bridge, nx-22xz8):
-        // persist CC's raw hook session id (universe 2) onto this row's
-        // `cc_session_id` column, keyed by nx's own internal session id
-        // (universe 1, this event's `session_id`). Fire-and-forget keyed
-        // UPDATE, mirroring `recordSessionStop`'s guard-then-.catch shape —
-        // `updateSessionCcSessionId` no-ops on a blank/absent value, so a
-        // payload that omits `cc_session_id` never clobbers a prior binding.
-        if (db && event.cc_session_id) {
-          updateSessionCcSessionId(
-            db,
-            event.session_id,
-            event.cc_session_id,
-          ).catch((err: unknown) => {
-            log.warn(
-              { err, sessionId: event.session_id },
-              "socket: updateSessionCcSessionId rejected (best-effort)",
-            );
-          });
-        }
+        // Bridge-column backfill (fix-cc-session-id-bridge, nx-22xz8): the
+        // value is threaded through `watcherEvent.cc_session_id` above so it
+        // lands in the SAME insert that creates the row (session-manager.ts's
+        // `session_start` case) — no separate follow-up UPDATE. A previous
+        // version of this fix issued a follow-up `updateSessionCcSessionId`
+        // UPDATE here, but that raced the (unawaited) row-creating INSERT
+        // inside `writeThroughSafe` and silently no-op'd when the UPDATE ran
+        // before the row existed.
 
         // Shared spine: schema-drift + git origin resolver. Fire-and-forget
         // (the dispatcher is sync; the helper handles its own errors).

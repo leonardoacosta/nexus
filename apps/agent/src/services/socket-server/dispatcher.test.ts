@@ -241,56 +241,58 @@ describe("socket-server dispatcher: session_heartbeat model persistence", () => 
   });
 });
 
-// ─── session_start ccSessionId bridge persistence (fix-cc-session-id-bridge, nx-22xz8) ──
+// ─── session_start ccSessionId bridge threading (fix-cc-session-id-bridge, nx-22xz8) ──
+//
+// A prior version of this fix issued a separate follow-up `updateSessionCcSessionId`
+// UPDATE from the dispatcher after `sessionManager.handleWatcherEvent(...)`. That
+// raced the (unawaited) row-creating INSERT inside `writeThroughSafe` and silently
+// no-op'd in production. The fix now threads `cc_session_id` straight into the
+// `WatcherEvent` so it lands in the SAME insert that creates the row — these tests
+// pin that threading at the dispatcher boundary (session-manager.test.ts pins the
+// row-creation half).
 
-describe("socket-server dispatcher: session_start ccSessionId bridge persistence", () => {
+describe("socket-server dispatcher: session_start ccSessionId bridge threading", () => {
   let dispatch: (event: SocketEvent) => void;
-  let updateCcSessionIdSpy: ReturnType<
-    typeof spyOn<typeof sessionsDb, "updateSessionCcSessionId">
-  >;
-  const fakeDb = {} as unknown as Db;
+  let receivedEvents: WatcherEvent[];
 
   beforeEach(async () => {
     const { createSocketEventDispatcher } = await import("./dispatcher");
     const { LifecycleBus } = await import("../lifecycle-bus");
-    // Restorable spy so the sibling suites' real updateSessionCcSessionId is
-    // intact (same restorable-spy discipline as updateModelSpy above —
-    // never mock.module a shared db helper module).
-    updateCcSessionIdSpy = spyOn(
-      sessionsDb,
-      "updateSessionCcSessionId",
-    ).mockResolvedValue(1);
+    receivedEvents = [];
+    const sessionManager = {
+      ...createMockSessionManager(),
+      handleWatcherEvent(event: WatcherEvent) {
+        receivedEvents.push(event);
+      },
+    } as unknown as SessionManager;
     dispatch = createSocketEventDispatcher({
-      sessionManager: createMockSessionManager(),
+      sessionManager,
       lifecycleBus: new LifecycleBus(),
-      db: fakeDb,
     });
   });
 
-  afterEach(() => {
-    updateCcSessionIdSpy.mockRestore();
-  });
-
-  test("persists cc_session_id onto the row keyed by the event's own session_id", () => {
+  test("threads cc_session_id from the socket event onto the WatcherEvent passed to handleWatcherEvent", () => {
     const event: SocketEvent = {
       event: "session_start",
       session_id: "nx-internal-id-1",
       cc_session_id: "cc-raw-session-xyz",
     };
     dispatch(event);
-    expect(updateCcSessionIdSpy).toHaveBeenCalledWith(
-      fakeDb,
-      "nx-internal-id-1",
-      "cc-raw-session-xyz",
-    );
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "session_start",
+      session_id: "nx-internal-id-1",
+      cc_session_id: "cc-raw-session-xyz",
+    });
   });
 
-  test("does NOT call updateSessionCcSessionId when the event omits cc_session_id", () => {
+  test("passes cc_session_id as undefined when the socket event omits it", () => {
     const event: SocketEvent = {
       event: "session_start",
       session_id: "nx-internal-id-2",
     };
     dispatch(event);
-    expect(updateCcSessionIdSpy).not.toHaveBeenCalled();
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]!.type === "session_start" && receivedEvents[0]!.cc_session_id).toBeUndefined();
   });
 });

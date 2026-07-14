@@ -139,7 +139,7 @@ export function createSessionManager(
           command: null,
           agent: null,
           tmuxSession: null,
-          ccSessionId: null,
+          ccSessionId: event.cc_session_id ?? null,
           tmuxTarget: null,
           rateLimitUtilization: null,
           rateLimitType: null,
