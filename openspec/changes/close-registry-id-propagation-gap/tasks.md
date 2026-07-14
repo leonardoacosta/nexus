@@ -15,5 +15,5 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Route unit test: registered project's discovery response carries its registryId; unregistered project's registryId is null [owner:e2e-engineer] [type:testing] [beads:nx-idfzy]
+- [x] [4.1] Route unit test: registered project's discovery response carries its registryId; unregistered project's registryId is null [owner:e2e-engineer] [type:testing] [beads:nx-idfzy]
 - [x] [4.2] N/A for nx — same root cause as [3.1]: no TS client mapping exists to test. Superseded by [4.1], which already covers registryId at the one real boundary (the agent route). [owner:e2e-engineer] [type:testing] [beads:nx-hp0a7]

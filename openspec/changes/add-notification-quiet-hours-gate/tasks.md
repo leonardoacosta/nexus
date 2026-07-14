@@ -17,6 +17,6 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Unit tests for `isWithinQuietHours()`: non-wrapping inside/outside (end exclusive), wrapping inside at both boundaries, zero-width-disabled — 7 cases per Step 4 [owner:tdd-integration] [type:testing] [beads:nx-vniq2]
-- [ ] [4.2] `manager-quiet-hours.test.ts`: disabled-no-downgrade, enabled+inside-current-hour-window (compute `h = now.getHours()`, use `{startHour: h, endHour: (h+1)%24}` for determinism), enabled+outside, `priority:"high"` never downgraded, no-wiring-byte-identical — 5 cases per Step 8 [owner:tdd-integration] [type:testing] [beads:nx-dg6bj]
-- [ ] [4.3] 3 new `notification-settings.test.ts` cases (GET default, PATCH rejects out-of-range hour, PATCH persists valid window) per Step 6; full regression `bun test apps/agent/src/notifications/` all pass [owner:e2e-engineer] [type:testing] [beads:nx-qxh5b]
+- [x] [4.1] Unit tests for `isWithinQuietHours()`: non-wrapping inside/outside (end exclusive), wrapping inside at both boundaries, zero-width-disabled — 7 cases per Step 4 [owner:tdd-integration] [type:testing] [beads:nx-vniq2]
+- [x] [4.2] `manager-quiet-hours.test.ts`: disabled-no-downgrade, enabled+inside-current-hour-window (compute `h = now.getHours()`, use `{startHour: h, endHour: (h+1)%24}` for determinism), enabled+outside, `priority:"high"` never downgraded, no-wiring-byte-identical — 5 cases per Step 8 [owner:tdd-integration] [type:testing] [beads:nx-dg6bj]
+- [x] [4.3] 3 new `notification-settings.test.ts` cases (GET default, PATCH rejects out-of-range hour, PATCH persists valid window) per Step 6; full regression `bun test apps/agent/src/notifications/` all pass [owner:e2e-engineer] [type:testing] [beads:nx-qxh5b]

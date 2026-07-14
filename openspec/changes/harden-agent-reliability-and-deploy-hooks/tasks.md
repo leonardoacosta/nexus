@@ -16,10 +16,10 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Verify structured memory-pressure log line appears under simulated high-memory load [owner:e2e-engineer] [type:testing] [beads:nx-1cjk5]
-- [ ] [4.2] Scripted attach-then-immediately-write repro against the fixed PtyViewer, confirm no garbled output [owner:e2e-engineer] [type:testing] [beads:nx-du86t]
-- [ ] [4.3] Unit test: `server-health-handler.ts`'s multi-disk aggregation matches `health-scheduler.ts`'s output for the all-zero-total_bytes case [owner:tdd-integration] [type:testing] [beads:nx-35qsf]
-- [ ] [4.4] Fix `apps/agent/src/services/reaper-persistence.test.ts`'s shared-schema `beforeAll` leak with per-test cleanup; confirm pass regardless of declaration order (nx-gwnpb) [owner:tdd-implementer] [type:testing] [beads:nx-1cty9]
+- [x] [4.1] Verify structured memory-pressure log line appears under simulated high-memory load [owner:e2e-engineer] [type:testing] [beads:nx-1cjk5]
+- [x] [4.2] Scripted attach-then-immediately-write repro against the fixed PtyViewer, confirm no garbled output — Swift/Mac verification covered by the UI-phase swift agent's real Xcode build of the PtyViewer geometry-race fix (commit 19318b10, +160 lines in apps/swift/nexus-mac/Sources/Dashboard/PtyViewer.swift; task 3.1). Not re-done here per orchestrator instruction. [owner:e2e-engineer] [type:testing] [beads:nx-du86t]
+- [x] [4.3] Unit test: `server-health-handler.ts`'s multi-disk aggregation matches `health-scheduler.ts`'s output for the all-zero-total_bytes case [owner:tdd-integration] [type:testing] [beads:nx-35qsf]
+- [x] [4.4] Fix `apps/agent/src/services/reaper-persistence.test.ts`'s shared-schema `beforeAll` leak with per-test cleanup; confirm pass regardless of declaration order (nx-gwnpb) [owner:tdd-implementer] [type:testing] [beads:nx-1cty9]
 - [ ] [4.5] Fix the `mock.module` leakage causing PG-gated cross-contamination under `NEXUS_HEAVY_TESTS=1 NEXUS_PG_TESTS=1`; confirm the 17 previously-failing tests pass identically standalone and in the full suite (nx-rzaej) [owner:tdd-implementer] [type:testing] [beads:nx-06o3m]
-- [ ] [4.6] Simulate a frozen-install lockfile-drift failure against the fixed 02-deploy hook, confirm recovery or actionable-alert behavior [owner:e2e-engineer] [type:testing] [beads:nx-ma1aq]
-- [ ] [4.7] Unit test: 03-migrate hook exits early on a non-primary-flagged machine even with a `packages/db/` schema change present [owner:e2e-engineer] [type:testing] [beads:nx-h0gnb]
+- [x] [4.6] Simulate a frozen-install lockfile-drift failure against the fixed 02-deploy hook, confirm recovery or actionable-alert behavior [owner:e2e-engineer] [type:testing] [beads:nx-ma1aq]
+- [x] [4.7] Unit test: 03-migrate hook exits early on a non-primary-flagged machine even with a `packages/db/` schema change present [owner:e2e-engineer] [type:testing] [beads:nx-h0gnb]

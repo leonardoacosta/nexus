@@ -65,6 +65,9 @@ interface FakeRow {
   rateThrottleEnabled: boolean;
   rateThrottleMaxPerWindow: number;
   rateThrottleWindowMinutes: number;
+  quietHoursEnabled: boolean;
+  quietHoursStartHour: number;
+  quietHoursEndHour: number;
   updatedAt: Date;
 }
 
@@ -81,6 +84,9 @@ function defaultRow(): FakeRow {
     rateThrottleEnabled: true,
     rateThrottleMaxPerWindow: 5,
     rateThrottleWindowMinutes: 5,
+    quietHoursEnabled: true,
+    quietHoursStartHour: 0,
+    quietHoursEndHour: 7,
     updatedAt: new Date("2026-04-26T00:00:00.000Z"),
   };
 }
@@ -560,6 +566,53 @@ describe("PATCH /notifications/settings — rate_throttle_enabled", () => {
     expect(rows[0]!.rateThrottleEnabled).toBe(false);
     expect(rows[0]!.rateThrottleMaxPerWindow).toBe(10);
     expect(rows[0]!.rateThrottleWindowMinutes).toBe(15);
+  });
+});
+
+describe("PATCH /notifications/settings — quiet_hours", () => {
+  it("GET surfaces the 3 quiet-hours fields with their defaults", async () => {
+    const { db } = makeFakeDb();
+    const res = await handleGetNotificationSettings(db, makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.quiet_hours_enabled).toBe(true);
+    expect(body.quiet_hours_start_hour).toBe(0);
+    expect(body.quiet_hours_end_hour).toBe(7);
+  });
+
+  it("rejects an out-of-range quiet-hours hour with 400", async () => {
+    const { db } = makeFakeDb();
+    const badStart = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { quiet_hours_start_hour: 24 }),
+    );
+    expect(badStart.status).toBe(400);
+
+    const badEnd = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { quiet_hours_end_hour: -1 }),
+    );
+    expect(badEnd.status).toBe(400);
+  });
+
+  it("persists a valid quiet-hours window and returns it in the response", async () => {
+    const { db, rows } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", {
+        quiet_hours_enabled: true,
+        quiet_hours_start_hour: 22,
+        quiet_hours_end_hour: 6,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.quiet_hours_enabled).toBe(true);
+    expect(body.quiet_hours_start_hour).toBe(22);
+    expect(body.quiet_hours_end_hour).toBe(6);
+    expect(rows[0]!.quietHoursEnabled).toBe(true);
+    expect(rows[0]!.quietHoursStartHour).toBe(22);
+    expect(rows[0]!.quietHoursEndHour).toBe(6);
   });
 });
 

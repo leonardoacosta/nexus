@@ -9,7 +9,7 @@
  * Skips cleanly when POSTGRES_URL is unset.
  */
 
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { describe, expect, it, beforeAll, beforeEach, afterAll } from "bun:test";
 import { createDb } from "@nexus/db";
 import type { Db } from "@nexus/db";
 import {
@@ -80,6 +80,16 @@ describe.skipIf(!hasPg)("reaper persistence + heartbeat (requires live PG)", () 
     });
     scopedClient = scopedHandle.client;
     db = scopedHandle.db;
+  });
+
+  // Per-test cleanup: truncate the shared schema's tables before each test so
+  // rows never leak across `it` blocks. Without this, tests are order-dependent
+  // — a heartbeat query in one test sees success rows persisted by an earlier
+  // one (nx-gwnpb). RESTART IDENTITY keeps ids deterministic per test.
+  beforeEach(async () => {
+    await scopedClient.unsafe(
+      `TRUNCATE "cron_runs", "bloat_radar" RESTART IDENTITY CASCADE`,
+    );
   });
 
   afterAll(async () => {
@@ -220,11 +230,11 @@ describe.skipIf(!hasPg)("reaper persistence + heartbeat (requires live PG)", () 
     const result = await checkReaperHeartbeat(db, now);
     expect(result.stale).toBe(true);
     expect(result.reason).toBe("older-than-8d");
-    // The most recent success row across all our test inserts is the
-    // 2026-05-21T03:02:00Z aborted one (which doesn't count), so the
-    // returned lastSuccessAt should be the latest SUCCESS row — but other
-    // test rows in this schema can leak in. Just assert it's a Date.
+    // Per-test truncation (beforeEach) makes this exact: the only success row
+    // in the schema is the stale one this test just inserted — no cross-test
+    // leakage, so lastSuccessAt is deterministically that row's timestamp.
     expect(result.lastSuccessAt).toBeInstanceOf(Date);
+    expect(result.lastSuccessAt?.getTime()).toBe(tenDaysAgo.getTime());
   });
 
   it("returns stale=false when a fresh success exists", async () => {
