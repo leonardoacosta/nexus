@@ -264,6 +264,9 @@ describe("PATCH /notifications/settings — partial update semantics", () => {
       rateThrottleEnabled: true,
       rateThrottleMaxPerWindow: 5,
       rateThrottleWindowMinutes: 5,
+      quietHoursEnabled: true,
+      quietHoursStartHour: 0,
+      quietHoursEndHour: 7,
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
     const { db, rows } = makeFakeDb(initial);
