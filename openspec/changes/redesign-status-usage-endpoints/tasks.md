@@ -10,11 +10,11 @@
 
 ## API Batch
 
-- [ ] [2.1] [P-1] Rewrite `GET /statusline` to dispatch on `sessionId`/`accountId` query params per design.md's 4-mode contract; preserve today's neither-mode `sessions[]`/`git`/`machine`/`uptime_seconds` fields unchanged [owner:api-engineer] [type:api] [beads:nx-dobiy]
-- [ ] [2.2] [P-1] Implement `accountId`-mode: read `credentials.usage5hUsed/Limit/ResetAt` + `usage7dUsed/Limit/ResetAt` by id, 404 if unknown [owner:api-engineer] [type:api] [beads:nx-vhk1x]
-- [ ] [2.3] [P-1] Implement `sessionId`-mode project-status join (`sessions.projectId` -> `projects.name` -> `project_status_snapshots` latest row), reusing the existing `services/status-snapshots.ts` read path — no live shell-out [owner:api-engineer] [type:api] [beads:nx-7otbu]
-- [ ] [2.4] [P-1] Implement `sessionId`-mode cost usage via `readSessionCostTokens(vm, sessionId)` and `sessionId`-mode `next` field via the existing `GET /recommend` logic composed in-process [owner:api-engineer] [type:api] [beads:nx-egh58]
-- [ ] [2.5] [P-1] Trim `GET /credentials` response to drop `usagePercent`/`resetsAt`; retire `GET /projects/:id/status`, `GET /sessions/{id}/tokens`, `GET /recommend` as standalone routes now that `/statusline` composes their data [owner:api-engineer] [type:api] [beads:nx-3czpz]
+- [x] [2.1] [P-1] Rewrite `GET /statusline` to dispatch on `sessionId`/`accountId` query params per design.md's 4-mode contract; preserve today's neither-mode `sessions[]`/`git`/`machine`/`uptime_seconds` fields unchanged [owner:api-engineer] [type:api] [beads:nx-dobiy]
+- [x] [2.2] [P-1] Implement `accountId`-mode: read `credentials.usage5hUsed/Limit/ResetAt` + `usage7dUsed/Limit/ResetAt` by id, 404 if unknown [owner:api-engineer] [type:api] [beads:nx-vhk1x]
+- [x] [2.3] [P-1] Implement `sessionId`-mode project-status join (`sessions.projectId` -> `projects.name` -> `project_status_snapshots` latest row), reusing the existing `services/status-snapshots.ts` read path — no live shell-out [owner:api-engineer] [type:api] [beads:nx-7otbu]
+- [x] [2.4] [P-1] Implement `sessionId`-mode cost usage via `readSessionCostTokens(vm, sessionId)` and `sessionId`-mode `next` field via the existing `GET /recommend` logic composed in-process [owner:api-engineer] [type:api] [beads:nx-egh58]
+- [x] [2.5] [P-1] Trim `GET /credentials` response to drop `usagePercent`/`resetsAt`; retire `GET /projects/:id/status`, `GET /sessions/{id}/tokens`, `GET /recommend` as standalone routes now that `/statusline` composes their data [owner:api-engineer] [type:api] [beads:nx-3czpz]
 - [ ] [2.6] [user] DECISION: which shape is real for `GET /credentials/{id}/usage?window=` (see design.md "Known open drift") — searched: account.ts, credential-analytics/credential-page-status specs, handlers-health-usage.ts (permission-blocked); no documented pattern resolves it. [type:config] [beads:nx-ysmwm]
 - [ ] [2.7] [P-2] Add a `/sessions`-family-consistent alias for the existing `POST /session/start` (keep the current singular path working) [owner:api-engineer] [type:api] [beads:nx-dck7c]
 

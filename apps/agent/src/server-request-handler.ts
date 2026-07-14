@@ -70,7 +70,6 @@ import {
   handleRunCommand,
 } from "./routes/project-detail";
 import { handleStatusline } from "./routes/statusline";
-import { handleRecommend } from "./routes/recommend";
 import { handleEnvironment } from "./routes/environment-route";
 import { handleGetSources } from "./routes/sources";
 import { handleGetRequests } from "./routes/requests";
@@ -96,10 +95,7 @@ import { tryHandleCredentialRoute } from "./server-routes-credentials";
 import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
 import { tryHandleSessionContextRoute } from "./routes/session-context";
-import {
-  tryHandleProjectStatusRoute,
-  tryHandleGitEventsRoute,
-} from "./routes/project-status";
+import { tryHandleGitEventsRoute } from "./routes/project-status";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -141,10 +137,6 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/projects" },
   { method: "PATCH", path: "/projects/:id" },
   { method: "GET", path: "/projects/discovered" },
-  // Per-project status snapshots (add-project-status-snapshots, delegated to
-  // routes/project-status.ts). 4-segment match, no collision with the PATCH
-  // /projects/:id sibling.
-  { method: "GET", path: "/projects/:id/status" },
   // Per-project git-event history (add-git-status-orbit, delegated to
   // routes/project-status.ts). Same 4-segment match; `git-events` segment
   // cannot collide with `status` or the PATCH /projects/:id sibling.
@@ -204,7 +196,6 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // Operational
   { method: "GET", path: "/statusline" },
   { method: "POST", path: "/hooks" },
-  { method: "GET", path: "/recommend" },
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
   { method: "GET", path: "/requests" },
@@ -432,13 +423,6 @@ export function createRequestHandler(state: ServerState, db?: Db) {
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
-
-      // GET /projects/:id/status[?history=<days>] — per-project status
-      // snapshots (add-project-status-snapshots). MUST dispatch before the
-      // PATCH /projects/:id match below; the 4-segment path can't collide but
-      // registering it with the projects group keeps the surface legible.
-      const projectStatusResult = tryHandleProjectStatusRoute(request, url, db);
-      if (projectStatusResult !== null) return projectStatusResult;
 
       // GET /projects/:id/git-events[?days=<n>] — persisted git transition
       // history (add-git-status-orbit). 4-segment match; the `git-events`
@@ -711,15 +695,8 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Statusline & operational routes (require DB for session queries) ──
       if (url.pathname === "/statusline" && request.method === "GET") {
-        return handleStatusline(db).then((r) => withCors(request, r)).catch((err) => {
+        return handleStatusline(db, url).then((r) => withCors(request, r)).catch((err) => {
           logger.error({ route: "/statusline", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
-      }
-
-      if (url.pathname === "/recommend" && request.method === "GET") {
-        return handleRecommend(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/recommend", method: "GET", err }, "route handler failed");
           return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
         });
       }
