@@ -15,6 +15,7 @@
 
 import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
+import { getTracer } from "./otel";
 import {
   handleGetSessions,
   handleGetSessionById,
@@ -264,6 +265,48 @@ export function createRequestHandler(state: ServerState, db?: Db) {
   ): Response | Promise<Response | undefined> | undefined {
     const url = new URL(request.url);
 
+    // Single chokepoint span for all ~106 routes dispatched below, rather than
+    // instrumenting each route handler individually. Mirrors the
+    // getTracer().startActiveSpan idiom in socket-server/dispatcher.ts, adapted
+    // for a return value instead of fire-and-forget: `handleRequestInner` can
+    // resolve sync (Response | undefined) or async (Promise<Response |
+    // undefined>), so the status-code attribute + span.end() happen in both
+    // branches rather than a single try/finally.
+    return getTracer().startActiveSpan(
+      "http.request",
+      {
+        attributes: {
+          "http.method": request.method,
+          "http.route": url.pathname,
+        },
+      },
+      (span) => {
+        const result = handleRequestInner(request, server, url);
+        if (result instanceof Promise) {
+          return result.then(
+            (response) => {
+              if (response) span.setAttribute("http.status_code", response.status);
+              span.end();
+              return response;
+            },
+            (err: unknown) => {
+              span.end();
+              throw err;
+            },
+          );
+        }
+        if (result) span.setAttribute("http.status_code", result.status);
+        span.end();
+        return result;
+      },
+    );
+  };
+
+  function handleRequestInner(
+    request: Request,
+    server: import("bun").Server<WsData>,
+    url: URL,
+  ): Response | Promise<Response | undefined> | undefined {
     // ── WebSocket upgrade routes ──────────────────────────────────────────
     const wsResult = handleWsUpgrade(state, request, url, server, db);
     // null  → URL didn't match any WS route; continue to HTTP dispatch
@@ -925,5 +968,5 @@ export function createRequestHandler(state: ServerState, db?: Db) {
         headers: { "Content-Type": "application/json" },
       }),
     );
-  };
+  }
 }
