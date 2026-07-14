@@ -12,7 +12,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] Fix the Mac dashboard PTY viewer's attach-handshake race: buffer bytes arriving before the initial `resize(cols, rows)` frame and flush them in order once geometry is applied (nx-f1l69) [owner:swift-engineer] [type:ui] [beads:nx-awuz5]
+- [x] [3.1] Fix the Mac dashboard PTY viewer's attach-handshake race: buffer bytes arriving before the initial `resize(cols, rows)` frame and flush them in order once geometry is applied (nx-f1l69) [owner:swift-engineer] [type:ui] [beads:nx-awuz5]
 
 ## E2E Batch
 

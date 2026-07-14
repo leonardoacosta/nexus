@@ -325,9 +325,17 @@ final class PtyViewerModel: ObservableObject {
     /// take-over toggle otherwise.
     var isManaged: Bool { sessionType == "managed" }
 
-    /// Buffered bytes received before the terminal view has been attached.
-    /// Drained on `attach(view:)`.
-    private var preAttachBuffer: [UInt8] = []
+    /// Bytes received before the SwiftTerm emulator is ready to render them —
+    /// i.e. before the view is attached AND the initial `resize(cols, rows)`
+    /// geometry frame has been applied to that emulator instance. Feeding raw
+    /// bytes against the default (un-resized) 80x24 grid is the attach-handshake
+    /// race that garbles output (nx-f1l69): the agent sends geometry FIRST on
+    /// the wire (StreamManager.addViewer), but if it lands while the view is
+    /// still unmounted the `resize` is a nil no-op and is lost, so the scrollback
+    /// that follows renders against the wrong grid. Both the pre-attach and the
+    /// pre-geometry windows funnel through this ONE buffer, flushed in original
+    /// order the instant the emulator becomes ready (`flushPendingBytes`).
+    private var pendingBytes: [UInt8] = []
     private var sseTask: Task<Void, Never>?
     /// Connect-window watchdog. If no bytes arrive within
     /// `connectTimeoutSeconds` after `start()`, we flip to `.error` so the
@@ -343,14 +351,16 @@ final class PtyViewerModel: ObservableObject {
     /// on every keystroke.
     private var loggedNonManagedSuppression = false
 
-    /// INSTRUMENTATION SPIKE (nx-f1l69) — attach-handshake / geometry race
-    /// probe state. Logging-only; no behavior change.
-    /// - `instrGeometryApplied`: has a geometry frame been APPLIED to SwiftTerm
-    ///   before the first feed? The key cause-(a) signal.
+    /// Attach-handshake gate (nx-f1l69): true once the initial `resize(cols,
+    /// rows)` frame has been APPLIED to the currently-attached SwiftTerm
+    /// emulator instance. While false, streamed bytes are held in `pendingBytes`
+    /// rather than fed against the default grid. Reset on every stream
+    /// (re)open so a fresh attach re-gates on its own geometry frame.
+    private var geometryApplied = false
+    /// INSTRUMENTATION (nx-f1l69) — attach-handshake / geometry race probe.
     /// - `instrFirstFeedLogged`: one-shot guard for the firstFeed log line.
     /// - `instrFeedCount`: total feeds seen — only the first N are logged at
     ///   volume to keep the hot path quiet; boundary anomalies always log.
-    private var instrGeometryApplied = false
     private var instrFirstFeedLogged = false
     private var instrFeedCount = 0
     /// Cap on per-feed logging so a high-volume stream doesn't flood the log.
@@ -416,21 +426,46 @@ final class PtyViewerModel: ObservableObject {
     #if canImport(SwiftTerm)
     func attach(view: TerminalView) {
         terminal = view
-        if !preAttachBuffer.isEmpty {
-            // INSTRUMENTATION SPIKE (nx-f1l69) — cause (c): the pre-attach
-            // buffer is drained into SwiftTerm in ONE feed at view-mount.
-            // `startsMidEscape` reuses the boundary heuristic against the
-            // FRONT of the buffer — if a 1MB drop earlier truncated a leading
-            // sequence, this is the buffer that carries the dangling escape
-            // into the first rendered screen.
-            let drained = ArraySlice(preAttachBuffer)
-            let tailMidEscape = endsMidEscape(drained) ? "true" : "false"
+        // Geometry may have arrived while the view was still unmounted — in
+        // which case `applyGeometry`'s `terminal?.resize` was a nil no-op and
+        // the resize never reached an emulator. Re-apply it to THIS fresh
+        // instance now, BEFORE flushing, so the buffered scrollback renders
+        // against the correct grid rather than the default 80x24 (nx-f1l69).
+        if geometryMode == .lock, let geo = reportedGeometry {
+            view.getTerminal().resize(cols: geo.cols, rows: geo.rows)
+            geometryApplied = true
             ptyLog.info(
-                "nx-f1l69 preAttachDrain bytes=\(self.preAttachBuffer.count, privacy: .public) tailMidEscape=\(tailMidEscape, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+                "nx-f1l69 geometry applied grid=\(geo.cols, privacy: .public)x\(geo.rows, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public) via=attach"
             )
-            view.feed(byteArray: drained)
-            preAttachBuffer.removeAll(keepingCapacity: false)
         }
+        // Flush anything buffered while the emulator wasn't ready. No-op unless
+        // the terminal is attached AND geometry has been applied (or take-over
+        // mode owns the grid).
+        flushPendingBytes()
+    }
+
+    /// True when the SwiftTerm emulator is ready to receive bytes: the view is
+    /// attached AND either the initial geometry frame has been applied (lock
+    /// mode) or the viewer owns the grid (take-over). Until then, streamed bytes
+    /// accumulate in `pendingBytes` (nx-f1l69 attach-handshake gate).
+    private var isTerminalReady: Bool {
+        guard terminal != nil else { return false }
+        return geometryApplied || geometryMode == .takeOver
+    }
+
+    /// Feed every buffered byte to the attached, geometry-ready emulator in the
+    /// exact order it arrived, then clear the buffer. Called from `attach` (view
+    /// just mounted) and from `applyGeometry` (initial resize just applied).
+    /// No-op unless `isTerminalReady`.
+    private func flushPendingBytes() {
+        guard isTerminalReady, let terminal, !pendingBytes.isEmpty else { return }
+        let drained = ArraySlice(pendingBytes)
+        let tailMidEscape = endsMidEscape(drained) ? "true" : "false"
+        ptyLog.info(
+            "nx-f1l69 pendingFlush bytes=\(self.pendingBytes.count, privacy: .public) tailMidEscape=\(tailMidEscape, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+        )
+        terminal.feed(byteArray: drained)
+        pendingBytes.removeAll(keepingCapacity: false)
     }
     #endif
 
@@ -439,6 +474,16 @@ final class PtyViewerModel: ObservableObject {
         connectWatchdog?.cancel()
         status = .connecting
         inputReadOnly = false
+        // Re-gate the attach handshake: a (re)connect gets a fresh geometry
+        // frame from the agent (StreamManager.addViewer always sends it first),
+        // so hold bytes until it lands. Clearing any stale pending buffer avoids
+        // replaying the previous stream's scrollback (the agent resends its own
+        // on re-attach). nx-f1l69. Take-over keeps its view-owned grid — the
+        // `isTerminalReady` take-over bypass means this never buffers there.
+        if geometryMode == .lock {
+            geometryApplied = false
+        }
+        pendingBytes.removeAll(keepingCapacity: false)
         let sid = self.sessionId
         // Open the raw-input WS channel for managed sessions so keystrokes
         // write raw bytes to the PTY (no auto-Enter). Non-managed sessions get
@@ -514,6 +559,10 @@ final class PtyViewerModel: ObservableObject {
         // correct pane geometry. No client-side resize needed — the agent owns
         // restore.
         geometryMode = .lock
+        // Re-arm the attach-handshake gate so a re-open buffers bytes until its
+        // own geometry frame arrives, rather than feeding against a stale grid.
+        geometryApplied = false
+        pendingBytes.removeAll(keepingCapacity: false)
         status = .idle
     }
 
@@ -541,21 +590,33 @@ final class PtyViewerModel: ObservableObject {
         reportedGeometry = (cols: cols, rows: rows)
         guard geometryMode == .lock else { return }
         #if canImport(SwiftTerm)
-        // Resize the emulator grid to the source pane. getTerminal().resize is
-        // idempotent (no-op when unchanged) so repeated identical frames are
-        // cheap. The representable re-letterboxes via updateNSView when the
-        // published reportedGeometry changes.
-        terminal?.getTerminal().resize(cols: cols, rows: rows)
-        // INSTRUMENTATION SPIKE (nx-f1l69) — cause (a): geometry frame APPLIED
-        // to the SwiftTerm grid. `instrGeometryApplied` flips true here; the
-        // firstFeed log reads it to report whether geometry preceded bytes.
-        instrGeometryApplied = true
+        // Resize ONLY when the emulator actually exists — a nil-chained resize
+        // on an unmounted view is silently lost, so we must NOT mark geometry
+        // applied in that case (the `attach` path re-applies it to the fresh
+        // instance). getTerminal().resize is idempotent (no-op when unchanged)
+        // so repeated identical frames are cheap. The representable
+        // re-letterboxes via updateNSView when the published reportedGeometry
+        // changes.
+        guard let terminal else {
+            // View not mounted yet — geometry is recorded in reportedGeometry
+            // above; `attach(view:)` will apply it before flushing pendingBytes.
+            ptyLog.info(
+                "nx-f1l69 geometry deferred grid=\(cols, privacy: .public)x\(rows, privacy: .public) reason=noView ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+            )
+            return
+        }
+        terminal.getTerminal().resize(cols: cols, rows: rows)
+        // Geometry frame APPLIED to the SwiftTerm grid — the emulator is now
+        // ready. Flip the gate and flush any bytes that arrived first (the
+        // attach-handshake race this whole path fixes, nx-f1l69).
+        geometryApplied = true
         ptyLog.info(
-            "nx-f1l69 geometry applied grid=\(cols, privacy: .public)x\(rows, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+            "nx-f1l69 geometry applied grid=\(cols, privacy: .public)x\(rows, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public) via=frame"
         )
         ptyLog.debug(
             "PtyViewer: locked grid to \(cols, privacy: .public)x\(rows, privacy: .public) (sessionId=\(self.sessionId, privacy: .public))"
         )
+        flushPendingBytes()
         #endif
     }
 
@@ -632,7 +693,7 @@ final class PtyViewerModel: ObservableObject {
             } else {
                 gridStr = "default"
             }
-            let geometryAppliedStr = instrGeometryApplied ? "true" : "false"
+            let geometryAppliedStr = geometryApplied ? "true" : "false"
             ptyLog.info(
                 "nx-f1l69 firstFeed geometryApplied=\(geometryAppliedStr, privacy: .public) grid=\(gridStr, privacy: .public) bytes=\(bytes.count, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
             )
@@ -649,27 +710,32 @@ final class PtyViewerModel: ObservableObject {
         }
 
         #if canImport(SwiftTerm)
-        if let terminal {
+        // Attach-handshake gate (nx-f1l69): feed SwiftTerm ONLY when the
+        // emulator is ready — attached AND the initial resize applied (or
+        // take-over owns the grid). Otherwise buffer in original order; the
+        // bytes flush the instant `attach` / `applyGeometry` makes it ready,
+        // so early scrollback never renders against the wrong grid.
+        if isTerminalReady, let terminal {
             terminal.feed(byteArray: slice)
         } else {
-            preAttachBuffer.append(contentsOf: bytes)
-            // Cap the pre-attach buffer so a high-volume stream doesn't OOM
-            // while waiting for the view to mount.
-            if preAttachBuffer.count > 1_000_000 {
-                let dropCount = preAttachBuffer.count - 1_000_000
-                // INSTRUMENTATION SPIKE (nx-f1l69) — cause (c): the pre-attach
-                // buffer overflowed and we are about to DROP `dropCount` bytes
-                // from the FRONT. If the byte JUST BEFORE the drop boundary sits
-                // inside an unterminated ESC[ sequence, the retained tail begins
-                // mid-escape → SwiftTerm garbles the first rendered screen.
-                // Heuristic: scan the prefix that is being dropped; if it ends
-                // mid-escape, the retained portion inherits a dangling sequence.
-                let droppedPrefix = preAttachBuffer[preAttachBuffer.startIndex ..< preAttachBuffer.index(preAttachBuffer.startIndex, offsetBy: dropCount)]
+            pendingBytes.append(contentsOf: bytes)
+            // Cap the pending buffer so a high-volume stream doesn't OOM while
+            // waiting for the view to mount / geometry to land.
+            if pendingBytes.count > 1_000_000 {
+                let dropCount = pendingBytes.count - 1_000_000
+                // INSTRUMENTATION (nx-f1l69) — the pending buffer overflowed and
+                // we are about to DROP `dropCount` bytes from the FRONT. If the
+                // byte JUST BEFORE the drop boundary sits inside an unterminated
+                // ESC[ sequence, the retained tail begins mid-escape → SwiftTerm
+                // garbles the first rendered screen. Heuristic: scan the prefix
+                // being dropped; if it ends mid-escape, the retained portion
+                // inherits a dangling sequence.
+                let droppedPrefix = pendingBytes[pendingBytes.startIndex ..< pendingBytes.index(pendingBytes.startIndex, offsetBy: dropCount)]
                 let droppedEndsMidEscapeStr = endsMidEscape(droppedPrefix) ? "true" : "false"
                 ptyLog.info(
-                    "nx-f1l69 preAttachDrop bytesDropped=\(dropCount, privacy: .public) retained=\(1_000_000, privacy: .public) droppedEndsMidEscape=\(droppedEndsMidEscapeStr, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
+                    "nx-f1l69 pendingDrop bytesDropped=\(dropCount, privacy: .public) retained=\(1_000_000, privacy: .public) droppedEndsMidEscape=\(droppedEndsMidEscapeStr, privacy: .public) ts=\(ptyMonoMs(), privacy: .public) sid=\(self.sessionId, privacy: .public)"
                 )
-                preAttachBuffer.removeFirst(dropCount)
+                pendingBytes.removeFirst(dropCount)
             }
         }
         #else
