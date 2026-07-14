@@ -27,6 +27,7 @@ struct BoardView: View {
                 item: model.selectedItem(),
                 sessions: observer.activeSessions,
                 notifications: observer.notifications,
+                lastBeadTransition: observer.lastBeadTransition,
                 onAttach: { attachSession = $0 }
             )
             .frame(width: 322)

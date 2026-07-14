@@ -19,6 +19,11 @@ struct BoardDetailRail: View {
     let sessions: [Session]
     /// Recent notification/TTS history (filtered to the project inside).
     let notifications: [NotificationEvent]
+    /// Latest fleet-wide bead transition (published by `SessionObserver`).
+    /// Drives live-refresh of a selected orphan bead when it targets the
+    /// orphan's project. Spec: add-board-detail-live-updates (orphan detail
+    /// live-refresh via existing BeadTransition).
+    let lastBeadTransition: BeadTransition?
     /// Summon the attach sheet for a session (owned by the board shell).
     var onAttach: (Session) -> Void
 
@@ -34,6 +39,18 @@ struct BoardDetailRail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.nx.substrate2)
+        // Bind (or tear down) the single live SSE connection on a genuine
+        // (de)selection — keyed on the stable selection token, not the whole
+        // item, so a background board reload of the same row never churns the
+        // connection. `initial: true` fires on first appearance too.
+        .onChange(of: BoardSelectionToken(item: item), initial: true) { _, token in
+            model.updateSelection(token)
+        }
+        // A fleet-wide bead transition may target the selected orphan's project.
+        .onChange(of: lastBeadTransition) { _, transition in
+            if let transition { model.handleBeadTransition(transition) }
+        }
+        .onDisappear { model.teardown() }
     }
 
     // MARK: - Empty
@@ -249,22 +266,25 @@ struct BoardDetailRail: View {
     // MARK: - Orphan
 
     private func orphanDetail(_ o: BoardOrphan) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Prefer a post-transition refetch of this bead over the passed-in row
+        // so a matching BeadTransition re-renders fresh status/description.
+        let bead = model.orphanBead(default: o.bead)
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text(o.bead.id).font(.caption2.monospaced()).foregroundStyle(Color.nx.ink3)
-                BoardBadge(kind: o.bead.type.lowercased() == "bug" ? .bug : .orphan)
-                PriorityPill(priority: o.bead.priority)
+                Text(bead.id).font(.caption2.monospaced()).foregroundStyle(Color.nx.ink3)
+                BoardBadge(kind: bead.type.lowercased() == "bug" ? .bug : .orphan)
+                PriorityPill(priority: bead.priority)
                 Spacer()
             }
-            Text(o.bead.title)
+            Text(bead.title)
                 .font(.system(.headline, design: .monospaced))
                 .foregroundStyle(Color.nx.ink)
-            if let project = o.bead.project {
-                Text("\(project) · \(o.bead.status)")
+            if let project = bead.project {
+                Text("\(project) · \(bead.status)")
                     .font(.caption).foregroundStyle(Color.nx.ink3)
             }
             detailSection("Description")
-            Text(o.bead.description ?? "Unplanned work — not referenced by any live proposal's tasks.md.")
+            Text(bead.description ?? "Unplanned work — not referenced by any live proposal's tasks.md.")
                 .font(.caption)
                 .foregroundStyle(Color.nx.ink2)
                 .textSelection(.enabled)
@@ -303,6 +323,40 @@ enum SpecDocTab: String, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
+/// Stable selection identity the detail rail keys its live-connection lifecycle
+/// on. Unlike the full `BoardWorkItem` (whose embedded rollup counts churn on
+/// every board reload), this only flips when the *selected item itself* changes
+/// — so the SSE connection is opened/closed on a genuine (de)selection, never
+/// on a background data refresh of the same row.
+enum BoardSelectionToken: Equatable {
+    case proposal(project: String, slug: String)
+    case orphan(id: String, project: String)
+    case none
+
+    init(item: BoardWorkItem?) {
+        switch item {
+        case .some(.proposal(let p)):
+            self = .proposal(project: p.project, slug: p.proposal.slug)
+        case .some(.orphan(let o)):
+            self = .orphan(id: o.bead.id, project: o.bead.project ?? "")
+        case .none:
+            self = .none
+        }
+    }
+}
+
+/// Lightweight decode of the `GET /specs/events` SSE frame — we only need each
+/// coalesced event's (project, spec) to decide whether it targets the open
+/// item. Extra fields (`kind`, `completed`, `total`, `to`) are ignored by
+/// `Decodable`. Wire shape: `@nexus/core` `specEventsFrameSchema`.
+private struct SpecEventsFrameLite: Decodable {
+    struct Item: Decodable {
+        let project: String
+        let spec: String
+    }
+    let events: [Item]
+}
+
 @MainActor
 final class BoardDetailModel: ObservableObject {
     @Published var tab: SpecDocTab = .proposal
@@ -312,12 +366,47 @@ final class BoardDetailModel: ObservableObject {
     @Published private(set) var cacheState: SpecContentCache.CacheState?
     @Published private(set) var actionInFlight = false
     @Published private(set) var actionError: String?
+    /// Fresh copy of the selected orphan bead, pulled after a matching
+    /// `BeadTransition`. `orphanBead(default:)` prefers it over the passed-in
+    /// row so the detail re-renders with post-transition state.
+    @Published private(set) var orphanOverride: UnlinkedBead?
 
-    private let client = NexusShared.NexusAggregateClient()
+    private let client: NexusAggregateClient
     private let cache: SpecContentCache
+    /// Live-update source — the same aggregate in production, a fake in tests.
+    private let live: any SpecLiveUpdating
+    /// Content fetcher backing both the initial load and live revalidation.
+    /// Injectable so tests can assert revalidation without networking.
+    private let contentFetcher: SpecContentCache.Fetcher
 
-    init(cache: SpecContentCache = .shared) {
+    /// The single open SSE connection to the selected proposal's owning agent.
+    /// Cancelled before any new connection opens (deselect / different row).
+    private var liveTask: Task<Void, Never>?
+    /// In-flight revalidation stream, cancelled before a new one starts so
+    /// overlapping server pushes don't interleave into `content`.
+    private var revalidateTask: Task<Void, Never>?
+    /// The proposal the live connection is bound to; a received `SpecTransition`
+    /// only triggers a revalidation when it matches this (project, slug).
+    private var openProposal: (project: String, slug: String)?
+    /// The currently-selected orphan bead's (id, project), when an orphan is
+    /// selected. Drives `BeadTransition`-matched refetch.
+    private var openOrphan: (id: String, project: String)?
+
+    init(
+        cache: SpecContentCache = .shared,
+        client: NexusAggregateClient? = nil,
+        live: (any SpecLiveUpdating)? = nil,
+        contentFetcher: SpecContentCache.Fetcher? = nil
+    ) {
+        let aggregate = client ?? NexusAggregateClient()
+        self.client = aggregate
         self.cache = cache
+        self.live = live ?? aggregate
+        self.contentFetcher = contentFetcher ?? { key in
+            await aggregate.fetchSpecContent(
+                project: key.project, name: key.slug, file: key.file
+            )
+        }
     }
 
     /// Show a blocking spinner ONLY when there is nothing cached to render yet
@@ -333,12 +422,141 @@ final class BoardDetailModel: ObservableObject {
     /// via SwiftUI `.task(id:)` cancellation when the selection/tab changes.
     func loadContent(project: String, slug: String) async {
         let key = SpecContentCache.CacheKey(project: project, slug: slug, file: tab.rawValue)
-        let client = self.client
-        for await snap in cache.fetch(key: key, using: { k in
-            await client.fetchSpecContent(project: k.project, name: k.slug, file: k.file)
-        }) {
+        for await snap in cache.fetch(key: key, using: contentFetcher) {
             content = snap.content
             cacheState = snap.state
+        }
+    }
+
+    // MARK: - Live spec-events connection (add-board-detail-live-updates)
+
+    /// React to a selection change: bind (or tear down) the live connection.
+    /// Called from the rail's top-level `.onChange(of:initial:)` so it fires on
+    /// first appearance and every genuine (de)selection.
+    func updateSelection(_ token: BoardSelectionToken) {
+        switch token {
+        case .proposal(let project, let slug):
+            closeOrphan()
+            openLiveConnection(project: project, slug: slug)
+        case .orphan(let id, let project):
+            closeLiveConnection()
+            bindOrphan(id: id, project: project)
+        case .none:
+            teardown()
+        }
+    }
+
+    /// Cancel any open connections/streams when the rail disappears.
+    func teardown() {
+        closeLiveConnection()
+        closeOrphan()
+    }
+
+    /// Open exactly ONE SSE connection to the selected proposal's owning agent.
+    /// Cancels the previous connection BEFORE opening the new one so a rapid
+    /// row-switch never leaves two streams live at once.
+    func openLiveConnection(project: String, slug: String) {
+        liveTask?.cancel()
+        openProposal = (project, slug)
+        let live = self.live
+        liveTask = Task { [weak self] in
+            guard let owner = await live.resolveOwningAgent(project: project) else { return }
+            if Task.isCancelled { return }
+            await live.streamSpecEvents(
+                from: owner,
+                onConnect: { [weak self] isReconnect in
+                    // Reconnect → one catch-up revalidation for transitions
+                    // missed while disconnected. Skip the first connect (the
+                    // selection's own `.task` load already fetched fresh).
+                    guard isReconnect else { return }
+                    await self?.revalidateOpenProposal(project: project, slug: slug)
+                },
+                handler: { [weak self] event in
+                    await self?.handleSpecEvent(event, project: project, slug: slug)
+                }
+            )
+        }
+    }
+
+    /// Cancel the open SSE connection (deselection / different-row selection).
+    func closeLiveConnection() {
+        liveTask?.cancel()
+        liveTask = nil
+        revalidateTask?.cancel()
+        revalidateTask = nil
+        openProposal = nil
+    }
+
+    /// Decode a `spec-transition` frame; if any coalesced event targets the
+    /// open (project, slug), invalidate + revalidate the matching cache entry.
+    /// Events for any other (project, slug) are ignored.
+    func handleSpecEvent(_ event: SSEEvent, project: String, slug: String) async {
+        guard let bytes = event.data.data(using: .utf8),
+              let frame = try? JSONDecoder().decode(SpecEventsFrameLite.self, from: bytes)
+        else { return }
+        let targetsOpen = frame.events.contains {
+            $0.project == project && $0.spec == slug
+        }
+        guard targetsOpen else { return }
+        await revalidateOpenProposal(project: project, slug: slug)
+    }
+
+    /// Re-run the cache fetch for the open proposal's current tab — the same
+    /// stale-while-revalidate path `loadContent` uses (no second data path).
+    /// No-op when the selection has since moved off (project, slug).
+    private func revalidateOpenProposal(project: String, slug: String) async {
+        guard let open = openProposal, open.project == project, open.slug == slug else {
+            return
+        }
+        revalidateTask?.cancel()
+        let key = SpecContentCache.CacheKey(project: project, slug: slug, file: tab.rawValue)
+        let cache = self.cache
+        let fetcher = self.contentFetcher
+        revalidateTask = Task { [weak self] in
+            for await snap in cache.fetch(key: key, using: fetcher) {
+                if Task.isCancelled { return }
+                self?.content = snap.content
+                self?.cacheState = snap.state
+            }
+        }
+        await revalidateTask?.value
+    }
+
+    // MARK: - Orphan live-refresh via BeadTransition (add-board-detail-live-updates)
+
+    /// Bind the selected orphan so a matching `BeadTransition` triggers a
+    /// refetch. Clears any stale override from a previous orphan.
+    private func bindOrphan(id: String, project: String) {
+        openOrphan = (id, project)
+        orphanOverride = nil
+    }
+
+    private func closeOrphan() {
+        openOrphan = nil
+        orphanOverride = nil
+    }
+
+    /// Fresh bead to render for orphan `id`, or the passed-in fallback when no
+    /// post-transition refetch has landed for it.
+    func orphanBead(default fallback: UnlinkedBead) -> UnlinkedBead {
+        if let override = orphanOverride, override.id == fallback.id { return override }
+        return fallback
+    }
+
+    /// A fleet-wide `BeadTransition` arrived (published by `SessionObserver`).
+    /// When it matches the selected orphan's project, refetch that project's
+    /// unlinked beads and surface the fresh copy of the open orphan.
+    func handleBeadTransition(_ transition: BeadTransition) {
+        guard let orphan = openOrphan, orphan.project == transition.project else { return }
+        let id = orphan.id
+        let project = orphan.project
+        let client = self.client
+        Task { [weak self] in
+            let fresh = await client.fetchUnlinkedBeads(project: project)
+            guard let match = fresh.first(where: { $0.id == id }) else { return }
+            // Ignore if the selection moved off this orphan while fetching.
+            guard self?.openOrphan?.id == id else { return }
+            self?.orphanOverride = match
         }
     }
 

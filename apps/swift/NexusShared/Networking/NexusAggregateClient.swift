@@ -18,6 +18,49 @@
 
 import Foundation
 
+/// The single registered agent that owns a given project. A project lives on
+/// exactly one agent (each machine hosts its own projects), so callers that
+/// need a persistent per-project connection resolve the owner once and open
+/// ONE stream to it — instead of fanning a persistent stream out to every
+/// registered agent.
+///
+/// Spec: openspec/changes/add-board-detail-live-updates (owning-agent
+/// resolution for a persistent connection).
+public struct AgentIdentity: Sendable, Equatable {
+    /// Display name (parallel to `NexusAggregateClient.agentNames`) used to
+    /// route the persistent stream back to the owning agent's transport.
+    public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+}
+
+/// The minimal surface the board detail rail needs to bind a live spec-events
+/// connection to a single owning agent: resolve the owner for a project, then
+/// stream that one agent's `GET /specs/events` with reconnect-and-backoff.
+/// `NexusAggregateClient` is the production conformer; unit tests inject a fake
+/// so the detail-rail connection lifecycle can be asserted without networking.
+///
+/// Spec: openspec/changes/add-board-detail-live-updates.
+public protocol SpecLiveUpdating: Sendable {
+    /// Resolve which single registered agent owns `project`, or nil when no
+    /// reachable agent claims it.
+    func resolveOwningAgent(project: String) async -> AgentIdentity?
+
+    /// Open ONE `GET /specs/events` connection to `agent` and pump frames to
+    /// `handler`. Reconnects with exponential backoff on an unexpected drop.
+    /// `onConnect` fires once per (re)connection attempt — `isReconnect` is
+    /// false on the first attempt and true on every reconnect, so the caller
+    /// can trigger a single catch-up revalidation after a drop. Runs until the
+    /// surrounding task is cancelled.
+    func streamSpecEvents(
+        from agent: AgentIdentity,
+        onConnect: @Sendable @escaping (_ isReconnect: Bool) async -> Void,
+        handler: @Sendable @escaping (SSEEvent) async -> Void
+    ) async
+}
+
 public actor NexusAggregateClient {
     /// One transport client per resolved agent.
     /// `var` (was `let`) so `rebootstrap()` can swap the list when the
@@ -336,6 +379,32 @@ public actor NexusAggregateClient {
         // are dropped by fanOut), so any non-nil here is the answer.
         for body in perAgent {
             if let body { return body }
+        }
+        return nil
+    }
+
+    /// Resolve which single registered agent owns `project`. Reuses the same
+    /// fan-out-and-first-success pattern as `fetchSpecContent`: probe every
+    /// agent's `GET /specs?project=…` concurrently and return the first agent
+    /// that answers with a non-empty spec list — a project lives on exactly one
+    /// agent, so a non-empty response IS the ownership signal. Returns nil when
+    /// no reachable agent claims the project.
+    ///
+    /// Callers needing a persistent per-project connection (the board detail
+    /// rail's SSE stream) resolve the owner once and open ONE stream to it,
+    /// rather than fanning a persistent stream across every agent.
+    ///
+    /// Spec: openspec/changes/add-board-detail-live-updates (owning-agent
+    /// resolution for a persistent connection).
+    public func resolveOwningAgent(project: String) async -> AgentIdentity? {
+        let (perAgent, reachable) = await fanOut("resolveOwningAgent") { client in
+            try await client.fetchSpecs(project: project)
+        }
+        // `fanOut` appends results and reachable names in lockstep, so
+        // `reachable[idx]` is the agent that produced `perAgent[idx]`.
+        for (idx, specs) in perAgent.enumerated() where !specs.isEmpty {
+            let name = idx < reachable.count ? reachable[idx] : ""
+            return AgentIdentity(name: name)
         }
         return nil
     }
@@ -749,6 +818,41 @@ public actor NexusAggregateClient {
         }
     }
 
+    /// Open ONE `GET /specs/events` connection to a single resolved owning
+    /// agent (NOT a fan-out) with its own exponential-backoff reconnect loop.
+    /// `onConnect(isReconnect:)` fires immediately before each (re)connection
+    /// attempt — `false` on the first, `true` on every reconnect — so the
+    /// caller can trigger a single catch-up revalidation after a drop (catching
+    /// any transition missed while disconnected). Runs until cancelled.
+    ///
+    /// Spec: openspec/changes/add-board-detail-live-updates (detail rail binds
+    /// a live SSE connection to an open proposal; reconnection on drop).
+    public func streamSpecEvents(
+        from agent: AgentIdentity,
+        onConnect: @Sendable @escaping (_ isReconnect: Bool) async -> Void,
+        handler: @Sendable @escaping (SSEEvent) async -> Void
+    ) async {
+        let client = resolveClient(forAgent: agent.name)
+        var backoff: UInt64 = 1_000_000_000
+        let maxBackoff: UInt64 = 30 * 1_000_000_000
+        var isReconnect = false
+        while !Task.isCancelled {
+            await onConnect(isReconnect)
+            isReconnect = true
+            do {
+                try await client.consumeSpecEvents(handler: handler)
+                // Clean end (rare for SSE) — reconnect promptly.
+                backoff = 1_000_000_000
+            } catch {
+                if Task.isCancelled { return }
+                Self.logLine("streamSpecEvents: agent '\(agent.name)' stream "
+                    + "dropped, retrying: \(error)")
+                try? await Task.sleep(nanoseconds: backoff)
+                backoff = min(maxBackoff, backoff * 2)
+            }
+        }
+    }
+
     public func consumeNotifications(
         handler: @Sendable @escaping (NotificationEvent) async -> Void
     ) async {
@@ -1048,6 +1152,11 @@ public actor NexusAggregateClient {
         }
     }
 }
+
+/// `resolveOwningAgent` + `streamSpecEvents` already satisfy the protocol; this
+/// declares the production conformance the detail rail depends on.
+/// Spec: openspec/changes/add-board-detail-live-updates.
+extension NexusAggregateClient: SpecLiveUpdating {}
 
 /// `[String: Any]` is not Sendable; wrap it for the patch fan-out. The body
 /// is a small, value-only settings dict — safe to ferry across the actor.
