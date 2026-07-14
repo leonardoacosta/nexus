@@ -90,6 +90,7 @@ struct BoardDetailRail: View {
                 BoardBadge(kind: .proposal)
                 PriorityPill(priority: p.priority)
                 Spacer()
+                cacheStateIndicator
             }
             Text(p.proposal.slug)
                 .font(.system(.headline, design: .monospaced))
@@ -162,6 +163,39 @@ struct BoardDetailRail: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Small, unobtrusive freshness indicator for the selected proposal's spec
+    /// content (detail rail only — never on board rows):
+    ///   - cached-only    → a dim dot (showing stale/prefetched content)
+    ///   - fetch-in-flight → a small ProgressView
+    ///   - fresh          → a phosphor checkmark + relative timestamp
+    @ViewBuilder
+    private var cacheStateIndicator: some View {
+        switch model.cacheState {
+        case .cachedOnly:
+            Circle()
+                .fill(Color.nx.ink4)
+                .frame(width: 6, height: 6)
+                .help("Showing cached content")
+                .accessibilityIdentifier("board-detail-cache-cached")
+        case .fetchInFlight:
+            ProgressView()
+                .controlSize(.mini)
+                .accessibilityIdentifier("board-detail-cache-fetching")
+        case .fresh(let at):
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.nx.phosphorDim)
+                Text(at, style: .relative)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Color.nx.ink4)
+            }
+            .accessibilityIdentifier("board-detail-cache-fresh")
+        case nil:
+            EmptyView()
         }
     }
 
@@ -273,18 +307,39 @@ enum SpecDocTab: String, CaseIterable, Identifiable {
 final class BoardDetailModel: ObservableObject {
     @Published var tab: SpecDocTab = .proposal
     @Published private(set) var content: String?
-    @Published private(set) var isLoadingContent = false
+    /// Cache freshness of the currently-shown spec content — drives the
+    /// detail-rail indicator. nil before the first fetch resolves.
+    @Published private(set) var cacheState: SpecContentCache.CacheState?
     @Published private(set) var actionInFlight = false
     @Published private(set) var actionError: String?
 
     private let client = NexusShared.NexusAggregateClient()
+    private let cache: SpecContentCache
 
+    init(cache: SpecContentCache = .shared) {
+        self.cache = cache
+    }
+
+    /// Show a blocking spinner ONLY when there is nothing cached to render yet
+    /// and a fetch is running — the stale-while-revalidate win is that cached
+    /// content stays on screen (no spinner) while a refresh runs underneath.
+    var isLoadingContent: Bool {
+        content == nil && cacheState == .fetchInFlight
+    }
+
+    /// Read the selected spec's content through the cache: renders cached
+    /// content immediately (as `.cachedOnly`) if present, then updates in place
+    /// as the background revalidation resolves. The `for await` loop tears down
+    /// via SwiftUI `.task(id:)` cancellation when the selection/tab changes.
     func loadContent(project: String, slug: String) async {
-        isLoadingContent = true
-        defer { isLoadingContent = false }
-        content = await client.fetchSpecContent(
-            project: project, name: slug, file: tab.rawValue
-        )
+        let key = SpecContentCache.CacheKey(project: project, slug: slug, file: tab.rawValue)
+        let client = self.client
+        for await snap in cache.fetch(key: key, using: { k in
+            await client.fetchSpecContent(project: k.project, name: k.slug, file: k.file)
+        }) {
+            content = snap.content
+            cacheState = snap.state
+        }
     }
 
     func approve(project: String, slug: String) async {
