@@ -40,7 +40,7 @@ Then remote deploys are launched in background and the hook exits immediately
 
 ### Requirement: DB migration on packages/db changes
 
-A `deploy/hooks.d/post-merge/03-migrate` script MUST run `pnpm --filter @nexus/db db:migrate` (ordered migration replay — NEVER `db:push`) when files under `packages/db/` change between `ORIG_HEAD` and `HEAD`. The deploy is the single writer to the live DB; schema changes arrive as committed `.sql` migrations generated via `db:generate`. The script MUST load `POSTGRES_URL` from the agent's canonical source (`~/.env`). Failures log warnings but never block subsequent hooks.
+A `deploy/hooks.d/post-merge/03-migrate` script MUST run `pnpm --filter @nexus/db db:migrate` (ordered migration replay — NEVER `db:push`) when files under `packages/db/` change between `ORIG_HEAD` and `HEAD`, but MUST skip entirely on a non-primary DB-writing machine regardless of whether `packages/db/` changed. The deploy is the single writer to the live DB; schema changes arrive as committed `.sql` migrations generated via `db:generate`. The script MUST load `POSTGRES_URL` from the agent's canonical source (`~/.env`). Failures log warnings but never block subsequent hooks.
 
 #### Scenario: schema change triggers migration
 - **Given** a merge introduces a new column in `packages/db/src/schema/credentials.ts`
@@ -57,7 +57,15 @@ A `deploy/hooks.d/post-merge/03-migrate` script MUST run `pnpm --filter @nexus/d
 - **When** the 03-migrate hook runs against a DB schema change
 - **Then** the hook logs a warning ("POSTGRES_URL not set, skipping migration") and exits 0
 
----
+#### Scenario: a non-primary machine skips migration entirely, even with a schema change
+
+- **Given** the current machine is flagged as a non-primary DB-writing host (e.g. the Mac,
+  where the homelab primary already applies the shared migration)
+- **AND** a merge introduces a schema change under `packages/db/`
+- **When** the post-merge dispatcher runs the 03-migrate hook
+- **Then** the hook detects the non-primary role and exits early without attempting
+  `db:migrate` or requiring `POSTGRES_URL` to be set locally
+- **AND** no "POSTGRES_URL is required" error is logged
 
 ### Requirement: Dashboard rebuild on Next.js changes
 
@@ -95,4 +103,38 @@ Note: the Rust agent service may share a name with the Bun agent service. The ho
 - **Given** a merge only changes `apps/nextjs/`
 - **When** the post-merge dispatcher runs the 05-rust hook
 - **Then** the hook exits early without invoking cargo
+
+### Requirement: The post-merge deploy hook SHALL recover from a bun.lock frozen-install mismatch
+
+`deploy/hooks.d/post-merge/02-deploy` MUST detect a `bun install --frozen-lockfile` failure
+caused by lockfile drift (the committed `bun.lock` no longer matching what `bun install`
+resolves) and either regenerate the lockfile safely or surface an actionable, non-silent
+recovery signal — `nexus-agent` MUST NOT be left running against a stale `node_modules` with
+only a buried warning as the trail.
+
+#### Scenario: Frozen-install failure triggers actionable recovery
+
+- **GIVEN** a merge lands and the committed `bun.lock` no longer matches what `bun install`
+  would resolve
+- **WHEN** `deploy/hooks.d/post-merge/02-deploy` runs `bun install --frozen-lockfile` and it
+  fails with "lockfile had changes, but lockfile is frozen"
+- **THEN** the hook either regenerates the lockfile (non-frozen `bun install`, committed
+  separately) or surfaces a clearly actionable "manual recovery required" signal at a
+  visibility level the operator will actually see (not just a buried log line)
+- **AND** `nexus-agent`'s dependency sync completes or the operator is unambiguously alerted
+  that it did not
+
+### Requirement: GUI-agent deploy SHALL extend to headless iOS device install
+
+iOS deploys SHALL route through the same GUI-agent kickstart mechanism the macOS deploy already uses (`dev.leonardoacosta.nexus.deploy`, gui/501 LaunchAgent, `deploy/hooks.d/*/04-swift-deploy` + `deploy/lib/macos-swift-deploy.sh`), extended to build `nexus-ios` and run `xcrun devicectl device install app` against the paired iPhone — a headless SSH attempt fails at codesign (requires an Aqua session) and even `git push` from SSH fails with keychain error -25308.
+
+#### Scenario: iOS device install completes without manual devicectl intervention
+
+- **GIVEN** a merge lands changing files under `apps/swift/nexus-ios/`
+- **AND** a paired iPhone is reachable via `devicectl`
+- **WHEN** the post-merge deploy dispatcher runs the extended `04-swift-deploy` hook
+- **THEN** the GUI-agent LaunchAgent builds `nexus-ios` in an Aqua session (real codesign
+  succeeds)
+- **AND** `xcrun devicectl device install app` installs the signed build to the paired device
+- **AND** no manual `devicectl` command from the operator is required
 
