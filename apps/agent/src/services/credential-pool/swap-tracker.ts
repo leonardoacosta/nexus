@@ -18,6 +18,8 @@
  *   without conditional branches at the call site.
  */
 
+import { registerSnapshotSource } from "../state-snapshot";
+
 /** Per-fingerprint last-swap timestamps. Module-level singleton. */
 const swapsByFingerprint = new Map<string, Date>();
 
@@ -48,3 +50,20 @@ export function lastSwapAt(fingerprint: string): Date | null {
 export function __resetForTests(): void {
   swapsByFingerprint.clear();
 }
+
+// Persist last-swap timestamps across restarts (nx-veo5g.4, Layer D). This is
+// what backs proactive-swap's 30-minute anti-flap window: a restart previously
+// zeroed it, so a swap suppressed pre-restart could immediately re-fire. Dates
+// serialize as ISO strings.
+registerSnapshotSource("swap-tracker", {
+  serialize: () =>
+    [...swapsByFingerprint.entries()].map(([fp, d]) => [fp, d.toISOString()]),
+  deserialize: (data) => {
+    swapsByFingerprint.clear();
+    for (const [fp, iso] of data as [string, string][]) {
+      if (typeof fp !== "string" || typeof iso !== "string") continue;
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) swapsByFingerprint.set(fp, d);
+    }
+  },
+});

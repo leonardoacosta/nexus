@@ -19,6 +19,7 @@ import {
 } from "../notifications/presence-context";
 import { audioExists } from "../notifications/audio-store";
 import { countRecentNotifications } from "../notifications/buffer";
+import { registerSnapshotSource } from "../services/state-snapshot";
 
 const log = createLogger("agent:routes:notifications");
 
@@ -244,6 +245,27 @@ export async function resetNotificationRoutes(): Promise<void> {
   });
   dedupMap.clear();
 }
+
+// Persist the dedup window across agent restarts (nx-veo5g.4, Layer D). Without
+// this, a crash-restart inside the 2-minute DEDUP_TTL_MS window re-arms an empty
+// map and can re-emit a notification that was already suppressed. Only live
+// (non-expired) entries are serialized/restored — an expired entry carries no
+// suppression value.
+registerSnapshotSource("notification-dedup", {
+  serialize: () => {
+    const now = Date.now();
+    return [...dedupMap.entries()].filter(([, exp]) => exp > now);
+  },
+  deserialize: (data) => {
+    const now = Date.now();
+    dedupMap.clear();
+    for (const [key, exp] of data as [string, number][]) {
+      if (typeof key === "string" && typeof exp === "number" && exp > now) {
+        dedupMap.set(key, exp);
+      }
+    }
+  },
+});
 
 /** Expose dedup internals for testing. */
 export const _testDedupInternals = {

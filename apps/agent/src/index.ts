@@ -43,6 +43,13 @@ import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
 import { ensureAudioDir } from "./notifications/audio-store";
 import { startMemoryPressureMonitor } from "./services/memory-pressure";
+import { restoreSnapshot, startStateSnapshot } from "./services/state-snapshot";
+// Side-effect imports: force the behavioral-state sources to register their
+// serialize/deserialize pairs before restoreSnapshot() runs (nx-veo5g.4). The
+// other three sources (notifications, proactive-swap, swap-tracker) are already
+// imported above for their exported symbols.
+import "./services/schema-drift";
+import "./services/credential-pool/rate-limit-tracker";
 
 // ── Encryption key validation (fail-fast) ───────────────────────────────────
 let encryptionKey: ReturnType<typeof loadEncryptionKey>;
@@ -99,6 +106,19 @@ ensureAudioDir().catch((err) => {
     "audio dir bootstrap failed — first notification write will retry",
   );
 });
+
+// Restore behavioral in-memory state from the last snapshot BEFORE any service
+// starts mutating it (nx-veo5g.4, Layer D). Non-fatal on a missing/corrupt
+// snapshot — matches the sessionManager.init() convention below. All five source
+// modules have registered by now (top-level imports run first).
+try {
+  restoreSnapshot();
+} catch (err) {
+  logger.warn(
+    { error: err instanceof Error ? err.message : String(err) },
+    "behavioral state restore failed — starting with empty in-memory state",
+  );
+}
 
 const sessionManager = createSessionManager({ db });
 
@@ -355,6 +375,11 @@ try {
   );
 }
 
+// Behavioral-state periodic snapshot (nx-veo5g.4, Layer D). Debounced, content-
+// diff'd disk flush of the registered in-memory sources. `stopStateSnapshot()`
+// does a final forced flush on graceful shutdown so the freshest state lands.
+const stopStateSnapshot = startStateSnapshot();
+
 /** Max time to wait for PTY streams to report closure during graceful shutdown. */
 const STREAM_SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -406,6 +431,8 @@ async function shutdown() {
   stopProjectDiscovery();
   sessionManager.stop();
   watcherBridge?.shutdown();
+  // Final forced flush of behavioral in-memory state before the process exits.
+  stopStateSnapshot();
   server.stop();
   process.exit(0);
 }

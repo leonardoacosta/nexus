@@ -34,6 +34,7 @@ import { emitAudit as defaultEmitAudit } from "../routes/credentials/shared";
 import type { CredentialAuditEntry } from "../routes/credentials/shared";
 import { lifecycleBus } from "./lifecycle-bus";
 import type { NotificationFiredPayload } from "./lifecycle-bus";
+import { registerSnapshotSource } from "./state-snapshot";
 
 const log = createLogger("agent:services:proactive-swap");
 
@@ -92,6 +93,31 @@ const ladderState = new Map<string, { resetAt: string | null; fired: Set<number>
 export function __resetLadderStateForTests(): void {
   ladderState.clear();
 }
+
+// Persist the ladder dedup across restarts (nx-veo5g.4, Layer D). Without this,
+// a restart re-arms an empty ladder and can re-fire an exhaustion notification
+// already sent for the current 5h window. `resetAt` carries the window identity,
+// so a genuinely new window still re-arms correctly after restore.
+registerSnapshotSource("proactive-swap-ladder", {
+  serialize: () =>
+    [...ladderState.entries()].map(([fp, st]) => [
+      fp,
+      { resetAt: st.resetAt, fired: [...st.fired] },
+    ]),
+  deserialize: (data) => {
+    ladderState.clear();
+    for (const [fp, st] of data as [
+      string,
+      { resetAt: string | null; fired: number[] },
+    ][]) {
+      if (typeof fp !== "string" || !st || !Array.isArray(st.fired)) continue;
+      ladderState.set(fp, {
+        resetAt: st.resetAt ?? null,
+        fired: new Set(st.fired.filter((n) => typeof n === "number")),
+      });
+    }
+  },
+});
 
 /** Remaining ratio `(limit - used) / limit`, or null when there is no usable data. */
 function remainingRatio(row: Pick<UsageRow, "used" | "limit">): number | null {

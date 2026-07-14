@@ -22,6 +22,8 @@
  *   scale.
  */
 
+import { registerSnapshotSource } from "../state-snapshot";
+
 /** TTL window in milliseconds (24h). */
 const TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -87,3 +89,28 @@ export function pruneStale(): void {
 export function __resetForTests(): void {
   failuresByFingerprint.clear();
 }
+
+// Persist the 24h 429 tracker across restarts (nx-veo5g.4, Layer D). The signal
+// is "how rate-limited has this credential been lately"; a restart previously
+// zeroed it, hiding recent 429 pressure from the dashboard. Stale (>24h)
+// timestamps are dropped on serialize AND restore so the store never grows.
+registerSnapshotSource("rate-limit-tracker", {
+  serialize: () => {
+    const cutoff = Date.now() - TTL_MS;
+    const out: [string, number[]][] = [];
+    for (const [fp, bucket] of failuresByFingerprint) {
+      const fresh = bucket.filter((ts) => ts >= cutoff);
+      if (fresh.length > 0) out.push([fp, fresh]);
+    }
+    return out;
+  },
+  deserialize: (data) => {
+    const cutoff = Date.now() - TTL_MS;
+    failuresByFingerprint.clear();
+    for (const [fp, bucket] of data as [string, number[]][]) {
+      if (typeof fp !== "string" || !Array.isArray(bucket)) continue;
+      const fresh = bucket.filter((ts) => typeof ts === "number" && ts >= cutoff);
+      if (fresh.length > 0) failuresByFingerprint.set(fp, fresh);
+    }
+  },
+});

@@ -21,6 +21,7 @@ import { hookSchemaFingerprints } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 
 import { lifecycleBus } from "./lifecycle-bus";
+import { registerSnapshotSource } from "./state-snapshot";
 
 const log = createLogger("agent:schema-drift");
 
@@ -138,3 +139,24 @@ export async function inspectAndEmitDrift(
 export function _resetSchemaDriftRateLimitForTest(): void {
   lastEmitByEventType.clear();
 }
+
+// Persist the per-event_type drift-emit rate limit across restarts (nx-veo5g.4,
+// Layer D). Without this, a restart inside the 1-hour DRIFT_RATE_LIMIT_MS window
+// re-arms an empty map and can re-emit a `HookSchemaDrift` notification already
+// sent this hour. Entries whose window has already elapsed carry no suppression
+// value and are dropped on serialize/restore.
+registerSnapshotSource("schema-drift-emit", {
+  serialize: () => {
+    const cutoff = Date.now() - DRIFT_RATE_LIMIT_MS;
+    return [...lastEmitByEventType.entries()].filter(([, ts]) => ts >= cutoff);
+  },
+  deserialize: (data) => {
+    const cutoff = Date.now() - DRIFT_RATE_LIMIT_MS;
+    lastEmitByEventType.clear();
+    for (const [eventType, ts] of data as [string, number][]) {
+      if (typeof eventType === "string" && typeof ts === "number" && ts >= cutoff) {
+        lastEmitByEventType.set(eventType, ts);
+      }
+    }
+  },
+});
