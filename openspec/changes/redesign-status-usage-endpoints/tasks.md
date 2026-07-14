@@ -16,7 +16,7 @@
 - [x] [2.4] [P-1] Implement `sessionId`-mode cost usage via `readSessionCostTokens(vm, sessionId)` and `sessionId`-mode `next` field via the existing `GET /recommend` logic composed in-process [owner:api-engineer] [type:api] [beads:nx-egh58]
 - [x] [2.5] [P-1] Trim `GET /credentials` response to drop `usagePercent`/`resetsAt`; retire `GET /projects/:id/status`, `GET /sessions/{id}/tokens`, `GET /recommend` as standalone routes now that `/statusline` composes their data [owner:api-engineer] [type:api] [beads:nx-3czpz]
 - [ ] [2.6] [user] DECISION: which shape is real for `GET /credentials/{id}/usage?window=` (see design.md "Known open drift") — searched: account.ts, credential-analytics/credential-page-status specs, handlers-health-usage.ts (permission-blocked); no documented pattern resolves it. [type:config] [beads:nx-ysmwm]
-- [ ] [2.7] [P-2] Add a `/sessions`-family-consistent alias for the existing `POST /session/start` (keep the current singular path working) [owner:api-engineer] [type:api] [beads:nx-dck7c]
+- [x] [2.7] [P-2] Add a `/sessions`-family-consistent alias for the existing `POST /session/start` (keep the current singular path working) [owner:api-engineer] [type:api] [beads:nx-dck7c]
 
 ## UI Batch
 
