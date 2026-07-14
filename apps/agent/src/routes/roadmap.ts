@@ -19,6 +19,7 @@ import { createLogger } from "@nexus/core/node";
 import type { RoadmapCapability } from "@nexus/core";
 import { getProjects, type ProjectConfig } from "../services/config-loader";
 import { computeRoadmap } from "../services/roadmap-aggregate";
+import { cachedRoadmapBeadSource } from "../services/cached-bead-source";
 import {
   fanOutAllProjects,
   resolveAllProjects,
@@ -55,7 +56,14 @@ export async function handleGetRoadmap(
   db?: Db,
   deps: RoadmapRouteDeps = {},
 ): Promise<Response> {
-  const compute = deps.computeRoadmap ?? computeRoadmap;
+  // Production default reads beads from the watcher cache via
+  // cachedRoadmapBeadSource (zero request-path `bd show` fan-out, nx-veo5g.1).
+  // Wrap here at the ROUTE level — NOT computeRoadmap's own exported default —
+  // so roadmap-aggregate never imports cached-bead-source (circular-import
+  // guard). Tests override via `deps.computeRoadmap`.
+  const compute =
+    deps.computeRoadmap ??
+    ((path: string) => computeRoadmap(path, cachedRoadmapBeadSource));
   const code = url.searchParams.get("project");
   if (!code) {
     return json({ error: "missing project query param" }, 400);

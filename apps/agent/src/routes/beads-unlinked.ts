@@ -30,6 +30,10 @@ import {
   resolveAllProjects,
   type FanOutProject,
 } from "../services/project-fanout";
+import {
+  cachedUnlinkedBeadSource,
+  type UnlinkedBeadSource,
+} from "../services/cached-bead-source";
 import { execJson } from "../utils/exec";
 import { createSingleFlight } from "../utils/single-flight";
 
@@ -58,21 +62,38 @@ function json(body: unknown, status = 200): Response {
 }
 
 /**
+ * Live-CLI unlinked source — the exact pre-change behaviour
+ * (`bd list --status open,in_progress --json`). Default for
+ * {@link computeUnlinkedForProject} so tests and any non-route caller keep the
+ * original spawn semantics; the route handler swaps in the cached source.
+ */
+export const defaultUnlinkedBeadSource: UnlinkedBeadSource = {
+  listOpenBeads(cwd) {
+    return execJson<RawBead[]>(
+      "bd",
+      ["list", "--status", "open,in_progress", "--json"],
+      { cwd },
+    );
+  },
+};
+
+/**
  * Compute one project's unlinked beads. Returns `[]` when the project has no
- * `.beads/` directory; may throw on bd failure so a caller can decide to
+ * `.beads/` directory; may throw on source failure so a caller can decide to
  * degrade (single-project → `[]`) or exclude (fan-out → warn-log + drop).
  * The single-project handler preserves the pre-change fail-soft behaviour.
+ *
+ * `source` is the DI seam (nx-veo5g.1): defaults to the live-CLI source so
+ * existing callers/tests are byte-identical; the production route passes
+ * `cachedUnlinkedBeadSource` to read from the beads-watcher cache instead.
  */
 export async function computeUnlinkedForProject(
   projectPath: string,
+  source: UnlinkedBeadSource = defaultUnlinkedBeadSource,
 ): Promise<UnlinkedBead[]> {
   if (!existsSync(join(projectPath, ".beads"))) return [];
 
-  const open = await execJson<RawBead[]>(
-    "bd",
-    ["list", "--status", "open,in_progress", "--json"],
-    { cwd: projectPath },
-  );
+  const open = await source.listOpenBeads(projectPath);
   const linked = await collectLinkedBeadIds(projectPath);
   return filterUnlinked(Array.isArray(open) ? open : [], linked);
 }
@@ -82,7 +103,9 @@ export async function handleGetUnlinkedBeads(
   db?: Db,
   deps: UnlinkedRouteDeps = {},
 ): Promise<Response> {
-  const compute = deps.computeUnlinked ?? computeUnlinkedForProject;
+  const compute =
+    deps.computeUnlinked ??
+    ((path: string) => computeUnlinkedForProject(path, cachedUnlinkedBeadSource));
   const code = url.searchParams.get("project");
   if (!code) {
     return json({ error: "missing project query param" }, 400);

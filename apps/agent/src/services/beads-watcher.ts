@@ -121,19 +121,49 @@ export function deriveUnlinkedCounts(
   return { beadsReadyUnlinked: ready, beadsBlockedUnlinked: blocked };
 }
 
+// ---------------------------------------------------------------------------
+// Parsed-bead cache (nx-veo5g.1 — Layer A)
+//
+// The watcher already parses `.beads/issues.jsonl` into a full `RawBead[]` on
+// every fs event / 60s poll to derive unlinked counts, then throws the parsed
+// array away. Keep it: cache the last-good parsed array per project PATH so the
+// GET /specs, /specs/all, /roadmap, /beads/unlinked request path can read beads
+// from memory instead of spawning a live `bd` subprocess. Keyed by PATH (not
+// project code) because the bead-source consumers receive `cwd`, an absolute
+// path.
+//
+// Populated ONLY on a successful parse (see `readParsedBeads`). A read/parse
+// failure never touches the cache — the last-good array keeps serving, mirroring
+// the fail-open counts contract.
+// ---------------------------------------------------------------------------
+
+const parsedBeadsCache = new Map<string, RawBead[]>();
+
 /**
- * Read + recount a single project's `.beads/issues.jsonl` from disk.
- *
- * Returns `null` (fail-open, caller keeps previous counts) when:
- *   - the project has no `.beads/issues.jsonl`,
- *   - the file cannot be read, or
- *   - the JSONL fails to parse (malformed / truncated mid-write).
- *
- * Zero `bd` CLI calls — parses the export file directly.
+ * Read the last-good parsed `RawBead[]` for a project path, or `undefined` if
+ * the watcher has not yet completed a successful parse for it (cold start).
+ * Synchronous, zero IO — pure cache read for the request-path bead source.
  */
-export async function computeBeadCountsFromDisk(
+export function getParsedBeads(projectPath: string): RawBead[] | undefined {
+  return parsedBeadsCache.get(projectPath);
+}
+
+/**
+ * Read + parse a single project's `.beads/issues.jsonl` from disk, updating
+ * {@link parsedBeadsCache} on success.
+ *
+ * Returns `null` (fail-open — cache untouched, caller keeps previous state)
+ * when the project has no `.beads/issues.jsonl`, the file cannot be read, or
+ * the JSONL fails to parse (malformed / truncated mid-write). On success the
+ * parsed array is cached AND returned.
+ *
+ * Zero `bd` CLI calls — parses the export file directly. This is the factored
+ * read+parse step shared by {@link computeBeadCountsFromDisk} and the watcher
+ * recount loop, so cache population and count derivation read the file once.
+ */
+export async function readParsedBeads(
   projectPath: string,
-): Promise<BeadUnlinkedCounts | null> {
+): Promise<RawBead[] | null> {
   const jsonlPath = join(projectPath, ".beads", ISSUES_FILE);
 
   try {
@@ -158,6 +188,30 @@ export async function computeBeadCountsFromDisk(
     );
     return null;
   }
+
+  // Cache on success only — a failed read/parse above never reaches here, so
+  // the last-good cached array keeps serving the request path (fail-open).
+  parsedBeadsCache.set(projectPath, beads);
+  return beads;
+}
+
+/**
+ * Read + recount a single project's `.beads/issues.jsonl` from disk.
+ *
+ * Returns `null` (fail-open, caller keeps previous counts) when:
+ *   - the project has no `.beads/issues.jsonl`,
+ *   - the file cannot be read, or
+ *   - the JSONL fails to parse (malformed / truncated mid-write).
+ *
+ * Zero `bd` CLI calls — parses the export file directly via
+ * {@link readParsedBeads} (which also populates the parsed-bead cache).
+ * Signature and return contract unchanged (other callers depend on it).
+ */
+export async function computeBeadCountsFromDisk(
+  projectPath: string,
+): Promise<BeadUnlinkedCounts | null> {
+  const beads = await readParsedBeads(projectPath);
+  if (beads === null) return null;
 
   const linked = await collectLinkedBeadIds(projectPath);
   return deriveUnlinkedCounts(beads, linked);

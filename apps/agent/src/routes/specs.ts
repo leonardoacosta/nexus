@@ -26,6 +26,7 @@ import {
   computeBeadRollup,
   computeRollupsForProject,
 } from "../services/bead-rollup";
+import { cachedRollupBeadSource } from "../services/cached-bead-source";
 import { runPool } from "../utils/run-pool";
 
 const log = createLogger("agent:routes:specs");
@@ -103,6 +104,7 @@ export async function handleGetSpecsAll(): Promise<Response> {
       const rollups = await computeRollupsForProject(
         project.path,
         specs.map((s) => s.name),
+        cachedRollupBeadSource,
       );
       const withRollups = specs.map((spec) => ({
         ...spec,
@@ -221,7 +223,7 @@ export async function handleGetSpec(
   // add-bead-proposal-roadmap-surface: attach the live bead rollup. Null
   // when the project has no `.beads/` or `bd` errors — the payload is
   // otherwise unchanged (never a 500).
-  const beadRollup = await computeBeadRollup(proj.path, name);
+  const beadRollup = await computeBeadRollup(proj.path, name, cachedRollupBeadSource);
 
   try {
     const spec = JSON.parse(result.stdout);

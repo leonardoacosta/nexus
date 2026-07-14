@@ -50,6 +50,8 @@ import {
   parseIssuesJsonl,
   computeBeadCountsFromDisk,
   deriveUnlinkedCounts,
+  readParsedBeads,
+  getParsedBeads,
   startBeadsWatcher,
   type BeadsWatcherHandle,
   type BeadsWatcherProject,
@@ -426,5 +428,73 @@ describe("beads-watcher BeadTransition emission", () => {
     } finally {
       sub.stop();
     }
+  });
+});
+
+// ─── Parsed-bead cache (nx-veo5g.1 — Layer A) ────────────────────────────────
+describe("readParsedBeads / getParsedBeads cache", () => {
+  test("parse succeeds -> cache is set and returns the parsed array", async () => {
+    const root = makeTempProject();
+    tempDirs.push(root);
+    const beads: RawBead[] = [
+      { id: "nx-a1", status: "open", issue_type: "task" },
+      { id: "nx-a2", status: "closed", issue_type: "feature", spec_id: "some-spec" },
+    ];
+    writeIssues(root, beads);
+
+    // Cold: nothing cached for this fresh tmp path yet.
+    expect(getParsedBeads(root)).toBeUndefined();
+
+    const parsed = await readParsedBeads(root);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.map((b) => b.id).sort()).toEqual(["nx-a1", "nx-a2"]);
+
+    // Cache is now populated with the same array.
+    const cached = getParsedBeads(root);
+    expect(cached).toBe(parsed!); // identity — the parsed array itself is cached
+    expect(cached!.find((b) => b.id === "nx-a2")?.spec_id).toBe("some-spec");
+  });
+
+  test("parse fails (malformed) -> cache UNCHANGED (fail-open)", async () => {
+    const root = makeTempProject();
+    tempDirs.push(root);
+    const good: RawBead[] = [{ id: "nx-b1", status: "open", issue_type: "task" }];
+    writeIssues(root, good);
+
+    // Prime the cache with a good parse.
+    const firstParsed = await readParsedBeads(root);
+    expect(firstParsed).not.toBeNull();
+    expect(getParsedBeads(root)!.map((b) => b.id)).toEqual(["nx-b1"]);
+
+    // Overwrite with a truncated/malformed line — parseIssuesJsonl returns null.
+    writeFileSync(join(root, ".beads", "issues.jsonl"), '{"id":"nx-b2","stat');
+
+    const second = await readParsedBeads(root);
+    expect(second).toBeNull(); // fail-open
+
+    // Cache still holds the last-good array — never zeroed on a bad read.
+    expect(getParsedBeads(root)!.map((b) => b.id)).toEqual(["nx-b1"]);
+  });
+
+  test("missing .beads/issues.jsonl -> null, cache untouched", async () => {
+    const root = makeTempProject();
+    tempDirs.push(root); // no writeIssues — no file at all
+
+    expect(getParsedBeads(root)).toBeUndefined();
+    const parsed = await readParsedBeads(root);
+    expect(parsed).toBeNull();
+    expect(getParsedBeads(root)).toBeUndefined();
+  });
+
+  test("computeBeadCountsFromDisk populates the cache as a side effect", async () => {
+    const root = makeTempProject();
+    tempDirs.push(root);
+    writeIssues(root, [{ id: "nx-c1", status: "open", issue_type: "task" }]);
+
+    expect(getParsedBeads(root)).toBeUndefined();
+    const counts = await computeBeadCountsFromDisk(root);
+    expect(counts).not.toBeNull();
+    // The read path went through readParsedBeads, so the cache is now warm.
+    expect(getParsedBeads(root)!.map((b) => b.id)).toEqual(["nx-c1"]);
   });
 });
