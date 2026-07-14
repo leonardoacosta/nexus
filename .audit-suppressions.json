@@ -41,6 +41,15 @@
       "reason": "CLI one-shot scripts and migration runner \u2014 console.log/error IS the intended output channel, not a leaked debug statement"
     },
     {
+      "id": "A2",
+      "paths": [
+        "apps/agent/src/services/process-watcher.test.ts",
+        "apps/agent/src/services/process-watcher.integration.test.ts",
+        "apps/agent/src/routes/health-process-watcher.test.ts"
+      ],
+      "reason": "console.log IS the intended output channel (test-skip-reason diagnostic), not a leaked debug statement"
+    },
+    {
       "id": "F2",
       "paths": [
         "apps/agent/src/scripts/backfill-credential-metadata.ts",
