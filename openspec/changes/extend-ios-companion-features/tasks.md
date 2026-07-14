@@ -6,7 +6,7 @@
 ## API Batch
 
 - [ ] [2.1] Repro nx-qq3qu first (send keystrokes, confirm zero `NXPTY interact binary` log lines agent-side despite client-side success), then fix the agent-side dispatcher routing that's dropping the binary interact frame [owner:api-engineer] [type:api] [beads:nx-e7vgm]
-- [ ] [2.2] Add `apps/agent/src/routes/apns-register.ts` (POST /apns/register, stores device token) and an APNS HTTP/2 dispatch path in `apps/agent/src/notifications/manager.ts` invoked on NotificationFired when the target app is killed (nx-q2u0d, ~500 LOC agent-side per bead estimate) [owner:api-engineer] [type:api] [beads:nx-u71wi]
+- [x] [2.2] Add `apps/agent/src/routes/apns-register.ts` (POST /apns/register, stores device token) and an APNS HTTP/2 dispatch path in `apps/agent/src/notifications/manager.ts` invoked on NotificationFired when the target app is killed (nx-q2u0d, ~500 LOC agent-side per bead estimate) [owner:api-engineer] [type:api] [beads:nx-u71wi]
 - [x] [2.3] Extend `deploy/hooks.d/*/04-swift-deploy` + `deploy/lib/macos-swift-deploy.sh` to also build nexus-ios and run `xcrun devicectl device install app` against the paired iPhone via the existing GUI-agent LaunchAgent kickstart (nx-detes) [owner:devops-engineer] [type:ci-cd] [beads:nx-txuau]
 
 ## UI Batch
