@@ -198,7 +198,7 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/analytics/cron" },
   // Operational
   { method: "GET", path: "/statusline" },
-  { method: "POST", path: "/hooks" },
+  { method: "GET", path: "/recommend" },
   { method: "GET", path: "/environment" },
   { method: "GET", path: "/sources" },
   { method: "GET", path: "/requests" },
