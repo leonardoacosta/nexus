@@ -11,8 +11,10 @@
 
 ## UI Batch
 
-- [ ] [3.1] Fix `SshTerminalSession.send()` / iOS-side interact channel if the nx-qq3qu repro (task 2.1) isolates the bug client-side rather than agent-side [owner:swift-engineer] [type:ui] [beads:nx-6ptlo]
-- [ ] [3.2] Add HealthKit read module: `HKAnchoredObjectQuery` with persisted incremental anchor for resting HR / HR / HRV, `HKObserverQuery` + background delivery, POST to `http://homelab:8796/ingest` in the Health Auto Export JSON shape, direct-to-homelab (not via the nexus agent) (nx-fkmao) [owner:swift-engineer] [type:ui] [beads:nx-jb1pr]
+- [x] [3.1] Fix `SshTerminalSession.send()` / iOS-side interact channel if the nx-qq3qu repro (task 2.1) isolates the bug client-side rather than agent-side [owner:swift-engineer] [type:ui] [beads:nx-6ptlo]
+      RE-VERIFIED: client-side fix already shipped in f2e99d20 (ancestor of HEAD). PtyInteractChannel.receiveLoop (NexusClient.swift:1792) markReadOnly ONLY on {"type":"error"} text frame, WS close opcode, or receive/send error — the benign geometry broadcast is parsed, debug-logged, and the loop continues, so keystrokes are no longer silently dropped. Verified compiling: nexus-ios simulator BUILD SUCCEEDED (unsigned) from this branch's exact HEAD tree.
+- [x] [3.2] Add HealthKit read module: `HKAnchoredObjectQuery` with persisted incremental anchor for resting HR / HR / HRV, `HKObserverQuery` + background delivery, POST to `http://homelab:8796/ingest` in the Health Auto Export JSON shape, direct-to-homelab (not via the nexus agent) (nx-fkmao) [owner:swift-engineer] [type:ui] [beads:nx-jb1pr]
+      DONE: implemented in apps/swift/nexus-ios/Sources/Health/HealthKitPushManager.swift (actor, self-contained Foundation+HealthKit). Per-target persisted HKQueryAnchor + HKAnchoredObjectQuery over restingHeartRate/heartRate/heartRateVariabilitySDNN (+full catalog), HKObserverQuery + enableBackgroundDelivery, POSTs the Health Auto Export JSON shape direct-to-homelab mx-health ingest over the tailnet (not via the nexus agent). Wired at startup (NexusAppDelegate bootstrap/flushAll); entitlements + NSHealthShareUsageDescription present. NOTE: real ingest port is :8798 (HEALTH_INGEST_ENDPOINT, cross-referenced in SettingsStore/Secrets.example.xcconfig/nexus-mac SettingsTokensView) — the spec/task's :8796 is a stale pre-implementation figure; NOT changed (8796 is referenced nowhere else and would POST to a dead port). Verified: nexus-ios simulator BUILD SUCCEEDED (unsigned).
 
 ## E2E Batch
 
