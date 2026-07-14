@@ -12,7 +12,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] Add a small, pure pane-translation helper: given raw `tmux list-panes -a -F [beads:nx-i0uz0]
+- [x] [1.1] Add a small, pure pane-translation helper: given raw `tmux list-panes -a -F [beads:nx-i0uz0]
   '#{pane_id}|#{session_name}:#{window_index}.#{pane_index}'` output (a newline-separated string
   of `%N|session:window.pane` pairs), return a `Map<string, string>` from the raw `%N` pane-id to
   the `session:window.pane` address. Malformed/empty lines are skipped (never throws); no tmux
