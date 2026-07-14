@@ -1,3 +1,7 @@
+// MUST be first — disables Bun's node:net Happy Eyeballs (autoSelectFamily)
+// racing before any outbound connection (OTLP exporter, postgres-js) opens.
+// Removes the internalConnectMultipleTimeout null-context crash (nx-veo5g.5).
+import "./net-autoselect-family";
 import "./otel";
 import "./instrument";
 import { logger } from "@nexus/core/node";
