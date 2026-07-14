@@ -14,11 +14,14 @@ import {
   mock,
   beforeEach,
   afterEach,
+  beforeAll,
+  afterAll,
   spyOn,
 } from "bun:test";
 import type { SocketEvent } from "../../types/socket-events";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
+import { createDb, sessions as sessionsTable } from "@nexus/db";
 // Restorable spy target for the session_heartbeat model-persist suite below —
 // dispatcher.ts imports `updateSessionModel` named from this module.
 import * as sessionsDb from "../../db/sessions";
@@ -29,6 +32,11 @@ import type { NotificationManager } from "../../notifications/manager";
 // `mock.module` a shared module like hook-trigger.ts (contamination class,
 // see reference_bun_mock_module_contamination memory / nx-509z5 precedent).
 import * as hookTrigger from "../../notifications/hook-trigger";
+// Restorable spy target for the session_start pane-correlation suite below —
+// dispatcher.ts imports `fetchPaneTranslationMap` named from this module.
+import * as paneTranslationNs from "./pane-translation";
+import { __testing as dispatcherTesting } from "./dispatcher";
+import { hasLivePg } from "../../testing/live-pg";
 
 // ─── Module mocks (must register before importing dispatcher) ────────────────
 
@@ -404,3 +412,370 @@ describe("socket-server dispatcher: session_start ccSessionId bridge threading",
     expect(receivedEvents[0]!.type === "session_start" && receivedEvents[0]!.cc_session_id).toBeUndefined();
   });
 });
+
+// ─── session_start pane-based correlation (reconcile-session-id-universes, tasks 2.1/2.2/3.2) ──
+//
+// `correlateSessionStart` is fire-and-forget from the dispatcher's perspective
+// (invoked via `.catch()`, never awaited by `dispatchEventInner` — see the
+// comment at its call site in dispatcher.ts). These tests drive it through the
+// real `dispatch()` entry point and flush pending work with a single
+// macrotask tick (`await flush()`) rather than exporting the fire-and-forget
+// helper itself: Node/Bun's event loop always fully drains the microtask
+// queue before a queued `setTimeout` callback runs, so one `setTimeout(0)`
+// flush is sufficient regardless of how many `await` hops the internal chain
+// has (pane translation -> DB lookup -> update) — no fragile fixed count of
+// `await Promise.resolve()` calls to get right.
+//
+// `fetchPaneTranslationMap` is spied via the module namespace (the same
+// restorable pattern this file already uses for `updateSessionModel` /
+// `evaluateAndDispatch` above) so no real `tmux` shell-out is attempted.
+//
+// `findUnlinkedSessionByTmuxTarget`'s own SQL semantics — excluding rows that
+// already carry a `cc_session_id`, and picking the most-recently-active row
+// when multiple share a `tmux_target` — are NOT re-tested here with a mocked
+// db chain: a hand-rolled stub can only echo back whatever rows the test
+// hands it, so it cannot genuinely exercise a WHERE-clause/ORDER BY. Those
+// two properties are covered by the live-PG suite further below instead
+// (mirroring `process-watcher.test.ts`'s own convention for this exact class
+// of DB-query-shape behavior). These tests cover the DISPATCHER's branching:
+// given the lookup resolves to a match (or doesn't), is the right DB call
+// made and is `handleWatcherEvent` skipped or not.
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Minimal chainable stub satisfying the
+ * `db.select({ id }).from(sessions).where(...).orderBy(...).limit(1)` shape
+ * `findUnlinkedSessionByTmuxTarget` issues. Always returns the same fixed
+ * `rows` array regardless of the predicate — see the suite-level comment
+ * above for why the WHERE/ORDER BY semantics are tested against live PG
+ * instead of through this stub.
+ */
+function createFakeSessionsLookupDb(rows: Array<{ id: string }>): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () => Promise.resolve(rows),
+          }),
+        }),
+      }),
+    }),
+  } as unknown as Db;
+}
+
+describe("socket-server dispatcher: session_start pane-based correlation", () => {
+  let receivedWatcherEvents: WatcherEvent[];
+  let sessionManager: SessionManager;
+  let paneMapSpy:
+    | ReturnType<typeof spyOn<typeof paneTranslationNs, "fetchPaneTranslationMap">>
+    | undefined;
+  let updateCcSpy: ReturnType<typeof spyOn<typeof sessionsDb, "updateSessionCcSessionId">>;
+
+  beforeEach(() => {
+    receivedWatcherEvents = [];
+    sessionManager = {
+      ...createMockSessionManager(),
+      handleWatcherEvent(event: WatcherEvent) {
+        receivedWatcherEvents.push(event);
+      },
+    } as unknown as SessionManager;
+    updateCcSpy = spyOn(sessionsDb, "updateSessionCcSessionId").mockResolvedValue(1);
+  });
+
+  afterEach(() => {
+    paneMapSpy?.mockRestore();
+    paneMapSpy = undefined;
+    updateCcSpy.mockRestore();
+  });
+
+  async function buildDispatch(db?: Db): Promise<(event: SocketEvent) => void> {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+    return createSocketEventDispatcher({
+      sessionManager,
+      lifecycleBus: new LifecycleBus(),
+      db,
+    });
+  }
+
+  const startEvent: SocketEvent = {
+    event: "session_start",
+    session_id: "cc-real-uuid-1",
+    tmux_target: "%7",
+  } as unknown as SocketEvent;
+
+  test("match found: updateSessionCcSessionId is called with the matched row's id + event session_id, handleWatcherEvent is NOT called", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%7", "main:0.2"]]),
+    );
+    const fakeDb = createFakeSessionsLookupDb([{ id: "watcher-row-1" }]);
+    const dispatch = await buildDispatch(fakeDb);
+
+    dispatch(startEvent);
+    await flush();
+
+    expect(updateCcSpy).toHaveBeenCalledTimes(1);
+    expect(updateCcSpy).toHaveBeenCalledWith(fakeDb, "watcher-row-1", "cc-real-uuid-1");
+    expect(receivedWatcherEvents).toHaveLength(0);
+  });
+
+  test("no match: DB lookup returns no rows — falls back to handleWatcherEvent, does not call updateSessionCcSessionId", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%7", "main:0.2"]]),
+    );
+    const dispatch = await buildDispatch(createFakeSessionsLookupDb([]));
+
+    dispatch(startEvent);
+    await flush();
+
+    expect(updateCcSpy).not.toHaveBeenCalled();
+    expect(receivedWatcherEvents).toHaveLength(1);
+    expect(receivedWatcherEvents[0]).toMatchObject({
+      type: "session_start",
+      session_id: "cc-real-uuid-1",
+    });
+  });
+
+  test("no match: event has no tmux_target — falls back to handleWatcherEvent without attempting pane translation", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(new Map());
+    const dispatch = await buildDispatch(
+      createFakeSessionsLookupDb([{ id: "should-not-be-used" }]),
+    );
+
+    const eventNoTarget: SocketEvent = {
+      event: "session_start",
+      session_id: "cc-real-uuid-2",
+    } as unknown as SocketEvent;
+
+    dispatch(eventNoTarget);
+    await flush();
+
+    expect(paneMapSpy).not.toHaveBeenCalled();
+    expect(updateCcSpy).not.toHaveBeenCalled();
+    expect(receivedWatcherEvents).toHaveLength(1);
+  });
+
+  test("no match: tmux_target not present in the translated pane map — falls back to handleWatcherEvent", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(
+      new Map([["%other-pane", "main:0.9"]]),
+    );
+    const dispatch = await buildDispatch(
+      createFakeSessionsLookupDb([{ id: "should-not-be-used" }]),
+    );
+
+    dispatch(startEvent);
+    await flush();
+
+    expect(updateCcSpy).not.toHaveBeenCalled();
+    expect(receivedWatcherEvents).toHaveLength(1);
+  });
+
+  test("regression guard: a pane-translation lookup failure falls back to handleWatcherEvent instead of leaving the session unhandled", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockRejectedValue(
+      new Error("tmux unreachable"),
+    );
+    const dispatch = await buildDispatch(createFakeSessionsLookupDb([{ id: "irrelevant" }]));
+
+    dispatch(startEvent);
+    await flush();
+
+    expect(updateCcSpy).not.toHaveBeenCalled();
+    expect(receivedWatcherEvents).toHaveLength(1);
+  });
+
+  test("no db configured on deps: falls back to handleWatcherEvent without attempting pane translation", async () => {
+    paneMapSpy = spyOn(paneTranslationNs, "fetchPaneTranslationMap").mockResolvedValue(new Map());
+    const dispatch = await buildDispatch(undefined);
+
+    dispatch(startEvent);
+    await flush();
+
+    expect(paneMapSpy).not.toHaveBeenCalled();
+    expect(receivedWatcherEvents).toHaveLength(1);
+  });
+});
+
+// ─── findUnlinkedSessionByTmuxTarget — SQL query semantics (live PG) ─────────
+//
+// See the suite-level comment above: the dispatcher-level correlation tests
+// mock `db` entirely, so they can't exercise the actual WHERE/ORDER BY
+// semantics that make this query correct. These run against a real scratch
+// Postgres schema — mirroring `process-watcher.test.ts`'s own live-PG
+// convention (same `sessions` DDL, same opt-in `NEXUS_PG_TESTS` gate via
+// `hasLivePg`) — and skip cleanly when Postgres isn't configured for testing.
+
+const DISPATCHER_TEST_SCHEMA = `nx_dispatch_test_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+
+const SESSIONS_DDL = `
+  CREATE TABLE "sessions" (
+    "id" text PRIMARY KEY NOT NULL,
+    "project_id" uuid,
+    "machine" text NOT NULL,
+    "status" text DEFAULT 'active' NOT NULL,
+    "started_at" timestamp NOT NULL,
+    "last_activity" timestamp NOT NULL,
+    "ended_at" timestamp,
+    "stop_reason" text,
+    "error_details" text,
+    "pid" integer,
+    "cwd" text,
+    "branch" text,
+    "session_type" text,
+    "model" text,
+    "rate_limit_utilization" real,
+    "rate_limit_reset_at" timestamp,
+    "idle_since" timestamp,
+    "cc_session_id" text,
+    "tmux_session" text,
+    "tmux_target" text,
+    "spec" text,
+    "credential_id" text,
+    "credential_fingerprint" text,
+    "git_provider" text,
+    "git_owner_repo" text,
+    "agent_state" text,
+    "parent_session_id" text,
+    "child_role" text
+  );
+`;
+
+describe.skipIf(!hasLivePg)(
+  "findUnlinkedSessionByTmuxTarget — SQL query semantics (requires live PG)",
+  () => {
+    let adminClient: ReturnType<typeof createDb>["client"];
+    let scopedClient: ReturnType<typeof createDb>["client"];
+    let db: Db;
+
+    beforeAll(async () => {
+      const url = process.env.POSTGRES_URL!;
+      const adminHandle = createDb(url);
+      adminClient = adminHandle.client;
+      await adminClient.unsafe(`CREATE SCHEMA "${DISPATCHER_TEST_SCHEMA}"`);
+      await adminClient.unsafe(`SET search_path TO "${DISPATCHER_TEST_SCHEMA}", public`);
+      await adminClient.unsafe(SESSIONS_DDL);
+
+      const scopedHandle = createDb(url, {
+        connection: { search_path: `"${DISPATCHER_TEST_SCHEMA}",public` },
+      });
+      scopedClient = scopedHandle.client;
+      db = scopedHandle.db;
+    });
+
+    afterAll(async () => {
+      try {
+        await scopedClient.end({ timeout: 5 });
+      } finally {
+        try {
+          await adminClient.unsafe(`DROP SCHEMA IF EXISTS "${DISPATCHER_TEST_SCHEMA}" CASCADE`);
+        } finally {
+          await adminClient.end({ timeout: 5 });
+        }
+      }
+    });
+
+    beforeEach(async () => {
+      await scopedClient.unsafe(`DELETE FROM "${DISPATCHER_TEST_SCHEMA}"."sessions"`);
+    });
+
+    async function insertRow(row: {
+      id: string;
+      status?: string;
+      tmuxTarget?: string | null;
+      ccSessionId?: string | null;
+      lastActivity: Date;
+    }): Promise<void> {
+      await db.insert(sessionsTable).values({
+        id: row.id,
+        machine: "local",
+        status: row.status ?? "active",
+        startedAt: row.lastActivity,
+        lastActivity: row.lastActivity,
+        tmuxTarget: row.tmuxTarget ?? null,
+        ccSessionId: row.ccSessionId ?? null,
+      });
+    }
+
+    test("finds the row whose tmux_target matches and is not yet linked", async () => {
+      await insertRow({ id: "row-match", tmuxTarget: "main:0.1", lastActivity: new Date() });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.1");
+
+      expect(result).toEqual({ id: "row-match" });
+    });
+
+    test("a row that already carries a cc_session_id is excluded from matching", async () => {
+      await insertRow({
+        id: "row-linked",
+        tmuxTarget: "main:0.2",
+        ccSessionId: "already-linked-uuid",
+        lastActivity: new Date(),
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.2");
+
+      expect(result).toBeNull();
+    });
+
+    test("a row with an empty-string cc_session_id is still considered unlinked", async () => {
+      await insertRow({
+        id: "row-empty-cc",
+        tmuxTarget: "main:0.3",
+        ccSessionId: "",
+        lastActivity: new Date(),
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.3");
+
+      expect(result).toEqual({ id: "row-empty-cc" });
+    });
+
+    test("a row with status outside active/idle (e.g. ended) is excluded", async () => {
+      await insertRow({
+        id: "row-ended",
+        status: "ended",
+        tmuxTarget: "main:0.4",
+        lastActivity: new Date(),
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.4");
+
+      expect(result).toBeNull();
+    });
+
+    test("an idle-status row still matches (not just active)", async () => {
+      await insertRow({
+        id: "row-idle",
+        status: "idle",
+        tmuxTarget: "main:0.5",
+        lastActivity: new Date(),
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.5");
+
+      expect(result).toEqual({ id: "row-idle" });
+    });
+
+    test("multiple rows sharing the same tmux_target resolve to the most-recently-active one", async () => {
+      const older = new Date(Date.now() - 60_000);
+      const newer = new Date();
+      await insertRow({ id: "row-older", tmuxTarget: "main:0.6", lastActivity: older });
+      await insertRow({ id: "row-newer", tmuxTarget: "main:0.6", lastActivity: newer });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.6");
+
+      expect(result).toEqual({ id: "row-newer" });
+    });
+
+    test("no row shares the tmux_target returns null", async () => {
+      await insertRow({ id: "row-other", tmuxTarget: "main:9.9", lastActivity: new Date() });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.1");
+
+      expect(result).toBeNull();
+    });
+  },
+);

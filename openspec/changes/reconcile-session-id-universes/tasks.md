@@ -54,14 +54,14 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add a test file `apps/agent/src/services/socket-server/pane-translation.test.ts` [beads:nx-kykis]
+- [x] [3.1] Add a test file `apps/agent/src/services/socket-server/pane-translation.test.ts` [beads:nx-kykis]
   (`bun test`, matching this package's existing test conventions — check
   `dispatcher.test.ts`/`process-watcher.test.ts` for the exact style/mocking patterns used in
   this repo before writing new tests) covering the pure parsing function from task 1.1:
   well-formed multi-line `%N|session:window.pane` output parses into the correct map; a line
   missing a `|` separator or otherwise malformed is skipped, not thrown on; empty input string ->
   empty map. [owner:general-purpose] [type:testing]
-- [ ] [3.2] Extend `apps/agent/src/services/socket-server/dispatcher.test.ts` with cases for the [beads:nx-ca73u]
+- [x] [3.2] Extend `apps/agent/src/services/socket-server/dispatcher.test.ts` with cases for the [beads:nx-ca73u]
   new `session_start` correlation branch (task 2.1/2.2), mocking the DB/tmux calls per this
   file's existing test conventions (check how existing `session_start` tests in this file mock
   `db`/`sessionManager`before writing new ones):

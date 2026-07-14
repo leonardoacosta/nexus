@@ -726,3 +726,26 @@ async function bindSessionCredential(
   const { upsertSession } = await import("../../db/sessions");
   await upsertSession(db, session);
 }
+
+// ---------------------------------------------------------------------------
+// Test-only exports
+// ---------------------------------------------------------------------------
+
+/**
+ * Exposes `findUnlinkedSessionByTmuxTarget` for direct, live-PG integration
+ * testing (reconcile-session-id-universes, task 3.2). The dispatcher-level
+ * `session_start` correlation branching (match found -> `handleWatcherEvent`
+ * skipped; no match -> unchanged fallback) is fully exercisable through the
+ * public `dispatch()` entry point with a mocked `db`/`fetchPaneTranslationMap`
+ * (see `dispatcher.test.ts`). But this function's own WHERE-clause semantics
+ * — excluding already-`cc_session_id`-linked rows, and picking the
+ * most-recently-active row when multiple share a `tmux_target` — are
+ * properties of the actual SQL Drizzle builds, which a hand-rolled mock `db`
+ * chain cannot genuinely exercise (it would just echo back whatever the test
+ * feeds it). Exporting the function lets those two cases run as real
+ * queries against a scratch schema, mirroring `process-watcher.ts`'s own
+ * `__testing` export + live-PG suite for the equivalent class of behavior.
+ */
+export const __testing = {
+  findUnlinkedSessionByTmuxTarget,
+};
