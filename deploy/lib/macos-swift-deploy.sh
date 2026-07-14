@@ -117,6 +117,52 @@ macos_swift_deploy_run() {
     return $?
 }
 
+# ── iOS device install trigger (nx-detes / task 2.3) ────────────────
+#
+# Wires the EXISTING GUI-agent iOS deploy path into the post-merge/post-commit
+# swift-deploy hooks. The signed nexus-ios build + `xcrun devicectl device
+# install app` cannot run from a headless SSH session — codesign with the team
+# identity (DX3Y367L2A) fails with errSecInternalComponent outside an Aqua
+# session, and even `git push` from SSH fails with keychain error -25308. So it
+# MUST route through the same GUI-agent kickstart mechanism the macOS dashboard
+# deploy uses.
+#
+# The routing itself already lives in deploy/lib/ios-device-deploy.sh
+# (ios_device_deploy_run: kickstart the gui/501 LaunchAgent
+# `dev.leonardoacosta.nexus.ios-deploy` when non-Aqua, build+install inline when
+# Aqua) — this is a thin, fail-soft wrapper so an iOS device-deploy failure
+# NEVER breaks the (already-run) macOS dashboard deploy, and so the iOS trigger
+# lives in ONE place the hooks share.
+#
+# Deliberately NOT invoked from macos_swift_deploy_run: the macOS GUI deploy
+# agent (macos-deploy-agent.sh) re-enters macos_swift_deploy_run in the Aqua
+# session, and folding the iOS trigger in there would double-build nexus-ios
+# (once from the headless hook's kickstart, once from the re-entered mac agent).
+# Keeping it a separate function called only from the hooks fires it exactly
+# once per deploy.
+#
+# Returns:
+#   0 — iOS build+install (or kickstart) succeeded
+#   1 — any failure (caller treats fail-soft)
+macos_swift_deploy_ios_run() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        _macos_swift_deploy_warn "not macOS — refusing to run iOS device deploy"
+        return 1
+    fi
+
+    local ios_lib="$_MACOS_SWIFT_DEPLOY_LIB_DIR/ios-device-deploy.sh"
+    if [[ ! -f "$ios_lib" ]]; then
+        _macos_swift_deploy_warn "iOS deploy lib not found at $ios_lib — skipping iOS device install"
+        return 1
+    fi
+
+    _macos_swift_deploy_info "apps/swift/nexus-ios changed — triggering signed iOS device install via GUI agent"
+    # shellcheck source=ios-device-deploy.sh
+    source "$ios_lib"
+    ios_device_deploy_run "$@"
+    return $?
+}
+
 # ── Re-route to the GUI LaunchAgent and poll its marker (nx-tceo6) ──
 # Called from a non-Aqua session. Ensures the agent is bootstrapped into the
 # GUI domain, kickstarts it (runs the SIGNED build in the Aqua session), then

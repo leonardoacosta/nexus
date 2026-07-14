@@ -15,9 +15,13 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 # ── Check for Swift changes (skip with --force) ─────────────────────
+# Capture the changed-path set once so the iOS-install gate below can reuse it
+# (nexus-ios/NexusShared changes trigger a device install; see task 2.3).
 
+changed=""
 if [[ "${1:-}" != "--force" ]]; then
-    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^apps/swift/'; then
+    changed="$(git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null || true)"
+    if ! printf '%s\n' "$changed" | grep -qE '^apps/swift/'; then
         printf '\033[1;33mswift-deploy: %s\033[0m\n' "no apps/swift/ changes, skipping"
         exit 0
     fi
@@ -39,5 +43,19 @@ source "$LIB_PATH"
 
 if ! macos_swift_deploy_run "$@"; then
     printf '\033[1;33mswift-deploy: %s\033[0m\n' "rebuild failed (fail-soft); Nexus.app may be stale" >&2
-    exit 0  # Fail-soft: don't block subsequent hooks
+    # Fail-soft: don't block the iOS install or subsequent hooks.
 fi
+
+# ── iOS device install (task 2.3 / nx-detes) ────────────────────────
+# When the merge touched apps/swift/nexus-ios/ or the shared NexusShared
+# framework it links, also (re)install the signed nexus-ios build on the paired
+# iPhone via the GUI-agent kickstart. Independent of + fail-soft w.r.t. the
+# macOS dashboard deploy above (separate target, separate LaunchAgent).
+if [[ "${1:-}" == "--force" ]] || \
+   printf '%s\n' "${changed:-}" | grep -qE '^apps/swift/(nexus-ios|NexusShared)/'; then
+    if ! macos_swift_deploy_ios_run "$@"; then
+        printf '\033[1;33mswift-deploy: %s\033[0m\n' "iOS device install failed (fail-soft); paired iPhone may be stale" >&2
+    fi
+fi
+
+exit 0  # Fail-soft: never block subsequent hooks
