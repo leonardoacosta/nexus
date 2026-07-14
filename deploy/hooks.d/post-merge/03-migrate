@@ -25,6 +25,44 @@ fi
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 
+# ── Primary-writer gate (nx-9k141) ──────────────────────────────
+#
+# Only the primary DB-writing host applies the shared migration; every other
+# machine (e.g. the Mac, which runs no agent daemon and has no POSTGRES_URL)
+# must SKIP ENTIRELY rather than run db:migrate and fail loudly with
+# "POSTGRES_URL is required" on every deploy. Two role signals, checked in
+# order:
+#
+#   1. Explicit opt-out: NEXUS_DB_PRIMARY set to a falsey value in ~/.env or the
+#      environment marks this machine as a non-primary (a read-only peer that
+#      has a URL but must not migrate).
+#   2. No resolvable POSTGRES_URL from the agent's canonical secrets source
+#      (~/.env) or the inherited environment: a machine with nothing to write to
+#      is not a DB-writing host — skip, don't fail.
+#
+# The primary needs zero new config: it has POSTGRES_URL and no opt-out flag, so
+# it still migrates exactly as before.
+
+AGENT_ENV="$HOME/.env"
+
+# Read the explicit primary flag from ~/.env (falling back to the inherited env).
+_db_primary_flag="${NEXUS_DB_PRIMARY:-}"
+if [[ -f "$AGENT_ENV" ]]; then
+    _flag_line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?NEXUS_DB_PRIMARY=' "$AGENT_ENV" | tail -n1)"
+    if [[ -n "$_flag_line" ]]; then
+        _db_primary_flag="${_flag_line#*NEXUS_DB_PRIMARY=}"
+        _db_primary_flag="${_db_primary_flag%\"}"
+        _db_primary_flag="${_db_primary_flag#\"}"
+    fi
+fi
+
+case "$(printf '%s' "$_db_primary_flag" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off)
+        skip "NEXUS_DB_PRIMARY is falsey — non-primary machine, skipping db:migrate (primary host owns the shared migration)"
+        exit 0
+        ;;
+esac
+
 # ── Resolve POSTGRES_URL from the agent's canonical secrets source ──
 #
 # Single source of truth: the running nexus-agent reads POSTGRES_URL from
@@ -38,7 +76,6 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 # recoverTrackingIfNeeded. tf-outputs is NOT a deploy-time secrets source —
 # do not source it here.
 
-AGENT_ENV="$HOME/.env"
 if [[ -f "$AGENT_ENV" ]]; then
     # Export only POSTGRES_URL — avoid leaking unrelated keys into the
     # migrate subprocess. Mirrors how systemd EnvironmentFile= scopes it.
@@ -49,11 +86,16 @@ if [[ -f "$AGENT_ENV" ]]; then
         POSTGRES_URL="${POSTGRES_URL#\"}"
         export POSTGRES_URL
         info "resolved POSTGRES_URL from agent canonical source ($AGENT_ENV)"
-    else
-        warn "no POSTGRES_URL in $AGENT_ENV — relying on inherited environment"
     fi
-else
-    warn "$AGENT_ENV not found — relying on inherited environment for POSTGRES_URL"
+fi
+
+# Primary-writer gate (signal 2): with no POSTGRES_URL resolvable from ~/.env or
+# the inherited environment, this machine has no shared DB to write to — it is
+# not a DB-writing host. Skip entirely (exit 0) rather than run db:migrate and
+# fail loudly with "POSTGRES_URL is required" on every deploy (nx-9k141).
+if [[ -z "${POSTGRES_URL:-}" ]]; then
+    skip "no POSTGRES_URL resolvable — non-primary machine, skipping db:migrate (primary host owns the shared migration)"
+    exit 0
 fi
 
 # ── Run migration (fail-soft) ───────────────────────────────────

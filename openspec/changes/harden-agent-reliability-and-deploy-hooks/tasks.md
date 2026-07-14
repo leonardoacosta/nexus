@@ -5,10 +5,10 @@
 
 ## API Batch
 
-- [ ] [2.1] Add structured WARN-level memory-pressure logging to the agent process when usage crosses 90% of `MemoryMax`, giving future SIGABRT/SIGILL investigations a diagnostic trail (nx-t9wlb) [owner:api-engineer] [type:infra] [beads:nx-ej4nb]
-- [ ] [2.2] Fix `server-health-handler.ts:202-215` to import and call the shared `aggregateDiskPercent()` helper instead of re-implementing the stale `metrics.disk[0]?.percent ?? null` fallback (nx-4l1zt) [owner:api-engineer] [type:api] [beads:nx-1l69v]
-- [ ] [2.3] Fix `deploy/hooks.d/post-merge/02-deploy` to detect a `bun install --frozen-lockfile` failure and either regenerate the lockfile safely or surface an actionable recovery signal (nx-zpbqi) [owner:devops-engineer] [type:ci-cd] [beads:nx-qbdcn]
-- [ ] [2.4] Fix `deploy/hooks.d/post-merge/03-migrate` to detect a non-primary DB-writing machine and skip `db:migrate` entirely, rather than failing on a missing local `POSTGRES_URL` (nx-9k141) [owner:devops-engineer] [type:ci-cd] [beads:nx-30r5e]
+- [x] [2.1] Add structured WARN-level memory-pressure logging to the agent process when usage crosses 90% of `MemoryMax`, giving future SIGABRT/SIGILL investigations a diagnostic trail (nx-t9wlb) [owner:api-engineer] [type:infra] [beads:nx-ej4nb]
+- [x] [2.2] Fix `server-health-handler.ts:202-215` to import and call the shared `aggregateDiskPercent()` helper instead of re-implementing the stale `metrics.disk[0]?.percent ?? null` fallback (nx-4l1zt) [owner:api-engineer] [type:api] [beads:nx-1l69v]
+- [x] [2.3] Fix `deploy/hooks.d/post-merge/02-deploy` to detect a `bun install --frozen-lockfile` failure and either regenerate the lockfile safely or surface an actionable recovery signal (nx-zpbqi) [owner:devops-engineer] [type:ci-cd] [beads:nx-qbdcn]
+- [x] [2.4] Fix `deploy/hooks.d/post-merge/03-migrate` to detect a non-primary DB-writing machine and skip `db:migrate` entirely, rather than failing on a missing local `POSTGRES_URL` (nx-9k141) [owner:devops-engineer] [type:ci-cd] [beads:nx-30r5e]
 
 ## UI Batch
 

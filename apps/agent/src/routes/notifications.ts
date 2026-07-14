@@ -151,6 +151,28 @@ async function readRateThrottleSettings(
   }
 }
 
+/** Reads the live quiet-hours settings from notification_settings. */
+async function readQuietHoursSettings(
+  db: Db,
+): Promise<{ enabled: boolean; startHour: number; endHour: number }> {
+  try {
+    const row = await db.query.notificationSettings.findFirst({
+      where: eq(notificationSettings.id, 1),
+    });
+    return {
+      enabled: row?.quietHoursEnabled ?? true,
+      startHour: row?.quietHoursStartHour ?? 0,
+      endHour: row?.quietHoursEndHour ?? 7,
+    };
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "quiet-hours: failed to read settings (defaulting to enabled, 0-7)",
+    );
+    return { enabled: true, startHour: 0, endHour: 7 };
+  }
+}
+
 /** Initialize notification routes with a database connection. */
 export async function initNotificationRoutes(db: Db): Promise<void> {
   await withSingletonLock(() => {
@@ -186,6 +208,9 @@ export async function initNotificationRoutes(db: Db): Promise<void> {
         settings: () => readRateThrottleSettings(db),
         countRecent: (project, channel, since) =>
           countRecentNotifications(db, project, channel, since),
+      },
+      {
+        settings: () => readQuietHoursSettings(db),
       },
     );
 

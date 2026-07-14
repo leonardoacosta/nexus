@@ -36,10 +36,19 @@ export const mockQueryRecentSessions = mock((): Promise<{ id: string; project: s
 
 export const mockUpsertProjectLocations = mock((): Promise<void> => Promise.resolve());
 
+// Registry-id resolver mock (close-registry-id-propagation-gap). Defaults to an
+// empty map so every discovered project reads `registryId: null` unless a test
+// overrides this to seed name -> projects.id entries.
+export const mockGetRegistryIdsByNames = mock(
+  (_db: unknown, _names: string[]): Promise<Map<string, string>> =>
+    Promise.resolve(new Map<string, string>()),
+);
+
 // Install db deps shim. Scoped to projects-discovered.ts only.
 __setDepsForTesting({
   queryRecentSessions: mockQueryRecentSessions as unknown as typeof import("../db/sessions").queryRecentSessions,
   upsertProjectLocations: mockUpsertProjectLocations as unknown as typeof import("../db/project-registry").upsertProjectLocations,
+  getRegistryIdsByNames: mockGetRegistryIdsByNames as unknown as typeof import("../db/project-registry").getRegistryIdsByNames,
 });
 
 // Install the git-remote resolver shim. Defaults to null so real `git` is
@@ -94,4 +103,7 @@ export function resetMocks() {
   mockQueryRecentSessions.mockImplementation(() => Promise.resolve([]));
   mockUpsertProjectLocations.mockImplementation(() => Promise.resolve());
   mockResolveGitRemote.mockImplementation(() => Promise.resolve(null));
+  mockGetRegistryIdsByNames.mockImplementation(() =>
+    Promise.resolve(new Map<string, string>()),
+  );
 }

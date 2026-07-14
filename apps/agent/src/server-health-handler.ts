@@ -12,6 +12,7 @@ import type { Db } from "@nexus/db";
 import { getAgentId, logger } from "@nexus/core/node";
 import type { HealthMetrics } from "@nexus/core";
 import { insertHealthSnapshot, pingDb } from "./db/health";
+import { aggregateDiskPercent } from "./health-scheduler";
 import { checkSchemaForHealth } from "./db/database";
 import { lastWatcherTickMs } from "./services/process-watcher";
 import { isSocketServerListening } from "./services/socket-server";
@@ -199,20 +200,10 @@ export async function handleHealthIngest(request: Request, db: Db): Promise<Resp
 
   const metrics = body as HealthMetrics;
 
-  // Weighted-average disk percent (same logic as health-scheduler)
-  let diskPercent: number | null = null;
-  if (metrics.disk.length > 0) {
-    const totalBytes = metrics.disk.reduce((s, d) => s + d.total_bytes, 0);
-    if (totalBytes > 0) {
-      diskPercent = metrics.disk.reduce(
-        (s, d) => s + (d.percent * d.total_bytes) / totalBytes,
-        0,
-      );
-      diskPercent = Math.round(diskPercent * 10) / 10;
-    } else {
-      diskPercent = metrics.disk[0]?.percent ?? null;
-    }
-  }
+  // Capacity-weighted disk percent — shares the single canonical helper with
+  // health-scheduler so the all-zero-total_bytes fallback (unweighted average
+  // across ALL disks, not just disk[0]) can never drift out of sync (nx-4l1zt).
+  const diskPercent = aggregateDiskPercent(metrics.disk);
 
   const snapshot = {
     timestamp: new Date(),
