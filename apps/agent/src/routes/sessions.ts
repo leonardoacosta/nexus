@@ -393,7 +393,6 @@ export async function handleSessionStart(
         tmuxTarget: tmuxTarget ?? sessionName,
         rateLimitUtilization: null,
         rateLimitType: null,
-        totalCostUsd: null,
         model: "claude",
         credentialId: null,
         credentialFingerprint: null,

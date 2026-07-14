@@ -108,9 +108,7 @@ const SESSION_CRUD_DDL = `
     "branch" text,
     "session_type" text,
     "model" text,
-    "rate_limit_utilization" real,
-    "total_cost_usd" double precision,
-    "rate_limit_reset_at" timestamp,
+    "rate_limit_utilization" real,    "rate_limit_reset_at" timestamp,
     "idle_since" timestamp,
     "cc_session_id" text,
     "tmux_session" text,
@@ -205,9 +203,7 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
       branch: "main",
       sessionType: "ad_hoc",
       model: "claude-opus-4-7",
-      rateLimitUtilization: 0.42,
-      totalCostUsd: 1.23,
-      rateLimitResetAt: null,
+      rateLimitUtilization: 0.42,      rateLimitResetAt: null,
       idleSince: null,
       ccSessionId: "cc-abc-123",
       tmuxSession: "nexus-main",
@@ -237,7 +233,6 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
     // postgres.js returns real/double precision as JS number — compare with
     // toBeCloseTo to survive float round-trip.
     expect(fetched!.rateLimitUtilization).toBeCloseTo(0.42, 5);
-    expect(fetched!.totalCostUsd).toBeCloseTo(1.23, 5);
   });
 
   it("returns null for non-existent session id", async () => {
@@ -273,9 +268,7 @@ function makeSessionRow(over: Partial<SessionRow> & { id: string }): SessionRow 
     branch: null,
     sessionType: "ad_hoc",
     model: "claude",
-    rateLimitUtilization: null,
-    totalCostUsd: null,
-    rateLimitResetAt: null,
+    rateLimitUtilization: null,    rateLimitResetAt: null,
     idleSince: null,
     ccSessionId: null,
     tmuxSession: null,

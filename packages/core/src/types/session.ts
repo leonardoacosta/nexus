@@ -40,7 +40,6 @@ type SessionDbBase = Pick<
   | "ccSessionId"
   | "tmuxTarget"
   | "rateLimitUtilization"
-  | "totalCostUsd"
   | "model"
   | "credentialId"
   | "credentialFingerprint"

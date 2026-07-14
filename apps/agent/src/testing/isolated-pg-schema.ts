@@ -153,7 +153,6 @@ export const SESSIONS_PROJECTS_DDL = `
     "session_type" text,
     "model" text,
     "rate_limit_utilization" real,
-    "total_cost_usd" double precision,
     "rate_limit_reset_at" timestamp,
     "idle_since" timestamp,
     "cc_session_id" text,

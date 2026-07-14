@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] [P-2] Drop `sessions.total_cost_usd` column via `drizzle-kit generate` migration; remove the dead write sites in `session-manager.ts`, `process-watcher.ts`, `routes/sessions.ts`, `stub-agent.ts` that always set it to `null` [owner:db-engineer] [type:db] [beads:nx-wj890]
+- [x] [1.1] [P-2] Drop `sessions.total_cost_usd` column via `drizzle-kit generate` migration; remove the dead write sites in `session-manager.ts`, `process-watcher.ts`, `routes/sessions.ts`, `stub-agent.ts` that always set it to `null` [owner:db-engineer] [type:db] [beads:nx-wj890]
 - [x] [1.2] [P-1] Add `Account5H7D`/`SessionStatus`/composed statusline response types to `packages/core`; trim `Account.usagePercent`/`Account.resetsAt` per design.md contract [owner:types-engineer] [type:api] [beads:nx-8iq28]
 
 ## API Batch

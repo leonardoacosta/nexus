@@ -153,9 +153,7 @@ const DDL = `
     "branch" text,
     "session_type" text,
     "model" text,
-    "rate_limit_utilization" real,
-    "total_cost_usd" double precision,
-    "rate_limit_reset_at" timestamp,
+    "rate_limit_utilization" real,    "rate_limit_reset_at" timestamp,
     "idle_since" timestamp,
     "cc_session_id" text,
     "tmux_session" text,
@@ -298,9 +296,7 @@ describe.skipIf(!hasPg)(
           spec: null,
           credentialId: null,
           credentialFingerprint: null,
-          rateLimitUtilization: null,
-          totalCostUsd: null,
-          rateLimitResetAt: null,
+          rateLimitUtilization: null,          rateLimitResetAt: null,
           idleSince: null,
         });
 
@@ -437,9 +433,7 @@ describe.skipIf(!hasPg)(
         spec: null,
         credentialId: null,
         credentialFingerprint: null,
-        rateLimitUtilization: null,
-        totalCostUsd: null,
-        rateLimitResetAt: null,
+        rateLimitUtilization: null,        rateLimitResetAt: null,
         idleSince: null,
       });
     }
