@@ -156,7 +156,6 @@ beforeAll(async () => {
     sessionType: null,
     model: null,
     rateLimitUtilization: null,
-    totalCostUsd: null,
     rateLimitResetAt: null,
     idleSince: null,
     projectId: null,
