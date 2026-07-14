@@ -49,7 +49,15 @@ const RECOMMEND_CACHE_TTL_MS = 30_000;
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function handleRecommend(db: Db): Promise<Response> {
+/**
+ * Compute the next-action recommendation payload in-process (cached, 30s TTL).
+ *
+ * Extracted from `handleRecommend` so `GET /statusline?sessionId=` can compose
+ * the same recommendation object into its `next` field without an internal HTTP
+ * round-trip (redesign-status-usage-endpoints task 2.4). Returns the plain
+ * response object; the HTTP wrapper lives in `handleRecommend`.
+ */
+export async function getRecommendation(db: Db): Promise<RecommendResponse> {
   let sessions: SessionRow[] = [];
   try {
     sessions = await queryActiveSessions(db);
@@ -64,15 +72,16 @@ export async function handleRecommend(db: Db): Promise<Response> {
   ) {
     // Update session count in cached response.
     recommendCache.value.context.session_count = sessions.length;
-    return new Response(JSON.stringify(recommendCache.value), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return recommendCache.value;
   }
 
   const response = await buildRecommendations(sessions.length);
   recommendCache = { value: response, refreshedAt: now };
+  return response;
+}
 
+export async function handleRecommend(db: Db): Promise<Response> {
+  const response = await getRecommendation(db);
   return new Response(JSON.stringify(response), {
     status: 200,
     headers: { "Content-Type": "application/json" },

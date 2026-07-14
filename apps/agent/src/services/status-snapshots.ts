@@ -70,14 +70,20 @@ export async function recordSpecSnapshot(
 // Per-project snapshots (project_status_snapshots)
 // ---------------------------------------------------------------------------
 
-interface LatestProjectStatus {
+export interface LatestProjectStatus {
   proposalsUnarchived: number;
   beadsReadyUnlinked: number;
   beadsBlockedUnlinked: number;
 }
 
-/** Latest `project_status_snapshots` row for a project, or `null`. */
-async function latestProjectStatus(
+/**
+ * Latest `project_status_snapshots` row for a project, or `null`.
+ *
+ * Exported as the single read path for the per-project beads/openspec status
+ * counts — reused by `GET /statusline?sessionId=` (redesign-status-usage-endpoints)
+ * so the composed session status never re-implements the latest-row query.
+ */
+export async function latestProjectStatus(
   db: Db,
   project: string,
 ): Promise<LatestProjectStatus | null> {

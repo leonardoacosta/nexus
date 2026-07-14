@@ -49,7 +49,7 @@ describe("GET /statusline — model letter derivation", () => {
     ]);
     execSpy = spyOn(execMod, "execText").mockResolvedValue("");
 
-    const res = await handleStatusline({} as Db);
+    const res = await handleStatusline({} as Db, new URL("http://x/statusline"));
     const body = (await res.json()) as StatuslineBody;
     expect(body.sessions[0]!.model).toBe("O");
   });
@@ -60,7 +60,7 @@ describe("GET /statusline — model letter derivation", () => {
     ]);
     execSpy = spyOn(execMod, "execText").mockResolvedValue("");
 
-    const res = await handleStatusline({} as Db);
+    const res = await handleStatusline({} as Db, new URL("http://x/statusline"));
     const body = (await res.json()) as StatuslineBody;
     expect(body.sessions[0]!.model).toBeNull();
   });
