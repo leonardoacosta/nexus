@@ -22,6 +22,18 @@ import type { Db } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import { getProjects } from "./config-loader";
 import { listAllRegisteredProjects } from "../db/project-registry";
+import { runPool } from "../utils/run-pool";
+
+/**
+ * Bounded fan-out concurrency for `project=all`. Matches `SPECS_ALL_CONCURRENCY`
+ * in `routes/specs.ts` — each project's `compute` shells out to bd/openspec, so
+ * a bare `Promise.allSettled` over all ~36 projects would spawn a subprocess
+ * storm in one tick (the nx-6lrf7 memory-exhaustion burst). 8 keeps throughput
+ * high while the exec-layer global budget bounds actual concurrent spawns.
+ */
+export const FANOUT_ALL_CONCURRENCY = Number(
+  process.env.FANOUT_ALL_CONCURRENCY ?? 8,
+);
 
 /** A resolved fan-out target: project code + absolute filesystem path. */
 export interface FanOutProject {
@@ -84,22 +96,24 @@ export async function fanOutAllProjects<T>(
   compute: (path: string) => Promise<T[]>,
   tag: (entry: T, code: string) => T,
   log: FanOutLogger,
+  concurrency: number = FANOUT_ALL_CONCURRENCY,
 ): Promise<T[]> {
-  const settled = await Promise.allSettled(
-    projects.map((p) => compute(p.path)),
-  );
-
-  const merged: T[] = [];
-  settled.forEach((result, i) => {
-    const proj = projects[i]!;
-    if (result.status === "fulfilled") {
-      for (const entry of result.value) merged.push(tag(entry, proj.code));
-    } else {
+  // runPool caps how many `compute` closures are live at once (the fix for the
+  // unbounded fan-out). The per-project try/catch keeps the degrade contract:
+  // runPool propagates a worker rejection, so a project whose compute throws is
+  // isolated HERE (warn-log + contribute []) rather than aborting the batch.
+  const perProject = await runPool(projects, concurrency, async (proj) => {
+    try {
+      const entries = await compute(proj.path);
+      return entries.map((entry) => tag(entry, proj.code));
+    } catch (err) {
       log.warn(
-        { project: proj.code, err: result.reason },
+        { project: proj.code, err },
         "project excluded from project=all fan-out",
       );
+      return [] as T[];
     }
   });
-  return merged;
+
+  return perProject.flat();
 }

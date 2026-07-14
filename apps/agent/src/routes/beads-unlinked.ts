@@ -31,8 +31,14 @@ import {
   type FanOutProject,
 } from "../services/project-fanout";
 import { execJson } from "../utils/exec";
+import { createSingleFlight } from "../utils/single-flight";
 
 const log = createLogger("agent:routes:beads-unlinked");
+
+// Coalesce concurrent `project=all` recomputes (nx-veo5g.2 #2). Module-level so
+// it spans requests; keyed per-route since the `all` computation is request-
+// independent in production (deps default to the live sources).
+const unlinkedAllSingleFlight = createSingleFlight<UnlinkedBead[]>();
 
 /** Test seams — default to the live sources. */
 export interface UnlinkedRouteDeps {
@@ -84,13 +90,15 @@ export async function handleGetUnlinkedBeads(
 
   if (code === "all") {
     const resolveProjects = deps.resolveProjects ?? resolveAllProjects;
-    const projects = await resolveProjects(db);
-    const unlinked = await fanOutAllProjects<UnlinkedBead>(
-      projects,
-      (path) => compute(path),
-      (bead, project) => ({ ...bead, project }),
-      log,
-    );
+    const unlinked = await unlinkedAllSingleFlight("beads-unlinked:all", async () => {
+      const projects = await resolveProjects(db);
+      return fanOutAllProjects<UnlinkedBead>(
+        projects,
+        (path) => compute(path),
+        (bead, project) => ({ ...bead, project }),
+        log,
+      );
+    });
     return json({ unlinked });
   }
 

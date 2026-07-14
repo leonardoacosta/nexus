@@ -4,10 +4,15 @@ import {
   execText,
   ExecError,
   ExecTimeoutError,
+  SpawnQueueOverflowError,
   isGatedCommand,
   GATED_COMMANDS,
   BD_DOLT_MAX_CONCURRENT,
   __getBdDoltInFlightForTest,
+  __getGlobalInFlightForTest,
+  __getGlobalQueueDepthForTest,
+  __configureGlobalSpawnGateForTest,
+  __resetGlobalSpawnGateForTest,
 } from "./exec";
 
 // NOTE: These tests use `sh` as the subprocess binary because `exec.ts`
@@ -161,6 +166,96 @@ describe("bd/dolt concurrency gate", () => {
       expect(gatedDuration).toBeGreaterThanOrEqual(sleepSeconds * 1000 * 2 - 50);
     } finally {
       GATED_COMMANDS.delete("sh");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Global process-wide spawn budget + bounded wait queue
+// (nx-veo5g.2 #3 queue-depth cap + nx-veo5g.3 #1 process-wide budget — one
+// coherent mechanism). These use the test-only reconfiguration seams so the
+// overflow path is exercised deterministically with tiny limits, without
+// spawning hundreds of real subprocesses. `sh` stays OUT of GATED_COMMANDS so
+// only the GLOBAL gate is under test here.
+// ---------------------------------------------------------------------------
+
+describe("global spawn budget", () => {
+  test("caps total concurrency across ALL commands, not just bd/dolt", async () => {
+    __configureGlobalSpawnGateForTest(2, 128);
+    try {
+      let inFlightMax = 0;
+      const poll = setInterval(() => {
+        inFlightMax = Math.max(inFlightMax, __getGlobalInFlightForTest());
+      }, 5);
+
+      // 6 NON-gated calls; global budget is 2 → never more than 2 spawn at once.
+      const calls = Array.from({ length: 6 }, () =>
+        execText("sh", ["-c", "sleep 0.1"]),
+      );
+      await Promise.all(calls);
+      clearInterval(poll);
+
+      expect(inFlightMax).toBe(2);
+      // Fully drained afterward — no leaked slots.
+      expect(__getGlobalInFlightForTest()).toBe(0);
+      expect(__getGlobalQueueDepthForTest()).toBe(0);
+    } finally {
+      __resetGlobalSpawnGateForTest();
+    }
+  });
+
+  test("fails fast with SpawnQueueOverflowError when the wait queue is full, then drains without deadlock", async () => {
+    // concurrency 1, queue cap 1: one running + one queued is the ceiling.
+    __configureGlobalSpawnGateForTest(1, 1);
+    try {
+      // A holds the single slot.
+      const a = execText("sh", ["-c", "sleep 0.2"]);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(__getGlobalInFlightForTest()).toBe(1);
+
+      // B fills the single queue slot (waits, does not spawn yet).
+      const b = execText("sh", ["-c", "sleep 0.2"]);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(__getGlobalQueueDepthForTest()).toBe(1);
+
+      // C overflows — rejected IMMEDIATELY without spawning (fail fast).
+      let overflowErr: unknown;
+      const cStart = Date.now();
+      try {
+        await execText("sh", ["-c", "sleep 0.2"]);
+      } catch (err) {
+        overflowErr = err;
+      }
+      const cDuration = Date.now() - cStart;
+      expect(overflowErr).toBeInstanceOf(SpawnQueueOverflowError);
+      // "Fail fast" — it did NOT wait on the 0.2s sleeps ahead of it.
+      expect(cDuration).toBeLessThan(100);
+
+      // The gate is NOT wedged: A drains, B proceeds off the queue, both resolve.
+      await Promise.all([a, b]);
+      expect(__getGlobalInFlightForTest()).toBe(0);
+      expect(__getGlobalQueueDepthForTest()).toBe(0);
+
+      // A fresh call after an overflow still works — proves no deadlock.
+      const after = await execText("sh", ["-c", "echo ok"]);
+      expect(after.trim()).toBe("ok");
+    } finally {
+      __resetGlobalSpawnGateForTest();
+    }
+  });
+
+  test("a queued caller still runs to completion after the slot frees (no starvation)", async () => {
+    __configureGlobalSpawnGateForTest(1, 8);
+    try {
+      const results = await Promise.all([
+        execText("sh", ["-c", "echo one"]),
+        execText("sh", ["-c", "echo two"]),
+        execText("sh", ["-c", "echo three"]),
+      ]);
+      expect(results.map((r) => r.trim())).toEqual(["one", "two", "three"]);
+      expect(__getGlobalInFlightForTest()).toBe(0);
+    } finally {
+      __resetGlobalSpawnGateForTest();
     }
   });
 });

@@ -412,3 +412,40 @@ async function shutdown() {
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+// Process-level failure observability (nx-veo5g.3). Before this, an
+// unhandledRejection or a JS-level uncaughtException left ZERO diagnostic
+// trail — the agent either kept running in an unknown state or was killed by
+// the runtime default with nothing structured logged. These handlers do NOT
+// address the native SIGABRT (a Go/Bun abort() is uncatchable from JS — that
+// is the memory-exhaustion root cause the spawn budget above targets); they
+// close the separate observability gap for catchable JS failures.
+process.on("unhandledRejection", (reason, promise) => {
+  // Log and continue — matches the Bun runtime's non-fatal default for
+  // unhandled rejections, so this is purely additive diagnostics (no new
+  // process-lifecycle behavior).
+  logger.error(
+    {
+      reason:
+        reason instanceof Error
+          ? { message: reason.message, stack: reason.stack, name: reason.name }
+          : reason,
+      at: "unhandledRejection",
+    },
+    "Unhandled promise rejection — investigate (agent continues running)",
+  );
+  void promise;
+});
+
+process.on("uncaughtException", (err) => {
+  // An uncaught exception leaves the process in an undefined state; log with
+  // full context, then exit so systemd restarts a clean instance. Registering
+  // a handler suppresses the runtime's own auto-exit, so the explicit
+  // process.exit(1) is load-bearing to preserve the prior crash-and-restart
+  // lifecycle (now with a diagnostic trail).
+  logger.fatal(
+    { err, at: "uncaughtException" },
+    "Uncaught exception — exiting for a clean restart",
+  );
+  process.exit(1);
+});

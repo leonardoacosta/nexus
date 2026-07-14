@@ -24,8 +24,14 @@ import {
   resolveAllProjects,
   type FanOutProject,
 } from "../services/project-fanout";
+import { createSingleFlight } from "../utils/single-flight";
 
 const log = createLogger("agent:routes:roadmap");
+
+// Coalesce concurrent `project=all` recomputes (nx-veo5g.2 #2). Module-level so
+// it spans requests; keyed per-route since the `all` computation is request-
+// independent in production (deps default to the live sources).
+const roadmapAllSingleFlight = createSingleFlight<RoadmapCapability[]>();
 
 /** Test seams — default to the live sources. */
 export interface RoadmapRouteDeps {
@@ -57,13 +63,15 @@ export async function handleGetRoadmap(
 
   if (code === "all") {
     const resolveProjects = deps.resolveProjects ?? resolveAllProjects;
-    const projects = await resolveProjects(db);
-    const capabilities = await fanOutAllProjects<RoadmapCapability>(
-      projects,
-      (path) => compute(path),
-      (cap, project) => ({ ...cap, project }),
-      log,
-    );
+    const capabilities = await roadmapAllSingleFlight("roadmap:all", async () => {
+      const projects = await resolveProjects(db);
+      return fanOutAllProjects<RoadmapCapability>(
+        projects,
+        (path) => compute(path),
+        (cap, project) => ({ ...cap, project }),
+        log,
+      );
+    });
     return json({ capabilities });
   }
 

@@ -127,4 +127,48 @@ describe("fanOutAllProjects", () => {
     );
     expect(merged.map((e) => e.project).sort()).toEqual(["a", "c"]);
   });
+
+  it("bounds the number of concurrently-live compute closures (nx-veo5g.2 #1)", async () => {
+    const many: FanOutProject[] = Array.from({ length: 12 }, (_, i) => ({
+      code: `p${i}`,
+      path: `/dev/p${i}`,
+    }));
+
+    let live = 0;
+    let peak = 0;
+    const merged = await fanOutAllProjects<{ id: string; project?: string }>(
+      many,
+      async (path) => {
+        live++;
+        peak = Math.max(peak, live);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        live--;
+        return [{ id: path }];
+      },
+      (entry, project) => ({ ...entry, project }),
+      silentLog,
+      3, // explicit concurrency cap
+    );
+
+    // Every project still contributes; the fan-out just never ran >3 at once
+    // (the fix for the unbounded Promise.allSettled subprocess storm).
+    expect(merged).toHaveLength(12);
+    expect(peak).toBe(3);
+  });
+
+  it("preserves per-project degradation under bounded concurrency", async () => {
+    const warnings: unknown[] = [];
+    const merged = await fanOutAllProjects<{ id: string; project?: string }>(
+      projects,
+      async (path) => {
+        if (path === "/dev/b") throw new Error("queue overflow / bd down");
+        return [{ id: path }];
+      },
+      (entry, project) => ({ ...entry, project }),
+      { warn: (obj: unknown) => warnings.push(obj) },
+      2,
+    );
+    expect(merged.map((e) => e.project).sort()).toEqual(["a", "c"]);
+    expect(warnings).toHaveLength(1);
+  });
 });
