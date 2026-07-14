@@ -34,6 +34,12 @@ struct BoardView: View {
         .background(Color.nx.substrate)
         .task { await model.load() }
         .refreshable { await model.load() }
+        // Eagerly warm the detail-content cache for the visible proposal rows
+        // whenever the list changes (filter / sort / project select / initial
+        // load). Bounded to the first 20 proposals inside the model.
+        .onChange(of: model.visibleItems) { _, _ in
+            model.prefetchVisible()
+        }
         .sheet(item: $attachSession) { session in
             AttachSheet(session: session)
         }

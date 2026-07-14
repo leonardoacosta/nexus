@@ -256,4 +256,53 @@ final class BoardViewModel: ObservableObject {
         guard let id = selectedItemID else { return nil }
         return allItems.first { $0.id == id }
     }
+
+    // MARK: - Detail-content prefetch
+
+    /// How many visible proposal rows to eagerly warm (spec: N = 20, in-order).
+    nonisolated static let prefetchLimit = 20
+
+    /// Prefetch targets for the current visible list.
+    func prefetchKeys(limit: Int = BoardViewModel.prefetchLimit) -> [SpecContentCache.CacheKey] {
+        BoardViewModel.prefetchKeys(from: visibleItems, limit: limit)
+    }
+
+    /// Pure, testable core: the DEFAULT (`proposal`) tab of the first `limit`
+    /// `.proposal` rows in `items`, in list order. Orphan rows carry no spec
+    /// content and are skipped; `design`/`tasks` tabs are never eagerly warmed
+    /// (spec Scope: OUT).
+    nonisolated static func prefetchKeys(
+        from items: [BoardWorkItem],
+        limit: Int = BoardViewModel.prefetchLimit
+    ) -> [SpecContentCache.CacheKey] {
+        Array(
+            items
+                .compactMap { item -> SpecContentCache.CacheKey? in
+                    guard case .proposal(let p) = item else { return nil }
+                    return SpecContentCache.CacheKey(
+                        project: p.project,
+                        slug: p.proposal.slug,
+                        file: SpecDocTab.proposal.rawValue
+                    )
+                }
+                .prefix(limit)
+        )
+    }
+
+    /// Kick bounded background prefetches for the visible proposal rows. Runs
+    /// off the main actor in a detached-from-UI `Task` so it never blocks
+    /// rendering; rows already `.fresh` or in-flight are skipped inside the
+    /// cache. Called on `visibleItems` change (filter / sort / project select).
+    func prefetchVisible(into cache: SpecContentCache = .shared) {
+        let keys = prefetchKeys()
+        guard !keys.isEmpty else { return }
+        let client = self.client
+        Task {
+            for key in keys {
+                await cache.prefetch(key: key, using: { k in
+                    await client.fetchSpecContent(project: k.project, name: k.slug, file: k.file)
+                })
+            }
+        }
+    }
 }
