@@ -5,75 +5,69 @@ Credential page display behavior — agent reachability signals, error states, m
 ## Requirements
 ### Requirement: Agent reachability signal in fetchCredentials
 
-The `fetchCredentials()` server action MUST return an `agentReachable: boolean` field and a `failedAgents: string[]` array alongside the existing credential data. `agentReachable` is `true` when at least one agent responded with HTTP 2xx; `false` when all agents failed or timed out. `failedAgents` lists `"<name> (<host>:<port>)"` for each agent that did not respond.
+`NexusAggregateClient.fetchCredentials()` MUST capture the `reachable: [String]` array
+`fanOut()` already returns (mirroring `fetchSessions()`'s existing
+`self.lastReachable = reachable` pattern) and expose it alongside `profiles`, so callers can
+distinguish "no agent reachable" from "agent reachable, zero credentials". This requirement
+previously described a Next.js "server action" (`fetchCredentials()` returning
+`agentReachable`/`failedAgents`/`agentSource` fields) — nx has no such web page; the real
+implementation is the native macOS SwiftUI `CredentialsView` and its `NexusAggregateClient`.
 
-#### Scenario: all agents unreachable
-- **Given** all configured agents are offline (connection refused or timeout)
+#### Scenario: All agents unreachable
+- **Given** every configured agent is offline (connection refused or timeout)
 - **When** `fetchCredentials()` is called
-- **Then** the result includes `agentReachable: false`, `failedAgents` lists every configured agent, and `groups` is empty
+- **Then** the resulting reachable-agents signal is empty and `profiles` is empty
 
-#### Scenario: one agent responds successfully
-- **Given** agent "omarchy" at 100.64.0.1:7400 is running and returns 3 credentials
-- **And** agent "macbook" at 100.64.0.2:7400 is offline
+#### Scenario: One agent responds successfully
+- **Given** agent "omarchy" is running and returns 3 credentials, agent "macbook" is offline
 - **When** `fetchCredentials()` is called
-- **Then** the result includes `agentReachable: true`, `agentSource: "omarchy"`, `failedAgents: ["macbook (100.64.0.2:7400)"]`, and `groups` has 3 entries
-
-#### Scenario: agent responds with empty credentials
-- **Given** agent "omarchy" is running but the credentials table is empty
-- **When** `fetchCredentials()` is called
-- **Then** the result includes `agentReachable: true`, `agentSource: "omarchy"`, `failedAgents: []`, and `groups` is empty
-
----
+- **Then** the reachable-agents signal contains `"omarchy"` but not `"macbook"`, and `profiles` has 3 entries
 
 ### Requirement: Distinct error banner for unreachable agents
 
-When `agentReachable` is `false`, the credential page MUST render a warning banner instead of the empty-data message. The banner MUST include the list of agents that failed to respond and a suggestion to check agent status.
+`CredentialsView` MUST render a distinct warning banner (not the generic empty-data
+`ContentUnavailableView`) when zero agents are reachable, listing which agents failed to
+respond. The banner MUST NOT render when at least one agent is reachable but returned zero
+credentials — that case keeps the existing empty-data message.
 
-#### Scenario: error banner shown when agent is down
-- **Given** `fetchCredentials()` returns `agentReachable: false` and `failedAgents: ["omarchy (100.64.0.1:7400)"]`
-- **When** the credential page renders
-- **Then** a warning banner is displayed containing "Could not reach agent" and "omarchy (100.64.0.1:7400)"
-- **And** the credentials table is NOT rendered
+#### Scenario: Warning banner shown when no agent is reachable
+- **Given** `CredentialsViewModel.load()` resolves with zero reachable agents
+- **When** `CredentialsView` renders
+- **Then** a warning banner is displayed distinct from the empty-data `ContentUnavailableView`, naming the unreachable agent(s)
+- **And** the credentials table is not rendered
 
-#### Scenario: empty state shown when agent responds with no data
-- **Given** `fetchCredentials()` returns `agentReachable: true` and `groups: []`
-- **When** the credential page renders
-- **Then** the page shows "No credentials found" (the existing empty-data message)
-- **And** no warning banner is displayed
-
-#### Scenario: E2E-verified warning banner against a stopped agent (nx-ufde)
-- **Given** the nexus-agent process is stopped
-- **When** the credential page is loaded via Playwright against the live (agent-down) environment
-- **Then** the warning banner renders with the "Could not reach agent" text
-- **And** the credentials table is NOT rendered
+#### Scenario: Empty-data message shown when an agent is reachable but returns no credentials
+- **Given** `CredentialsViewModel.load()` resolves with at least one reachable agent and zero profiles
+- **When** `CredentialsView` renders
+- **Then** the existing empty-data `ContentUnavailableView` is shown, not the warning banner
 
 ### Requirement: Agent source attribution in page header
 
-When credentials load successfully, the page header MUST display the name of the responding agent (e.g., "via omarchy") next to the **account count** (formerly "account count" referred to file count; now refers to distinct fingerprints).
+When credentials load successfully, `CredentialsView`'s header MUST display "via <agent-name>"
+next to the row/account count, naming the (or one of the) reachable agent(s) that supplied the
+data.
 
-#### Scenario: header reflects account cardinality
-- **Given** `fetchCredentials()` returns 4 snapshot files grouped into 2 accounts
-- **When** the page header renders
-- **Then** it reads "2 accounts · via omarchy"
-
-#### Scenario: E2E-verified source attribution against a running agent (nx-t6sw)
-- **Given** the nexus-agent process is running and reachable
-- **When** the credential page is loaded via Playwright
-- **Then** the page header displays "via <agent-name>" matching the responding agent's configured name
+#### Scenario: Header shows source attribution
+- **Given** credentials loaded successfully from agent "omarchy"
+- **When** the header renders
+- **Then** it includes "via omarchy" alongside the existing count text
 
 ### Requirement: MCP provider display format
 
-The MCP providers column MUST display full provider names (e.g., "figma", "slack", "posthog") as small colored pills instead of single-letter abbreviations. Each pill MUST retain the provider-specific color scheme and MUST show the full lowercase name.
+`CcProfile` MUST decode the server's `mcpProviders` field (comma-joined full provider names,
+e.g. `"figma,posthog,slack"`), and `CredentialsView`'s row rendering MUST display each provider
+as a small colored pill showing the full lowercase name, reusing the existing inline
+pill-rendering recipe already used for the ACTIVE/duplicates badges in the same file.
 
-#### Scenario: multiple MCP providers displayed as full-name pills
+#### Scenario: Multiple MCP providers render as full-name pills
 - **Given** a credential has `mcpProviders: "figma,posthog,slack"`
-- **When** the credential table renders that row
-- **Then** three colored pills appear: "figma" (purple), "posthog" (blue), "slack" (green)
+- **When** the credential row renders
+- **Then** three colored pills appear reading "figma", "posthog", "slack"
 
-#### Scenario: E2E-verified MCP pill rendering (nx-yad4)
-- **Given** a live credential row with `mcpProviders: "figma,posthog,slack"` is present
-- **When** the credential page is loaded via Playwright
-- **Then** three full-name colored pills render for that row, matching the unit-level scenario above
+#### Scenario: No MCP providers renders no pills
+- **Given** a credential has `mcpProviders: nil` or an empty string
+- **When** the credential row renders
+- **Then** no MCP pill row appears for that credential
 
 ### Requirement: Rate limits column hidden
 
