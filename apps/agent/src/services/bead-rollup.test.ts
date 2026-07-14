@@ -237,7 +237,7 @@ describe("aggregateRollup", () => {
       { id: "nx-t2", status: "open", issue_type: "task", description: "" }, // empty
       { id: "nx-t3", status: "open", issue_type: "task" }, // absent
     ];
-    const rollup = aggregateRollup(markers, beads, new Set());
+    const rollup = aggregateRollup(markers, beads);
     const byId = new Map(rollup.beads.map((b) => [b.id, b]));
 
     expect(byId.get("nx-t1")?.description).toBe("has one");
