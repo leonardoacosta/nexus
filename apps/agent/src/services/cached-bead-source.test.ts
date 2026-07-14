@@ -173,6 +173,32 @@ describe("cachedRoadmapBeadSource", () => {
   });
 });
 
+describe("parent reconstruction from parent-child dep (JSONL export gap)", () => {
+  test("cached beads flatten parent from the parent-child dependency edge", async () => {
+    // `bd export` omits the top-level `parent` field that `bd list --json`
+    // carries — it lives ONLY in `dependencies`. The parse path reconstructs
+    // it so roadmap's `b.parent === epic.id` child resolution works off cache.
+    const root = await warmProject([
+      { id: "nx-epic", status: "open", issue_type: "epic", title: "[CAPABILITY] Y" },
+      {
+        id: "nx-feat",
+        status: "open",
+        issue_type: "feature",
+        spec_id: "feat-slug",
+        // No top-level `parent` — only the dependency edge (export shape).
+        dependencies: [{ depends_on_id: "nx-epic", type: "parent-child" }],
+      },
+    ]);
+    const spy = spyOn(exec, "execJson").mockResolvedValue([] as RawBead[]);
+
+    const all = await cachedRoadmapBeadSource.listAll(root);
+    const feat = all.find((b) => b.id === "nx-feat");
+    // Reconstructed: parent now points at the capability epic.
+    expect(feat?.parent).toBe("nx-epic");
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe("cachedUnlinkedBeadSource", () => {
   test("listOpenBeads filters the cached full set to open/in_progress client-side", async () => {
     const root = await warmProject([

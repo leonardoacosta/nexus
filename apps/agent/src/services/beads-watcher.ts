@@ -58,6 +58,33 @@ const BATCH_DELAY_MS = 200;
 // ---------------------------------------------------------------------------
 
 /**
+ * Reconstruct a bead's flattened `parent` from its `parent-child` dependency
+ * edge when the top-level `parent` field is absent.
+ *
+ * `bd list --json` (the live source the roadmap/rollup consumers were written
+ * against) flattens the parent-child relationship into a top-level `parent`
+ * field, but `bd export` -> `.beads/issues.jsonl` does NOT — it carries the
+ * edge ONLY inside `dependencies` (`{ depends_on_id, type: "parent-child" }`,
+ * where the entry is the bead's OWN outgoing edge). Without this, roadmap's
+ * `allBeads.filter(b => b.parent === epic.id)` finds zero children off the
+ * JSONL cache and every capability shows zero proposals.
+ *
+ * Verified byte-exact against the live box: deriving `parent` this way
+ * reproduces `bd list --json`'s `parent` for all 2042 nx beads (0 mismatch),
+ * so the cached RawBead[] is shape-equivalent to the live-CLI source. Only
+ * fills an ABSENT parent (never overwrites one a future export may add).
+ */
+function reconstructParent(bead: RawBead): void {
+  if (bead.parent) return;
+  for (const dep of bead.dependencies ?? []) {
+    if (dep.type === "parent-child" && dep.depends_on_id) {
+      bead.parent = dep.depends_on_id;
+      return;
+    }
+  }
+}
+
+/**
  * Parse `.beads/issues.jsonl` content into {@link RawBead}s.
  *
  * `issues.jsonl` is a full-dump export with NON-deterministic row order, so
@@ -65,6 +92,10 @@ const BATCH_DELAY_MS = 200;
  * line (a truncated mid-write, a partial JSON object) the WHOLE read is
  * treated as failed — returns `null` so the caller keeps its previous counts
  * rather than acting on a structurally-incomplete snapshot.
+ *
+ * Each parsed bead has its `parent` reconstructed from the JSONL's
+ * `parent-child` dependency edge (see {@link reconstructParent}) so the parsed
+ * array matches the `bd list --json` shape the cached bead source serves.
  */
 export function parseIssuesJsonl(content: string): RawBead[] | null {
   const beads: RawBead[] = [];
@@ -82,7 +113,9 @@ export function parseIssuesJsonl(content: string): RawBead[] | null {
       typeof obj === "object" &&
       typeof (obj as RawBead).id === "string"
     ) {
-      beads.push(obj as RawBead);
+      const bead = obj as RawBead;
+      reconstructParent(bead);
+      beads.push(bead);
     }
   }
   return beads;
