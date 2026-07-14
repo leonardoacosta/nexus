@@ -27,7 +27,7 @@
 
 ## API Batch
 
-- [ ] [2.1] In `apps/agent/src/services/socket-server/dispatcher.ts`'s `session_start` case [beads:nx-i6t66]
+- [x] [2.1] In `apps/agent/src/services/socket-server/dispatcher.ts`'s `session_start` case [beads:nx-i6t66]
   (currently: constructs `watcherEvent`, calls `sessionManager.handleWatcherEvent(watcherEvent)`
   unconditionally, then does best-effort credential binding), insert a correlation check BEFORE
   the `handleWatcherEvent` call: if `event.tmux_target` is present, call the new pane-translation
@@ -38,7 +38,7 @@
   — excluding already-linked rows (idempotency: a repeat `session_start`/heartbeat-shaped event
   for an already-correlated session must not re-match). If MULTIPLE rows match, pick the one with
   the most recent `last_activity`. [owner:general-purpose] [type:api]
-- [ ] [2.2] Branch on task 2.1's lookup result: **match found** -> call [beads:nx-5naya]
+- [x] [2.2] Branch on task 2.1's lookup result: **match found** -> call [beads:nx-5naya]
   `updateSessionCcSessionId(db, matchedRow.id, event.session_id)` (import from `../../db/sessions`,
   already exists, do not modify it) and do NOT call `sessionManager.handleWatcherEvent(...)` for
   this event (skip creating the second, UUID-keyed row entirely) — the rest of the existing

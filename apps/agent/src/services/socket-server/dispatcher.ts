@@ -9,9 +9,17 @@
 import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
-import { credentials, eq } from "@nexus/db";
-import { recordSessionStop, updateSessionModel } from "../../db/sessions";
-import type { SocketEvent, SessionStopEvent } from "../../types/socket-events";
+import { credentials, eq, sessions, and, or, isNull, inArray, desc } from "@nexus/db";
+import {
+  recordSessionStop,
+  updateSessionModel,
+  updateSessionCcSessionId,
+} from "../../db/sessions";
+import type {
+  SocketEvent,
+  SessionStartEvent,
+  SessionStopEvent,
+} from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
 import { isUnspeakable } from "../../notifications/speakability";
@@ -20,6 +28,7 @@ import { evaluateAndDispatch } from "../../notifications/hook-trigger";
 import type { NotificationManager } from "../../notifications/manager";
 import type { HookEventPayload } from "../../routes/hooks-types";
 import { getTracer } from "../../otel";
+import { fetchPaneTranslationMap } from "./pane-translation";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
 
 const log = createLogger("agent:socket-server");
@@ -66,7 +75,27 @@ export function createSocketEventDispatcher(
           path: event.cwd ?? "",
           cc_session_id: event.cc_session_id,
         };
-        sessionManager.handleWatcherEvent(watcherEvent);
+        // Pane-based session correlation (reconcile-session-id-universes,
+        // tasks 2.1/2.2): before letting `handleWatcherEvent` create a second
+        // (UUID-keyed) row, try to link this hook-sourced event to an
+        // existing process-watcher row via the hook's `tmux_target`. Pane
+        // translation + the DB lookup are both async, so this is fired via a
+        // small helper rather than awaited inline — matching this file's
+        // existing fire-and-forget shape for other async work (see
+        // `bindSessionCredential` a few lines below, which is also started
+        // with `.catch()` and never awaited at this level). Internally the
+        // helper is sequential: it awaits both the pane translation and the
+        // DB lookup before deciding which branch to take, so the "call
+        // handleWatcherEvent" and "skip it, correlate instead" branches can
+        // never race each other. See design.md § Fix.
+        correlateSessionStart(event, watcherEvent, sessionManager, db).catch(
+          (err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: session_start correlation failed unexpectedly",
+            );
+          },
+        );
 
         // Best-effort credential binding: if the event includes a
         // credential fingerprint, look up the credential and populate
@@ -528,6 +557,98 @@ export function createSocketEventDispatcher(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Pane-based session correlation for `session_start` (reconcile-session-id-
+ * universes, tasks 2.1/2.2). Attempts to link this hook-sourced event to an
+ * existing, not-yet-linked process-watcher row (Universe 1) via the hook's
+ * `tmux_target` (raw `%N` pane-id), so the two "session universes" merge into
+ * one row instead of `handleWatcherEvent` creating a second, UUID-keyed row.
+ *
+ * **Match found**: writes `event.session_id` onto the matched row's
+ * `cc_session_id` column via `updateSessionCcSessionId` and returns WITHOUT
+ * calling `handleWatcherEvent` — no second row is created for this session.
+ *
+ * **No match** (no `tmux_target` on the event, no `db` configured, the pane-
+ * translation lookup misses, no matching DB row, or any lookup step throws):
+ * falls back to TODAY'S UNCHANGED BEHAVIOR — calls `handleWatcherEvent`
+ * exactly as before. This is a strict regression guard (design.md § Fix,
+ * Non-Goals): the new path can only ADD correlation, never leave an unmatched
+ * session worse off than it is today, which is why lookup failures are
+ * caught here and folded into the same fallback rather than left to reject
+ * the returned promise (that would skip the `handleWatcherEvent` call the
+ * caller's `.catch()` doesn't restore).
+ *
+ * The two decisions (call `handleWatcherEvent` vs. correlate instead) can
+ * never race: both awaits below resolve before either branch runs.
+ */
+async function correlateSessionStart(
+  event: SessionStartEvent,
+  watcherEvent: WatcherEvent,
+  sessionManager: SessionManager,
+  db: Db | undefined,
+): Promise<void> {
+  if (event.tmux_target && db) {
+    try {
+      const paneMap = await fetchPaneTranslationMap();
+      const translated = paneMap.get(event.tmux_target);
+      if (translated) {
+        const matched = await findUnlinkedSessionByTmuxTarget(db, translated);
+        if (matched) {
+          await updateSessionCcSessionId(db, matched.id, event.session_id);
+          log.debug(
+            {
+              sessionId: event.session_id,
+              matchedSessionId: matched.id,
+              tmuxTarget: translated,
+            },
+            "socket: session_start correlated to existing process-watcher row",
+          );
+          return;
+        }
+      }
+    } catch (err: unknown) {
+      log.warn(
+        { err, sessionId: event.session_id, tmuxTarget: event.tmux_target },
+        "socket: session_start correlation lookup failed — falling back to handleWatcherEvent",
+      );
+      // Fall through to the unchanged fallback below (regression guard).
+    }
+  }
+
+  log.debug(
+    { sessionId: event.session_id, tmuxTarget: event.tmux_target ?? null },
+    "socket: session_start — no pane correlation match, calling handleWatcherEvent",
+  );
+  sessionManager.handleWatcherEvent(watcherEvent);
+}
+
+/**
+ * Find the most-recently-active `active`/`idle` session row matching a
+ * translated tmux `session:window.pane` address, excluding rows that already
+ * carry a `cc_session_id` (idempotency — a repeat session_start/heartbeat-
+ * shaped event for an already-correlated session must not re-match or
+ * double-write). Picks the most recent `last_activity` when multiple rows
+ * match a reused pane. Task 2.1 (reconcile-session-id-universes).
+ */
+async function findUnlinkedSessionByTmuxTarget(
+  db: Db,
+  tmuxTarget: string,
+): Promise<{ id: string } | null> {
+  const rows = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.tmuxTarget, tmuxTarget),
+        inArray(sessions.status, ["active", "idle"]),
+        or(isNull(sessions.ccSessionId), eq(sessions.ccSessionId, "")),
+      ),
+    )
+    .orderBy(desc(sessions.lastActivity))
+    .limit(1);
+  return rows[0] ?? null;
+}
 
 /**
  * Fire-and-forget agent-state derivation + persistence for a session-scoped
