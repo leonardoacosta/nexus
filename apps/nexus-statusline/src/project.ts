@@ -1,8 +1,81 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 
-export function deriveProjectCode(dir: string): string {
+function registryPath(): string {
+  // Read DOTFILES fresh on every call (not a module-level const) so a
+  // test that sets process.env.DOTFILES AFTER this module is first
+  // imported still takes effect — mirrors installfest's registry.py
+  // `_registry_path()`, which has the same env-read-per-call shape.
+  return join(
+    process.env.DOTFILES || join(homedir(), "dev/personal/installfest"),
+    "home/projects.toml",
+  );
+}
+
+// Memoized for the lifetime of this process (nexus-statusline is a fresh
+// binary invocation per render — no cross-render persistence — so this only
+// avoids re-parsing the registry twice within ONE render when both
+// `deriveProjectCode` and `isBbProject` need it, not across renders).
+let _registryCache: Map<string, string> | null = null;
+
+/** Test-only: clear the in-process registry cache between cases (production
+ * never needs this — a real invocation is a fresh process per render). */
+export function _resetProjectRegistryCacheForTests(): void {
+  _registryCache = null;
+}
+
+/**
+ * `{realpath: code}` from `home/projects.toml`'s `[[projects]]` blocks
+ * (simple regex parse, no TOML dep — same idiom as `getLocalAgentUrl`
+ * below). Each entry's `path` is realpath-resolved relative to `$HOME` so a
+ * symlink-alias registry entry (e.g. `cc`'s `.claude` -> `~/dev/cc`) and a
+ * project queried via its real target both collapse to the same key.
+ * Registered path missing on this machine (a remote-only tier) -> skipped,
+ * not an error; missing/unreadable registry file -> `{}` (fail-open —
+ * `deriveProjectCode` falls back to the legacy heuristic below).
+ */
+function loadProjectRegistry(): Map<string, string> {
+  if (_registryCache) return _registryCache;
+  const out = new Map<string, string>();
+  try {
+    const content = readFileSync(registryPath(), "utf-8");
+    const blocks = content.split(/\n(?=\[\[projects\]\])/);
+    for (const block of blocks) {
+      const codeMatch = block.match(/^\s*code\s*=\s*"([^"]+)"/m);
+      const pathMatch = block.match(/^\s*path\s*=\s*"([^"]+)"/m);
+      if (!codeMatch || !pathMatch) continue;
+      try {
+        out.set(realpathSync(join(homedir(), pathMatch[1])), codeMatch[1]);
+      } catch {
+        // Registered path doesn't exist here (e.g. a remote/cloudpc-only
+        // tier project) — skip, not a failure.
+      }
+    }
+  } catch {
+    // No registry file / unreadable — fall through to an empty map.
+  }
+  _registryCache = out;
+  return out;
+}
+
+/**
+ * Legacy `/dev/<first-segment>` heuristic — kept ONLY as the fallback for a
+ * directory with no registry match at all (e.g. an ad-hoc scratch dir).
+ *
+ * This used to be the WHOLE implementation, and it silently derives the
+ * CATEGORY folder name instead of the actual project code for anything
+ * nested under a category subdirectory: `dev/priceless/tribal-cities` ->
+ * `"priceless"`, `dev/personal/nv` -> `"personal"` — never `"tc"`/`"nv"`.
+ * That wrote/read the WRONG `roadmap-pulse.<code>.line` cache file (and
+ * every other project sharing that category collided onto the SAME wrong
+ * file, each overwriting the last one's content) — confirmed live
+ * 2026-07-13: `tc`/`nv`'s real cache files sat 3 days stale while
+ * `priceless.line`/`personal.line` kept getting fresh (wrong-project)
+ * writes every render. Registry lookup above is primary now; this is a
+ * last-resort fallback only.
+ */
+function legacyDeriveProjectCode(dir: string): string {
   if (dir.includes("/.claude") || dir.endsWith("/.claude")) return "cc";
   const devIdx = dir.indexOf("/dev/");
   if (devIdx !== -1) {
@@ -11,6 +84,36 @@ export function deriveProjectCode(dir: string): string {
     return end !== -1 ? rest.slice(0, end) : rest;
   }
   return basename(dir) || "?";
+}
+
+/**
+ * The registry short code owning `dir` (longest-realpath-prefix match
+ * against `home/projects.toml`, mirroring installfest's
+ * `apps/cc-tmux/src/cc_tmux/registry.py` `resolve_project_code` — same
+ * registry, same matching rule, kept in sync deliberately since both read
+ * the identical `roadmap-pulse.<code>.line` cache files). Falls back to
+ * :func:`legacyDeriveProjectCode` when nothing in the registry matches (an
+ * unregistered directory) or `dir` itself doesn't resolve (nonexistent
+ * path) — never throws.
+ */
+export function deriveProjectCode(dir: string): string {
+  try {
+    const real = realpathSync(dir);
+    const registry = loadProjectRegistry();
+    let bestCode = "";
+    let bestLen = -1;
+    for (const [projPath, code] of registry) {
+      if (real !== projPath && !real.startsWith(projPath + "/")) continue;
+      if (projPath.length > bestLen) {
+        bestCode = code;
+        bestLen = projPath.length;
+      }
+    }
+    if (bestCode) return bestCode;
+  } catch {
+    // dir doesn't exist / registry unreadable — fall through to legacy.
+  }
+  return legacyDeriveProjectCode(dir);
 }
 
 // ── B&B project gate (radar content) ─────────────────────────────────────────
