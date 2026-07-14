@@ -1,7 +1,9 @@
 import type { HealthMetrics, ProcessInfo } from "@nexus/core";
 import { createLogger, type Logger } from "@nexus/core/node";
+import type { Meter } from "@opentelemetry/api";
 import si from "systeminformation";
 import os from "node:os";
+import { getMeter } from "./otel";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 
 const DEFAULT_INTERVAL_MS = 5_000;
@@ -37,6 +39,13 @@ export interface HealthCollectorDeps {
   source?: HealthSource;
   /** Named module logger (default: `createLogger("agent:health-collector")`). */
   logger?: Logger;
+  /**
+   * OTel meter used to record gauges alongside the existing DB-persisted
+   * tick (default: `getMeter()`, the process-global nexus-agent meter).
+   * Tests inject a no-op/spy meter LOCALLY — same rationale as `logger`
+   * above (avoid Bun's process-global `mock.module`).
+   */
+  meter?: Meter;
 }
 
 // Docker backoff constants
@@ -88,6 +97,15 @@ export class HealthCollector {
    */
   private readonly si: HealthSource;
   private readonly log: Logger;
+  private readonly meter: Meter;
+
+  // Gauges recorded once per tick, alongside the existing DB-persisted
+  // HealthMetrics — same collection cycle, two sinks. Created once (not
+  // per-tick) since Meter#createGauge returns a stable handle.
+  private readonly cpuLoadGauge;
+  private readonly memoryUsedGauge;
+  private readonly diskUsedGauge;
+  private readonly dockerContainerCountGauge;
 
   // Docker detection exponential backoff state
   private dockerBackoffUntil: number = 0;
@@ -100,6 +118,24 @@ export class HealthCollector {
     this.intervalMs = intervalMs;
     this.si = deps.source ?? si;
     this.log = deps.logger ?? log;
+    this.meter = deps.meter ?? getMeter();
+
+    this.cpuLoadGauge = this.meter.createGauge("nexus_agent_cpu_load", {
+      description: "Current overall CPU load percentage",
+      unit: "%",
+    });
+    this.memoryUsedGauge = this.meter.createGauge(
+      "nexus_agent_memory_used_bytes",
+      { description: "Memory used, in bytes", unit: "By" },
+    );
+    this.diskUsedGauge = this.meter.createGauge(
+      "nexus_agent_disk_used_bytes",
+      { description: "Disk used per mount, in bytes", unit: "By" },
+    );
+    this.dockerContainerCountGauge = this.meter.createGauge(
+      "nexus_agent_docker_container_count",
+      { description: "Docker container count (running, when available)" },
+    );
   }
 
   /** Start periodic collection. First collection happens immediately. */
@@ -236,6 +272,16 @@ export class HealthCollector {
       last_watcher_tick_ms: -1,
       socket_server_listening: false,
     };
+
+    // Second sink for the same collection cycle: OTel gauges, recorded from
+    // the SAME already-extracted values used to build `metrics` above (no
+    // parallel recomputation). DB persistence of `metrics` is unchanged.
+    this.cpuLoadGauge.record(cpuLoad.currentLoad);
+    this.memoryUsedGauge.record(mem.used);
+    for (const d of disks) {
+      this.diskUsedGauge.record(d.used, { mount: d.mount });
+    }
+    this.dockerContainerCountGauge.record(dockerContainers?.containers ?? 0);
 
     return metrics;
   }
