@@ -27,4 +27,4 @@
 ## E2E Batch
 
 - [x] [4.1] [P-1] Vitest coverage for `GET /statusline`'s 4-mode dispatch (neither / accountId / sessionId / both=400), the session-to-project join, cost-usage composition, and the `GET /credentials` usage-field removal [owner:tdd-integration] [type:testing] [beads:nx-ws952]
-- [ ] [4.2] [P-2] Regression test confirming `sessions.total_cost_usd` column removal does not break existing session-serialization tests [owner:test-writer] [type:testing] [beads:nx-1gw6k]
+- [x] [4.2] [P-2] Regression test confirming `sessions.total_cost_usd` column removal does not break existing session-serialization tests [owner:test-writer] [type:testing] [beads:nx-1gw6k]
