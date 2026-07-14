@@ -88,14 +88,27 @@ function describePostgresUrl(url: string | undefined): {
 }
 
 /**
- * Probe each required table with `SELECT to_regclass('<name>')`. Returns the
- * list of tables that resolved to NULL (i.e. don't exist in the current
- * search_path).
+ * Probe each required table in the connection's CURRENT schema. Returns the
+ * list of tables that don't exist there.
  *
  * Why `to_regclass`: it's a single planner-level lookup against pg_class — no
  * row scan, no permission check, no error on missing tables. Cheaper than
  * `SELECT 1 FROM <tbl> LIMIT 0` (which has to acquire a relation lock) and
  * doesn't blow up if the table genuinely doesn't exist.
+ *
+ * Why qualify with `current_schema()`: a bare `to_regclass('name')` resolves
+ * against the ENTIRE search_path, so a caller scoped to schema X (via
+ * `search_path = "X",public`) that is missing a table would silently match the
+ * copy in a LATER schema (e.g. `public`) and report the schema as healthy —
+ * answering about a DIFFERENT schema than the one it was asked to check
+ * (nx-awafn). Pinning the probe to `current_schema()` (the first resolvable
+ * schema on the search_path — the one the caller is scoped to) removes that
+ * fallback. In production the connection resolves to `public`, where the
+ * migrated tables live, so this is a no-op for the real `nexus` schema —
+ * `to_regclass('public.sessions')` and the old `to_regclass('sessions')`
+ * resolve to the same relation. `quote_ident` handles identifier quoting; a
+ * NULL `current_schema()` collapses the expression to NULL → reported missing
+ * (the safe fail direction).
  */
 async function findMissingTables(db: Db): Promise<string[]> {
   const missing: string[] = [];
@@ -105,7 +118,7 @@ async function findMissingTables(db: Db): Promise<string[]> {
       // to text so the postgres.js driver hands us a string|null instead of
       // a `regclass` OID — easier to compare against null.
       const result = (await db.execute(
-        sql`SELECT to_regclass(${table})::text AS oid`,
+        sql`SELECT to_regclass(quote_ident(current_schema()) || '.' || quote_ident(${table}))::text AS oid`,
       )) as unknown as Array<{ oid: string | null }>;
       const oid = result[0]?.oid ?? null;
       if (oid === null) missing.push(table);
