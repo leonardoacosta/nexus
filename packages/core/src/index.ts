@@ -44,11 +44,19 @@ export type {
 } from "./types/credential";
 export type {
   Account,
+  Account5H7D,
   CredentialFile,
   UsageHistoryPoint,
   UsageSnapshot,
   WireCredentialRow,
 } from "./types/account";
+export type {
+  NextRecommendation,
+  NextRecommendationItem,
+  NextRecommendationContext,
+  SessionStatusResponse,
+  StatuslineResponse,
+} from "./types/statusline";
 export {
   credentialsActiveResponseSchema,
 } from "./types/credentials-active";
