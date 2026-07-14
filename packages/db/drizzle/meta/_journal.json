@@ -393,6 +393,13 @@
       "when": 1783986202784,
       "tag": "0055_supreme_strong_guy",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1784053437673,
+      "tag": "0056_round_shriek",
+      "breakpoints": true
     }
   ]
 }

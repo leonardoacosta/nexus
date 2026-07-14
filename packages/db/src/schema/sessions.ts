@@ -6,7 +6,6 @@ import {
   integer,
   timestamp,
   real,
-  doublePrecision,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -38,7 +37,6 @@ export const sessions = pgTable(
     sessionType: text("session_type"),
     model: text("model"),
     rateLimitUtilization: real("rate_limit_utilization"),
-    totalCostUsd: doublePrecision("total_cost_usd"),
     rateLimitResetAt: timestamp("rate_limit_reset_at", { mode: "date" }),
     idleSince: timestamp("idle_since", { mode: "date" }),
     ccSessionId: text("cc_session_id"),

@@ -37,7 +37,6 @@ const DB_COLUMN_KEYS = new Set([
   "sessionType",
   "model",
   "rateLimitUtilization",
-  "totalCostUsd",
   "rateLimitResetAt",
   "idleSince",
   "ccSessionId",
@@ -100,7 +99,7 @@ type _AllSessionKeysAreExpected = Exclude<
   keyof Session,
   | "id" | "projectId" | "machine" | "status" | "startedAt" | "endedAt"
   | "pid" | "cwd" | "branch" | "sessionType" | "model" | "rateLimitUtilization"
-  | "totalCostUsd" | "ccSessionId" | "tmuxSession" | "tmuxTarget" | "spec"
+  | "ccSessionId" | "tmuxSession" | "tmuxTarget" | "spec"
   | "credentialId" | "credentialFingerprint"
   | "agentState" | "parentSessionId" | "childRole"
   | "lastHeartbeat" | "project" | "command" | "agent" | "rateLimitType"
@@ -164,7 +163,6 @@ describe("Session shape", () => {
       "status",
       "tmuxSession",
       "tmuxTarget",
-      "totalCostUsd",
     ]);
   });
 

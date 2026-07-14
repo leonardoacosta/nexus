@@ -794,7 +794,6 @@ async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
         tmuxTarget,
         rateLimitUtilization: null,
         rateLimitType: null,
-        totalCostUsd: null,
         model: "claude",
         credentialId: null,
         credentialFingerprint: null,
