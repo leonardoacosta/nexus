@@ -96,8 +96,8 @@ describe("suppression cache", () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "y" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "y" }));
 
     // First call: 1 send (desktop). Second call: suppressed.
     expect(sends).toHaveLength(1);
@@ -107,10 +107,10 @@ describe("suppression cache", () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Edit", error_message: "y" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "session_stop", error_message: "y" }));
 
-    expect(sends).toHaveLength(2); // 1 channel × 2 distinct tools
+    expect(sends).toHaveLength(2); // 1 channel × 2 distinct hook names
   });
 
   it("fires again after the window expires", async () => {
@@ -122,10 +122,10 @@ describe("suppression cache", () => {
     const dateSpy = spyOn(Date, "now").mockImplementation(() => fakeTime);
 
     try {
-      await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
+      await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
       // Advance past the window.
       fakeTime += SUPPRESSION_WINDOW_MS + 1;
-      await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "y" }));
+      await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "y" }));
     } finally {
       dateSpy.mockRestore();
       // belt-and-braces — make sure we restored to the real clock
@@ -211,9 +211,9 @@ describe("settings filter", () => {
     const db = makeFakeDb({ ttsEnabled: true, bannerEnabled: false });
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
 
-    // tool_use_fail has desktop only — desktop gets stripped, nothing fires.
+    // hook_failure has desktop only — desktop gets stripped, nothing fires.
     expect(sends).toHaveLength(0);
   });
 
@@ -231,7 +231,7 @@ describe("settings filter", () => {
     const db = makeFakeDb(null);
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
 
     expect(sends).toHaveLength(1); // desktop only (slack removed)
   });
@@ -240,7 +240,7 @@ describe("settings filter", () => {
     const db = makeFakeDb(null, { throws: true });
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "x" }));
+    await evaluateAndDispatch(db, manager, "hook_failure", payload({ hook_name: "post_compact", error_message: "x" }));
 
     expect(sends).toHaveLength(1);
   });
@@ -336,6 +336,21 @@ describe("resilience", () => {
     await evaluateAndDispatch(db, manager, "session_heartbeat", payload());
     await evaluateAndDispatch(db, manager, "agent_spawn", payload());
     await evaluateAndDispatch(db, manager, "totally_made_up", payload());
+
+    expect(sends).toHaveLength(0);
+  });
+
+  // remove-tool-use-fail-notification (nx-l08rs): tool_use_fail was removed
+  // from the rule registry entirely — cc's telemetry.sh still POSTs this
+  // event for session_events persistence, but it must never produce a
+  // notification for any client again. `evaluateAndDispatch` no-ops via the
+  // same "event type has no notification rule" branch as any other unmapped
+  // event type.
+  it("no longer dispatches a notification for tool_use_fail", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(db, manager, "tool_use_fail", payload({ tool_name: "Bash", error_message: "permission denied" }));
 
     expect(sends).toHaveLength(0);
   });

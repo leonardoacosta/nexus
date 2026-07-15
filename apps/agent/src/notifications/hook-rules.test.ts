@@ -26,54 +26,25 @@ function channels(drafts: NotificationDraft[] | null): string[] {
 }
 
 describe("hook-rules registry", () => {
-  it("exposes exactly the six canonical rules", () => {
+  it("exposes exactly the five canonical rules", () => {
     const keys = Object.keys(hookRules).sort();
-    // add-api-error-notification (nx-nsjif): the registry grew from 5 to 6 with
-    // the synthetic `api_error` routing key. Six entries is asserted exactly —
-    // a seventh is a deliberate change requiring a spec update.
+    // remove-tool-use-fail-notification (nx-l08rs): `tool_use_fail` was
+    // removed from the registry — it fired a desktop banner on every failed
+    // tool call, throttled but never eliminated (112 banners/48h). Five
+    // entries is asserted exactly — a sixth is a deliberate change requiring
+    // a spec update.
     expect(keys).toEqual([
       "api_error",
       "hook_failure",
       "permission_request",
       "session_stop",
       "session_summary",
-      "tool_use_fail",
     ]);
-    expect(keys).toHaveLength(6);
-  });
-});
-
-describe("tool_use_fail rule", () => {
-  it("fires desktop with project-prefixed body", () => {
-    const drafts = hookRules.tool_use_fail!(
-      payload({ tool_name: "Bash", error_message: "permission denied" }),
-    );
-    expect(channels(drafts)).toEqual(["desktop"]);
-    expect(drafts).not.toBeNull();
-    for (const d of drafts!) {
-      expect(d.title).toContain("Bash");
-      expect(d.body.startsWith("nx: ")).toBe(true);
-      expect(d.body).toContain("permission denied");
-      expect(d.project).toBe("nx");
-    }
+    expect(keys).toHaveLength(5);
   });
 
-  it("falls back to Wave 1 alias names (`tool`, `error`)", () => {
-    const drafts = hookRules.tool_use_fail!(
-      payload({ tool: "Edit", error: "EACCES" }),
-    );
-    expect(drafts).not.toBeNull();
-    expect(drafts![0]!.title).toContain("Edit");
-    expect(drafts![0]!.body).toContain("EACCES");
-  });
-
-  it("omits project prefix when payload has no project", () => {
-    const drafts = hookRules.tool_use_fail!(
-      payload({ project: undefined, tool_name: "Bash", error_message: "boom" }),
-    );
-    expect(drafts).not.toBeNull();
-    expect(drafts![0]!.body.startsWith("Bash")).toBe(true);
-    expect(drafts![0]!.project).toBeNull();
+  it("no longer maps tool_use_fail to a rule (nx-l08rs)", () => {
+    expect(hookRules.tool_use_fail).toBeUndefined();
   });
 });
 

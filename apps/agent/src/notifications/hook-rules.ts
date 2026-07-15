@@ -1,9 +1,8 @@
 /**
  * Hook event → notification rules. Curated routing policy mirrored from
  * `~/.claude/scripts/hooks/telemetry.sh` (see "Event destination routing"
- * section, curated 2026-04-24). Six rules:
+ * section, curated 2026-04-24). Five rules:
  *
- *   tool_use_fail      → desktop                (level 50, error)
  *   permission_request → desktop + tts          (level 40, friction signal)
  *   hook_failure       → desktop                (level 50, error)
  *   session_stop crash → desktop                (when crash_flag === true OR
@@ -14,6 +13,16 @@
  *                                                routed via the synthetic
  *                                                `api_error` eventType key —
  *                                                see apiErrorRule / nx-7tfim)
+ *
+ * `tool_use_fail` was REMOVED (nx-l08rs, 2026-07-15) — it fired a desktop
+ * banner on every failed tool call across every client, throttled only by a
+ * 30s per-tool-name suppression window, never eliminated (112 real banners
+ * in 48h). cc's `telemetry.sh` still POSTs `tool_use_fail` hook events to
+ * this agent for `session_events` persistence (see "Tool-Use Event
+ * Persistence" in the hooks-endpoint spec) — that write path is untouched.
+ * Only the notification-rule mapping was removed; `evaluateAndDispatch`
+ * (`hook-trigger.ts`) now silently no-ops for this event type via its
+ * existing "event type has no notification rule" branch.
  *
  * Slack channel was removed by `remove-slack-channel` (spine-migration); the
  * desktop channel carries the same error signal via UNNotificationCenter.
@@ -211,21 +220,6 @@ function isApiError(payload: HookEventPayload): boolean {
 
 // ─── Rule bodies ─────────────────────────────────────────────────────────────
 
-const toolUseFailRule: HookRule = (payload) => {
-  const project = projectOf(payload);
-  const tool = readToolName(payload);
-  const error = readErrorMessage(payload);
-  const title = `tool failed: ${tool}`;
-  const message = error
-    ? `${tool} failed: ${error}`
-    : `${tool} failed`;
-  const body = prefixBody(project, message);
-
-  return [
-    { channel: "desktop", title, body, project, priority: "high" },
-  ];
-};
-
 const permissionRequestRule: HookRule = (payload) => {
   const project = projectOf(payload);
   const tool = readToolName(payload);
@@ -347,11 +341,11 @@ const sessionSummaryRule: HookRule = (payload) => {
  * synthetic event type (add-api-error-notification, nx-06bbb): it is not a CC
  * hook name but a routing key the dispatcher/tail-watcher use to reach
  * `apiErrorRule` via `evaluateAndDispatch(..., "api_error", payload)`. Tests
- * assert exactly six entries — adding a seventh is a deliberate change that
- * requires a spec update.
+ * assert exactly five entries — adding a sixth is a deliberate change that
+ * requires a spec update. (`tool_use_fail` was removed here, nx-l08rs — see
+ * the file header comment.)
  */
 export const hookRules: Record<string, HookRule> = {
-  tool_use_fail: toolUseFailRule,
   permission_request: permissionRequestRule,
   hook_failure: hookFailureRule,
   session_stop: sessionStopRule,

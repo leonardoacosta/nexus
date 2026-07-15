@@ -278,11 +278,10 @@ This requirement codifies the architecture decision: server stateless re: subscr
 
 After persisting an event row in the `session_events` table, `handleHooks` SHALL evaluate the event payload against a curated set of notification rules. Each rule maps an event type (and optional predicate over payload fields) to a notification draft consisting of `{ title, body, channels }`. Matching rules SHALL produce notifications via the existing `NotificationManager.send()` path so they flow through the same buffer / meeting-state / parallel-delivery pipeline as `/notifications/send`.
 
-The v1 rule set MUST include exactly the following five triggers (mirroring the cc-side curated routing policy in `~/.claude/scripts/hooks/telemetry.sh`):
+The v1 rule set MUST include exactly the following four triggers (mirroring the cc-side curated routing policy in `~/.claude/scripts/hooks/telemetry.sh`):
 
 | Event type | Predicate | Channels |
 |---|---|---|
-| `tool_use_fail` | always | `desktop`, `slack` |
 | `permission_request` | always | `desktop`, `tts` |
 | `hook_failure` | always | `desktop`, `slack` |
 | `session_stop` | payload `crash_flag === true` (or equivalent stop_reason indicating a crash) | `desktop`, `slack` |
@@ -290,14 +289,16 @@ The v1 rule set MUST include exactly the following five triggers (mirroring the 
 
 Notification body SHALL be project-prefixed (`"<project>: <message>"`) when the payload carries a `project` field, matching the convention used elsewhere in the notification pipeline.
 
-#### Scenario: tool_use_fail fires desktop + slack
-
-- **GIVEN** a `tool_use_fail` payload with `session_id="abc-123"`, `project="oo"`, `tool_name="Bash"`, `error_message="permission denied"`
-- **WHEN** `handleHooks` processes the request
-- **THEN** the event row is persisted in `session_events` first
-- **AND** a notification is sent with `channels=["desktop","slack"]`
-- **AND** the notification body contains the tool name and error
-- **AND** the response is HTTP 200
+> **2026-07-15 correction (nx-l08rs)**: `tool_use_fail` was REMOVED from this
+> trigger set. It fired a desktop banner on every failed tool call across
+> every client, throttled only by a 30-second per-tool-name suppression
+> window — never eliminated (112 real banners in 48 hours). `tool_use_fail`
+> events are still recognized and persisted to `session_events` (see
+> "Tool-Use Event Persistence" above); only the notification mapping was
+> removed. This capability spec predates `add-api-error-notification`
+> (which added the `api_error` trigger) and `remove-slack-channel` (which
+> removed the `slack` channel referenced below) — those are pre-existing
+> drift, out of scope for this correction.
 
 #### Scenario: permission_request fires desktop + tts
 
@@ -355,32 +356,31 @@ To prevent notification storms in tight retry loops or repeated permission promp
 
 | Event type | Suppression key | Window |
 |---|---|---|
-| `tool_use_fail` | `tool_use_fail:<tool_name>` | 30 seconds |
 | `permission_request` | none (always fire) | n/a |
 | `hook_failure` | `hook_failure:<hook_name>` | 30 seconds |
 | `session_stop` (crash) | `session_stop:<session_id>` | per session (effectively infinite) |
 | `session_summary` (digest) | `session_summary:<session_id>` | per session (effectively infinite) |
 
-#### Scenario: tool_use_fail dedupes within 30 seconds
+#### Scenario: hook_failure dedupes within 30 seconds
 
-- **GIVEN** a `tool_use_fail` payload with `tool_name="Bash"` is processed
-- **AND** another `tool_use_fail` payload with `tool_name="Bash"` arrives 5 seconds later
+- **GIVEN** a `hook_failure` payload with `hook_name="post_compact"` is processed
+- **AND** another `hook_failure` payload with `hook_name="post_compact"` arrives 5 seconds later
 - **WHEN** `handleHooks` processes the second request
 - **THEN** the second event is persisted in `session_events`
 - **AND** NO notification is dispatched for the second event
 - **AND** the suppression cache reflects the most recent timestamp
 
-#### Scenario: tool_use_fail with different tool_name is not suppressed
+#### Scenario: hook_failure with different hook_name is not suppressed
 
-- **GIVEN** a `tool_use_fail` payload with `tool_name="Bash"` is processed
-- **AND** a `tool_use_fail` payload with `tool_name="Edit"` arrives 5 seconds later
+- **GIVEN** a `hook_failure` payload with `hook_name="post_compact"` is processed
+- **AND** a `hook_failure` payload with `hook_name="session_stop"` arrives 5 seconds later
 - **WHEN** `handleHooks` processes the second request
 - **THEN** BOTH events fire notifications
 
-#### Scenario: tool_use_fail after window expires fires again
+#### Scenario: hook_failure after window expires fires again
 
-- **GIVEN** a `tool_use_fail` payload with `tool_name="Bash"` is processed
-- **AND** another `tool_use_fail` payload with `tool_name="Bash"` arrives 35 seconds later
+- **GIVEN** a `hook_failure` payload with `hook_name="post_compact"` is processed
+- **AND** another `hook_failure` payload with `hook_name="post_compact"` arrives 35 seconds later
 - **WHEN** `handleHooks` processes the second request
 - **THEN** BOTH events fire notifications
 
@@ -415,10 +415,10 @@ Before sending a triggered notification, the rule engine SHALL read the current 
 - **THEN** the dispatched channels are `["desktop"]` only
 - **AND** no TTS synthesis or `NotificationFired` event for the TTS channel occurs
 
-#### Scenario: banner_enabled=false skips desktop for tool_use_fail
+#### Scenario: banner_enabled=false skips desktop for hook_failure
 
 - **GIVEN** `notification_settings` has `tts_enabled=true, banner_enabled=false`
-- **AND** a `tool_use_fail` payload arrives
+- **AND** a `hook_failure` payload arrives
 - **WHEN** the trigger evaluates
 - **THEN** the dispatched channels are `["slack"]` only
 
@@ -444,8 +444,8 @@ This enables per-rule unit tests: build a fixture payload, call the rule, assert
 
 #### Scenario: Each rule is unit-testable in isolation
 
-- **GIVEN** a fixture `tool_use_fail` payload with the minimum required fields
-- **WHEN** the `tool_use_fail` rule's predicate-and-toNotification function is called directly
+- **GIVEN** a fixture `hook_failure` payload with the minimum required fields
+- **WHEN** the `hook_failure` rule's predicate-and-toNotification function is called directly
 - **THEN** the function returns a `NotificationDraft` with `channels=["desktop","slack"]`
 - **AND** the function does not require a database, lifecycle bus, or HTTP client
 
@@ -455,9 +455,9 @@ This enables per-rule unit tests: build a fixture payload, call the rule, assert
 - **WHEN** the `session_summary` rule is called directly
 - **THEN** the function returns `null` (predicate failed; no draft produced)
 
-#### Scenario: Rule registry exposes all five rules for inspection
+#### Scenario: Rule registry exposes all four rules for inspection
 
 - **WHEN** the trigger module's exported rule registry is iterated
-- **THEN** exactly five rules are present
-- **AND** their `eventType` fields are: `tool_use_fail`, `permission_request`, `hook_failure`, `session_stop`, `session_summary`
+- **THEN** exactly four rules are present
+- **AND** their `eventType` fields are: `permission_request`, `hook_failure`, `session_stop`, `session_summary`
 

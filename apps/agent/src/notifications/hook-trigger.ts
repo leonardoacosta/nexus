@@ -9,7 +9,6 @@
  *
  * Suppression policy (from spec, mirroring the cc-side throttle convention):
  *
- *   tool_use_fail        : key = `tool_use_fail:<tool_name>`     window = 30s
  *   permission_request   : no suppression (always fires)
  *   hook_failure         : key = `hook_failure:<hook_name>`      window = 30s
  *   session_stop crash   : key = `session_stop:<session_id>`     window = 30s
@@ -54,8 +53,6 @@ function suppressionKey(
   payload: HookEventPayload,
 ): string | null {
   switch (eventType) {
-    case "tool_use_fail":
-      return `tool_use_fail:${payload.tool_name ?? payload.tool ?? "unknown"}`;
     case "hook_failure":
       return `hook_failure:${payload.hook_name ?? payload.handler ?? "unknown"}`;
     case "session_stop":
