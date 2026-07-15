@@ -38,6 +38,10 @@ import {
   startProcessWatcher,
   type ProcessWatcherHandle,
 } from "./services/process-watcher";
+import {
+  startStatuslineCtxPoller,
+  type StatuslineCtxPollerHandle,
+} from "./services/statusline-ctx-poller";
 import type { WsData } from "./terminal/stream-manager";
 import { safeFireAndForget } from "./utils/safe-fire-and-forget";
 import type { AppContext } from "./context";
@@ -242,6 +246,7 @@ export function startServer(
 
   // Track DB-backed background subsystems so graceful shutdown can stop them.
   let processWatcher: ProcessWatcherHandle | null = null;
+  let statuslineCtxPoller: StatuslineCtxPollerHandle | null = null;
   let credWatcher: AbortController | null = null;
   let activeCredWatcher: AbortController | null = null;
 
@@ -276,6 +281,16 @@ export function startServer(
     // fires immediately, subsequent ticks scheduled internally. Stopped
     // by `wrapper.stop()` below.
     processWatcher = startProcessWatcher(db);
+
+    // detach-context-push-from-statusline-lifecycle: 3s poller reading local
+    // `~/.claude/scripts/state/statusline-ctx.*.json` snapshot files (written
+    // reliably by nexus-statusline's context-guard.ts on every render) into
+    // the in-process session-context store — replaces the fire-and-forget
+    // network PUSH that could never survive nexus-statusline's own
+    // CC-cancellable process lifetime (design.md § Root cause). Same
+    // start/stop lifecycle as the process watcher above; stopped by
+    // `wrapper.stop()` below.
+    statuslineCtxPoller = startStatuslineCtxPoller();
   }
 
   // Initialize subsystems that do not need the DB.
@@ -309,7 +324,8 @@ export function startServer(
   // background subsystem (process watcher + both credential fs watchers).
   // Without this the watch loops and debounce timers keep the event loop
   // open after the server stops, holding fds during dev restarts / tests.
-  const hasBackground = processWatcher || credWatcher || activeCredWatcher;
+  const hasBackground =
+    processWatcher || statuslineCtxPoller || credWatcher || activeCredWatcher;
   const wrapper: NexusServer = hasBackground
     ? {
         get port() {
@@ -318,6 +334,7 @@ export function startServer(
         stop(closeActiveConnections?: boolean) {
           const disposers: Array<[string, () => void]> = [
             ["process-watcher", () => processWatcher?.stop()],
+            ["statusline-ctx-poller", () => statuslineCtxPoller?.stop()],
             ["credential-watcher", () => credWatcher?.abort()],
             ["active-credential-watcher", () => activeCredWatcher?.abort()],
           ];

@@ -22,7 +22,7 @@
 
 ## API Batch
 
-- [ ] [2.1] Add `apps/agent/src/services/statusline-ctx-poller.ts`: a persistent poller mirroring [beads:nx-6a5fv]
+- [x] [2.1] Add `apps/agent/src/services/statusline-ctx-poller.ts`: a persistent poller mirroring [beads:nx-6a5fv]
   `process-watcher.ts`'s own start/stop lifecycle pattern (read that file's `startProcessWatcher`/
   `ProcessWatcherHandle` shape first, match its style). On each tick (proposed interval: 3
   seconds — see design.md § Poll cadence for the rationale), list
@@ -40,11 +40,11 @@
   files are skipped silently (fail-soft, matching this codebase's universal convention for
   file-cache reads). Export a `startStatuslineCtxPoller(): StatuslineCtxPollerHandle` (with a
   `stop()` method) mirroring `ProcessWatcherHandle`'s shape. [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/agent/src/server.ts`: start the poller (task 2.1) alongside [beads:nx-mq8ht]
+- [x] [2.2] `apps/agent/src/server.ts`: start the poller (task 2.1) alongside [beads:nx-mq8ht]
   `startProcessWatcher(db)` (same section, same lifecycle — read the surrounding code first to
   match exactly how `processWatcher`'s handle is stored/stopped on server teardown, and do the
   same for the new poller's handle). [owner:general-purpose] [type:api]
-- [ ] [2.3] `apps/nexus-statusline/src/context-guard.ts`: remove the fire-and-forget [beads:nx-uvly3]
+- [x] [2.3] `apps/nexus-statusline/src/context-guard.ts`: remove the fire-and-forget [beads:nx-uvly3]
   `pushContext` HTTP call sites in `resolveContext` (both the "populated frame" branch and the
   "suspicious zero, restore fresh snapshot" branch each currently call `pushContext(...)` —
   remove BOTH call sites) and the now-unused `defaultPushContext`/`CtxResolverDeps.pushContext`

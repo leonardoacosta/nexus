@@ -35,9 +35,11 @@ interface ContextEntry {
 
 /**
  * Entries older than this are treated as absent — matches `context-guard.ts`'s
- * `CTX_FRESH_WINDOW_SECS` freshness convention (600s).
+ * `CTX_FRESH_WINDOW_SECS` freshness convention (600s). Exported so
+ * `statusline-ctx-poller.ts` shares this exact freshness window rather than
+ * re-hardcoding 600.
  */
-const CACHE_TTL_MS = 600 * 1_000; // 600s
+export const CACHE_TTL_MS = 600 * 1_000; // 600s
 
 const store = new Map<string, ContextEntry>();
 

@@ -1383,7 +1383,12 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
         statMtimeMs: () => null,
         readSnapshot: () => null,
         writeSnapshot: () => {},
-        pushContext: (id, used, size) => pushes.push([id, used, size]),
+        // detach-context-push-from-statusline-lifecycle (task 2.3):
+        // `pushContext` was removed from `CtxResolverDeps` entirely — the
+        // callback below is now dead (never invoked) and the assertion
+        // below is EXPECTED to fail until task 3.2 (a later batch) updates
+        // it. Left in place, not "fixed", per that task's explicit
+        // "fine/expected to fail" carve-out.
       },
     );
     expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
@@ -1404,7 +1409,10 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
           context_window_size: 200000,
           saved_at: fixedNow - 60,
         }),
-        pushContext: (id, used, size) => pushes.push([id, used, size]),
+        // detach-context-push-from-statusline-lifecycle (task 2.3):
+        // `pushContext` removed from `CtxResolverDeps` — see the note in the
+        // preceding test. Assertions below are EXPECTED to fail pending
+        // task 3.2.
       },
     );
     expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000 });
@@ -1417,15 +1425,18 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
     let pushed = 0;
     const res = resolveContext(
       { session_id: "s1", context_window: { used_percentage: 0 } },
-      { ...detNowDeps, readSnapshot: () => null, pushContext: () => pushed++ },
+      { ...detNowDeps, readSnapshot: () => null },
     );
     expect(res).toBeNull();
     expect(pushed).toBe(0);
   });
 
   it("returns the guarded value even when the injected push hangs (fire-and-forget)", () => {
-    // A push seam that kicks off never-settling async work must not delay or
-    // break the synchronous resolve return path.
+    // detach-context-push-from-statusline-lifecycle (task 2.3): the
+    // `pushContext` seam this test exercised is removed from
+    // `CtxResolverDeps` entirely — there is no longer any push to hang.
+    // `pushContext` dropped from the deps literal so this compiles; the
+    // original "never-settling push" premise is stale pending task 3.2.
     const res = resolveContext(
       {
         session_id: "s1",
@@ -1436,9 +1447,6 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
         statMtimeMs: () => null,
         readSnapshot: () => null,
         writeSnapshot: () => {},
-        pushContext: () => {
-          void new Promise(() => {}); // never resolves
-        },
       },
     );
     expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
