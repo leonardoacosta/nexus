@@ -45,7 +45,7 @@
  *   CLAUDE_PROJECT_DIR  — Current project directory (fallback: workspace.project_dir, then cwd)
  */
 
-import { openSync, readSync, closeSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { getLocalAgentUrl } from "./project";
 import { renderStatusline } from "./render";
@@ -66,12 +66,18 @@ import type { CcInput, GitInfo } from "./types";
 
 function readStdinInput(): CcInput {
   try {
-    const fd = openSync("/dev/stdin", "r");
-    const buf = Buffer.alloc(8192);
-    const bytesRead = readSync(fd, buf, 0, buf.length, null);
-    closeSync(fd);
-    if (bytesRead === 0) return {};
-    return JSON.parse(buf.subarray(0, bytesRead).toString("utf-8"));
+    // Read fd 0 directly rather than reopening it via the "/dev/stdin" path.
+    // CC invokes this command with stdin as a non-reopenable descriptor type
+    // (confirmed via live capture: openSync("/dev/stdin") throws
+    // `ENXIO: no such device or address` under a real CC-spawned invocation,
+    // even though the already-open fd 0 itself reads fine) — the magic
+    // /proc/self/fd/0 symlink reopen only works reliably for plain anonymous
+    // pipes, not every stdio descriptor a process launcher may hand a child.
+    // readFileSync(0, ...) reads the already-open descriptor in a loop until
+    // EOF, with no reopen involved, so it works regardless of descriptor type.
+    const raw = readFileSync(0, "utf-8");
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch {
     return {};
   }
