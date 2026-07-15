@@ -266,13 +266,38 @@ export class CredentialPool {
         return "updated" as const;
       }
 
+      // Resolve the duplicate-group anchor for this fingerprint. Prefer the
+      // duplicateGroupId already carried by ANY row that currently has this
+      // exact fingerprint -- regardless of that row's own name or
+      // isPrimary -- over blindly minting a fresh group id equal to the
+      // fingerprint itself. This matters because `updateSecret()`
+      // intentionally rotates a row's `fingerprint` in place while leaving
+      // `duplicateGroupId` untouched (the stable per-account anchor, by
+      // design survives a refresh-token rotation -- see updateSecret()'s
+      // doc above). So a row's CURRENT fingerprint does not always equal
+      // its own duplicateGroupId. Without this lookup, a re-observation of
+      // that same (rotated) fingerprint under a different derived name --
+      // e.g. active-credential-watcher's `acct-<fp8>` fallback after an
+      // agent restart resets its in-memory rotation tracking -- would miss
+      // the `(fingerprint, name)` re-import guard above AND miss this
+      // group lookup (whose OLD anchor no longer equals the new
+      // fingerprint), and mint a second, disconnected duplicateGroupId for
+      // what is actually the same account: two rows sharing a fingerprint
+      // but disagreeing on duplicateGroupId (nx-9qsmb.2).
+      const anyRowWithFingerprint = await tx
+        .select()
+        .from(credentials)
+        .where(eq(credentials.fingerprint, fingerprint))
+        .limit(1);
+      const groupId = anyRowWithFingerprint[0]?.duplicateGroupId ?? fingerprint;
+
       // Look for an existing primary in the same duplicate group.
       const existingPrimaryRows = await tx
         .select()
         .from(credentials)
         .where(
           and(
-            eq(credentials.duplicateGroupId, fingerprint),
+            eq(credentials.duplicateGroupId, groupId),
             eq(credentials.isPrimary, true),
           ),
         )
@@ -310,7 +335,7 @@ export class CredentialPool {
         cooldownUntil: null,
         rateLimitCount: 0,
         fingerprint,
-        duplicateGroupId: fingerprint,
+        duplicateGroupId: groupId,
         isPrimary: newRowIsPrimary,
         subscriptionType: metadata.subscriptionType,
         rateLimitTier: metadata.rateLimitTier,
