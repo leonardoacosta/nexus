@@ -1371,54 +1371,61 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
   const fixedNow = 1_000_000; // unix seconds
   const detNowDeps = { now: () => fixedNow, nowMs: () => fixedNow * 1000 };
 
-  it("populated frame pushes the live value (sessionId, usedPct, size)", () => {
-    const pushes: Array<[string, number, number | undefined]> = [];
-    const res = resolveContext(
-      {
-        session_id: "s1",
-        context_window: { used_percentage: 45, context_window_size: 1000000 },
-      },
-      {
-        ...detNowDeps,
-        statMtimeMs: () => null,
-        readSnapshot: () => null,
-        writeSnapshot: () => {},
-        // detach-context-push-from-statusline-lifecycle (task 2.3):
-        // `pushContext` was removed from `CtxResolverDeps` entirely — the
-        // callback below is now dead (never invoked) and the assertion
-        // below is EXPECTED to fail until task 3.2 (a later batch) updates
-        // it. Left in place, not "fixed", per that task's explicit
-        // "fine/expected to fail" carve-out.
-      },
-    );
-    expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
-    expect(pushes).toEqual([["s1", 45, 1000000]]);
+  it("populated frame makes no network call (push removed) and returns the live value", () => {
+    // detach-context-push-from-statusline-lifecycle (task 3.2): `pushContext`
+    // was removed from `CtxResolverDeps` entirely (task 2.3) — the persistent
+    // nx-agent `statusline-ctx-poller` now reads the local snapshot file
+    // directly instead. This asserts the network call is truly gone (a
+    // `fetch` spy with zero invocations) while the local snapshot
+    // read/write + resolved-value behavior (unchanged since task 2.3) still
+    // holds.
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const res = resolveContext(
+        {
+          session_id: "s1",
+          context_window: { used_percentage: 45, context_window_size: 1000000 },
+        },
+        {
+          ...detNowDeps,
+          statMtimeMs: () => null,
+          readSnapshot: () => null,
+          writeSnapshot: () => {},
+        },
+      );
+      expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000 });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
-  it("spurious-zero restore pushes the snapshot value, NEVER the raw 0 frame", () => {
-    const pushes: Array<[string, number, number | undefined]> = [];
-    const res = resolveContext(
-      {
-        session_id: "s1",
-        context_window: { used_percentage: 0, context_window_size: 200000 },
-      },
-      {
-        ...detNowDeps,
-        readSnapshot: () => ({
-          used_percentage: 62,
-          context_window_size: 200000,
-          saved_at: fixedNow - 60,
-        }),
-        // detach-context-push-from-statusline-lifecycle (task 2.3):
-        // `pushContext` removed from `CtxResolverDeps` — see the note in the
-        // preceding test. Assertions below are EXPECTED to fail pending
-        // task 3.2.
-      },
-    );
-    expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000 });
-    // the pushed value is the guarded snapshot (62), not the spurious 0.
-    expect(pushes).toEqual([["s1", 62, 200000]]);
-    expect(pushes.every(([, used]) => used !== 0)).toBe(true);
+  it("spurious-zero restore returns the snapshot value, NEVER the raw 0 frame, with no network call", () => {
+    // detach-context-push-from-statusline-lifecycle (task 3.2): same removal
+    // as the preceding test — verify zero `fetch` calls while the
+    // suspicious-zero restore's guarded return value is unchanged.
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const res = resolveContext(
+        {
+          session_id: "s1",
+          context_window: { used_percentage: 0, context_window_size: 200000 },
+        },
+        {
+          ...detNowDeps,
+          readSnapshot: () => ({
+            used_percentage: 62,
+            context_window_size: 200000,
+            saved_at: fixedNow - 60,
+          }),
+        },
+      );
+      // the guarded value is the restored snapshot (62), not the spurious 0.
+      expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000 });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("does NOT push on a zero frame with no restorable snapshot (omit path)", () => {

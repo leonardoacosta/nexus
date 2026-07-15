@@ -58,7 +58,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Add `apps/agent/src/services/statusline-ctx-poller.test.ts` covering the pure parsing/ [beads:nx-cbbm6]
+- [x] [3.1] Add `apps/agent/src/services/statusline-ctx-poller.test.ts` covering the pure parsing/ [beads:nx-cbbm6]
   matching logic from task 2.1: a well-formed `statusline-ctx.<uuid>.json` fixture (using a
   temp/mocked state dir, not the real `~/.claude/scripts/state`) is parsed and applied correctly;
   a file whose `saved_at` exceeds the freshness window is skipped, not applied; a malformed file
@@ -68,7 +68,7 @@
   a `db` + a session row with a real `model`) the expected `model` letter — same assertion shape
   `reconcile-session-id-universes`'s own tests already use for this endpoint, follow that
   precedent rather than reinventing it. [owner:general-purpose] [type:testing]
-- [ ] [3.2] Extend test coverage for: (a) the poller's start/stop lifecycle (mirrors whatever [beads:nx-uku4j]
+- [x] [3.2] Extend test coverage for: (a) the poller's start/stop lifecycle (mirrors whatever [beads:nx-uku4j]
   test pattern `process-watcher.test.ts` uses for `startProcessWatcher`/`ProcessWatcherHandle` —
   follow it) — `stop()` actually halts further polling, no dangling timer/interval after stop;
   (b) `context-guard.test.ts` (or wherever `resolveContext`'s existing tests live — find and read
