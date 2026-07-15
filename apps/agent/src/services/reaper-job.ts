@@ -31,6 +31,7 @@ import { createLogger, safeSpawn } from "@nexus/core/node";
 import type { Db, NewBloatRadar, NewCronRun } from "@nexus/db";
 import { bloatRadar, cronRuns } from "@nexus/db";
 import { lifecycleBus } from "./lifecycle-bus";
+import { registerSnapshotSource } from "./state-snapshot";
 
 const log = createLogger("agent:reaper-job");
 
@@ -526,10 +527,64 @@ export async function checkReaperHeartbeat(
   return { stale: false, reason: "fresh", lastSuccessAt: row.timestamp };
 }
 
-/** Emit a loud TTS + desktop notification for a stale heartbeat. */
+/**
+ * Cooldown between stale-heartbeat notifications (nx-a9vf9). `cron.ts` runs
+ * `checkReaperHeartbeat` + this emitter unconditionally on every process
+ * boot, and a frequent-redeploy day (51 restarts / 48h observed) turned that
+ * into 102 duplicate "Reaper stale-heartbeat WARNING" notifications with no
+ * cooldown at all. 12h caps it at ~2/day during a genuine multi-day outage
+ * while still re-alerting well inside the 8-day staleness window this
+ * detector exists to catch.
+ */
+export const STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Epoch ms of the last emitted stale-heartbeat notification. Persisted
+ * across restarts via `state-snapshot` (same mechanism as the notification
+ * dedup map / proactive-swap ladder) — an in-memory-only guard would reset
+ * on every boot, which is exactly the bug this cooldown fixes.
+ */
+let lastStaleHeartbeatNotifyAt: number | null = null;
+
+registerSnapshotSource("stale-heartbeat-notify", {
+  serialize: () => lastStaleHeartbeatNotifyAt,
+  deserialize: (data) => {
+    lastStaleHeartbeatNotifyAt = typeof data === "number" ? data : null;
+  },
+});
+
+/** Test-only: reset cooldown state between cases. */
+export function __resetStaleHeartbeatNotifyForTests(): void {
+  lastStaleHeartbeatNotifyAt = null;
+}
+
+/**
+ * Emit a loud TTS + desktop notification for a stale heartbeat, gated by
+ * `STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS`. Returns `true` when the notification
+ * was actually emitted, `false` when suppressed by an active cooldown — the
+ * return value exists mainly for test assertions; production callers may
+ * ignore it.
+ */
 export function emitStaleHeartbeatNotification(
   result: StaleHeartbeatResult,
-): void {
+  now: Date = new Date(),
+): boolean {
+  const nowMs = now.getTime();
+  if (
+    lastStaleHeartbeatNotifyAt !== null &&
+    nowMs - lastStaleHeartbeatNotifyAt < STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS
+  ) {
+    log.debug(
+      {
+        lastNotifyAt: new Date(lastStaleHeartbeatNotifyAt).toISOString(),
+        cooldownMs: STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS,
+      },
+      "reaper: stale-heartbeat notification suppressed (cooldown active)",
+    );
+    return false;
+  }
+  lastStaleHeartbeatNotifyAt = nowMs;
+
   const lastSeen =
     result.lastSuccessAt !== null
       ? result.lastSuccessAt.toISOString()
@@ -554,6 +609,8 @@ export function emitStaleHeartbeatNotification(
     channel: "tts",
     message: body,
   });
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------

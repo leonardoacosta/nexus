@@ -8,7 +8,7 @@
  * reaching the completion sentinel.
  */
 
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { describe, expect, test, beforeAll, beforeEach, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, statSync, readdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,15 @@ import {
   parseReaperOutput,
   runReaper,
   defaultScriptPath,
+  emitStaleHeartbeatNotification,
+  __resetStaleHeartbeatNotifyForTests,
+  STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS,
+  type StaleHeartbeatResult,
 } from "./reaper-job";
+import {
+  lifecycleBus,
+  type LifecycleEnvelope,
+} from "./lifecycle-bus";
 
 // ---------------------------------------------------------------------------
 // defaultScriptPath — compiled-binary path resolution (nx-reaper-path)
@@ -237,4 +245,95 @@ describe.skipIf(!runLive)("runReaper (live-spawn)", () => {
     // proves the abort path is observable to the wrapper.
     expect(["aborted", "failure"]).toContain(result.status);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// emitStaleHeartbeatNotification — persisted cooldown (nx-a9vf9)
+// ---------------------------------------------------------------------------
+//
+// Regression coverage for the bug: cron.ts calls checkReaperHeartbeat +
+// emitStaleHeartbeatNotification unconditionally on every process boot, with
+// no cooldown at all, so a day of frequent redeploys (51 restarts / 48h
+// observed) fired 102 duplicate "Reaper stale-heartbeat WARNING" events. The
+// cooldown state must survive process restarts — these tests only cover the
+// in-process gating logic (the module-level `lastStaleHeartbeatNotifyAt`),
+// since the cross-restart persistence itself is the state-snapshot module's
+// own already-tested contract (state-snapshot.test.ts) that this file's
+// `registerSnapshotSource("stale-heartbeat-notify", …)` call plugs into.
+
+function captureStaleHeartbeatNotifications(): {
+  fired: LifecycleEnvelope<"NotificationFired">[];
+  detach: () => void;
+} {
+  const fired: LifecycleEnvelope<"NotificationFired">[] = [];
+  const handler = (env: LifecycleEnvelope<"NotificationFired">): void => {
+    fired.push(env);
+  };
+  lifecycleBus.on("NotificationFired", handler);
+  return { fired, detach: () => lifecycleBus.off("NotificationFired", handler) };
+}
+
+const STALE_RESULT: StaleHeartbeatResult = {
+  stale: true,
+  reason: "no-prior-success",
+  lastSuccessAt: null,
+};
+
+describe("emitStaleHeartbeatNotification cooldown", () => {
+  beforeEach(() => {
+    __resetStaleHeartbeatNotifyForTests();
+  });
+
+  test("first call emits both desktop + tts NotificationFired events and returns true", () => {
+    const { fired, detach } = captureStaleHeartbeatNotifications();
+    try {
+      const emitted = emitStaleHeartbeatNotification(STALE_RESULT, new Date("2026-07-15T00:00:00Z"));
+      expect(emitted).toBe(true);
+      expect(fired).toHaveLength(2);
+      expect(fired.map((f) => f.payload.channel).sort()).toEqual(["desktop", "tts"]);
+      expect(fired[0]?.payload.title).toBe("Reaper stale-heartbeat WARNING");
+    } finally {
+      detach();
+    }
+  });
+
+  test("a second call within the cooldown window does NOT re-emit", () => {
+    const { fired, detach } = captureStaleHeartbeatNotifications();
+    try {
+      const first = emitStaleHeartbeatNotification(STALE_RESULT, new Date("2026-07-15T00:00:00Z"));
+      expect(first).toBe(true);
+      expect(fired).toHaveLength(2);
+
+      // Simulate a restart 10 minutes later (well inside the 12h cooldown) —
+      // this is the exact shape of the bug: a redeploy reboots the process
+      // and cron.ts fires the check again on the new boot.
+      const second = emitStaleHeartbeatNotification(
+        STALE_RESULT,
+        new Date("2026-07-15T00:10:00Z"),
+      );
+      expect(second).toBe(false);
+      // No new events — still exactly the 2 from the first call.
+      expect(fired).toHaveLength(2);
+    } finally {
+      detach();
+    }
+  });
+
+  test("a call after the cooldown window expires DOES re-emit", () => {
+    const { fired, detach } = captureStaleHeartbeatNotifications();
+    try {
+      const first = emitStaleHeartbeatNotification(STALE_RESULT, new Date("2026-07-15T00:00:00Z"));
+      expect(first).toBe(true);
+      expect(fired).toHaveLength(2);
+
+      const justAfterCooldown = new Date(
+        new Date("2026-07-15T00:00:00Z").getTime() + STALE_HEARTBEAT_NOTIFY_COOLDOWN_MS + 1,
+      );
+      const second = emitStaleHeartbeatNotification(STALE_RESULT, justAfterCooldown);
+      expect(second).toBe(true);
+      expect(fired).toHaveLength(4);
+    } finally {
+      detach();
+    }
+  });
 });
