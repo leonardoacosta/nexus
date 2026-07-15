@@ -78,7 +78,7 @@
   Run `bun test` (or this package's documented test invocation — confirm via `package.json`
   `scripts.test`) for the affected files and paste the full passing output (0 failures).
   [owner:general-purpose] [type:testing]
-- [ ] [3.3] Live verification (not source-reading): with the fix deployed on this machine (check [beads:nx-u690f]
+- [x] [3.3] Live verification (not source-reading): with the fix deployed on this machine (check [beads:nx-u690f]
   this repo's own dev/deploy loop — `deploy/` directory scripts, or however nexus-agent gets
   restarted with local changes picked up for a live check), trigger a FRESH `session_start` for a
   real, currently-tracked `cc-tmux` pane on this machine (e.g. open a new Claude Code session in
@@ -92,3 +92,32 @@
   new UUID-keyed row was created for this same session (confirming the "merge, don't duplicate"
   behavior actually holds live, not just in unit tests). Paste both the HTTP response and the DB
   query output. [owner:general-purpose] [type:testing]
+
+  DONE, verified live post-merge/post-deploy (main @ e1a57b36, real systemd nexus-agent rebuilt
+  and restarted via the push hook). Triggered a real `session_start` socket event for pane `%2`
+  (installfest, real CC session `7a7a89eb-1eee-45ef-afe9-bf88e1dd2afa`, real claude pid `2556319`)
+  via `nexus-emit` (note: discovered live that a concurrent fix, `cc-q9x3i`, had already added a
+  `pid` field to the global hook's session_start payload — complementary to this spec's
+  tmux-pane correlation, not a conflict; not used by this fix, noted for a future simplification).
+
+  DB query (`docker exec homelab-postgres psql ...`):
+  ```
+  id                   | pid     | cc_session_id                        | model                    | tmux_target | status
+  cc-2556319-d8fcaec1  | 2556319 | 7a7a89eb-1eee-45ef-afe9-bf88e1dd2afa  | claude-sonnet-5-20260101 | 0:3.1       | active
+  7a7a89eb-...          |       0 |                                       |                          |             | ended   (pre-fix historical row, untouched)
+  cc-2556319-0366b4d6  | 2556319 |                                       | claude                   | 0:3.1       | stale   (older stale row, correctly excluded)
+  ```
+  Confirms: cc_session_id correlated onto the correct active row, real model value written
+  (not the generic "claude" literal), and NO new UUID-keyed row created for this session.
+
+  HTTP (after a `PATCH .../context` to populate the separate, unrelated context-window store so
+  the response reaches the `model` field — that store's own liveness is nx-22xz8/nx-v1uvj
+  territory, not this spec's concern):
+  ```
+  GET /sessions/7a7a89eb-1eee-45ef-afe9-bf88e1dd2afa/context
+  {"sessionId":"7a7a89eb-...","usedPercentage":42.5,"contextWindowSize":200000,"updatedAt":"...","model":"S"}
+  ```
+  `model: "S"` — correctly derived (Sonnet), not null, not a bogus letter. Confirmed the full
+  downstream chain too: `cc_tmux.cli._resolve_model_letter('%2')` (installfest repo) now returns
+  `'S'` directly — the original bug (cc-tmux's row-2 model letter always blank) is closed
+  end-to-end, live, not just at the nexus layer.
