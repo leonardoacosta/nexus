@@ -356,7 +356,7 @@ To prevent notification storms in tight retry loops or repeated permission promp
 
 | Event type | Suppression key | Window |
 |---|---|---|
-| `permission_request` | none (always fire) | n/a |
+| `permission_request` | `permission_request:<session_id>` | 2 seconds |
 | `hook_failure` | `hook_failure:<hook_name>` | 30 seconds |
 | `session_stop` (crash) | `session_stop:<session_id>` | per session (effectively infinite) |
 | `session_summary` (digest) | `session_summary:<session_id>` | per session (effectively infinite) |
@@ -384,11 +384,27 @@ To prevent notification storms in tight retry loops or repeated permission promp
 - **WHEN** `handleHooks` processes the second request
 - **THEN** BOTH events fire notifications
 
-#### Scenario: permission_request never deduplicates
+#### Scenario: permission_request dedupes within 2 seconds for the same session
 
-- **GIVEN** three consecutive `permission_request` payloads arrive within 5 seconds
-- **WHEN** `handleHooks` processes them
-- **THEN** ALL three fire desktop + tts notifications
+- **GIVEN** a `permission_request` payload with `session_id="abc-123"` is processed
+- **AND** another `permission_request` payload with `session_id="abc-123"` arrives 150ms later
+- **WHEN** `handleHooks` processes the second request
+- **THEN** the second event is persisted in `session_events`
+- **AND** NO notification is dispatched for the second event
+
+#### Scenario: permission_request with a different session_id is not suppressed
+
+- **GIVEN** a `permission_request` payload with `session_id="abc-123"` is processed
+- **AND** a `permission_request` payload with `session_id="xyz-789"` arrives 150ms later
+- **WHEN** `handleHooks` processes the second request
+- **THEN** BOTH events fire notifications
+
+#### Scenario: permission_request after its 2-second window expires fires again
+
+- **GIVEN** a `permission_request` payload with `session_id="abc-123"` is processed
+- **AND** another `permission_request` payload with `session_id="abc-123"` arrives 3 seconds later
+- **WHEN** `handleHooks` processes the second request
+- **THEN** BOTH events fire notifications
 
 #### Scenario: session_stop crash dedupes per session
 
