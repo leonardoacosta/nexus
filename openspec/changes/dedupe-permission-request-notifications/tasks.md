@@ -12,7 +12,7 @@
 
 ## E2E Batch
 
-- [ ] `hook-trigger.test.ts`: add a test — two `permission_request` payloads, same `session_id`, dispatched back-to-back → `manager.send` called exactly once (assert the second call is suppressed), mirroring the existing `hook_failure` 30s-dedupe test's fake-timer setup. [beads:nx-snqyn]
-- [ ] `hook-trigger.test.ts`: add a test — two `permission_request` payloads with different `session_id`s dispatched back-to-back → `manager.send` called twice (both fire). [beads:nx-ves8b]
-- [ ] `hook-trigger.test.ts`: add a test — two `permission_request` payloads, same `session_id`, second one arriving after `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS` has elapsed → `manager.send` called twice (fires again post-expiry). [beads:nx-fqi1m]
-- [ ] Run `bun test apps/agent/src/notifications/hook-trigger.test.ts` and paste passing output before marking this batch done (Iron Law — Verification). [beads:nx-cq1u1]
+- [x] `hook-trigger.test.ts`: add a test — two `permission_request` payloads, same `session_id`, dispatched back-to-back → `manager.send` called exactly once (assert the second call is suppressed), mirroring the existing `hook_failure` 30s-dedupe test's fake-timer setup. [beads:nx-snqyn]
+- [x] `hook-trigger.test.ts`: add a test — two `permission_request` payloads with different `session_id`s dispatched back-to-back → `manager.send` called twice (both fire). [beads:nx-ves8b]
+- [x] `hook-trigger.test.ts`: add a test — two `permission_request` payloads, same `session_id`, second one arriving after `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS` has elapsed → `manager.send` called twice (fires again post-expiry). [beads:nx-fqi1m]
+- [x] Run `bun test apps/agent/src/notifications/hook-trigger.test.ts` and paste passing output before marking this batch done (Iron Law — Verification). [beads:nx-cq1u1]

@@ -16,6 +16,7 @@ import {
 import {
   evaluateAndDispatch,
   SUPPRESSION_WINDOW_MS,
+  PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS,
   _clearSuppressionForTests,
 } from "./hook-trigger";
 import type { NotificationManager } from "./manager";
@@ -135,15 +136,63 @@ describe("suppression cache", () => {
     expect(sends).toHaveLength(2); // both calls fired desktop
   });
 
-  it("never suppresses permission_request", async () => {
+  // dedupe-permission-request-notifications (nx-snqyn): CC emits one logical
+  // permission prompt as two independent hook events ~50-150ms apart carrying
+  // the SAME session_id. The 2s permission_request window collapses that exact
+  // same-session pair to a single delivery. (Replaces the prior "never
+  // suppresses permission_request" test, whose premise the API-batch change to
+  // suppressionK() intentionally reversed.)
+  it("suppresses a same-session permission_request duplicate within the 2s window", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
+    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
+    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
 
-    expect(sends).toHaveLength(6); // 3 calls × 2 channels (desktop + tts)
+    // First fire delivers desktop + tts (2 sends); the back-to-back duplicate on
+    // the same session is suppressed inside the 2s window.
+    expect(sends).toHaveLength(2);
+  });
+
+  // nx-ves8b: two DIFFERENT sessions each key on their own session_id, so a
+  // permission prompt in each delivers independently — different sessions never
+  // suppress one another.
+  it("fires both permission_requests when the session_ids differ", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-A" }));
+    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-B" }));
+
+    // Two distinct sessions -> 2 deliveries × 2 channels (desktop + tts).
+    expect(sends).toHaveLength(4);
+  });
+
+  // nx-fqi1m: a genuinely distinct, temporally-separated permission prompt in
+  // the SAME session that arrives after the 2s window has elapsed must notify
+  // again — the short window collapses the duplicate pair without swallowing a
+  // real second prompt.
+  it("fires again for the same session once the 2s window has elapsed", async () => {
+    const db = makeFakeDb(ALL_ENABLED);
+    const { manager, sends } = makeFakeManager();
+
+    const realNow = Date.now;
+    let fakeTime = 1_000_000;
+    const dateSpy = spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
+      // Advance past the permission_request-specific window.
+      fakeTime += PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS + 1;
+      await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
+    } finally {
+      dateSpy.mockRestore();
+      // belt-and-braces — make sure we restored to the real clock
+      expect(Date.now()).toBeGreaterThan(realNow() - 1_000);
+    }
+
+    // Both fires deliver desktop + tts -> 4 sends across the two windows.
+    expect(sends).toHaveLength(4);
   });
 
   it("suppresses session_stop crash per session_id", async () => {
