@@ -100,6 +100,40 @@ export async function handleGetSessionContext(
 }
 
 /**
+ * Shared write path: upserts `store` for `id` with the given values and the
+ * current timestamp. Used by both `handlePatchSessionContext` (validated HTTP
+ * body) and `applyStatuslineSnapshot` (in-process caller, e.g. the
+ * statusline-ctx poller) so the two never duplicate the write logic.
+ */
+function _writeContextEntry(
+  id: string,
+  usedPercentage: number,
+  contextWindowSize: number | null,
+): void {
+  store.set(id, {
+    usedPercentage,
+    contextWindowSize,
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * In-process write path for `id`'s context entry — bypasses the HTTP PATCH
+ * route entirely. Intended for callers already running inside this same
+ * process (e.g. `statusline-ctx-poller.ts`, which reads local snapshot files
+ * `context-guard.ts` already writes reliably and applies them directly here,
+ * no network round-trip needed). Writes via the same `_writeContextEntry`
+ * `handlePatchSessionContext` uses, so both paths always agree on shape.
+ */
+export function applyStatuslineSnapshot(
+  id: string,
+  usedPercentage: number,
+  contextWindowSize: number | null,
+): void {
+  _writeContextEntry(id, usedPercentage, contextWindowSize);
+}
+
+/**
  * PATCH /sessions/:id/context — validate the body against
  * `sessionContextPatchInput`, then write/overwrite the entry for `id` with the
  * current timestamp. `204` on success, `400` on an invalid body (store left
@@ -124,11 +158,11 @@ export async function handlePatchSessionContext(
     );
   }
 
-  store.set(id, {
-    usedPercentage: parsed.data.usedPercentage,
-    contextWindowSize: parsed.data.contextWindowSize ?? null,
-    updatedAt: Date.now(),
-  });
+  _writeContextEntry(
+    id,
+    parsed.data.usedPercentage,
+    parsed.data.contextWindowSize ?? null,
+  );
   return new Response(null, { status: 204 });
 }
 

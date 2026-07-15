@@ -11,7 +11,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/agent/src/routes/session-context.ts`: extract `handlePatchSessionContext`'s [beads:nx-41fhv]
+- [x] [1.1] `apps/agent/src/routes/session-context.ts`: extract `handlePatchSessionContext`'s [beads:nx-41fhv]
   validation + `store.set(id, {...})` write into a shared internal function (e.g.
   `_writeContextEntry(id, usedPercentage, contextWindowSize)`), then export a new function (e.g.
   `applyStatuslineSnapshot(id: string, usedPercentage: number, contextWindowSize: number | null):
