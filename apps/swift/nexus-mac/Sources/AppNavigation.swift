@@ -66,7 +66,6 @@ struct AppNavigation: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            titlebar
             ticker
             Divider().overlay(Color.nx.hairline)
             BoardView(observer: observer)
@@ -96,37 +95,7 @@ struct AppNavigation: View {
         }
     }
 
-    // MARK: - Titlebar
-
-    private var titlebar: some View {
-        HStack(spacing: 16) {
-            Text("NE")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .tracking(2.4)
-                .foregroundStyle(Color.nx.ink)
-            + Text("X")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color.nx.phosphor)
-            + Text("US")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .tracking(2.4)
-                .foregroundStyle(Color.nx.ink)
-
-            Spacer()
-
-            presenceDot
-            SettingsLink {
-                Image(systemName: "gearshape")
-                    .foregroundStyle(Color.nx.ink2)
-            }
-            .buttonStyle(.plain)
-            .help("Settings (⌘,)")
-            bell
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(Color.nx.substrate2)
-    }
+    // MARK: - Trailing controls (merged into the ticker bar)
 
     private var presenceDot: some View {
         Button {
@@ -134,10 +103,10 @@ struct AppNavigation: View {
         } label: {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(observer.peerReachable ? Color.nx.phosphor : Color.nx.ink4)
+                    .fill(observer.peerReachable ? Color.accentColor : Color.nx.ink4)
                     .frame(width: 6, height: 6)
                 Text("homelab")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(Font.nx.code(10.5))
                     .foregroundStyle(Color.nx.ink2)
             }
         }
@@ -160,7 +129,7 @@ struct AppNavigation: View {
                 .overlay(alignment: .topTrailing) {
                     if unreadCount > 0 {
                         Text("\(min(unreadCount, 99))")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(Font.nx.code(8, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Color.nx.critical)
@@ -175,40 +144,46 @@ struct AppNavigation: View {
         .accessibilityIdentifier("titlebar-bell")
     }
 
-    // MARK: - TTS ticker (ambient, one line)
+    // MARK: - Top glass bar (TTS ticker + presence / settings / bell)
 
     private var ticker: some View {
         HStack(spacing: 12) {
             HStack(spacing: 7) {
-                Circle().fill(Color.nx.phosphor).frame(width: 5, height: 5)
+                Circle().fill(Color.accentColor).frame(width: 5, height: 5)
                 Text("TTS")
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .font(Font.nx.ui(9.5, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.nx.phosphor)
+                    .foregroundStyle(Color.accentColor)
             }
             if let latest = observer.notifications.first {
                 Text(latest.title?.isEmpty == false ? latest.title! : latest.body)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(Font.nx.ui(11.5))
                     .foregroundStyle(Color.nx.ink2)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
                 Text(latest.receivedAt, style: .relative)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(Font.nx.code(10))
                     .foregroundStyle(Color.nx.ink4)
             } else {
                 Text("Ambient notification ticker — waiting for the next event.")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(Font.nx.ui(11.5))
                     .foregroundStyle(Color.nx.ink4)
                 Spacer(minLength: 0)
             }
+
+            // Trailing controls (formerly the deleted titlebar).
+            presenceDot
+            SettingsLink {
+                Image(systemName: "gearshape")
+                    .foregroundStyle(Color.nx.ink2)
+            }
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
+            bell
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
-        .background(
-            LinearGradient(
-                colors: [Color.nx.phosphor.opacity(0.06), .clear],
-                startPoint: .leading, endPoint: .trailing)
-        )
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
     }
 }
 
@@ -222,7 +197,7 @@ struct ProcessTablePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("PROCESSES · homelab")
-                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                .font(Font.nx.ui(9.5, weight: .semibold))
                 .tracking(2)
                 .foregroundStyle(Color.nx.ink4)
                 .padding(.horizontal, 14).padding(.top, 12)

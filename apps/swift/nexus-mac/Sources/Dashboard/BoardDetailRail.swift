@@ -13,7 +13,11 @@ import MarkdownUI
 import NexusShared
 
 struct BoardDetailRail: View {
-    let item: BoardWorkItem?
+    /// The selected work item. The rail is mounted ONLY when a selection
+    /// exists (BoardView includes it conditionally), so this is non-optional.
+    let item: BoardWorkItem
+    /// The full work list — used to derive sibling proposals.
+    let allItems: [BoardWorkItem]
     /// Live sessions (for the Attach affordance). Filtered to the item's
     /// project inside.
     let sessions: [Session]
@@ -26,23 +30,27 @@ struct BoardDetailRail: View {
     let lastBeadTransition: BeadTransition?
     /// Summon the attach sheet for a session (owned by the board shell).
     var onAttach: (Session) -> Void
+    /// Jump the selection to a sibling proposal (owned by the board shell).
+    var onSelectSibling: (BoardWorkItem.ID) -> Void
 
     @StateObject private var model = BoardDetailModel()
 
     var body: some View {
         Group {
             switch item {
-            case .some(.proposal(let p)): proposalDetail(p)
-            case .some(.orphan(let o)):   orphanDetail(o)
-            case .none:                   emptyState
+            case .proposal(let p): proposalDetail(p)
+            case .orphan(let o):   orphanDetail(o)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.nx.substrate2)
+        .background(.ultraThinMaterial)
         // Bind (or tear down) the single live SSE connection on a genuine
         // (de)selection — keyed on the stable selection token, not the whole
         // item, so a background board reload of the same row never churns the
-        // connection. `initial: true` fires on first appearance too.
+        // connection. `initial: true` fires on first appearance too. Under the
+        // redesign's non-optional `item`, a sibling switch mutates `item` in
+        // place (view stays mounted) so this reconnects; a full deselect
+        // unmounts the rail entirely, tearing down via `.onDisappear`.
         .onChange(of: BoardSelectionToken(item: item), initial: true) { _, token in
             model.updateSelection(token)
         }
@@ -51,17 +59,6 @@ struct BoardDetailRail: View {
             if let transition { model.handleBeadTransition(transition) }
         }
         .onDisappear { model.teardown() }
-    }
-
-    // MARK: - Empty
-
-    private var emptyState: some View {
-        ContentUnavailableView(
-            "Nothing selected",
-            systemImage: "sidebar.right",
-            description: Text("Pick a proposal or orphan on the board to inspect it.")
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Proposal
@@ -79,6 +76,7 @@ struct BoardDetailRail: View {
                     }
                     tasksSection(p)
                     depsSection(p)
+                    siblingsSection(p)
                     recentTTSSection(project: p.project)
                     Divider().overlay(Color.nx.hairline)
                     Picker("", selection: $model.tab) {
@@ -110,10 +108,10 @@ struct BoardDetailRail: View {
                 cacheStateIndicator
             }
             Text(p.proposal.slug)
-                .font(.system(.headline, design: .monospaced))
+                .font(Font.nx.serifTitle(20))
                 .foregroundStyle(Color.nx.ink)
             Text("\(p.project) · \(p.capabilityName) · \(p.proposal.specStatus)")
-                .font(.caption)
+                .font(Font.nx.ui(11))
                 .foregroundStyle(Color.nx.ink3)
         }
     }
@@ -155,6 +153,48 @@ struct BoardDetailRail: View {
                     .foregroundStyle(Color.nx.ink2)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// Sibling proposals — other proposals under the same capability + project.
+    private func siblings(for p: BoardProposal) -> [BoardProposal] {
+        allItems.compactMap { item -> BoardProposal? in
+            guard case .proposal(let q) = item,
+                  q.id != p.id,
+                  q.project == p.project,
+                  q.capabilityName == p.capabilityName else { return nil }
+            return q
+        }
+        .sorted { $0.proposal.slug.localizedCaseInsensitiveCompare($1.proposal.slug) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private func siblingsSection(_ p: BoardProposal) -> some View {
+        let sibs = siblings(for: p)
+        if !sibs.isEmpty {
+            detailSection("Siblings · \(sibs.count)")
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(sibs) { sib in
+                    Button {
+                        onSelectSibling(BoardWorkItem.proposal(sib).id)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(sib.rollup.epic?.id ?? sib.rollup.feature?.id ?? sib.proposal.slug)
+                                .font(Font.nx.code(9.5))
+                                .foregroundStyle(Color.nx.ink3)
+                            Text(sib.proposal.slug)
+                                .font(Font.nx.ui(11))
+                                .foregroundStyle(Color.nx.ink2)
+                                .lineLimit(1).truncationMode(.tail)
+                            Spacer(minLength: 0)
+                            PriorityPill(priority: sib.priority).frame(width: 36)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("board-detail-sibling-\(sib.id)")
+                }
             }
         }
     }
@@ -239,7 +279,7 @@ struct BoardDetailRail: View {
                 Task { await model.approve(project: p.project, slug: p.proposal.slug) }
             } label: { Text("Approve").frame(maxWidth: .infinity) }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.nx.phosphorDim)
+                .tint(Color.accentColor)
                 .disabled(model.actionInFlight)
                 .accessibilityIdentifier("board-detail-approve")
 
@@ -260,7 +300,7 @@ struct BoardDetailRail: View {
             }
         }
         .padding(12)
-        .background(Color.nx.substrate3)
+        .background(.thinMaterial)
     }
 
     // MARK: - Orphan
@@ -276,12 +316,14 @@ struct BoardDetailRail: View {
                 PriorityPill(priority: bead.priority)
                 Spacer()
             }
+            // Use the live-refreshed `bead` (post-BeadTransition) with the
+            // redesign's serif/UI title treatment.
             Text(bead.title)
-                .font(.system(.headline, design: .monospaced))
+                .font(Font.nx.serifTitle(20))
                 .foregroundStyle(Color.nx.ink)
             if let project = bead.project {
                 Text("\(project) · \(bead.status)")
-                    .font(.caption).foregroundStyle(Color.nx.ink3)
+                    .font(Font.nx.ui(11)).foregroundStyle(Color.nx.ink3)
             }
             detailSection("Description")
             Text(bead.description ?? "Unplanned work — not referenced by any live proposal's tasks.md.")
@@ -297,7 +339,7 @@ struct BoardDetailRail: View {
 
     private func detailSection(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .font(Font.nx.ui(9.5, weight: .semibold))
             .tracking(1.8)
             .foregroundStyle(Color.nx.ink4)
             .padding(.top, 6)

@@ -14,6 +14,10 @@ struct BoardView: View {
     @ObservedObject var observer: SessionObserver
     @StateObject private var model = BoardViewModel()
     @State private var attachSession: Session?
+    @State private var showProjectManager = false
+
+    /// Spring used for the detail-rail open/close.
+    private let detailSpring = Animation.spring(response: 0.4, dampingFraction: 0.82)
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,15 +26,24 @@ struct BoardView: View {
             Divider().overlay(Color.nx.hairline)
             board
                 .frame(maxWidth: .infinity)
-            Divider().overlay(Color.nx.hairline)
-            BoardDetailRail(
-                item: model.selectedItem(),
-                sessions: observer.activeSessions,
-                notifications: observer.notifications,
-                lastBeadTransition: observer.lastBeadTransition,
-                onAttach: { attachSession = $0 }
-            )
-            .frame(width: 322)
+            // The detail rail is present ONLY when a row is selected; it
+            // animates in from the trailing edge and out on deselect.
+            if let item = model.selectedItem() {
+                Divider().overlay(Color.nx.hairline)
+                BoardDetailRail(
+                    item: item,
+                    allItems: model.allItems,
+                    sessions: observer.activeSessions,
+                    notifications: observer.notifications,
+                    lastBeadTransition: observer.lastBeadTransition,
+                    onAttach: { attachSession = $0 },
+                    onSelectSibling: { id in
+                        withAnimation(detailSpring) { model.selectedItemID = id }
+                    }
+                )
+                .frame(width: 322)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .background(Color.nx.substrate)
         .task { await model.load() }
@@ -44,18 +57,34 @@ struct BoardView: View {
         .sheet(item: $attachSession) { session in
             AttachSheet(session: session)
         }
+        .sheet(isPresented: $showProjectManager) {
+            ProjectManagerSheet()
+        }
     }
 
     // MARK: - Rail
 
     private var rail: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("PROJECTS")
-                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                .tracking(2.2)
-                .foregroundStyle(Color.nx.ink4)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
+            HStack(spacing: 8) {
+                Text("PROJECTS")
+                    .font(Font.nx.ui(9.5, weight: .semibold))
+                    .tracking(2.2)
+                    .foregroundStyle(Color.nx.ink4)
+                Spacer(minLength: 0)
+                Button {
+                    showProjectManager = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.nx.ink3)
+                }
+                .buttonStyle(.plain)
+                .help("Manage projects — show or hide registered projects")
+                .accessibilityIdentifier("board-rail-manage-projects")
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     railRow(code: nil, name: "All", count: model.allOpenCount)
@@ -65,69 +94,50 @@ struct BoardView: View {
                 }
             }
             Spacer(minLength: 0)
-            railFoot
         }
-        .background(Color.nx.substrate2)
+        .background(.ultraThinMaterial)
     }
 
     private func railRow(code: String?, name: String?, count: Int) -> some View {
         let active = model.selectedProject == code
+        // The synthetic Unregistered bucket shows its label, not a code.
+        let isUnregistered = code == BoardViewModel.unregisteredCode
+        let title = isUnregistered ? (name ?? "Unregistered") : (code ?? "All")
         return Button {
-            model.selectedProject = code
-            model.selectedItemID = nil
+            withAnimation(detailSpring) {
+                model.selectedProject = code
+                model.selectedItemID = nil
+            }
         } label: {
             HStack(spacing: 8) {
-                Text(code ?? "All")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                Text(title)
+                    .font(isUnregistered ? Font.nx.ui(12, weight: .semibold)
+                                         : Font.nx.code(12, weight: .semibold))
                     .foregroundStyle(active ? Color.nx.ink : Color.nx.ink2)
-                if let name, code != nil {
+                    .lineLimit(1)
+                if let name, code != nil, !isUnregistered {
                     Text(name)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(Font.nx.ui(11))
                         .foregroundStyle(Color.nx.ink4)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(Font.nx.code(10))
                     .foregroundStyle(count > 0 ? Color.nx.amber : Color.nx.ink4)
             }
             .padding(.horizontal, active ? 16 : 18)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                active
-                    ? LinearGradient(
-                        colors: [Color.nx.phosphor.opacity(0.08), .clear],
-                        startPoint: .leading, endPoint: .trailing)
-                    : LinearGradient(colors: [.clear], startPoint: .leading, endPoint: .trailing)
-            )
+            .background(active ? Color.accentColor.opacity(0.12) : .clear)
             .overlay(alignment: .leading) {
                 if active {
-                    Rectangle().fill(Color.nx.phosphor).frame(width: 2)
+                    Rectangle().fill(Color.accentColor).frame(width: 2)
                 }
             }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("board-rail-\(code ?? "all")")
-    }
-
-    private var railFoot: some View {
-        let live = observer.activeSessions.count
-        return VStack(alignment: .leading, spacing: 3) {
-            Divider().overlay(Color.nx.hairline)
-            Text("\(live) session\(live == 1 ? "" : "s") live")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.nx.ink3)
-            if let first = observer.activeSessions.first {
-                Text(Session.projectLabel(for: first))
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(Color.nx.ink4)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 14)
     }
 
     // MARK: - Board list
@@ -149,12 +159,23 @@ struct BoardView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(model.visibleItems) { item in
+                        ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
                             BoardRow(
                                 item: item,
                                 showProjectTag: model.selectedProject == nil,
                                 selected: model.selectedItemID == item.id,
-                                onSelect: { model.selectedItemID = item.id }
+                                onSelect: {
+                                    withAnimation(detailSpring) { model.selectItem(item.id) }
+                                }
+                            )
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .move(edge: .top)),
+                                removal: .opacity
+                            ))
+                            .animation(
+                                .spring(response: 0.35, dampingFraction: 0.85)
+                                    .delay(Double(min(index, 12)) * 0.025),
+                                value: model.visibleItems
                             )
                         }
                     }
@@ -163,6 +184,7 @@ struct BoardView: View {
                 }
             }
         }
+        .background(.regularMaterial)
     }
 
     private var filterBar: some View {
@@ -181,8 +203,17 @@ struct BoardView: View {
                 action: { model.orphansOnly.toggle() }
             )
             Spacer()
+            Picker("Sort", selection: $model.sortKey) {
+                ForEach(BoardSortKey.allCases) { key in
+                    Text(key.label).tag(key)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 108)
+            .accessibilityIdentifier("board-sort-key")
             Text("\(stats.proposals) proposals · \(stats.orphans) orphans · \(stats.blocked) blocked")
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(Font.nx.code(10.5))
                 .foregroundStyle(Color.nx.ink3)
         }
         .padding(.horizontal, 24)
@@ -204,30 +235,19 @@ private struct BoardRow: View {
             head
             if expanded { kids }
         }
-        .background(Color.nx.substrate2)
+        .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? Color.nx.phosphorDim : Color.nx.hairline, lineWidth: 1)
+                .stroke(selected ? Color.accentColor : Color.nx.hairline, lineWidth: 1)
         )
     }
 
     private var head: some View {
         HStack(spacing: 12) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(expanded ? Color.nx.phosphor : Color.nx.ink4)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-            }
-            .buttonStyle(.plain)
-            .frame(width: 14)
-
             Text(bid)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.cyan)
+                .font(Font.nx.code(11))
+                .foregroundStyle(Color.nx.ink3)
                 .frame(width: 84, alignment: .leading)
 
             BoardBadge(kind: badgeKind)
@@ -235,18 +255,18 @@ private struct BoardRow: View {
             HStack(spacing: 6) {
                 if showProjectTag {
                     Text(item.project)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.purple)
+                        .font(Font.nx.code(9, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(.purple.opacity(0.4)))
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor.opacity(0.4)))
                 }
                 Text(title)
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .font(Font.nx.ui(12.5))
                     .foregroundStyle(Color.nx.ink)
                     .lineLimit(1).truncationMode(.tail)
                 if let cap = capabilityTag {
                     Text("· \(cap)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(Font.nx.ui(10))
                         .foregroundStyle(Color.nx.ink4)
                         .lineLimit(1)
                 }
@@ -262,12 +282,25 @@ private struct BoardRow: View {
 
             PriorityPill(priority: item.priority)
                 .frame(width: 40)
+
+            // Chevron moved to the rightmost position — toggles the inline
+            // task/description kids independently of row selection.
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(expanded ? Color.accentColor : Color.nx.ink4)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+            }
+            .buttonStyle(.plain)
+            .frame(width: 14)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .background(selected ? Color.nx.substrate3 : Color.clear)
+        .background(selected ? Color.accentColor.opacity(0.08) : Color.clear)
         .accessibilityIdentifier("board-row-\(item.id)")
     }
 
@@ -278,9 +311,9 @@ private struct BoardRow: View {
             HStack(spacing: 6) {
                 ProgressView(value: p.rollup.progress)
                     .progressViewStyle(.linear)
-                    .tint(t.blocked > 0 ? Color.nx.amber : Color.nx.phosphor)
+                    .tint(t.blocked > 0 ? Color.nx.amber : Color.accentColor)
                 Text("\(t.closed)/\(t.total)")
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .font(Font.nx.code(9.5))
                     .foregroundStyle(Color.nx.ink3)
             }
         } else {
@@ -364,8 +397,8 @@ enum BoardBadgeKind {
     }
     var color: Color {
         switch self {
-        case .proposal: return Color.nx.phosphor
-        case .task:     return .cyan
+        case .proposal: return Color.accentColor
+        case .task:     return Color.accentColor
         case .bug:      return Color.nx.critical
         case .orphan:   return Color.nx.amber
         }
@@ -376,7 +409,7 @@ struct BoardBadge: View {
     let kind: BoardBadgeKind
     var body: some View {
         Text(kind.label.uppercased())
-            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+            .font(Font.nx.ui(8.5, weight: .bold))
             .tracking(1.2)
             .foregroundStyle(kind.color)
             .padding(.horizontal, 8).padding(.vertical, 3)
@@ -390,7 +423,7 @@ struct PriorityPill: View {
     let priority: Int
     var body: some View {
         Text("P\(priority)")
-            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+            .font(Font.nx.code(9.5, weight: .bold))
             .foregroundStyle(color)
             .padding(.horizontal, 6).padding(.vertical, 3)
             .frame(maxWidth: .infinity)
@@ -411,13 +444,13 @@ struct StatusLabel: View {
     let status: BoardStatus
     var body: some View {
         Text(status.label.uppercased())
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .font(Font.nx.ui(9, weight: .bold))
             .tracking(1)
             .foregroundStyle(color)
     }
     private var color: Color {
         switch status {
-        case .inProgress: return Color.nx.phosphor
+        case .inProgress: return Color.accentColor
         case .open:       return Color.nx.ink3
         case .blocked:    return Color.nx.critical
         case .closed:     return Color.nx.ink4
@@ -432,12 +465,12 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label.uppercased())
-                .font(.system(size: 10, design: .monospaced))
+                .font(Font.nx.ui(10))
                 .tracking(0.8)
-                .foregroundStyle(on ? Color.nx.phosphor : Color.nx.ink3)
+                .foregroundStyle(on ? Color.accentColor : Color.nx.ink3)
                 .padding(.horizontal, 12).padding(.vertical, 4)
-                .background(on ? Color.nx.phosphor.opacity(0.08) : .clear)
-                .overlay(Capsule().stroke(on ? Color.nx.phosphorDim : Color.nx.hairlineStrong))
+                .background(on ? Color.accentColor.opacity(0.10) : .clear)
+                .overlay(Capsule().stroke(on ? Color.accentColor : Color.nx.hairlineStrong))
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)

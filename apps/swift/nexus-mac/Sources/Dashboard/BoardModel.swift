@@ -63,6 +63,31 @@ enum BoardWorkItem: Identifiable, Hashable {
         if case .orphan = self { return true }
         return false
     }
+
+    /// Title used by the alphabetical sort key.
+    var sortTitle: String {
+        switch self {
+        case .proposal(let p): return p.proposal.slug
+        case .orphan(let o):   return o.bead.title
+        }
+    }
+}
+
+/// How the board orders rows WITHIN each group (proposals always group above
+/// orphans; this key sorts inside a group). Default is priority.
+enum BoardSortKey: String, CaseIterable, Identifiable {
+    case priority
+    case status
+    case title
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .priority: return "Priority"
+        case .status:   return "Status"
+        case .title:    return "Title"
+        }
+    }
 }
 
 /// Coarse lifecycle bucket — the design's Open / In progress / Blocked /
@@ -81,6 +106,16 @@ enum BoardStatus: String, CaseIterable, Identifiable {
         case .inProgress: return "In prog"
         case .blocked:    return "Blocked"
         case .closed:     return "Closed"
+        }
+    }
+
+    /// Ordering weight for the "Status" sort key (most-actionable first).
+    var sortRank: Int {
+        switch self {
+        case .blocked:    return 0
+        case .inProgress: return 1
+        case .open:       return 2
+        case .closed:     return 3
         }
     }
 
@@ -144,19 +179,37 @@ struct BoardRailProject: Identifiable, Hashable {
 
 @MainActor
 final class BoardViewModel: ObservableObject {
-    /// nil = the synthetic "All" row (fleet-wide). Otherwise a project code.
+    /// Synthetic rail code that buckets every work item whose `.project` is not
+    /// a registered project (a large fraction of orphan beads carry a UUID
+    /// instead of a real project code — backend hygiene bug nx-2yy5p.1). One
+    /// honest "Unregistered" row instead of thousands of phantom UUID rows.
+    static let unregisteredCode = "__unregistered__"
+
+    /// nil = the synthetic "All" row (fleet-wide). Otherwise a project code
+    /// (or `unregisteredCode`).
     @Published var selectedProject: String? = nil
     /// Active status filters (chips). Closed is off by default (design § 01).
     @Published var statusFilters: Set<BoardStatus> = [.open, .inProgress, .blocked]
     @Published var orphansOnly: Bool = false
+    /// Within-group sort key (proposals always group above orphans).
+    @Published var sortKey: BoardSortKey = .priority
     /// The currently selected row (drives the detail rail).
     @Published var selectedItemID: BoardWorkItem.ID?
 
     @Published private(set) var isLoading = false
     @Published private(set) var allItems: [BoardWorkItem] = []
     @Published private(set) var railProjects: [BoardRailProject] = []
+    /// Codes of genuinely registered projects (from the registry, hidden or
+    /// not). Drives the `unregisteredCode` bucket collapse.
+    @Published private(set) var registeredCodes: Set<String> = []
 
     private let client = NexusShared.NexusAggregateClient()
+
+    /// The rail bucket an item belongs to: its own project code when that is a
+    /// registered project, else the synthetic `unregisteredCode`.
+    private func bucketCode(for item: BoardWorkItem) -> String {
+        registeredCodes.contains(item.project) ? item.project : Self.unregisteredCode
+    }
 
     /// Fleet-wide load: roadmap + unlinked over every non-hidden project, plus
     /// the registry list for the rail. One fetch powers both the rail counts
@@ -186,31 +239,45 @@ final class BoardViewModel: ObservableObject {
         }
         self.allItems = items
 
-        // Rail rows: registered (non-hidden) projects + an open-work count
-        // derived from the loaded items. A project with zero open work still
-        // shows (design mockup lists `xx 0`).
-        var openByProject: [String: Int] = [:]
+        // A project is "registered" if it exists in the registry (hidden or
+        // not). Everything else is a phantom code and collapses into the
+        // single `unregisteredCode` bucket below — this is the band-aid for
+        // the thousands of UUID-tagged orphan beads (nx-2yy5p.1).
+        self.registeredCodes = Set(projects.map(\.name))
+
+        // Rail open-work counts, keyed by rail BUCKET (registered code or the
+        // synthetic unregistered code), not by raw project string.
+        var openByBucket: [String: Int] = [:]
         for item in items where item.statusBucket != .closed {
-            openByProject[item.project, default: 0] += 1
+            openByBucket[bucketCode(for: item), default: 0] += 1
         }
+
+        // Rail rows: registered (non-hidden) projects. A project with zero
+        // open work still shows (design mockup lists `xx 0`).
         let visible = projects.filter { !$0.hidden }
         var rail = visible.map { p in
             BoardRailProject(
                 code: p.name,
                 name: nil,
-                openCount: openByProject[p.name] ?? 0
+                openCount: openByBucket[p.name] ?? 0
             )
         }
-        // Include any project that has open work but no registry row (safety
-        // net so orphaned work is never invisible).
-        let known = Set(rail.map(\.code))
-        for (code, count) in openByProject where !known.contains(code) {
-            rail.append(BoardRailProject(code: code, name: nil, openCount: count))
-        }
-        self.railProjects = rail.sorted {
+        rail.sort {
             if $0.openCount != $1.openCount { return $0.openCount > $1.openCount }
             return $0.code < $1.code
         }
+        // Append the single Unregistered bucket last, if any phantom-coded
+        // work exists (any status — so it never silently swallows items).
+        let unregisteredCount = openByBucket[Self.unregisteredCode] ?? 0
+        let hasUnregistered = items.contains { bucketCode(for: $0) == Self.unregisteredCode }
+        if hasUnregistered {
+            rail.append(BoardRailProject(
+                code: Self.unregisteredCode,
+                name: "Unregistered",
+                openCount: unregisteredCount
+            ))
+        }
+        self.railProjects = rail
     }
 
     /// Total open-work count across the fleet (the "All" rail badge).
@@ -219,17 +286,29 @@ final class BoardViewModel: ObservableObject {
     }
 
     /// The visible, filtered, sorted work list for the current selection.
+    /// Proposals ALWAYS group above orphans (primary grouping); `sortKey`
+    /// orders rows within each group.
     var visibleItems: [BoardWorkItem] {
         allItems
             .filter { item in
-                if let sel = selectedProject, item.project != sel { return false }
+                if let sel = selectedProject, bucketCode(for: item) != sel { return false }
                 if orphansOnly && !item.isOrphan { return false }
                 return statusFilters.contains(item.statusBucket)
             }
             .sorted { lhs, rhs in
-                if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
-                // Proposals above orphans at equal priority, then by id.
+                // Primary grouping: proposals above orphans.
                 if lhs.isOrphan != rhs.isOrphan { return !lhs.isOrphan }
+                switch sortKey {
+                case .priority:
+                    if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+                case .status:
+                    if lhs.statusBucket.sortRank != rhs.statusBucket.sortRank {
+                        return lhs.statusBucket.sortRank < rhs.statusBucket.sortRank
+                    }
+                case .title:
+                    let cmp = lhs.sortTitle.localizedCaseInsensitiveCompare(rhs.sortTitle)
+                    if cmp != .orderedSame { return cmp == .orderedAscending }
+                }
                 return lhs.id < rhs.id
             }
     }
@@ -255,6 +334,12 @@ final class BoardViewModel: ObservableObject {
     func selectedItem() -> BoardWorkItem? {
         guard let id = selectedItemID else { return nil }
         return allItems.first { $0.id == id }
+    }
+
+    /// Toggle selection: re-selecting the open row clears it (closes the
+    /// detail rail), otherwise selects it.
+    func selectItem(_ id: BoardWorkItem.ID) {
+        selectedItemID = (selectedItemID == id) ? nil : id
     }
 
     // MARK: - Detail-content prefetch
