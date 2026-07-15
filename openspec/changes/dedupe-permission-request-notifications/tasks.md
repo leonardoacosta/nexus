@@ -5,10 +5,10 @@
 
 ## API Batch
 
-- [ ] Add `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS = 2_000` constant to `apps/agent/src/notifications/hook-trigger.ts`, alongside the existing `SUPPRESSION_WINDOW_MS`. [beads:nx-lwvnc]
-- [ ] Update `suppressionKey()` in `apps/agent/src/notifications/hook-trigger.ts`: the `permission_request` case returns the template-literal key `permission_request:<session_id ?? "unknown">` (was `return null`). [beads:nx-e4j12]
-- [ ] Update the suppression-check block in `evaluateAndDispatch()` to use `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS` when `eventType === "permission_request"` and `SUPPRESSION_WINDOW_MS` otherwise (the window is now per-event-type, not a single constant applied to every key). [beads:nx-gtts4]
-- [ ] Update the file-header suppression-policy comment block (lines ~10-22) to reflect `permission_request : session-scoped, 2s window` instead of "no suppression (always fires)". [beads:nx-v4838]
+- [x] Add `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS = 2_000` constant to `apps/agent/src/notifications/hook-trigger.ts`, alongside the existing `SUPPRESSION_WINDOW_MS`. [beads:nx-lwvnc]
+- [x] Update `suppressionKey()` in `apps/agent/src/notifications/hook-trigger.ts`: the `permission_request` case returns the template-literal key `permission_request:<session_id ?? "unknown">` (was `return null`). [beads:nx-e4j12]
+- [x] Update the suppression-check block in `evaluateAndDispatch()` to use `PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS` when `eventType === "permission_request"` and `SUPPRESSION_WINDOW_MS` otherwise (the window is now per-event-type, not a single constant applied to every key). [beads:nx-gtts4]
+- [x] Update the file-header suppression-policy comment block (lines ~10-22) to reflect `permission_request : session-scoped, 2s window` instead of "no suppression (always fires)". [beads:nx-v4838]
 
 ## E2E Batch
 
