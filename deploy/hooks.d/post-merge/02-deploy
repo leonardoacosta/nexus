@@ -18,7 +18,7 @@ fail()  { printf "${RED}nexus-agent: %s${RESET}\n" "$1" >&2; exit 1; }
 # ── Check for code changes (skip with --force) ───────────────────
 
 if [[ "${1:-}" != "--force" ]]; then
-    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(apps/agent/|deploy/)'; then
+    if ! git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qE '^(apps/agent/|apps/nexus-statusline/|deploy/)'; then
         skip "no code changes, skipping rebuild (use --force to override)"
         exit 0
     fi
@@ -106,6 +106,20 @@ if ! (cd "$REPO_DIR/apps/agent" && bun run build); then
     fail "agent build failed"
 fi
 
+# nx-ev2x5.3: apps/nexus-statusline was NEVER rebuilt by this hook (only
+# apps/agent was) — confirmed live 2026-07-15 that the deployed
+# nexus-statusline binary had gone stale (last built 2026-07-13, several
+# real source changes behind), silently shipping none of them to the
+# actual `statusLine` command Claude Code invokes. This is a separate
+# binary from nexus-agent (no systemd service — CC execs it directly by
+# PATH on every statusline render), so it needs its own build+install
+# step, not just a ride-along on the agent's.
+if [[ -d "$REPO_DIR/apps/nexus-statusline" ]]; then
+    if ! (cd "$REPO_DIR/apps/nexus-statusline" && bun run build); then
+        fail "nexus-statusline build failed"
+    fi
+fi
+
 ELAPSED=$(( $(date +%s) - START ))
 info "rebuilt in ${ELAPSED}s"
 
@@ -121,6 +135,9 @@ fi
 # ── Install binaries ──────────────────────────────────────────────
 
 install -m 755 "$REPO_DIR/apps/agent/nexus-agent" "$BIN_DIR/nexus-agent"
+if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
+    install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"
+fi
 info "binaries installed to $BIN_DIR/"
 
 # ── Configure agents.toml ─────────────────────────────────────────

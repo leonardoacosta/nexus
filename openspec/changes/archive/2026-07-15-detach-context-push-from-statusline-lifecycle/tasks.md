@@ -79,7 +79,7 @@
   suite (both `apps/agent` and `apps/nexus-statusline` — check each package's own `package.json`
   test script) and paste the full passing output, zero failures.
   [owner:general-purpose] [type:testing]
-- [ ] [3.3] Live verification (not source-reading): with the fix deployed on this machine, DO NOT [beads:nx-wzbps]
+- [x] [3.3] Live verification (not source-reading): with the fix deployed on this machine, DO NOT [beads:nx-wzbps]
   manually PATCH or manually invoke `nexus-statusline` — instead, let a REAL, currently-active
   Claude Code session render its OWN statusline naturally (any real turn in any real tmux pane on
   this machine), wait at least one poller interval (a few seconds) plus however long until the
@@ -90,3 +90,32 @@
   on their own (not just the one pre-existing manual-test file from the investigation that
   preceded this spec) — paste both the HTTP response and the file-listing output.
   [owner:general-purpose] [type:testing]
+
+  DONE — but this task surfaced a SECOND, deeper blocker beyond this spec's own fix, found and
+  fixed in the same pass (tracked separately as `nx-ev2x5.4`, not scope creep on this spec's own
+  6 tasks, which are complete and correct as shipped): the deployed `nexus-statusline` binary
+  was 2 days stale (last built 2026-07-13T19:13) because `deploy/hooks.d/post-merge/02-deploy`
+  never rebuilt/installed it — only `apps/agent/`. So this spec's poller/push-removal fix,
+  though correctly built and tested, had nothing real to poll: the live binary predated ALL of
+  today's `apps/nexus-statusline/` changes.
+
+  Confirmed via a temporary capture shim (renamed the real binary, substituted a tee-and-exec
+  wrapper capturing one real automatic invocation's stdin, restored the real binary immediately
+  after — no lingering shim, capture file deleted). Real ccInput DID carry
+  `context_window.used_percentage: 82-83` (refuting a "used_percentage never >0 in practice"
+  theory as the sole blocker). After manually rebuilding+installing `nexus-statusline` from
+  current source (`bun run build` + `install`), AND separately fixing `02-deploy` to always
+  rebuild both binaries going forward, verified fully automatic end-to-end with ZERO manual
+  PATCH/poll trigger:
+
+  ```
+  find ~/.claude/scripts/state -iname 'statusline-ctx.*' -printf '%T@ %p\n' | sort -rn
+  1784089463.71 .../statusline-ctx.7a7a89eb-1eee-45ef-afe9-bf88e1dd2afa.json   (fresh, real, automatic)
+
+  GET /sessions/7a7a89eb-1eee-45ef-afe9-bf88e1dd2afa/context
+  {"sessionId":"7a7a89eb-...","usedPercentage":83,"contextWindowSize":1000000,
+   "updatedAt":"2026-07-15T04:24:50.826Z","model":"S"}
+  ```
+
+  `deploy/hooks.d/post-merge/02-deploy` fix verified live via a real `--force` invocation:
+  both `nexus-agent` and `nexus-statusline` binaries rebuilt and reinstalled in one run.
