@@ -1,3 +1,8 @@
+---
+status: current
+updated: 2026-07-15
+---
+
 # Spike: project-structure board → nexus-ios Scenes navigation
 
 > Spec: `openspec/changes/extend-ios-companion-features` task 4.5 (nx-szfbk / nx-ghrhb)

@@ -1,3 +1,8 @@
+---
+status: current
+updated: 2026-07-15
+---
+
 # Operator Runbook: Credential Encryption Migration
 
 Covers one-time migration of plaintext credentials to AES-256-GCM encrypted storage

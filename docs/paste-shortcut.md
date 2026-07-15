@@ -1,3 +1,8 @@
+---
+status: current
+updated: 2026-07-15
+---
+
 # Paste Shortcut — drop a pasted image into a project
 
 The paste surface for Nexus is deliberately **zero-Swift**: an Apple Shortcut

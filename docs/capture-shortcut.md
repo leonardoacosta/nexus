@@ -1,3 +1,8 @@
+---
+status: current
+updated: 2026-07-15
+---
+
 # Capture Shortcut — the pilot phone capture surface
 
 The pilot capture surface for Nexus is deliberately **zero-Swift**: an Apple
