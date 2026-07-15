@@ -225,6 +225,18 @@ fi
 info "building Bun nexus-agent..."
 (cd "$REPO_DIR/apps/agent" && bun run build) || fail "apps/agent build failed"
 
+# nx-ev2x5.4: this hook (the one that actually fires on `git push`, a
+# separate script from deploy/hooks.d/post-merge/02-deploy) had the same
+# gap that one did — nexus-statusline was never rebuilt/installed here
+# either, confirmed live 2026-07-15 that the deployed binary had gone 2
+# days stale as a result. nexus-statusline has no systemd service (CC
+# execs it directly by PATH on every statusline render), so no stop/start
+# is needed here, just build + install.
+if [[ -d "$REPO_DIR/apps/nexus-statusline" ]]; then
+    info "building Bun nexus-statusline..."
+    (cd "$REPO_DIR/apps/nexus-statusline" && bun run build) || fail "apps/nexus-statusline build failed"
+fi
+
 ELAPSED=$(( $(date +%s) - START ))
 info "built in ${ELAPSED}s"
 
@@ -234,6 +246,9 @@ info "built in ${ELAPSED}s"
 systemctl --user stop nexus-agent 2>/dev/null || true
 
 install -m 755 "$REPO_DIR/apps/agent/nexus-agent"              "$BIN_DIR/nexus-agent"
+if [[ -f "$REPO_DIR/apps/nexus-statusline/nexus-statusline" ]]; then
+    install -m 755 "$REPO_DIR/apps/nexus-statusline/nexus-statusline" "$BIN_DIR/nexus-statusline"
+fi
 info "binaries installed to $BIN_DIR/"
 
 # ── Install and enable service ────────────────────────────────────
