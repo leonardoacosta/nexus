@@ -330,7 +330,7 @@ export function renderStatusline(ccInput: CcInput, deps: RenderDeps): string {
   // and the standalone effort tag.
   const modelToken = modelEffortToken(ccInput.model, ccInput.effort);
   if (modelToken) {
-    parts.push(`${DIM}${modelToken}${RESET}`);
+    parts.push(`${DIM}M:${modelToken}${RESET}`);
   }
   // output_style — CC sends { name } (object). Tolerate the legacy bare-string
   // form defensively so an old payload degrades gracefully instead of crashing.
