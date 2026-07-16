@@ -6,16 +6,16 @@ export interface CcInput {
   model?: { id?: string; display_name?: string };
   workspace?: { current_dir?: string; project_dir?: string; git_worktree?: string };
   version?: string;
-  output_style?: { name?: string };
   effort?: { level?: string };
-  exceeds_200k_tokens?: boolean;
   cost?: {
-    total_cost_usd?: number;
     total_duration_ms?: number;
     total_api_duration_ms?: number;
-    total_lines_added?: number;
-    total_lines_removed?: number;
   };
+  // KEPT despite the proposal's removal list naming `context_window`:
+  // context-guard.ts's `resolveContext` (explicitly left as-is, task 1.4)
+  // reads `ccInput.context_window` directly to feed the still-live
+  // nx-agent context-push snapshot — removing this field would break that
+  // unrelated, unchanged requirement. See engineer report for this batch.
   context_window?: {
     used_percentage?: number;
     context_window_size?: number;
