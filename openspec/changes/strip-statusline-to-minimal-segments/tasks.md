@@ -56,13 +56,13 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Update `apps/nexus-statusline`'s existing test suite: remove/rewrite fixtures and [beads:nx-3dm82]
+- [x] [3.1] Update `apps/nexus-statusline`'s existing test suite: remove/rewrite fixtures and [beads:nx-3dm82]
   assertions for every removed segment (search for `$`, `CTX`, `5H`, `7D`, `M:`, `200K`,
   `output_style`, drift/pulse/specs-line assertions). Add assertions that a real rendered line
   contains NONE of the removed segments' distinguishing substrings while still containing the
   kept ones (`@`, the project code, the session-clock glyph, the worktree badge marker, the
   roadmap line's format). [owner:general-purpose] [type:api]
-- [ ] [3.2] Run the package's real test suite (per the unchanged "test script MUST run its real [beads:nx-5l6ts]
+- [x] [3.2] Run the package's real test suite (per the unchanged "test script MUST run its real [beads:nx-5l6ts]
   suite" requirement) and confirm it passes with the updated fixtures. Render a real sample
   payload through the trimmed `renderStatusline` directly (not just unit assertions) and paste
   the actual output, confirming visually it matches the kept-segment list with no removed
