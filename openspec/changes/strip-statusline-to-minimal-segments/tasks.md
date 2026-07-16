@@ -39,7 +39,7 @@
 
 ## UI Batch
 
-- [ ] [2.1] `apps/nexus-statusline/src/render.ts`: remove the session-dot, `$cost`, `+N/-M` [beads:nx-m51su]
+- [x] [2.1] `apps/nexus-statusline/src/render.ts`: remove the session-dot, `$cost`, `+N/-M` [beads:nx-m51su]
   lines, `M:<model+effort>` token, output-style tag, git-branch/dirty/ahead segment, `⚡ spec`
   inline marker, `200K+` marker, `CTX` gauge, `≈Nt/s` speed, `5H`/`7D` gauges, and the pulse/
   specs/drift trailing-row composition from `renderStatusline`. Keep: `@domain`, project code,
@@ -48,7 +48,7 @@
   check before assuming decoupling is free), and the roadmap trailing row. Update
   `modelEffortToken`'s exported signature/removal accordingly (it's being deleted, not just its
   call site). [owner:general-purpose] [type:ui]
-- [ ] [2.2] `apps/nexus-statusline/src/index.ts`: remove the parallel fetch calls that only fed [beads:nx-2o2uy]
+- [x] [2.2] `apps/nexus-statusline/src/index.ts`: remove the parallel fetch calls that only fed [beads:nx-2o2uy]
   now-removed segments — the live `git` subprocess call (`getGitStatus`) if task 2.1 confirms no
   kept segment needs it, and the `fetchStatusline`/speed/usage calls per tasks 1.1-1.3's
   grep-confirmed deletions. Leave the roadmap-line fetch, account-domain resolution, and

@@ -46,21 +46,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { getLocalAgentUrl } from "./project";
 import { renderStatusline } from "./render";
-import { resolveUsage, getAccountDomain } from "./usage";
+import { getAccountDomain } from "./usage";
 import { resolveContext } from "./context-guard";
 import { gcSessionContext } from "./session-context";
-import { getSpeed } from "./speed";
-import {
-  fetchStatusline,
-  getRoadmapPulse,
-  getSpecsLine,
-  getRoadmapLine,
-  getDriftLine,
-} from "./agent-lines";
-import type { CcInput, GitInfo } from "./types";
+import { getRoadmapLine } from "./agent-lines";
+import type { CcInput } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,42 +75,6 @@ function readStdinInput(): CcInput {
   }
 }
 
-// ── Git status (local) ───────────────────────────────────────────────────────
-
-export function getGitStatus(dir: string): GitInfo | null {
-  try {
-    const branch = execFileSync("git", ["-C", dir, "branch", "--show-current"], {
-      encoding: "utf-8",
-      timeout: 500,
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (!branch) return null;
-
-    const porcelain = execFileSync("git", ["-C", dir, "status", "--porcelain"], {
-      encoding: "utf-8",
-      timeout: 500,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const dirty = porcelain.trim().length > 0;
-
-    let ahead = 0;
-    try {
-      const revOut = execFileSync(
-        "git",
-        ["-C", dir, "rev-list", "--count", "@{upstream}..HEAD"],
-        { encoding: "utf-8", timeout: 500, stdio: ["pipe", "pipe", "pipe"] },
-      );
-      ahead = parseInt(revOut.trim(), 10) || 0;
-    } catch {
-      // No upstream
-    }
-
-    return { branch, dirty, ahead };
-  } catch {
-    return null;
-  }
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -130,40 +86,22 @@ async function main(): Promise<void> {
     process.env.CLAUDE_PROJECT_DIR ??
     process.cwd();
 
-  // git is still needed for branch + dirty detection (no CC equivalent yet)
-  const git = getGitStatus(projectDir);
   const agentUrl = getLocalAgentUrl();
 
-  // Prefer stdin usage; only fetch the OAuth Usage API (+ credential read) when
-  // stdin lacks both rate-limit windows.
-  const usagePromise = resolveUsage(ccInput.rate_limits);
+  const accountDomain = await getAccountDomain();
 
-  // Parallel fetches: agent statusline, usage (stdin-or-API), account domain
-  const [nexusData, usage, accountDomain] = await Promise.all([
-    fetchStatusline(agentUrl),
-    usagePromise,
-    getAccountDomain(),
-  ]);
-
-  // Resolve context once and pass it to the renderer. The former per-pane
-  // session-context harvest was removed (add-session-context-api); cc-tmux now
-  // reads context via the nx-agent GET endpoint instead. The GC below still
-  // sweeps pre-existing orphaned pane-keyed files.
-  const resolvedContext = resolveContext(ccInput);
+  // Resolve context once (side-effecting: refreshes the per-session snapshot
+  // file nx-agent's statusline-ctx-poller reads on its own interval — see
+  // context-guard.ts). The render-facing CTX gauge that used to consume the
+  // return value was removed; the resolve call itself still must run. The GC
+  // below still sweeps pre-existing orphaned pane-keyed files.
+  resolveContext(ccInput);
   gcSessionContext();
 
   const out = renderStatusline(ccInput, {
-    git,
-    nexusData,
-    usage,
     accountDomain,
     projectDir,
-    resolvedContext,
-    speed: getSpeed(ccInput.transcript_path, ccInput.session_id),
-    pulse: getRoadmapPulse(projectDir),
-    specsLine: getSpecsLine(projectDir, agentUrl),
     roadmapLine: getRoadmapLine(projectDir, agentUrl),
-    driftLine: getDriftLine(projectDir, agentUrl),
   });
 
   process.stdout.write(out);
