@@ -83,7 +83,13 @@
 - [x] 3.5 `apps/agent/src/services/data-integrity-scan.test.ts` — seeded fixture with duplicate [beads:nx-lkvte]
       project rows asserts detection fires and zero writes occur; a clean fixture asserts no
       notification fires.
-- [ ] 3.6 Manual verification note (not CI-automatable): after `WatchdogSec=30` deploys, confirm [beads:nx-xz1u4]
+- [x] 3.6 Manual verification note (not CI-automatable): after `WatchdogSec=30` deploys, confirm [beads:nx-xz1u4]
       `systemctl --user show nexus-agent -p WatchdogTimestamp` advances, and that killing the
       agent's event loop (e.g. a deliberate infinite synchronous loop in a debug build) results
       in a systemd-initiated restart within `WatchdogSec` + a few seconds.
+      - verified live (2026-07-16, post-deploy of this wave, PID 813658 -> 851645):
+        `WatchdogTimestamp` advanced 21:45:21 -> 21:45:36 (15s tick, confirming the periodic
+        sd_notify call). Simulated a hung event loop via `kill -STOP` on the main PID; systemd
+        logged `nexus-agent.service: Failed with result 'watchdog'` at 21:47:22 (35s after the
+        stop) and `Restart=always` brought a fresh instance active by 21:47:27 — 5s restart,
+        well inside `WatchdogSec` + a few seconds.
