@@ -5,7 +5,7 @@
 
 ## DB Batch
 
-- [ ] 1.1 Export `selfHealingMigrate` from `packages/db/src/index.ts` (currently only used [beads:nx-5xz7q]
+- [x] 1.1 Export `selfHealingMigrate` from `packages/db/src/index.ts` (currently only used [beads:nx-5xz7q]
       internally by `packages/db/src/migrate.ts`'s CLI entrypoint). No new migration, no schema
       change — a public-API export only.
       - touches: `packages/db/src/index.ts`
