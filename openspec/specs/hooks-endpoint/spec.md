@@ -278,11 +278,10 @@ This requirement codifies the architecture decision: server stateless re: subscr
 
 After persisting an event row in the `session_events` table, `handleHooks` SHALL evaluate the event payload against a curated set of notification rules. Each rule maps an event type (and optional predicate over payload fields) to a notification draft consisting of `{ title, body, channels }`. Matching rules SHALL produce notifications via the existing `NotificationManager.send()` path so they flow through the same buffer / meeting-state / parallel-delivery pipeline as `/notifications/send`.
 
-The v1 rule set MUST include exactly the following four triggers (mirroring the cc-side curated routing policy in `~/.claude/scripts/hooks/telemetry.sh`):
+The v1 rule set MUST include exactly the following three triggers (mirroring the cc-side curated routing policy in `~/.claude/scripts/hooks/telemetry.sh`):
 
 | Event type | Predicate | Channels |
 |---|---|---|
-| `permission_request` | always | `desktop`, `tts` |
 | `hook_failure` | always | `desktop`, `slack` |
 | `session_stop` | payload `crash_flag === true` (or equivalent stop_reason indicating a crash) | `desktop`, `slack` |
 | `session_summary` | payload `cost_usd >= 0.50` | `desktop` |
@@ -300,13 +299,47 @@ Notification body SHALL be project-prefixed (`"<project>: <message>"`) when the 
 > removed the `slack` channel referenced below) — those are pre-existing
 > drift, out of scope for this correction.
 
-#### Scenario: permission_request fires desktop + tts
+> **2026-07-16 correction (drop-permission-request-tts-draft, amended same
+> night)**: the `permission_request` rule was dual-channel (`desktop`, `tts`)
+> — the only two-draft rule in the registry — and each draft was minted with
+> its own id, so the push layer's dedup-by-id alerted every device once per
+> draft (verified: rows `fd6d30cd`/`7c9ef315`, 1ms apart, both "sent 3/3
+> devices"). Both drafts were also contentless ("permission requested for
+> <tool>") while cc telemetry.sh's rich `nx_notify` body — which enumerates
+> the actual questions and answer choices — arrived beside them as a third
+> push. The rule is therefore REMOVED entirely: the rich `nx_notify` POST via
+> `/notifications/send` is the sole notification surface for permission
+> events. `permission_request` events are still recognized and persisted
+> (telemetry path unchanged); only the notification mapping is gone. To keep
+> the rich banner's title/deep-link parity, `/notifications/send` accepts
+> optional `session_name`/`session_id` body fields threaded to the push layer.
 
-- **GIVEN** a `permission_request` payload with `session_id="abc-123"`, `project="oo"`, `tool_name="Edit"`
+#### Scenario: permission_request produces no rule-based notification
+
+- **GIVEN** a `permission_request` payload with `session_id="abc-123"`, `project="oo"`, `tool_name="AskUserQuestion"`
 - **WHEN** `handleHooks` processes the request
-- **THEN** a notification is sent with `channels=["desktop","tts"]`
-- **AND** the TTS body contains the project prefix and a human-readable description of the prompt
+- **THEN** the event is persisted normally
+- **AND** NO notification is dispatched by the rule registry (any channel)
 - **AND** the response is HTTP 200
+
+#### Scenario: notifications send threads session identity to the push
+
+- **GIVEN** a `POST /notifications/send` payload with `project="nx"`, `session_name="fix-login"`, `session_id="abc-123"`, and a body enumerating the permission questions
+- **WHEN** the route processes the request
+- **THEN** `manager.send()` receives `sessionName="fix-login"` and `sessionId="abc-123"` extras
+- **AND** the resulting alert push is titled `nx · fix-login` (composeTitle) and carries `userInfo.sessionId="abc-123"`
+
+#### Scenario: composed title does not duplicate the project prefix
+
+- **GIVEN** a notification with `project="cc"` and `session_name="cc · main"` (CC session names are conventionally `<code> · <branch>`-shaped)
+- **WHEN** the alert-push title is composed
+- **THEN** the title is `cc · main` — composeTitle SHALL skip the project segment when the session name already starts with `<project> · ` or equals the project
+
+#### Scenario: notifications send without session fields degrades gracefully
+
+- **GIVEN** a `POST /notifications/send` payload with no `session_name`/`session_id`
+- **WHEN** the route processes the request
+- **THEN** the notification is delivered exactly as before this change (no session extras, title falls back to project/fallback ladder)
 
 #### Scenario: hook_failure fires desktop + slack
 
