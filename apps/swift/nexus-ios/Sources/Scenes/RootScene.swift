@@ -90,6 +90,14 @@ struct RootScene: View {
                 // driven by navigation.sessionPath. A row tap (or a deep link)
                 // appends a session id, which pushes AttachScene(sessionId:)
                 // (live PTY) via the .navigationDestination below — no sheet.
+                //
+                // mx-rkir.11: this supersedes the earlier `.sheet`/
+                // `.fullScreenCover` presentation entirely — a pushed view on a
+                // full-bounds NavigationStack (tab bar hidden by AttachScene)
+                // gets real settled screen bounds without a modal at all, which
+                // is the same full-bounds guarantee `.fullScreenCover` would
+                // have given. The remaining reliable-keyboard + scroll-lock
+                // parts of mx-rkir.11 live in TerminalHostView.makeUIView.
                 SessionsArchetypeScene()
                     .navigationDestination(for: String.self) { sessionId in
                         AttachScene(sessionId: sessionId)
