@@ -41,8 +41,16 @@ negation='([Nn]ever|[Ff]orbid|[Bb]anned|[Bb]lock|NOT used|not used|instead of|do
 # doesn't happen to contain one of the negation trigger words). This caused a
 # real self-trigger on first install (2026-07-06) — the guard blocked committing
 # itself. A hook re-stating its own prohibition is not a re-introduction.
+#
+# Also exclude `.beads/*.jsonl` (bd export output): these are structured data
+# dumps of historical bead titles/descriptions, not human-authored scripts/docs
+# — a bd export that reshuffles or gains a field (e.g. inlining `dependencies[]`)
+# re-surfaces old closed-task prose as new `+` diff lines verbatim, and no
+# negation-word heuristic can retroactively annotate someone else's already-
+# closed task text. Recurred twice in nx (2026-07-16, 2026-07-17; nx-9qsmb.3) —
+# the underlying data never proposed running db:push, the diff just reshuffled.
 violations=$(git diff --cached --unified=0 --diff-filter=AM \
-  -- . ':!*pre-commit-block-db-push.sh' \
+  -- . ':!*pre-commit-block-db-push.sh' ':!.beads/*.jsonl' \
   | grep -E '^\+' \
   | grep -vE '^\+\+\+' \
   | grep -E "$pattern" \
