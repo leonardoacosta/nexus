@@ -79,6 +79,11 @@ export interface NextRecommendation {
  *     `null` when the session has no resolvable project.
  *   - `next`       — the `GET /recommend` payload, unchanged; `null` when
  *     unavailable.
+ *   - `usedPercentage`/`contextWindowSize` — the session's context-window usage,
+ *     derived agent-side from the transcript on every hook event (nx now owns
+ *     this since CC removed its statusLine hook, cc 2a6eda0c). Both `null` when
+ *     no fresh context entry exists (e.g. right after an agent restart, or a
+ *     brand-new session with zero hook events yet).
  */
 export interface SessionStatusResponse {
   sessionId: string;
@@ -99,6 +104,8 @@ export interface SessionStatusResponse {
     git: GitStatusObject | null;
   } | null;
   next: NextRecommendation | null;
+  usedPercentage: number | null;
+  contextWindowSize: number | null;
 }
 
 /**

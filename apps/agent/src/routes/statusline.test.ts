@@ -27,6 +27,7 @@ import {
   it,
   expect,
   spyOn,
+  beforeEach,
   afterEach,
   beforeAll,
   afterAll,
@@ -50,6 +51,8 @@ import * as sessionsDb from "../db/sessions";
 import * as execMod from "../utils/exec";
 import * as gitObserver from "../services/git-observer";
 import * as recommendMod from "./recommend";
+import * as costReadMod from "../telemetry/session-cost-read";
+import { applyStatuslineSnapshot, resetSessionContextStore } from "./session-context";
 import * as readerMod from "../services/credential-pool/reader";
 import type { CredentialReadResult } from "../services/credential-pool/reader";
 import { handleStatusline } from "./statusline";
@@ -126,6 +129,72 @@ describe("GET /statusline — mutual-exclusion guard (no DB)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("sessionId and accountId are mutually exclusive");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Tier 1.5 — sessionId mode context-window fields (no DB, nx-qayeb.1)
+// ───────────────────────────────────────────────────────────────────────────
+
+const EMPTY_COST = {
+  cost_usd: null,
+  input: 0,
+  output: 0,
+  cache_read: 0,
+  cache_creation: 0,
+};
+
+describe("GET /statusline — sessionId mode context-window fields (no DB)", () => {
+  let getByIdSpy: ReturnType<typeof spyOn<typeof sessionsDb, "getSessionById">> | undefined;
+  let costSpy: ReturnType<typeof spyOn<typeof costReadMod, "readSessionCostTokens">> | undefined;
+  let recSpy: ReturnType<typeof spyOn<typeof recommendMod, "getRecommendation">> | undefined;
+
+  beforeEach(() => {
+    resetSessionContextStore();
+  });
+
+  afterEach(() => {
+    getByIdSpy?.mockRestore();
+    costSpy?.mockRestore();
+    recSpy?.mockRestore();
+    resetSessionContextStore();
+  });
+
+  test("includes usedPercentage/contextWindowSize from a fresh context-store entry", async () => {
+    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(
+      makeRow({ id: "sess-ctx", model: "claude-opus-4-8", projectId: null, credentialId: null } as Partial<SessionRow>),
+    );
+    costSpy = spyOn(costReadMod, "readSessionCostTokens").mockResolvedValue(EMPTY_COST);
+    recSpy = spyOn(recommendMod, "getRecommendation").mockResolvedValue(
+      null as unknown as NextRecommendation,
+    );
+
+    // Populate the shared in-memory session-context store (what
+    // process-hook-event's transcript collector would write on a live event).
+    applyStatuslineSnapshot("sess-ctx", 63, 200000);
+
+    const res = await handleStatusline({} as Db, statusUrl("?sessionId=sess-ctx"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { session: SessionStatusResponse };
+    expect(body.session.usedPercentage).toBe(63);
+    expect(body.session.contextWindowSize).toBe(200000);
+  });
+
+  test("usedPercentage/contextWindowSize are null when no fresh context entry exists", async () => {
+    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(
+      makeRow({ id: "sess-noctx", model: null, projectId: null, credentialId: null } as Partial<SessionRow>),
+    );
+    costSpy = spyOn(costReadMod, "readSessionCostTokens").mockResolvedValue(EMPTY_COST);
+    recSpy = spyOn(recommendMod, "getRecommendation").mockResolvedValue(
+      null as unknown as NextRecommendation,
+    );
+    // Store deliberately left empty (reset in beforeEach).
+
+    const res = await handleStatusline({} as Db, statusUrl("?sessionId=sess-noctx"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { session: SessionStatusResponse };
+    expect(body.session.usedPercentage).toBeNull();
+    expect(body.session.contextWindowSize).toBeNull();
   });
 });
 

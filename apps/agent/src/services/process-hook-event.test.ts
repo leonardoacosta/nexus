@@ -26,6 +26,13 @@ import * as schemaDriftNs from "./schema-drift";
 // present and reverts in afterAll.
 import * as gitProjectNs from "./git-project";
 import * as sessionsNs from "../db/sessions";
+// nx-qayeb.1: the 1c context-usage step reads the transcript via
+// `collectContextUsage` and writes into the session-context store via
+// `applyStatuslineSnapshot`. Spy both as RESTORABLE namespace spies (same
+// pattern as the sessions writers above) so the step is observable without
+// touching the filesystem or the real store, and both revert in afterAll.
+import * as ctxCollectorNs from "./context-usage-collector";
+import * as sessionContextNs from "../routes/session-context";
 
 // ─── Module mocks (must register before importing helper) ──────────────────
 
@@ -91,9 +98,31 @@ const sessionsSpies = [
     updateSessionModelMock as unknown as typeof sessionsNs.updateSessionModel,
   ),
 ];
+// nx-qayeb.1: 1c context-usage collection spies. `collectContextUsage`
+// defaults to null (no-op) so pre-existing tests — whose payloads carry no
+// `transcript_path` — never trigger a snapshot write. Individual tests below
+// override the return.
+const collectContextUsageMock = mock(
+  (_path: string) => null as { usedPercentage: number; contextWindowSize: number } | null,
+);
+const collectContextUsageSpy = spyOn(ctxCollectorNs, "collectContextUsage").mockImplementation(
+  collectContextUsageMock as unknown as typeof ctxCollectorNs.collectContextUsage,
+);
+const applyStatuslineSnapshotMock = mock(
+  (_id: string, _pct: number, _size: number | null) => {},
+);
+const applyStatuslineSnapshotSpy = spyOn(
+  sessionContextNs,
+  "applyStatuslineSnapshot",
+).mockImplementation(
+  applyStatuslineSnapshotMock as unknown as typeof sessionContextNs.applyStatuslineSnapshot,
+);
+
 afterAll(() => {
   resolveGitOriginSpy.mockRestore();
   for (const spy of sessionsSpies) spy.mockRestore();
+  collectContextUsageSpy.mockRestore();
+  applyStatuslineSnapshotSpy.mockRestore();
 });
 
 // ─── Mock SessionManager ───────────────────────────────────────────────────
@@ -146,6 +175,10 @@ describe("processHookEvent", () => {
     updateSessionAgentStateMock.mockImplementation(async () => 1);
     updateSessionModelMock.mockClear();
     updateSessionModelMock.mockImplementation(async () => 1);
+    collectContextUsageMock.mockClear();
+    collectContextUsageMock.mockImplementation(() => null);
+    applyStatuslineSnapshotMock.mockClear();
+    applyStatuslineSnapshotMock.mockImplementation(() => {});
     ({ processHookEvent } = await import("./process-hook-event"));
   });
 
@@ -575,6 +608,110 @@ describe("processHookEvent", () => {
 
     expect(result.driftOk).toBe(true);
     expect(result.enrichmentOk).toBe(false);
+  });
+
+  // ── 1c. Context-usage collection (nx-qayeb.1) ──────────────────────────────
+
+  test("collects context usage and writes the snapshot when the payload carries transcript_path", async () => {
+    collectContextUsageMock.mockImplementation(() => ({
+      usedPercentage: 42,
+      contextWindowSize: 200000,
+    }));
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "PreToolUse",
+        sessionId: "sess-ctx",
+        payload: { tool_name: "Read", transcript_path: "/x/transcript.jsonl" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    expect(collectContextUsageMock).toHaveBeenCalledTimes(1);
+    expect(collectContextUsageMock).toHaveBeenCalledWith("/x/transcript.jsonl");
+    expect(applyStatuslineSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(applyStatuslineSnapshotMock).toHaveBeenCalledWith(
+      "sess-ctx",
+      42,
+      200000,
+    );
+  });
+
+  test("does NOT write a snapshot when the collector returns null (no usable transcript line)", async () => {
+    collectContextUsageMock.mockImplementation(() => null);
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "PreToolUse",
+        sessionId: "sess-null-ctx",
+        payload: { transcript_path: "/x/empty.jsonl" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    expect(collectContextUsageMock).toHaveBeenCalledWith("/x/empty.jsonl");
+    expect(applyStatuslineSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  test("skips context-usage collection when the payload has no transcript_path", async () => {
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "PreToolUse",
+        sessionId: "sess-no-transcript",
+        payload: { tool_name: "Read" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    expect(collectContextUsageMock).not.toHaveBeenCalled();
+    expect(applyStatuslineSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  test("runs context-usage collection even without a DB (no db dependency)", async () => {
+    collectContextUsageMock.mockImplementation(() => ({
+      usedPercentage: 10,
+      contextWindowSize: 200000,
+    }));
+    const sm = createMockSessionManager();
+    await processHookEvent(
+      {
+        eventType: "PostToolUse",
+        sessionId: "sess-nodb-ctx",
+        payload: { transcript_path: "/x/t.jsonl" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: null },
+    );
+
+    expect(applyStatuslineSnapshotMock).toHaveBeenCalledWith(
+      "sess-nodb-ctx",
+      10,
+      200000,
+    );
+  });
+
+  test("context-usage collection failure is non-fatal (helper still resolves, enrichmentOk stays true)", async () => {
+    collectContextUsageMock.mockImplementation(() => {
+      throw new Error("read blew up");
+    });
+    const sm = createMockSessionManager();
+    const result = await processHookEvent(
+      {
+        eventType: "PreToolUse",
+        sessionId: "sess-ctx-throws",
+        payload: { transcript_path: "/x/t.jsonl" },
+        source: "socket",
+      },
+      { sessionManager: sm, db: fakeDb },
+    );
+
+    expect(collectContextUsageMock).toHaveBeenCalled();
+    // Swallowed in its own try/catch — a distinct concern from enrichmentOk.
+    expect(result.enrichmentOk).toBe(true);
   });
 
   test("parity: socket vs http source labels produce identical DB writes for the same payload", async () => {

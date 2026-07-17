@@ -26,6 +26,7 @@ import type { Db } from "@nexus/db";
 import {
   handleGetSessionContext,
   handlePatchSessionContext,
+  getFreshContextEntry,
   resetSessionContextStore,
 } from "./session-context";
 // Restorable spy target for the ccSessionId-lookup suite below
@@ -162,6 +163,59 @@ describe("session-context — optional contextWindowSize omitted", () => {
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.usedPercentage).toBe(10);
     expect(body.contextWindowSize).toBeNull();
+  });
+});
+
+describe("session-context — getFreshContextEntry accessor (nx-qayeb.1)", () => {
+  it("returns the usage + window for a fresh entry", async () => {
+    await handlePatchSessionContext(
+      patchRequest("fresh", { usedPercentage: 33, contextWindowSize: 200000 }),
+      "fresh",
+    );
+    const entry = getFreshContextEntry("fresh");
+    expect(entry).toEqual({ usedPercentage: 33, contextWindowSize: 200000 });
+  });
+
+  it("returns null for a stale entry (past CACHE_TTL_MS)", async () => {
+    await handlePatchSessionContext(
+      patchRequest("stale", { usedPercentage: 33 }),
+      "stale",
+    );
+    // Advance past the TTL so the entry is now stale.
+    nowMs += TTL_MS + 1;
+    expect(getFreshContextEntry("stale")).toBeNull();
+  });
+
+  it("returns null for an absent entry", () => {
+    expect(getFreshContextEntry("never-written")).toBeNull();
+  });
+
+  it("carries contextWindowSize: null through when it was omitted on PATCH", async () => {
+    await handlePatchSessionContext(
+      patchRequest("no-size", { usedPercentage: 7 }),
+      "no-size",
+    );
+    expect(getFreshContextEntry("no-size")).toEqual({
+      usedPercentage: 7,
+      contextWindowSize: null,
+    });
+  });
+
+  it("agrees with handleGetSessionContext's fresh/stale boundary (single-sourced check)", async () => {
+    await handlePatchSessionContext(
+      patchRequest("boundary", { usedPercentage: 50 }),
+      "boundary",
+    );
+    // Just fresh: accessor returns a value AND the GET route returns 200.
+    expect(getFreshContextEntry("boundary")).not.toBeNull();
+    const okRes = await handleGetSessionContext(getRequest("boundary"), "boundary");
+    expect(okRes.status).toBe(200);
+
+    // Cross the TTL: accessor returns null AND the GET route returns 404.
+    nowMs += TTL_MS + 1;
+    expect(getFreshContextEntry("boundary")).toBeNull();
+    const staleRes = await handleGetSessionContext(getRequest("boundary"), "boundary");
+    expect(staleRes.status).toBe(404);
   });
 });
 

@@ -47,6 +47,7 @@ import { readSessionCostTokens } from "../telemetry/session-cost-read";
 import { latestProjectStatus } from "../services/status-snapshots";
 import { getObservedGitState } from "../services/git-observer";
 import { getRecommendation } from "./recommend";
+import { getFreshContextEntry } from "./session-context";
 
 const log = createLogger("agent:routes:statusline");
 
@@ -269,7 +270,26 @@ async function buildSessionStatus(
     log.warn({ err, sessionId }, "statusline: recommendation compose failed");
   }
 
-  return { sessionId, model, fiveHour, sevenDay, usage, project, next };
+  // Context-window usage from the in-memory session-context store (populated by
+  // process-hook-event's transcript collector). `null`/`null` when no fresh
+  // entry exists — additive, degrades gracefully after an agent restart or for
+  // a brand-new session with zero hook events yet. Single-sourced freshness
+  // check via getFreshContextEntry.
+  const ctx = getFreshContextEntry(sessionId);
+  const usedPercentage = ctx?.usedPercentage ?? null;
+  const contextWindowSize = ctx?.contextWindowSize ?? null;
+
+  return {
+    sessionId,
+    model,
+    fiveHour,
+    sevenDay,
+    usage,
+    project,
+    next,
+    usedPercentage,
+    contextWindowSize,
+  };
 }
 
 // ---------------------------------------------------------------------------

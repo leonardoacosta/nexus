@@ -31,6 +31,8 @@ import type { SessionManager } from "../session-manager";
 import { resolveGitOrigin } from "./git-project";
 import { resolveProject } from "./git-project-resolver";
 import { inspectAndEmitDrift } from "./schema-drift";
+import { collectContextUsage } from "./context-usage-collector";
+import { applyStatuslineSnapshot } from "../routes/session-context";
 import {
   updateSessionGitOrigin,
   backfillSessionCwd,
@@ -138,6 +140,53 @@ export async function processHookEvent(
         log.warn(
           { err, eventType: input.eventType, sessionId: input.sessionId, source: input.source },
           "process-hook-event: agent_state persist threw (non-fatal)",
+        );
+      }
+    }
+  }
+
+  // 1c. Context-usage collection (session-enrichment). Runs on EVERY event that
+  //     carries a `transcript_path` (not every event type does — absence is a
+  //     no-op, not an error). CC removed its statusLine hook (cc 2a6eda0c),
+  //     which was the only prior source of a session's context-window %; nx now
+  //     derives it agent-side from the transcript the hook payload already
+  //     points at, event-driven off this same hook stream (no independent
+  //     transcript poller). The result feeds the SAME in-memory session-context
+  //     store the GET route + GET /statusline read. Best-effort: a transcript
+  //     read hiccup must never break the primary dispatch path, and — like the
+  //     1b agent-state step — it is intentionally NOT folded into enrichmentOk
+  //     (a distinct concern). Needs no DB.
+  if (input.sessionId) {
+    const transcriptPath = input.payload.transcript_path;
+    if (typeof transcriptPath === "string" && transcriptPath.length > 0) {
+      try {
+        const usage = collectContextUsage(transcriptPath);
+        if (usage) {
+          applyStatuslineSnapshot(
+            input.sessionId,
+            usage.usedPercentage,
+            usage.contextWindowSize,
+          );
+          log.debug(
+            {
+              sessionId: input.sessionId,
+              eventType: input.eventType,
+              usedPercentage: usage.usedPercentage,
+              contextWindowSize: usage.contextWindowSize,
+              source: input.source,
+            },
+            "process-hook-event: context usage collected from transcript",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          {
+            err,
+            eventType: input.eventType,
+            sessionId: input.sessionId,
+            source: input.source,
+          },
+          "process-hook-event: context-usage collection threw (non-fatal)",
         );
       }
     }

@@ -48,6 +48,31 @@ export function resetSessionContextStore(): void {
   store.clear();
 }
 
+/** The fresh subset a read accessor hands back — usage + window, no timestamp. */
+export interface FreshContextEntry {
+  usedPercentage: number;
+  contextWindowSize: number | null;
+}
+
+/**
+ * Pure read accessor: the fresh entry for `id`, or `null` when absent or past
+ * `CACHE_TTL_MS`. This is the SINGLE freshness-check implementation — both
+ * `handleGetSessionContext` (GET /sessions/:id/context) and
+ * `buildSessionStatus` (GET /statusline, `routes/statusline.ts`) route their
+ * fresh-vs-stale decision through here, so the `Date.now() - entry.updatedAt >=
+ * CACHE_TTL_MS` comparison lives in exactly one place.
+ */
+export function getFreshContextEntry(id: string): FreshContextEntry | null {
+  const entry = store.get(id);
+  if (!entry || Date.now() - entry.updatedAt >= CACHE_TTL_MS) {
+    return null;
+  }
+  return {
+    usedPercentage: entry.usedPercentage,
+    contextWindowSize: entry.contextWindowSize,
+  };
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -82,10 +107,17 @@ export async function handleGetSessionContext(
   id: string,
   db?: Db,
 ): Promise<Response> {
-  const entry = store.get(id);
-  if (!entry || Date.now() - entry.updatedAt >= CACHE_TTL_MS) {
+  // Freshness gate — single-sourced via getFreshContextEntry (same TTL check
+  // buildSessionStatus uses). A null result means absent OR stale → 404.
+  const fresh = getFreshContextEntry(id);
+  if (!fresh) {
     return jsonResponse({ error: "no context data for session" }, 404);
   }
+  // The gate just proved the entry is present + fresh, so this raw read for the
+  // `updatedAt` wire field is safe. It is NOT a second freshness check — the
+  // TTL comparison lives only in getFreshContextEntry.
+  const updatedAt = store.get(id)!.updatedAt;
+
   let model: string | null = null;
   if (db) {
     const row = await getSessionByCcSessionId(db, id);
@@ -93,9 +125,9 @@ export async function handleGetSessionContext(
   }
   const body: SessionContextResponse = {
     sessionId: id,
-    usedPercentage: entry.usedPercentage,
-    contextWindowSize: entry.contextWindowSize,
-    updatedAt: new Date(entry.updatedAt).toISOString(),
+    usedPercentage: fresh.usedPercentage,
+    contextWindowSize: fresh.contextWindowSize,
+    updatedAt: new Date(updatedAt).toISOString(),
     model,
   };
   return jsonResponse(body);
