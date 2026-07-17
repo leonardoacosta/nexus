@@ -96,6 +96,7 @@ import { tryHandleElevenlabsRoute } from "./server-routes-elevenlabs";
 import { tryHandleIntegrationCredentialsRoute } from "./routes/integration-credentials";
 import { tryHandleSessionContextRoute } from "./routes/session-context";
 import { tryHandleGitEventsRoute } from "./routes/project-status";
+import { tryHandlePulseRoute } from "./routes/pulse";
 import { tryHandleSpecRoute, tryHandleCommandRoute } from "./server-routes-specs";
 import { tryHandleWavePlanRoute } from "./server-routes-wave-plans";
 import { buildVersionRoutes, type Route } from "./routes/version-builder";
@@ -144,6 +145,10 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // routes/project-status.ts). Same 4-segment match; `git-events` segment
   // cannot collide with `status` or the PATCH /projects/:id sibling.
   { method: "GET", path: "/projects/:id/git-events" },
+  // Per-project pulse (op:/bd:/next: counts for cc-tmux row3, nx-0bhyl.1,
+  // delegated to routes/pulse.ts). Same 4-segment match; `pulse` segment
+  // cannot collide with `status`/`git-events`/the PATCH /projects/:id sibling.
+  { method: "GET", path: "/projects/:code/pulse" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
   { method: "GET", path: "/notifications" },
@@ -433,6 +438,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // /projects/:id match below.
       const gitEventsResult = tryHandleGitEventsRoute(request, url, db);
       if (gitEventsResult !== null) return gitEventsResult;
+
+      // GET /projects/:code/pulse — nx-native op:/bd:/next: counts for
+      // cc-tmux row3 (nx-0bhyl.1, companion to installfest's
+      // cc-tmux-nx-agent-roadmap-pulse). 4-segment match; the `pulse` segment
+      // cannot collide with `status`/`git-events`/the PATCH /projects/:id sibling.
+      const pulseResult = tryHandlePulseRoute(request, url);
+      if (pulseResult !== null) return pulseResult;
 
       // PATCH /projects/:id — update mutable project metadata (tags, description)
       const projectUpdateMatch = url.pathname.match(/^\/projects\/([^/]+)$/);
