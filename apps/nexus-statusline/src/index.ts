@@ -35,10 +35,6 @@
  *       used_percentage?: number,    // CC sends used%, NOT remaining%
  *       context_window_size?: number,
  *     },
- *     rate_limits?: {
- *       five_hour?: { used_percentage?: number; resets_at?: number },   // resets_at = unix seconds
- *       seven_day?: { used_percentage?: number; resets_at?: number },
- *     },
  *   }
  *
  * Environment:
