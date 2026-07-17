@@ -37,12 +37,6 @@ afterAll(() => {
   bufferMock.restore();
 });
 
-mock.module("@sentry/node", () => ({
-  captureException: mock(() => {}),
-  addBreadcrumb: mock(() => {}),
-  init: mock(() => {}),
-}));
-
 const { NotificationManager } = await import("./manager");
 const { PresenceContext } = await import("./presence-context");
 const { setRoutingRules } = await import("./router");

@@ -73,12 +73,6 @@ afterAll(() => {
   bufferMock.restore();
 });
 
-mock.module("@sentry/node", () => ({
-  captureException: mock(() => {}),
-  addBreadcrumb: mock(() => {}),
-  init: mock(() => {}),
-}));
-
 // ─── Now load real modules — including the real lifecycleBus ──────────────
 
 const { lifecycleBus } = await import("../services/lifecycle-bus");

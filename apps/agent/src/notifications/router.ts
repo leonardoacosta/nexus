@@ -6,7 +6,6 @@ import type {
 } from "@nexus/core";
 import { createLogger, getAgentId } from "@nexus/core/node";
 import { evaluateRules, isVectorAllUnknown } from "./rules-engine";
-import { captureException, addBreadcrumb } from "@sentry/node";
 import { fetchWithTimeout } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { projectVoiceOverrides, elevenlabsCredentials } from "@nexus/db";
@@ -210,13 +209,13 @@ async function synthesizeViaElevenLabs(
  *     synthesizes via Keychain). Info-level log.
  *   - Voice id resolves to null (no project override + no env default) →
  *     `{ success: true }` (signal-only). Info-level log — this is an expected
- *     degradation, not an error; NO captureException.
+ *     degradation, not an error; NO error-level log.
  *   - Voice resolution itself throws (e.g. DB hiccup in project-voice lookup)
  *     → `{ success: true }` (signal-only). Warn-level log — a transient DB
  *     error must never kill TTS.
  *   - HTTP 4xx/5xx / network timeout during synth → `{ success: true }`
  *     (signal-only). Warn-level log — a flaky ElevenLabs endpoint must not
- *     spam Sentry on every notification; the Mac fallback handles it.
+ *     spam the error log on every notification; the Mac fallback handles it.
  *   - Synth success → persist mp3 to `~/.config/nexus/audio/<id>.mp3` via
  *     `writeAudio()`, base64-encode the bytes, return
  *     `{ success: true, audioBase64, voiceUsed }`.
@@ -259,7 +258,7 @@ async function sendTtsNotification(
   if (!voiceId) {
     // Expected degradation (no project override + ELEVENLABS_DEFAULT_VOICE_ID
     // unset), not an error. Emit signal-only so the Mac listener synthesizes
-    // via Keychain. No captureException — this is a normal fallback.
+    // via Keychain. No error-level log — this is a normal fallback.
     log.info(
       { notificationId: notification.id, project: notification.project },
       "tts: no voice id available — emitting signal-only NotificationFired (listener falls back to local synth)",
@@ -277,9 +276,9 @@ async function sendTtsNotification(
   } catch (err) {
     // Synth HTTP/network error. Degrade to signal-only so the notification
     // still delivers (banner + listener-side synth) — a flaky ElevenLabs
-    // endpoint must not kill TTS. Warn-only, no captureException (would spam
-    // Sentry on every notification during an outage; the Mac fallback covers
-    // synthesis).
+    // endpoint must not kill TTS. Warn-only, no error-level log (would spam
+    // the error log on every notification during an outage; the Mac fallback
+    // covers synthesis).
     log.warn(
       {
         notificationId: notification.id,
@@ -311,10 +310,10 @@ async function sendTtsNotification(
  *      `chatId` metadata falls through here.
  *
  * FAIL-OPEN (mirrors `sendTtsNotification`'s discipline): this handler NEVER
- * returns `success: false` and NEVER `captureException`s. Every path returns
+ * returns `success: false` and NEVER logs at error level. Every path returns
  * `{ success: true }` so an unprovisioned or erroring Telegram lane never
- * marks the notification failed and never spams Sentry during a Bot-API
- * outage:
+ * marks the notification failed and never spams the error log during a
+ * Bot-API outage:
  *
  *   - neither DB row nor env provisioned → `{ success: true }` (signal-only
  *     no-op). Info log.
@@ -452,7 +451,9 @@ function normalizeResult(value: ChannelHandlerReturn): ChannelResult {
 /**
  * Wrap a channel handler call with a deadline. If the handler does not resolve
  * within NOTIFICATION_TIMEOUT_MS, the promise rejects with a TimeoutError and
- * Sentry captures the exception.
+ * the error is logged (pino's OTel mixin — packages/core/src/logger.ts —
+ * attaches the active trace/span id, so this correlates the same way a
+ * Sentry captureException event used to).
  */
 async function withChannelTimeout(
   channel: NotificationChannel,
@@ -466,7 +467,10 @@ async function withChannelTimeout(
       const err = new Error(
         `notification delivery timeout: ${channel} (notificationId=${notification.id})`,
       );
-      captureException(err);
+      log.error(
+        { err, channel, notificationId: notification.id },
+        "notification delivery timeout",
+      );
       reject(err);
     }, NOTIFICATION_TIMEOUT_MS);
   });
@@ -559,13 +563,16 @@ const CHANNEL_HANDLERS: Record<
 /**
  * Surface a routing request for a channel that has no registered handler.
  *
- * Previously this was a silent skip with only a warn log + breadcrumb. A
- * breadcrumb alone never produces a Sentry event — it only attaches context to
- * a LATER captured error — so a misconfigured channel (e.g. a caller still
- * passing the removed `slack` channel) vanished with no alert. We now:
- *   1. log at warn (operator-visible in the agent log), AND
- *   2. `captureException` on the existing Sentry path so the misroute surfaces
- *      as its own event, with a breadcrumb attached for context.
+ * Previously this was a silent skip with only a warn log. A breadcrumb alone
+ * never produced a Sentry event — it only attached context to a LATER
+ * captured error — so a misconfigured channel (e.g. a caller still passing
+ * the removed `slack` channel) vanished with no alert. We now:
+ *   1. log at warn (operator-visible in the agent log, carrying the same
+ *      channel/notificationId context the breadcrumb used to attach), AND
+ *   2. log at error with the constructed Error attached so the misroute
+ *      surfaces via OTel/pino error correlation the same way a Sentry
+ *      captureException event used to (pino's OTel mixin attaches the
+ *      active trace/span id — packages/core/src/logger.ts).
  *
  * Shared by both `routeNotification` (serial) and `routeNotificationParallel`
  * so the two dispatch paths cannot drift on how a missing handler is handled.
@@ -575,16 +582,12 @@ function surfaceMissingHandler(
   notificationId: string,
 ): void {
   log.warn({ channel, notificationId }, "No handler for channel");
-  addBreadcrumb({
-    category: "notification",
-    level: "warning",
-    message: "missing handler",
-    data: { channel, notificationId },
-  });
-  captureException(
-    new Error(
-      `no notification channel handler for "${channel}" (notificationId=${notificationId})`,
-    ),
+  const err = new Error(
+    `no notification channel handler for "${channel}" (notificationId=${notificationId})`,
+  );
+  log.error(
+    { err, channel, notificationId },
+    "missing notification channel handler",
   );
 }
 
@@ -694,8 +697,8 @@ export async function routeNotificationParallel(
       // tripped `withChannelTimeout`'s deadline) or it threw. Either way this
       // channel is marked failed and pushed to `failed[]`; because we await a
       // single `Promise.allSettled`, the rejection of ONE channel never blocks
-      // delivery on the others. The timeout itself already called
-      // `captureException` inside `withChannelTimeout`.
+      // delivery on the others. The timeout itself already logged at error
+      // level inside `withChannelTimeout`.
       failed.push(channelName);
       const reason =
         result.reason instanceof Error ? result.reason.message : String(result.reason);

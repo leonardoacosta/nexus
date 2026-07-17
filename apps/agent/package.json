@@ -21,7 +21,6 @@
     "@opentelemetry/sdk-metrics": "^2.8.0",
     "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@opentelemetry/semantic-conventions": "^1.41.1",
-    "@sentry/node": "^8.0.0",
     "drizzle-orm": "^0.45.2",
     "node-pty": "^1.0.0",
     "smol-toml": "^1.6.1",

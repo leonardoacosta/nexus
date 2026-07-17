@@ -10,24 +10,26 @@
  *        with a drop-oldest (FIFO) eviction policy — buffer.ts.
  *   1.3  A hung channel handler TIMES OUT via withChannelTimeout without
  *        stalling sibling channels (routeNotificationParallel) — router.ts.
- *   1.4  A missing channel handler is SURFACED (warn log + addBreadcrumb +
- *        captureException), not silently skipped — router.ts.
+ *   1.4  A missing channel handler is SURFACED (warn log + error log with
+ *        context), not silently skipped — router.ts. (Converted from Sentry
+ *        addBreadcrumb + captureException to pino log.warn/log.error —
+ *        nx-7qdt6.)
  *
  * Module-load-ordering note
  * ─────────────────────────
  * `bun test` runs every file in one process and `mock.module(...)` is
  * process-global: whichever test file imports a target module FIRST binds
  * the mock instance. notifications.test.ts (alphabetically before this file)
- * imports router.ts WITHOUT a @sentry/node mock, so in a full-suite run the
- * router's captureException/addBreadcrumb resolve to the REAL Sentry exports
- * and this file's spies are not wired.
+ * imports router.ts WITHOUT a `@nexus/core/node` mock, so in a full-suite run
+ * the router's `log.warn`/`log.error` resolve to the REAL pino logger and
+ * this file's spies are not wired.
  *
  * To stay strong-and-real under BOTH orderings, every test asserts a
  * MOCK-INDEPENDENT observable contract (thrown error, return-value shape,
  * bounded sidecar count, failed/delivered arrays). When this file IS the
- * first loader (single-file isolation), the additional Sentry/logger spy
- * assertions also fire. Neither path uses an `expect(true).toBe(true)`
- * escape — every assertion is falsifiable.
+ * first loader (single-file isolation), the additional logger spy assertions
+ * also fire. Neither path uses an `expect(true).toBe(true)` escape — every
+ * assertion is falsifiable.
  */
 
 import {
@@ -39,24 +41,37 @@ import {
   beforeEach,
   mock,
 } from "bun:test";
+import * as coreNode from "@nexus/core/node";
 import { installNexusDbMock } from "../testing/mock-nexus-db";
 
-// ─── Sentry + logger spies (effective only when this file loads first) ───────
+// ─── Logger spies (effective only when this file loads router.ts first) ──────
 
-const captureExceptionMock = mock((_e: unknown) => {});
-const addBreadcrumbMock = mock((_b: unknown) => {});
+const errorLogMock = mock((..._args: unknown[]) => {});
+const warnLogMock = mock((..._args: unknown[]) => {});
 
-mock.module("@sentry/node", () => ({
-  captureException: captureExceptionMock,
-  addBreadcrumb: addBreadcrumbMock,
-  init: mock(() => {}),
+// CRITICAL: spread the REAL @nexus/core/node barrel and override ONLY the
+// logger — see router.test.ts's identical comment for why a partial factory
+// would strip every other export (expandTilde, safeSpawn, resetAgentIdCache,
+// ...) for the WHOLE suite.
+const loggerMock = {
+  warn: warnLogMock,
+  error: errorLogMock,
+  info: mock(() => {}),
+  debug: mock(() => {}),
+  fatal: mock(() => {}),
+  child: () => loggerMock,
+};
+
+mock.module("@nexus/core/node", () => ({
+  ...coreNode,
+  createLogger: () => loggerMock,
+  logger: loggerMock,
 }));
 
-/** True when our Sentry mock is the bound instance (i.e. we loaded router first). */
-function sentryMockWired(): boolean {
+/** True when our logger mock is the bound instance (i.e. we loaded router first). */
+function loggerMockWired(): boolean {
   return (
-    captureExceptionMock.mock.calls.length > 0 ||
-    addBreadcrumbMock.mock.calls.length > 0
+    errorLogMock.mock.calls.length > 0 || warnLogMock.mock.calls.length > 0
   );
 }
 
@@ -272,12 +287,13 @@ describe("regression 1.3 — hung channel times out, siblings unaffected", () =>
       // resolving under 11s proves the deadline mechanism ran.
       expect(elapsed).toBeLessThan(11_000);
 
-      // When our Sentry mock is the bound instance, the timeout's
-      // captureException is observable too.
-      if (sentryMockWired()) {
-        const msgs = captureExceptionMock.mock.calls.map((c) =>
-          c[0] instanceof Error ? c[0].message : String(c[0]),
-        );
+      // When our logger mock is the bound instance, the timeout's log.error
+      // call is observable too.
+      if (loggerMockWired()) {
+        const msgs = errorLogMock.mock.calls
+          .map((c) => (c[0] as { err?: Error })?.err)
+          .filter((err): err is Error => err instanceof Error)
+          .map((err) => err.message);
         expect(msgs.some((m) => /timeout/i.test(m) && /tts/.test(m))).toBe(true);
       }
     } finally {
@@ -296,8 +312,8 @@ describe("regression 1.3 — hung channel times out, siblings unaffected", () =>
 
 describe("regression 1.4 — missing channel handler is surfaced", () => {
   beforeEach(() => {
-    captureExceptionMock.mockReset();
-    addBreadcrumbMock.mockReset();
+    errorLogMock.mockReset();
+    warnLogMock.mockReset();
   });
 
   it("routeNotification skips an unregistered channel with NO delivery and NO throw", async () => {
@@ -329,21 +345,22 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
     expect(threw).toBe(false);
     expect(results).toHaveLength(0);
 
-    // Surfacing side-effect (only when our Sentry mock is the bound instance):
-    // captureException fires with a message naming the channel + notif id. A
-    // breadcrumb alone never produces a Sentry event, so the fix ALSO calls
-    // captureException — that's the regression this asserts.
-    if (sentryMockWired()) {
-      const msgs = captureExceptionMock.mock.calls.map((c) =>
-        c[0] instanceof Error ? c[0].message : String(c[0]),
-      );
+    // Surfacing side-effect (only when our logger mock is the bound instance):
+    // log.error fires with the constructed Error naming the channel + notif
+    // id. A warn log alone never surfaces as its own alert-worthy event, so
+    // the fix ALSO calls log.error — that's the regression this asserts.
+    if (loggerMockWired()) {
+      const msgs = errorLogMock.mock.calls
+        .map((c) => (c[0] as { err?: Error })?.err)
+        .filter((err): err is Error => err instanceof Error)
+        .map((err) => err.message);
       expect(msgs.some((m) => /slack/.test(m) && /missing-1-notif/.test(m))).toBe(
         true,
       );
-      const crumb = addBreadcrumbMock.mock.calls[0]?.[0] as {
-        data?: { channel?: string };
+      const warnFields = warnLogMock.mock.calls[0]?.[0] as {
+        channel?: string;
       };
-      expect(crumb?.data?.channel).toBe("slack");
+      expect(warnFields?.channel).toBe("slack");
     }
   });
 
@@ -376,10 +393,11 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
     expect(out.delivered).toHaveLength(0);
     expect(out.failed).toHaveLength(0);
 
-    if (sentryMockWired()) {
-      const msgs = captureExceptionMock.mock.calls.map((c) =>
-        c[0] instanceof Error ? c[0].message : String(c[0]),
-      );
+    if (loggerMockWired()) {
+      const msgs = errorLogMock.mock.calls
+        .map((c) => (c[0] as { err?: Error })?.err)
+        .filter((err): err is Error => err instanceof Error)
+        .map((err) => err.message);
       expect(msgs.some((m) => /slack/.test(m) && /missing-2-notif/.test(m))).toBe(
         true,
       );
@@ -387,7 +405,7 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
   });
 
   it("a registered channel is delivered and NEVER surfaced as missing", async () => {
-    captureExceptionMock.mockReset();
+    errorLogMock.mockReset();
     const { setRoutingRules, routeNotification } = await import("./router");
 
     setRoutingRules([
@@ -404,10 +422,11 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.channel).toBe("desktop");
 
-    // No "no handler" captureException for a channel that HAS a handler.
-    const msgs = captureExceptionMock.mock.calls.map((c) =>
-      c[0] instanceof Error ? c[0].message : String(c[0]),
-    );
+    // No "no handler" log.error for a channel that HAS a handler.
+    const msgs = errorLogMock.mock.calls
+      .map((c) => (c[0] as { err?: Error })?.err)
+      .filter((err): err is Error => err instanceof Error)
+      .map((err) => err.message);
     expect(msgs.some((m) => /no notification channel handler/.test(m))).toBe(false);
   });
 });

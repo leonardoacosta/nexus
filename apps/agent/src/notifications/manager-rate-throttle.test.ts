@@ -23,12 +23,6 @@ afterAll(() => {
   bufferMock.restore();
 });
 
-mock.module("@sentry/node", () => ({
-  captureException: mock(() => {}),
-  addBreadcrumb: mock(() => {}),
-  init: mock(() => {}),
-}));
-
 const { NotificationManager } = await import("./manager");
 
 const stubDb = {} as never;

@@ -1,17 +1,18 @@
 /**
- * Notification router tests — timeout + Sentry integration, unknown channel.
+ * Notification router tests — timeout + OTel/logger integration, unknown channel.
  *
  * These tests verify the structural contracts of the router:
  *   - Slow handlers are eventually rejected (timeout path)
  *   - Unknown channels are skipped with empty results
- *   - The router is wired to call captureException / addBreadcrumb via the
- *     Sentry imports already in router.ts
+ *   - The router is wired to call `log.error` / `log.warn` for the timeout and
+ *     missing-handler paths (converted from Sentry captureException /
+ *     addBreadcrumb — nx-7qdt6)
  *
- * Sentry side-effects (captureException / addBreadcrumb) are verified via
- * structural assertions: the error message shape (for timeout) and the
- * return value (for unknown channel). Direct mock assertions on Sentry are
- * kept in the describe.only-capable file-level mock block so they work
- * correctly when this file is run in isolation.
+ * These log side-effects are verified via structural assertions: the error
+ * message shape (for timeout) and the return value (for unknown channel).
+ * Direct mock assertions on the logger are kept in the describe.only-capable
+ * file-level mock block so they work correctly when this file is run in
+ * isolation.
  */
 
 import { describe, expect, it, mock, beforeEach, beforeAll, afterAll } from "bun:test";
@@ -21,34 +22,28 @@ import { tmpdir } from "node:os";
 import * as coreNode from "@nexus/core/node";
 import type { PresenceVector, PresenceField } from "@nexus/core";
 
-// ─── Sentry mock ─────────────────────────────────────────────────────────────
+// ─── Logger mock ─────────────────────────────────────────────────────────────
 // Registered before router.ts is imported. When run in isolation this file
 // ensures the mock is in place before the first module load. When run as part
 // of the full suite, notifications.test.ts may have already loaded router.ts
-// with the real Sentry binding — in that case the behavioural assertions below
+// with the real logger binding — in that case the behavioural assertions below
 // (error message shape, return value) still pass.
 
-const captureExceptionMock = mock(() => {});
-const addBreadcrumbMock = mock(() => {});
+const errorLogMock = mock(() => {});
 const warnLogMock = mock(() => {});
 
-mock.module("@sentry/node", () => ({
-  captureException: captureExceptionMock,
-  addBreadcrumb: addBreadcrumbMock,
-  init: mock(() => {}),
-}));
-
 // CRITICAL: spread the REAL @nexus/core/node barrel and override ONLY the
-// logger (the warn channel is asserted on via warnLogMock). Bun's
-// `mock.module` is process-global, last-writer-wins, and irreversible — a
-// PARTIAL factory would strip every other export (expandTilde, safeSpawn,
+// logger (the warn/error channels are asserted on via warnLogMock/errorLogMock).
+// Bun's `mock.module` is process-global, last-writer-wins, and irreversible —
+// a PARTIAL factory would strip every other export (expandTilde, safeSpawn,
 // resetAgentIdCache, ...) for the WHOLE suite and swap the real pino `logger`
 // for a `.child`-less stub that later throws in unrelated siblings (e.g.
 // HealthScheduler.tick()). `loggerMock` therefore carries a chainable `.child`
-// plus the pino level methods, with `warn` wired to the assertable warnLogMock.
+// plus the pino level methods, with `warn`/`error` wired to the assertable
+// warnLogMock/errorLogMock.
 const loggerMock = {
   warn: warnLogMock,
-  error: mock(() => {}),
+  error: errorLogMock,
   info: mock(() => {}),
   debug: mock(() => {}),
   fatal: mock(() => {}),
@@ -169,8 +164,8 @@ describe("router: all-unknown presence vector falls back to legacy", () => {
 
 describe("router: slow handler timeout (task 2.3)", () => {
   beforeEach(() => {
-    captureExceptionMock.mockReset();
-    addBreadcrumbMock.mockReset();
+    errorLogMock.mockReset();
+    warnLogMock.mockReset();
   });
 
   it("rejects within the configured timeout bound when handler never resolves", async () => {
@@ -238,8 +233,8 @@ describe("router: slow handler timeout (task 2.3)", () => {
     }
   }, 15_000);
 
-  it("captureException is called when the timeout fires", async () => {
-    captureExceptionMock.mockReset();
+  it("log.error is called when the timeout fires", async () => {
+    errorLogMock.mockReset();
 
     const originalTimeout = process.env.NEXUS_NOTIFICATION_TIMEOUT_MS;
     process.env.NEXUS_NOTIFICATION_TIMEOUT_MS = "200";
@@ -251,7 +246,7 @@ describe("router: slow handler timeout (task 2.3)", () => {
       // if this file loaded the module first. If notifications.test.ts loaded
       // first with the real desktop handler, this test just verifies the path.
       setRoutingRules([{ channels: ["desktop"], meeting_behavior: "allow" }]);
-      const notif = makeNotification({ id: "captureEx-test-1" });
+      const notif = makeNotification({ id: "errorLog-test-1" });
 
       try {
         await Promise.race([
@@ -267,10 +262,14 @@ describe("router: slow handler timeout (task 2.3)", () => {
         // If the router's own timeout fired, the error mentions the channel
         if (!message.includes("test-external-timeout")) {
           expect(message).toContain("timeout");
-          // captureException was called by withChannelTimeout (if mock is active)
-          if (captureExceptionMock.mock.calls.length > 0) {
-            const [capturedErr] = captureExceptionMock.mock.calls[0]! as unknown as [Error];
-            expect(capturedErr.message).toContain("desktop");
+          // log.error was called by withChannelTimeout (if mock is active)
+          if (errorLogMock.mock.calls.length > 0) {
+            const [fields] = errorLogMock.mock.calls[0]! as unknown as [
+              { err: Error; channel: string; notificationId: string },
+            ];
+            expect(fields.err).toBeInstanceOf(Error);
+            expect(fields.err.message).toContain("desktop");
+            expect(fields.channel).toBe("desktop");
           }
         }
       }
@@ -286,12 +285,11 @@ describe("router: slow handler timeout (task 2.3)", () => {
   }, 15_000);
 });
 
-// ─── Task 2.4: unknown channel → warn log + addBreadcrumb ────────────────────
+// ─── Task 2.4: unknown channel → warn log + error log ────────────────────────
 
 describe("router: unknown channel (task 2.4)", () => {
   beforeEach(() => {
-    captureExceptionMock.mockReset();
-    addBreadcrumbMock.mockReset();
+    errorLogMock.mockReset();
     warnLogMock.mockReset();
   });
 
@@ -327,13 +325,14 @@ describe("router: unknown channel (task 2.4)", () => {
     expect(results).toHaveLength(0);
   });
 
-  it("addBreadcrumb is called when running in isolation (Sentry mock active)", async () => {
+  it("log.warn + log.error are called when running in isolation (logger mock active)", async () => {
     // This assertion is reliable when router.test.ts loads router.ts first.
     // When notifications.test.ts already loaded router.ts (full suite), the
-    // addBreadcrumbMock is not bound to the router's internal addBreadcrumb
-    // function — the contract is still verified by the structural tests above.
+    // warnLogMock/errorLogMock are not bound to the router's internal logger
+    // instance — the contract is still verified by the structural tests above.
 
-    addBreadcrumbMock.mockReset();
+    warnLogMock.mockReset();
+    errorLogMock.mockReset();
     const { setRoutingRules, routeNotification } = await import("./router");
 
     setRoutingRules([
@@ -343,17 +342,25 @@ describe("router: unknown channel (task 2.4)", () => {
     const notif = makeNotification({ project: "bc-proj-1", id: "bc-notif-1" });
     await routeNotification(notif as never);
 
-    // In isolation: mock fires. In full suite: mock may not be wired.
-    // Verify that either the mock was called OR the return value is empty
+    // In isolation: mocks fire. In full suite: mocks may not be wired.
+    // Verify that either a mock was called OR the return value is empty
     // (both confirm the unknown-channel code path ran).
-    const mockCalled = addBreadcrumbMock.mock.calls.length > 0;
+    const mockCalled =
+      warnLogMock.mock.calls.length > 0 || errorLogMock.mock.calls.length > 0;
     const structuralVerification = true; // empty results already verified above
 
-    if (mockCalled) {
-      const [breadcrumbArg] = addBreadcrumbMock.mock.calls[0]! as unknown as [
-        { category: string; level: string; message: string; data: Record<string, unknown> },
+    if (warnLogMock.mock.calls.length > 0) {
+      const [warnFields] = warnLogMock.mock.calls[0]! as unknown as [
+        { channel: string; notificationId: string },
       ];
-      expect(breadcrumbArg.data.channel).toBe("completely-unknown-channel");
+      expect(warnFields.channel).toBe("completely-unknown-channel");
+    }
+    if (errorLogMock.mock.calls.length > 0) {
+      const [errorFields] = errorLogMock.mock.calls[0]! as unknown as [
+        { err: Error; channel: string; notificationId: string },
+      ];
+      expect(errorFields.channel).toBe("completely-unknown-channel");
+      expect(errorFields.err).toBeInstanceOf(Error);
     }
 
     expect(mockCalled || structuralVerification).toBe(true);
@@ -370,8 +377,7 @@ describe("router: unknown channel (task 2.4)", () => {
 
 describe("router: TTS suppression for unspeakable bodies", () => {
   beforeEach(() => {
-    captureExceptionMock.mockReset();
-    addBreadcrumbMock.mockReset();
+    errorLogMock.mockReset();
     warnLogMock.mockReset();
   });
 
