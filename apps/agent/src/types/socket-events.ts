@@ -177,6 +177,40 @@ export interface ToolUseFailEvent {
 }
 
 /**
+ * PostToolUse completion for Write|Edit|MultiEdit (CC hook `tool_use_end`).
+ * Added nx-9qsmb.5 (Option B): the highest-frequency socket event during a
+ * live session, wired through `processHookEvent` so its `transcript_path`
+ * feeds the agent-side context-usage collector (nx-qayeb.1) on tool-call
+ * cadence instead of only at session boundaries. `transcript_path` is only
+ * populated as of `cc/scripts/hooks/telemetry.sh`'s matching nx-9qsmb.5 fix
+ * (`handle_tool_use_end` previously dropped the field even though CC's raw
+ * hook stdin always carries it) — absent/empty on events from an
+ * unpatched sender, which the collector already treats as a no-op.
+ */
+export interface ToolUseEndEvent {
+  event: "tool_use_end";
+  session_id?: string;
+  tool?: string;
+  success?: boolean;
+  agent_type?: string;
+  duration_ms?: number;
+  transcript_path?: string;
+}
+
+/**
+ * Every user turn (CC hook `UserPromptSubmit`). Added nx-9qsmb.5 (Option B)
+ * alongside `tool_use_end` — the other high-frequency event wired through
+ * `processHookEvent` for the same context-usage-collector reason. Carries no
+ * fields beyond the shared envelope + `transcript_path` (same caveat as
+ * `ToolUseEndEvent` above re: sender-side patch dependency).
+ */
+export interface UserPromptEvent {
+  event: "user_prompt";
+  session_id?: string;
+  transcript_path?: string;
+}
+
+/**
  * Permission prompt raised by CC (friction signal). Routed to
  * `permissionRequestRule` (desktop + tts, priority normal); never suppressed
  * (always fires). Added nx-z0vm4 alongside `tool_use_fail` / `hook_failure`.
@@ -223,7 +257,9 @@ export type SocketEvent =
   | DeployStatusEvent
   | ToolUseFailEvent
   | PermissionRequestEvent
-  | HookFailureEvent;
+  | HookFailureEvent
+  | ToolUseEndEvent
+  | UserPromptEvent;
 
 // ---------------------------------------------------------------------------
 // Socket Commands (request/response, client -> agent -> client)

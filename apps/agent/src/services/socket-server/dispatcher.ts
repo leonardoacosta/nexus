@@ -490,6 +490,58 @@ export function createSocketEventDispatcher(
         break;
       }
 
+      case "tool_use_end": {
+        // nx-9qsmb.5 (Option B): the highest-frequency socket event during a
+        // live session (every Write/Edit/MultiEdit). Routed through the
+        // shared processHookEvent spine — same shape as agent_spawn above —
+        // so nx-qayeb.1's context-usage collector runs on tool-call cadence
+        // instead of only at session boundaries. Deliberately NOT given its
+        // own log.info line: at this frequency a dedicated info-level log
+        // per tool call would be pure noise (unlike agent_spawn/hook_failure,
+        // which are comparatively rare); processHookEvent's own enrichment
+        // steps already log at debug/warn as appropriate.
+        if (event.session_id) {
+          processHookEvent(
+            {
+              eventType: "tool_use_end",
+              sessionId: event.session_id,
+              payload: event as unknown as Record<string, unknown>,
+              source: "socket",
+            },
+            { sessionManager, db: db ?? null },
+          ).catch((err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: processHookEvent(tool_use_end) rejected unexpectedly",
+            );
+          });
+        }
+        break;
+      }
+
+      case "user_prompt": {
+        // nx-9qsmb.5 (Option B): the other high-frequency event (every user
+        // turn), wired for the same context-usage-collector reason as
+        // tool_use_end above. Same no-dedicated-log-line rationale.
+        if (event.session_id) {
+          processHookEvent(
+            {
+              eventType: "user_prompt",
+              sessionId: event.session_id,
+              payload: event as unknown as Record<string, unknown>,
+              source: "socket",
+            },
+            { sessionManager, db: db ?? null },
+          ).catch((err: unknown) => {
+            log.warn(
+              { err, sessionId: event.session_id },
+              "socket: processHookEvent(user_prompt) rejected unexpectedly",
+            );
+          });
+        }
+        break;
+      }
+
       default: {
         log.warn({ event }, "socket: unknown event type");
       }

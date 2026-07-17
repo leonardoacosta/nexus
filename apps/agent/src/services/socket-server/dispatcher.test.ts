@@ -35,6 +35,10 @@ import * as hookTrigger from "../../notifications/hook-trigger";
 // Restorable spy target for the session_start pane-correlation suite below —
 // dispatcher.ts imports `fetchPaneTranslationMap` named from this module.
 import * as paneTranslationNs from "./pane-translation";
+// Restorable spy target for the tool_use_end/user_prompt wiring suite below
+// (nx-9qsmb.5) — dispatcher.ts imports `processHookEvent` named from this
+// module, same live-binding spy pattern as the two imports above.
+import * as processHookEventNs from "../process-hook-event";
 import { __testing as dispatcherTesting } from "./dispatcher";
 import { hasLivePg } from "../../testing/live-pg";
 
@@ -853,3 +857,97 @@ describe.skipIf(!hasLivePg)(
     });
   },
 );
+
+// ─── tool_use_end / user_prompt wiring (nx-9qsmb.5, Option B) ────────────────
+//
+// Both were newly recognized by VALID_EVENTS (nx-9qsmb.4) but had no
+// dispatcher case — they hit `default: "unknown event type"` and did
+// nothing. Option B wires exactly these two (the highest-frequency events
+// during a live session) through the shared `processHookEvent` spine so
+// nx-qayeb.1's context-usage collector runs on tool-call/turn cadence
+// instead of only at session boundaries. The other 13 newly-recognized
+// types deliberately stay unwired (see socket-events.ts's VALID_EVENTS
+// comment) — this suite only covers the two Option B actually wires.
+
+describe("socket-server dispatcher: tool_use_end / user_prompt wiring (nx-9qsmb.5)", () => {
+  let dispatch: (event: SocketEvent) => void;
+  let processSpy: ReturnType<
+    typeof spyOn<typeof processHookEventNs, "processHookEvent">
+  >;
+
+  beforeEach(async () => {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+
+    processSpy = spyOn(
+      processHookEventNs,
+      "processHookEvent",
+    ).mockImplementation(async () => ({ driftOk: true, enrichmentOk: true }));
+
+    dispatch = createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: new LifecycleBus(),
+      db: {} as unknown as Db,
+      getNotificationManager: () => ({}) as unknown as NotificationManager,
+    });
+  });
+
+  afterEach(() => {
+    processSpy.mockRestore();
+  });
+
+  test("routes a tool_use_end event to processHookEvent with its transcript_path", async () => {
+    const event: SocketEvent = {
+      event: "tool_use_end",
+      session_id: "sess-tue",
+      tool: "Write",
+      success: true,
+      duration_ms: 42,
+      transcript_path: "/tmp/fake-transcript.jsonl",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(processSpy).toHaveBeenCalledTimes(1);
+    const [input] = processSpy.mock.calls[0]!;
+    expect(input.eventType).toBe("tool_use_end");
+    expect(input.sessionId).toBe("sess-tue");
+    expect(input.source).toBe("socket");
+    expect(input.payload).toMatchObject({
+      tool: "Write",
+      transcript_path: "/tmp/fake-transcript.jsonl",
+    });
+  });
+
+  test("routes a user_prompt event to processHookEvent with its transcript_path", async () => {
+    const event: SocketEvent = {
+      event: "user_prompt",
+      session_id: "sess-up",
+      transcript_path: "/tmp/fake-transcript-2.jsonl",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(processSpy).toHaveBeenCalledTimes(1);
+    const [input] = processSpy.mock.calls[0]!;
+    expect(input.eventType).toBe("user_prompt");
+    expect(input.sessionId).toBe("sess-up");
+    expect(input.payload).toMatchObject({
+      transcript_path: "/tmp/fake-transcript-2.jsonl",
+    });
+  });
+
+  test("does not call processHookEvent for tool_use_end with no session_id", async () => {
+    const event: SocketEvent = {
+      event: "tool_use_end",
+      tool: "Write",
+    } as unknown as SocketEvent;
+
+    dispatch(event);
+    await Promise.resolve();
+
+    expect(processSpy).not.toHaveBeenCalled();
+  });
+});
