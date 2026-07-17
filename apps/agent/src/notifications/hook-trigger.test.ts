@@ -16,7 +16,6 @@ import {
 import {
   evaluateAndDispatch,
   SUPPRESSION_WINDOW_MS,
-  PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS,
   _clearSuppressionForTests,
 } from "./hook-trigger";
 import type { NotificationManager } from "./manager";
@@ -136,63 +135,21 @@ describe("suppression cache", () => {
     expect(sends).toHaveLength(2); // both calls fired desktop
   });
 
-  // dedupe-permission-request-notifications (nx-snqyn): CC emits one logical
-  // permission prompt as two independent hook events ~50-150ms apart carrying
-  // the SAME session_id. The 2s permission_request window collapses that exact
-  // same-session pair to a single delivery. (Replaces the prior "never
-  // suppresses permission_request" test, whose premise the API-batch change to
-  // suppressionK() intentionally reversed.)
-  it("suppresses a same-session permission_request duplicate within the 2s window", async () => {
+  // drop-permission-request-tts-draft (nx-okdvj, 2026-07-16): permission_request
+  // no longer has a notification rule at all, so its dedicated 2s suppression
+  // window (formerly PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS, collapsing CC's
+  // duplicate same-session hook-lifecycle pair for one logical permission
+  // prompt) is dead — evaluateAndDispatch no-ops before suppression is ever
+  // consulted. Replaces the three prior tests exercising that window
+  // (dedupe-permission-request-notifications nx-snqyn, nx-ves8b, nx-fqi1m).
+  it("never dispatches for permission_request (rule removed)", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
 
-    // First fire delivers desktop + tts (2 sends); the back-to-back duplicate on
-    // the same session is suppressed inside the 2s window.
-    expect(sends).toHaveLength(2);
-  });
-
-  // nx-ves8b: two DIFFERENT sessions each key on their own session_id, so a
-  // permission prompt in each delivers independently — different sessions never
-  // suppress one another.
-  it("fires both permission_requests when the session_ids differ", async () => {
-    const db = makeFakeDb(ALL_ENABLED);
-    const { manager, sends } = makeFakeManager();
-
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-A" }));
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-B" }));
-
-    // Two distinct sessions -> 2 deliveries × 2 channels (desktop + tts).
-    expect(sends).toHaveLength(4);
-  });
-
-  // nx-fqi1m: a genuinely distinct, temporally-separated permission prompt in
-  // the SAME session that arrives after the 2s window has elapsed must notify
-  // again — the short window collapses the duplicate pair without swallowing a
-  // real second prompt.
-  it("fires again for the same session once the 2s window has elapsed", async () => {
-    const db = makeFakeDb(ALL_ENABLED);
-    const { manager, sends } = makeFakeManager();
-
-    const realNow = Date.now;
-    let fakeTime = 1_000_000;
-    const dateSpy = spyOn(Date, "now").mockImplementation(() => fakeTime);
-
-    try {
-      await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
-      // Advance past the permission_request-specific window.
-      fakeTime += PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS + 1;
-      await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
-    } finally {
-      dateSpy.mockRestore();
-      // belt-and-braces — make sure we restored to the real clock
-      expect(Date.now()).toBeGreaterThan(realNow() - 1_000);
-    }
-
-    // Both fires deliver desktop + tts -> 4 sends across the two windows.
-    expect(sends).toHaveLength(4);
+    expect(sends).toHaveLength(0);
   });
 
   it("suppresses session_stop crash per session_id", async () => {
@@ -251,7 +208,9 @@ describe("settings filter", () => {
     const db = makeFakeDb({ ttsEnabled: false, bannerEnabled: true });
     const { manager, sends } = makeFakeManager();
 
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
+    // apiErrorRule is the remaining desktop+tts rule (permission_request no
+    // longer maps to a rule — drop-permission-request-tts-draft, nx-okdvj).
+    await evaluateAndDispatch(db, manager, "api_error", payload({ stop_reason: "api_error", error_message: "x" }));
 
     expect(sends.map((s) => s.channel)).toEqual(["desktop"]);
   });
@@ -270,8 +229,8 @@ describe("settings filter", () => {
     const db = makeFakeDb({ ttsEnabled: false, bannerEnabled: false });
     const { manager, sends } = makeFakeManager();
 
-    // permission_request channels = [desktop, tts] — both stripped.
-    await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
+    // api_error channels = [desktop, tts] — both stripped.
+    await evaluateAndDispatch(db, manager, "api_error", payload({ stop_reason: "api_error", error_message: "x" }));
 
     expect(sends).toHaveLength(0);
   });
@@ -295,77 +254,48 @@ describe("settings filter", () => {
   });
 });
 
-// ─── Session name threading (nx-20caf) ─────────────────────────────────────────
+// ─── Session id threading (mx-7i4k) ────────────────────────────────────────────
+//
+// drop-permission-request-tts-draft (nx-okdvj, 2026-07-16): this block used to
+// exercise the generic draft.sessionName/sessionId → manager.send() extras
+// threading via permissionRequestRule (the only rule that ever set
+// sessionName). That rule is gone, and no surviving rule sets sessionName —
+// sessionName-threading coverage now lives entirely in
+// manager-session-name.test.ts, which asserts NotificationManager.send()'s
+// extras plumbing directly, independent of which rule produced the draft.
+// apiErrorRule is the remaining rule that threads sessionId, so it's the
+// vehicle here for the dispatcher-level (hook-trigger.ts) half of the
+// threading contract.
 
-describe("custom session name threading", () => {
-  it("threads sessionName into manager.send extras when session_name is present", async () => {
+describe("session id threading via apiErrorRule", () => {
+  it("threads sessionId into manager.send extras when session_id is present", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
     await evaluateAndDispatch(
       db,
       manager,
-      "permission_request",
-      payload({ tool_name: "Bash", session_name: "backend wave" }),
+      "api_error",
+      payload({ stop_reason: "api_error", error_message: "boom", session_id: "sess-1" }),
     );
 
-    // permission_request -> desktop + tts, BOTH carrying the session name.
+    // apiErrorRule -> desktop + tts, both carrying the session id.
     expect(sends).toHaveLength(2);
     for (const s of sends) {
-      expect(s.extras?.sessionName).toBe("backend wave");
-      // mx-7i4k: sessionId rides alongside (payload() default session_id).
       expect(s.extras?.sessionId).toBe("sess-1");
     }
   });
 
-  it("threads sessionId even when session_name is absent (mx-7i4k)", async () => {
+  it("passes undefined extras when session_id is absent", async () => {
     const db = makeFakeDb(ALL_ENABLED);
     const { manager, sends } = makeFakeManager();
 
     await evaluateAndDispatch(
       db,
       manager,
-      "permission_request",
-      payload({ tool_name: "Edit" }),
-    );
-
-    // session_name absent -> sessionName undefined, but the session_id still
-    // threads through for iOS tap-to-session deep-linking.
-    expect(sends).toHaveLength(2);
-    for (const s of sends) {
-      expect(s.extras?.sessionName).toBeUndefined();
-      expect(s.extras?.sessionId).toBe("sess-1");
-    }
-  });
-
-  it("treats an empty-string session_name as no session name (sessionId still threads)", async () => {
-    const db = makeFakeDb(ALL_ENABLED);
-    const { manager, sends } = makeFakeManager();
-
-    await evaluateAndDispatch(
-      db,
-      manager,
-      "permission_request",
-      payload({ tool_name: "Edit", session_name: "" }),
-    );
-
-    expect(sends).toHaveLength(2);
-    for (const s of sends) {
-      expect(s.extras?.sessionName).toBeUndefined();
-      expect(s.extras?.sessionId).toBe("sess-1");
-    }
-  });
-
-  it("passes undefined extras when both session_name and session_id are absent", async () => {
-    const db = makeFakeDb(ALL_ENABLED);
-    const { manager, sends } = makeFakeManager();
-
-    await evaluateAndDispatch(
-      db,
-      manager,
-      "permission_request",
-      // override session_id to empty so neither transport field is present.
-      payload({ tool_name: "Edit", session_id: "" }),
+      "api_error",
+      // override session_id to empty so the transport field is absent.
+      payload({ stop_reason: "api_error", error_message: "boom", session_id: "" }),
     );
 
     expect(sends).toHaveLength(2);
@@ -409,7 +339,7 @@ describe("resilience", () => {
     const { manager, sends } = makeFakeManager({ throwOn: "tts" });
 
     await expect(
-      evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" })),
+      evaluateAndDispatch(db, manager, "api_error", payload({ stop_reason: "api_error", error_message: "boom" })),
     ).resolves.toBeUndefined();
 
     // desktop still landed even though tts rejected.

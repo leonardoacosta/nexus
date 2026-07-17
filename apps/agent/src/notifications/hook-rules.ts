@@ -1,9 +1,8 @@
 /**
  * Hook event → notification rules. Curated routing policy mirrored from
  * `~/.claude/scripts/hooks/telemetry.sh` (see "Event destination routing"
- * section, curated 2026-04-24). Five rules:
+ * section, curated 2026-04-24). Four rules:
  *
- *   permission_request → desktop + tts          (level 40, friction signal)
  *   hook_failure       → desktop                (level 50, error)
  *   session_stop crash → desktop                (when crash_flag === true OR
  *                                                stop_reason ∈ {error,crash,
@@ -13,6 +12,18 @@
  *                                                routed via the synthetic
  *                                                `api_error` eventType key —
  *                                                see apiErrorRule / nx-7tfim)
+ *
+ * `permissionRequestRule` was REMOVED (drop-permission-request-tts-draft,
+ * nx-okdvj, 2026-07-16) — the agent-side desktop+tts drafts double- and
+ * triple-pushed alongside cc telemetry.sh's rich `nx_notify` banner (which
+ * already enumerates every question and its choices). The rich `nx_notify`
+ * POST to `/notifications/send` (see `routes/notifications.ts`) is now the
+ * sole notification surface for permission events; the `permission_request`
+ * socket event itself is still recognized and persisted to `session_events`
+ * (see the hooks-endpoint spec) — only the notification-rule mapping is
+ * gone. `evaluateAndDispatch` (`hook-trigger.ts`) now silently no-ops for
+ * this event type via its existing "event type has no notification rule"
+ * branch, same as `tool_use_fail` below.
  *
  * `tool_use_fail` was REMOVED (nx-l08rs, 2026-07-15) — it fired a desktop
  * banner on every failed tool call across every client, throttled only by a
@@ -134,20 +145,6 @@ function prefixBody(project: string | null, message: string): string {
   return message;
 }
 
-function readToolName(payload: HookEventPayload): string {
-  return payload.tool_name ?? payload.tool ?? "unknown";
-}
-
-/**
- * Read the CC custom session name (nx-20caf). Snake_case `session_name` in,
- * camelCase out. An absent or empty-string title yields `undefined` so the
- * field is omitted from the draft and downstream wire (graceful degrade).
- */
-function readSessionName(payload: HookEventPayload): string | undefined {
-  const name = payload.session_name;
-  return name && name.length > 0 ? name : undefined;
-}
-
 /**
  * Read the CC session id (mx-7i4k). Prefer the explicit `cc_session_id`, fall
  * back to `session_id`. Empty/absent yields `undefined` so the field is omitted
@@ -219,25 +216,6 @@ function isApiError(payload: HookEventPayload): boolean {
 }
 
 // ─── Rule bodies ─────────────────────────────────────────────────────────────
-
-const permissionRequestRule: HookRule = (payload) => {
-  const project = projectOf(payload);
-  const tool = readToolName(payload);
-  const sessionName = readSessionName(payload);
-  const sessionId = readSessionId(payload);
-  const title = `permission requested: ${tool}`;
-  const body = prefixBody(project, `permission requested for ${tool}`);
-
-  // sessionName is transport-only: the primary spoken path lives in
-  // telemetry.sh (nx-20caf Path A). The agent body stays minimal and safe —
-  // we only thread the name so the lifecycle emit + Swift consumer can read it.
-  // sessionId (mx-7i4k) rides alongside so the iOS banner tap deep-links to the
-  // originating session's detail view.
-  return [
-    { channel: "desktop", title, body, project, priority: "normal", sessionName, sessionId },
-    { channel: "tts", title, body, project, priority: "normal", sessionName, sessionId },
-  ];
-};
 
 const hookFailureRule: HookRule = (payload) => {
   const project = projectOf(payload);
@@ -341,12 +319,12 @@ const sessionSummaryRule: HookRule = (payload) => {
  * synthetic event type (add-api-error-notification, nx-06bbb): it is not a CC
  * hook name but a routing key the dispatcher/tail-watcher use to reach
  * `apiErrorRule` via `evaluateAndDispatch(..., "api_error", payload)`. Tests
- * assert exactly five entries — adding a sixth is a deliberate change that
- * requires a spec update. (`tool_use_fail` was removed here, nx-l08rs — see
- * the file header comment.)
+ * assert exactly FOUR entries — adding a fifth is a deliberate change that
+ * requires a spec update. (`tool_use_fail` was removed here, nx-l08rs, and
+ * `permission_request` was removed here, nx-okdvj — see the file header
+ * comment.)
  */
 export const hookRules: Record<string, HookRule> = {
-  permission_request: permissionRequestRule,
   hook_failure: hookFailureRule,
   session_stop: sessionStopRule,
   session_summary: sessionSummaryRule,

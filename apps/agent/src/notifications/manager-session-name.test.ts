@@ -72,12 +72,18 @@ afterAll(() => {
  * audio branch, which our desktop-only router result never hits. */
 const fakeDb = {} as never;
 
+// drop-permission-request-tts-draft (nx-wuit5, 2026-07-16): the fixture used
+// to mirror `permissionRequestRule`'s desktop draft, but that rule was
+// removed from the registry — the sessionName-threading coverage below is
+// about `NotificationManager.send()`'s extras plumbing, not any specific
+// rule's output shape, so the fixture now mirrors `hookFailureRule`'s
+// surviving desktop-only draft instead.
 function baseRow() {
   return {
     id: `nx-20caf-${Math.random().toString(36).slice(2)}`,
     channel: "desktop" as const,
-    title: "permission requested: Bash",
-    body: "nx: permission requested for Bash",
+    title: "hook failed: post_compact",
+    body: "nx: hook post_compact failed",
     project: "nx",
     agentId: null,
     priority: "normal" as const,
@@ -109,7 +115,7 @@ describe("NotificationManager — custom session name on NotificationFired (nx-2
     expect(cap.events).toHaveLength(1);
     expect(cap.events[0]!.sessionName).toBe("backend wave");
     // body untouched — the spoken/visible text degrades to today's behavior.
-    expect(cap.events[0]!.body).toBe("nx: permission requested for Bash");
+    expect(cap.events[0]!.body).toBe("nx: hook post_compact failed");
   });
 
   it("emits sessionName === undefined when no extras are supplied", async () => {

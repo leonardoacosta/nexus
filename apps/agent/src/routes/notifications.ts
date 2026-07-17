@@ -291,10 +291,17 @@ export async function handleSendNotification(
     return jsonResponse({ error: "invalid JSON body" }, 400);
   }
 
-  const { id, channel, title, body: notifBody, project, priority, url } = body as Record<
-    string,
-    unknown
-  >;
+  const {
+    id,
+    channel,
+    title,
+    body: notifBody,
+    project,
+    priority,
+    url,
+    session_name: sessionName,
+    session_id: sessionId,
+  } = body as Record<string, unknown>;
 
   if (!id || typeof id !== "string") {
     return jsonResponse({ error: "id is required and must be a string" }, 400);
@@ -339,6 +346,22 @@ export async function handleSendNotification(
     return jsonResponse({ suppressed: true }, 200);
   }
 
+  // drop-permission-request-tts-draft (nx-bidsj.1): thread optional
+  // session_name/session_id through as transport-only sessionName/sessionId
+  // extras (manager.send() + the APNs push layer already consume them —
+  // nx-20caf, mx-7i4k). Empty-string treated as absent, mirroring
+  // `readSessionName`/`readSessionId` in hook-rules.ts. Absent fields yield
+  // an `undefined` extras arg — today's exact behavior, unchanged.
+  const extras: { url?: string; sessionName?: string; sessionId?: string } = {};
+  if (typeof url === "string" && url.length > 0) extras.url = url;
+  if (typeof sessionName === "string" && sessionName.length > 0) {
+    extras.sessionName = sessionName;
+  }
+  if (typeof sessionId === "string" && sessionId.length > 0) {
+    extras.sessionId = sessionId;
+  }
+  const hasExtras = Object.keys(extras).length > 0;
+
   const notification = await manager.send({
     id: id as string,
     channel: channel as string,
@@ -349,7 +372,7 @@ export async function handleSendNotification(
     agentId: null,
     priority: (priority as NotificationPriority) ?? "normal",
     createdAt: new Date(),
-  }, url ? { url: url as string } : undefined);
+  }, hasExtras ? extras : undefined);
 
   return jsonResponse(notification, 201);
 }

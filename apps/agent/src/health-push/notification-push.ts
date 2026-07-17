@@ -142,6 +142,13 @@ export class NotificationPushSubscriber {
  * Fallback ladder when not both present: session, then project, then the
  * caller-supplied fallback, then a generic "Nexus". Empty/whitespace-only
  * inputs are treated as absent.
+ *
+ * Duplicate-prefix guard (drop-permission-request-tts-draft, nx-bidsj.3): CC
+ * session names are conventionally `<code> · <branch>`-shaped (e.g. project
+ * "cc", session_name "cc · main"). Blind concatenation would render
+ * `cc · cc · main` — when the session name already starts with
+ * `<project> · ` (or equals the project outright), skip the project segment
+ * and use the session name as-is.
  */
 export function composeTitle(
   project?: string,
@@ -150,7 +157,10 @@ export function composeTitle(
 ): string {
   const p = project?.trim() || undefined;
   const s = session?.trim() || undefined;
-  if (p && s) return `${p} · ${s}`;
+  if (p && s) {
+    if (s === p || s.startsWith(`${p} · `)) return s;
+    return `${p} · ${s}`;
+  }
   return s || p || fallback || "Nexus";
 }
 

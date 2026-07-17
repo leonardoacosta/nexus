@@ -9,7 +9,6 @@
  *
  * Suppression policy (from spec, mirroring the cc-side throttle convention):
  *
- *   permission_request   : key = `permission_request:<session_id>` window = 2s
  *   hook_failure         : key = `hook_failure:<hook_name>`      window = 30s
  *   session_stop crash   : key = `session_stop:<session_id>`     window = 30s
  *   session_summary      : key = `session_summary:<session_id>`  window = 30s
@@ -20,15 +19,15 @@
  * consistent semantics, simple eviction, and a duplicate session_stop arriving
  * 31s later (vanishingly rare) would still benefit from re-notifying the user.
  *
- * permission_request is the exception: it uses a much shorter, per-event-type
- * window (PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS = 2s). CC fires two
- * independent hook lifecycle points for one logical permission prompt
- * (PreToolUse(AskUserQuestion) + native PermissionRequest), so each prompt
- * reaches this agent as an exact same-session pair ~50-150ms apart. The 2s
- * window collapses that duplicate emission while leaving genuinely distinct,
- * temporally-separated permission prompts in the same session untouched. Keyed
- * on session_id alone, not session_id:tool, because the observed duplicate
- * pairs logged an empty/unreliable `tool` field on both emissions.
+ * permission_request had a shorter, per-event-type 2s suppression window
+ * (`PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS`) to collapse CC's duplicate
+ * same-session hook-lifecycle pair for one logical permission prompt. That
+ * whole rule — and its suppression window — was removed
+ * (drop-permission-request-tts-draft, nx-okdvj, 2026-07-16): the rich
+ * `nx_notify` POST to `/notifications/send` is now the sole notification
+ * surface for permission events, so `evaluateAndDispatch` no-ops for
+ * `permission_request` before suppression is ever consulted (no rule in the
+ * registry — see `hook-rules.ts`).
  *
  * Settings filter (from spec):
  *   - tts_enabled === false   → strip "tts" from dispatch
@@ -53,14 +52,6 @@ const log = createLogger("agent:notifications:hook-trigger");
 const SETTINGS_ROW_ID = 1;
 /** Suppression window applied to all rules with a non-null suppression key. */
 export const SUPPRESSION_WINDOW_MS = 30_000;
-/**
- * Much shorter window for permission_request. CC emits one logical permission
- * prompt as two independent hook events (PreToolUse(AskUserQuestion) + native
- * PermissionRequest) ~50-150ms apart with the same session_id; a 2s window
- * collapses that duplicate pair without risking suppression of a genuinely
- * distinct, temporally-separated permission prompt in the same session.
- */
-export const PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS = 2_000;
 
 /** Module-private suppression cache: key → lastFireMs (epoch). */
 const suppressionCache = new Map<string, number>();
@@ -83,8 +74,6 @@ function suppressionKey(
       // collapses them to one delivered notification. Concurrent sessions key
       // independently so each alerts once.
       return `api_error:${payload.session_id ?? "unknown"}`;
-    case "permission_request":
-      return `permission_request:${payload.session_id ?? "unknown"}`;
     default:
       return null;
   }
@@ -156,17 +145,11 @@ export async function evaluateAndDispatch(
   if (!drafts || drafts.length === 0) return;
 
   // ─── Suppression ────────────────────────────────────────────────────────
-  // permission_request uses its own short 2s window; every other suppressed
-  // event type keeps the 30s SUPPRESSION_WINDOW_MS.
-  const windowMs =
-    eventType === "permission_request"
-      ? PERMISSION_REQUEST_SUPPRESSION_WINDOW_MS
-      : SUPPRESSION_WINDOW_MS;
   const key = suppressionKey(eventType, payload);
   if (key !== null) {
     const last = suppressionCache.get(key);
     const now = Date.now();
-    if (last !== undefined && now - last < windowMs) {
+    if (last !== undefined && now - last < SUPPRESSION_WINDOW_MS) {
       log.info({ eventType, key }, "trigger suppressed");
       return;
     }

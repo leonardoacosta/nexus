@@ -26,70 +26,36 @@ function channels(drafts: NotificationDraft[] | null): string[] {
 }
 
 describe("hook-rules registry", () => {
-  it("exposes exactly the five canonical rules", () => {
+  it("exposes exactly the four canonical rules", () => {
     const keys = Object.keys(hookRules).sort();
     // remove-tool-use-fail-notification (nx-l08rs): `tool_use_fail` was
     // removed from the registry — it fired a desktop banner on every failed
-    // tool call, throttled but never eliminated (112 banners/48h). Five
-    // entries is asserted exactly — a sixth is a deliberate change requiring
-    // a spec update.
+    // tool call, throttled but never eliminated (112 banners/48h).
+    // drop-permission-request-tts-draft (nx-okdvj, 2026-07-16):
+    // `permission_request` was removed too — the agent-side desktop+tts
+    // drafts double/triple-pushed alongside cc telemetry.sh's rich
+    // `nx_notify` banner. Four entries is asserted exactly — a fifth is a
+    // deliberate change requiring a spec update.
     expect(keys).toEqual([
       "api_error",
       "hook_failure",
-      "permission_request",
       "session_stop",
       "session_summary",
     ]);
-    expect(keys).toHaveLength(5);
+    expect(keys).toHaveLength(4);
   });
 
   it("no longer maps tool_use_fail to a rule (nx-l08rs)", () => {
     expect(hookRules.tool_use_fail).toBeUndefined();
   });
-});
 
-describe("permission_request rule", () => {
-  it("fires desktop + tts always", () => {
-    const drafts = hookRules.permission_request!(
-      payload({ tool_name: "Edit" }),
-    );
-    expect(channels(drafts)).toEqual(["desktop", "tts"]);
-    for (const d of drafts!) {
-      expect(d.body).toContain("Edit");
-      expect(d.body.startsWith("nx: ")).toBe(true);
-    }
-  });
-
-  // nx-20caf: CC custom session name (snake_case `session_name`) threads into
-  // the draft as camelCase `sessionName` on EVERY channel, omitted gracefully
-  // when the upstream payload has no custom title.
-  it("carries sessionName on both drafts when session_name is present", () => {
-    const drafts = hookRules.permission_request!(
-      payload({ tool_name: "Bash", session_name: "backend wave" }),
-    );
-    expect(drafts).not.toBeNull();
-    expect(drafts!.length).toBe(2);
-    for (const d of drafts!) {
-      expect(d.sessionName).toBe("backend wave");
-    }
-  });
-
-  it("yields undefined sessionName when session_name is absent", () => {
-    const drafts = hookRules.permission_request!(payload({ tool_name: "Edit" }));
-    expect(drafts).not.toBeNull();
-    for (const d of drafts!) {
-      expect(d.sessionName).toBeUndefined();
-    }
-  });
-
-  it("treats an empty-string session_name as undefined (graceful degrade)", () => {
-    const drafts = hookRules.permission_request!(
-      payload({ tool_name: "Edit", session_name: "" }),
-    );
-    expect(drafts).not.toBeNull();
-    for (const d of drafts!) {
-      expect(d.sessionName).toBeUndefined();
-    }
+  // drop-permission-request-tts-draft (nx-okdvj): permission_request no
+  // longer maps to a rule — there is nothing left to call, so the dispatch
+  // entrypoint (`evaluateAndDispatch` in hook-trigger.ts) hits its existing
+  // "event type has no notification rule" no-op branch and produces zero
+  // drafts. See hook-trigger.test.ts for the dispatch-level assertion.
+  it("no longer maps permission_request to a rule (nx-okdvj)", () => {
+    expect(hookRules.permission_request).toBeUndefined();
   });
 });
 

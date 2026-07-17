@@ -36,7 +36,7 @@ process.env.APNS_BUNDLE_ID = "dev.leonardoacosta.nexus.ios";
 process.env.HEALTH_PUSH_TOKEN_PATH = join(tmpDir, "apns-device-tokens.json");
 
 const { getDeviceTokenStore } = await import("./device-token-store");
-const { NotificationPushSubscriber } = await import("./notification-push");
+const { NotificationPushSubscriber, composeTitle } = await import("./notification-push");
 const { LifecycleBus } = await import("../services/lifecycle-bus");
 
 const DEVICE_TOKEN = "f".repeat(64);
@@ -151,5 +151,39 @@ describe("NotificationFired -> APNs alert push (task 4.3)", () => {
     expect(payload.notificationId).toBe("notif-killed-app-1");
 
     bus.removeAllListeners();
+  });
+});
+
+// ─── composeTitle — duplicate-prefix guard (drop-permission-request-tts-draft, nx-bidsj.3) ──
+//
+// Unit-style cases (no APNs round-trip needed — composeTitle is a pure
+// function). CC session names are conventionally `<code> · <branch>`-shaped;
+// blind `<project> · <session>` concatenation would double the project
+// segment (e.g. project "cc", session_name "cc · main" -> "cc · cc · main").
+
+describe("composeTitle — duplicate-prefix guard", () => {
+  it("skips the project segment when the session name already starts with '<project> · '", () => {
+    expect(composeTitle("cc", "cc · main")).toBe("cc · main");
+  });
+
+  it("skips the project segment when the session name equals the project outright", () => {
+    expect(composeTitle("cc", "cc")).toBe("cc");
+  });
+
+  it("composes '<project> · <session>' as today for an unrelated session name", () => {
+    expect(composeTitle("nexus", "fix-login-flow")).toBe("nexus · fix-login-flow");
+  });
+
+  it("does not false-positive on a session name that merely starts with the project as a substring", () => {
+    // "ccx · main" starts with "cc" but NOT with the exact "cc · " prefix —
+    // must NOT be treated as already-prefixed.
+    expect(composeTitle("cc", "ccx · main")).toBe("cc · ccx · main");
+  });
+
+  it("degrades gracefully when only one of project/session is present", () => {
+    expect(composeTitle(undefined, "fix-login-flow")).toBe("fix-login-flow");
+    expect(composeTitle("nexus", undefined)).toBe("nexus");
+    expect(composeTitle(undefined, undefined, "fallback title")).toBe("fallback title");
+    expect(composeTitle()).toBe("Nexus");
   });
 });
