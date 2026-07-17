@@ -49,26 +49,29 @@ describe("hook-rules registry", () => {
 });
 
 describe("permission_request rule", () => {
-  it("fires desktop + tts always", () => {
+  it("fires exactly one desktop draft, never a tts draft", () => {
     const drafts = hookRules.permission_request!(
       payload({ tool_name: "Edit" }),
     );
-    expect(channels(drafts)).toEqual(["desktop", "tts"]);
-    for (const d of drafts!) {
-      expect(d.body).toContain("Edit");
-      expect(d.body.startsWith("nx: ")).toBe(true);
-    }
+    expect(drafts).not.toBeNull();
+    expect(drafts!.length).toBe(1);
+    expect(channels(drafts)).toEqual(["desktop"]);
+    expect(drafts!.some((d) => d.channel === "tts")).toBe(false);
+    const [d] = drafts!;
+    expect(d!.title).toBe("permission requested: Edit");
+    expect(d!.body).toContain("permission requested for Edit");
+    expect(d!.body.startsWith("nx: ")).toBe(true);
   });
 
   // nx-20caf: CC custom session name (snake_case `session_name`) threads into
-  // the draft as camelCase `sessionName` on EVERY channel, omitted gracefully
-  // when the upstream payload has no custom title.
-  it("carries sessionName on both drafts when session_name is present", () => {
+  // the draft as camelCase `sessionName`, omitted gracefully when the
+  // upstream payload has no custom title.
+  it("carries sessionName on the desktop draft when session_name is present", () => {
     const drafts = hookRules.permission_request!(
       payload({ tool_name: "Bash", session_name: "backend wave" }),
     );
     expect(drafts).not.toBeNull();
-    expect(drafts!.length).toBe(2);
+    expect(drafts!.length).toBe(1);
     for (const d of drafts!) {
       expect(d.sessionName).toBe("backend wave");
     }

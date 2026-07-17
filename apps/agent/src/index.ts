@@ -47,6 +47,7 @@ import { lifecycleBus } from "./services/lifecycle-bus";
 import { createAppContext, type AppContext } from "./context";
 import { ensureAudioDir } from "./notifications/audio-store";
 import { startMemoryPressureMonitor } from "./services/memory-pressure";
+import { startSdNotifyWatchdog } from "./services/sd-notify";
 import { restoreSnapshot, startStateSnapshot } from "./services/state-snapshot";
 // Side-effect imports: force the behavioral-state sources to register their
 // serialize/deserialize pairs before restoreSnapshot() runs (nx-veo5g.4). The
@@ -167,6 +168,13 @@ healthScheduler.start();
 // future SIGABRT/SIGILL-under-load crash leaves an investigable trail. No-op on
 // non-Linux / unbounded-cgroup hosts.
 const stopMemoryPressureMonitor = startMemoryPressureMonitor();
+
+// systemd hardware watchdog keep-alive (nexus-self-healing-infra): feeds
+// `WATCHDOG=1` to `$NOTIFY_SOCKET` at less than half of `nexus-agent.service`'s
+// `WatchdogSec=30`, so systemd force-kills + restarts a hung-but-alive event
+// loop (the case `Restart=always` alone never catches). Silent no-op when
+// `$NOTIFY_SOCKET` is unset (local dev, macOS).
+const stopSdNotifyWatchdog = startSdNotifyWatchdog();
 
 // HealthKit silent-push scheduler — wakes the Nexus iOS app on a guaranteed
 // cadence to flush biometric samples to the homelab mx-health ingest (Wave 2).
@@ -430,6 +438,7 @@ async function shutdown() {
   // Stop existing services.
   healthScheduler.stop();
   stopMemoryPressureMonitor();
+  stopSdNotifyWatchdog();
   stopRetention();
   stopProjectCleanup();
   stopProjectDiscovery();

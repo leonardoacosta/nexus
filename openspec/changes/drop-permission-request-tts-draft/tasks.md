@@ -5,13 +5,14 @@
 
 ## API Batch
 
-- [ ] 1.1 Modify `permissionRequestRule` in `apps/agent/src/notifications/hook-rules.ts` to return a single `desktop` draft — remove the `tts` draft entry and the nx-20caf transport-only comment block that justified it; keep `sessionName`/`sessionId` threading on the desktop draft [beads:nx-okdvj]
+- [x] 1.1 Modify `permissionRequestRule` in `apps/agent/src/notifications/hook-rules.ts` to return a single `desktop` draft — remove the `tts` draft entry and the nx-20caf transport-only comment block that justified it; keep `sessionName`/`sessionId` threading on the desktop draft [beads:nx-okdvj]
   - touches: `apps/agent/src/notifications/hook-rules.ts`
-- [ ] 1.2 Update `apps/agent/src/notifications/hook-rules.test.ts` — assert `permissionRequestRule` returns exactly ONE draft with `channel === "desktop"`, correct title/body (`permission requested: <tool>` / `permission requested for <tool>`), and that no `tts`-channel draft exists [beads:nx-94gtd]
+- [x] 1.2 Update `apps/agent/src/notifications/hook-rules.test.ts` — assert `permissionRequestRule` returns exactly ONE draft with `channel === "desktop"`, correct title/body (`permission requested: <tool>` / `permission requested for <tool>`), and that no `tts`-channel draft exists [beads:nx-94gtd]
   - touches: `apps/agent/src/notifications/hook-rules.test.ts`
-- [ ] 1.3 Update `apps/agent/src/notifications/manager-session-name.test.ts` fixtures (lines ~79-112 reference the permission notification shape) to the single-draft shape [beads:nx-wuit5]
-  - touches: `apps/agent/src/notifications/manager-session-name.test.ts`
-- [ ] 1.4 Run the agent notification test suite and paste passing output (`bun test apps/agent/src/notifications/` with `NEXUS_ATTACH_SECRET=test`) — gate for this batch [beads:nx-nz66o]
+- [x] 1.3 Update `apps/agent/src/notifications/manager-session-name.test.ts` fixtures (lines ~79-112 reference the permission notification shape) to the single-draft shape [beads:nx-wuit5]
+  - touches: `apps/agent/src/notifications/manager-session-name.test.ts` (verified already single-draft-shaped — no edit needed)
+  - fallout fix (not originally listed): `apps/agent/src/notifications/hook-trigger.test.ts` — 7 assertions assumed permission_request emitted desktop+tts (2 sends); updated to the single desktop-draft shape so the 1.4 gate passes
+- [x] 1.4 Run the agent notification test suite and paste passing output (`bun test apps/agent/src/notifications/` with `NEXUS_ATTACH_SECRET=test`) — gate for this batch [beads:nx-nz66o]
 
 ## E2E Batch
 

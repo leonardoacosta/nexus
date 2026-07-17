@@ -228,14 +228,10 @@ const permissionRequestRule: HookRule = (payload) => {
   const title = `permission requested: ${tool}`;
   const body = prefixBody(project, `permission requested for ${tool}`);
 
-  // sessionName is transport-only: the primary spoken path lives in
-  // telemetry.sh (nx-20caf Path A). The agent body stays minimal and safe —
-  // we only thread the name so the lifecycle emit + Swift consumer can read it.
   // sessionId (mx-7i4k) rides alongside so the iOS banner tap deep-links to the
   // originating session's detail view.
   return [
     { channel: "desktop", title, body, project, priority: "normal", sessionName, sessionId },
-    { channel: "tts", title, body, project, priority: "normal", sessionName, sessionId },
   ];
 };
 

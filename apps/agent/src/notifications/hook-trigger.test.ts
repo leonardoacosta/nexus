@@ -149,9 +149,9 @@ describe("suppression cache", () => {
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-1" }));
 
-    // First fire delivers desktop + tts (2 sends); the back-to-back duplicate on
-    // the same session is suppressed inside the 2s window.
-    expect(sends).toHaveLength(2);
+    // First fire delivers desktop only (1 send, drop-permission-request-tts-draft);
+    // the back-to-back duplicate on the same session is suppressed inside the 2s window.
+    expect(sends).toHaveLength(1);
   });
 
   // nx-ves8b: two DIFFERENT sessions each key on their own session_id, so a
@@ -164,8 +164,9 @@ describe("suppression cache", () => {
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-A" }));
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit", session_id: "sess-B" }));
 
-    // Two distinct sessions -> 2 deliveries × 2 channels (desktop + tts).
-    expect(sends).toHaveLength(4);
+    // Two distinct sessions -> 2 deliveries × 1 channel (desktop only,
+    // drop-permission-request-tts-draft).
+    expect(sends).toHaveLength(2);
   });
 
   // nx-fqi1m: a genuinely distinct, temporally-separated permission prompt in
@@ -191,8 +192,9 @@ describe("suppression cache", () => {
       expect(Date.now()).toBeGreaterThan(realNow() - 1_000);
     }
 
-    // Both fires deliver desktop + tts -> 4 sends across the two windows.
-    expect(sends).toHaveLength(4);
+    // Both fires deliver desktop only -> 2 sends across the two windows
+    // (drop-permission-request-tts-draft).
+    expect(sends).toHaveLength(2);
   });
 
   it("suppresses session_stop crash per session_id", async () => {
@@ -270,7 +272,7 @@ describe("settings filter", () => {
     const db = makeFakeDb({ ttsEnabled: false, bannerEnabled: false });
     const { manager, sends } = makeFakeManager();
 
-    // permission_request channels = [desktop, tts] — both stripped.
+    // permission_request channels = [desktop] (drop-permission-request-tts-draft) — stripped.
     await evaluateAndDispatch(db, manager, "permission_request", payload({ tool_name: "Edit" }));
 
     expect(sends).toHaveLength(0);
@@ -309,8 +311,9 @@ describe("custom session name threading", () => {
       payload({ tool_name: "Bash", session_name: "backend wave" }),
     );
 
-    // permission_request -> desktop + tts, BOTH carrying the session name.
-    expect(sends).toHaveLength(2);
+    // permission_request -> desktop only (drop-permission-request-tts-draft),
+    // carrying the session name.
+    expect(sends).toHaveLength(1);
     for (const s of sends) {
       expect(s.extras?.sessionName).toBe("backend wave");
       // mx-7i4k: sessionId rides alongside (payload() default session_id).
@@ -330,8 +333,9 @@ describe("custom session name threading", () => {
     );
 
     // session_name absent -> sessionName undefined, but the session_id still
-    // threads through for iOS tap-to-session deep-linking.
-    expect(sends).toHaveLength(2);
+    // threads through for iOS tap-to-session deep-linking. permission_request
+    // -> desktop only (drop-permission-request-tts-draft).
+    expect(sends).toHaveLength(1);
     for (const s of sends) {
       expect(s.extras?.sessionName).toBeUndefined();
       expect(s.extras?.sessionId).toBe("sess-1");
@@ -349,7 +353,7 @@ describe("custom session name threading", () => {
       payload({ tool_name: "Edit", session_name: "" }),
     );
 
-    expect(sends).toHaveLength(2);
+    expect(sends).toHaveLength(1);
     for (const s of sends) {
       expect(s.extras?.sessionName).toBeUndefined();
       expect(s.extras?.sessionId).toBe("sess-1");
@@ -368,7 +372,7 @@ describe("custom session name threading", () => {
       payload({ tool_name: "Edit", session_id: "" }),
     );
 
-    expect(sends).toHaveLength(2);
+    expect(sends).toHaveLength(1);
     for (const s of sends) {
       expect(s.extras).toBeUndefined();
     }
