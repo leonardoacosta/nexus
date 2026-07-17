@@ -1,7 +1,7 @@
 /**
  * CronService -- scheduled maintenance and drift detection.
  *
- * Three internal jobs:
+ * Five internal jobs:
  *
  * **maintain** (daily ~00:17): Prunes stale temp files, old failure JSONL,
  * old telemetry JSONL, debug logs, paste-cache, and session dirs.
@@ -14,6 +14,17 @@
  * to `cron_runs` + `bloat_radar`, and emits the completion notification.
  * Added by `adopt-reaper-into-nx-cron`. Requires `db` — gracefully no-ops
  * when no db is passed (so tests that don't need it still work).
+ *
+ * **deploy-staleness** (weekly, Sunday ~04:00): Compares each remote
+ * agent's deployed HEAD (via SSH) against local HEAD, persists to
+ * `cron_runs`, and emits a notification for any remote stale >24h. Added by
+ * `nexus-self-healing-infra`. Requires `db`.
+ *
+ * **data-integrity** (weekly, Sunday ~05:00): Read-only scan for known
+ * bad-data signatures (starting with the migration-0049 `projects`
+ * duplicate-identity pattern), persists to `cron_runs`, and emits a
+ * notification on a match. Never writes. Added by
+ * `nexus-self-healing-infra`. Requires `db`.
  *
  * Uses setInterval with absolute next-run timestamp calculation so jobs
  * fire at the correct local time regardless of system sleep or clock drift.
@@ -32,6 +43,8 @@ import {
   emitStaleHeartbeatNotification,
   runAndPersistReaper,
 } from "./reaper-job";
+import { runAndPersistDeployStaleness } from "./deploy-staleness";
+import { runAndPersistDataIntegrityScan } from "./data-integrity-scan";
 import { pruneAudioOlderThan } from "../notifications/audio-store";
 
 const log = createLogger("agent:cron");
@@ -412,6 +425,67 @@ export async function pruneCredentialPolls(db: Db): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// Deploy-staleness job (nexus-self-healing-infra)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deploy-staleness tick — enumerates remotes, compares each against local
+ * HEAD, persists the result, and emits a notification for any remote stale
+ * >24h. `runAndPersistDeployStaleness` already wraps its own internal steps
+ * in try/catch (per-remote SSH failures never abort the loop; a top-level
+ * failure persists `status: "failure"`), so this wrapper's try/catch is a
+ * pure backstop against something unexpected escaping that contract.
+ */
+async function runDeployStalenessJob(db: Db): Promise<void> {
+  log.info("cron: deploy-staleness job starting");
+  try {
+    const result = await runAndPersistDeployStaleness({ db });
+    log.info(
+      {
+        status: result.status,
+        remoteCount: result.remotes.length,
+        staleCount: result.remotes.filter((r) => r.mismatchSince).length,
+      },
+      "cron: deploy-staleness job complete",
+    );
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "cron: deploy-staleness job failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data-integrity job (nexus-self-healing-infra)
+// ---------------------------------------------------------------------------
+
+/**
+ * Data-integrity tick — runs the read-only bad-data scan, persists the
+ * result, and emits a notification on a match. Zero writes under all code
+ * paths (see `data-integrity-scan.ts` header). Same backstop try/catch
+ * shape as `runDeployStalenessJob`.
+ */
+async function runDataIntegrityJob(db: Db): Promise<void> {
+  log.info("cron: data-integrity job starting");
+  try {
+    const result = await runAndPersistDataIntegrityScan({ db });
+    log.info(
+      {
+        status: result.status,
+        duplicateGroupCount: result.findings.length,
+      },
+      "cron: data-integrity job complete",
+    );
+  } catch (err) {
+    log.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "cron: data-integrity job failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
@@ -438,6 +512,8 @@ export function startCronService(opts: StartCronServiceOpts = {}): CronService {
   let maintainTimer: ReturnType<typeof setTimeout> | null = null;
   let driftTimer: ReturnType<typeof setTimeout> | null = null;
   let reaperTimer: ReturnType<typeof setTimeout> | null = null;
+  let deployStalenessTimer: ReturnType<typeof setTimeout> | null = null;
+  let dataIntegrityTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
   function scheduleMaintain(): void {
@@ -493,13 +569,54 @@ export function startCronService(opts: StartCronServiceOpts = {}): CronService {
     }, delayMs);
   }
 
+  function scheduleDeployStaleness(db: Db): void {
+    if (stopped) return;
+    const delayMs = msUntilWeeklyAt(0, 4, 0); // 0 = Sunday, 04:00
+    log.debug(
+      { delaySecs: Math.round(delayMs / 1000) },
+      "cron: scheduling next deploy-staleness job",
+    );
+    deployStalenessTimer = setTimeout(() => {
+      if (stopped) return;
+      runDeployStalenessJob(db)
+        .catch((err) => {
+          log.error({ error: err }, "cron: deploy-staleness job failed (outer)");
+        })
+        .finally(() => {
+          scheduleDeployStaleness(db); // Reschedule for next occurrence.
+        });
+    }, delayMs);
+  }
+
+  function scheduleDataIntegrity(db: Db): void {
+    if (stopped) return;
+    const delayMs = msUntilWeeklyAt(0, 5, 0); // 0 = Sunday, 05:00
+    log.debug(
+      { delaySecs: Math.round(delayMs / 1000) },
+      "cron: scheduling next data-integrity job",
+    );
+    dataIntegrityTimer = setTimeout(() => {
+      if (stopped) return;
+      runDataIntegrityJob(db)
+        .catch((err) => {
+          log.error({ error: err }, "cron: data-integrity job failed (outer)");
+        })
+        .finally(() => {
+          scheduleDataIntegrity(db); // Reschedule for next occurrence.
+        });
+    }, delayMs);
+  }
+
   scheduleMaintain();
   scheduleDrift();
 
-  // The reaper job is gated behind a DB handle. When `db` is absent the
-  // job is not registered — early-boot paths and tests skip silently.
+  // The reaper/deploy-staleness/data-integrity jobs are gated behind a DB
+  // handle. When `db` is absent none of the three are registered —
+  // early-boot paths and tests skip silently.
   if (opts.db) {
     scheduleReaper(opts.db);
+    scheduleDeployStaleness(opts.db);
+    scheduleDataIntegrity(opts.db);
     // On startup, also fire the stale-heartbeat detector once so an
     // operator sees the loud warning immediately if the last successful
     // run is missing or >8 days old (the chezmoi original behavior).
@@ -520,7 +637,8 @@ export function startCronService(opts: StartCronServiceOpts = {}): CronService {
 
   log.info(
     { reaperEnabled: !!opts.db },
-    "CronService started -- maintain(daily@00:17), drift(weekly Sun@09:00), reaper(weekly Sun@03:00)",
+    "CronService started -- maintain(daily@00:17), drift(weekly Sun@09:00), reaper(weekly Sun@03:00), " +
+      "deploy-staleness(weekly Sun@04:00), data-integrity(weekly Sun@05:00)",
   );
 
   return {
@@ -529,9 +647,13 @@ export function startCronService(opts: StartCronServiceOpts = {}): CronService {
       if (maintainTimer) clearTimeout(maintainTimer);
       if (driftTimer) clearTimeout(driftTimer);
       if (reaperTimer) clearTimeout(reaperTimer);
+      if (deployStalenessTimer) clearTimeout(deployStalenessTimer);
+      if (dataIntegrityTimer) clearTimeout(dataIntegrityTimer);
       maintainTimer = null;
       driftTimer = null;
       reaperTimer = null;
+      deployStalenessTimer = null;
+      dataIntegrityTimer = null;
       log.info("CronService stopped");
     },
   };

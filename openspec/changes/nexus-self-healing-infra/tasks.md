@@ -44,7 +44,7 @@
       `deploy/hooks.d/post-merge/02-deploy`'s fan-out loop: up to 3 attempts, 10s then 30s
       backoff, exactly one success/failure notification per remote regardless of attempt count.
       - touches: `deploy/lib/deploy-retry.sh`, `deploy/hooks.d/post-merge/02-deploy`
-- [ ] 2.6 Add `apps/agent/src/services/deploy-staleness.ts`: for each remote in `agents.toml` [beads:nx-82qv1]
+- [x] 2.6 Add `apps/agent/src/services/deploy-staleness.ts`: for each remote in `agents.toml` [beads:nx-82qv1]
       (via the shared parser from 2.4, invoked over SSH), compare remote `git rev-parse HEAD`
       against local HEAD; persist result to `cron_runs` (`job="deploy-staleness"`); on a
       >24h-stale remote, emit a notification via `lifecycleBus` with a 12h cooldown (reuse the
@@ -52,17 +52,17 @@
       `apps/agent/src/services/reaper-job.ts` — same cooldown constant pattern, same
       `state-snapshot` persistence for the cooldown timestamp).
       - touches: `apps/agent/src/services/deploy-staleness.ts`
-- [ ] 2.7 Register the `deploy-staleness` job in `apps/agent/src/services/cron.ts` on the [beads:nx-2uk0o]
+- [x] 2.7 Register the `deploy-staleness` job in `apps/agent/src/services/cron.ts` on the [beads:nx-2uk0o]
       existing weekly schedule-calculation helper (same pattern as `drift`/`reaper`).
       - touches: `apps/agent/src/services/cron.ts`
-- [ ] 2.8 Add `apps/agent/src/services/data-integrity-scan.ts`: a read-only query for the [beads:nx-wc5yw]
+- [x] 2.8 Add `apps/agent/src/services/data-integrity-scan.ts`: a read-only query for the [beads:nx-wc5yw]
       projects-table duplicate-identity signature (the migration-0049 pattern — see
       `packages/db/drizzle/` for the historical dedup migration's WHERE-clause shape to mirror
       as a detection query). Persist to `cron_runs` (`job="data-integrity"`); on a match, emit a
       notification naming the table, finding count, and the manual repair command. Zero writes
       under all code paths.
       - touches: `apps/agent/src/services/data-integrity-scan.ts`
-- [ ] 2.9 Register the `data-integrity` job in `apps/agent/src/services/cron.ts` on the existing [beads:nx-ehnmm]
+- [x] 2.9 Register the `data-integrity` job in `apps/agent/src/services/cron.ts` on the existing [beads:nx-ehnmm]
       weekly schedule-calculation helper.
       - touches: `apps/agent/src/services/cron.ts`
 
