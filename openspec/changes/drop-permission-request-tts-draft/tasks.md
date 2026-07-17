@@ -23,4 +23,12 @@
 
 ## E2E Batch
 
-- [ ] 2.1 Runtime verification after deploy: pipe one fake `PermissionRequest` payload (multi-question `tool_input.questions`) into `~/.claude/scripts/hooks/telemetry.sh` (no arg, `tool_name` set) and confirm via `journalctl --user -u nexus-agent` + the `notifications` table that exactly ONE notification row lands for the event (the rich body enumerating all questions), ONE alert push fires, and the push title is `<project> · <session>` with `sessionId` present in the push log line [beads:nx-dvz13]
+- [x] 2.1 Runtime verification after deploy: pipe one fake `PermissionRequest` payload (multi-question `tool_input.questions`) into `~/.claude/scripts/hooks/telemetry.sh` (no arg, `tool_name` set) and confirm via `journalctl --user -u nexus-agent` + the `notifications` table that exactly ONE notification row lands for the event (the rich body enumerating all questions), ONE alert push fires, and the push title is `<project> · <session>` with `sessionId` present in the push log line [beads:nx-dvz13]
+  - verified live (2026-07-16, post-deploy of commit 0a579502): piped a fake
+    AskUserQuestion `PermissionRequest` (2 questions) with a fake
+    `transcript_path` carrying `customTitle: "apply-verify"` into
+    `telemetry.sh`. journalctl showed exactly ONE `socket: permission_request`
+    event, ONE `notifications:router` entry, and ONE alert push
+    (`sent to 3/3 device(s) ... title="nx · apply-verify" sessionId=test-verify-1784259622`).
+    `SELECT ... FROM notifications WHERE id = 'cc-1784259622-31877'` confirmed
+    exactly one row (channel=tts, status=delivered).
