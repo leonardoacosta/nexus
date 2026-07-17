@@ -41,6 +41,18 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 /** Back-off interval triggered when >50% of calls fail in a tick. */
 const BACKOFF_INTERVAL_MS = 30 * 60 * 1000;
 
+/**
+ * Hot interval used when any just-polled credential's 5-hour utilization is at
+ * or above `HOT_THRESHOLD_PCT`. Overridable via `NEXUS_USAGE_POLL_HOT_INTERVAL_MS`.
+ */
+const DEFAULT_HOT_INTERVAL_MS = 60_000;
+
+/**
+ * 5-hour utilization percent (0-100) at/above which the poller tightens its
+ * cadence to the hot interval. Not env-configurable (YAGNI — revisit on demand).
+ */
+const HOT_THRESHOLD_PCT = 80;
+
 /** Per-call fetch timeout. */
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -49,6 +61,36 @@ const POLL_CONCURRENCY = 4;
 
 /** Anthropic usage endpoint URL. */
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+
+/**
+ * Decide the delay before the next poller tick. Pure + synchronous — the tick
+ * loop threads its result here so scheduling stays testable.
+ *
+ * Selection order (first match wins):
+ *   1. `backoff` — the tick backed off (>50% failure rate) → back-off interval.
+ *   2. hot band — any polled credential's 5-hour utilization is at/above
+ *      `HOT_THRESHOLD_PCT` → the tightened hot interval.
+ *   3. default — the configured interval.
+ *
+ * `maxFiveHourUtilization` is the max 5-hour utilization percent (0-100) across
+ * the credentials polled this tick, or `null` when none were parseable.
+ */
+export function computeNextIntervalMs(args: {
+  maxFiveHourUtilization: number | null;
+  backoff: boolean;
+  backoffMs: number;
+  intervalMs: number;
+  hotIntervalMs: number;
+}): number {
+  if (args.backoff) return args.backoffMs;
+  if (
+    args.maxFiveHourUtilization !== null &&
+    args.maxFiveHourUtilization >= HOT_THRESHOLD_PCT
+  ) {
+    return args.hotIntervalMs;
+  }
+  return args.intervalMs;
+}
 
 /** Parsed window snapshot used internally before column-write. */
 interface WindowSnapshot {
@@ -72,6 +114,8 @@ export interface CredentialUsagePollerService {
     succeeded: number;
     failed: number;
     backedOff: boolean;
+    /** Max 5-hour utilization percent (0-100) across polled rows, or null. */
+    maxFiveHourUtilization: number | null;
   }>;
 }
 
@@ -82,6 +126,8 @@ export interface StartCredentialUsagePollerOpts {
   intervalMs?: number;
   /** Override the back-off interval (testing). */
   backoffMs?: number;
+  /** Override the hot interval used in the high-utilization band (testing + env var). */
+  hotIntervalMs?: number;
   /** Override the per-fetch timeout (testing). */
   fetchTimeoutMs?: number;
   /**
@@ -306,6 +352,11 @@ export function startCredentialUsagePoller(
       ? Number.parseInt(process.env.NEXUS_USAGE_POLL_INTERVAL_MS, 10)
       : DEFAULT_INTERVAL_MS);
   const backoffMs = opts.backoffMs ?? BACKOFF_INTERVAL_MS;
+  const hotIntervalMs =
+    opts.hotIntervalMs ??
+    (process.env.NEXUS_USAGE_POLL_HOT_INTERVAL_MS
+      ? Number.parseInt(process.env.NEXUS_USAGE_POLL_HOT_INTERVAL_MS, 10)
+      : DEFAULT_HOT_INTERVAL_MS);
   const fetchTimeoutMs = opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
   const { db, pool, onTickComplete } = opts;
 
@@ -317,16 +368,26 @@ export function startCredentialUsagePoller(
     succeeded: number;
     failed: number;
     backedOff: boolean;
+    maxFiveHourUtilization: number | null;
   }> {
     const rows = await queryPollableRows(db);
     if (rows.length === 0) {
       log.debug("no primary+available credentials to poll");
-      return { attempted: 0, succeeded: 0, failed: 0, backedOff: false };
+      return {
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        backedOff: false,
+        maxFiveHourUtilization: null,
+      };
     }
 
     let succeeded = 0;
     let failed = 0;
     let attempted = 0;
+    // Running max of the just-parsed 5-hour utilization percent across rows
+    // whose snapshot wrote successfully (limit > 0). null when none qualify.
+    let maxFiveHourUtilization: number | null = null;
 
     await runPool(rows, POLL_CONCURRENCY, async (row) => {
       // Decrypt outside the parallel HTTP call so a decrypt failure is
@@ -356,6 +417,16 @@ export function startCredentialUsagePoller(
       try {
         await writeSnapshot(db, row.id, row.fingerprint, payload);
         succeeded++;
+
+        // Track the freshest 5-hour utilization for adaptive cadence. `used`
+        // is the 0-100 percent (pickWindow maps `utilization` onto used/limit=100);
+        // skip rows with a null/zero limit — they carry no real utilization.
+        if (payload.fiveHour.limit > 0) {
+          maxFiveHourUtilization =
+            maxFiveHourUtilization === null
+              ? payload.fiveHour.used
+              : Math.max(maxFiveHourUtilization, payload.fiveHour.used);
+        }
 
         // Opportunistic identity re-probe for rows whose accountEmail is
         // still blank. Fire-and-forget; pool.probeIdentity logs failures.
@@ -399,7 +470,7 @@ export function startCredentialUsagePoller(
       }
     }
 
-    return { attempted, succeeded, failed, backedOff };
+    return { attempted, succeeded, failed, backedOff, maxFiveHourUtilization };
   }
 
   function schedule(delayMs: number): void {
@@ -408,7 +479,13 @@ export function startCredentialUsagePoller(
       if (stopped) return;
       tick()
         .then((result) => {
-          const next = result.backedOff ? backoffMs : intervalMs;
+          const next = computeNextIntervalMs({
+            maxFiveHourUtilization: result.maxFiveHourUtilization,
+            backoff: result.backedOff,
+            backoffMs,
+            intervalMs,
+            hotIntervalMs,
+          });
           if (result.backedOff) {
             log.warn(
               { failureRate: result.failed / Math.max(1, result.attempted) },

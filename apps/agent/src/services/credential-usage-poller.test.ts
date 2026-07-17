@@ -10,7 +10,11 @@
 
 import { describe, expect, it, afterEach } from "bun:test";
 import type { Db } from "@nexus/db";
-import { parseUsageBody, startCredentialUsagePoller } from "./credential-usage-poller";
+import {
+  parseUsageBody,
+  startCredentialUsagePoller,
+  computeNextIntervalMs,
+} from "./credential-usage-poller";
 import type { CredentialPool } from "../credentials/pool";
 
 describe("parseUsageBody", () => {
@@ -178,6 +182,59 @@ describe("back-off threshold computation", () => {
   it("does not back off below 50%", () => {
     expect(shouldBackOff(4, 1)).toBe(false);
     expect(shouldBackOff(10, 4)).toBe(false);
+  });
+});
+
+// ── computeNextIntervalMs selection table (adaptive-usage-poll-cadence 1.1) ──
+//
+// Pins the first-match-wins order: backoff > hot (>=80) > default. The 80
+// threshold is `>=`, not `>`. A null max (no parseable/limited rows this tick)
+// falls through to the default interval, never hot.
+
+describe("computeNextIntervalMs", () => {
+  const BACKOFF = 30 * 60 * 1000;
+  const DEFAULT = 5 * 60 * 1000;
+  const HOT = 60 * 1000;
+
+  function next(
+    maxFiveHourUtilization: number | null,
+    backoff: boolean,
+    hotIntervalMs = HOT,
+  ): number {
+    return computeNextIntervalMs({
+      maxFiveHourUtilization,
+      backoff,
+      backoffMs: BACKOFF,
+      intervalMs: DEFAULT,
+      hotIntervalMs,
+    });
+  }
+
+  it("backs off even when utilization is also hot (backoff wins)", () => {
+    expect(next(95, true)).toBe(BACKOFF);
+  });
+
+  it("returns the hot interval at exactly 80 (>=, not >)", () => {
+    expect(next(80, false)).toBe(HOT);
+  });
+
+  it("returns the hot interval above 80", () => {
+    expect(next(99, false)).toBe(HOT);
+  });
+
+  it("returns the default interval at 79.9 (below threshold)", () => {
+    expect(next(79.9, false)).toBe(DEFAULT);
+  });
+
+  it("returns the default interval when max utilization is null", () => {
+    expect(next(null, false)).toBe(DEFAULT);
+  });
+
+  it("honors whatever hotIntervalMs is passed (env-resolved value flows through)", () => {
+    // The env override resolves to a concrete hotIntervalMs in the caller; the
+    // function's job is to return exactly the value it was handed for a hot tick.
+    expect(next(90, false, 12345)).toBe(12345);
+    expect(next(90, false, 777)).toBe(777);
   });
 });
 
@@ -350,6 +407,132 @@ describe("credential-usage-poller: credential_polls history write (4.1)", () => 
       expect(result.succeeded).toBe(0);
       expect(result.failed).toBe(1);
       expect(inserts).toHaveLength(0);
+    } finally {
+      svc.stop();
+    }
+  });
+});
+
+// ── adaptive cadence: tick → max 5-hour util → hot reschedule (1.2 / 1.3) ───
+//
+// A tick whose parsed 5-hour utilization is >= 80 MUST surface that value on
+// tickOnce()'s result, and computeNextIntervalMs MUST pick the hot interval for
+// it. Rows whose written snapshot has a zero limit are excluded from the max.
+
+const ORIGINAL_SET_TIMEOUT = globalThis.setTimeout;
+
+describe("credential-usage-poller: adaptive cadence (adaptive-usage-poll-cadence)", () => {
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
+    globalThis.setTimeout = ORIGINAL_SET_TIMEOUT;
+    delete process.env.NEXUS_USAGE_POLL_HOT_INTERVAL_MS;
+  });
+
+  it("surfaces max 5-hour utilization and reschedules hot when >=80", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          five_hour: { utilization: 95, resets_at: null },
+          seven_day: { utilization: 10, resets_at: null },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const svc = startCredentialUsagePoller({
+      db: capturingDb([]),
+      pool: tokenPool(),
+      intervalMs: 1_000_000,
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.succeeded).toBe(1);
+      expect(result.maxFiveHourUtilization).toBe(95);
+
+      // Compose with the pure selector: this max drives a hot reschedule.
+      const next = computeNextIntervalMs({
+        maxFiveHourUtilization: result.maxFiveHourUtilization,
+        backoff: result.backedOff,
+        backoffMs: 30 * 60 * 1000,
+        intervalMs: 5 * 60 * 1000,
+        hotIntervalMs: 60 * 1000,
+      });
+      expect(next).toBe(60 * 1000);
+    } finally {
+      svc.stop();
+    }
+  });
+
+  it("excludes zero-limit rows from the max (null → default cadence)", async () => {
+    // Legacy used/limit shape with a zero limit: writes a snapshot but carries
+    // no real utilization, so it MUST NOT contribute to maxFiveHourUtilization.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          five_hour: { used: 5, limit: 0, resets_at: null },
+          seven_day: { used: 5, limit: 0, resets_at: null },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const svc = startCredentialUsagePoller({
+      db: capturingDb([]),
+      pool: tokenPool(),
+      intervalMs: 1_000_000,
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.succeeded).toBe(1);
+      expect(result.maxFiveHourUtilization).toBeNull();
+    } finally {
+      svc.stop();
+    }
+  });
+
+  it("reschedules at the NEXUS_USAGE_POLL_HOT_INTERVAL_MS override after a >=80 tick", async () => {
+    process.env.NEXUS_USAGE_POLL_HOT_INTERVAL_MS = "12345";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          five_hour: { utilization: 88, resets_at: null },
+          seven_day: { utilization: 10, resets_at: null },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    // Non-firing setTimeout spy: record (cb, delay); fire manually so we observe
+    // the reschedule delay deterministically without a real timer race.
+    const scheduled: Array<{ cb: () => void; delay: number }> = [];
+    globalThis.setTimeout = ((cb: () => void, delay?: number) => {
+      scheduled.push({ cb, delay: delay ?? 0 });
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+
+    const svc = startCredentialUsagePoller({
+      db: capturingDb([]),
+      pool: tokenPool(),
+      intervalMs: 500_000,
+    });
+    try {
+      // Startup scheduled the first tick at the default interval.
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]?.delay).toBe(500_000);
+
+      // Fire the scheduled tick; let its async work + reschedule settle. The
+      // in-tick fetch timeout also registers a setTimeout, so the reschedule
+      // (the only entry at the hot override) is identified by its delay, not
+      // its position.
+      scheduled[0]?.cb();
+      for (
+        let i = 0;
+        i < 100 && !scheduled.some((s) => s.delay === 12345);
+        i++
+      ) {
+        await new Promise((r) => ORIGINAL_SET_TIMEOUT(r, 1));
+      }
+
+      // The hot override drove the reschedule, and it was the last schedule.
+      expect(scheduled.some((s) => s.delay === 12345)).toBe(true);
+      expect(scheduled[scheduled.length - 1]?.delay).toBe(12345);
     } finally {
       svc.stop();
     }
