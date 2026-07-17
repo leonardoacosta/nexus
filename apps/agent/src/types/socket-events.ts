@@ -355,6 +355,39 @@ const VALID_EVENTS = new Set([
   "tool_use_fail",
   "permission_request",
   "hook_failure",
+  // Second recurrence of the same class (nx-9qsmb.4, 2026-07-17): a live
+  // `journalctl --user -u nexus-agent` audit found `cc/scripts/hooks/
+  // telemetry.sh`'s `nx_send` call sites emit far more `event_type` values
+  // than this set ever allowed — every one below was confirmed either via a
+  // direct `json_event ... "<type>" ...` + adjacent `nx_send` pair, or via
+  // `SIMPLE_EVENTS["<type>"]` reaching the generic dispatch's `nx_send` at
+  // telemetry.sh's `_se_event` site. Each was silently dropped as
+  // "unrecognised JSON" exactly like the nx-z0vm4 set above — `user_prompt`
+  // and `instructions_loaded` were caught live in the journal during this
+  // audit. Adding a string here is necessary but NOT sufficient for an event
+  // to do anything useful: `dispatcher.ts`'s `dispatchEventInner` switch has
+  // no `case` for most of these (they now hit the `default: "unknown event
+  // type"` warn branch instead of "unrecognised JSON" at the transport layer
+  // — visible and diagnosable, but still not wired to real handling). Wiring
+  // real per-type handling (or routing more of them through
+  // `processHookEvent`, which today only fires from `session_start`/
+  // `session_stop`/`session_heartbeat`/`notification`/`agent_spawn`) is
+  // tracked separately, not folded into this allowlist fix.
+  "tool_use_end",
+  "command_start",
+  "command_metadata",
+  "agent_return",
+  "user_prompt",
+  "teammate_idle",
+  "task_completed",
+  "instructions_loaded",
+  "config_change",
+  "worktree_create",
+  "worktree_remove",
+  "session_terminate",
+  "pre_compact",
+  "post_compact",
+  "command_end",
 ]);
 
 const VALID_COMMANDS = new Set([
