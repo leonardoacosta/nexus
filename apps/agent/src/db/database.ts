@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { createDb } from "@nexus/db";
+import { createDb, selfHealingMigrate } from "@nexus/db";
 import type { Db } from "@nexus/db";
 import { logger } from "@nexus/core/node";
 
@@ -143,12 +143,22 @@ async function findMissingTables(db: Db): Promise<string[]> {
  * Verify the agent's required tables exist on the database the pool is
  * connected to. Throws `SchemaIncompleteError` when any are missing.
  *
+ * Self-heal (nexus-self-healing-infra): on first detection of missing
+ * tables, this attempts `selfHealingMigrate()` (packages/db) ONCE — it only
+ * replays migrations already committed under `packages/db/drizzle/`, never
+ * generates one and never runs `db:push` — then re-probes. This closes the
+ * "forgot to migrate before restarting the agent" case. The fail-closed
+ * backstop is unchanged: if a migrate attempt throws (missing migrations
+ * folder, broken migration, connection failure) or tables are still missing
+ * after it resolves, `SchemaIncompleteError` fires exactly as before.
+ *
  * The check is bypassed when `NEXUS_SKIP_SCHEMA_CHECK=1` — a warning is
  * logged. Intended for CI / fresh-DB test runs; never set this in production.
  *
- * Roundtrip cost: 4 trivial planner-level queries (no row scans). Suitable
- * to run on every `GET /health` request — see `handleHealthGet` in
- * `server-health-handler.ts`.
+ * Roundtrip cost: 4 trivial planner-level queries (no row scans) on the
+ * happy path. Suitable to run on every `GET /health` request — see
+ * `handleHealthGet` in `server-health-handler.ts` (which calls the
+ * non-self-healing `checkSchemaForHealth` variant below, not this one).
  */
 export async function verifySchema(db: Db): Promise<void> {
   if (process.env[SKIP_ENV_VAR] === "1") {
@@ -159,7 +169,23 @@ export async function verifySchema(db: Db): Promise<void> {
     return;
   }
 
-  const missing = await findMissingTables(db);
+  let missing = await findMissingTables(db);
+  if (missing.length > 0) {
+    logger.warn(
+      { missingTables: missing },
+      "verifySchema: missing tables detected — attempting self-heal via selfHealingMigrate",
+    );
+    try {
+      await selfHealingMigrate(db.$client);
+    } catch (err) {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "verifySchema: selfHealingMigrate attempt failed — falling through to the missing-tables re-probe",
+      );
+    }
+    missing = await findMissingTables(db);
+  }
+
   if (missing.length > 0) {
     throw new SchemaIncompleteError(
       missing,

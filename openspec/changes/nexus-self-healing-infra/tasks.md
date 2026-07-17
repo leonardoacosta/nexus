@@ -12,25 +12,34 @@
 
 ## API Batch
 
-- [ ] 2.1 Add an `sd_notify` helper (e.g. `apps/agent/src/services/sd-notify.ts`) that writes a [beads:nx-p9rqs]
+- [x] 2.1 Add an `sd_notify` helper (e.g. `apps/agent/src/services/sd-notify.ts`) that writes a [beads:nx-p9rqs]
       `WATCHDOG=1` datagram to `$NOTIFY_SOCKET` when set, and no-ops silently when unset (local
       dev, macOS). Wire a periodic call (interval < half of the configured `WatchdogSec`) into
       the agent's main loop startup in `apps/agent/src/index.ts`.
       - touches: `apps/agent/src/services/sd-notify.ts`, `apps/agent/src/index.ts`
-- [ ] 2.2 Add `WatchdogSec=30` to `deploy/nexus-agent.service` (alongside the existing [beads:nx-bslpj]
+      - implementation note: Bun's `node:dgram` only supports `udp4`/`udp6` (verified — throws
+        "Bad socket type specified" for `unix_dgram`) and `node:net`/`Bun.connect` only speak
+        `SOCK_STREAM`, which the kernel refuses to connect to systemd's `SOCK_DGRAM` notify
+        socket. Implemented via `bun:ffi` calling libc `socket`/`connect`/`write`/`close`
+        directly (ships with Bun — not a new npm dependency). Verified end-to-end with a real
+        bound `AF_UNIX SOCK_DGRAM` listener receiving the literal `WATCHDOG=1\n` bytes.
+- [x] 2.2 Add `WatchdogSec=30` to `deploy/nexus-agent.service` (alongside the existing [beads:nx-bslpj]
       `Restart=always`/`RestartSec=5`/`StartLimitBurst=5`).
       - touches: `deploy/nexus-agent.service`
-- [ ] 2.3 In `apps/agent/src/db/database.ts`, change `verifySchema()`'s `SchemaIncompleteError` [beads:nx-hg34x]
+- [x] 2.3 In `apps/agent/src/db/database.ts`, change `verifySchema()`'s `SchemaIncompleteError` [beads:nx-hg34x]
       path: on first detection of missing tables, call the newly-exported `selfHealingMigrate()`
       once, then re-run the missing-tables probe. Only throw `SchemaIncompleteError` (fatal-exit
       path in `apps/agent/src/index.ts` unchanged) if tables are still missing after the attempt.
       - touches: `apps/agent/src/db/database.ts`
-- [ ] 2.4 Extract a shared `get_remote_agents`-style parser (already in [beads:nx-eff6w]
+      - implementation note: the Drizzle `Db` instance already carries the raw `postgres.Sql`
+        client at `db.$client` (drizzle-orm's postgres-js driver types `drizzle(client, ...)` as
+        `PostgresJsDatabase & { $client: TClient }`) — no new client/pool plumbing needed.
+- [x] 2.4 Extract a shared `get_remote_agents`-style parser (already in [beads:nx-eff6w]
       `deploy/hooks.d/post-merge/02-deploy`) into a small sourceable lib
       (`deploy/lib/remote-agents.sh`) so both the deploy hook and the new staleness check reuse
       one implementation instead of two copies drifting apart.
       - touches: `deploy/lib/remote-agents.sh`, `deploy/hooks.d/post-merge/02-deploy`
-- [ ] 2.5 Add a retry-with-backoff wrapper (`deploy/lib/deploy-retry.sh`, modeled on [beads:nx-695re]
+- [x] 2.5 Add a retry-with-backoff wrapper (`deploy/lib/deploy-retry.sh`, modeled on [beads:nx-695re]
       `deploy/lib/tier-a-retry.sh`'s shape) and use it around the per-remote SSH deploy call in
       `deploy/hooks.d/post-merge/02-deploy`'s fan-out loop: up to 3 attempts, 10s then 30s
       backoff, exactly one success/failure notification per remote regardless of attempt count.

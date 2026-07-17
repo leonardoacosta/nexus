@@ -31,36 +31,14 @@ CONFIG_DIR="$HOME/.config/nexus"
 REPO_DIR="$(git rev-parse --show-toplevel)"
 DEPLOY_DIR="$REPO_DIR/deploy"
 
-# Parse agents.toml for remote deploy targets.
-# Returns tab-delimited lines "user@host<TAB>repo_dir" for agents that are NOT
-# self_name or localhost. repo_dir is the per-remote checkout path to deploy
-# from; when a block omits the optional `repo_dir` key it defaults to ~/dev/nx
-# for backward compat (existing installs like the Mac need zero config change).
-# A single hardcoded path can't be correct for every remote — the homelab's
-# real checkout moved to ~/dev/personal/nexus during a repo reorg (nx-ybcs3).
-get_remote_agents() {
-    local config="$HOME/.config/nexus/agents.toml"
-    [[ ! -f "$config" ]] && return
-
-    local self_name
-    self_name=$(grep '^self_name' "$config" | sed 's/.*= *"//;s/".*//')
-
-    # Parse [[agents]] blocks — extract name, host, user, repo_dir
-    awk -v self="$self_name" '
-        function emit() {
-            if (name != "" && name != self && host != "localhost" && host != "127.0.0.1") {
-                print user "@" host "\t" (repo_dir != "" ? repo_dir : "~/dev/nx")
-            }
-        }
-        /^\[\[agents\]\]/ { name=""; host=""; user=""; repo_dir="" }
-        /^name/     { gsub(/.*= *"|"/, "", $0); name=$0 }
-        /^host/     { gsub(/.*= *"|"/, "", $0); host=$0 }
-        /^user/     { gsub(/.*= *"|"/, "", $0); user=$0 }
-        /^repo_dir/ { gsub(/.*= *"|"/, "", $0); repo_dir=$0 }
-        /^$/ || /^\[/ { emit() }
-        END { emit() }
-    ' "$config"
-}
+# get_remote_agents (agents.toml parser) and run_deploy_with_retry (SSH
+# retry-with-backoff) — shared with the deploy-staleness cron job so there is
+# ONE implementation of each instead of copies drifting apart (nx-eff6w,
+# nx-695re).
+# shellcheck source=../../lib/remote-agents.sh
+source "$DEPLOY_DIR/lib/remote-agents.sh"
+# shellcheck source=../../lib/deploy-retry.sh
+source "$DEPLOY_DIR/lib/deploy-retry.sh"
 
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
@@ -191,18 +169,11 @@ if [[ -n "$REMOTES" ]]; then
     info "deploying to remote agents..."
     while IFS=$'\t' read -r target repo_dir; do
         [[ -z "$target" ]] && continue
-        info "  → $target ($repo_dir, backgrounded)"
+        info "  → $target ($repo_dir, backgrounded, up to $DEPLOY_RETRY_MAX_ATTEMPTS attempts)"
         (
             sleep 2
-            if ssh -o ConnectTimeout=5 -o BatchMode=yes "$target" \
-                "cd $repo_dir && git pull --ff-only && deploy/hooks.d/post-merge/02-deploy --force" \
-                2>&1; then
-                echo "{\"event\":\"notification\",\"message\":\"Deploy succeeded on $target\"}" \
-                    | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true
-            else
-                echo "{\"event\":\"notification\",\"message\":\"Deploy FAILED on $target\"}" \
-                    | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null || true
-            fi
+            run_deploy_with_retry "$target" \
+                "cd $repo_dir && git pull --ff-only && deploy/hooks.d/post-merge/02-deploy --force"
         ) &
     done <<< "$REMOTES"
     info "remote deploys launched in background"
