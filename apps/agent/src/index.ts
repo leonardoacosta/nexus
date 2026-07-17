@@ -3,7 +3,6 @@
 // Removes the internalConnectMultipleTimeout null-context crash (nx-veo5g.5).
 import "./net-autoselect-family";
 import "./otel";
-import "./instrument";
 import { logger } from "@nexus/core/node";
 import { startServer, healthCollector, streamManager } from "./server";
 import { createWatcherBridge } from "./watcher-bridge";

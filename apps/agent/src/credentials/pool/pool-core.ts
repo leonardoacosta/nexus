@@ -20,7 +20,8 @@ import type { Buffer } from "node:buffer";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import * as Sentry from "@sentry/node";
+import { SpanStatusCode } from "@opentelemetry/api";
+import { getTracer } from "../../otel";
 import { CredentialDeleteError } from "./errors";
 import type {
   CredentialPromoteResult,
@@ -405,9 +406,11 @@ export class CredentialPool {
    * Returns the credential row with the decrypted value, or null if exhausted.
    */
   async lease(type: string, leasedBy: string): Promise<CredentialRow | null> {
-    return Sentry.startSpan(
-      { name: "credential.lease", attributes: { type, leasedBy } },
-      async () => {
+    const span = getTracer().startSpan("credential.lease", {
+      attributes: { type, leasedBy },
+    });
+    try {
+      return await (async () => {
         const result = await this.db.transaction(async (tx) => {
           // Recover expired cooldowns inside the lease transaction so
           // cooldown-recovery and lease-selection are atomic. Running this
@@ -521,26 +524,28 @@ export class CredentialPool {
         };
 
         logger.info(
-          { id: result.id, leasedBy, event: "credential.leased" },
+          { id: result.id, type, leasedBy, event: "credential.leased" },
           "credential leased",
         );
-        Sentry.addBreadcrumb({
-          category: "credential",
-          message: "credential leased",
-          level: "info",
-          data: { id: result.id, type, leasedBy },
-        });
         void this.emitEvent(result.id, "leased", leasedBy);
         return decryptedRow;
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /** Release a leased credential back to available. */
   async release(id: string): Promise<boolean> {
-    return Sentry.startSpan(
-      { name: "credential.release", attributes: { id } },
-      async () => {
+    const span = getTracer().startSpan("credential.release", {
+      attributes: { id },
+    });
+    try {
+      return await (async () => {
         const credential = await getCredentialById(this.db, id);
         if (!credential) {
           logger.warn({ id }, "release failed — credential not found");
@@ -558,16 +563,16 @@ export class CredentialPool {
           .where(eq(credentials.id, id));
 
         logger.info({ id, event: "credential.released" }, "credential released");
-        Sentry.addBreadcrumb({
-          category: "credential",
-          message: "credential released",
-          level: "info",
-          data: { id },
-        });
         void this.emitEvent(id, "released");
         return true;
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /**
@@ -580,9 +585,11 @@ export class CredentialPool {
     id: string,
     leasedBy: string,
   ): Promise<{ cooledDown: CredentialRow; next: CredentialRow | null } | null> {
-    return Sentry.startSpan(
-      { name: "credential.cooldown", attributes: { id } },
-      async () => {
+    const span = getTracer().startSpan("credential.cooldown", {
+      attributes: { id },
+    });
+    try {
+      return await (async () => {
         const credential = await getCredentialById(this.db, id);
         if (!credential) return null;
 
@@ -612,12 +619,6 @@ export class CredentialPool {
           { id, cooldown_until: cooldownUntil, event: "credential.cooldown_entered" },
           "credential on cooldown (rate limited)",
         );
-        Sentry.addBreadcrumb({
-          category: "credential",
-          message: "credential on cooldown",
-          level: "warning",
-          data: { id, cooldown_until: cooldownUntil },
-        });
         void this.emitEvent(id, "cooldown_entered", leasedBy, { cooldown_until: cooldownUntil.toISOString() });
 
         const cooledDown = (await getCredentialById(this.db, id))!;
@@ -631,8 +632,14 @@ export class CredentialPool {
         }
 
         return { cooledDown, next };
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /**
@@ -717,9 +724,11 @@ export class CredentialPool {
    *   should never happen in steady state and indicates a data drift bug.
    */
   async promote(id: string): Promise<CredentialPromoteResult> {
-    return Sentry.startSpan(
-      { name: "credential.promote", attributes: { id } },
-      async () => {
+    const span = getTracer().startSpan("credential.promote", {
+      attributes: { id },
+    });
+    try {
+      return await (async () => {
         return this.db.transaction(async (tx) => {
           const targetRows = await tx
             .select()
@@ -797,8 +806,14 @@ export class CredentialPool {
             previousPrimary,
           };
         });
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /**
@@ -811,9 +826,11 @@ export class CredentialPool {
    *   currently cooling down and cannot be activated.
    */
   async manualSwap(targetId: string): Promise<ManualSwapResult | null> {
-    return Sentry.startSpan(
-      { name: "credential.manual_swap", attributes: { targetId } },
-      async () => {
+    const span = getTracer().startSpan("credential.manual_swap", {
+      attributes: { targetId },
+    });
+    try {
+      return await (async () => {
         // 1. Look up targetId in the DB.
         const target = await getCredentialById(this.db, targetId);
         if (!target) {
@@ -884,16 +901,16 @@ export class CredentialPool {
           },
           "manual swap: parked current best-available, target is now preferred",
         );
-        Sentry.addBreadcrumb({
-          category: "credential",
-          message: "manual credential swap",
-          level: "info",
-          data: { targetId, parkedId: bestAvailable.id, cooldownUntil },
-        });
 
         return { parked: parkedRow, activated: activatedRow! };
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /**
@@ -916,9 +933,11 @@ export class CredentialPool {
     id: string,
     opts?: { promoteId?: string },
   ): Promise<void> {
-    return Sentry.startSpan(
-      { name: "credential.delete", attributes: { id } },
-      async () => {
+    const span = getTracer().startSpan("credential.delete", {
+      attributes: { id },
+    });
+    try {
+      return await (async () => {
         await this.db.transaction(async (tx) => {
           const targetRows = await tx
             .select()
@@ -999,8 +1018,14 @@ export class CredentialPool {
           );
           void this.emitEvent(id, "deleted", null, { fingerprint: groupId });
         });
-      },
-    );
+      })();
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
   /**
