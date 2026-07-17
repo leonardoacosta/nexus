@@ -2,6 +2,8 @@
 export { createDb } from "./client";
 export type { Db } from "./client";
 
+export { selfHealingMigrate } from "./migrate";
+
 // Re-export drizzle query operators for consumers that don't depend on drizzle-orm directly
 export {
   eq,
