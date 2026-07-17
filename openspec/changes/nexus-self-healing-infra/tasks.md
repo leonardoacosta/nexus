@@ -68,19 +68,19 @@
 
 ## E2E Batch
 
-- [ ] 3.1 `apps/agent/src/services/sd-notify.test.ts` — asserts the datagram write happens when [beads:nx-dqyuk]
+- [x] 3.1 `apps/agent/src/services/sd-notify.test.ts` — asserts the datagram write happens when [beads:nx-dqyuk]
       `$NOTIFY_SOCKET` is set (mock socket) and is a silent no-op when unset.
-- [ ] 3.2 `apps/agent/src/db/database.test.ts` addition — `verifySchema()` calls [beads:nx-x9zua]
+- [x] 3.2 `apps/agent/src/db/database.test.ts` addition — `verifySchema()` calls [beads:nx-x9zua]
       `selfHealingMigrate()` exactly once on `SchemaIncompleteError`, proceeds on success,
       re-throws `SchemaIncompleteError` if tables are still missing after the attempt.
-- [ ] 3.3 `deploy/tests/deploy-retry.test.sh` (new, modeled on [beads:nx-uj8l0]
+- [x] 3.3 `deploy/tests/deploy-retry.test.sh` (new, modeled on [beads:nx-uj8l0]
       `deploy/tests/tier-a-retry.test.sh`) — asserts retry-then-succeed fires exactly one success
       notification, and exhausted-retries fires exactly one failure notification after the
       documented backoff.
-- [ ] 3.4 `apps/agent/src/services/deploy-staleness.test.ts` — unit tests for the HEAD-comparison [beads:nx-0a3hb]
+- [x] 3.4 `apps/agent/src/services/deploy-staleness.test.ts` — unit tests for the HEAD-comparison [beads:nx-0a3hb]
       logic, the 24h staleness threshold, the 12h notification cooldown, and graceful handling of
       an unreachable remote (logs and continues, does not throw).
-- [ ] 3.5 `apps/agent/src/services/data-integrity-scan.test.ts` — seeded fixture with duplicate [beads:nx-lkvte]
+- [x] 3.5 `apps/agent/src/services/data-integrity-scan.test.ts` — seeded fixture with duplicate [beads:nx-lkvte]
       project rows asserts detection fires and zero writes occur; a clean fixture asserts no
       notification fires.
 - [ ] 3.6 Manual verification note (not CI-automatable): after `WatchdogSec=30` deploys, confirm [beads:nx-xz1u4]
