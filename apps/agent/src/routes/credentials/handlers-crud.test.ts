@@ -218,10 +218,12 @@ describe("handleListCredentials", () => {
 // `GET /credentials?sessionId=<id>` merges an ADDITIVE `sessionUsage` field
 // into the existing envelope, reusing `resolveSessionAccountUsage` (the same
 // resolution `GET /statusline?sessionId=` composes) rather than re-deriving
-// it. These tests stub `getSessionById` / `resolveSessionAccountUsage`
+// it. These tests stub `getSessionByCcSessionId` / `resolveSessionAccountUsage`
 // directly (both spied at the module boundary) so the DB-access seam never
 // needs a real Postgres connection — mirrors the no-DB tier in
-// `../statusline.test.ts`.
+// `../statusline.test.ts`. `getSessionByCcSessionId` (not `getSessionById`)
+// is the correct lookup: `?sessionId=` is CC's own session id, not nx's
+// internal primary key (fix-cc-session-id-bridge, nx-22xz8).
 interface SessionUsageEnvelope {
   credentials: unknown[];
   activeFingerprint: string | null;
@@ -235,7 +237,7 @@ interface SessionUsageEnvelope {
 
 describe("handleListCredentials — ?sessionId= additive usage", () => {
   let getByIdSpy:
-    | ReturnType<typeof spyOn<typeof sessionsDb, "getSessionById">>
+    | ReturnType<typeof spyOn<typeof sessionsDb, "getSessionByCcSessionId">>
     | undefined;
   let resolveSpy:
     | ReturnType<
@@ -280,7 +282,7 @@ describe("handleListCredentials — ?sessionId= additive usage", () => {
 
   it("sessionUsage is all-null when the session is unknown", async () => {
     dbRef.current = {} as Db;
-    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(null);
+    getByIdSpy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue(null);
 
     const req = new Request("http://localhost/credentials?sessionId=ghost");
     const res = await handleListCredentials(req);
@@ -295,8 +297,13 @@ describe("handleListCredentials — ?sessionId= additive usage", () => {
 
   it("sessionUsage carries the resolved account's 5H/7D usage for a known session", async () => {
     dbRef.current = {} as Db;
-    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue({
-      id: "sess-known",
+    // Row's primary-key `id` deliberately DIFFERS from the ccSessionId being
+    // queried below — proves this resolves via getSessionByCcSessionId, not
+    // by an id/ccSessionId coincidence (the fixture-masking risk called out
+    // in the file-level doc comment above).
+    getByIdSpy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue({
+      id: "sess-known-pk",
+      ccSessionId: "cc-sess-known-uuid",
       credentialId: "cred-1",
       machine: "local",
     } as unknown as SessionRow);
@@ -310,12 +317,12 @@ describe("handleListCredentials — ?sessionId= additive usage", () => {
     });
 
     const req = new Request(
-      "http://localhost/credentials?sessionId=sess-known",
+      "http://localhost/credentials?sessionId=cc-sess-known-uuid",
     );
     const res = await handleListCredentials(req);
     const body = (await res.json()) as SessionUsageEnvelope;
     expect(body.sessionUsage).toEqual({
-      sessionId: "sess-known",
+      sessionId: "cc-sess-known-uuid",
       accountId: "cred-1",
       fiveHour: { used: 10, limit: 100, resetsAt: null },
       sevenDay: { used: 200, limit: 1000, resetsAt: null },

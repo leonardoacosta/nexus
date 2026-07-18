@@ -39,7 +39,7 @@ import type {
 import os from "node:os";
 import { queryActiveSessions } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
-import { getSessionById } from "../db/sessions";
+import { getSessionByCcSessionId } from "../db/sessions";
 import { execText } from "../utils/exec";
 import { createVmReadClient } from "../telemetry/vm-read";
 import type { VmReadClient } from "../telemetry/vm-read";
@@ -189,7 +189,13 @@ async function buildSessionStatus(
   vm: VmReadClient,
   sessionId: string,
 ): Promise<SessionStatusResponse | null> {
-  const session = await getSessionById(db, sessionId);
+  // `?sessionId=` is CC's own raw hook session id (universe 2 — the same
+  // value cc-tmux/context-guard.ts send), NOT nx's internal `sessions.id`
+  // primary key (universe 1) — see `getSessionByCcSessionId`'s doc
+  // (fix-cc-session-id-bridge, nx-22xz8). A prior version of this lookup
+  // called `getSessionById(db, sessionId)`, which queries the primary key
+  // and only ever matched by id/ccSessionId coincidence.
+  const session = await getSessionByCcSessionId(db, sessionId);
   if (!session) return null;
 
   const model = modelFamilyLetter({ id: session.model ?? undefined }) ?? null;

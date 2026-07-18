@@ -145,7 +145,7 @@ const EMPTY_COST = {
 };
 
 describe("GET /statusline — sessionId mode context-window fields (no DB)", () => {
-  let getByIdSpy: ReturnType<typeof spyOn<typeof sessionsDb, "getSessionById">> | undefined;
+  let getByIdSpy: ReturnType<typeof spyOn<typeof sessionsDb, "getSessionByCcSessionId">> | undefined;
   let costSpy: ReturnType<typeof spyOn<typeof costReadMod, "readSessionCostTokens">> | undefined;
   let recSpy: ReturnType<typeof spyOn<typeof recommendMod, "getRecommendation">> | undefined;
 
@@ -161,7 +161,10 @@ describe("GET /statusline — sessionId mode context-window fields (no DB)", () 
   });
 
   test("includes usedPercentage/contextWindowSize from a fresh context-store entry", async () => {
-    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(
+    // Spying on getSessionByCcSessionId (not getSessionById) — buildSessionStatus
+    // now resolves `?sessionId=` via the CC-session-id column, per the
+    // fix-cc-session-id-bridge pattern (nx-22xz8).
+    getByIdSpy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue(
       makeRow({ id: "sess-ctx", model: "claude-opus-4-8", projectId: null, credentialId: null } as Partial<SessionRow>),
     );
     costSpy = spyOn(costReadMod, "readSessionCostTokens").mockResolvedValue(EMPTY_COST);
@@ -181,7 +184,7 @@ describe("GET /statusline — sessionId mode context-window fields (no DB)", () 
   });
 
   test("usedPercentage/contextWindowSize are null when no fresh context entry exists", async () => {
-    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(
+    getByIdSpy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue(
       makeRow({ id: "sess-noctx", model: null, projectId: null, credentialId: null } as Partial<SessionRow>),
     );
     costSpy = spyOn(costReadMod, "readSessionCostTokens").mockResolvedValue(EMPTY_COST);
@@ -298,6 +301,16 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
     const now = new Date();
     await db.insert(sessions).values({
       id: "sess-known",
+      // Deliberately DIFFERENT from `id` (the primary key) — this is what a
+      // real row looks like once the fix-cc-session-id-bridge dual-write
+      // lands. `?sessionId=` mode below queries by THIS column, never by the
+      // primary key. A prior version of this fixture set only `id` and
+      // queried `?sessionId=sess-known` — since `id` happened to equal the
+      // query param, `getSessionById` (the primary-key lookup, the bug this
+      // fix removes) would "work" by coincidence and the fixture would mask
+      // a real column-mismatch bug. See the "queried by primary key" test
+      // below for the regression guard this fixture change enables.
+      ccSessionId: "cc-sess-known-uuid",
       projectId: projectUuid,
       machine: "test-machine",
       status: "active",
@@ -364,12 +377,18 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
       nextFixture,
     );
     try {
-      const res = await handleStatusline(db, statusUrl("?sessionId=sess-known"));
+      // Query by the row's `ccSessionId` (CC's real session id) — NOT its
+      // primary-key `id` ("sess-known"). This is the column `?sessionId=`
+      // actually resolves via (getSessionByCcSessionId).
+      const res = await handleStatusline(
+        db,
+        statusUrl("?sessionId=cc-sess-known-uuid"),
+      );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { session: SessionStatusResponse };
       const s = body.session;
 
-      expect(s.sessionId).toBe("sess-known");
+      expect(s.sessionId).toBe("cc-sess-known-uuid");
       // model: single-letter family tag from the raw stored model.
       expect(s.model).toBe("O");
       // 5H/7D resolved via sessions.credentialId → credentials row.
@@ -408,6 +427,17 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
 
   it("sessionId mode: 404 for an unknown session", async () => {
     const res = await handleStatusline(db, statusUrl("?sessionId=ghost"));
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("unknown session");
+  });
+
+  it("sessionId mode: 404 when queried by the row's primary-key id (not its ccSessionId)", async () => {
+    // Regression guard for the getSessionById->getSessionByCcSessionId fix:
+    // "sess-known" is this row's PRIMARY KEY, not its ccSessionId
+    // ("cc-sess-known-uuid"). Before the fix, this query would have
+    // incorrectly resolved via getSessionById (the primary-key lookup).
+    const res = await handleStatusline(db, statusUrl("?sessionId=sess-known"));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("unknown session");

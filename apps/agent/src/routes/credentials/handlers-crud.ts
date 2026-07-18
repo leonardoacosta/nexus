@@ -12,7 +12,7 @@ import { readCredentials } from "../../services/credential-pool/reader";
 import { count24h } from "../../services/credential-pool/rate-limit-tracker";
 import { lastSwapAt as swapTrackerLastSwapAt } from "../../services/credential-pool/swap-tracker";
 import { resolveSessionAccountUsage } from "../../services/session-credential-resolve";
-import { getSessionById } from "../../db/sessions";
+import { getSessionByCcSessionId } from "../../db/sessions";
 import {
   credentialsSessionIdQuery,
   credentialsSessionUsageSchema,
@@ -80,7 +80,12 @@ async function buildSessionUsage(
   const db = dbRef.current;
   if (!db) return unresolved;
 
-  const session = await getSessionById(db, sessionId);
+  // `sessionId` is CC's own raw hook session id (universe 2 — the same value
+  // cc-tmux/context-guard.ts send), NOT nx's internal `sessions.id` primary
+  // key (universe 1) — see `getSessionByCcSessionId`'s doc
+  // (fix-cc-session-id-bridge, nx-22xz8). `getSessionById` queries the
+  // primary key and would only match by id/ccSessionId coincidence.
+  const session = await getSessionByCcSessionId(db, sessionId);
   if (!session) return unresolved;
 
   const acct = await resolveSessionAccountUsage(db, session);
