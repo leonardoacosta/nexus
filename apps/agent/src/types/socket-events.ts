@@ -424,6 +424,14 @@ const VALID_EVENTS = new Set([
   "pre_compact",
   "post_compact",
   "command_end",
+  // Third recurrence of the same class (cc's telemetry-hook-bytes proposal,
+  // 2026-07-18): caught live via journalctl BEFORE shipping, not after —
+  // `hook-wrap.sh`'s hook_output_metrics event was dropped as "unrecognised
+  // JSON" the same way `instructions_loaded`/`tool_use_fail` were before it.
+  // Necessary but not sufficient (see comment above): `dispatcher.ts` has no
+  // dedicated case for it either, so it lands on the "unknown event type"
+  // warn branch — visible in the journal, not yet routed anywhere further.
+  "hook_output_metrics",
 ]);
 
 const VALID_COMMANDS = new Set([
