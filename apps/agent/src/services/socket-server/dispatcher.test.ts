@@ -451,19 +451,27 @@ function flush(): Promise<void> {
 
 /**
  * Minimal chainable stub satisfying the
- * `db.select({ id }).from(sessions).where(...).orderBy(...).limit(1)` shape
- * `findUnlinkedSessionByTmuxTarget` issues. Always returns the same fixed
- * `rows` array regardless of the predicate — see the suite-level comment
- * above for why the WHERE/ORDER BY semantics are tested against live PG
- * instead of through this stub.
+ * `db.select({ id, pid }).from(sessions).where(...).orderBy(...).limit(5)`
+ * shape `findUnlinkedSessionByTmuxTarget` issues. Always returns the same
+ * fixed `rows` array regardless of the predicate — see the suite-level
+ * comment above for why the WHERE/ORDER BY semantics are tested against
+ * live PG instead of through this stub.
+ *
+ * `pid` defaults to the current test process's own pid (guaranteed alive
+ * for the run's duration) when a row omits it — these dispatcher-branching
+ * tests exercise the match-found/no-match control flow, not the pid-liveness
+ * gate itself (that's the live-PG suite's job below), so a fixture row
+ * should read as "alive" unless a test deliberately overrides `pid` to
+ * exercise the dead-pid path.
  */
-function createFakeSessionsLookupDb(rows: Array<{ id: string }>): Db {
+function createFakeSessionsLookupDb(rows: Array<{ id: string; pid?: number }>): Db {
+  const withPid = rows.map((r) => ({ id: r.id, pid: r.pid ?? process.pid }));
   return {
     select: () => ({
       from: () => ({
         where: () => ({
           orderBy: () => ({
-            limit: () => Promise.resolve(rows),
+            limit: () => Promise.resolve(withPid),
           }),
         }),
       }),
@@ -759,12 +767,26 @@ describe.skipIf(!hasLivePg)(
       await scopedClient.unsafe(`DELETE FROM "${DISPATCHER_TEST_SCHEMA}"."sessions"`);
     });
 
+    // A pid that is guaranteed to never be alive on this machine: the kernel
+    // caps pid_max well below this value (Linux default 4194304), so
+    // `existsSync(/proc/{pid})` reliably returns false without racing any
+    // real process's lifecycle.
+    const DEAD_PID = 999_999_999;
+
     async function insertRow(row: {
       id: string;
       status?: string;
       tmuxTarget?: string | null;
       ccSessionId?: string | null;
       lastActivity: Date;
+      /**
+       * Defaults to the CURRENT test process's own pid — guaranteed alive
+       * for the duration of the test run — so pre-existing "should match"
+       * tests continue to exercise a live candidate now that
+       * `findUnlinkedSessionByTmuxTarget` requires one. Pass `DEAD_PID`
+       * explicitly for liveness-focused negative cases.
+       */
+      pid?: number;
     }): Promise<void> {
       await db.insert(sessionsTable).values({
         id: row.id,
@@ -774,6 +796,7 @@ describe.skipIf(!hasLivePg)(
         lastActivity: row.lastActivity,
         tmuxTarget: row.tmuxTarget ?? null,
         ccSessionId: row.ccSessionId ?? null,
+        pid: row.pid ?? process.pid,
       });
     }
 
@@ -852,6 +875,84 @@ describe.skipIf(!hasLivePg)(
       await insertRow({ id: "row-other", tmuxTarget: "main:9.9", lastActivity: new Date() });
 
       const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.1");
+
+      expect(result).toBeNull();
+    });
+
+    // ─── Liveness gate (dispatcher-pid-liveness fix) ─────────────────────────
+    //
+    // Guards against the confirmed-live bug: a row can still show
+    // `status IN (active, idle)` in the DB after its owning process has
+    // actually ended (a race between the old session's own end-of-life
+    // status transition and a new session's session_start correlation
+    // query), silently binding a brand-new session's cc_session_id onto a
+    // dead, unrelated row. `findUnlinkedSessionByTmuxTarget` must reject any
+    // candidate whose pid isn't currently alive.
+
+    test("a matching row whose pid is dead is skipped (not returned)", async () => {
+      await insertRow({
+        id: "row-dead-pid",
+        tmuxTarget: "main:0.7",
+        lastActivity: new Date(),
+        pid: DEAD_PID,
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.7");
+
+      expect(result).toBeNull();
+    });
+
+    test("a matching row whose pid is alive is returned", async () => {
+      await insertRow({
+        id: "row-alive-pid",
+        tmuxTarget: "main:0.8",
+        lastActivity: new Date(),
+        pid: process.pid,
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.8");
+
+      expect(result).toEqual({ id: "row-alive-pid" });
+    });
+
+    test("when the freshest candidate's pid is dead, an older-but-alive candidate is returned instead", async () => {
+      const older = new Date(Date.now() - 60_000);
+      const newer = new Date();
+      // Freshest by last_activity, but its process has actually ended.
+      await insertRow({
+        id: "row-newer-dead",
+        tmuxTarget: "main:0.9",
+        lastActivity: newer,
+        pid: DEAD_PID,
+      });
+      // Older by last_activity, but still genuinely alive.
+      await insertRow({
+        id: "row-older-alive",
+        tmuxTarget: "main:0.9",
+        lastActivity: older,
+        pid: process.pid,
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.9");
+
+      expect(result).toEqual({ id: "row-older-alive" });
+    });
+
+    test("when every matching candidate's pid is dead, returns null", async () => {
+      await insertRow({
+        id: "row-all-dead-1",
+        tmuxTarget: "main:0.10",
+        lastActivity: new Date(),
+        pid: DEAD_PID,
+      });
+      await insertRow({
+        id: "row-all-dead-2",
+        tmuxTarget: "main:0.10",
+        lastActivity: new Date(Date.now() - 1_000),
+        pid: DEAD_PID,
+      });
+
+      const result = await dispatcherTesting.findUnlinkedSessionByTmuxTarget(db, "main:0.10");
 
       expect(result).toBeNull();
     });

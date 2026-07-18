@@ -30,6 +30,7 @@ import type { HookEventPayload } from "../../routes/hooks-types";
 import { getTracer } from "../../otel";
 import { fetchPaneTranslationMap } from "./pane-translation";
 import type { SocketDispatchDeps, SocketEventHandler } from "./types";
+import { isPidAlive } from "../../utils/pid";
 
 const log = createLogger("agent:socket-server");
 
@@ -700,13 +701,32 @@ async function resolveSessionStartTarget(
  * shaped event for an already-correlated session must not re-match or
  * double-write). Picks the most recent `last_activity` when multiple rows
  * match a reused pane. Task 2.1 (reconcile-session-id-universes).
+ *
+ * **Liveness requirement**: `status IN (active, idle)` alone is not
+ * sufficient — that column can be stale/racy (a session's own end-of-life
+ * status transition can lose a race against a new session_start event
+ * correlating onto it, binding a brand-new session's identity onto a dead,
+ * unrelated row — see the `dispatcher-pid-liveness` fix). A candidate row is
+ * only returned if its `pid` is CURRENTLY alive (checked via `isPidAlive`,
+ * the same `/proc/{pid}` probe `session-manager.ts` uses for its own startup
+ * recovery). A row whose pid is null/non-positive is treated as
+ * unverifiable and skipped — every real candidate reaching this query has a
+ * `tmux_target`, which only process-watcher-managed rows carry, and those
+ * always have a real positive pid.
+ *
+ * Fetches a small batch (not just the single freshest row) and walks it in
+ * `last_activity` order so a dead freshest-by-timestamp row doesn't block an
+ * older-but-still-alive candidate from matching — mirroring
+ * `process-watcher.ts`'s own reconciliation pattern of fetching candidate
+ * rows and filtering by an external liveness check in application code
+ * rather than encoding liveness into the SQL WHERE clause.
  */
 async function findUnlinkedSessionByTmuxTarget(
   db: Db,
   tmuxTarget: string,
 ): Promise<{ id: string } | null> {
   const rows = await db
-    .select({ id: sessions.id })
+    .select({ id: sessions.id, pid: sessions.pid })
     .from(sessions)
     .where(
       and(
@@ -716,8 +736,14 @@ async function findUnlinkedSessionByTmuxTarget(
       ),
     )
     .orderBy(desc(sessions.lastActivity))
-    .limit(1);
-  return rows[0] ?? null;
+    .limit(5);
+
+  for (const row of rows) {
+    if (row.pid != null && row.pid > 0 && isPidAlive(row.pid)) {
+      return { id: row.id };
+    }
+  }
+  return null;
 }
 
 /**

@@ -4,6 +4,7 @@ import { logger } from "@nexus/core/node";
 import type { Session, WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { loadActiveSessions, upsertSession } from "./db/sessions";
+import { isPidAlive } from "./utils/pid";
 
 const IDLE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes (bumped from 5m by bump-session-idle-threshold)
 const DEFAULT_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes (same as idle → stale)
@@ -333,21 +334,6 @@ export function createSessionManager(
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────
-
-  /** Check if a PID is alive. */
-  function isPidAlive(pid: number): boolean {
-    // On Linux, check /proc/{pid}
-    if (process.platform === "linux") {
-      return existsSync(`/proc/${pid}`);
-    }
-    // Fallback: try kill(pid, 0) — throws if process doesn't exist
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 
   /**
    * Write a session to DB without throwing — logs errors but does not
