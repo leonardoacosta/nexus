@@ -64,6 +64,14 @@ export type {
   CredentialsActiveResponse,
 } from "./types/credentials-active";
 export {
+  credentialsSessionIdQuery,
+  credentialsSessionUsageSchema,
+} from "./types/credentials-session-usage";
+export type {
+  CredentialsSessionIdQuery,
+  CredentialsSessionUsage,
+} from "./types/credentials-session-usage";
+export {
   elevenlabsPatchInput,
   elevenlabsCredentialsResponse,
   elevenlabsTestResponse,

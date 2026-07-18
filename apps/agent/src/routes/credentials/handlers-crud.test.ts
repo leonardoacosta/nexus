@@ -10,10 +10,14 @@
  * a fixed return value.
  */
 
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { describe, expect, it, spyOn, beforeEach, afterEach } from "bun:test";
+import type { Db } from "@nexus/db";
 import { handleListCredentials } from "./handlers-crud";
 import { handleLeaseCredential } from "./handlers-lease";
-import { poolRef } from "./shared";
+import { poolRef, dbRef } from "./shared";
+import * as sessionsDb from "../../db/sessions";
+import type { SessionRow } from "../../db/sessions";
+import * as sessionCredentialResolveMod from "../../services/session-credential-resolve";
 
 interface CredentialRowFixture {
   id: string;
@@ -206,6 +210,125 @@ describe("handleListCredentials", () => {
     const dedPrimary = dedBody.credentials.find((r) => r.id === "p")!;
     expect(dedPrimary.usage5hUsed).toBe(41);
     expect(dedPrimary.siblingCount).toBe(0);
+  });
+});
+
+// ── ?sessionId= additive usage (nexus-session-scoped-credentials-endpoint) ──
+//
+// `GET /credentials?sessionId=<id>` merges an ADDITIVE `sessionUsage` field
+// into the existing envelope, reusing `resolveSessionAccountUsage` (the same
+// resolution `GET /statusline?sessionId=` composes) rather than re-deriving
+// it. These tests stub `getSessionById` / `resolveSessionAccountUsage`
+// directly (both spied at the module boundary) so the DB-access seam never
+// needs a real Postgres connection — mirrors the no-DB tier in
+// `../statusline.test.ts`.
+interface SessionUsageEnvelope {
+  credentials: unknown[];
+  activeFingerprint: string | null;
+  sessionUsage?: {
+    sessionId: string;
+    accountId: string | null;
+    fiveHour: { used: number; limit: number; resetsAt: string | null } | null;
+    sevenDay: { used: number; limit: number; resetsAt: string | null } | null;
+  };
+}
+
+describe("handleListCredentials — ?sessionId= additive usage", () => {
+  let getByIdSpy:
+    | ReturnType<typeof spyOn<typeof sessionsDb, "getSessionById">>
+    | undefined;
+  let resolveSpy:
+    | ReturnType<
+        typeof spyOn<
+          typeof sessionCredentialResolveMod,
+          "resolveSessionAccountUsage"
+        >
+      >
+    | undefined;
+
+  beforeEach(() => {
+    process.env.HOME = "/tmp/nonexistent-home-for-credential-tests";
+    installFakePool([]);
+  });
+
+  afterEach(() => {
+    poolRef.current = null;
+    dbRef.current = null;
+    getByIdSpy?.mockRestore();
+    resolveSpy?.mockRestore();
+    if (ORIGINAL_HOME) process.env.HOME = ORIGINAL_HOME;
+  });
+
+  it("omits sessionUsage entirely when no sessionId param is given (zero regression)", async () => {
+    const res = await handleListCredentials();
+    const body = (await res.json()) as SessionUsageEnvelope;
+    expect(body).not.toHaveProperty("sessionUsage");
+  });
+
+  it("sessionUsage is all-null when dbRef is not initialized", async () => {
+    dbRef.current = null;
+    const req = new Request("http://localhost/credentials?sessionId=sess-1");
+    const res = await handleListCredentials(req);
+    const body = (await res.json()) as SessionUsageEnvelope;
+    expect(body.sessionUsage).toEqual({
+      sessionId: "sess-1",
+      accountId: null,
+      fiveHour: null,
+      sevenDay: null,
+    });
+  });
+
+  it("sessionUsage is all-null when the session is unknown", async () => {
+    dbRef.current = {} as Db;
+    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue(null);
+
+    const req = new Request("http://localhost/credentials?sessionId=ghost");
+    const res = await handleListCredentials(req);
+    const body = (await res.json()) as SessionUsageEnvelope;
+    expect(body.sessionUsage).toEqual({
+      sessionId: "ghost",
+      accountId: null,
+      fiveHour: null,
+      sevenDay: null,
+    });
+  });
+
+  it("sessionUsage carries the resolved account's 5H/7D usage for a known session", async () => {
+    dbRef.current = {} as Db;
+    getByIdSpy = spyOn(sessionsDb, "getSessionById").mockResolvedValue({
+      id: "sess-known",
+      credentialId: "cred-1",
+      machine: "local",
+    } as unknown as SessionRow);
+    resolveSpy = spyOn(
+      sessionCredentialResolveMod,
+      "resolveSessionAccountUsage",
+    ).mockResolvedValue({
+      accountId: "cred-1",
+      fiveHour: { used: 10, limit: 100, resetsAt: null },
+      sevenDay: { used: 200, limit: 1000, resetsAt: null },
+    });
+
+    const req = new Request(
+      "http://localhost/credentials?sessionId=sess-known",
+    );
+    const res = await handleListCredentials(req);
+    const body = (await res.json()) as SessionUsageEnvelope;
+    expect(body.sessionUsage).toEqual({
+      sessionId: "sess-known",
+      accountId: "cred-1",
+      fiveHour: { used: 10, limit: 100, resetsAt: null },
+      sevenDay: { used: 200, limit: 1000, resetsAt: null },
+    });
+    // Existing envelope fields are untouched alongside the new field.
+    expect(Array.isArray(body.credentials)).toBe(true);
+  });
+
+  it("blank sessionId param is treated as absent (no sessionUsage key)", async () => {
+    const req = new Request("http://localhost/credentials?sessionId=");
+    const res = await handleListCredentials(req);
+    const body = (await res.json()) as SessionUsageEnvelope;
+    expect(body).not.toHaveProperty("sessionUsage");
   });
 });
 

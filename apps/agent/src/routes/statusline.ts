@@ -48,6 +48,10 @@ import { latestProjectStatus } from "../services/status-snapshots";
 import { getObservedGitState } from "../services/git-observer";
 import { getRecommendation } from "./recommend";
 import { getFreshContextEntry } from "./session-context";
+import {
+  resolveSessionAccountUsage,
+  toAccount5H7D,
+} from "../services/session-credential-resolve";
 
 const log = createLogger("agent:routes:statusline");
 
@@ -104,33 +108,9 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-/** A `credentials` row's usage columns — the subset this route reads. */
-interface CredentialUsageRow {
-  id: string;
-  usage5hUsed: number | null;
-  usage5hLimit: number | null;
-  usage5hResetAt: Date | null;
-  usage7dUsed: number | null;
-  usage7dLimit: number | null;
-  usage7dResetAt: Date | null;
-}
-
-/** Map a `credentials` row to the `Account5H7D` wire shape. */
-function toAccount5H7D(row: CredentialUsageRow): Account5H7D {
-  return {
-    accountId: row.id,
-    fiveHour: {
-      used: row.usage5hUsed ?? 0,
-      limit: row.usage5hLimit ?? 0,
-      resetsAt: row.usage5hResetAt ? row.usage5hResetAt.toISOString() : null,
-    },
-    sevenDay: {
-      used: row.usage7dUsed ?? 0,
-      limit: row.usage7dLimit ?? 0,
-      resetsAt: row.usage7dResetAt ? row.usage7dResetAt.toISOString() : null,
-    },
-  };
-}
+// `CredentialUsageRow` / `toAccount5H7D` now live in
+// `../services/session-credential-resolve` (single-sourced so
+// `resolveSessionAccountUsage` and this route share one mapping).
 
 // ---------------------------------------------------------------------------
 // Git status cache (refreshes every 5 seconds)
@@ -214,21 +194,14 @@ async function buildSessionStatus(
 
   const model = modelFamilyLetter({ id: session.model ?? undefined }) ?? null;
 
-  // 5H/7D usage via the session's active credential (denormalized, not FK).
-  let fiveHour: Account5H7D["fiveHour"] | null = null;
-  let sevenDay: Account5H7D["sevenDay"] | null = null;
-  if (session.credentialId) {
-    const [cred] = await db
-      .select()
-      .from(credentials)
-      .where(eq(credentials.id, session.credentialId))
-      .limit(1);
-    if (cred) {
-      const acct = toAccount5H7D(cred);
-      fiveHour = acct.fiveHour;
-      sevenDay = acct.sevenDay;
-    }
-  }
+  // 5H/7D usage via the session's actual credential — resolved through
+  // `resolveSessionAccountUsage` (sessions.credentialId when explicitly
+  // bound, else the requesting agent's own live active-credential snapshot
+  // when this session's machine matches this process. See that module's
+  // doc for why the same-machine snapshot is exact, not a fallback).
+  const acct = await resolveSessionAccountUsage(db, session);
+  const fiveHour: Account5H7D["fiveHour"] | null = acct?.fiveHour ?? null;
+  const sevenDay: Account5H7D["sevenDay"] | null = acct?.sevenDay ?? null;
 
   // Cost usage via VictoriaMetrics — disabled VM degrades to the zero/null
   // breakdown (never throws), mapped straight onto the wire `usage` shape.

@@ -70,9 +70,14 @@ export interface NextRecommendation {
  * Fields:
  *   - `model`      — single-letter family tag from the existing
  *     `modelFamilyLetter()` helper; `null` when unknown.
- *   - `fiveHour`/`sevenDay` — the session's active-credential usage windows
- *     (resolved via `sessions.credentialId`), `null` when the credential is
- *     unresolved.
+ *   - `fiveHour`/`sevenDay` — the session's active-credential usage windows,
+ *     resolved via `resolveSessionAccountUsage`
+ *     (`apps/agent/src/services/session-credential-resolve.ts`):
+ *     `sessions.credentialId` when explicitly bound, else the requesting
+ *     agent's own live active-credential snapshot when this session's
+ *     machine matches the process serving the request. `null` when neither
+ *     resolves (e.g. the session belongs to a different machine than the one
+ *     handling this request).
  *   - `usage`      — per-session cost/token breakdown (`readSessionCostTokens`);
  *     `cost_usd` is `null` when the telemetry VM is disabled.
  *   - `project`    — beads/openspec/git snapshot for the session's project,

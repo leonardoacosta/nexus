@@ -11,6 +11,13 @@ import { getActiveCredentialSnapshot } from "../../credentials/credential-watche
 import { readCredentials } from "../../services/credential-pool/reader";
 import { count24h } from "../../services/credential-pool/rate-limit-tracker";
 import { lastSwapAt as swapTrackerLastSwapAt } from "../../services/credential-pool/swap-tracker";
+import { resolveSessionAccountUsage } from "../../services/session-credential-resolve";
+import { getSessionById } from "../../db/sessions";
+import {
+  credentialsSessionIdQuery,
+  credentialsSessionUsageSchema,
+} from "@nexus/core";
+import type { CredentialsSessionUsage } from "@nexus/core";
 import { createLogger } from "@nexus/core/node";
 import {
   checkTlsEnforcement,
@@ -18,9 +25,74 @@ import {
   extractCallerIp,
   jsonResponse,
   poolRef,
+  dbRef,
 } from "./shared";
 
 const log = createLogger("agent:routes:credentials:crud");
+
+/**
+ * Parse the optional `?sessionId=` query param off `request`. Returns `null`
+ * when absent, blank, or the request/URL is unusable — every failure mode
+ * degrades to "no session-scoped resolution attempted" rather than an error,
+ * matching the `?dedupe=true` param's existing fail-open convention below.
+ */
+function parseSessionIdParam(request?: Request): string | null {
+  if (!request) return null;
+  try {
+    const url = new URL(request.url);
+    const parsed = credentialsSessionIdQuery.safeParse({
+      sessionId: url.searchParams.get("sessionId"),
+    });
+    return parsed.success ? parsed.data.sessionId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the additive `sessionUsage` field for `GET /credentials?sessionId=`.
+ *
+ * Reuses `resolveSessionAccountUsage` — the exact same resolution
+ * `GET /statusline?sessionId=` composes (`../statusline.ts`'s
+ * `buildSessionStatus`) — rather than re-deriving session→credential
+ * resolution a second time. See that module's doc for the resolution order
+ * (explicit `sessions.credentialId` binding, else the requesting agent's own
+ * live active-credential snapshot when the session's machine matches this
+ * process) and its honest limitation (no live signal for a session on a
+ * different machine than the one serving this request).
+ *
+ * Always returns a fully-populated `CredentialsSessionUsage` — `accountId`/
+ * `fiveHour`/`sevenDay` are `null` together when the session is unknown or
+ * unresolved; there is no separate "not found" status because `GET
+ * /credentials` has always been a 200-only endpoint and this addition
+ * preserves that.
+ */
+async function buildSessionUsage(
+  sessionId: string,
+): Promise<CredentialsSessionUsage> {
+  const unresolved: CredentialsSessionUsage = {
+    sessionId,
+    accountId: null,
+    fiveHour: null,
+    sevenDay: null,
+  };
+
+  const db = dbRef.current;
+  if (!db) return unresolved;
+
+  const session = await getSessionById(db, sessionId);
+  if (!session) return unresolved;
+
+  const acct = await resolveSessionAccountUsage(db, session);
+  if (!acct) return unresolved;
+
+  return credentialsSessionUsageSchema.parse({
+    sessionId,
+    accountId: acct.accountId,
+    fiveHour: acct.fiveHour,
+    sevenDay: acct.sevenDay,
+  });
+}
 
 /** POST /credentials — add a new credential. */
 export async function handleAddCredential(request: Request): Promise<Response> {
@@ -97,6 +169,14 @@ export async function handleAddCredential(request: Request): Promise<Response> {
  * The fallback exists because deploys with an unseeded DB and no
  * credential-watcher pass yet would otherwise show "no credentials" even
  * though the operator has acct-*.json files on disk.
+ *
+ * `?sessionId=<id>` (optional, nullable): when present, an ADDITIVE
+ * `sessionUsage` field is merged into the envelope carrying the 5H/7D usage
+ * for the account actually driving that session (see `buildSessionUsage`
+ * above). Absent when the param is not given — every existing caller's
+ * response shape is byte-for-byte unchanged. This applies uniformly across
+ * both the pool path and the filesystem-fallback path below, and regardless
+ * of `?dedupe=`.
  */
 export async function handleListCredentials(
   request?: Request,
@@ -116,6 +196,12 @@ export async function handleListCredentials(
       return false;
     }
   })();
+
+  const sessionIdParam = parseSessionIdParam(request);
+  const sessionUsage = sessionIdParam
+    ? await buildSessionUsage(sessionIdParam)
+    : undefined;
+  const sessionUsageField = sessionUsage ? { sessionUsage } : {};
 
   // Pool path: try the DB-backed listing first.
   if (pool) {
@@ -180,12 +266,14 @@ export async function handleListCredentials(
           return jsonResponse({
             credentials: collapsed,
             activeFingerprint: activeFp,
+            ...sessionUsageField,
           });
         }
 
         return jsonResponse({
           credentials: enriched,
           activeFingerprint: activeFp,
+          ...sessionUsageField,
         });
       }
       // Empty pool — fall through to filesystem reader.
@@ -198,10 +286,14 @@ export async function handleListCredentials(
   // Filesystem-fallback path.
   try {
     const result = await readCredentials();
-    return jsonResponse(result);
+    return jsonResponse({ ...result, ...sessionUsageField });
   } catch (err) {
     log.warn({ error: err }, "filesystem credential reader failed");
-    return jsonResponse({ credentials: [], activeFingerprint: null });
+    return jsonResponse({
+      credentials: [],
+      activeFingerprint: null,
+      ...sessionUsageField,
+    });
   }
 }
 
