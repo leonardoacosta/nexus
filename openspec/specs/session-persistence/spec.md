@@ -141,26 +141,50 @@ process no longer exists SHALL transition to `errored`.
 - **WHEN** a session has an associated pid and `/proc/{pid}` does not exist on Linux
 - **THEN** `sweepIdle` sets the session status to `errored`
 
-### Requirement: The sessions table MUST record the credential in effect at session start
+### Requirement: Session usage MUST be resolved query-time, never bound at session start
 
-The `sessions` table SHALL include two nullable columns: `credential_id` (foreign
-key to `credentials.id`) and `credential_fingerprint` (denormalized copy of the
-credential's fingerprint for aggregation rollup across duplicate groups). Both
-columns MUST be populated at `session_start` from the credential pool's current
-lease state. If no lease is active at `session_start`, both columns SHALL be
-NULL and token tracking SHALL be skipped for that session without failing the
-session lifecycle.
+The system MUST NOT persist a `credential_id`/`credential_fingerprint` binding on the `sessions` row at `session_start` as the primary usage-resolution mechanism (an earlier design this requirement supersedes). A session is NOT a stable proxy for a single credential/account: Claude Code
+supports switching accounts within an already-running session, and operators
+regularly switch accounts between sessions on the same machine — a
+session-start binding would go stale the moment the operator switches
+accounts, silently misattributing usage for the remainder of the session.
 
-#### Scenario: Session start with active lease records credential
-- **GIVEN** the credential pool has credential "c1" (fingerprint "fp-abc") leased
-- **WHEN** a new session is created via `session_start`
-- **THEN** the sessions row has `credential_id = "c1"` and `credential_fingerprint = "fp-abc"`
+The system SHALL instead resolve 5H/7D usage for a session at QUERY time,
+sourced from the requesting agent's own live active-credential-watcher
+snapshot (the currently-active credential on that machine, per
+`~/.claude/.credentials.json`) rather than any value stored on the session
+row. This is a per-machine precision ceiling, not per-session or per-API-call:
+Claude Code's own hook/transcript data does not expose which credential
+served any individual API call, so exact per-request attribution is not
+achievable without new instrumentation Claude Code itself does not provide.
+`sessions.credentialId`/`credentialFingerprint` remain in the schema for the
+(currently dead) explicit-binding code path (`dispatcher.ts`'s
+`bindSessionCredential`, gated on an `event.credential_fingerprint` field
+`~/dev/cc`'s telemetry.sh never sends) but MUST NOT be treated as the primary
+resolution mechanism, and no work should re-introduce session-start binding
+as the fix for stale/missing usage.
 
-#### Scenario: Session start without lease leaves credential columns NULL
-- **GIVEN** the credential pool has no active lease (passthrough mode)
-- **WHEN** a new session is created via `session_start`
-- **THEN** the sessions row has `credential_id = NULL` and `credential_fingerprint = NULL`
-- **AND** no token watcher is attached for that session
+#### Scenario: Query resolves via the requesting machine's live active credential
+- **GIVEN** a session is running on machine M, and M's active-credential-watcher
+  currently reports credential "c1"
+- **WHEN** `GET /credentials?sessionId=<id>` or `GET /statusline?sessionId=<id>`
+  is queried for that session by a request served on machine M
+- **THEN** the response's usage figures reflect credential "c1"'s CURRENT 5H/7D,
+  not any value bound at the session's start
+
+#### Scenario: Account switched mid-session
+- **GIVEN** a session started while credential "c1" was active, and the operator
+  has since switched machine M's active credential to "c2"
+- **WHEN** the session's usage is queried after the switch
+- **THEN** the response reflects "c2" (the current active credential), not "c1"
+  (whatever was active at session start) — no stale binding is consulted
+
+#### Scenario: Session on a different machine than the requesting agent
+- **GIVEN** a session's `machine` field does not match the agent process serving
+  the request
+- **WHEN** that session's usage is queried
+- **THEN** the response returns null usage rather than guessing — there is no
+  cross-machine live-credential signal (a known, accepted limitation, not a bug)
 
 #### Scenario: credential_fingerprint survives credential deletion
 - **GIVEN** session "s1" was started with `credential_id = "c1"` and `credential_fingerprint = "fp-abc"`
