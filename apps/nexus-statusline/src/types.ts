@@ -49,6 +49,8 @@ export interface GitInfo {
 export interface ResolvedContext {
   usedPct: number;
   contextWindowSize?: number;
+  /** Carried through from `ccInput.model` (live frame) or the restored snapshot. */
+  model?: { id?: string; display_name?: string };
 }
 
 export type { UsagePeriod, UsageResponse, CachedUsage } from "@nexus/statusline-contract";

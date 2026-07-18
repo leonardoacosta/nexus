@@ -26,10 +26,12 @@ export type SessionContextPatchInput = z.infer<typeof sessionContextPatchInput>;
  * GET /sessions/:id/context response for a fresh entry. `contextWindowSize` is
  * nullable (absent when the writer never supplied it); `updatedAt` is ISO 8601.
  * `model` is the derived single-letter family tag (matching `GET /statusline`'s
- * `modelFamilyLetter` convention, e.g. `"O"` for an Opus model) — looked up
- * fresh from `sessions.model` on every request, never cached alongside the
- * in-memory context-window entry. `null` when the session row has no model yet
- * or cannot be looked up.
+ * `modelFamilyLetter` convention, e.g. `"O"` for an Opus model). Resolved
+ * store-first (forward-statusline-model): the model CC's statusline hook last
+ * saw for this session, forwarded alongside the in-memory context-window
+ * entry via `applyStatuslineSnapshot`, falling back to a fresh `sessions.model`
+ * DB lookup only when the store has no model recorded yet. `null` when neither
+ * source has a model for the session.
  */
 export const sessionContextResponse = z.object({
   sessionId: z.string(),

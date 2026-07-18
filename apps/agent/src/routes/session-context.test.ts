@@ -28,6 +28,7 @@ import {
   handlePatchSessionContext,
   getFreshContextEntry,
   resetSessionContextStore,
+  applyStatuslineSnapshot,
 } from "./session-context";
 // Restorable spy target for the ccSessionId-lookup suite below
 // (fix-cc-session-id-bridge, nx-22xz8) — session-context.ts imports
@@ -282,6 +283,68 @@ describe("session-context — GET model field (add-session-context-model-field)"
     expect(body.sessionId).toBe("abc");
     expect(body.usedPercentage).toBe(42);
     expect(body.contextWindowSize).toBe(200000);
+  });
+});
+
+describe("session-context — store-first model precedence (forward-statusline-model)", () => {
+  it("prefers the store's forwarded model over the DB, when both are present", async () => {
+    applyStatuslineSnapshot("abc", 42, null, {
+      id: "claude-sonnet-4-6",
+      display_name: "Sonnet 4.6",
+    });
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb({ model: "claude-opus-4-8" }), // would map to "O" if consulted
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("S");
+  });
+
+  it("falls back to the DB lookup when the store has no model recorded", async () => {
+    // PATCH (not applyStatuslineSnapshot) never carries a model.
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42 }),
+      "abc",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb({ model: "claude-opus-4-8" }),
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("O");
+  });
+
+  it("resolves model: null when neither the store nor the DB has one", async () => {
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("abc", { usedPercentage: 42 }),
+      "abc",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(
+      getRequest("abc"),
+      "abc",
+      fakeDb(null),
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+  });
+
+  it("resolves the store's model even when db is omitted entirely", async () => {
+    applyStatuslineSnapshot("abc", 42, null, { id: "claude-haiku-4-5" });
+
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("H");
   });
 });
 

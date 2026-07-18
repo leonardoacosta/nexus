@@ -597,3 +597,82 @@ describe("resolveContext — pushes the RESOLVED value, non-blocking", () => {
     }
   });
 });
+
+// ── resolveContext — model capture/restore (forward-statusline-model) ───────
+//
+// CC's `ccInput.model` is captured alongside the context reading so it can be
+// forwarded to nx-agent's session-context store via the snapshot file +
+// statusline-ctx-poller, instead of relying on the unreliable session_start
+// DB path. See context-guard.ts's resolveContext docstring.
+
+describe("resolveContext — model capture/restore", () => {
+  const fixedNow = 1_000_000; // unix seconds
+  const detNowDeps = { now: () => fixedNow, nowMs: () => fixedNow * 1000 };
+  const model = { id: "claude-opus-4-8", display_name: "Opus 4.8" };
+
+  it("populated frame writes ccInput.model into the snapshot and returns it", () => {
+    const written: { model?: { id?: string; display_name?: string } } = {};
+    const res = resolveContext(
+      {
+        session_id: "s1",
+        model,
+        context_window: { used_percentage: 45, context_window_size: 1000000 },
+      },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => null,
+        readSnapshot: () => null,
+        writeSnapshot: (_p, snap) => {
+          written.model = snap.model;
+        },
+      },
+    );
+    expect(res).toEqual({ usedPct: 45, contextWindowSize: 1000000, model });
+    expect(written.model).toEqual(model);
+  });
+
+  it("populated frame with no model on ccInput writes/returns model: undefined, no crash", () => {
+    const written: { model?: { id?: string; display_name?: string } } = { model: model };
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 45 } },
+      {
+        ...detNowDeps,
+        statMtimeMs: () => null,
+        readSnapshot: () => null,
+        writeSnapshot: (_p, snap) => {
+          written.model = snap.model;
+        },
+      },
+    );
+    expect(res?.model).toBeUndefined();
+    expect(written.model).toBeUndefined();
+  });
+
+  it("spurious-zero restore carries the previously-saved model forward", () => {
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 0, context_window_size: 200000 } },
+      {
+        ...detNowDeps,
+        readSnapshot: () => ({
+          used_percentage: 62,
+          context_window_size: 200000,
+          saved_at: fixedNow - 60,
+          model,
+        }),
+      },
+    );
+    expect(res).toEqual({ usedPct: 62, contextWindowSize: 200000, model });
+  });
+
+  it("restore from a pre-existing snapshot with no model field (backward compat) does not crash", () => {
+    const res = resolveContext(
+      { session_id: "s1", context_window: { used_percentage: 0 } },
+      {
+        ...detNowDeps,
+        // Simulates an on-disk snapshot written before this field existed.
+        readSnapshot: () => ({ used_percentage: 62, saved_at: fixedNow - 60 }),
+      },
+    );
+    expect(res).toEqual({ usedPct: 62, contextWindowSize: undefined, model: undefined });
+  });
+});

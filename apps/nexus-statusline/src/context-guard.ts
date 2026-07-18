@@ -10,6 +10,14 @@ interface CtxSnapshot {
   used_percentage: number;
   context_window_size?: number;
   saved_at: number;
+  /**
+   * CC's per-invocation model payload, captured verbatim so a restored
+   * snapshot can still carry the model forward (forward-statusline-model,
+   * task 1). Optional so pre-existing on-disk snapshots (written before this
+   * field existed) keep parsing correctly — `isCtxSnapshot` below never
+   * required it.
+   */
+  model?: { id?: string; display_name?: string };
 }
 
 function isCtxSnapshot(raw: unknown): raw is CtxSnapshot {
@@ -55,6 +63,14 @@ function defaultStatMtimeMs(path: string): number | null {
  * Missing `session_id` → no snapshot key → treated as fresh (omit on zero). All
  * fs access is fail-soft.
  *
+ * `model` (CC's `ccInput.model`) is captured alongside the context reading on
+ * every populated-frame write and carried through on a snapshot restore too
+ * (forward-statusline-model), so a momentary spurious-zero frame does not also
+ * blank out a model that was already known for the session. `nx-agent`'s
+ * `statusline-ctx-poller` reads this same snapshot file and forwards `model`
+ * into the in-memory session-context store (`applyStatuslineSnapshot`), which
+ * `GET /sessions/:id/context` now prefers over its `sessions.model` DB lookup.
+ *
  * Architecture note (detach-context-push-from-statusline-lifecycle): this
  * function previously also fire-and-forget PATCHed the resolved value to
  * nx-agent over HTTP. That push is REMOVED — per CC's own documented
@@ -80,6 +96,7 @@ export function resolveContext(
   const usedPct = ccInput.context_window?.used_percentage;
   const size = ccInput.context_window?.context_window_size;
   const sessionId = ccInput.session_id;
+  const model = ccInput.model;
 
   // Populated frame: render the live value + refresh the snapshot (throttled).
   if (usedPct != null && usedPct > 0) {
@@ -92,10 +109,11 @@ export function resolveContext(
           used_percentage: usedPct,
           context_window_size: size,
           saved_at: now(),
+          model,
         });
       }
     }
-    return { usedPct, contextWindowSize: size };
+    return { usedPct, contextWindowSize: size, model };
   }
 
   // Suspicious zero / absent: restore a fresh snapshot, else omit.
@@ -106,7 +124,11 @@ export function resolveContext(
     snap.used_percentage > 0 &&
     now() - snap.saved_at <= CTX_FRESH_WINDOW_SECS
   ) {
-    return { usedPct: snap.used_percentage, contextWindowSize: snap.context_window_size };
+    return {
+      usedPct: snap.used_percentage,
+      contextWindowSize: snap.context_window_size,
+      model: snap.model,
+    };
   }
   return null;
 }

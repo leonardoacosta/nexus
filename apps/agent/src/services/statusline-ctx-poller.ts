@@ -18,6 +18,14 @@
  * `process-watcher.ts`'s start/stop lifecycle) and reads the snapshot files
  * directly on a fixed interval instead of waiting for a push that structurally
  * can't survive.
+ *
+ * Also forwards the snapshot's `model` field (CC's per-invocation
+ * `{id?, display_name?}` payload, captured by `context-guard.ts` on every
+ * render) into the in-memory store via `applyStatuslineSnapshot`
+ * (forward-statusline-model) — this is the reliable path `GET
+ * /sessions/:id/context` now prefers for `model`, ahead of the `sessions.model`
+ * DB column, which the `session_start` telemetry hook populates only
+ * unreliably.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -45,12 +53,16 @@ const FILE_SUFFIX = ".json";
 
 /**
  * Snapshot shape written by `context-guard.ts`'s `writeSnapshot`. `saved_at`
- * is unix seconds (not ms).
+ * is unix seconds (not ms). Duplicated from `context-guard.ts`'s own
+ * `CtxSnapshot` by design (see file header) — kept in sync by hand, not
+ * imported.
  */
 interface CtxSnapshot {
   used_percentage: number;
   context_window_size?: number;
   saved_at: number;
+  /** Forwarded into the in-memory store via `applyStatuslineSnapshot` below. */
+  model?: { id?: string; display_name?: string };
 }
 
 function isCtxSnapshot(raw: unknown): raw is CtxSnapshot {
@@ -123,6 +135,7 @@ export function pollOnce(): number {
         sessionId,
         snap.used_percentage,
         snap.context_window_size ?? null,
+        snap.model,
       );
       applied += 1;
     } catch (err) {

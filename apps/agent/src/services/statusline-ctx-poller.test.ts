@@ -240,6 +240,55 @@ describe("applyStatuslineSnapshot — writes the same shape handleGetSessionCont
   });
 });
 
+// ── pollOnce — forwards the snapshot's model field (forward-statusline-model) ─
+
+describe("pollOnce — forwards the snapshot's model field into the store", () => {
+  test("a snapshot carrying model forwards it through to handleGetSessionContext, no db needed", async () => {
+    setStateDirFixture({
+      "statusline-ctx.sess-model.json": JSON.stringify({
+        used_percentage: 42,
+        context_window_size: 200000,
+        saved_at: nowSecs(),
+        model: { id: "claude-opus-4-8", display_name: "Opus 4.8" },
+      }),
+    });
+
+    const applied = pollOnce();
+    expect(applied).toBe(1);
+
+    const getRes = await handleGetSessionContext(
+      new Request("http://127.0.0.1/sessions/sess-model/context"),
+      "sess-model",
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("O");
+  });
+
+  test("a snapshot with no model field (pre-existing on-disk snapshot) is applied without crashing, model resolves null with no db", async () => {
+    setStateDirFixture({
+      "statusline-ctx.sess-no-model.json": snapshotJson({
+        used_percentage: 20,
+        saved_at: nowSecs(),
+      }),
+    });
+
+    let applied = 0;
+    expect(() => {
+      applied = pollOnce();
+    }).not.toThrow();
+    expect(applied).toBe(1);
+
+    const getRes = await handleGetSessionContext(
+      new Request("http://127.0.0.1/sessions/sess-no-model/context"),
+      "sess-no-model",
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+  });
+});
+
 // ── startStatuslineCtxPoller — start/stop lifecycle (task 3.2a) ────────────
 
 describe("startStatuslineCtxPoller — lifecycle", () => {

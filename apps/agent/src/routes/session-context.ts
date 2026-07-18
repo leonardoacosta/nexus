@@ -31,6 +31,14 @@ interface ContextEntry {
   usedPercentage: number;
   contextWindowSize: number | null;
   updatedAt: number; // epoch ms
+  /**
+   * Raw model payload captured from the statusline-ctx snapshot
+   * (forward-statusline-model). Stored raw rather than pre-mapped to a
+   * letter so `handleGetSessionContext` can run it through the same
+   * `modelFamilyLetter` derivation it already applies to the DB-sourced
+   * value below — one mapping call site, not two.
+   */
+  model?: { id?: string; display_name?: string };
 }
 
 /**
@@ -84,23 +92,29 @@ function jsonResponse(body: unknown, status = 200): Response {
  * GET /sessions/:id/context — return the fresh entry for `id`, or
  * `404 {"error": "no context data for session"}` when absent or stale.
  *
- * `model` is looked up fresh from `sessions.model` on every call (not cached
- * alongside the in-memory context-window entry) via `getSessionByCcSessionId`,
- * then mapped to the shared single-letter family tag via `modelFamilyLetter` —
- * the same derivation `GET /statusline` already uses. When `db` is omitted, or
- * `getSessionByCcSessionId` finds no row, or the row's `model` is `null`, this
- * fails open to `model: null` rather than throwing or altering the
- * fresh/stale/unknown-session status codes above.
+ * `model` resolution precedence (forward-statusline-model): PREFER the raw
+ * model payload already captured alongside the in-memory context-window entry
+ * (forwarded by `statusline-ctx-poller.ts` from CC's own per-invocation
+ * `ccInput.model`, via `applyStatuslineSnapshot`) — this is the reliable path,
+ * since it comes straight from CC's statusline stdin on every render. FALL
+ * BACK to a fresh `sessions.model` DB lookup via `getSessionByCcSessionId`
+ * only when the store has no model recorded for this session (e.g. a session
+ * tracked only via the file-watcher/process-watcher path with no statusline
+ * render yet). Either way the raw model is mapped to the shared single-letter
+ * family tag via `modelFamilyLetter` — the same derivation `GET /statusline`
+ * already uses. When neither source yields a model, this fails open to
+ * `model: null` rather than throwing or altering the fresh/stale/
+ * unknown-session status codes above.
  *
  * Fixed (fix-cc-session-id-bridge, nx-22xz8): this route's `id` path param is
  * CC's own raw hook session id (universe 2 — the same value context-guard.ts
  * and cc-tmux send), NOT nx's internal `sessions.id` primary key (universe 1).
- * The lookup previously called `getSessionById(db, id)`, which queries the
- * primary key — a category mismatch that meant `model` never resolved for any
- * session whose row was created via the file-watcher or HTTP session-start
- * paths (both mint their own internal id, distinct from CC's real session id).
- * The in-memory `store` Map above is unaffected — both PATCH and GET already
- * key it consistently by the same universe-2 id.
+ * The DB-fallback lookup previously called `getSessionById(db, id)`, which
+ * queries the primary key — a category mismatch that meant `model` never
+ * resolved for any session whose row was created via the file-watcher or HTTP
+ * session-start paths (both mint their own internal id, distinct from CC's
+ * real session id). The in-memory `store` Map above is unaffected — both
+ * PATCH and GET already key it consistently by the same universe-2 id.
  */
 export async function handleGetSessionContext(
   _request: Request,
@@ -116,10 +130,12 @@ export async function handleGetSessionContext(
   // The gate just proved the entry is present + fresh, so this raw read for the
   // `updatedAt` wire field is safe. It is NOT a second freshness check — the
   // TTL comparison lives only in getFreshContextEntry.
-  const updatedAt = store.get(id)!.updatedAt;
+  const entry = store.get(id)!;
 
-  let model: string | null = null;
-  if (db) {
+  // Store-first: the statusline-ctx-poller-forwarded model, when present.
+  let model: string | null = modelFamilyLetter(entry.model) ?? null;
+  // DB fallback: only when the store has no model recorded for this session.
+  if (model === null && db) {
     const row = await getSessionByCcSessionId(db, id);
     model = modelFamilyLetter({ id: row?.model ?? undefined }) ?? null;
   }
@@ -127,7 +143,7 @@ export async function handleGetSessionContext(
     sessionId: id,
     usedPercentage: fresh.usedPercentage,
     contextWindowSize: fresh.contextWindowSize,
-    updatedAt: new Date(updatedAt).toISOString(),
+    updatedAt: new Date(entry.updatedAt).toISOString(),
     model,
   };
   return jsonResponse(body);
@@ -143,11 +159,13 @@ function _writeContextEntry(
   id: string,
   usedPercentage: number,
   contextWindowSize: number | null,
+  model?: { id?: string; display_name?: string },
 ): void {
   store.set(id, {
     usedPercentage,
     contextWindowSize,
     updatedAt: Date.now(),
+    model,
   });
 }
 
@@ -158,13 +176,18 @@ function _writeContextEntry(
  * `context-guard.ts` already writes reliably and applies them directly here,
  * no network round-trip needed). Writes via the same `_writeContextEntry`
  * `handlePatchSessionContext` uses, so both paths always agree on shape.
+ *
+ * `model` (optional 4th param, forward-statusline-model) is the raw model
+ * payload forwarded from the statusline-ctx snapshot; `handleGetSessionContext`
+ * prefers this over its `sessions.model` DB fallback when present.
  */
 export function applyStatuslineSnapshot(
   id: string,
   usedPercentage: number,
   contextWindowSize: number | null,
+  model?: { id?: string; display_name?: string },
 ): void {
-  _writeContextEntry(id, usedPercentage, contextWindowSize);
+  _writeContextEntry(id, usedPercentage, contextWindowSize, model);
 }
 
 /**
