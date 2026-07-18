@@ -491,16 +491,27 @@ export async function getSessionById(
 }
 
 /**
- * Get a single session row by its `cc_session_id` bridge column (universe 2 —
- * Claude Code's own raw hook session id), or null if no row has been bound to
- * it yet. Companion read to `updateSessionCcSessionId` above
- * (fix-cc-session-id-bridge, nx-22xz8).
+ * Get a single session row that represents a given Claude Code session id,
+ * matching EITHER of the two row shapes that can carry it:
  *
- * Callers that only have CC's raw session id in hand (e.g.
- * `handleGetSessionContext`, `context-guard.ts`, `cc-tmux`) MUST resolve via
- * this helper rather than `getSessionById`, which queries the primary key
- * (nx's own internal `sessions.id`, universe 1) — a different value for any
- * session created via the file-watcher or HTTP session-start paths.
+ *   1. Bridge-column row: the primary key `sessions.id` is nx's own internal
+ *      `cc-<pid>-<hash>` value (universe 1) and `sessions.cc_session_id` is the
+ *      bridge pointing at CC's raw hook session id (universe 2). Written by the
+ *      process-watcher path via `updateSessionCcSessionId` (fix-cc-session-id-
+ *      bridge, nx-22xz8). Matched on the `cc_session_id` column.
+ *   2. Direct-id row: the primary key `sessions.id` IS the real CC session UUID
+ *      (`CLAUDE_CODE_SESSION_ID` / `event.session_id`), set directly by the
+ *      session-manager socket handler when a `session_start` arrives with no
+ *      tmux-correlated row to update (dispatcher.ts "no pane correlation match"
+ *      fallback). Such a row's own `cc_session_id` column is null and stays null
+ *      — there is nothing to bridge, the id already IS the value. Matched on the
+ *      `id` column.
+ *
+ * Returns null if neither column on any row matches. Callers that only have
+ * CC's raw session id in hand (e.g. `handleGetSessionContext`, `statusline.ts`,
+ * `handlers-crud`, `cc-tmux`) MUST resolve via this helper rather than
+ * `getSessionById` (which only checks the primary key, missing shape 1) or a
+ * bare `cc_session_id` lookup (which only checks the bridge, missing shape 2).
  */
 export async function getSessionByCcSessionId(
   db: Db,
@@ -509,7 +520,7 @@ export async function getSessionByCcSessionId(
   const rows = await db
     .select()
     .from(sessions)
-    .where(eq(sessions.ccSessionId, ccSessionId))
+    .where(or(eq(sessions.id, ccSessionId), eq(sessions.ccSessionId, ccSessionId)))
     .limit(1);
   return rows[0] ?? null;
 }

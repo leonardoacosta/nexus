@@ -422,6 +422,22 @@ describe.skipIf(!hasPg)("session CRUD — remaining (requires live PG)", () => {
     expect(result).toBeNull();
   });
 
+  it("getSessionByCcSessionId resolves a direct-id row whose primary key IS the cc session id (ccSessionId null)", async () => {
+    // Shape 2: session-manager socket handler sets the primary key directly to
+    // the real CC session UUID, leaving the bridge column null. The lookup must
+    // match on `id` even though `cc_session_id` is null.
+    const ccUuid = "89997b65-4639-4522-cc-direct-id-row";
+    await insertSession(
+      db,
+      makeSessionRow({ id: ccUuid, ccSessionId: null }),
+    );
+
+    const fetched = await getSessionByCcSessionId(db, ccUuid);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.id).toBe(ccUuid);
+    expect(fetched!.ccSessionId).toBeNull();
+  });
+
   it("updateSessionCcSessionId no-ops on an empty string (no-clobber guard)", async () => {
     await insertSession(
       db,
