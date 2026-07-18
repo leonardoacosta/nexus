@@ -55,6 +55,34 @@ final class SessionDecodingTests: XCTestCase {
         XCTAssertFalse(s.hasCCFingerprint)
     }
 
+    // MARK: - Git working-tree status (mx-rkir.5)
+
+    /// The `gitDirty` / `gitAhead` / `gitBehind` per-session wire fields decode
+    /// to their values. Uses its own minimal JSON (NOT the shared drift-guard
+    /// fixture) since the backend half of mx-rkir.5 has not yet added these keys
+    /// to stub-agent SESSIONS_FIXTURE.
+    func testDecodesGitWorkingTreeStatus() throws {
+        let json = """
+        {"id": "git", "gitDirty": true, "gitAhead": 3, "gitBehind": 1}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(Session.self, from: json)
+        XCTAssertEqual(s.gitDirty, true)
+        XCTAssertEqual(s.gitAhead, 3)
+        XCTAssertEqual(s.gitBehind, 1)
+    }
+
+    /// Absent git-status keys decode to nil — the graceful default until the
+    /// backend emits them (the SessionRow git segment then renders nothing).
+    func testGitWorkingTreeStatusAbsentIsNil() throws {
+        let json = """
+        {"id": "nogit", "status": "active"}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(Session.self, from: json)
+        XCTAssertNil(s.gitDirty)
+        XCTAssertNil(s.gitAhead)
+        XCTAssertNil(s.gitBehind)
+    }
+
     // MARK: - Full wire-shape + aggregate envelope (spec task 2.1, bd:nx-3ltm0)
     //
     // Payload-drift guard. The JSON below is byte-identical to what the

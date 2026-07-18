@@ -84,14 +84,36 @@ struct SessionsArchetypeScene: View {
         rows.filter { SessionDisplayStatus.derive(from: $0).isEnded }
     }
 
+    /// Parent session ids that have at least one live (non-ended) child in the
+    /// current /sessions feed — the client-side parallel-agents signal
+    /// (mx-rkir.5). A row is a fan-out parent when another live session carries
+    /// `parentSessionId == this.id`. Scans the full `observer.sessions` (not the
+    /// CC-fingerprint-filtered `rows`) so a child that lacks a fingerprint still
+    /// counts toward its parent's fan-out state.
+    private var activeParentIds: Set<String> {
+        var ids = Set<String>()
+        for s in observer.sessions {
+            guard let parent = s.parentSessionId, !parent.isEmpty else { continue }
+            if !SessionDisplayStatus.derive(from: s).isEnded {
+                ids.insert(parent)
+            }
+        }
+        return ids
+    }
+
     // MARK: - Row
 
     private func row(_ session: Session) -> some View {
-        Button {
+        let hasActiveChildren = activeParentIds.contains(session.id)
+        return Button {
             handleTap(session)
         } label: {
-            SessionRow(session: session, projectName: repoTail(for: session))
-                .contentShape(Rectangle())
+            SessionRow(
+                session: session,
+                projectName: repoTail(for: session),
+                hasActiveChildren: hasActiveChildren
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("session-row-\(session.id)")
@@ -157,12 +179,19 @@ enum SessionDisplayStatus {
     /// Agent blocked awaiting input — needs me (blocking). Backed by
     /// `agentState == .waiting`.
     case waitingForMe
-    /// Parallel sub-agents fanned out (non-blocking). NO BACKING FIELD —
-    /// Session carries no sub-agent / parallel-fan-out signal, so this state
-    /// is never produced. Renders as the closest real state instead.
+    /// Parallel sub-agents fanned out (non-blocking). Derived CLIENT-SIDE
+    /// (mx-rkir.5): a session is a fan-out parent when another live session in
+    /// the same /sessions feed carries `parentSessionId == this.id`. No new
+    /// backend field is needed — `parentSessionId` already ships on the wire —
+    /// so this is computed from the sessions array and passed in as
+    /// `hasActiveChildren`.
     case parallelAgents
     /// Background monitor session (non-blocking). NO BACKING FIELD — Session
-    /// has no monitor classification, so this state is never produced.
+    /// has no monitor classification (`sessionType` is only ad_hoc/managed/
+    /// pooled), so this state is never produced. Lighting it up needs a
+    /// backend nexus-agent change: a product definition of a "monitor" session
+    /// plus a wire signal (e.g. a `sessionType == "monitor"` extension). Flagged
+    /// on mx-rkir.5 for a TypeScript-side follow-up.
     case monitor
     /// Session live but idle (alive, not ended) — agentState .ready, or active
     /// status with no blocking agentState.
@@ -173,16 +202,35 @@ enum SessionDisplayStatus {
     var isEnded: Bool { self == .stale }
 
     /// Best-effort mapping from the fields Session exposes. Precedence:
-    /// ended-ness wins, then the agent-activity axis (agentState), then the
-    /// lifecycle/liveness axis (status).
-    static func derive(from session: Session) -> SessionDisplayStatus {
+    ///   1. ended-ness wins (a dead session is never "running").
+    ///   2. `.waiting` (needs-my-input) — the most actionable state, wins over
+    ///      the background fan-out overlay.
+    ///   3. `hasActiveChildren` — a fan-out PARENT reads as `.parallelAgents`
+    ///      even when its own agentState is `.blocked` (SubagentStart marks the
+    ///      parent blocked while children run) or `.ready`; the salient fact is
+    ///      "sub-agents are running under this session".
+    ///   4. the remaining agent-activity axis (`.blocked` / `.ready`).
+    ///   5. the lifecycle/liveness axis (status) when there is no agentState.
+    ///
+    /// `hasActiveChildren` is computed by the caller from the sessions feed
+    /// (any live row whose `parentSessionId` == this session's id).
+    static func derive(
+        from session: Session,
+        hasActiveChildren: Bool = false
+    ) -> SessionDisplayStatus {
         let status = session.status.lowercased()
         if session.endedAt != nil || status == "ended" || status == "stale" {
             return .stale
         }
+        // Needs-my-input is the most actionable state — it wins even over the
+        // parallel-agents overlay.
+        if session.agentState == .waiting { return .waitingForMe }
+        // A fan-out parent surfaces as parallelAgents regardless of its own
+        // blocked/ready state.
+        if hasActiveChildren { return .parallelAgents }
         switch session.agentState {
         case .blocked: return .activelyRunning
-        case .waiting: return .waitingForMe
+        case .waiting: return .waitingForMe  // unreachable (handled above); kept exhaustive
         case .ready:   return .waitingReady
         case .none:
             // No agent-activity signal — fall back to the liveness axis.
@@ -222,9 +270,12 @@ extension SessionDisplayStatus: Equatable {}
 private struct SessionRow: View {
     let session: Session
     let projectName: String
+    /// Client-side parallel-agents signal (mx-rkir.5): this session has at least
+    /// one live child in the feed. Drives the `.parallelAgents` dot.
+    var hasActiveChildren: Bool = false
 
     private var display: SessionDisplayStatus {
-        SessionDisplayStatus.derive(from: session)
+        SessionDisplayStatus.derive(from: session, hasActiveChildren: hasActiveChildren)
     }
 
     var body: some View {
@@ -268,9 +319,41 @@ private struct SessionRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                gitStatusSegment
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Row 3 trailing git working-tree segment (mx-rkir.5): a dirty marker plus
+    /// ahead/behind commit distance, from the `gitDirty` / `gitAhead` /
+    /// `gitBehind` wire fields. Renders NOTHING when the fields are absent (nil
+    /// = the agent hasn't resolved this session's tree yet) or when the tree is
+    /// clean and in sync — "clean" reads as the absence of markers rather than
+    /// an explicit badge, to keep the row uncluttered. The `gitDirty` /
+    /// `gitAhead` / `gitBehind` keys are emitted by the nexus-agent backend
+    /// half of mx-rkir.5; until that ships these are always nil and this
+    /// segment is empty (graceful, no crash — decodeIfPresent).
+    @ViewBuilder
+    private var gitStatusSegment: some View {
+        if session.gitDirty == true {
+            Text("●")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .accessibilityLabel("uncommitted changes")
+        }
+        if let ahead = session.gitAhead, ahead > 0 {
+            Text("↑\(ahead)")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(ahead) ahead")
+        }
+        if let behind = session.gitBehind, behind > 0 {
+            Text("↓\(behind)")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(behind) behind")
+        }
     }
 
     /// Human session name for the subtitle (mx-rkir.7 FIX 3). `tmuxSession` is

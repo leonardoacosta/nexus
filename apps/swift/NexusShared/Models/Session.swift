@@ -88,6 +88,22 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     public var parentSessionId: String?
     public var childRole: String?
 
+    /// Working-tree git status for the session's `cwd`, populated by the
+    /// agent alongside the existing git-origin enrichment
+    /// (apps/agent/src/services/git-project-resolver.ts /
+    /// git-observer.ts `git status --porcelain=v2 --branch`). All three are
+    /// nil on legacy rows and on any row the agent hasn't yet resolved — the
+    /// SessionRow git-status segment renders only what is present.
+    ///
+    /// Wire contract (camelCase, per-session): `gitDirty` (working tree has
+    /// uncommitted/untracked changes), `gitAhead` / `gitBehind` (commit
+    /// distance vs upstream, from `# branch.ab +A -B`). Backend follow-up:
+    /// mx-rkir.5 backend half must emit these on `GET /sessions` and add them
+    /// to the shared stub-agent SESSIONS_FIXTURE so the drift guard covers them.
+    public var gitDirty: Bool?
+    public var gitAhead: Int?
+    public var gitBehind: Int?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case project
@@ -118,6 +134,9 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case credentialFingerprint
         case parentSessionId
         case childRole
+        case gitDirty
+        case gitAhead
+        case gitBehind
     }
 
     public init(from decoder: Decoder) throws {
@@ -162,6 +181,9 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.credentialFingerprint = try c.decodeIfPresent(String.self, forKey: .credentialFingerprint)
         self.parentSessionId       = try c.decodeIfPresent(String.self, forKey: .parentSessionId)
         self.childRole             = try c.decodeIfPresent(String.self, forKey: .childRole)
+        self.gitDirty              = try c.decodeIfPresent(Bool.self, forKey: .gitDirty)
+        self.gitAhead              = try c.decodeIfPresent(Int.self, forKey: .gitAhead)
+        self.gitBehind             = try c.decodeIfPresent(Int.self, forKey: .gitBehind)
     }
 
     public init(
@@ -192,7 +214,10 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         credentialId: String? = nil,
         credentialFingerprint: String? = nil,
         parentSessionId: String? = nil,
-        childRole: String? = nil
+        childRole: String? = nil,
+        gitDirty: Bool? = nil,
+        gitAhead: Int? = nil,
+        gitBehind: Int? = nil
     ) {
         self.id = id
         self.project = project
@@ -222,6 +247,9 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.credentialFingerprint = credentialFingerprint
         self.parentSessionId = parentSessionId
         self.childRole = childRole
+        self.gitDirty = gitDirty
+        self.gitAhead = gitAhead
+        self.gitBehind = gitBehind
     }
 
     /// Distinguish a real Claude Code session from telemetry-ping stubs.
