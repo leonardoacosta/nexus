@@ -189,4 +189,62 @@ describe("gatewayPostRelay", () => {
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({ error: "capture gateway unreachable" });
   });
+
+  it("attaches Authorization: Bearer <token> when MX_GATEWAY_TOKEN is set (mx-izvw.1)", async () => {
+    const prevToken = process.env.MX_GATEWAY_TOKEN;
+    process.env.MX_GATEWAY_TOKEN = "test-token-123";
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: unknown, init?: RequestInit) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    // Re-import the module fresh (cache-busted query string) so it re-reads
+    // process.env.MX_GATEWAY_TOKEN — the module caches the token in a
+    // top-level const at import time, and the top-of-file import above ran
+    // before this test set the env var.
+    const { gatewayPostRelay: freshGatewayPostRelay } = await import(
+      `./mx-gateway?t=${Date.now()}`
+    );
+
+    const res = await freshGatewayPostRelay({
+      path: "/capture",
+      route: "/capture",
+      body: "{}",
+      unreachableError: "capture gateway unreachable",
+    });
+
+    expect(res.status).toBe(200);
+    expect(capturedHeaders?.get("Authorization")).toBe("Bearer test-token-123");
+
+    if (prevToken === undefined) delete process.env.MX_GATEWAY_TOKEN;
+    else process.env.MX_GATEWAY_TOKEN = prevToken;
+  });
+
+  it("omits Authorization header when MX_GATEWAY_TOKEN is unset (fail-open forward)", async () => {
+    const prevToken = process.env.MX_GATEWAY_TOKEN;
+    delete process.env.MX_GATEWAY_TOKEN;
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: unknown, init?: RequestInit) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { gatewayPostRelay: freshGatewayPostRelay } = await import(
+      `./mx-gateway?t=${Date.now()}`
+    );
+
+    const res = await freshGatewayPostRelay({
+      path: "/capture",
+      route: "/capture",
+      body: "{}",
+      unreachableError: "capture gateway unreachable",
+    });
+
+    expect(res.status).toBe(200);
+    expect(capturedHeaders?.has("Authorization")).toBe(false);
+
+    if (prevToken === undefined) delete process.env.MX_GATEWAY_TOKEN;
+    else process.env.MX_GATEWAY_TOKEN = prevToken;
+  });
 });

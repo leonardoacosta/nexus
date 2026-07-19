@@ -22,6 +22,20 @@ import { logger } from "@nexus/core/node";
 const GATEWAY_URL = process.env.MX_GATEWAY_URL ?? "http://127.0.0.1:8799";
 
 /**
+ * Bearer token attached to write-route (POST/PATCH/etc) requests forwarded to
+ * mx-gateway (mx-izvw.1, companion to mesh's fix-gateway-writetoken-bypass /
+ * mx-pwwl). mx-gateway's MX_GATEWAY_TRUST_LOOPBACK now defaults off, so its
+ * write routes fail closed on a missing/invalid Authorization header even
+ * over loopback — this agent must supply it.
+ *
+ * Fail-open here is intentional: enforcement lives on the mx-gateway side
+ * (see gatewayPostRelay doc comment above). If unset, requests are still
+ * forwarded with no Authorization header and mx-gateway rejects them with
+ * its own 401 — never fabricated locally.
+ */
+const GATEWAY_TOKEN = process.env.MX_GATEWAY_TOKEN ?? "";
+
+/**
  * Bound every upstream fetch so a hung gateway can't stall a poll or POST.
  * Unified at 10s (plan-018 convention). /triage and /thread previously used
  * 12s — recorded decision in plan 029; bump HERE (one line) if their feeds
@@ -126,13 +140,20 @@ export async function gatewayPostRelay(
   try {
     const upstreamUrl = new URL(`${GATEWAY_URL}${path}`);
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    // Write routes require Bearer auth now that mx-gateway's loopback-trust
+    // bypass defaults off (mx-izvw.1). Omitted entirely when unset, rather
+    // than sent as "Bearer " — mx-gateway's own check is the source of truth
+    // for what an empty/missing token means.
+    if (GATEWAY_TOKEN) headers.Authorization = `Bearer ${GATEWAY_TOKEN}`;
+
     const upstream = await fetch(upstreamUrl, {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body,
     });
 
