@@ -104,18 +104,18 @@ import { buildVersionRoutes, type Route } from "./routes/version-builder";
 /**
  * Source-of-truth list of dispatch routes for /version capability reporting.
  *
- * MUST be kept in sync with the if/else dispatch chain in `handleRequest`
- * below. Adding a new route to the dispatcher? Add it here too.
+ * MUST stay in sync with the if/else dispatch chain in `handleRequestInner`
+ * below. Adding a new route to the dispatcher? Add it here too — the
+ * `server-request-handler-route-parity.test.ts` parity test fails loudly on
+ * any drift between this array and the live inline dispatch chain, so the sync
+ * is mechanically enforced rather than left to manual audits.
  *
- * This is a temporary contract until the legacy dispatcher is migrated to
- * the typed route table in routes.ts. The typed table in routes.ts is built
- * but NOT dispatched — the actual API surface comes from the if/else chain
- * in this file. See follow-up bead nx-* for the migration plan.
- *
- * Path-parameterised routes use `:id`-style placeholders to mirror how the
- * typed route table declares them. Where a route group is delegated to a
- * sub-dispatcher (e.g. /credentials/*, /specs/*), the concrete paths
- * served are listed here so the capabilities array reflects the real API.
+ * Path-parameterised routes use `:id`-style placeholders. Where a route group
+ * is delegated to a sub-dispatcher (e.g. /credentials/*, /specs/*), the
+ * concrete capability paths are listed here so the /version capabilities array
+ * reflects the real API surface. (The former typed `routes.ts` table this
+ * comment used to reference was deleted by `apply-4-findings`; the if/else
+ * chain in this file is now the sole dispatcher.)
  */
 const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   // Health
@@ -151,6 +151,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "GET", path: "/projects/:code/pulse" },
   // Notifications (the route that triggered this whole spec)
   { method: "POST", path: "/notifications/send" },
+  // APNs device-token registration (iOS health-push scheduler, Wave 2).
+  { method: "POST", path: "/apns/register" },
   { method: "GET", path: "/notifications" },
   { method: "GET", path: "/notifications/settings" },
   { method: "PATCH", path: "/notifications/settings" },
@@ -213,6 +215,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "POST", path: "/requests/:id/decision" },
   // Paste-to-project drop (add-paste-to-project)
   { method: "POST", path: "/paste" },
+  // Capture passthrough (add-capture-proxy — proxies the mx gateway).
+  { method: "POST", path: "/capture" },
   { method: "GET", path: "/triage" },
   { method: "GET", path: "/thread" },
   { method: "GET", path: "/failures" },
@@ -255,6 +259,46 @@ const versionRoute = buildVersionRoutes(
     handler: () => new Response(null, { status: 500 }),
   })),
 )[0]!;
+
+/**
+ * Per-route caught-error fail modes (mechanize-route-registry-parity, GOD-02).
+ * `dispatchRoute` replaces the 57 verbatim `.then(withCors).catch(...)` blocks
+ * that used to wrap every route. Each route passes its EXACT pre-refactor
+ * (status, body) pair — default 500, fail-loud 502, or a fail-soft 200 with a
+ * route-specific empty body — so the refactor changes only WHERE the wrapper
+ * lives, never what any route returns on success or failure. Full per-route
+ * enumeration: design.md ## Section: Fail-mode inventory.
+ */
+const FAIL_500 = { status: 500, body: JSON.stringify({ error: "internal error" }) };
+const FAIL_502 = { status: 502, body: JSON.stringify({ error: "internal error" }) };
+
+/**
+ * Await a route handler's promise, apply CORS to its response, and on a caught
+ * rejection log `{ route, method, err }` and return the route's fail-mode
+ * response (CORS-wrapped). `handled` is the already-invoked handler promise, so
+ * a synchronous throw at the call site propagates exactly as it did with the
+ * old inline `.then().catch()` form.
+ */
+async function dispatchRoute(
+  request: Request,
+  route: string,
+  method: string,
+  handled: Promise<Response>,
+  fail: { status: number; body: string } = FAIL_500,
+): Promise<Response> {
+  try {
+    return withCors(request, await handled);
+  } catch (err) {
+    logger.error({ route, method, err }, "route handler failed");
+    return withCors(
+      request,
+      new Response(fail.body, {
+        status: fail.status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }
+}
 
 /** Create the route dispatch handler, optionally backed by a database. */
 export function createRequestHandler(state: ServerState, db?: Db) {
@@ -394,42 +438,27 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     if (db) {
       // GET /sessions
       if (url.pathname === "/sessions" && request.method === "GET") {
-        return handleGetSessions(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/sessions", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/sessions", "GET", handleGetSessions(db, url));
       }
 
       // POST /sessions/probe — force a reconcile pass NOW (process-watcher)
       if (url.pathname === "/sessions/probe" && request.method === "POST") {
-        return handleSessionsProbe(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/sessions/probe", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/sessions/probe", "POST", handleSessionsProbe(db));
       }
 
       // GET /sessions/{id}
       const sessionMatch = url.pathname.match(/^\/sessions\/(.+)$/);
       if (sessionMatch && request.method === "GET") {
-        return handleGetSessionById(db, sessionMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/sessions/:id", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/sessions/:id", "GET", handleGetSessionById(db, sessionMatch[1]!));
       }
 
       // GET /projects
       if (url.pathname === "/projects" && request.method === "GET") {
-        return handleGetProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/projects", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/projects", "GET", handleGetProjects(db, url));
       }
 
       if (url.pathname === "/agent/self" && request.method === "GET") {
-        return handleGetAgentSelf(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/agent/self", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/agent/self", "GET", handleGetAgentSelf(db));
       }
 
       // GET /projects/:id/git-events[?days=<n>] — persisted git transition
@@ -449,52 +478,34 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // PATCH /projects/:id — update mutable project metadata (tags, description)
       const projectUpdateMatch = url.pathname.match(/^\/projects\/([^/]+)$/);
       if (projectUpdateMatch && request.method === "PATCH") {
-        return handleUpdateProject(db, projectUpdateMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/projects/:id", method: "PATCH", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/projects/:id", "PATCH", handleUpdateProject(db, projectUpdateMatch[1]!, request));
       }
 
       // POST /agents — upsert agent config (add or update)
       if (url.pathname === "/agents" && request.method === "POST") {
-        return handleSaveAgent(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/agents", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/agents", "POST", handleSaveAgent(db, request));
       }
 
       // DELETE /agents/:id — remove agent config
       const agentDeleteMatch = url.pathname.match(/^\/agents\/([^/]+)$/);
       if (agentDeleteMatch && request.method === "DELETE") {
-        return handleDeleteAgent(db, agentDeleteMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/agents/:id", method: "DELETE", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/agents/:id", "DELETE", handleDeleteAgent(db, agentDeleteMatch[1]!));
       }
 
       if (url.pathname === "/projects/discovered" && request.method === "GET") {
-        return handleGetDiscoveredProjects(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/projects/discovered", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/projects/discovered", "GET", handleGetDiscoveredProjects(db, url));
       }
 
       // GET /health/process-watcher — observability probe for the process
       // watcher tick loop (process-watcher-health-monitoring). Status 200
       // ALWAYS — the `healthy` boolean is the actionable signal.
       if (url.pathname === "/health/process-watcher" && request.method === "GET") {
-        return handleHealthProcessWatcher(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/health/process-watcher", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/health/process-watcher", "GET", handleHealthProcessWatcher(db));
       }
 
       // GET /health/history
       if (url.pathname === "/health/history" && request.method === "GET") {
-        return handleGetHealthHistory(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/health/history", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/health/history", "GET", handleGetHealthHistory(db, url));
       }
 
       // POST /health/ingest — accept a HealthMetrics JSON body from the Rust collector
@@ -504,19 +515,13 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Notification routes ──────────────────────────────────────────
       if (url.pathname === "/notifications/send" && request.method === "POST") {
-        return handleSendNotification(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/send", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/send", "POST", handleSendNotification(db, request));
       }
 
       // POST /apns/register — the Nexus iOS app registers its APNs device token
       // so the health-push scheduler can send silent flush pushes (Wave 2).
       if (url.pathname === "/apns/register" && request.method === "POST") {
-        return handleApnsRegister(request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/apns/register", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/apns/register", "POST", handleApnsRegister(request));
       }
 
       // GET /notifications — list canonical NotificationEvent rows for the
@@ -524,65 +529,41 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // `[]` on empty; never 404 (path matches; the empty-set case has its
       // own contract).
       if (url.pathname === "/notifications" && request.method === "GET") {
-        return handleListNotifications(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications", "GET", handleListNotifications(db));
       }
 
       if (url.pathname === "/notifications/settings" && request.method === "GET") {
-        return handleGetNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/settings", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/settings", "GET", handleGetNotificationSettings(db, request));
       }
 
       if (url.pathname === "/notifications/settings" && request.method === "PATCH") {
-        return handlePatchNotificationSettings(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/settings", method: "PATCH", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/settings", "PATCH", handlePatchNotificationSettings(db, request));
       }
 
       // ── context-aware-routing: presence ingest + routing-rule CRUD ─────
       if (url.pathname === "/presence/report" && request.method === "POST") {
-        return handlePresenceReport(request, db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/presence/report", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/presence/report", "POST", handlePresenceReport(request, db));
       }
 
       // GET /presence/fleet — dashboard fleet view (cross-machine-delivery,
       // Phase 1.6): fleet rows + resolved live-console + local machine name.
       if (url.pathname === "/presence/fleet" && request.method === "GET") {
-        return handleGetPresenceFleet(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/presence/fleet", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/presence/fleet", "GET", handleGetPresenceFleet(db));
       }
 
       // POST /notifications/deliver — receive a forwarded notification from a
       // peer agent (cross-machine-delivery, Phase 1.6). Secret-gated; renders
       // locally; NEVER re-forwards (loop guard inside the handler).
       if (url.pathname === "/notifications/deliver" && request.method === "POST") {
-        return handleNotificationDeliver(request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/deliver", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/deliver", "POST", handleNotificationDeliver(request));
       }
 
       if (url.pathname === "/notifications/routing-rules" && request.method === "GET") {
-        return handleGetRoutingRules(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/routing-rules", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/routing-rules", "GET", handleGetRoutingRules(db));
       }
 
       if (url.pathname === "/notifications/routing-rules" && request.method === "PUT") {
-        return handlePutRoutingRules(db, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/routing-rules", method: "PUT", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/routing-rules", "PUT", handlePutRoutingRules(db, request));
       }
 
       // ── notifications-overhaul: voice overrides + audio cache ──────
@@ -591,33 +572,21 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       // misrouted as `id = "voices"`. The audio route uses an explicit
       // `/audio` suffix match so collisions are impossible.
       if (url.pathname === "/notifications/voices" && request.method === "GET") {
-        return handleListVoices(db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/voices", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/voices", "GET", handleListVoices(db));
       }
 
       const voicePutMatch = url.pathname.match(/^\/notifications\/voices\/([^/]+)$/);
       if (voicePutMatch && request.method === "PUT") {
-        return handlePutVoice(db, voicePutMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/voices/:project", method: "PUT", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/voices/:project", "PUT", handlePutVoice(db, voicePutMatch[1]!, request));
       }
 
       if (voicePutMatch && request.method === "DELETE") {
-        return handleDeleteVoice(db, voicePutMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/voices/:project", method: "DELETE", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/voices/:project", "DELETE", handleDeleteVoice(db, voicePutMatch[1]!));
       }
 
       const audioMatch = url.pathname.match(/^\/notifications\/([^/]+)\/audio$/);
       if (audioMatch && request.method === "GET") {
-        return handleNotificationAudio(db, audioMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/notifications/:id/audio", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/notifications/:id/audio", "GET", handleNotificationAudio(db, audioMatch[1]!, request));
       }
 
       if (url.pathname === "/meeting/start" && request.method === "POST") {
@@ -625,10 +594,7 @@ export function createRequestHandler(state: ServerState, db?: Db) {
       }
 
       if (url.pathname === "/meeting/end" && request.method === "POST") {
-        return handleMeetingEnd().then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/meeting/end", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/meeting/end", "POST", handleMeetingEnd());
       }
 
       if (url.pathname === "/meeting/status" && request.method === "GET") {
@@ -653,75 +619,45 @@ export function createRequestHandler(state: ServerState, db?: Db) {
 
       // ── Analytics routes ──────────────────────────────────────────────
       if (url.pathname === "/analytics/health" && request.method === "GET") {
-        return handleAnalyticsHealth(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/health", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/health", "GET", handleAnalyticsHealth(db, url));
       }
 
       if (url.pathname === "/analytics/notifications" && request.method === "GET") {
-        return handleAnalyticsNotifications(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/notifications", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/notifications", "GET", handleAnalyticsNotifications(db, url));
       }
 
       if (url.pathname === "/analytics/notifications/summary" && request.method === "GET") {
-        return handleAnalyticsNotificationsSummary(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/notifications/summary", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/notifications/summary", "GET", handleAnalyticsNotificationsSummary(db, url));
       }
 
       if (url.pathname === "/analytics/specs" && request.method === "GET") {
-        return handleAnalyticsSpecs(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/specs", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/specs", "GET", handleAnalyticsSpecs(db, url));
       }
 
       if (url.pathname === "/analytics/credentials" && request.method === "GET") {
-        return handleAnalyticsCredentials(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/credentials", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/credentials", "GET", handleAnalyticsCredentials(db, url));
       }
 
       if (url.pathname === "/analytics/git" && request.method === "GET") {
-        return handleAnalyticsGit(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/git", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/git", "GET", handleAnalyticsGit(db, url));
       }
 
       if (url.pathname === "/analytics/lifecycle" && request.method === "GET") {
-        return handleAnalyticsLifecycle(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/lifecycle", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/lifecycle", "GET", handleAnalyticsLifecycle(db, url));
       }
 
       if (url.pathname === "/analytics/cron" && request.method === "GET") {
-        return handleAnalyticsCron(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/analytics/cron", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/analytics/cron", "GET", handleAnalyticsCron(db, url));
       }
 
       // ── Statusline & operational routes (require DB for session queries) ──
       if (url.pathname === "/statusline" && request.method === "GET") {
-        return handleStatusline(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/statusline", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/statusline", "GET", handleStatusline(db, url));
       }
 
       // ── Events routes (require DB) ────────────────────────────────────
       if (url.pathname === "/events" && request.method === "GET") {
-        return handleGetEvents(db, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/events", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/events", "GET", handleGetEvents(db, url));
       }
 
       // ── Session start (requires DB context) ───────────────────────────
@@ -737,51 +673,33 @@ export function createRequestHandler(state: ServerState, db?: Db) {
           url.pathname === "/sessions/start") &&
         request.method === "POST"
       ) {
-        return handleSessionStart(request, db).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: url.pathname, method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, url.pathname, "POST", handleSessionStart(request, db));
       }
 
       // ── Project detail routes (require DB for project resolution) ─────
       const projectStatusMatch = url.pathname.match(/^\/project\/([^/]+)\/status$/);
       if (projectStatusMatch && request.method === "GET") {
-        return handleProjectStatus(projectStatusMatch[1]!, url).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/project/:code/status", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/project/:code/status", "GET", handleProjectStatus(projectStatusMatch[1]!, url));
       }
 
       const projectBeadsMatch = url.pathname.match(/^\/project\/([^/]+)\/beads$/);
       if (projectBeadsMatch && request.method === "GET") {
-        return handleProjectBeads(projectBeadsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/project/:code/beads", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/project/:code/beads", "GET", handleProjectBeads(projectBeadsMatch[1]!));
       }
 
       const projectGitMatch = url.pathname.match(/^\/project\/([^/]+)\/git$/);
       if (projectGitMatch && request.method === "GET") {
-        return handleProjectGit(projectGitMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/project/:code/git", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/project/:code/git", "GET", handleProjectGit(projectGitMatch[1]!));
       }
 
       const projectSpecsMatch = url.pathname.match(/^\/project\/([^/]+)\/specs$/);
       if (projectSpecsMatch && request.method === "GET") {
-        return handleProjectSpecs(projectSpecsMatch[1]!).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/project/:code/specs", method: "GET", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/project/:code/specs", "GET", handleProjectSpecs(projectSpecsMatch[1]!));
       }
 
       const projectRunMatch = url.pathname.match(/^\/project\/([^/]+)\/run$/);
       if (projectRunMatch && request.method === "POST") {
-        return handleRunCommand(projectRunMatch[1]!, request).then((r) => withCors(request, r)).catch((err) => {
-          logger.error({ route: "/project/:code/run", method: "POST", err }, "route handler failed");
-          return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-        });
+        return dispatchRoute(request, "/project/:code/run", "POST", handleRunCommand(projectRunMatch[1]!, request));
       }
     }
 
@@ -810,53 +728,35 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // handlers (empty payload, never 500) — the catch here is defense in
     // depth for an unexpected throw.
     if (url.pathname === "/beads/unlinked" && request.method === "GET") {
-      return handleGetUnlinkedBeads(url, db).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/beads/unlinked", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response(JSON.stringify({ unlinked: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/beads/unlinked", "GET", handleGetUnlinkedBeads(url, db), { status: 200, body: JSON.stringify({ unlinked: [] }) });
     }
 
     if (url.pathname === "/roadmap" && request.method === "GET") {
-      return handleGetRoadmap(url, db).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/roadmap", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response(JSON.stringify({ capabilities: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/roadmap", "GET", handleGetRoadmap(url, db), { status: 200, body: JSON.stringify({ capabilities: [] }) });
     }
 
     // ── Fleet exceptions feed (add-fleet-exceptions-feed) ─────────────────
     // SWR-cached, fail-soft: the handler returns an empty array (never 500)
     // on any internal error; the catch here is defense in depth.
     if (url.pathname === "/exceptions" && request.method === "GET") {
-      return handleGetExceptions().then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/exceptions", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/exceptions", "GET", handleGetExceptions(), { status: 200, body: "[]" });
     }
 
     // ── Operational routes (no DB required) ──────────────────────────────
     if (url.pathname === "/environment" && request.method === "GET") {
-      return handleEnvironment().then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/environment", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/environment", "GET", handleEnvironment());
     }
 
     // ── Source Index passthrough (no DB; proxies the mx gateway :8799) ────
     if (url.pathname === "/sources" && request.method === "GET") {
-      return handleGetSources().then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/sources", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty index, not 500.
-        return withCors(request, new Response(JSON.stringify({ sources: [], inbox: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty index, not 500.
+      return dispatchRoute(request, "/sources", "GET", handleGetSources(), { status: 200, body: JSON.stringify({ sources: [], inbox: [] }) });
     }
 
     // ── Request-history passthrough (no DB; proxies the mx gateway :8799) ─
     if (url.pathname === "/requests" && request.method === "GET") {
-      return handleGetRequests(request).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/requests", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty history, not 500.
-        return withCors(request, new Response(JSON.stringify({ requests: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty history, not 500.
+      return dispatchRoute(request, "/requests", "GET", handleGetRequests(request), { status: 200, body: JSON.stringify({ requests: [] }) });
     }
 
     // ── Decision-queue passthrough (no DB; proxies the mx gateway :8799) ──
@@ -864,22 +764,16 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // handler (empty { items: [] }, never 500) — the catch here is defense in
     // depth for an unexpected throw.
     if (url.pathname === "/queue" && request.method === "GET") {
-      return handleGetQueue(request).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/queue", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty queue, not 500.
-        return withCors(request, new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty queue, not 500.
+      return dispatchRoute(request, "/queue", "GET", handleGetQueue(request), { status: 200, body: JSON.stringify({ items: [] }) });
     }
 
     // ── Decision-feed passthrough (no DB; proxies the mx gateway :8799) ───
     // Fail-soft inside the handler (empty `[]`, never 500) — the catch here is
     // defense in depth for an unexpected throw. mx /decisions is a bare ARRAY.
     if (url.pathname === "/decisions" && request.method === "GET") {
-      return handleGetDecisions(request).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/decisions", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty array, not 500.
-        return withCors(request, new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty array, not 500.
+      return dispatchRoute(request, "/decisions", "GET", handleGetDecisions(request), { status: 200, body: JSON.stringify([]) });
     }
 
     // ── Decision passthrough (no DB; proxies the mx gateway :8799) ────────
@@ -889,11 +783,8 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // collision with the request-history route above.
     const decisionMatch = url.pathname.match(/^\/requests\/([^/]+)\/decision$/);
     if (decisionMatch && request.method === "POST") {
-      return handlePostDecision(request).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/requests/:id/decision", method: "POST", err }, "route handler failed");
-        // A dropped decision must surface loudly — 502, never an empty 200.
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
-      });
+      // A dropped decision must surface loudly — 502, never an empty 200.
+      return dispatchRoute(request, "/requests/:id/decision", "POST", handlePostDecision(request), FAIL_502);
     }
 
     // ── Capture passthrough (no DB; proxies the mx gateway :8799) ─────────
@@ -903,11 +794,8 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // after the origin defense-in-depth block, so a disallowed browser origin
     // is already rejected with 403 before reaching here.
     if (url.pathname === "/capture" && request.method === "POST") {
-      return handlePostCapture(request).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/capture", method: "POST", err }, "route handler failed");
-        // A dropped capture must surface loudly — 502, never a fabricated 200.
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
-      });
+      // A dropped capture must surface loudly — 502, never a fabricated 200.
+      return dispatchRoute(request, "/capture", "POST", handlePostCapture(request), FAIL_502);
     }
 
     // ── Paste-to-project drop (add-paste-to-project) ──────────────────────
@@ -919,44 +807,29 @@ export function createRequestHandler(state: ServerState, db?: Db) {
     // forwarded for project-id resolution; project-code resolution via the
     // config-loader works without it.
     if (url.pathname === "/paste" && request.method === "POST") {
-      return handlePostPaste(request, db).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/paste", method: "POST", err }, "route handler failed");
-        // A dropped paste must surface loudly — 502, never a fabricated 200.
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 502, headers: { "Content-Type": "application/json" } }));
-      });
+      // A dropped paste must surface loudly — 502, never a fabricated 200.
+      return dispatchRoute(request, "/paste", "POST", handlePostPaste(request, db), FAIL_502);
     }
 
     // ── Triage feed passthrough (no DB; proxies the mx gateway :8799) ─────
     if (url.pathname === "/triage" && request.method === "GET") {
-      return handleGetTriage(url).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/triage", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty feed, not 500.
-        return withCors(request, new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty feed, not 500.
+      return dispatchRoute(request, "/triage", "GET", handleGetTriage(url), { status: 200, body: "[]" });
     }
 
     // ── Thread passthrough (no DB; proxies the mx gateway :8799) ──────────
     // On-demand conversation history for a single comms item (mx-rkir.1).
     if (url.pathname === "/thread" && request.method === "GET") {
-      return handleGetThread(url).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/thread", method: "GET", err }, "route handler failed");
-        // Fail-soft even on an unexpected throw: empty thread, not 500.
-        return withCors(request, new Response('{"messages":[]}', { status: 200, headers: { "Content-Type": "application/json" } }));
-      });
+      // Fail-soft even on an unexpected throw: empty thread, not 500.
+      return dispatchRoute(request, "/thread", "GET", handleGetThread(url), { status: 200, body: '{"messages":[]}' });
     }
 
     if (url.pathname === "/failures" && request.method === "GET") {
-      return handleFailures(url).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/failures", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/failures", "GET", handleFailures(url));
     }
 
     if (url.pathname === "/cron" && request.method === "GET") {
-      return handleCron(db).then((r) => withCors(request, r)).catch((err) => {
-        logger.error({ route: "/cron", method: "GET", err }, "route handler failed");
-        return withCors(request, new Response(JSON.stringify({ error: "internal error" }), { status: 500, headers: { "Content-Type": "application/json" } }));
-      });
+      return dispatchRoute(request, "/cron", "GET", handleCron(db));
     }
 
     // ── SSE stream ──────────────────────────────────────────────────────
