@@ -23,9 +23,6 @@
 import SwiftUI
 import NexusShared
 import os
-#if canImport(UIKit)
-import UIKit
-#endif
 
 private let attachLog = Logger(subsystem: "dev.priceless.nexus", category: "AttachSceneIOS")
 
@@ -213,17 +210,17 @@ struct AttachScene: View {
         nxptyLog.notice("NXPTY attach.render branch=\(branch, privacy: .public) sid=\(match.id, privacy: .public) resolved=true tmux=\(match.tmuxTarget ?? "nil", privacy: .public) sessionType=\(match.sessionType ?? "nil", privacy: .public)")
     }
 
-    /// Dismiss the on-screen keyboard by resigning whatever is first responder
-    /// (the terminal view). Ungated — AttachScene can't reference the
-    /// SwiftTerm-gated coordinator's `terminal`, so we use the standard
-    /// responder-chain dismiss instead of a bridge closure. Fires
-    /// keyboardWillHide, which zeroes `keyboardOverlap` and hides the button.
+    /// Dismiss the on-screen keyboard by resigning first responder on the LIVE
+    /// terminal view, routed through the AttachTeardown bridge (TerminalHostView
+    /// wires `teardown.dismissKeyboard` to the coordinator's `dismissKeyboard()`
+    /// in `makeUIView`). This replaces the previous
+    /// `UIApplication.shared.sendAction(#selector(resignFirstResponder), to: nil)`
+    /// responder-chain trick, which rendered the button but never actually
+    /// resigned the terminal on-device (keyboard-aware-terminal-resize-ios
+    /// follow-up). Resigning fires keyboardWillHide -> keyboardOverlap = 0, which
+    /// hides this button; tapping the terminal re-focuses (handleFocusTap).
     private func dismissKeyboard() {
-        #if canImport(UIKit)
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
-        )
-        #endif
+        teardown.dismissKeyboard()
     }
 
     @ViewBuilder
@@ -248,12 +245,16 @@ enum AttachStatus: Equatable {
     case failed(String)
 }
 
-/// Ungated teardown handle bridging AttachScene (ungated) to the SwiftTerm-gated
-/// coordinator's `disconnect()`. AttachScene owns one via `@State`; TerminalHostView
-/// sets `disconnect` to the coordinator's teardown in `makeUIView`; AttachScene
-/// fires it from `.onDisappear` on back-pop (nx-km2um). Main-actor isolated so the
-/// stored closure needs no extra `Sendable`/isolation annotation.
+/// Ungated bridge handle from AttachScene (ungated) to the SwiftTerm-gated
+/// coordinator. AttachScene owns one via `@State`; TerminalHostView points each
+/// closure at the coordinator in `makeUIView`. `disconnect` is fired from
+/// `.onDisappear` on back-pop (nx-km2um); `dismissKeyboard` is fired from the
+/// nav-bar dismiss button (keyboard-aware-terminal-resize-ios follow-up) — the
+/// SAME bridge shape, because AttachScene cannot reference the coordinator's
+/// SwiftTerm-typed members directly. Main-actor isolated so the stored closures
+/// need no extra `Sendable`/isolation annotation.
 @MainActor
 final class AttachTeardown {
     var disconnect: () -> Void = {}
+    var dismissKeyboard: () -> Void = {}
 }

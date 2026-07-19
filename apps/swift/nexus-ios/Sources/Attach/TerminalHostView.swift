@@ -183,6 +183,15 @@ struct TerminalHostView: UIViewRepresentable {
             coordinator?.disconnect()
         }
 
+        // keyboard-aware-terminal-resize-ios follow-up: wire the nav-bar dismiss
+        // button to the coordinator's dismissKeyboard() — resigns first responder
+        // on the LIVE terminal view. SAME ungated->gated bridge as disconnect
+        // above; replaces AttachScene's old sendAction(nil) responder-chain trick,
+        // which never reached the terminal on-device.
+        teardown.dismissKeyboard = { [weak coordinator = context.coordinator] in
+            coordinator?.dismissKeyboard()
+        }
+
         let b = view.bounds
         ptyHostLog.debug("nx-rkir6 makeUIView bounds=\(b.width, privacy: .public)x\(b.height, privacy: .public) grid=\(view.getTerminal().cols, privacy: .public)x\(view.getTerminal().rows, privacy: .public)")
 

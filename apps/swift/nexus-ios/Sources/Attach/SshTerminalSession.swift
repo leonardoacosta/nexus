@@ -352,6 +352,16 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         _ = terminal?.becomeFirstResponder()
     }
 
+    /// Resign first responder on the LIVE terminal view (keyboard-aware-terminal-
+    /// resize-ios follow-up). `terminal` is `private`, so AttachScene's ungated
+    /// toolbar button can't reach it directly; it routes here through the
+    /// AttachTeardown bridge instead of the responder-chain `sendAction(nil)`
+    /// trick, which never resigned the terminal on-device. Resigning fires
+    /// keyboardWillHide -> keyboardOverlap = 0, which hides the dismiss button.
+    func dismissKeyboard() {
+        _ = terminal?.resignFirstResponder()
+    }
+
     // MARK: - Keyboard-aware resize (nx-eqpvh)
 
     /// Keyboard about to show: publish the overlap height so AttachScene can
