@@ -67,6 +67,24 @@ final class PhoneTerminalView: SwiftTerm.TerminalView {
         nxptyLog.notice("NXPTY layout bounds=\(Int(b.width), privacy: .public)x\(Int(b.height), privacy: .public) cell=\(String(format: "%.1f", cellW), privacy: .public)x\(String(format: "%.1f", cellH), privacy: .public) computedGrid=\(cols, privacy: .public)x\(rows, privacy: .public)")
         onSettledLayout?(cols, rows, b)
     }
+
+    // SWIPE-TO-PAGE (swipe-to-page-terminal-ios): touch-native equivalent of the
+    // accessory bar's pgup/pgdn buttons. `pageUp()`/`pageDown()` are public on the
+    // SwiftTerm `TerminalView` superclass and ALREADY alt-screen-aware — they send
+    // the PgUp/PgDn escape sequence to the remote app in alt-screen mode, or scroll
+    // the local buffer directly otherwise. These `@objc` wrappers exist because the
+    // SwiftTerm methods aren't `@objc`-exposed and so can't be gesture selectors
+    // directly; they add no logic beyond forwarding. Hosted on the view (not the
+    // coordinator) so no `SshTerminalSession.swift` change is needed.
+    // Direction: swipe DOWN reveals older content (pageUp), swipe UP reveals newer
+    // content (pageDown) — content-follows-finger.
+    @objc func handleSwipeDown(_ recognizer: UISwipeGestureRecognizer) {
+        pageUp()
+    }
+
+    @objc func handleSwipeUp(_ recognizer: UISwipeGestureRecognizer) {
+        pageDown()
+    }
 }
 
 struct TerminalHostView: UIViewRepresentable {
@@ -131,6 +149,31 @@ struct TerminalHostView: UIViewRepresentable {
         )
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
+
+        // SWIPE-TO-PAGE (swipe-to-page-terminal-ios): two swipe recognizers calling
+        // the view's own `pageUp()`/`pageDown()` (public on SwiftTerm's TerminalView,
+        // alt-screen-aware — see PhoneTerminalView.handleSwipe* wrappers). Targets the
+        // view, not the coordinator, so no SshTerminalSession change. Swipe DOWN =
+        // pageUp (older content), swipe UP = pageDown (newer content). Swipe and the
+        // existing tap recognize different gesture shapes, so they coexist by default
+        // in UIKit with no UIGestureRecognizerDelegate simultaneous-recognition tuning
+        // (nx-685zl). `cancelsTouchesInView = false` mirrors the tap so keystroke
+        // touches still reach SwiftTerm.
+        let swipeDown = UISwipeGestureRecognizer(
+            target: view,
+            action: #selector(PhoneTerminalView.handleSwipeDown(_:))
+        )
+        swipeDown.direction = .down
+        swipeDown.cancelsTouchesInView = false
+        view.addGestureRecognizer(swipeDown)
+
+        let swipeUp = UISwipeGestureRecognizer(
+            target: view,
+            action: #selector(PhoneTerminalView.handleSwipeUp(_:))
+        )
+        swipeUp.direction = .up
+        swipeUp.cancelsTouchesInView = false
+        view.addGestureRecognizer(swipeUp)
 
         // KEYBOARD-AWARE RESIZE (nx-eqpvh): observe keyboard show/hide so the
         // coordinator can publish the overlap height. AttachScene consumes it to
