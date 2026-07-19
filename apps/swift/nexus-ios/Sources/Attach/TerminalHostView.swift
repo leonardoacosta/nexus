@@ -87,6 +87,32 @@ struct TerminalHostView: UIViewRepresentable {
     func makeUIView(context: Context) -> PhoneTerminalView {
         let view = PhoneTerminalView()
         view.terminalDelegate = context.coordinator
+
+        // RENDER FIX (nx-ywqig.1): defeat the double-exposure garble where every
+        // terminal frame stacks on top of the prior one instead of replacing it.
+        //
+        // ROOT CAUSE: SwiftTerm's iOS `setupOptions()` sets
+        // `nativeBackgroundColor = UIColor.clear` (after stashing the real bg on
+        // `layer.backgroundColor`). Its `draw(_:)` then "erases" each frame with
+        // `nativeBackgroundColor.set(); context.fill([dirtyRect])` — i.e. it fills
+        // the dirty rect with TRANSPARENT and leans entirely on two fragile
+        // things to cover the previous frame: the opaque `layer.backgroundColor`
+        // backdrop AND UIKit clearing the backing store before `draw`. Inside this
+        // scroll-locked, full-bleed (`ignoresSafeArea`) SwiftUI host that
+        // transparent-erase path does NOT reliably cover the prior frame, so
+        // successive redraws composite → the multiple-exposure smear.
+        //
+        // macOS never hits this: its `nativeBackgroundColor` stays OPAQUE
+        // (`NSColor.textBackgroundColor`), so every `draw` fills the dirty rect
+        // with a solid colour and fully erases the last frame. Mirror that here —
+        // restore an OPAQUE `nativeBackgroundColor` (the exact colour
+        // `setupOptions` already put on the layer backdrop) so `draw`'s
+        // `context.fill([dirtyRect])` performs a real opaque erase before glyphs
+        // are drawn. `updateDisplay` invalidates the full `bounds` each frame, so
+        // the opaque fill wipes the whole visible pane every redraw.
+        if let backdrop = view.layer.backgroundColor {
+            view.nativeBackgroundColor = UIColor(cgColor: backdrop)
+        }
         // FIX A (mx-rkir.6): without first-responder the system keyboard +
         // SwiftTerm's built-in TerminalAccessory (esc/ctrl/tab/arrows/~|/-)
         // never appear, so you can't type. SwiftTerm routes every keystroke
