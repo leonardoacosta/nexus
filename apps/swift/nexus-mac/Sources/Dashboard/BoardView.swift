@@ -159,7 +159,7 @@ struct BoardView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
+                        ForEach(model.visibleItems) { item in
                             BoardRow(
                                 item: item,
                                 showProjectTag: model.selectedProject == nil,
@@ -172,15 +172,17 @@ struct BoardView: View {
                                 insertion: .opacity.combined(with: .move(edge: .top)),
                                 removal: .opacity
                             ))
-                            .animation(
-                                .spring(response: 0.35, dampingFraction: 0.85)
-                                    .delay(Double(min(index, 12)) * 0.025),
-                                value: model.visibleItems
-                            )
                         }
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
+                    // Single container-level animation keyed to the memoized
+                    // array: one Equatable comparison per change instead of the
+                    // former per-row O(rows x arraySize) whole-array compare.
+                    .animation(
+                        .spring(response: 0.35, dampingFraction: 0.85),
+                        value: model.visibleItems
+                    )
                 }
             }
         }
