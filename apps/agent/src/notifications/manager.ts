@@ -17,7 +17,6 @@ import {
 import type { NotificationRow } from "./buffer";
 import { MeetingState } from "./meeting-state";
 import {
-  routeNotification,
   findMatchingRule,
   routeNotificationParallel,
   decidePresenceRoute,

@@ -316,53 +316,6 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
     warnLogMock.mockReset();
   });
 
-  it("routeNotification skips an unregistered channel with NO delivery and NO throw", async () => {
-    const { setRoutingRules, routeNotification } = await import("./router");
-
-    setRoutingRules([
-      {
-        project: "missing-1",
-        channels: ["slack" as never], // removed channel — no handler
-        meeting_behavior: "allow",
-      },
-    ]);
-
-    const notif = makeNotification({ project: "missing-1", id: "missing-1-notif" });
-
-    let threw = false;
-    let results: Array<{ channel: string; success: boolean }> = [];
-    try {
-      results = (await routeNotification(notif as never)) as Array<{
-        channel: string;
-        success: boolean;
-      }>;
-    } catch {
-      threw = true;
-    }
-
-    // Mock-independent contract: no delivery attempted, but it did NOT crash
-    // the route — the unknown channel is filtered, not fatal.
-    expect(threw).toBe(false);
-    expect(results).toHaveLength(0);
-
-    // Surfacing side-effect (only when our logger mock is the bound instance):
-    // log.error fires with the constructed Error naming the channel + notif
-    // id. A warn log alone never surfaces as its own alert-worthy event, so
-    // the fix ALSO calls log.error — that's the regression this asserts.
-    if (loggerMockWired()) {
-      const msgs = errorLogMock.mock.calls
-        .map((c) => (c[0] as { err?: Error })?.err)
-        .filter((err): err is Error => err instanceof Error)
-        .map((err) => err.message);
-      expect(msgs.some((m) => /slack/.test(m) && /missing-1-notif/.test(m))).toBe(
-        true,
-      );
-      const warnFields = warnLogMock.mock.calls[0]?.[0] as {
-        channel?: string;
-      };
-      expect(warnFields?.channel).toBe("slack");
-    }
-  });
 
   it("routeNotificationParallel filters a missing handler — 0 delivered, 0 failed, no throw", async () => {
     const { setRoutingRules, routeNotificationParallel } = await import("./router");
@@ -406,21 +359,19 @@ describe("regression 1.4 — missing channel handler is surfaced", () => {
 
   it("a registered channel is delivered and NEVER surfaced as missing", async () => {
     errorLogMock.mockReset();
-    const { setRoutingRules, routeNotification } = await import("./router");
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
     setRoutingRules([
       { project: "ok-chan", channels: ["desktop"], meeting_behavior: "allow" },
     ]);
 
     const notif = makeNotification({ project: "ok-chan", id: "ok-chan-notif" });
-    const results = (await routeNotification(notif as never)) as Array<{
-      channel: string;
-      success: boolean;
-    }>;
+    const { delivered, failed } = await routeNotificationParallel(notif as never);
 
     // desktop has a handler -> delivered, never surfaced as missing.
-    expect(results).toHaveLength(1);
-    expect(results[0]!.channel).toBe("desktop");
+    expect(failed).toHaveLength(0);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.channel).toBe("desktop");
 
     // No "no handler" log.error for a channel that HAS a handler.
     const msgs = errorLogMock.mock.calls

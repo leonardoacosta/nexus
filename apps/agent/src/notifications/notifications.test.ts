@@ -8,7 +8,7 @@
 
 import { describe, expect, it, beforeEach } from "bun:test";
 import { MeetingState } from "./meeting-state";
-import { findMatchingRule, setRoutingRules, routeNotification } from "./router";
+import { findMatchingRule, setRoutingRules, routeNotificationParallel } from "./router";
 
 /** Helper to build a notification-like object for routing tests. */
 function makeNotification(overrides: Record<string, unknown> = {}) {
@@ -169,10 +169,12 @@ describe("project-aware routing", () => {
       ]);
 
       const notif = makeNotification({ project: "co" });
-      const results = await routeNotification(notif as never);
-      expect(results).toHaveLength(2);
-      expect(results.every((r) => r.success)).toBe(true);
-      expect(results.map((r) => r.channel)).toEqual(["desktop", "tts"]);
+      const { delivered, failed } = await routeNotificationParallel(notif as never);
+      // Both channels succeed (desktop signal-only; tts degrades to signal-only
+      // with no ELEVENLABS_API_KEY) → both delivered, none failed.
+      expect(failed).toHaveLength(0);
+      expect(delivered).toHaveLength(2);
+      expect(delivered.map((d) => d.channel)).toEqual(["desktop", "tts"]);
     } finally {
       if (originalKey !== undefined) process.env.ELEVENLABS_API_KEY = originalKey;
     }

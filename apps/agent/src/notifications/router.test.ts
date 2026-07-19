@@ -152,7 +152,7 @@ describe("router: all-unknown presence vector falls back to legacy", () => {
 
 // ─── Task 2.3: slow handler → timeout fires + captureException called ────────
 //
-// Tests the withChannelTimeout behaviour via the exported routeNotification.
+// Tests the withChannelTimeout behaviour via the exported routeNotificationParallel.
 // The module-level NOTIFICATION_TIMEOUT_MS constant is read at module load
 // time from NEXUS_NOTIFICATION_TIMEOUT_MS. We set a short value here so that
 // when this test file is loaded FIRST in the suite (alphabetically after
@@ -174,7 +174,7 @@ describe("router: slow handler timeout (task 2.3)", () => {
     process.env.NEXUS_NOTIFICATION_TIMEOUT_MS = "200";
 
     try {
-      const { setRoutingRules, routeNotification } = await import("./router");
+      const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
       // Use an inline channel mock by routing to an unregistered channel,
       // then fall back to a patched desktop handler via the channel mock.
@@ -198,12 +198,12 @@ describe("router: slow handler timeout (task 2.3)", () => {
 
       let rejectedError: Error | undefined;
 
-      // We race the routeNotification call against a 12s external ceiling.
+      // We race the routeNotificationParallel call against a 12s external ceiling.
       // The router's own timeout fires at NOTIFICATION_TIMEOUT_MS (200ms if
       // loaded by this file, 10_000ms otherwise). Either way, the rejection
       // confirms the timeout path exists and fires.
       await Promise.race([
-        routeNotification(notif as never).then(
+        routeNotificationParallel(notif as never).then(
           () => {}, // success — handler resolved before timeout
           (err) => { rejectedError = err as Error; },
         ),
@@ -240,7 +240,7 @@ describe("router: slow handler timeout (task 2.3)", () => {
     process.env.NEXUS_NOTIFICATION_TIMEOUT_MS = "200";
 
     try {
-      const { setRoutingRules, routeNotification } = await import("./router");
+      const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
       // Route to desktop so the in-file mock (never-resolving) takes effect
       // if this file loaded the module first. If notifications.test.ts loaded
@@ -250,7 +250,7 @@ describe("router: slow handler timeout (task 2.3)", () => {
 
       try {
         await Promise.race([
-          routeNotification(notif as never),
+          routeNotificationParallel(notif as never),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error("test-external-timeout")), 12_000),
           ),
@@ -294,7 +294,7 @@ describe("router: unknown channel (task 2.4)", () => {
   });
 
   it("does not throw when channel has no registered handler", async () => {
-    const { setRoutingRules, routeNotification } = await import("./router");
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
     setRoutingRules([
       { project: "unk-proj-1", channels: ["completely-unknown-channel" as never], meeting_behavior: "allow" },
@@ -304,7 +304,7 @@ describe("router: unknown channel (task 2.4)", () => {
 
     let threw = false;
     try {
-      await routeNotification(notif as never);
+      await routeNotificationParallel(notif as never);
     } catch {
       threw = true;
     }
@@ -312,17 +312,18 @@ describe("router: unknown channel (task 2.4)", () => {
   });
 
   it("returns empty results array for unknown channel (no delivery attempted)", async () => {
-    const { setRoutingRules, routeNotification } = await import("./router");
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
     setRoutingRules([
       { project: "unk-proj-2", channels: ["completely-unknown-channel" as never], meeting_behavior: "allow" },
     ]);
 
     const notif = makeNotification({ project: "unk-proj-2", id: "unk-notif-2" });
-    const results = await routeNotification(notif as never);
+    const { delivered, failed } = await routeNotificationParallel(notif as never);
 
-    // Unknown channels are skipped — nothing is pushed to results
-    expect(results).toHaveLength(0);
+    // Unknown channels are skipped — nothing is delivered or failed
+    expect(delivered).toHaveLength(0);
+    expect(failed).toHaveLength(0);
   });
 
   it("log.warn + log.error are called when running in isolation (logger mock active)", async () => {
@@ -333,14 +334,14 @@ describe("router: unknown channel (task 2.4)", () => {
 
     warnLogMock.mockReset();
     errorLogMock.mockReset();
-    const { setRoutingRules, routeNotification } = await import("./router");
+    const { setRoutingRules, routeNotificationParallel } = await import("./router");
 
     setRoutingRules([
       { project: "bc-proj-1", channels: ["completely-unknown-channel" as never], meeting_behavior: "allow" },
     ]);
 
     const notif = makeNotification({ project: "bc-proj-1", id: "bc-notif-1" });
-    await routeNotification(notif as never);
+    await routeNotificationParallel(notif as never);
 
     // In isolation: mocks fire. In full suite: mocks may not be wired.
     // Verify that either a mock was called OR the return value is empty
@@ -402,25 +403,6 @@ describe("router: TTS suppression for unspeakable bodies", () => {
     expect(failed).toHaveLength(0);
   });
 
-  it("strips TTS from a 'ghosty' body — routeNotification returns 0 results", async () => {
-    const { setRoutingRules, routeNotification } = await import("./router");
-
-    setRoutingRules([
-      { project: "tts-supp-2", channels: ["tts"], meeting_behavior: "allow" },
-    ]);
-
-    const notif = makeNotification({
-      project: "tts-supp-2",
-      id: "tts-supp-notif-2",
-      channel: "tts",
-      body: "ghosty stopped responding",
-    });
-
-    const results = await routeNotification(notif as never);
-
-    // TTS stripped → no channels routed
-    expect(results).toHaveLength(0);
-  });
 
   it("normal 'build done' body still routes to TTS — routeNotificationParallel", async () => {
     const { setRoutingRules, routeNotificationParallel } = await import("./router");
@@ -446,47 +428,6 @@ describe("router: TTS suppression for unspeakable bodies", () => {
     expect(attempted).toContain("tts");
   });
 
-  it("normal 'build done' body still routes to TTS — routeNotification", async () => {
-    const { setRoutingRules, routeNotification } = await import("./router");
-
-    setRoutingRules([
-      { project: "tts-ok-2", channels: ["tts"], meeting_behavior: "allow" },
-    ]);
-
-    const notif = makeNotification({
-      project: "tts-ok-2",
-      id: "tts-ok-notif-2",
-      channel: "tts",
-      body: "build done",
-    });
-
-    // The contract under test is "TTS was NOT stripped" — i.e. the router
-    // attempted to invoke the tts handler. The serial routeNotification
-    // re-throws timeout errors (unlike the parallel variant). Either outcome
-    // — a result for "tts" or a timeout error mentioning "tts" — proves the
-    // channel was attempted.
-    let results: Array<{ channel: string; success: boolean }> | undefined;
-    let thrownErr: Error | undefined;
-    try {
-      results = (await routeNotification(notif as never)) as Array<{
-        channel: string;
-        success: boolean;
-      }>;
-    } catch (err) {
-      thrownErr = err as Error;
-    }
-
-    if (results !== undefined) {
-      // Handler resolved — must have routed to tts (not stripped).
-      expect(results).toHaveLength(1);
-      expect(results[0]!.channel).toBe("tts");
-    } else {
-      // Handler timed out — the router still tried to call it, so TTS was
-      // NOT suppressed. Verify the error names the tts channel.
-      expect(thrownErr).toBeDefined();
-      expect(thrownErr!.message).toContain("tts");
-    }
-  });
 });
 
 // ─── ElevenLabs round-trip (analytics-query-and-tts-synthesis) ───────────────
