@@ -1,0 +1,106 @@
+{
+  "generated_at": "2026-07-19T12:15:04-05:00",
+  "generated_by": "audit:waves",
+  "project": "nx",
+  "git_sha": "b3fbd39f",
+  "findings_source": "context",
+  "spec_names": [
+    "async-agent-hot-path-reads",
+    "mechanize-route-registry-parity",
+    "extract-notification-channels",
+    "migrate-timestamps-to-timestamptz"
+  ],
+  "specs": [
+    {
+      "name": "async-agent-hot-path-reads",
+      "wave": 1,
+      "priority": "P2",
+      "beads_covered": [],
+      "conflicts_with": [],
+      "file_paths": [
+        "apps/agent/src/services/context-usage-collector.ts",
+        "apps/agent/src/services/context-usage-collector.test.ts",
+        "apps/agent/src/services/process-hook-event.ts",
+        "apps/agent/src/services/bead-rollup.ts",
+        "apps/agent/src/services/bead-rollup.test.ts",
+        "apps/agent/src/routes/specs.ts",
+        "routes/specs.ts",
+        "docs/audit/false-positives.md"
+      ]
+    },
+    {
+      "name": "extract-notification-channels",
+      "wave": 1,
+      "priority": "P2",
+      "beads_covered": [],
+      "conflicts_with": [],
+      "file_paths": [
+        "apps/agent/src/notifications/channels/tts.ts",
+        "apps/agent/src/notifications/channels/telegram.ts",
+        "channels/tts.ts",
+        "apps/agent/src/notifications/router.ts",
+        "apps/agent/src/notifications/manager.ts",
+        "channels/telegram.ts",
+        "apps/agent/src/notifications/*.test.ts"
+      ]
+    },
+    {
+      "name": "mechanize-route-registry-parity",
+      "wave": 1,
+      "priority": "P2",
+      "beads_covered": [],
+      "conflicts_with": [],
+      "file_paths": [
+        "apps/agent/src/server-request-handler.ts",
+        "apps/agent/src/server-request-handler-route-parity.test.ts",
+        "apps/agent test suite",
+        "GET /version response"
+      ]
+    },
+    {
+      "name": "migrate-timestamps-to-timestamptz",
+      "wave": 1,
+      "priority": "P2",
+      "beads_covered": [],
+      "conflicts_with": [],
+      "file_paths": [
+        "packages/db/src/schema/agents.ts",
+        "packages/db/src/schema/bloatRadar.ts",
+        "packages/db/src/schema/ccProfileEvents.ts",
+        "packages/db/src/schema/ccProfiles.ts",
+        "packages/db/src/schema/credentialSwaps.ts",
+        "packages/db/src/schema/credentials.ts",
+        "packages/db/src/schema/cronRuns.ts",
+        "packages/db/src/schema/elevenlabsCredentials.ts",
+        "packages/db/src/schema/fleetPresence.ts",
+        "packages/db/src/schema/healthSnapshots.ts",
+        "packages/db/src/schema/hookSchemaFingerprints.ts",
+        "packages/db/src/schema/integrationCredentials.ts",
+        "packages/db/src/schema/notificationSettings.ts",
+        "packages/db/src/schema/notifications.ts",
+        "packages/db/src/schema/presenceHolds.ts",
+        "packages/db/src/schema/processWatcherState.ts",
+        "packages/db/src/schema/projectLocations.ts",
+        "packages/db/src/schema/projects.ts",
+        "packages/db/src/schema/routingRules.ts",
+        "packages/db/src/schema/scriptErrors.ts",
+        "packages/db/src/schema/sessionEvents.ts",
+        "packages/db/src/schema/sessions.ts",
+        "packages/db/src/migrate.test.ts",
+        "packages/db/drizzle/",
+        "packages/db/src/schema/*.ts",
+        "Runtime read/write behavior"
+      ]
+    }
+  ],
+  "conflict_map": {},
+  "waves": {
+    "1": [
+      "async-agent-hot-path-reads",
+      "mechanize-route-registry-parity",
+      "extract-notification-channels",
+      "migrate-timestamps-to-timestamptz"
+    ]
+  },
+  "failed_specs": []
+}
