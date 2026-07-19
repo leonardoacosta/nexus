@@ -153,14 +153,24 @@ struct TerminalHostView: UIViewRepresentable {
 
         // SCROLL LOCK (mx-rkir.11): SwiftTerm's `TerminalView` IS a UIScrollView
         // (see SwiftTerm/iOS/iOSTerminalView.swift: `open class TerminalView:
-        // UIScrollView`). These are tmux ALT-SCREEN TUI sessions (the claude-code
-        // UI): scrolling SwiftTerm's local scrollback exposes stale buffer rows
-        // that tmux is actively redrawing over → colored noise/garble. Pin the
-        // view to the LIVE screen by disabling the scroll view: the user can no
-        // longer drag into stale scrollback, and the rubber-band bounce can't
-        // momentarily reveal it. SwiftTerm still updates `contentOffset`
-        // PROGRAMMATICALLY on each feed (it pins to the bottom/live region), so
-        // the live pane keeps rendering full-bleed — only USER scroll is killed.
+        // UIScrollView`). Scrolling SwiftTerm's local scrollback while tmux is in
+        // ALT-SCREEN mode (the claude-code TUI) exposes stale buffer rows tmux is
+        // actively redrawing over → colored noise/garble. SwiftTerm still updates
+        // `contentOffset` PROGRAMMATICALLY on each feed (it pins to the bottom/live
+        // region), so the live pane keeps rendering full-bleed — only USER scroll
+        // is what risks revealing stale scrollback.
+        //
+        // CONDITIONAL SCROLL (conditional-scroll-non-altscreen-ios): the lock is no
+        // longer blanket. `SshTerminalSession.applyScrollLockState` re-evaluates it
+        // live — scroll is enabled ONLY when the keyboard is down AND the session is
+        // NOT in alt-screen mode; alt-screen sessions stay locked at all times.
+        // START LOCKED (safe default): the coordinator flips it on once the first
+        // buffer update / keyboard event re-evaluates the combined condition.
+        // `notifyUpdateChanges = true` makes SwiftTerm fire the delegate's
+        // `rangeChanged(source:startY:endY:)` on buffer visual changes, which is how
+        // the coordinator detects alt-screen enter/exit reactively (no dedicated
+        // buffer-swap delegate hook exists).
+        view.notifyUpdateChanges = true
         view.isScrollEnabled = false
         view.bounces = false
         view.alwaysBounceVertical = false

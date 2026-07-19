@@ -105,6 +105,13 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     /// mid-animation and push a resize computed from an intermediate frame.
     private let keyboardResizeDebounceNanos: UInt64 = 320_000_000  // ~320ms trailing (> 250ms anim)
 
+    /// Conditional scroll-lock state (conditional-scroll-non-altscreen-ios).
+    /// Mirrors the LIVE `isScrollEnabled` we last applied. Starts `false` to match
+    /// TerminalHostView.makeUIView's hardcoded START-LOCKED default, so the first
+    /// re-evaluation (first `rangeChanged` on feed, or a keyboard event) only
+    /// touches the scroll view when the combined condition actually changes.
+    private var scrollCurrentlyEnabled = false
+
     init(statusBinding: Binding<AttachStatus>, client: NexusAggregateClient, keyboardOverlap: Binding<CGFloat>) {
         self._status = statusBinding
         self.client = client
@@ -380,11 +387,18 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
               let endFrame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else {
             keyboardOverlap = 0
+            // Could not measure the frame; treat as keyboard-down and re-lock per
+            // alt-screen state so the scroll condition never goes stale.
+            reevaluateScrollLock()
             return
         }
         let overlap = max(0, window.bounds.maxY - endFrame.minY)
         nxptyLog.notice("NXPTY keyboard show overlap=\(Int(overlap), privacy: .public)")
         keyboardOverlap = overlap
+        // Keyboard rising -> scroll must re-lock (keyboard no longer down), snapping
+        // back to live content. Converges on the same combined condition as
+        // rangeChanged via the shared helper (conditional-scroll-non-altscreen-ios).
+        reevaluateScrollLock()
     }
 
     /// Keyboard about to hide: overlap goes to 0 → AttachScene restores the
@@ -394,6 +408,21 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         keyboardResizePending = true
         nxptyLog.notice("NXPTY keyboard hide overlap=0")
         keyboardOverlap = 0
+        // Keyboard down -> scroll may unlock (if the session is NOT in alt-screen).
+        // Same shared helper as rangeChanged / keyboardWillShow.
+        reevaluateScrollLock()
+    }
+
+    /// Re-evaluate the conditional scroll lock from the CURRENT live state — reads
+    /// keyboard-down (`keyboardOverlap == 0`) and alt-screen
+    /// (`isCurrentBufferAlternate`) and forwards to `applyScrollLockState`. Shared
+    /// by both keyboard handlers so they converge on the same condition as the
+    /// buffer-change trigger (conditional-scroll-non-altscreen-ios).
+    private func reevaluateScrollLock() {
+        applyScrollLockState(
+            keyboardDown: keyboardOverlap == 0,
+            alternateActive: terminal?.getTerminal().isCurrentBufferAlternate ?? false
+        )
     }
 
     /// Remove the keyboard observers + cancel any in-flight debounce. Called from
@@ -445,7 +474,64 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {}
     func clipboardCopy(source: TerminalView, content: Data) {}
     func bell(source: TerminalView) {}
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+
+    /// SwiftTerm buffer visual change (conditional-scroll-non-altscreen-ios).
+    /// Fires on every display update because `notifyUpdateChanges = true` was set
+    /// in TerminalHostView.makeUIView. There is no dedicated alt-screen-swap
+    /// delegate hook, so this is how we detect a plain shell entering/leaving
+    /// alt-screen (`less`/`vim`, or the Claude Code TUI) reactively and re-evaluate
+    /// the scroll lock. Alt-screen state is read from the source's own terminal;
+    /// keyboard-down state is derived from the existing `keyboardOverlap` tracking.
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+        applyScrollLockState(
+            keyboardDown: keyboardOverlap == 0,
+            alternateActive: source.getTerminal().isCurrentBufferAlternate
+        )
+    }
+
+    // MARK: - Conditional scroll lock (conditional-scroll-non-altscreen-ios)
+
+    /// Combined scroll-lock evaluation. Scroll is enabled ONLY when the keyboard is
+    /// down AND the session is NOT in tmux alt-screen mode — alt-screen sessions
+    /// (the Claude Code TUI, or a plain shell running `less`/`vim`) must NEVER
+    /// scroll, because dragging SwiftTerm's local scrollback exposes stale buffer
+    /// rows tmux is redrawing over (garble, bd:mx-rkir.11).
+    ///
+    /// Called from BOTH triggers so they converge on the same condition: this
+    /// delegate's `rangeChanged` (buffer transitions re-checking keyboard state) and
+    /// the `keyboardWillShow`/`keyboardWillHide` handlers (keyboard transitions
+    /// re-checking alt-screen state). Every scroll-view property flips in LOCKSTEP
+    /// with `isScrollEnabled` so an alt-screen session never shows a scroll indicator
+    /// or accepts a bounce even momentarily. `contentInsetAdjustmentBehavior` stays
+    /// `.never` permanently (set once in makeUIView) — it is already the locked-safe
+    /// value in both states, and toggling it would fight the keyboard-aware inset
+    /// resize (nx-eqpvh/nx-wwoot).
+    ///
+    /// On a re-lock transition (enabled -> disabled: keyboard comes up, or the
+    /// session enters alt-screen) while scrolled away from the bottom, snap back to
+    /// the live region so the user is never left staring at a stale scroll position.
+    /// SwiftTerm pins live content by driving `contentOffset` to the bottom on each
+    /// feed via its internal `updateScroller()` (which uses the module-internal
+    /// `cellDimension`); the public UIScrollView-native equivalent of that same
+    /// target position is `contentSize.height - bounds.height`.
+    private func applyScrollLockState(keyboardDown: Bool, alternateActive: Bool) {
+        guard let view = terminal else { return }
+        let enable = keyboardDown && !alternateActive
+        guard enable != scrollCurrentlyEnabled else { return }
+        // Re-lock (enabled -> disabled): pin back to the live/bottom region.
+        if scrollCurrentlyEnabled && !enable {
+            let bottomY = max(0, view.contentSize.height - view.bounds.height)
+            view.setContentOffset(CGPoint(x: 0, y: bottomY), animated: false)
+        }
+        scrollCurrentlyEnabled = enable
+        view.isScrollEnabled = enable
+        view.bounces = enable
+        view.alwaysBounceVertical = enable
+        view.alwaysBounceHorizontal = enable
+        view.showsVerticalScrollIndicator = enable
+        view.showsHorizontalScrollIndicator = enable
+        nxptyLog.notice("NXPTY scroll-lock enable=\(enable, privacy: .public) keyboardDown=\(keyboardDown, privacy: .public) alt=\(alternateActive, privacy: .public)")
+    }
 }
 
 #endif
