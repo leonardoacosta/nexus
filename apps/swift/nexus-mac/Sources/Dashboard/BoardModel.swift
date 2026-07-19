@@ -186,18 +186,22 @@ final class BoardViewModel: ObservableObject {
     static let unregisteredCode = "__unregistered__"
 
     /// nil = the synthetic "All" row (fleet-wide). Otherwise a project code
-    /// (or `unregisteredCode`).
-    @Published var selectedProject: String? = nil
+    /// (or `unregisteredCode`). Recomputes the memoized visible list on change.
+    @Published var selectedProject: String? = nil { didSet { recomputeVisible() } }
     /// Active status filters (chips). Closed is off by default (design § 01).
-    @Published var statusFilters: Set<BoardStatus> = [.open, .inProgress, .blocked]
-    @Published var orphansOnly: Bool = false
+    @Published var statusFilters: Set<BoardStatus> = [.open, .inProgress, .blocked] { didSet { recomputeVisible() } }
+    @Published var orphansOnly: Bool = false { didSet { recomputeVisible() } }
     /// Within-group sort key (proposals always group above orphans).
-    @Published var sortKey: BoardSortKey = .priority
+    @Published var sortKey: BoardSortKey = .priority { didSet { recomputeVisible() } }
     /// The currently selected row (drives the detail rail).
     @Published var selectedItemID: BoardWorkItem.ID?
 
     @Published private(set) var isLoading = false
     @Published private(set) var allItems: [BoardWorkItem] = []
+    /// Memoized visible, filtered, sorted work list. Recomputed once per input
+    /// change via `recomputeVisible()`, never per access (was an unmemoized
+    /// computed property re-filtering thousands of rows 4+ times per render).
+    @Published private(set) var visibleItems: [BoardWorkItem] = []
     @Published private(set) var railProjects: [BoardRailProject] = []
     /// Codes of genuinely registered projects (from the registry, hidden or
     /// not). Drives the `unregisteredCode` bucket collapse.
@@ -278,6 +282,9 @@ final class BoardViewModel: ObservableObject {
             ))
         }
         self.railProjects = rail
+
+        // Derive the memoized visible list from the freshly loaded dataset.
+        recomputeVisible()
     }
 
     /// Total open-work count across the fleet (the "All" rail badge).
@@ -285,13 +292,23 @@ final class BoardViewModel: ObservableObject {
         allItems.filter { $0.statusBucket != .closed }.count
     }
 
-    /// The visible, filtered, sorted work list for the current selection.
-    /// Proposals ALWAYS group above orphans (primary grouping); `sortKey`
-    /// orders rows within each group.
-    var visibleItems: [BoardWorkItem] {
-        allItems
+    /// Recompute the memoized visible, filtered, sorted work list for the
+    /// current selection. Proposals ALWAYS group above orphans (primary
+    /// grouping); `sortKey` orders rows within each group. Invoked once per
+    /// input change (load completion + `didSet` of the filter inputs), not per
+    /// access.
+    func recomputeVisible() {
+        visibleItems = allItems
             .filter { item in
-                if let sel = selectedProject, bucketCode(for: item) != sel { return false }
+                if let sel = selectedProject {
+                    if bucketCode(for: item) != sel { return false }
+                } else if bucketCode(for: item) == Self.unregisteredCode {
+                    // All (nil selection): phantom unregistered-bucket orphans
+                    // are scoped OUT of the fleet-wide work list (nx-rk2c4).
+                    // They surface only when the synthetic Unregistered rail
+                    // row is selected (handled by the `sel` branch above).
+                    return false
+                }
                 if orphansOnly && !item.isOrphan { return false }
                 return statusFilters.contains(item.statusBucket)
             }
@@ -314,13 +331,14 @@ final class BoardViewModel: ObservableObject {
     }
 
     /// Header stat line: proposals · orphans · blocked over the visible set.
+    /// One pass over the memoized `visibleItems` (was three re-filters).
     var visibleStats: (proposals: Int, orphans: Int, blocked: Int) {
-        let v = visibleItems
-        return (
-            v.filter { !$0.isOrphan }.count,
-            v.filter { $0.isOrphan }.count,
-            v.filter { $0.statusBucket == .blocked }.count
-        )
+        var proposals = 0, orphans = 0, blocked = 0
+        for item in visibleItems {
+            if item.isOrphan { orphans += 1 } else { proposals += 1 }
+            if item.statusBucket == .blocked { blocked += 1 }
+        }
+        return (proposals, orphans, blocked)
     }
 
     func toggleFilter(_ status: BoardStatus) {
