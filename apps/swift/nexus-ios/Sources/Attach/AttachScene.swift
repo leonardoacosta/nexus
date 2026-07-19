@@ -149,6 +149,27 @@ struct AttachScene: View {
             ToolbarItem(placement: .topBarTrailing) {
                 statusBadge
             }
+            // DISMISS-KEYBOARD AFFORDANCE (keyboard-aware-terminal-resize-ios
+            // follow-up): the SCROLL LOCK (mx-rkir.11 — isScrollEnabled=false)
+            // silently killed iOS's only built-in keyboard dismissal (the
+            // scroll-view interactive swipe-down). SwiftTerm's own accessory
+            // `keyboard.chevron.compact.down` button (toggleInputKeyboard) only
+            // SWAPS the input view (system <-> SwiftTerm KeyboardView); it never
+            // resigns first responder, so it reads as "hide keyboard" but leaves
+            // it fully open. Provide an explicit, unambiguous dismiss control in
+            // the nav bar, shown only while the keyboard is up (keyboardOverlap
+            // > 0). Resigning first responder fires keyboardWillHide ->
+            // keyboardOverlap = 0, which hides this button again; tapping the
+            // terminal re-focuses (handleFocusTap). Scroll lock stays untouched.
+            if keyboardOverlap > 0 {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: dismissKeyboard) {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityIdentifier("attach-dismiss-keyboard")
+                    .accessibilityLabel("Dismiss keyboard")
+                }
+            }
         }
         // Cold-launch race: the tap may open this sheet before the polling loop
         // has fetched sessions. Ensure streams are running and force a refresh
@@ -190,6 +211,19 @@ struct AttachScene: View {
         let branch = match.tmuxTarget == nil ? "notAttachable" : "terminal"
         attachLog.debug("nx-rkir8 resolveOnce FROZEN branch=\(branch, privacy: .public) id=\(match.id, privacy: .public) tmux=\(match.tmuxTarget ?? "nil", privacy: .public) status=\(match.status, privacy: .public)")
         nxptyLog.notice("NXPTY attach.render branch=\(branch, privacy: .public) sid=\(match.id, privacy: .public) resolved=true tmux=\(match.tmuxTarget ?? "nil", privacy: .public) sessionType=\(match.sessionType ?? "nil", privacy: .public)")
+    }
+
+    /// Dismiss the on-screen keyboard by resigning whatever is first responder
+    /// (the terminal view). Ungated — AttachScene can't reference the
+    /// SwiftTerm-gated coordinator's `terminal`, so we use the standard
+    /// responder-chain dismiss instead of a bridge closure. Fires
+    /// keyboardWillHide, which zeroes `keyboardOverlap` and hides the button.
+    private func dismissKeyboard() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
+        #endif
     }
 
     @ViewBuilder
