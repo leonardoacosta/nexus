@@ -194,7 +194,11 @@ export function applyStatuslineSnapshot(
  * PATCH /sessions/:id/context — validate the body against
  * `sessionContextPatchInput`, then write/overwrite the entry for `id` with the
  * current timestamp. `204` on success, `400` on an invalid body (store left
- * unchanged).
+ * unchanged). An optional `model` field in the body is forwarded to the store
+ * (forward-statusline-model over HTTP — the out-of-process counterpart to
+ * `applyStatuslineSnapshot`'s in-process 4th param), so `handleGetSessionContext`
+ * can prefer it over its DB fallback the same way it already does for the
+ * in-process path.
  */
 export async function handlePatchSessionContext(
   request: Request,
@@ -219,6 +223,7 @@ export async function handlePatchSessionContext(
     id,
     parsed.data.usedPercentage,
     parsed.data.contextWindowSize ?? null,
+    parsed.data.model,
   );
   return new Response(null, { status: 204 });
 }

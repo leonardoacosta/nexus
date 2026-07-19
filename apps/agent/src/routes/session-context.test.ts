@@ -348,6 +348,40 @@ describe("session-context — store-first model precedence (forward-statusline-m
   });
 });
 
+describe("session-context — PATCH model field (accept-model-on-patch)", () => {
+  it("PATCH with a model object then GET returns the mapped single-letter family tag", async () => {
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("abc", {
+        usedPercentage: 12.5,
+        contextWindowSize: 200000,
+        model: { id: "claude-sonnet-5" },
+      }),
+      "abc",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(getRequest("abc"), "abc");
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBe("S");
+    expect(body.usedPercentage).toBe(12.5);
+    expect(body.contextWindowSize).toBe(200000);
+  });
+
+  it("PATCH without model still succeeds; GET returns model: null with no DB fallback", async () => {
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("no-model", { usedPercentage: 30 }),
+      "no-model",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(getRequest("no-model"), "no-model");
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.model).toBeNull();
+  });
+});
+
 describe("session-context — model lookup resolves via ccSessionId, not the primary id (fix-cc-session-id-bridge, nx-22xz8)", () => {
   it("calls getSessionByCcSessionId (not getSessionById) with the route's own id param", async () => {
     const spy = spyOn(sessionsDb, "getSessionByCcSessionId").mockResolvedValue(
