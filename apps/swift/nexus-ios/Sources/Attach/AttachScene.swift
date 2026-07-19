@@ -47,6 +47,11 @@ struct AttachScene: View {
     /// the terminal branch + its `.id` stay stable and the PTY mounts once.
     @State private var resolved: Session?
 
+    /// Height (points) the iOS keyboard currently overlaps the terminal by,
+    /// published by the coordinator from the keyboard-frame notifications
+    /// (nx-eqpvh). Drives the keyboard-aware bottom inset below (nx-wwoot).
+    @State private var keyboardOverlap: CGFloat = 0
+
     /// Belt-and-suspenders teardown handle (nx-km2um / ios-session-navigation
     /// UI 2.8). TerminalHostView.dismantleUIView -> coordinator.disconnect() is
     /// the primary teardown, but on a NavigationStack back-pop dismantleUIView
@@ -75,9 +80,22 @@ struct AttachScene: View {
                     tmuxTarget: tmuxTarget,
                     client: observer.client,
                     status: $status,
+                    keyboardOverlap: $keyboardOverlap,
                     teardown: teardown
                 )
+                // KEYBOARD-AWARE FRAME ACCOUNTING (nx-wwoot): full-bleed to the
+                // screen bottom at rest, but when the keyboard is up lift the
+                // terminal by the keyboard overlap so the live cursor/prompt row
+                // stays visible above it (replaces the old blanket bottom
+                // ignore). `.ignoresSafeArea` (inner) keeps the full-bleed base;
+                // the outer bottom padding insets it by `keyboardOverlap` (0 at
+                // rest → full-bleed unchanged). The bounds change flows through
+                // PhoneTerminalView.layoutSubviews -> handleSettledLayout, the
+                // same resize path rotation drives. Scroll lock (mx-rkir.11) is
+                // untouched.
                 .ignoresSafeArea(edges: .bottom)
+                .padding(.bottom, keyboardOverlap)
+                .animation(.easeOut(duration: 0.25), value: keyboardOverlap)
                 .id(resolved.id)
             } else if resolved == nil {
                 // Cold-launch / mid-load: the row hasn't arrived yet. Show

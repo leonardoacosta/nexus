@@ -84,9 +84,27 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     private var connected = false
     private var pendingGrid: (cols: Int, rows: Int)?
 
-    init(statusBinding: Binding<AttachStatus>, client: NexusAggregateClient) {
+    /// Keyboard-driven resize state (nx-gmes8). When the iOS keyboard shows/hides
+    /// it changes our bounds, and the resulting layout passes flow through
+    /// `handleSettledLayout` / `sizeChanged` exactly like rotation. But a fast
+    /// dismiss/re-show (or the keyboard's own show animation) fires many such
+    /// passes in a burst — we coalesce them behind a trailing debounce so tmux
+    /// gets ONE `pushResize`, not one per notification/frame. Rotation and
+    /// first-layout stay immediate (unchanged).
+    /// Published height (points) the keyboard currently overlaps the terminal by.
+    @Binding var keyboardOverlap: CGFloat
+    /// Set on any keyboard show/hide notification; the next settled-layout pass is
+    /// then routed through the debounce instead of pushing immediately. Cleared
+    /// when the debounced push fires.
+    private var keyboardResizePending = false
+    private var keyboardResizeTask: Task<Void, Never>?
+    private var keyboardResizeTarget: (cols: Int, rows: Int)?
+    private let keyboardResizeDebounceNanos: UInt64 = 200_000_000  // ~200ms trailing
+
+    init(statusBinding: Binding<AttachStatus>, client: NexusAggregateClient, keyboardOverlap: Binding<CGFloat>) {
         self._status = statusBinding
         self.client = client
+        self._keyboardOverlap = keyboardOverlap
         super.init()
     }
 
@@ -196,14 +214,46 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
             ptySessionLog.debug("nx-rkir6 layout-settled IGNORE(non-managed) grid=\(cols, privacy: .public)x\(rows, privacy: .public)")
             return
         }
-        guard cols != lastPushedCols || rows != lastPushedRows else { return }
         guard connected else {
             // Channel not open yet — stash and apply once connect() finishes.
             pendingGrid = (cols, rows)
             ptySessionLog.debug("nx-rkir6 layout-settled DEFER(not-connected) grid=\(cols, privacy: .public)x\(rows, privacy: .public)")
             return
         }
+        // Keyboard show/hide changed our bounds → coalesce the burst of layout
+        // passes into a single resize (nx-gmes8). Runs BEFORE the dedup guard so a
+        // hide that reverts to the pre-keyboard grid still records the target and
+        // lets the debounce settle to a no-op (cancelling the stale shrunk push).
+        // Rotation/first-layout are not keyboard-driven, so they fall through to
+        // the immediate push below.
+        if keyboardResizePending {
+            scheduleKeyboardResize(cols: cols, rows: rows, reason: "layout-settled(kbd)")
+            return
+        }
+        guard cols != lastPushedCols || rows != lastPushedRows else { return }
         pushResize(cols: cols, rows: rows, reason: "layout-settled")
+    }
+
+    /// Trailing-debounced resize for keyboard-driven layout changes (nx-gmes8).
+    /// Records the LATEST desired grid and (re)arms a ~200ms timer; only the final
+    /// settled grid is pushed. A show-then-hide that returns to the original grid
+    /// dedups to a no-op at fire time (guard against `lastPushed*`), so a stale
+    /// intermediate grid is never left applied.
+    private func scheduleKeyboardResize(cols: Int, rows: Int, reason: String) {
+        keyboardResizeTarget = (cols, rows)
+        keyboardResizeTask?.cancel()
+        keyboardResizeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: self?.keyboardResizeDebounceNanos ?? 200_000_000)
+            guard let self, !Task.isCancelled else { return }
+            guard let target = self.keyboardResizeTarget else { return }
+            self.keyboardResizeTarget = nil
+            self.keyboardResizePending = false
+            guard target.cols != self.lastPushedCols || target.rows != self.lastPushedRows else {
+                ptySessionLog.debug("nx-gmes8 kbd-debounce settle NO-CHANGE grid=\(target.cols, privacy: .public)x\(target.rows, privacy: .public)")
+                return
+            }
+            self.pushResize(cols: target.cols, rows: target.rows, reason: reason)
+        }
     }
 
     /// Resize tmux to the phone grid, then force a repaint. A bare resize leaves
@@ -235,6 +285,7 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     func disconnect() {
         streamTask?.cancel(); streamTask = nil
         connectWatchdog?.cancel(); connectWatchdog = nil
+        keyboardResizeTask?.cancel(); keyboardResizeTask = nil
         connected = false
         let client = self.client
         // originAgent: nil — close the same channel open()/send() used.
@@ -284,6 +335,48 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         _ = terminal?.becomeFirstResponder()
     }
 
+    // MARK: - Keyboard-aware resize (nx-eqpvh)
+
+    /// Keyboard about to show: publish the overlap height so AttachScene can
+    /// shrink the terminal above the keyboard (nx-wwoot). Measured against the
+    /// STABLE window bounds — not the view's own bounds, which are already being
+    /// lifted by the overlap — so a redundant willShow can't re-measure against
+    /// the lifted frame and collapse the inset (oscillation). The keyboard frame
+    /// (incl. SwiftTerm's input-accessory row) is anchored to the screen bottom;
+    /// for nx's single full-screen window screen coords == window coords, so the
+    /// overlap on the full-bleed terminal is how far the keyboard rises above the
+    /// window bottom.
+    @objc func keyboardWillShow(_ note: Notification) {
+        keyboardResizePending = true
+        guard let view = terminal, let window = view.window,
+              let info = note.userInfo,
+              let endFrame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+        else {
+            keyboardOverlap = 0
+            return
+        }
+        let overlap = max(0, window.bounds.maxY - endFrame.minY)
+        nxptyLog.notice("NXPTY keyboard show overlap=\(Int(overlap), privacy: .public)")
+        keyboardOverlap = overlap
+    }
+
+    /// Keyboard about to hide: overlap goes to 0 → AttachScene restores the
+    /// full-bleed height, and the resulting layout pass reflows tmux back
+    /// (debounced with the show, so a fast toggle nets one resize).
+    @objc func keyboardWillHide(_ note: Notification) {
+        keyboardResizePending = true
+        nxptyLog.notice("NXPTY keyboard hide overlap=0")
+        keyboardOverlap = 0
+    }
+
+    /// Remove the keyboard observers + cancel any in-flight debounce. Called from
+    /// TerminalHostView.dismantleUIView alongside `disconnect()`.
+    func teardownKeyboard() {
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+        keyboardResizeTask?.cancel(); keyboardResizeTask = nil
+    }
+
     // MARK: - TerminalViewDelegate
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
@@ -305,11 +398,17 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     /// through the same dedup+redraw path as layout-driven resizes.
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         guard isManaged, newCols > 0, newRows > 0 else { return }
-        guard newCols != lastPushedCols || newRows != lastPushedRows else { return }
         guard connected else {
             pendingGrid = (newCols, newRows)
             return
         }
+        // Keyboard-driven reflows share the same debounce as layout-settled
+        // (nx-gmes8) so a keyboard toggle issues one resize, not one per event.
+        if keyboardResizePending {
+            scheduleKeyboardResize(cols: newCols, rows: newRows, reason: "sizeChanged(kbd)")
+            return
+        }
+        guard newCols != lastPushedCols || newRows != lastPushedRows else { return }
         pushResize(cols: newCols, rows: newRows, reason: "sizeChanged")
     }
 

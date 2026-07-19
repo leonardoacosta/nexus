@@ -78,6 +78,10 @@ struct TerminalHostView: UIViewRepresentable {
     /// a second endpoint-resolution path.
     let client: NexusAggregateClient
     @Binding var status: AttachStatus
+    /// Keyboard overlap height (points) the coordinator publishes from the
+    /// keyboard-frame notifications (nx-eqpvh). AttachScene shrinks the terminal
+    /// by this amount so the live cursor/prompt row stays above the keyboard.
+    @Binding var keyboardOverlap: CGFloat
     /// Back-pop teardown bridge (nx-km2um). AttachScene owns this and fires it
     /// from `.onDisappear`; we point it at the coordinator's `disconnect()` so
     /// the pop closes both PTY sockets promptly instead of waiting on the
@@ -127,6 +131,25 @@ struct TerminalHostView: UIViewRepresentable {
         )
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
+
+        // KEYBOARD-AWARE RESIZE (nx-eqpvh): observe keyboard show/hide so the
+        // coordinator can publish the overlap height. AttachScene consumes it to
+        // shrink the terminal's height (nx-wwoot); the resulting bounds change
+        // drives PhoneTerminalView.layoutSubviews -> handleSettledLayout on the
+        // SAME path rotation uses, and that resize is debounced in
+        // SshTerminalSession (nx-gmes8). Torn down in dismantleUIView.
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(SshTerminalSession.keyboardWillShow(_:)),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(SshTerminalSession.keyboardWillHide(_:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
 
         // SCROLL LOCK (mx-rkir.11): SwiftTerm's `TerminalView` IS a UIScrollView
         // (see SwiftTerm/iOS/iOSTerminalView.swift: `open class TerminalView:
@@ -187,11 +210,12 @@ struct TerminalHostView: UIViewRepresentable {
     func updateUIView(_ uiView: PhoneTerminalView, context: Context) {}
 
     static func dismantleUIView(_ uiView: PhoneTerminalView, coordinator: SshTerminalSession) {
+        coordinator.teardownKeyboard()
         coordinator.disconnect()
     }
 
     func makeCoordinator() -> SshTerminalSession {
-        SshTerminalSession(statusBinding: $status, client: client)
+        SshTerminalSession(statusBinding: $status, client: client, keyboardOverlap: $keyboardOverlap)
     }
 }
 
@@ -205,6 +229,9 @@ struct TerminalHostView: View {
     let tmuxTarget: String
     let client: NexusAggregateClient
     @Binding var status: AttachStatus
+    /// Unused in the placeholder (no coordinator to publish it) — present so the
+    /// call site in AttachScene is identical across the SwiftTerm #if.
+    @Binding var keyboardOverlap: CGFloat
     /// Unused in the placeholder (no coordinator to wire) — present so the
     /// call site in AttachScene is identical across the SwiftTerm #if.
     let teardown: AttachTeardown
