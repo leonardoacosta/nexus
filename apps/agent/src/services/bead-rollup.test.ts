@@ -19,6 +19,7 @@ import {
   computeBeadRollup,
   computeRollupsForProject,
   collectLinkedBeadIds,
+  resolveTasksMd,
   emptyRollup,
   defaultRollupBeadSource,
   type RawBead,
@@ -303,6 +304,73 @@ describe("collectLinkedBeadIds", () => {
       // Archived proposals are NOT scanned.
       expect(linked.has("f-archived")).toBe(false);
       expect(linked.has("t-archived")).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTasksMd — async live-then-archive resolution (PERF-SYNC-02)
+//
+// After the async conversion (async-agent-hot-path-reads) resolveTasksMd
+// delegates to the shared resolveLiveOrArchivedFile. Pin its live-then-archive
+// contract directly: live hit, archive exact-name hit, archive suffix hit, and
+// neither-exists → null.
+// ---------------------------------------------------------------------------
+
+describe("resolveTasksMd (async)", () => {
+  it("resolves the LIVE tasks.md when present", async () => {
+    const root = makeProject({ specs: { mine: "# live tasks\n[beads:nx-live]" } });
+    try {
+      const body = await resolveTasksMd(root, "mine");
+      expect(body).toContain("# live tasks");
+      expect(body).toContain("nx-live");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves an archived tasks.md by EXACT dir name when no live dir exists", async () => {
+    const root = makeProject({ archived: { mine: "# archived exact\n[beads:nx-arc]" } });
+    try {
+      const body = await resolveTasksMd(root, "mine");
+      expect(body).toContain("# archived exact");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves an archived tasks.md by `-<specName>` SUFFIX (dated slug)", async () => {
+    const root = makeProject({
+      archived: { "2026-01-01-mine": "# archived suffix\n[beads:nx-suf]" },
+    });
+    try {
+      const body = await resolveTasksMd(root, "mine");
+      expect(body).toContain("# archived suffix");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers the LIVE dir over an archived match", async () => {
+    const root = makeProject({
+      specs: { mine: "# live wins" },
+      archived: { "2026-01-01-mine": "# archived loses" },
+    });
+    try {
+      const body = await resolveTasksMd(root, "mine");
+      expect(body).toContain("# live wins");
+      expect(body).not.toContain("archived loses");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when neither a live nor an archived tasks.md exists", async () => {
+    const root = makeProject({ specs: { other: "# unrelated" } });
+    try {
+      expect(await resolveTasksMd(root, "missing")).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

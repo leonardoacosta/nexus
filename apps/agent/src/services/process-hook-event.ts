@@ -160,7 +160,7 @@ export async function processHookEvent(
     const transcriptPath = input.payload.transcript_path;
     if (typeof transcriptPath === "string" && transcriptPath.length > 0) {
       try {
-        const usage = collectContextUsage(transcriptPath);
+        const usage = await collectContextUsage(transcriptPath);
         if (usage) {
           applyStatuslineSnapshot(
             input.sessionId,

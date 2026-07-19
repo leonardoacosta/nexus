@@ -12,7 +12,7 @@
 
 import { createLogger } from "@nexus/core/node";
 import type { BeadRollup } from "@nexus/core";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import {
@@ -25,6 +25,7 @@ import { execText } from "../utils/exec";
 import {
   computeBeadRollup,
   computeRollupsForProject,
+  resolveLiveOrArchivedFile,
 } from "../services/bead-rollup";
 import { cachedRollupBeadSource } from "../services/cached-bead-source";
 import { runPool } from "../utils/run-pool";
@@ -218,7 +219,7 @@ export async function handleGetSpec(
   // read-only metadata pane (approved-by, approved-at, capability, etc.)
   // without a follow-up fetch. Missing/unreadable frontmatter -> `{}`. Keys
   // are preserved verbatim (no case normalisation).
-  const frontmatter = readProposalFrontmatter(proj.path, name);
+  const frontmatter = await readProposalFrontmatter(proj.path, name);
 
   // add-bead-proposal-roadmap-surface: attach the live bead rollup. Null
   // when the project has no `.beads/` or `bd` errors — the payload is
@@ -250,45 +251,24 @@ export async function handleGetSpec(
  * This is the read counterpart to `spliceFrontmatter` in
  * `routes/specs/handlers-status.ts`. Kept intentionally flat (no nested
  * keys, no list values) — the proposal contract is flat-only.
+ *
+ * The live-then-archive file lookup now delegates to the shared async
+ * `resolveLiveOrArchivedFile` (bead-rollup.ts) — the same resolver
+ * `resolveTasksMd` uses — so the two no longer duplicate the archive-scan
+ * logic and this hot path (`GET /specs/:project/:name`, inside `runPool(8)`)
+ * no longer does a synchronous read on the event loop
+ * (async-agent-hot-path-reads / PERF-SYNC-03). Only the file read moved out;
+ * the frontmatter parsing below is unchanged.
  */
-function readProposalFrontmatter(
+async function readProposalFrontmatter(
   projectPath: string,
   specName: string,
-): Record<string, string> {
-  // Try live first, then archive (mirrors resolveSpecDir's order).
-  const livePath = join(projectPath, "openspec", "changes", specName, "proposal.md");
-  let source: string | null = null;
-  if (existsSync(livePath)) {
-    try {
-      source = readFileSync(livePath, "utf8");
-    } catch {
-      /* fall through */
-    }
-  }
-  if (source === null) {
-    // Archive scan (best-effort; no error on miss).
-    const archiveRoot = join(projectPath, "openspec", "changes", "archive");
-    if (existsSync(archiveRoot)) {
-      try {
-        const suffix = `-${specName}`;
-        for (const entry of readdirSync(archiveRoot)) {
-          if (entry === specName || entry.endsWith(suffix)) {
-            const candidate = join(archiveRoot, entry, "proposal.md");
-            if (existsSync(candidate)) {
-              try {
-                source = readFileSync(candidate, "utf8");
-                break;
-              } catch {
-                /* keep searching */
-              }
-            }
-          }
-        }
-      } catch {
-        /* fall through */
-      }
-    }
-  }
+): Promise<Record<string, string>> {
+  const source = await resolveLiveOrArchivedFile(
+    projectPath,
+    specName,
+    "proposal.md",
+  );
   if (source === null) return {};
 
   const FENCE = "---";

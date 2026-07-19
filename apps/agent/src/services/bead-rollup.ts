@@ -17,7 +17,7 @@
  * (never thrown), mirroring `fetchBeadsSummary` in `routes/specs.ts`.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "@nexus/core/node";
@@ -245,55 +245,71 @@ export function filterUnlinked(
 }
 
 // ---------------------------------------------------------------------------
-// tasks.md resolution (live -> archive), mirrors readProposalFrontmatter
+// Shared async live-then-archive file resolver
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a proposal's `tasks.md` body, trying the live change dir first
- * then the archive (mirrors `readProposalFrontmatter`'s lookup order in
- * routes/specs.ts). Returns `null` when neither exists.
+ * Resolve a per-proposal file (`tasks.md`, `proposal.md`, ...) from the live
+ * change dir first, then the archive. Live path is
+ * `<projectPath>/openspec/changes/<specName>/<filename>`; the archive scan
+ * matches an entry named exactly `<specName>` or ending `-<specName>` (the
+ * dated-slug archive convention). Returns `null` when neither exists or every
+ * read fails. Never throws.
+ *
+ * ASYNC (async-agent-hot-path-reads / PERF-SYNC-02/03): runs per-spec inside
+ * `runPool(8)` on `GET /specs/all` and `GET /specs/:project/:name`. The prior
+ * sync `readFileSync`/`readdirSync` serialized on the event loop, nullifying
+ * the pool's bounded concurrency. Reads now use `node:fs/promises`, mirroring
+ * `collectLinkedBeadIds` (this file's in-repo exemplar). A missing file simply
+ * throws ENOENT and is caught — no separate `existsSync` stat needed.
+ *
+ * Shared by `resolveTasksMd` (here) and `readProposalFrontmatter`
+ * (routes/specs.ts), which previously duplicated this exact lookup for
+ * `tasks.md` vs `proposal.md`.
  */
-export function resolveTasksMd(
+export async function resolveLiveOrArchivedFile(
   projectPath: string,
   specName: string,
-): string | null {
-  const livePath = join(
-    projectPath,
-    "openspec",
-    "changes",
-    specName,
-    "tasks.md",
-  );
-  if (existsSync(livePath)) {
-    try {
-      return readFileSync(livePath, "utf8");
-    } catch {
-      /* fall through to archive */
-    }
+  filename: string,
+): Promise<string | null> {
+  const livePath = join(projectPath, "openspec", "changes", specName, filename);
+  try {
+    return await readFile(livePath, "utf8");
+  } catch {
+    /* fall through to archive */
   }
 
   const archiveRoot = join(projectPath, "openspec", "changes", "archive");
-  if (existsSync(archiveRoot)) {
-    try {
-      const suffix = `-${specName}`;
-      for (const entry of readdirSync(archiveRoot)) {
-        if (entry === specName || entry.endsWith(suffix)) {
-          const candidate = join(archiveRoot, entry, "tasks.md");
-          if (existsSync(candidate)) {
-            try {
-              return readFileSync(candidate, "utf8");
-            } catch {
-              /* keep searching */
-            }
-          }
-        }
+  let entries: string[];
+  try {
+    entries = await readdir(archiveRoot);
+  } catch {
+    return null;
+  }
+
+  const suffix = `-${specName}`;
+  for (const entry of entries) {
+    if (entry === specName || entry.endsWith(suffix)) {
+      try {
+        return await readFile(join(archiveRoot, entry, filename), "utf8");
+      } catch {
+        /* keep searching */
       }
-    } catch {
-      /* fall through */
     }
   }
 
   return null;
+}
+
+/**
+ * Resolve a proposal's `tasks.md` body, live dir first then archive. Returns
+ * `null` when neither exists. Thin wrapper over the shared resolver.
+ */
+export async function resolveTasksMd(
+  projectPath: string,
+  specName: string,
+): Promise<string | null> {
+  return resolveLiveOrArchivedFile(projectPath, specName, "tasks.md");
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +374,7 @@ export async function computeBeadRollup(
 ): Promise<BeadRollup | null> {
   if (!existsSync(join(projectPath, ".beads"))) return null;
 
-  const tasksMd = resolveTasksMd(projectPath, specName);
+  const tasksMd = await resolveTasksMd(projectPath, specName);
   if (tasksMd === null) return null;
 
   const markers = parseBeadMarkers(tasksMd);
@@ -427,7 +443,7 @@ export async function computeRollupsForProject(
   const markersBySpec = new Map<string, BeadMarkers>();
   const unionIds = new Set<string>();
   for (const name of specNames) {
-    const tasksMd = resolveTasksMd(projectPath, name);
+    const tasksMd = await resolveTasksMd(projectPath, name);
     if (tasksMd === null) {
       out.set(name, null);
       continue;
