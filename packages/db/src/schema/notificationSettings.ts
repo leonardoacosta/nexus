@@ -70,7 +70,7 @@ export const notificationSettings = pgTable("notification_settings", {
   quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(true),
   quietHoursStartHour: integer("quiet_hours_start_hour").notNull().default(0),
   quietHoursEndHour: integer("quiet_hours_end_hour").notNull().default(7),
-  updatedAt: timestamp("updated_at", { mode: "date" })
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
 });

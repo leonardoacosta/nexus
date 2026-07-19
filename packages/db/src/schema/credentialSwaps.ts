@@ -46,7 +46,7 @@ export const credentialSwaps = pgTable(
     toFingerprint: text("to_fingerprint").notNull(),
     /** "cooldown" | "exhaustion" | "manual" | "expired" | "initial". */
     reason: text("reason").notNull(),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("credential_swaps_session_created_at_idx").on(

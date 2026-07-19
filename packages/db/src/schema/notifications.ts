@@ -50,8 +50,8 @@ export const notifications = pgTable("notifications", {
    * synthesis happened.
    */
   voiceUsed: text("voice_used"),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
-  sentAt: timestamp("sent_at", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull(),
+  sentAt: timestamp("sent_at", { mode: "date", withTimezone: true }),
 });
 
 /**

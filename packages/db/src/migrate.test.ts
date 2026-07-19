@@ -22,6 +22,9 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import postgres from "postgres";
 
 import { isAlreadyExists, selfHealingMigrate } from "./migrate";
@@ -227,5 +230,109 @@ describeDb("selfHealingMigrate (real DB, isolated schema)", () => {
       rmSync(folder, { recursive: true, force: true });
       await clearJournal();
     }
+  });
+});
+
+/**
+ * Round-trip regression for `migrate-timestamps-to-timestamptz`.
+ *
+ * The migration flips 43 bare `timestamp` columns to `timestamp with time zone`
+ * via `ALTER COLUMN ... SET DATA TYPE timestamp with time zone` with NO `USING`
+ * clause. The proposal's core claim: against a UTC-configured session, that cast
+ * reinterprets each naive value at UTC and preserves the same absolute instant,
+ * so drizzle's `postgres-js` + `mode:'date'` read returns byte-identical JS
+ * `Date` values pre- and post-conversion.
+ *
+ * This exercises the exact ALTER statement shape the generated migration emits
+ * against a real Postgres, on a `sessions`-shaped fixture (startedAt /
+ * lastActivity / endedAt), in an isolated schema pinned to UTC.
+ */
+describeDb("timestamptz conversion round-trip (mode:'date' value stability)", () => {
+  const RT_SCHEMA = `nx_tstz_rt_${Date.now().toString(36)}`;
+  const rtClient = postgres(URL!, {
+    max: 1,
+    connect_timeout: 10,
+    connection: { search_path: `"${RT_SCHEMA}",public` },
+  });
+  const rtDb = drizzle(rtClient);
+
+  // Same physical table/columns viewed two ways: bare `timestamp`
+  // (pre-migration) vs `timestamptz` (post-migration). drizzle only needs the
+  // column names to match — the read decoder differs by `withTimezone`.
+  const sessionsPre = pgTable("rt_sessions", {
+    id: text("id").primaryKey(),
+    startedAt: timestamp("started_at", { mode: "date" }),
+    lastActivity: timestamp("last_activity", { mode: "date" }),
+    endedAt: timestamp("ended_at", { mode: "date" }),
+  });
+  const sessionsPost = pgTable("rt_sessions", {
+    id: text("id").primaryKey(),
+    startedAt: timestamp("started_at", { mode: "date", withTimezone: true }),
+    lastActivity: timestamp("last_activity", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    endedAt: timestamp("ended_at", { mode: "date", withTimezone: true }),
+  });
+
+  beforeAll(async () => {
+    await rtClient.unsafe(`CREATE SCHEMA IF NOT EXISTS "${RT_SCHEMA}"`);
+    // Pin the session to UTC — mirrors the deploy's UTC-configured session, the
+    // condition under which the value-preserving cast holds.
+    await rtClient.unsafe(`SET TIME ZONE 'UTC'`);
+    await rtClient.unsafe(
+      `CREATE TABLE "${RT_SCHEMA}"."rt_sessions" (
+         "id" text PRIMARY KEY,
+         "started_at" timestamp,
+         "last_activity" timestamp,
+         "ended_at" timestamp
+       )`,
+    );
+  });
+
+  afterAll(async () => {
+    await rtClient.unsafe(`DROP SCHEMA IF EXISTS "${RT_SCHEMA}" CASCADE`);
+    await rtClient.end();
+  });
+
+  it("bare timestamp -> timestamptz keeps JS Date values byte-identical", async () => {
+    const startedAt = new Date("2026-01-02T03:04:05.000Z");
+    const lastActivity = new Date("2026-03-14T15:09:26.000Z");
+    const endedAt = new Date("2026-07-19T23:59:59.000Z");
+
+    await rtDb
+      .insert(sessionsPre)
+      .values({ id: "s1", startedAt, lastActivity, endedAt });
+
+    // PRE: read while the columns are still bare `timestamp`.
+    const [pre] = await rtDb
+      .select()
+      .from(sessionsPre)
+      .where(eq(sessionsPre.id, "s1"));
+    expect(pre).toBeDefined();
+
+    // Apply the EXACT conversion the generated migration emits — no USING clause.
+    for (const col of ["started_at", "last_activity", "ended_at"]) {
+      await rtClient.unsafe(
+        `ALTER TABLE "${RT_SCHEMA}"."rt_sessions" ALTER COLUMN "${col}" SET DATA TYPE timestamp with time zone`,
+      );
+    }
+
+    // POST: re-read via drizzle mode:'date' now that the columns are timestamptz.
+    const [post] = await rtDb
+      .select()
+      .from(sessionsPost)
+      .where(eq(sessionsPost.id, "s1"));
+    expect(post).toBeDefined();
+
+    // Primary claim: the type change shifts no value (pre-read === post-read).
+    expect(post!.startedAt!.getTime()).toBe(pre!.startedAt!.getTime());
+    expect(post!.lastActivity!.getTime()).toBe(pre!.lastActivity!.getTime());
+    expect(post!.endedAt!.getTime()).toBe(pre!.endedAt!.getTime());
+
+    // Stronger: both agree with the originally-inserted absolute instants.
+    expect(post!.startedAt!.getTime()).toBe(startedAt.getTime());
+    expect(post!.lastActivity!.getTime()).toBe(lastActivity.getTime());
+    expect(post!.endedAt!.getTime()).toBe(endedAt.getTime());
   });
 });

@@ -20,7 +20,7 @@ export const ccProfileEvents = pgTable(
     eventType: text("event_type").notNull(),
     sessionId: text("session_id"),
     metadata: jsonb("metadata"),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("cc_profile_events_profile_created_at_idx").on(

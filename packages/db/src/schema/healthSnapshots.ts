@@ -7,7 +7,7 @@ export const healthSnapshots = pgTable(
   "health_snapshots",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
+    timestamp: timestamp("timestamp", { mode: "date", withTimezone: true }).notNull(),
     agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     cpuPercent: real("cpu_percent"),
     ramPercent: real("ram_percent"),

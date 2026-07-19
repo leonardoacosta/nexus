@@ -23,9 +23,9 @@ export const hookSchemaFingerprints = pgTable(
     /** SHA-256 of the sorted top-level key set for this payload shape. */
     fingerprint: text("fingerprint").notNull(),
     /** First time this (event_type, fingerprint) pair was observed. */
-    firstSeen: timestamp("first_seen", { mode: "date" }).notNull().defaultNow(),
+    firstSeen: timestamp("first_seen", { mode: "date", withTimezone: true }).notNull().defaultNow(),
     /** Last time this (event_type, fingerprint) pair was observed. */
-    lastSeen: timestamp("last_seen", { mode: "date" }).notNull().defaultNow(),
+    lastSeen: timestamp("last_seen", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("hook_schema_fingerprints_event_fp_uidx").on(

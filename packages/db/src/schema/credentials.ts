@@ -34,8 +34,8 @@ export const credentials = pgTable(
     }),
     status: text("status").notNull().default("available"),
     leasedBy: text("leased_by"),
-    leasedAt: timestamp("leased_at", { mode: "date" }),
-    cooldownUntil: timestamp("cooldown_until", { mode: "date" }),
+    leasedAt: timestamp("leased_at", { mode: "date", withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { mode: "date", withTimezone: true }),
     /** Cumulative rate-limit hit count; used for weighted round-robin lease selection. */
     rateLimitCount: integer("rate_limit_count").notNull().default(0),
     /**
@@ -103,8 +103,8 @@ export const credentials = pgTable(
       mode: "date",
       withTimezone: true,
     }),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "date" })
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),

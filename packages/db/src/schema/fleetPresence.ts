@@ -47,7 +47,7 @@ export const fleetPresence = pgTable(
     /** Mac sensor: the screen is locked. Null = unknown. */
     macLocked: boolean("mac_locked"),
     /** Server-authoritative liveness stamp (DB now() at write); drives merge. */
-    heartbeat: timestamp("heartbeat", { mode: "date" }).notNull(),
+    heartbeat: timestamp("heartbeat", { mode: "date", withTimezone: true }).notNull(),
     /**
      * Full per-machine `PresenceVector` (every `PresenceField` with value +
      * confidence + `updatedAt`). The eval-path source for fleet-aware routing —
@@ -57,7 +57,7 @@ export const fleetPresence = pgTable(
      * `PresenceVector` agent-side.
      */
     vector: jsonb("vector").$type<FleetPresenceVector>(),
-    updatedAt: timestamp("updated_at", { mode: "date" })
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
   },

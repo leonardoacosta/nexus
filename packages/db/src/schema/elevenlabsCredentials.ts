@@ -38,11 +38,11 @@ export const elevenlabsCredentials = pgTable(
     /** Human-readable voice name for display (plain text). */
     voiceName: text("voice_name"),
     /** Wall-clock of the last successful "Test connection" probe. */
-    lastTestOkAt: timestamp("last_test_ok_at", { mode: "date" }),
+    lastTestOkAt: timestamp("last_test_ok_at", { mode: "date", withTimezone: true }),
     /** HTTP status code from the most recent test probe. */
     lastTestStatusCode: integer("last_test_status_code"),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "date" })
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),

@@ -7,6 +7,6 @@ export const sessionEvents = pgTable("session_events", {
     .notNull()
     .references(() => sessions.id),
   eventType: text("event_type").notNull(),
-  timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
+  timestamp: timestamp("timestamp", { mode: "date", withTimezone: true }).notNull(),
   metadata: text("metadata"),
 });

@@ -11,9 +11,9 @@ export const agents = pgTable("agents", {
   port: integer("port").default(7400),
   projectsDir: text("projects_dir").default(""),
   enabled: boolean("enabled").default(true),
-  lastSeen: timestamp("last_seen", { mode: "date" }),
-  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
-  deletedAt: timestamp("deleted_at", { mode: "date" }),
+  lastSeen: timestamp("last_seen", { mode: "date", withTimezone: true }),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
 });
 
 /**

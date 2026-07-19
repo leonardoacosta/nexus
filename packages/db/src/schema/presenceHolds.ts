@@ -35,12 +35,12 @@ export const presenceHolds = pgTable(
     /** The held notification, restored verbatim on flush. */
     payload: jsonb("payload").$type<PresenceHoldPayload>().notNull(),
     /** When the hold should be flushed (e.g. meeting end + grace). */
-    holdUntil: timestamp("hold_until", { mode: "date" }).notNull(),
+    holdUntil: timestamp("hold_until", { mode: "date", withTimezone: true }).notNull(),
     /** Why it was held (rule id / human-readable reason). */
     reason: text("reason"),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
     /** Set when the hold is flushed; null while pending. */
-    releasedAt: timestamp("released_at", { mode: "date" }),
+    releasedAt: timestamp("released_at", { mode: "date", withTimezone: true }),
   },
   (table) => [
     index("presence_holds_user_hold_until_idx").on(

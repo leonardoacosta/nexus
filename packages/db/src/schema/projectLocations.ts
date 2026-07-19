@@ -18,9 +18,9 @@ export const projectLocations = pgTable(
     hidden: boolean("hidden").default(false).notNull(),
     activeSessions: integer("active_sessions").default(0).notNull(),
     totalSessions: integer("total_sessions").default(0).notNull(),
-    lastDiscoveredAt: timestamp("last_discovered_at", { mode: "date" }),
+    lastDiscoveredAt: timestamp("last_discovered_at", { mode: "date", withTimezone: true }),
     priority: integer("priority").default(999).notNull(),
-    createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow(),
   },
   (table) => [unique("project_locations_project_agent_unique").on(table.projectId, table.agentId)],
 );

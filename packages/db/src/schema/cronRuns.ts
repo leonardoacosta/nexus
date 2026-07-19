@@ -27,7 +27,7 @@ export const cronRuns = pgTable(
   "cron_runs",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
+    timestamp: timestamp("timestamp", { mode: "date", withTimezone: true }).notNull(),
     job: text("job").notNull(),
     status: text("status").notNull(),
     details: jsonb("details"),

@@ -56,8 +56,8 @@ export const ccProfiles = pgTable(
     rateLimitStatus: text("rate_limit_status").notNull().default("healthy"),
     /** Optional Anthropic account email for display. */
     accountEmail: text("account_email"),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "date" })
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),

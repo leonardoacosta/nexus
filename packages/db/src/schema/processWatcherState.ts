@@ -9,7 +9,7 @@ import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
  */
 export const processWatcherState = pgTable("process_watcher_state", {
   id: serial("id").primaryKey(),
-  observedAt: timestamp("observed_at", { mode: "date" }).notNull().defaultNow(),
+  observedAt: timestamp("observed_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   livePidCount: integer("live_pid_count").notNull(),
   tickDurationMs: integer("tick_duration_ms").notNull(),
   errorText: text("error_text"),

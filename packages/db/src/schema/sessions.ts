@@ -21,9 +21,9 @@ export const sessions = pgTable(
     }),
     machine: text("machine").notNull(),
     status: text("status").notNull().default("active"),
-    startedAt: timestamp("started_at", { mode: "date" }).notNull(),
-    lastActivity: timestamp("last_activity", { mode: "date" }).notNull(),
-    endedAt: timestamp("ended_at", { mode: "date" }),
+    startedAt: timestamp("started_at", { mode: "date", withTimezone: true }).notNull(),
+    lastActivity: timestamp("last_activity", { mode: "date", withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { mode: "date", withTimezone: true }),
     // Stop-reason fields — added by nx-f060f. Nullable + additive
     // (backward-compatible: absence renders as today's behavior). Populated
     // on session stop alongside `ended_at` via `recordSessionStop`.
@@ -37,8 +37,8 @@ export const sessions = pgTable(
     sessionType: text("session_type"),
     model: text("model"),
     rateLimitUtilization: real("rate_limit_utilization"),
-    rateLimitResetAt: timestamp("rate_limit_reset_at", { mode: "date" }),
-    idleSince: timestamp("idle_since", { mode: "date" }),
+    rateLimitResetAt: timestamp("rate_limit_reset_at", { mode: "date", withTimezone: true }),
+    idleSince: timestamp("idle_since", { mode: "date", withTimezone: true }),
     ccSessionId: text("cc_session_id"),
     tmuxSession: text("tmux_session"),
     tmuxTarget: text("tmux_target"),

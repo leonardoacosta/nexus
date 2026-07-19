@@ -21,8 +21,8 @@ export const projects = pgTable(
      * scanner MUST preserve `hidden=true` on re-scan (sticky exclude).
      */
     hidden: boolean("hidden").default(false).notNull(),
-    discoveredAt: timestamp("discovered_at", { mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+    discoveredAt: timestamp("discovered_at", { mode: "date", withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow(),
   },
   (table) => [
     // Composite unique: (name, git_remote_url). Covers projects that DO have

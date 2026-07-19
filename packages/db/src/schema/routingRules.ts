@@ -40,7 +40,7 @@ export const routingRules = pgTable(
     condition: jsonb("condition").$type<RoutingRuleCondition>().notNull(),
     action: jsonb("action").$type<RoutingRuleAction>().notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("routing_rules_user_priority_idx").on(table.userId, table.priority),

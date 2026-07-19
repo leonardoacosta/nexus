@@ -25,7 +25,7 @@ export const bloatRadar = pgTable(
   "bloat_radar",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    runTimestamp: timestamp("run_timestamp", { mode: "date" }).notNull(),
+    runTimestamp: timestamp("run_timestamp", { mode: "date", withTimezone: true }).notNull(),
     label: text("label").notNull(),
     path: text("path").notNull(),
     sizeBytes: integer("size_bytes").notNull(),

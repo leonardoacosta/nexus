@@ -40,7 +40,7 @@ export const scriptErrors = pgTable(
      * threshold client-side.
      */
     stackTruncated: boolean("stack_truncated").notNull().default(false),
-    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("script_errors_script_created_idx").on(
