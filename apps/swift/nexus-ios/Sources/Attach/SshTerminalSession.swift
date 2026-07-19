@@ -99,7 +99,11 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
     private var keyboardResizePending = false
     private var keyboardResizeTask: Task<Void, Never>?
     private var keyboardResizeTarget: (cols: Int, rows: Int)?
-    private let keyboardResizeDebounceNanos: UInt64 = 200_000_000  // ~200ms trailing
+    /// Trailing-debounce window. MUST outlast AttachScene's `.easeOut(duration:
+    /// 0.25)` keyboard-inset frame animation so the debounce fires AFTER the frame
+    /// has visually settled — a shorter window (the old 200ms) could elapse
+    /// mid-animation and push a resize computed from an intermediate frame.
+    private let keyboardResizeDebounceNanos: UInt64 = 320_000_000  // ~320ms trailing (> 250ms anim)
 
     init(statusBinding: Binding<AttachStatus>, client: NexusAggregateClient, keyboardOverlap: Binding<CGFloat>) {
         self._status = statusBinding
@@ -243,11 +247,24 @@ final class SshTerminalSession: NSObject, @preconcurrency TerminalViewDelegate {
         keyboardResizeTarget = (cols, rows)
         keyboardResizeTask?.cancel()
         keyboardResizeTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: self?.keyboardResizeDebounceNanos ?? 200_000_000)
+            try? await Task.sleep(nanoseconds: self?.keyboardResizeDebounceNanos ?? 320_000_000)
             guard let self, !Task.isCancelled else { return }
-            guard let target = self.keyboardResizeTarget else { return }
+            guard self.keyboardResizeTarget != nil else { return }
             self.keyboardResizeTarget = nil
             self.keyboardResizePending = false
+            // Push the LIVE settled grid at fire time, not the grid captured when
+            // the debounce was (re)armed. layoutSubviews can coalesce and stop
+            // firing before SwiftUI's 250ms inset animation visually completes, so
+            // the last CAPTURED grid may be an intermediate value. Because the
+            // debounce window now outlasts that animation, by fire time SwiftTerm
+            // has reflowed to its final bounds — its current cols/rows are the
+            // authoritative settled grid. Fall back to the captured target only if
+            // the view is gone.
+            let settled: (cols: Int, rows: Int)? = self.terminal.map {
+                let t = $0.getTerminal(); return (t.cols, t.rows)
+            }
+            let target = settled ?? (cols, rows)
+            guard target.cols > 0, target.rows > 0 else { return }
             guard target.cols != self.lastPushedCols || target.rows != self.lastPushedRows else {
                 ptySessionLog.debug("nx-gmes8 kbd-debounce settle NO-CHANGE grid=\(target.cols, privacy: .public)x\(target.rows, privacy: .public)")
                 return

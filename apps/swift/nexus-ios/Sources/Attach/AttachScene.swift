@@ -95,6 +95,21 @@ struct AttachScene: View {
                 // untouched.
                 .ignoresSafeArea(edges: .bottom)
                 .padding(.bottom, keyboardOverlap)
+                // OVER-SHRINK FIX (keyboard-aware-terminal-resize-ios follow-up):
+                // the inner `.ignoresSafeArea(edges: .bottom)` (default regions
+                // `.all`) opts the TERMINAL out of the keyboard safe area, but the
+                // `.padding` above wraps it in a NEW container that does NOT — so
+                // SwiftUI's automatic keyboard avoidance ALSO lifts that padded
+                // container by the keyboard height, on top of our manual
+                // `keyboardOverlap` inset. Net: the frame shrank by ~2× the
+                // keyboard height, squeezing content into a top sliver with a
+                // keyboard-height blank gap beneath it. Ignoring the `.keyboard`
+                // region on the OUTER (padded) view disables that automatic
+                // avoidance for this subtree, so `keyboardOverlap` is the SINGLE,
+                // authoritative inset (measured from the real keyboard frame in
+                // keyboardWillShow). Correct by construction regardless of the
+                // resize-debounce timing.
+                .ignoresSafeArea(.keyboard, edges: .bottom)
                 .animation(.easeOut(duration: 0.25), value: keyboardOverlap)
                 .id(resolved.id)
             } else if resolved == nil {
