@@ -9,12 +9,13 @@ import {
   getSessionById,
   upsertSession,
   updateSessionGitOrigin,
+  updateSessionGitStatus,
 } from "../db/sessions";
 import type { SessionRow } from "../db/sessions";
 import { execText, ExecError } from "../utils/exec";
 import { reconcileOnce } from "../services/process-watcher";
 import { resolveGitOrigin } from "../services/git-project";
-import { resolveProject } from "../services/git-project-resolver";
+import { resolveProject, resolveGitStatus } from "../services/git-project-resolver";
 import { linkSpecToSession } from "../services/session-spec-link";
 
 const log = createLogger("agent:routes:sessions");
@@ -436,6 +437,22 @@ export async function handleSessionStart(
           log.warn(
             { sessionName, error: err instanceof Error ? err.message : String(err) },
             "git project enrichment failed for /session/start (non-fatal)",
+          );
+        });
+
+      // mx-rkir.5: working-tree dirty/ahead/behind status, resolved
+      // fire-and-forget alongside git-project enrichment above. Independent
+      // catch — a status hiccup must not affect the origin/projectId path.
+      resolveGitStatus(body.path)
+        .then(async (status) => {
+          if (status) {
+            await updateSessionGitStatus(db, sessionName, status);
+          }
+        })
+        .catch((err: unknown) => {
+          log.warn(
+            { sessionName, error: err instanceof Error ? err.message : String(err) },
+            "git status resolution failed for /session/start (non-fatal)",
           );
         });
     } catch (err) {

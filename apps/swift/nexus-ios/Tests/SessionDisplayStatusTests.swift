@@ -13,14 +13,16 @@ final class SessionDisplayStatusTests: XCTestCase {
         status: String = "active",
         agentState: AgentState? = nil,
         endedAt: Date? = nil,
-        parentSessionId: String? = nil
+        parentSessionId: String? = nil,
+        isMonitorSession: Bool? = nil
     ) -> Session {
         Session(
             id: "s",
             status: status,
             endedAt: endedAt,
             agentState: agentState,
-            parentSessionId: parentSessionId
+            parentSessionId: parentSessionId,
+            isMonitorSession: isMonitorSession
         )
     }
 
@@ -99,6 +101,52 @@ final class SessionDisplayStatusTests: XCTestCase {
         XCTAssertEqual(
             SessionDisplayStatus.derive(from: session(agentState: .blocked), hasActiveChildren: false),
             .activelyRunning
+        )
+    }
+
+    // MARK: - Monitor-tool classification (mx-rkir.5)
+
+    func testMonitorSessionMapsToMonitor() {
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(from: session(agentState: .blocked, isMonitorSession: true)),
+            .monitor
+        )
+    }
+
+    func testNonMonitorSessionUnaffected() {
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(from: session(agentState: .blocked, isMonitorSession: false)),
+            .activelyRunning
+        )
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(from: session(agentState: .blocked, isMonitorSession: nil)),
+            .activelyRunning
+        )
+    }
+
+    func testWaitingForMeWinsOverMonitor() {
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(from: session(agentState: .waiting, isMonitorSession: true)),
+            .waitingForMe
+        )
+    }
+
+    func testParallelAgentsWinsOverMonitor() {
+        // A fan-out parent that also ran Monitor still reads as parallelAgents
+        // — "running sub-agents" is the more salient fact.
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(
+                from: session(agentState: .blocked, isMonitorSession: true),
+                hasActiveChildren: true
+            ),
+            .parallelAgents
+        )
+    }
+
+    func testEndedWinsOverMonitor() {
+        XCTAssertEqual(
+            SessionDisplayStatus.derive(from: session(agentState: .blocked, endedAt: Date(), isMonitorSession: true)),
+            .stale
         )
     }
 }

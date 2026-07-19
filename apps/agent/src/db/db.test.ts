@@ -218,6 +218,10 @@ describe.skipIf(!hasPg)("session CRUD (requires live PG)", () => {
       agentState: null,
       parentSessionId: null,
       childRole: null,
+      gitDirty: null,
+      gitAhead: null,
+      gitBehind: null,
+      isMonitorSession: null,
     };
 
     await insertSession(db, row);
@@ -283,6 +287,10 @@ function makeSessionRow(over: Partial<SessionRow> & { id: string }): SessionRow 
     agentState: null,
     parentSessionId: null,
     childRole: null,
+    gitDirty: null,
+    gitAhead: null,
+    gitBehind: null,
+    isMonitorSession: null,
     ...over,
   };
 }

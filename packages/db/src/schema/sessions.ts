@@ -7,6 +7,7 @@ import {
   timestamp,
   real,
   uuid,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 import { agents } from "./agents";
@@ -76,6 +77,31 @@ export const sessions = pgTable(
      * may also group by this column.
      */
     childRole: text("child_role"),
+
+    // Working-tree git status fields — added by mx-rkir.5. Populated by
+    // `services/git-project-resolver.ts#resolveGitStatus` (delegates to the
+    // existing `getGitMetadata` cwd-cached resolver in `services/git-project.ts`)
+    // alongside the git-origin fields above. Nullable + no default (additive,
+    // backward-compatible): null means "not yet resolved for this cwd", NOT
+    // "clean and in sync" — consumers must not conflate the two.
+    /** Working tree has uncommitted/untracked tracked changes. */
+    gitDirty: boolean("git_dirty"),
+    /** Commits ahead of the configured upstream. 0 when no upstream / in sync. */
+    gitAhead: integer("git_ahead"),
+    /** Commits behind the configured upstream. 0 when no upstream / in sync. */
+    gitBehind: integer("git_behind"),
+
+    // Monitor-tool classification — added by mx-rkir.5. Orthogonal to
+    // `sessionType` (attach-mechanism classification: ad_hoc/managed/pooled) —
+    // deliberately NOT folded into that enum, since a Monitor-tool-driven
+    // session is still tmux-managed/attach-eligible and overloading
+    // `sessionType` would silently break the `sessionType == "managed"` PTY
+    // attach gate (apps/swift Dashboard/PtyViewer.swift, Attach/SshTerminalSession.swift).
+    // Sticky per-session: set true the first time a `tool_use_end` hook event
+    // carries `tool === "Monitor"`, never cleared back to false/null for the
+    // life of the session (mirrors the additive, no-clobber shape of
+    // `updateSessionAgentState`'s siblings).
+    isMonitorSession: boolean("is_monitor_session"),
   },
   (table) => [
     // Supports the process-watcher reconciliation query, which selects open

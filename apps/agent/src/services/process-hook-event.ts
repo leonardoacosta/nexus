@@ -29,12 +29,14 @@ import { sessions, eq } from "@nexus/db";
 import { createLogger } from "@nexus/core/node";
 import type { SessionManager } from "../session-manager";
 import { resolveGitOrigin } from "./git-project";
-import { resolveProject } from "./git-project-resolver";
+import { resolveProject, resolveGitStatus } from "./git-project-resolver";
 import { inspectAndEmitDrift } from "./schema-drift";
 import { collectContextUsage } from "./context-usage-collector";
 import { applyStatuslineSnapshot } from "../routes/session-context";
 import {
   updateSessionGitOrigin,
+  updateSessionGitStatus,
+  markSessionMonitor,
   backfillSessionCwd,
   deriveAgentState,
   updateSessionAgentState,
@@ -275,6 +277,49 @@ export async function processHookEvent(
           log.debug(
             { sessionId: input.sessionId, cwd: input.cwd },
             "process-hook-event: no git origin for cwd (non-git or missing remote)",
+          );
+        }
+        // mx-rkir.5: working-tree dirty/ahead/behind status, resolved
+        // alongside git-origin. Own try/catch — a status-resolution hiccup
+        // must not block the git-origin branch above (mirrors the model-
+        // persist block's isolation shape).
+        try {
+          const status = await resolveGitStatus(input.cwd);
+          if (status) {
+            await updateSessionGitStatus(db, input.sessionId, status);
+            log.debug(
+              { sessionId: input.sessionId, ...status, source: input.source },
+              "process-hook-event: git working-tree status resolved + persisted",
+            );
+          }
+        } catch (err) {
+          log.warn(
+            { err, sessionId: input.sessionId, source: input.source },
+            "process-hook-event: git status resolution threw (non-fatal)",
+          );
+        }
+        break;
+      }
+
+      // mx-rkir.5: monitor-tool classification. `tool_use_end` fires on every
+      // completed tool call (nx-9qsmb.5) and carries `tool` — a Monitor-tool
+      // invocation marks the session sticky-monitor for the iOS/macOS status
+      // dot. Best-effort: swallow errors, never block the primary dispatch
+      // path (matches every other branch in this switch).
+      case "tool_use_end": {
+        if (!db || !input.sessionId) break;
+        const tool = input.payload.tool;
+        if (tool !== "Monitor") break;
+        try {
+          await markSessionMonitor(db, input.sessionId);
+          log.debug(
+            { sessionId: input.sessionId, source: input.source },
+            "process-hook-event: monitor-session flag persisted",
+          );
+        } catch (err) {
+          log.warn(
+            { err, sessionId: input.sessionId, source: input.source },
+            "process-hook-event: monitor-session flag persist threw (non-fatal)",
           );
         }
         break;

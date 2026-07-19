@@ -145,6 +145,10 @@ function makeSeedRow(id: string): SessionRow {
     agentState: null,
     parentSessionId: null,
     childRole: null,
+    gitDirty: null,
+    gitAhead: null,
+    gitBehind: null,
+    isMonitorSession: null,
   };
 }
 

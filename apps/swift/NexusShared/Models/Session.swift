@@ -104,6 +104,19 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
     public var gitAhead: Int?
     public var gitBehind: Int?
 
+    /// Monitor-tool classification (mx-rkir.5): true once the nexus-agent has
+    /// observed a `tool_use_end` hook event with `tool == "Monitor"` for this
+    /// session (`sessions.is_monitor_session`, sticky for the session's
+    /// lifetime — see `apps/agent/src/services/process-hook-event.ts`'s
+    /// `tool_use_end` branch). Nil on legacy rows / sessions that have never
+    /// run the Monitor tool. Deliberately a NEW orthogonal field rather than a
+    /// `sessionType == "monitor"` extension — `sessionType` gates real PTY
+    /// attach eligibility (`sessionType == "managed"`, see PtyViewer.swift /
+    /// SshTerminalSession.swift) and a Monitor-tool-driven session is still
+    /// tmux-managed/attach-eligible, so overloading that enum would silently
+    /// break attach for it.
+    public var isMonitorSession: Bool?
+
     public enum CodingKeys: String, CodingKey {
         case id
         case project
@@ -137,6 +150,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         case gitDirty
         case gitAhead
         case gitBehind
+        case isMonitorSession
     }
 
     public init(from decoder: Decoder) throws {
@@ -184,6 +198,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.gitDirty              = try c.decodeIfPresent(Bool.self, forKey: .gitDirty)
         self.gitAhead              = try c.decodeIfPresent(Int.self, forKey: .gitAhead)
         self.gitBehind             = try c.decodeIfPresent(Int.self, forKey: .gitBehind)
+        self.isMonitorSession      = try c.decodeIfPresent(Bool.self, forKey: .isMonitorSession)
     }
 
     public init(
@@ -217,7 +232,8 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         childRole: String? = nil,
         gitDirty: Bool? = nil,
         gitAhead: Int? = nil,
-        gitBehind: Int? = nil
+        gitBehind: Int? = nil,
+        isMonitorSession: Bool? = nil
     ) {
         self.id = id
         self.project = project
@@ -250,6 +266,7 @@ public struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
         self.gitDirty = gitDirty
         self.gitAhead = gitAhead
         self.gitBehind = gitBehind
+        self.isMonitorSession = isMonitorSession
     }
 
     /// Distinguish a real Claude Code session from telemetry-ping stubs.

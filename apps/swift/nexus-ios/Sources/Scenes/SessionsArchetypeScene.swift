@@ -186,12 +186,13 @@ enum SessionDisplayStatus {
     /// so this is computed from the sessions array and passed in as
     /// `hasActiveChildren`.
     case parallelAgents
-    /// Background monitor session (non-blocking). NO BACKING FIELD — Session
-    /// has no monitor classification (`sessionType` is only ad_hoc/managed/
-    /// pooled), so this state is never produced. Lighting it up needs a
-    /// backend nexus-agent change: a product definition of a "monitor" session
-    /// plus a wire signal (e.g. a `sessionType == "monitor"` extension). Flagged
-    /// on mx-rkir.5 for a TypeScript-side follow-up.
+    /// Background monitor session (non-blocking). Backed by
+    /// `session.isMonitorSession == true` (mx-rkir.5): the nexus-agent sets
+    /// this the first time a `tool_use_end` hook event carries
+    /// `tool == "Monitor"` for the session (sticky for its lifetime — see
+    /// `apps/agent/src/services/process-hook-event.ts`). Deliberately NOT a
+    /// `sessionType` extension — `sessionType` gates PTY attach eligibility
+    /// and a Monitor-tool session is still attach-eligible.
     case monitor
     /// Session live but idle (alive, not ended) — agentState .ready, or active
     /// status with no blocking agentState.
@@ -209,8 +210,14 @@ enum SessionDisplayStatus {
     ///      even when its own agentState is `.blocked` (SubagentStart marks the
     ///      parent blocked while children run) or `.ready`; the salient fact is
     ///      "sub-agents are running under this session".
-    ///   4. the remaining agent-activity axis (`.blocked` / `.ready`).
-    ///   5. the lifecycle/liveness axis (status) when there is no agentState.
+    ///   4. `session.isMonitorSession` — a Monitor-tool-driven session (mx-
+    ///      rkir.5) reads as `.monitor` when it is not a fan-out parent and
+    ///      does not need my input. Same "background, non-blocking" tier as
+    ///      parallelAgents; parallelAgents wins when both are true (a fan-out
+    ///      orchestrator that also ran Monitor is still primarily "running
+    ///      sub-agents" from the user's perspective).
+    ///   5. the remaining agent-activity axis (`.blocked` / `.ready`).
+    ///   6. the lifecycle/liveness axis (status) when there is no agentState.
     ///
     /// `hasActiveChildren` is computed by the caller from the sessions feed
     /// (any live row whose `parentSessionId` == this session's id).
@@ -228,6 +235,10 @@ enum SessionDisplayStatus {
         // A fan-out parent surfaces as parallelAgents regardless of its own
         // blocked/ready state.
         if hasActiveChildren { return .parallelAgents }
+        // Monitor-tool session (mx-rkir.5) — background, non-blocking, same
+        // precedence tier as parallelAgents (checked above it only because a
+        // fan-out parent is the more salient fact when both are true).
+        if session.isMonitorSession == true { return .monitor }
         switch session.agentState {
         case .blocked: return .activelyRunning
         case .waiting: return .waitingForMe  // unreachable (handled above); kept exhaustive
@@ -238,8 +249,7 @@ enum SessionDisplayStatus {
         }
     }
 
-    /// Distinct color per state. parallelAgents / monitor have no producer but
-    /// are colored for completeness should a backend signal arrive later.
+    /// Distinct color per state.
     var color: Color {
         switch self {
         case .activelyRunning: return .green
@@ -330,10 +340,11 @@ private struct SessionRow: View {
     /// `gitBehind` wire fields. Renders NOTHING when the fields are absent (nil
     /// = the agent hasn't resolved this session's tree yet) or when the tree is
     /// clean and in sync — "clean" reads as the absence of markers rather than
-    /// an explicit badge, to keep the row uncluttered. The `gitDirty` /
-    /// `gitAhead` / `gitBehind` keys are emitted by the nexus-agent backend
-    /// half of mx-rkir.5; until that ships these are always nil and this
-    /// segment is empty (graceful, no crash — decodeIfPresent).
+    /// an explicit badge, to keep the row uncluttered. Emitted by the
+    /// nexus-agent's `git-project-resolver.ts#resolveGitStatus` (session_start,
+    /// `/session/start`, and every process-watcher poll tick); a session the
+    /// agent has not yet resolved decodes these as nil (graceful, no crash —
+    /// decodeIfPresent) and this segment stays empty.
     @ViewBuilder
     private var gitStatusSegment: some View {
         if session.gitDirty == true {

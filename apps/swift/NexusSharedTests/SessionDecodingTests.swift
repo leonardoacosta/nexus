@@ -58,9 +58,9 @@ final class SessionDecodingTests: XCTestCase {
     // MARK: - Git working-tree status (mx-rkir.5)
 
     /// The `gitDirty` / `gitAhead` / `gitBehind` per-session wire fields decode
-    /// to their values. Uses its own minimal JSON (NOT the shared drift-guard
-    /// fixture) since the backend half of mx-rkir.5 has not yet added these keys
-    /// to stub-agent SESSIONS_FIXTURE.
+    /// to their values. Uses its own minimal JSON — the shared drift-guard
+    /// fixture below also covers these keys (non-null on the child row) now
+    /// that the backend half of mx-rkir.5 emits them.
     func testDecodesGitWorkingTreeStatus() throws {
         let json = """
         {"id": "git", "gitDirty": true, "gitAhead": 3, "gitBehind": 1}
@@ -71,8 +71,9 @@ final class SessionDecodingTests: XCTestCase {
         XCTAssertEqual(s.gitBehind, 1)
     }
 
-    /// Absent git-status keys decode to nil — the graceful default until the
-    /// backend emits them (the SessionRow git segment then renders nothing).
+    /// Absent git-status keys decode to nil — the graceful default for a
+    /// session the agent hasn't resolved yet (the SessionRow git segment then
+    /// renders nothing).
     func testGitWorkingTreeStatusAbsentIsNil() throws {
         let json = """
         {"id": "nogit", "status": "active"}
@@ -81,6 +82,24 @@ final class SessionDecodingTests: XCTestCase {
         XCTAssertNil(s.gitDirty)
         XCTAssertNil(s.gitAhead)
         XCTAssertNil(s.gitBehind)
+    }
+
+    // MARK: - Monitor-tool classification (mx-rkir.5)
+
+    func testDecodesMonitorSessionFlag() throws {
+        let json = """
+        {"id": "mon", "isMonitorSession": true}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(Session.self, from: json)
+        XCTAssertEqual(s.isMonitorSession, true)
+    }
+
+    func testMonitorSessionFlagAbsentIsNil() throws {
+        let json = """
+        {"id": "notmon", "status": "active"}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(Session.self, from: json)
+        XCTAssertNil(s.isMonitorSession)
     }
 
     // MARK: - Full wire-shape + aggregate envelope (spec task 2.1, bd:nx-3ltm0)
@@ -125,14 +144,18 @@ final class SessionDecodingTests: XCTestCase {
       "gitProvider": null,
       "gitOwnerRepo": null,
       "parentSessionId": null,
-      "childRole": null
+      "childRole": null,
+      "gitDirty": null,
+      "gitAhead": null,
+      "gitBehind": null,
+      "isMonitorSession": null
     }
     """
 
-    /// Decodes the FULL current `/sessions` wire row (all 26 Drizzle
-    /// columns). Asserts the subset `Session` projects out is correct and
-    /// that the dozens of unknown server columns do NOT break decode
-    /// (server-extension tolerance is the contract — Session.swift header).
+    /// Decodes the FULL current `/sessions` wire row. Asserts the subset
+    /// `Session` projects out is correct and that the dozens of unknown
+    /// server columns do NOT break decode (server-extension tolerance is
+    /// the contract — Session.swift header).
     func testDecodesFullStubSessionsWireRow() throws {
         let data = Self.stubSessionRowJSON.data(using: .utf8)!
         let s = try JSONDecoder().decode(Session.self, from: data)
@@ -187,7 +210,11 @@ final class SessionDecodingTests: XCTestCase {
       "gitProvider": null,
       "gitOwnerRepo": null,
       "parentSessionId": "stub-sess-1",
-      "childRole": "explore"
+      "childRole": "explore",
+      "gitDirty": true,
+      "gitAhead": 2,
+      "gitBehind": 1,
+      "isMonitorSession": true
     }
     """
 
@@ -195,7 +222,9 @@ final class SessionDecodingTests: XCTestCase {
     /// (spec / rateLimitUtilization / credentialId / credentialFingerprint /
     /// parentSessionId / childRole) MUST decode to their wire values. A Swift model
     /// missing any CodingKey decodes that field to nil and fails here — this is the
-    /// TS↔Swift wire-drift guard.
+    /// TS↔Swift wire-drift guard. Also covers the four mx-rkir.5 columns
+    /// (gitDirty / gitAhead / gitBehind / isMonitorSession) on their non-null
+    /// stub-agent exercise values.
     func testDecodesSubagentTreeAndCredentialFields() throws {
         let data = Self.stubChildSessionRowJSON.data(using: .utf8)!
         let s = try JSONDecoder().decode(Session.self, from: data)
@@ -205,6 +234,10 @@ final class SessionDecodingTests: XCTestCase {
         XCTAssertEqual(s.credentialFingerprint, "fp-aaaa")
         XCTAssertEqual(s.spec, "add-subagent-tree-columns")
         XCTAssertEqual(s.rateLimitUtilization ?? -1, 0.42, accuracy: 0.001)
+        XCTAssertEqual(s.gitDirty, true)
+        XCTAssertEqual(s.gitAhead, 2)
+        XCTAssertEqual(s.gitBehind, 1)
+        XCTAssertEqual(s.isMonitorSession, true)
     }
 
     /// `GET /sessions` returns a bare JSON ARRAY (no envelope) —

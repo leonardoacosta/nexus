@@ -22,6 +22,11 @@
  * malformed URL, DB lookup error) returns `null`. The resolver NEVER throws.
  * Callers MUST treat a `null` return as "no enrichment available, proceed
  * with null fields on the session row".
+ *
+ * `resolveGitStatus` (mx-rkir.5) extends the resolver with working-tree
+ * dirty/ahead/behind status by delegating to `getGitMetadata` in
+ * `./git-project.ts` (the existing cwd-cached `git status --porcelain=v2`
+ * resolver built for the Projects tab). Same fail-soft, cwd-cached contract.
  */
 
 import type { Db } from "@nexus/db";
@@ -29,6 +34,7 @@ import { projects } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { execText } from "../utils/exec";
+import { getGitMetadata } from "./git-project";
 
 const log = createLogger("agent:services:git-project-resolver");
 
@@ -366,4 +372,43 @@ export async function resolveProject(
   };
   cache.set(cwd, { result, expiresAt: now + CACHE_TTL_MS });
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Working-tree status — mx-rkir.5
+// ---------------------------------------------------------------------------
+
+/** Working-tree dirty/ahead/behind status for a session's cwd. */
+export interface GitStatusInfo {
+  /** Working tree has uncommitted/untracked tracked changes. */
+  dirty: boolean;
+  /** Commits ahead of the configured upstream (0 when no upstream / in sync). */
+  ahead: number;
+  /** Commits behind the configured upstream (0 when no upstream / in sync). */
+  behind: number;
+}
+
+/**
+ * Resolve working-tree dirty/ahead/behind status for a cwd.
+ *
+ * Deliberately delegates to `getGitMetadata` (`./git-project.ts`) — the
+ * resolver already built for the Projects-tab accordion — rather than
+ * re-implementing a `git status --porcelain` parse here. Reader Gate: that
+ * function already does exactly this (cwd-keyed, 30s-cached, 2s-timeout,
+ * fail-soft `dirty`/`ahead`/`behind` fields), so this is a thin projection,
+ * not a second implementation.
+ *
+ * Returns `null` for non-git directories, subprocess failures, or timeouts —
+ * callers MUST treat `null` as "not yet resolved", never as "clean".
+ */
+export async function resolveGitStatus(
+  cwd: string | null | undefined,
+): Promise<GitStatusInfo | null> {
+  const metadata = await getGitMetadata(cwd);
+  if (!metadata) return null;
+  return {
+    dirty: metadata.dirty,
+    ahead: metadata.ahead,
+    behind: metadata.behind,
+  };
 }

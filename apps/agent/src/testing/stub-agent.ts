@@ -126,8 +126,14 @@ export const SESSIONS_FIXTURE: SessionRow[] = [
     agentState: null,
     parentSessionId: null,
     childRole: null,
+    // mx-rkir.5: git working-tree status + monitor classification. null here
+    // (clean baseline row); the child row below exercises non-null values.
+    gitDirty: null,
+    gitAhead: null,
+    gitBehind: null,
+    isMonitorSession: null,
   },
-  // Child subagent row (child of stub-sess-1). Populates the six previously
+  // Child subagent row (child of stub-sess-1). Populates the ten previously
   // Swift-drifted columns with non-null values so the Swift contract test
   // (SessionDecodingTests.testDecodesSubagentTreeAndCredentialFields) can
   // assert they decode to real values. Every column is present because the
@@ -161,6 +167,11 @@ export const SESSIONS_FIXTURE: SessionRow[] = [
     agentState: null,
     parentSessionId: "stub-sess-1",
     childRole: "explore",
+    // mx-rkir.5: non-null exercise values for the drift guard.
+    gitDirty: true,
+    gitAhead: 2,
+    gitBehind: 1,
+    isMonitorSession: true,
   },
 ];
 

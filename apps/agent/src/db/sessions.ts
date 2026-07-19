@@ -175,6 +175,15 @@ function sessionToRow(session: Session): SessionRow {
     // is correct — the writer path that owns these fields is the helper.
     gitProvider: null,
     gitOwnerRepo: null,
+    // Working-tree git status + monitor classification (mx-rkir.5). Same
+    // shape as gitProvider/gitOwnerRepo above: not surfaced on the domain
+    // Session type, persisted directly via `updateSessionGitStatus` /
+    // `markSessionMonitor`. Falling through as null here is correct — those
+    // helpers own the columns.
+    gitDirty: null,
+    gitAhead: null,
+    gitBehind: null,
+    isMonitorSession: null,
     // Sub-agent tree fields (add-subagent-tree-columns). Populated from
     // the in-memory Session, which is patched by `updateLinkage`.
     parentSessionId: session.parentSessionId ?? null,
@@ -204,6 +213,49 @@ export async function updateSessionGitOrigin(
       gitOwnerRepo: origin.ownerRepo,
     })
     .where(eq(sessions.id, sessionId));
+}
+
+/**
+ * Persist working-tree git status for a session (mx-rkir.5): dirty/ahead/
+ * behind, resolved by `services/git-project-resolver.ts#resolveGitStatus`.
+ * Mirrors `updateSessionGitOrigin`'s targeted-UPDATE shape — bypasses the
+ * in-memory Session type (which does not surface these fields, matching the
+ * gitProvider/gitOwnerRepo precedent) and writes directly to the DB row.
+ */
+export async function updateSessionGitStatus(
+  db: Db,
+  sessionId: string,
+  status: { dirty: boolean; ahead: number; behind: number },
+): Promise<void> {
+  await db
+    .update(sessions)
+    .set({
+      gitDirty: status.dirty,
+      gitAhead: status.ahead,
+      gitBehind: status.behind,
+    })
+    .where(eq(sessions.id, sessionId));
+}
+
+/**
+ * Mark a session as monitor-tool-driven (mx-rkir.5): set the first time a
+ * `tool_use_end` hook event carries `tool === "Monitor"` for this session.
+ *
+ * Sticky, one-directional UPDATE — only ever called with `true` from the
+ * caller (see `process-hook-event.ts`'s `tool_use_end` branch), so there is
+ * no clobber risk to guard against; `isMonitorSession` stays true for the
+ * life of the session once set. Returns the number of rows touched.
+ */
+export async function markSessionMonitor(
+  db: Db,
+  sessionId: string,
+): Promise<number> {
+  const updated = await db
+    .update(sessions)
+    .set({ isMonitorSession: true })
+    .where(eq(sessions.id, sessionId))
+    .returning({ id: sessions.id });
+  return updated.length;
 }
 
 /**

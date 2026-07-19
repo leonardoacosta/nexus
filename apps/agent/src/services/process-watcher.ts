@@ -55,9 +55,14 @@ import {
   upsertSession,
   touchHeartbeatByPids,
   updateSessionGitOrigin,
+  updateSessionGitStatus,
 } from "../db/sessions";
 import { lifecycleBus } from "./lifecycle-bus";
-import { resolveProject, resolverCacheStats } from "./git-project-resolver";
+import {
+  resolveProject,
+  resolveGitStatus,
+  resolverCacheStats,
+} from "./git-project-resolver";
 import {
   recordTickDurationMs,
   incPidsOpened,
@@ -593,6 +598,10 @@ async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
   // null-project row gets enriched on next poll"). The 30s resolver cache
   // keeps this cheap even across many sessions in the same cwd.
   const needsEnrichment: Array<{ id: string; cwd: string }> = [];
+  // mx-rkir.5: every live row with a known cwd, refreshed each tick (see the
+  // loop below — distinct from `needsEnrichment`, which is a one-time
+  // null-provider backfill).
+  const needsGitStatusRefresh: Array<{ id: string; cwd: string }> = [];
   // nx-ds6rq: alive rows whose cwd or tmuxTarget is still blank but whose
   // pid matched a pane this tick get backfilled inline. Distinct from
   // `needsEnrichment` because this is the row-fill step, not the
@@ -639,6 +648,20 @@ async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
         const effectiveCwd = (pane?.cwd ?? row.cwd ?? "").trim();
         if (effectiveCwd) {
           needsEnrichment.push({ id: row.id, cwd: effectiveCwd });
+        }
+      }
+
+      // mx-rkir.5: UNLIKE git-origin (static, one-time enrichment), refresh
+      // working-tree status on EVERY tick for EVERY live row with a known
+      // cwd — dirty/ahead/behind changes continuously as the user edits and
+      // commits. Cheap: `resolveGitStatus` -> `getGitMetadata` carries its
+      // own 30s per-cwd cache + 2s subprocess timeout, so this is at most one
+      // `git status` per unique cwd per poll cycle (same bound as the
+      // git-origin resolver above).
+      {
+        const effectiveCwd = (pane?.cwd ?? row.cwd ?? "").trim();
+        if (effectiveCwd) {
+          needsGitStatusRefresh.push({ id: row.id, cwd: effectiveCwd });
         }
       }
     }
@@ -727,6 +750,29 @@ async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
           error: err instanceof Error ? err.message : String(err),
         },
         "failed to re-enrich session row with git project (non-fatal)",
+      );
+    }
+  }
+
+  // Step 1c2 (mx-rkir.5): refresh working-tree dirty/ahead/behind status for
+  // every live row with a known cwd — every tick, not just once. Independent
+  // of git-origin re-enrichment above (that's a one-time null-provider
+  // backfill; this is a continuous refresh since the working tree changes as
+  // the user edits/commits). `resolveGitStatus`'s own 30s cwd cache keeps
+  // this to at most one subprocess per unique cwd per poll cycle.
+  for (const row of needsGitStatusRefresh) {
+    try {
+      const status = await resolveGitStatus(row.cwd);
+      if (!status) continue;
+      await updateSessionGitStatus(db, row.id, status);
+    } catch (err) {
+      log.warn(
+        {
+          id: row.id,
+          cwd: row.cwd,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "failed to refresh git working-tree status for session row (non-fatal)",
       );
     }
   }
@@ -825,6 +871,27 @@ async function reconcileOncePass(db: Db): Promise<ReconcileResult> {
               error: err instanceof Error ? err.message : String(err),
             },
             "failed to persist git origin for new session (non-fatal)",
+          );
+        }
+      }
+
+      // mx-rkir.5: working-tree dirty/ahead/behind status for a fresh row.
+      // Same fail-soft, own-try/catch shape as the git-origin persist above —
+      // a status hiccup at discovery time must not block row insertion.
+      if (cwd) {
+        try {
+          const status = await resolveGitStatus(cwd);
+          if (status) {
+            await updateSessionGitStatus(db, sessionId, status);
+          }
+        } catch (err) {
+          log.warn(
+            {
+              sessionId,
+              cwd,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            "failed to persist git status for new session (non-fatal)",
           );
         }
       }
