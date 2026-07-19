@@ -1,17 +1,27 @@
 /**
- * Config Loader — cached reads of projects.json and settings.json.
+ * Config Loader — cached reads of the project registry (projects.toml) and
+ * settings.json.
  *
  * Call `initConfigLoader()` once at startup to populate caches and start
  * fs.watch watchers. Subsequent calls to `getProjects()` / `getSettings()`
  * return the cached values (refreshed automatically on file change).
  *
  * Call `stopConfigLoader()` during shutdown to close watchers.
+ *
+ * Registry source (repoint-config-loader-to-projects-toml): the project
+ * registry used to live at `~/.claude/scripts/config/projects.json` — that
+ * file was deleted (cc commit 2e0c2066, migrate-projects-json-to-if-toml) in
+ * favor of installfest's `home/projects.toml`, the canonical
+ * `[[projects]]` array-of-tables registry cc's own `scripts/lib/
+ * projects-toml.sh` already reads. `PROJECTS_TOML_PATH` follows that same
+ * hardcoded default, with an env override for tests/alternate machines.
  */
 
 import { readFileSync, watch, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createLogger, expandTilde } from "@nexus/core/node";
+import { parse as parseTOML } from "smol-toml";
+import { createLogger } from "@nexus/core/node";
 
 const log = createLogger("agent:config-loader");
 
@@ -25,11 +35,20 @@ export interface ProjectConfig {
   path: string;
 }
 
+/** Shape of one `[[projects]]` entry in projects.toml — only the fields this loader consumes. */
+interface TomlProjectEntry {
+  code?: unknown;
+  name?: unknown;
+  path?: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
-const PROJECTS_PATH = join(homedir(), ".claude/scripts/config/projects.json");
+const PROJECTS_TOML_PATH =
+  process.env.NEXUS_PROJECTS_TOML ??
+  join(homedir(), "dev/personal/installfest/home/projects.toml");
 const SETTINGS_PATH = join(homedir(), ".claude/settings.json");
 
 // ---------------------------------------------------------------------------
@@ -51,17 +70,26 @@ const DEBOUNCE_MS = 500;
 
 function loadProjects(): ProjectConfig[] {
   try {
-    const contents = readFileSync(PROJECTS_PATH, "utf8");
-    const parsed = JSON.parse(contents) as {
-      projects: Array<{ code: string; name: string; path: string }>;
-    };
-    return parsed.projects.map((p) => ({
-      code: p.code,
-      name: p.name,
-      path: expandTilde(p.path),
-    }));
+    const contents = readFileSync(PROJECTS_TOML_PATH, "utf8");
+    const parsed = parseTOML(contents) as { projects?: TomlProjectEntry[] };
+    const entries = Array.isArray(parsed.projects) ? parsed.projects : [];
+    // path is home-relative in projects.toml (e.g. "dev/oo", ".claude"),
+    // unlike the old projects.json's tilde-bearing paths — join to $HOME
+    // rather than expandTilde.
+    return entries
+      .filter(
+        (p): p is Required<TomlProjectEntry> & { code: string; name: string; path: string } =>
+          typeof p.code === "string" &&
+          typeof p.name === "string" &&
+          typeof p.path === "string",
+      )
+      .map((p) => ({
+        code: p.code,
+        name: p.name,
+        path: join(homedir(), p.path),
+      }));
   } catch {
-    log.debug("config-loader: projects.json not found or invalid, returning empty array");
+    log.debug("config-loader: projects.toml not found or invalid, returning empty array");
     return [];
   }
 }
@@ -104,21 +132,21 @@ export function initConfigLoader(): void {
     "config-loader: initial load complete",
   );
 
-  // Watch projects.json.
-  if (!projectsWatcher && existsSync(PROJECTS_PATH)) {
+  // Watch projects.toml.
+  if (!projectsWatcher && existsSync(PROJECTS_TOML_PATH)) {
     try {
-      projectsWatcher = watch(PROJECTS_PATH, () => {
+      projectsWatcher = watch(PROJECTS_TOML_PATH, () => {
         if (debounceProjectsTimer) clearTimeout(debounceProjectsTimer);
         debounceProjectsTimer = setTimeout(() => {
           projectsCache = loadProjects();
           log.info(
             { projects: projectsCache.length },
-            "config-loader: projects.json reloaded",
+            "config-loader: projects.toml reloaded",
           );
         }, DEBOUNCE_MS);
       });
     } catch (err) {
-      log.warn({ error: err }, "config-loader: failed to watch projects.json");
+      log.warn({ error: err }, "config-loader: failed to watch projects.toml");
     }
   }
 
