@@ -34,16 +34,16 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Wire `SettingsTtsView.persistToggles()` to call [beads:nx-nt0tf]
+- [x] [3.1] Wire `SettingsTtsView.persistToggles()` to call [beads:nx-nt0tf]
   `NexusClient.patchNotificationSettings()` with `tts_enabled`/`banner_enabled`/`ducking_mode`/
   `signal_only` (snake_case), following `SettingsRoutingView.persistSettings()`'s existing
   pattern (persist local `SettingsStore` first, then PATCH, flash a save/error status)
   - depends on: 2.1
-- [ ] [3.2] Fix `NotificationsView.persist()`'s PATCH body to use `meeting_mode`/`signal_only`/ [beads:nx-3yesl]
+- [x] [3.2] Fix `NotificationsView.persist()`'s PATCH body to use `meeting_mode`/`signal_only`/ [beads:nx-3yesl]
   `suppression_minutes` (snake_case) instead of the current camelCase keys, and surface a visible
   error state when the PATCH call fails instead of unconditionally showing "Saved"
   - depends on: 2.1
-- [ ] [3.3] Subscribe `TTSObserver` to the `SettingsChanged` SSE event and update its cached [beads:nx-xi5qg]
+- [x] [3.3] Subscribe `TTSObserver` to the `SettingsChanged` SSE event and update its cached [beads:nx-xi5qg]
   gating state (`ttsEnabled`, `banner`, `ducking`, `signalOnly`) from the event payload; extend
   `SettingsStore` if a new overlay/cache field is needed to hold the server-sourced values
   - depends on: 2.3
