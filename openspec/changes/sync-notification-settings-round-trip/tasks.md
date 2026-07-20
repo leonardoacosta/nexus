@@ -55,15 +55,20 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Manual verification: toggle TTS/banner/ducking/signal-only in `SettingsTtsView`, [beads:nx-kxx5t]
-  confirm via `curl -H "x-nexus-secret: $SECRET" http://localhost:7400/notifications/settings`
-  that the change persisted server-side
+- [ ] [4.1] [user] On-device verification (Mac, GUI-bound): toggle TTS/banner/ducking/signal-only [beads:nx-kxx5t]
+  in `SettingsTtsView`, confirm via `curl -H "x-nexus-secret: $SECRET"
+  http://localhost:7400/notifications/settings` that the change persisted server-side. searched:
+  no headless path exists to drive the running macOS menu bar app's SwiftUI toggles from this
+  Linux orchestrator; requires the app open on-device post-deploy.
   - depends on: 3.1
-- [ ] [4.2] Manual verification: toggle meeting-mode/signal-only/suppression in the Notifications [beads:nx-3j75q]
-  drawer, confirm the same via `GET /notifications/settings`, and confirm a simulated agent-down
-  PATCH failure shows a visible error (not "Saved")
+- [ ] [4.2] [user] On-device verification (Mac, GUI-bound): toggle meeting-mode/signal-only/ [beads:nx-3j75q]
+  suppression in the Notifications drawer, confirm the same via `GET /notifications/settings`,
+  and confirm a simulated agent-down PATCH failure shows a visible error (not "Saved"). searched:
+  same GUI-bound constraint as 4.1.
   - depends on: 3.2
-- [ ] [4.3] Manual verification: PATCH `/notifications/settings` directly (simulating a remote [beads:nx-99i09]
-  machine's change) and confirm the local `TTSObserver`'s gating behavior updates without an app
-  restart
+- [ ] [4.3] [user] On-device verification (Mac, GUI-bound): PATCH `/notifications/settings` [beads:nx-99i09]
+  directly (simulating a remote machine's change) and confirm the local `TTSObserver`'s gating
+  behavior updates without an app restart. searched: applySettingsChange()'s field-mapping logic
+  is unit-tested (3.4); this task verifies the live end-to-end wiring on-device, which the unit
+  tests cannot — same GUI-bound constraint as 4.1.
   - depends on: 3.3
