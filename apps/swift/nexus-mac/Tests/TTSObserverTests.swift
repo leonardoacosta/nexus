@@ -417,4 +417,153 @@ final class TTSObserverTests: XCTestCase {
         XCTAssertGreaterThan(keychain.voiceIdReads, 0,
                              "ttsEnabled=true must reach synthesise() (voiceId consulted)")
     }
+
+    // MARK: - 7) applySettingsChange — remote SettingsChanged round-trip
+    //          (sync-notification-settings-round-trip, task 3.4 / nx-xzywt)
+
+    // The three gating fields applySettingsChange writes to `UserDefaults
+    // .standard` (ttsEnabled goes to the injected SettingsStore instead).
+    private static let bannerKey = "nx.notifications.bannerEnabled"
+    private static let duckingKey = "elevenlabs.ducking"
+    private static let signalOnlyKey = "nx.notifications.signalOnly"
+
+    /// Seed the three standard-domain gating keys to a known baseline so a
+    /// field left ABSENT from a SettingsChanged payload is provably unchanged.
+    private func seedStandardGatingBaseline(banner: Bool, ducking: String, signalOnly: Bool) {
+        let d = UserDefaults.standard
+        d.set(banner, forKey: Self.bannerKey)
+        d.set(ducking, forKey: Self.duckingKey)
+        d.set(signalOnly, forKey: Self.signalOnlyKey)
+    }
+
+    private func clearStandardGatingKeys() {
+        let d = UserDefaults.standard
+        d.removeObject(forKey: Self.bannerKey)
+        d.removeObject(forKey: Self.duckingKey)
+        d.removeObject(forKey: Self.signalOnlyKey)
+    }
+
+    private func settingsChangeEvent(_ json: String) -> SSEEvent {
+        SSEEvent(name: "SettingsChanged", data: json)
+    }
+
+    /// A fully-populated SettingsChanged frame updates every gated field:
+    /// ttsEnabled → the injected SettingsStore, banner/ducking/signalOnly →
+    /// the standard-domain keys the per-event handler reads.
+    func testApplySettingsChangeAppliesEveryPresentField() async {
+        clearStandardGatingKeys()
+        defer { clearStandardGatingKeys() }
+
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-apply-all-\(UUID().uuidString)"
+        )!)
+        store.ttsEnabled = false
+        seedStandardGatingBaseline(banner: true, ducking: "mix", signalOnly: false)
+
+        let observer = makeObserver(settings: store)
+        await observer.applySettingsChange(from: settingsChangeEvent(
+            #"{"ttsEnabled":true,"bannerEnabled":false,"duckingMode":"pause","signalOnly":true}"#
+        ))
+
+        let d = UserDefaults.standard
+        XCTAssertTrue(store.ttsEnabled, "ttsEnabled applied to the SettingsStore")
+        XCTAssertEqual(d.object(forKey: Self.bannerKey) as? Bool, false, "bannerEnabled applied")
+        XCTAssertEqual(d.string(forKey: Self.duckingKey), "pause", "duckingMode applied")
+        XCTAssertEqual(d.object(forKey: Self.signalOnlyKey) as? Bool, true, "signalOnly applied")
+    }
+
+    /// The field-presence guard: a PARTIAL payload updates only the present
+    /// field and leaves every absent field untouched — a settings edit that
+    /// toggled one control must never blank the others.
+    func testApplySettingsChangePartialPayloadPreservesUnrelatedFields() async {
+        clearStandardGatingKeys()
+        defer { clearStandardGatingKeys() }
+
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-apply-partial-\(UUID().uuidString)"
+        )!)
+        store.ttsEnabled = true
+        seedStandardGatingBaseline(banner: true, ducking: "mix", signalOnly: false)
+
+        let observer = makeObserver(settings: store)
+        // Only bannerEnabled present.
+        await observer.applySettingsChange(from: settingsChangeEvent(
+            #"{"bannerEnabled":false}"#
+        ))
+
+        let d = UserDefaults.standard
+        XCTAssertEqual(d.object(forKey: Self.bannerKey) as? Bool, false,
+                       "the present field (bannerEnabled) is updated")
+        XCTAssertTrue(store.ttsEnabled,
+                      "absent ttsEnabled left untouched (not blanked to false)")
+        XCTAssertEqual(d.string(forKey: Self.duckingKey), "mix",
+                       "absent duckingMode left untouched")
+        XCTAssertEqual(d.object(forKey: Self.signalOnlyKey) as? Bool, false,
+                       "absent signalOnly left untouched")
+    }
+
+    /// Each field updates independently: a payload carrying only ttsEnabled
+    /// flips it without disturbing the three standard-domain keys.
+    func testApplySettingsChangeTtsOnlyDoesNotTouchStandardKeys() async {
+        clearStandardGatingKeys()
+        defer { clearStandardGatingKeys() }
+
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-apply-ttsonly-\(UUID().uuidString)"
+        )!)
+        store.ttsEnabled = true
+        seedStandardGatingBaseline(banner: true, ducking: "duck", signalOnly: true)
+
+        let observer = makeObserver(settings: store)
+        await observer.applySettingsChange(from: settingsChangeEvent(
+            #"{"ttsEnabled":false}"#
+        ))
+
+        let d = UserDefaults.standard
+        XCTAssertFalse(store.ttsEnabled, "ttsEnabled flipped independently")
+        XCTAssertEqual(d.object(forKey: Self.bannerKey) as? Bool, true, "banner untouched")
+        XCTAssertEqual(d.string(forKey: Self.duckingKey), "duck", "ducking untouched")
+        XCTAssertEqual(d.object(forKey: Self.signalOnlyKey) as? Bool, true, "signalOnly untouched")
+    }
+
+    /// A ducking value the Swift player can't decode is rejected, not coerced —
+    /// the existing local ducking key is left as-is rather than being clobbered
+    /// with a string resolveDucking() would silently fall back to `.mix`.
+    func testApplySettingsChangeRejectsUndecodableDucking() async {
+        clearStandardGatingKeys()
+        defer { clearStandardGatingKeys() }
+
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-apply-baddk-\(UUID().uuidString)"
+        )!)
+        seedStandardGatingBaseline(banner: true, ducking: "duck", signalOnly: false)
+
+        let observer = makeObserver(settings: store)
+        await observer.applySettingsChange(from: settingsChangeEvent(
+            #"{"duckingMode":"not-a-mode"}"#
+        ))
+
+        XCTAssertEqual(UserDefaults.standard.string(forKey: Self.duckingKey), "duck",
+                       "an out-of-vocab ducking value must leave the existing value intact")
+    }
+
+    /// Envelope tolerance: a `{"payload":{…}}`-wrapped frame is unwrapped and
+    /// applied the same as a flat one (matches the other SSE decoders).
+    func testApplySettingsChangeUnwrapsPayloadEnvelope() async {
+        clearStandardGatingKeys()
+        defer { clearStandardGatingKeys() }
+
+        let store = SettingsStore(defaults: UserDefaults(
+            suiteName: "tts-apply-envelope-\(UUID().uuidString)"
+        )!)
+        store.ttsEnabled = true
+
+        let observer = makeObserver(settings: store)
+        await observer.applySettingsChange(from: settingsChangeEvent(
+            #"{"payload":{"ttsEnabled":false}}"#
+        ))
+
+        XCTAssertFalse(store.ttsEnabled,
+                       "a payload-wrapped frame is unwrapped and applied")
+    }
 }

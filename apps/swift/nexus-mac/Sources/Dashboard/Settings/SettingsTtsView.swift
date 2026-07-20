@@ -99,7 +99,13 @@ final class SettingsTtsViewModel: ObservableObject {
     /// only accepts `full`/`half`/`mute` (notification-settings.ts DUCKING_MODES;
     /// any other value 400s the whole PATCH). mix = no dip = full; duck = ~40%
     /// dip = half; pause = ~15% near-silence = mute.
-    private static func duckingWire(_ mode: DuckingMode) -> String {
+    ///
+    /// `internal` (not `private`) so nexus-mac-Tests can assert the mapping
+    /// directly — the view model wires its own private NexusClient with no
+    /// injection seam, so the PATCH body it builds is otherwise unobservable.
+    /// Matches the internal-test-seam convention used across NexusShared
+    /// (TTSObserver.applySettingsChange / handle / debugProjectVoiceCache).
+    static func duckingWire(_ mode: DuckingMode) -> String {
         switch mode {
         case .mix:   return "full"
         case .duck:  return "half"
