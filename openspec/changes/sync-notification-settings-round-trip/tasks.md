@@ -47,7 +47,7 @@ stack: t3
   gating state (`ttsEnabled`, `banner`, `ducking`, `signalOnly`) from the event payload; extend
   `SettingsStore` if a new overlay/cache field is needed to hold the server-sourced values
   - depends on: 2.3
-- [ ] [3.4] Extend `apps/swift/nexus-mac/Tests/SettingsTtsViewTests.swift` (and add [beads:nx-xzywt]
+- [x] [3.4] Extend `apps/swift/nexus-mac/Tests/SettingsTtsViewTests.swift` (and add [beads:nx-xzywt]
   NotificationsView / TTSObserver test coverage as needed) for: PATCH called with correct
   snake_case keys on toggle, error state shown on failed PATCH, TTSObserver gating state updates
   when a SettingsChanged event is received
