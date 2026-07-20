@@ -154,3 +154,41 @@ read by the Swift dashboard from the agent's `/notifications/settings`
 endpoint on startup, then kept live via the SSE `SettingsChanged` event.
 There are no longer any plist-level env-var seeds — the Swift app holds
 defaults internally and overlays remote settings as they arrive.
+
+## Kokoro TTS integration (self-hosted, optional)
+
+`kokoro` (add-kokoro-integration-provider) is a `requiresSecret: false`
+integration provider — a self-hosted TTS backend, no API key, just a
+`baseUrl` (+ optional `defaultVoice`) stored as non-secret `metadata`.
+
+### Homelab placement
+
+Run [Kokoro FastAPI](https://github.com/remsky/Kokoro-FastAPI) next to
+`homelab-postgres` on the homelab host:
+
+```bash
+docker compose -f deploy/kokoro/docker-compose.yml up -d
+```
+
+This starts `ghcr.io/remsky/kokoro-fastapi-cpu:latest` on port `8880`.
+**Tailscale-only exposure** — do not bind or forward 8880 on a public
+interface; the agent (and the dashboard's Test Connection probe) reach it
+over the Tailscale network (e.g. `http://homelab:8880` or the host's
+Tailscale IP), the same reach model as `homelab-postgres`.
+
+### Verifying synthesis
+
+```bash
+curl -s http://homelab:8880/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model": "kokoro", "input": "hello from nexus", "voice": "af_heart"}' \
+  --output test.wav
+```
+
+### Dashboard hookup
+
+Add the credential under `/integrations/kokoro`: `baseUrl` (e.g.
+`http://homelab:8880`) and an optional `defaultVoice`. No secret field is
+shown — `PROVIDER_UI_REGISTRY["kokoro"]` renders `KokoroPanel.tsx`, the
+plain-text-fields variant (no `MaskedKeyInput`). Test Connection probes
+`GET {baseUrl}/v1/audio/voices` via the agent (`apps/agent/src/integrations/registry.ts`).

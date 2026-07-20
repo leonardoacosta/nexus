@@ -94,6 +94,12 @@ export interface NotificationEvent {
   project?: string;
   question?: string;
   session_id?: string;
+  /**
+   * Structured rate-limit signal, alongside (or instead of) a phrase match in
+   * `message` — `utilization >= 1.0` is treated the same as "hit your limit"
+   * by the reactive-swap detector (wire-reactive-rate-limit-swap, task 2.2).
+   */
+  rate_limit_event?: { utilization: number };
 }
 
 export interface AnswerEvent {

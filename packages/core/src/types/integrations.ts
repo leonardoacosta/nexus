@@ -16,19 +16,29 @@ import { z } from "zod";
  * Registry of known provider ids. Seeded with `telegram`; adding a provider
  * appends one id here (and one descriptor in the agent registry). `as const`
  * so the array doubles as the source of the provider literal-union type.
+ *
+ * `kokoro` (add-kokoro-integration-provider) is the first `requiresSecret:
+ * false` provider — see `ProviderDescriptor` in
+ * `apps/agent/src/integrations/registry.ts` — no API key, just a self-hosted
+ * `baseUrl`.
  */
-export const INTEGRATION_PROVIDERS = ["telegram"] as const;
+export const INTEGRATION_PROVIDERS = ["telegram", "kokoro"] as const;
 
 /**
  * Per-provider Zod schemas for the `metadata` JSONB column. Each provider's
  * non-secret fields are validated against its entry before persist. Telegram
- * requires a non-empty `chatId`.
+ * requires a non-empty `chatId`. Kokoro requires a valid `baseUrl` (its
+ * self-hosted TTS endpoint) and an optional default voice.
  */
 export const integrationMetadataSchemas: Record<
   (typeof INTEGRATION_PROVIDERS)[number],
   z.ZodTypeAny
 > = {
   telegram: z.object({ chatId: z.string().min(1) }),
+  kokoro: z.object({
+    baseUrl: z.string().url(),
+    defaultVoice: z.string().min(1).optional(),
+  }),
 };
 
 /**

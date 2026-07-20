@@ -440,80 +440,21 @@ export class CcCredentialManager {
   }
 
   // -------------------------------------------------------------------------
-  // Rate-limit swap
-  // -------------------------------------------------------------------------
-
-  /**
-   * Mark a profile as rate-limited and swap credentials.json to the next
-   * eligible profile. Eligibility = `rate_limit_status='healthy'`, ordered
-   * by `last_used_ts ASC NULLS FIRST` so swap is round-robin-fair.
-   *
-   * Returns the new active profile id, or null when no swap target is
-   * available (caller stays on the rate-limited profile and must wait).
-   */
-  async handleRateLimit(profileId: string): Promise<string | null> {
-    await this.db
-      .update(ccProfiles)
-      .set({ rateLimitStatus: "rate_limited", updatedAt: new Date() })
-      .where(eq(ccProfiles.id, profileId));
-
-    const candidates = await this.db.select().from(ccProfiles);
-    const next = candidates
-      .filter(
-        (c) =>
-          c.id !== profileId &&
-          c.rateLimitStatus === "healthy" &&
-          c.oauthRefreshTokenEncrypted !== null,
-      )
-      .sort((a, b) => {
-        const ta = a.lastUsedTs?.getTime() ?? 0;
-        const tb = b.lastUsedTs?.getTime() ?? 0;
-        return ta - tb;
-      })[0];
-
-    if (!next) {
-      log.warn({ profileId }, "no swap target available — staying on rate-limited profile");
-      return null;
-    }
-
-    // Rewrite credentials.json with the new profile's tokens.
-    // Note: the refresh token is the persistent identity; access token is
-    // resolved by calling refresh exactly once on swap.
-    const refreshToken = decrypt(
-      next.oauthRefreshTokenEncrypted!,
-      this.encryptionKey,
-    );
-    const tokenResp = await this.callRefresh(refreshToken);
-    if (!tokenResp) {
-      log.warn({ profileId: next.id }, "swap target refresh failed");
-      return null;
-    }
-    const expiry = new Date(Date.now() + tokenResp.expiresInSec * 1000);
-    await this.write({
-      claudeAiOauth: {
-        accessToken: tokenResp.accessToken,
-        refreshToken: tokenResp.refreshToken,
-        expiresAt: expiry.getTime(),
-        subscriptionType: next.type,
-        email: next.accountEmail ?? undefined,
-      },
-    });
-    await this.db
-      .update(ccProfiles)
-      .set({
-        oauthRefreshTokenEncrypted: encrypt(tokenResp.refreshToken, this.encryptionKey),
-        expiryTs: expiry,
-        lastUsedTs: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(ccProfiles.id, next.id));
-    await this.emitEvent("swapped", next.id, { from: profileId });
-    return next.id;
-  }
-
-  // -------------------------------------------------------------------------
   // Event log
   // -------------------------------------------------------------------------
+  //
+  // Note: this manager previously carried its own `handleRateLimit()` swap
+  // primitive (round-robin over `cc_profiles`, ordered by `last_used_ts ASC
+  // NULLS FIRST`) — the orphaned duplicate design.md Decision 1 identifies
+  // as `markRateLimitedAndSwap()` (renamed at some point after the proposal's
+  // audit; zero non-test callers either way). Retired by
+  // wire-reactive-rate-limit-swap task 2.5: the reactive dispatcher path and
+  // the proactive usage-poller evaluator both swap through the one shared
+  // primitive, `credential-swap-flow.ts`'s `performCredentialSwap()`
+  // (wrapping `CredentialPool.manualSwap()`), so there is exactly one swap
+  // implementation left. This manager keeps its two live jobs — profile
+  // mirroring into `cc_profiles` (`observeCurrent`) and proactive OAuth
+  // refresh (`refreshExpiringProfiles`) — untouched.
 
   private async emitEvent(
     eventType: string,

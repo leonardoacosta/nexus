@@ -204,6 +204,13 @@ export async function handleDeleteCredentials(
  * stored secret. Persists `last_test_status_code` always, `last_test_ok_at`
  * only when `ok`. The descriptor's `testProbe` never throws, so network
  * failures surface as `{ ok: false, statusCode: null }`.
+ *
+ * `requiresSecret === false` (e.g. kokoro) skips the `value_encrypted`/decrypt
+ * gate entirely — the 404-unknown-provider and 400-no-row semantics are
+ * unchanged, but the row only needs to exist (any metadata), never a secret.
+ * `testProbe` is invoked with an empty-string secret it's documented to
+ * ignore. Secret-requiring providers (the default — `requiresSecret`
+ * undefined or `true`) keep the exact prior behavior below.
  */
 export async function handleTestConnection(
   db: Db,
@@ -217,6 +224,27 @@ export async function handleTestConnection(
 
   const agentId = getAgentId();
   const row = await findRow(db, agentId, provider);
+
+  if (descriptor.requiresSecret === false) {
+    if (!row) {
+      return jsonResponse({ error: "no credential stored" }, 400);
+    }
+    const { ok, statusCode } = await descriptor.testProbe("", row.metadata ?? {});
+    await db
+      .update(integrationCredentials)
+      .set({
+        lastTestStatusCode: statusCode,
+        ...(ok ? { lastTestOkAt: new Date() } : {}),
+      })
+      .where(
+        and(
+          eq(integrationCredentials.agentId, agentId),
+          eq(integrationCredentials.provider, provider),
+        ),
+      );
+    return jsonResponse({ ok, statusCode });
+  }
+
   if (!row || !row.valueEncrypted) {
     return jsonResponse({ error: "no credential stored" }, 400);
   }

@@ -19,13 +19,22 @@
 
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-/** Why a swap happened — narrowed at the application layer. */
+/**
+ * Why a swap happened — narrowed at the application layer (the column itself
+ * is plain `text`, so widening this union is not a schema/DDL change).
+ *
+ * `reactive` / `proactive` added by `wire-reactive-rate-limit-swap`: the
+ * dispatcher's "hit your limit" interceptor and the usage-poller's
+ * squeeze-dry evaluator, respectively — see `credential-swap-flow.ts`.
+ */
 export const CREDENTIAL_SWAP_REASONS = [
   "cooldown",
   "exhaustion",
   "manual",
   "expired",
   "initial",
+  "reactive",
+  "proactive",
 ] as const;
 export type CredentialSwapReason = (typeof CREDENTIAL_SWAP_REASONS)[number];
 

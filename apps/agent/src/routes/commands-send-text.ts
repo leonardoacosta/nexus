@@ -97,11 +97,62 @@ async function tmuxSendKeys(
   }
 }
 
-export async function handleSendText(request: Request): Promise<Response> {
+/** Result of `sendTextToSession` — carries the HTTP status the route should map onto. */
+export type SendTextResult =
+  | { ok: true; tmuxTarget: string }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Resolve `sessionId`'s tmux target and send `text` via `tmux send-keys`.
+ *
+ * Extracted from `handleSendText` (wire-reactive-rate-limit-swap, task 2.3)
+ * so the reactive-swap auto-continue path
+ * (`services/socket-server/dispatcher.ts`) can reuse the exact same
+ * session-resolution + validation + spawn logic the HTTP route uses,
+ * without a loopback HTTP call. Returns a result object instead of throwing
+ * so callers can WARN and continue rather than crash the caller.
+ */
+export async function sendTextToSession(
+  sessionId: string,
+  text: string,
+  appendNewline = true,
+): Promise<SendTextResult> {
   const sessionManager = _sessionManager;
   if (!sessionManager) {
-    return jsonError(503, "send-text route not initialised");
+    return { ok: false, status: 503, error: "send-text route not initialised" };
   }
+
+  const session = sessionManager.getById(sessionId);
+  if (!session) {
+    return { ok: false, status: 404, error: `session not found: ${sessionId}` };
+  }
+  const tmuxTarget = session.tmuxTarget;
+  if (!tmuxTarget || tmuxTarget.trim() === "") {
+    return { ok: false, status: 409, error: `session has no tmuxTarget: ${sessionId}` };
+  }
+  if (!isValidTmuxTarget(tmuxTarget)) {
+    log.warn({ sessionId, tmuxTarget }, "send-text: rejected invalid tmux target");
+    return { ok: false, status: 409, error: `session has invalid tmuxTarget: ${sessionId}` };
+  }
+
+  const { code, stderr } = await tmuxSendKeys(tmuxTarget, text, appendNewline);
+  if (code !== 0) {
+    log.warn(
+      { sessionId, tmuxTarget, code, stderr },
+      "tmux send-keys failed",
+    );
+    return { ok: false, status: 500, error: `tmux send-keys exited ${code}: ${stderr.trim()}` };
+  }
+
+  log.info(
+    { sessionId, tmuxTarget, bytes: text.length, appendNewline },
+    "send-text dispatched",
+  );
+
+  return { ok: true, tmuxTarget };
+}
+
+export async function handleSendText(request: Request): Promise<Response> {
   let raw: unknown;
   try {
     raw = await request.json();
@@ -119,35 +170,13 @@ export async function handleSendText(request: Request): Promise<Response> {
   const { sessionId, text } = raw;
   const appendNewline = raw.appendNewline ?? true;
 
-  const session = sessionManager.getById(sessionId);
-  if (!session) {
-    return jsonError(404, `session not found: ${sessionId}`);
+  const result = await sendTextToSession(sessionId, text, appendNewline);
+  if (!result.ok) {
+    return jsonError(result.status, result.error);
   }
-  const tmuxTarget = session.tmuxTarget;
-  if (!tmuxTarget || tmuxTarget.trim() === "") {
-    return jsonError(409, `session has no tmuxTarget: ${sessionId}`);
-  }
-  if (!isValidTmuxTarget(tmuxTarget)) {
-    log.warn({ sessionId, tmuxTarget }, "send-text: rejected invalid tmux target");
-    return jsonError(409, `session has invalid tmuxTarget: ${sessionId}`);
-  }
-
-  const { code, stderr } = await tmuxSendKeys(tmuxTarget, text, appendNewline);
-  if (code !== 0) {
-    log.warn(
-      { sessionId, tmuxTarget, code, stderr },
-      "tmux send-keys failed",
-    );
-    return jsonError(500, `tmux send-keys exited ${code}: ${stderr.trim()}`);
-  }
-
-  log.info(
-    { sessionId, tmuxTarget, bytes: text.length, appendNewline },
-    "send-text dispatched",
-  );
 
   return new Response(
-    JSON.stringify({ ok: true, sessionId, tmuxTarget }),
+    JSON.stringify({ ok: true, sessionId, tmuxTarget: result.tmuxTarget }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }

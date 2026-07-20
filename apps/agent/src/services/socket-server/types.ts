@@ -10,6 +10,7 @@ import type { SocketEvent, SocketCommand, SocketResponse } from "../../types/soc
 import type { SessionManager } from "../../session-manager";
 import type { LifecycleBus } from "../lifecycle-bus";
 import type { NotificationManager } from "../../notifications/manager";
+import type { CredentialPool } from "../../credentials/pool";
 
 // ---------------------------------------------------------------------------
 // Event / command handler types
@@ -64,4 +65,14 @@ export interface SocketDispatchDeps {
    * path — the dispatcher no-ops when the accessor is absent or returns null.
    */
   getNotificationManager?: () => NotificationManager | null;
+  /**
+   * Lazy accessor for the shared `CredentialPool` singleton (wire-reactive-
+   * rate-limit-swap, task 2.2). Same lazy-getter shape as
+   * `getNotificationManager` — the pool is created asynchronously by
+   * `initCredentialRoutes` and may still be null when the dispatcher is
+   * constructed. Omitted in unit tests that don't exercise the reactive
+   * rate-limit swap path — that path no-ops (falls through to normal
+   * delivery) when the accessor is absent or returns null.
+   */
+  getCredentialPool?: () => CredentialPool | null;
 }

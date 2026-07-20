@@ -226,6 +226,11 @@ const socketEventHandler = createSocketEventDispatcher({
   // it asynchronously, so it may be null right now — the dispatcher resolves it
   // at session_stop dispatch time, by which point startup has long settled.
   getNotificationManager,
+  // Lazy accessor for the shared CredentialPool singleton (wire-reactive-
+  // rate-limit-swap, task 2.2). Same lazy-getter reasoning as
+  // getNotificationManager above — `initCredentialRoutes` creates the pool
+  // asynchronously, so it may still be null at dispatcher-construction time.
+  getCredentialPool,
 });
 
 startSocketServer({

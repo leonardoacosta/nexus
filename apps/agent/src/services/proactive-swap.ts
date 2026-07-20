@@ -1,24 +1,32 @@
 /**
  * Proactive credential swap evaluator.
  *
- * Spec: openspec/changes/credential-proactive-swap
+ * Spec: openspec/changes/credential-proactive-swap, retuned by
+ * openspec/changes/wire-reactive-rate-limit-swap (task 2.6 — "squeeze-dry").
  *
- * Invoked at the end of each successful usage-poller tick. Rotation today is
- * reactive (`rate-limit-interceptor` swaps only after a 429). This evaluator
- * uses the freshly-polled 5h headroom to rotate BEFORE the wall:
+ * Invoked at the end of each successful usage-poller tick. This evaluator
+ * uses the freshly-polled 5h/7d headroom to rotate BEFORE the reactive
+ * interceptor (`services/socket-server/dispatcher.ts`) has to catch it:
  *
  *   1. Resolve the ACTIVE credential (via the active-credential-watcher
- *      fingerprint) and compute its 5h remaining ratio `(limit - used) / limit`.
- *      Bail when it still has > 10% headroom, or when there is no usable data.
- *   2. Swap branch — when the active credential is at/below 10%, rank the other
- *      primary+available rows by 5h remaining (desc), drop any at/below 10%, and
- *      `pool.manualSwap()` into the one with the MOST headroom. Skip entirely if
- *      a swap happened in the last 30 min (anti-flap). Fall through to the next
- *      candidate on a cooldown error.
+ *      fingerprint) and compute its EFFECTIVE remaining ratio —
+ *      `min(5h remaining, 7d remaining)` — since either window burns out
+ *      independently on wall-clock. Bail when it still has > 2% headroom on
+ *      both windows, or when there is no usable data.
+ *   2. Swap branch — when the active credential is at/below 2% effective
+ *      remaining, rank the other primary+available rows by effective
+ *      remaining (desc), drop any at/below 2%, and swap (via the shared
+ *      `performCredentialSwap` flow) into the one with the MOST headroom.
+ *      Skip entirely if a swap happened in the last 10 min (anti-flap). Fall
+ *      through to the next candidate on a cooldown error.
  *   3. Ladder branch — when the active credential is low AND no eligible
  *      candidate exists, emit graduated `NotificationFired` events (tts +
- *      desktop) as remaining crosses 10/8/4/2/0%, once per 5h window, naming the
- *      soonest-resetting account + reset time.
+ *      desktop) as effective remaining crosses 10/8/4/2/0%, once per 5h
+ *      window, naming the soonest-resetting account + reset time.
+ *
+ * Riding each account to 98% utilization (2% remaining) before rotating uses
+ * the full window instead of stranding headroom the old 10%-remaining
+ * threshold left on the table — see design.md Decision 5.
  *
  * All state (ladder dedup) is in-memory per agent process — a restart at worst
  * re-fires one duplicate notification, which the spec accepts.
@@ -35,14 +43,19 @@ import type { CredentialAuditEntry } from "../routes/credentials/shared";
 import { lifecycleBus } from "./lifecycle-bus";
 import type { NotificationFiredPayload } from "./lifecycle-bus";
 import { registerSnapshotSource } from "./state-snapshot";
+import { performCredentialSwap } from "./credential-swap-flow";
 
 const log = createLogger("agent:services:proactive-swap");
 
-/** Rotate / warn once the active credential is at or below this 5h remaining ratio. */
-const REMAINING_THRESHOLD = 0.1;
+/**
+ * Rotate / warn once the active credential's EFFECTIVE remaining
+ * (`min(5h, 7d)`) is at or below this ratio. 0.02 (98% utilization) — see
+ * design.md Decision 5 for why this replaced the original 0.10.
+ */
+const REMAINING_THRESHOLD = 0.02;
 
 /** Anti-flap: skip the swap branch if a swap happened within this window. */
-const ANTI_FLAP_MS = 30 * 60 * 1000;
+const ANTI_FLAP_MS = 10 * 60 * 1000;
 
 /**
  * Ladder alert levels (percent remaining), descending. Each fires at most once
@@ -72,7 +85,7 @@ export interface EvaluateProactiveSwapOpts {
   audit?: (entry: CredentialAuditEntry) => void;
 }
 
-/** One primary+available credential's 5h usage snapshot. */
+/** One primary+available credential's 5h + 7d usage snapshot. */
 interface UsageRow {
   id: string;
   fingerprint: string;
@@ -80,6 +93,8 @@ interface UsageRow {
   used: number | null;
   limit: number | null;
   resetAt: Date | null;
+  used7d: number | null;
+  limit7d: number | null;
 }
 
 /**
@@ -119,10 +134,25 @@ registerSnapshotSource("proactive-swap-ladder", {
   },
 });
 
-/** Remaining ratio `(limit - used) / limit`, or null when there is no usable data. */
-function remainingRatio(row: Pick<UsageRow, "used" | "limit">): number | null {
-  if (row.limit == null || row.limit === 0 || row.used == null) return null;
-  return (row.limit - row.used) / row.limit;
+/** Ratio `(limit - used) / limit` for one window, or null when there is no usable data. */
+function remainingRatio(used: number | null, limit: number | null): number | null {
+  if (limit == null || limit === 0 || used == null) return null;
+  return (limit - used) / limit;
+}
+
+/**
+ * Effective remaining ratio across BOTH usage windows — `min(5h, 7d)` — since
+ * either window burns out on wall-clock regardless of which is checked
+ * (design.md Decision 5, task 2.6: "a 7d-exhausted account is just as
+ * unusable as a 5h-exhausted one"). Null only when NEITHER window has usable
+ * data; a single usable window is returned as-is.
+ */
+function effectiveRemaining(row: Pick<UsageRow, "used" | "limit" | "used7d" | "limit7d">): number | null {
+  const r5h = remainingRatio(row.used, row.limit);
+  const r7d = remainingRatio(row.used7d, row.limit7d);
+  if (r5h === null) return r7d;
+  if (r7d === null) return r5h;
+  return Math.min(r5h, r7d);
 }
 
 async function queryUsageRows(db: Db): Promise<UsageRow[]> {
@@ -134,6 +164,8 @@ async function queryUsageRows(db: Db): Promise<UsageRow[]> {
       used: credentials.usage5hUsed,
       limit: credentials.usage5hLimit,
       resetAt: credentials.usage5hResetAt,
+      used7d: credentials.usage7dUsed,
+      limit7d: credentials.usage7dLimit,
     })
     .from(credentials)
     .where(
@@ -241,14 +273,14 @@ export async function evaluateProactiveSwap(
     return;
   }
 
-  const activeRatio = remainingRatio(active);
-  if (activeRatio === null) return; // no usable data / limit 0
+  const activeRatio = effectiveRemaining(active);
+  if (activeRatio === null) return; // no usable data / limit 0 on either window
   if (activeRatio > REMAINING_THRESHOLD) return; // healthy — nothing to do
 
-  // Rank the other rows by remaining headroom, keeping only eligible ones.
+  // Rank the other rows by effective remaining headroom, keeping only eligible ones.
   const candidates = rows
     .filter((r) => r.id !== active.id)
-    .map((r) => ({ row: r, ratio: remainingRatio(r) }))
+    .map((r) => ({ row: r, ratio: effectiveRemaining(r) }))
     .filter(
       (c): c is { row: UsageRow; ratio: number } =>
         c.ratio !== null && c.ratio > REMAINING_THRESHOLD,
@@ -261,7 +293,7 @@ export async function evaluateProactiveSwap(
     return;
   }
 
-  // Anti-flap: skip if the active credential was swapped within the last 30 min.
+  // Anti-flap: skip if the active credential was swapped within the last 10 min.
   const last = swapTracker.lastSwapAt(active.fingerprint);
   if (last && now().getTime() - last.getTime() < ANTI_FLAP_MS) {
     log.info(
@@ -273,23 +305,16 @@ export async function evaluateProactiveSwap(
 
   for (const cand of candidates) {
     try {
-      const result = await pool.manualSwap(cand.row.id);
-      if (!result) continue; // target vanished — try the next candidate
-      const ts = now().toISOString();
-      audit({
-        event: "credential.auto_swap_out",
-        credential_id: active.id,
-        claimed_actor: "auto-usage",
-        claimed_ip: "agent",
-        timestamp_iso: ts,
+      const outcome = await performCredentialSwap({
+        db,
+        pool,
+        targetId: cand.row.id,
+        reason: "proactive",
+        now,
+        notify,
+        audit,
       });
-      audit({
-        event: "credential.auto_swap_in",
-        credential_id: cand.row.id,
-        claimed_actor: "auto-usage",
-        claimed_ip: "agent",
-        timestamp_iso: ts,
-      });
+      if (!outcome.ok) continue; // target vanished — try the next candidate
       log.info(
         {
           from: active.id,

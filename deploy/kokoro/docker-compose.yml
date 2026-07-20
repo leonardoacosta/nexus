@@ -1,0 +1,17 @@
+# Kokoro FastAPI — self-hosted TTS backend for the `kokoro` integration
+# provider (add-kokoro-integration-provider).
+#
+# Placement: run this alongside `homelab-postgres` on the homelab host.
+# Tailscale-only exposure — do NOT publish 8880 on a public interface (no
+# `0.0.0.0` bind on a routed host; bind to the Tailscale IP or loopback if
+# only the local agent needs it). See ../README.md § Kokoro TTS integration.
+#
+# Bring up: `docker compose -f deploy/kokoro/docker-compose.yml up -d`
+
+services:
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro
+    restart: unless-stopped
+    ports:
+      - "8880:8880"

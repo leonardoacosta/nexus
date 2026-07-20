@@ -9,7 +9,7 @@
 import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
-import { credentials, eq, sessions, and, or, isNull, inArray, desc } from "@nexus/db";
+import { credentials, eq, sessions, and, or, isNull, inArray, desc, asc } from "@nexus/db";
 import {
   recordSessionStop,
   updateSessionModel,
@@ -19,6 +19,7 @@ import type {
   SocketEvent,
   SessionStartEvent,
   SessionStopEvent,
+  NotificationEvent,
 } from "../../types/socket-events";
 import type { SessionManager } from "../../session-manager";
 import { recordNotification } from "../command-handler";
@@ -26,6 +27,11 @@ import { isUnspeakable } from "../../notifications/speakability";
 import { processHookEvent } from "../process-hook-event";
 import { evaluateAndDispatch } from "../../notifications/hook-trigger";
 import type { NotificationManager } from "../../notifications/manager";
+import type { CredentialPool } from "../../credentials/pool";
+import { performCredentialSwap, isDebounced, armDebounce } from "../credential-swap-flow";
+import { recordFailure } from "../credential-pool/rate-limit-tracker";
+import { getActiveCredentialSnapshot } from "../../credentials/credential-watcher";
+import { sendTextToSession } from "../../routes/commands-send-text";
 import type { HookEventPayload } from "../../routes/hooks-types";
 import { getTracer } from "../../otel";
 import { fetchPaneTranslationMap } from "./pane-translation";
@@ -42,7 +48,7 @@ const log = createLogger("agent:socket-server");
 export function createSocketEventDispatcher(
   deps: SocketDispatchDeps,
 ): SocketEventHandler {
-  const { sessionManager, lifecycleBus, db, getNotificationManager } = deps;
+  const { sessionManager, lifecycleBus, db, getNotificationManager, getCredentialPool } = deps;
 
   return function dispatchEvent(event: SocketEvent): void {
     getTracer().startActiveSpan(
@@ -298,28 +304,58 @@ export function createSocketEventDispatcher(
           );
         }
 
-        // Record in history for the `history` command.
-        recordNotification(event.message, messageType, effectiveChannels);
-
-        // Emit to lifecycle bus for local subscribers (SSE, notification
-        // router). After `swift-owns-elevenlabs-synth`, NotificationFired is
+        // Deliver the notification exactly as before (history + lifecycle
+        // bus). After `swift-owns-elevenlabs-synth`, NotificationFired is
         // signal-only — the Mac listener performs synthesis locally via
         // NexusShared.ElevenLabsClient + Keychain. No audio bytes flow over
-        // the bus.
-        lifecycleBus.emit("NotificationFired", {
-          id: `socket-notif-${Date.now()}`,
-          title: "Notification",
-          body: event.message,
-          channel: effectiveChannels.join(","),
-          project: project ?? undefined,
-          message: event.message, // back-compat alias
-        });
+        // the bus. TTS routing: after remove-notification-channels (P4), the
+        // agent no longer owns synthesis — the emit below is the signal the
+        // Mac listener consumes (see notifications/router.ts →
+        // signalOnlyChannel).
+        const deliver = (): void => {
+          log.info(
+            {
+              message: event.message,
+              messageType,
+              channels: effectiveChannels,
+              project,
+              hasQuestion: !!event.question,
+            },
+            "socket: notification",
+          );
+          recordNotification(event.message, messageType, effectiveChannels);
+          lifecycleBus.emit("NotificationFired", {
+            id: `socket-notif-${Date.now()}`,
+            title: "Notification",
+            body: event.message,
+            channel: effectiveChannels.join(","),
+            project: project ?? undefined,
+            message: event.message, // back-compat alias
+          });
+        };
 
-        // TTS routing: after remove-notification-channels (P4), the agent
-        // no longer owns synthesis. The lifecycleBus.emit above is the
-        // signal the Mac listener consumes — there is no separate
-        // `sendTtsNotification` call any more, the channel is a pure
-        // signal (see notifications/router.ts → signalOnlyChannel).
+        // Reactive rate-limit swap (wire-reactive-rate-limit-swap, tasks
+        // 2.2/2.3): detection has to happen BEFORE delivery so a swap can
+        // suppress the "you hit your limit" TTS/desktop notification instead
+        // of racing it (design.md Decision 2). Only a session-scoped,
+        // rate-limit-shaped notification is a candidate — every other
+        // notification still delivers synchronously exactly as before, so
+        // this cannot change timing for the common case.
+        if (event.session_id && isRateLimitNotification(event)) {
+          tryReactiveRateLimitSwap(event.session_id, db, getCredentialPool)
+            .then((handled) => {
+              if (!handled) deliver();
+            })
+            .catch((err: unknown) => {
+              log.warn(
+                { err, sessionId: event.session_id },
+                "socket: reactive rate-limit swap failed unexpectedly — delivering notification",
+              );
+              deliver();
+            });
+        } else {
+          deliver();
+        }
         break;
       }
 
@@ -614,6 +650,108 @@ export function createSocketEventDispatcher(
       },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reactive rate-limit swap (wire-reactive-rate-limit-swap, tasks 2.2/2.3)
+// ---------------------------------------------------------------------------
+
+/** Case-insensitive phrase set matching a CC "you hit your limit" hook payload. */
+const RATE_LIMIT_PHRASES = ["hit your limit", "usage limit reached"];
+
+/** True when a notification looks like a rate-limit hit — phrase match or a structured utilization ≥ 1.0. */
+function isRateLimitNotification(event: NotificationEvent): boolean {
+  const msg = event.message?.toLowerCase() ?? "";
+  if (RATE_LIMIT_PHRASES.some((p) => msg.includes(p))) return true;
+  const utilization = event.rate_limit_event?.utilization;
+  return typeof utilization === "number" && utilization >= 1.0;
+}
+
+/**
+ * Any other primary, non-cooldown ("available") credential — freshest
+ * (lowest `rate_limit_count`) first, excluding the currently active
+ * fingerprint. Returns null when none exists, so the caller passes through
+ * to normal delivery and the exhaustion ladder (proactive-swap.ts) owns it.
+ */
+async function findReactiveSwapCandidate(
+  db: Db,
+  activeFingerprint: string | null,
+): Promise<{ id: string } | null> {
+  const rows = await db
+    .select({ id: credentials.id, fingerprint: credentials.fingerprint })
+    .from(credentials)
+    .where(and(eq(credentials.isPrimary, true), eq(credentials.status, "available")))
+    .orderBy(asc(credentials.rateLimitCount));
+  const candidate = rows.find((r) => r.fingerprint !== activeFingerprint);
+  return candidate ? { id: candidate.id } : null;
+}
+
+/**
+ * Detect + handle a reactive rate-limit swap for a `notification` socket
+ * event whose caller has already confirmed `isRateLimitNotification`.
+ * Resolves `true` when this path owns delivery (the raw notification stays
+ * suppressed); `false` to fall through to normal delivery unchanged.
+ */
+async function tryReactiveRateLimitSwap(
+  sessionId: string,
+  db: Db | undefined,
+  getCredentialPool: (() => CredentialPool | null) | undefined,
+): Promise<boolean> {
+  if (!db || !getCredentialPool) return false;
+
+  if (isDebounced(sessionId)) {
+    // Inside the 180s window: auto-continue only — no usage query, no
+    // re-swap (task 2.4). The raw notification stays suppressed; a swap
+    // already handled this session's window.
+    const result = await sendTextToSession(sessionId, "continue");
+    if (!result.ok) {
+      log.warn(
+        { sessionId, error: result.error },
+        "reactive-swap: debounced auto-continue failed",
+      );
+    }
+    return true;
+  }
+
+  const pool = getCredentialPool();
+  if (!pool) return false;
+
+  const activeFingerprint = getActiveCredentialSnapshot().fingerprint;
+  const candidate = await findReactiveSwapCandidate(db, activeFingerprint);
+  if (!candidate) return false; // no eligible candidate — exhaustion ladder owns it
+
+  let outcome: Awaited<ReturnType<typeof performCredentialSwap>>;
+  try {
+    outcome = await performCredentialSwap({
+      db,
+      pool,
+      targetId: candidate.id,
+      reason: "reactive",
+      sessionId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, sessionId, targetId: candidate.id },
+      "reactive-swap: performCredentialSwap threw",
+    );
+    return false; // fall through to normal delivery
+  }
+  if (!outcome.ok) return false;
+
+  const fromFingerprint = outcome.result?.parked?.fingerprint;
+  if (fromFingerprint) recordFailure(fromFingerprint, 429);
+
+  armDebounce(sessionId);
+
+  const sendResult = await sendTextToSession(sessionId, "continue");
+  if (!sendResult.ok) {
+    log.warn(
+      { sessionId, error: sendResult.error },
+      "reactive-swap: auto-continue failed — swap stands",
+    );
+  }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------
