@@ -193,6 +193,7 @@
 		D4F630B0DDB1738EC54687C1 /* AttachButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F70D84BB75E0E9CE5C68D89 /* AttachButton.swift */; };
 		D50580E4F4EDC9E8A3A11BCB /* TtsButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374BADBBD17FCCF7AD3FC7E1 /* TtsButton.swift */; };
 		D6D4A23D02F7A837A8339BB8 /* TTSObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80841AF19A238A5B1EB7C1D9 /* TTSObserver.swift */; };
+		D827808F1160E4F12701F7F4 /* NotificationsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */; };
 		D8BE00C5B1EFB62A214B3AD3 /* Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AFE6B178D2BA94B85748B /* Network.swift */; };
 		D90ABBEACDD62D01F76A5ABD /* SpecContentCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3301B98F64393C12BB68A0 /* SpecContentCacheTests.swift */; };
 		DA9A124444C0790484593933 /* PanelSummonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CB262A4E9C8667EBC3EC62 /* PanelSummonTests.swift */; };
@@ -582,6 +583,7 @@
 		CF774D7E04ADAD41A6CCBB65 /* ProjectVoicesViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVoicesViewTests.swift; sourceTree = "<group>"; };
 		D081FBD5B951F820E6402441 /* PtySessionPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtySessionPickerTests.swift; sourceTree = "<group>"; };
 		D088978E615FE548D4BC22A4 /* CommsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommsScene.swift; sourceTree = "<group>"; };
+		D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsViewTests.swift; sourceTree = "<group>"; };
 		D39D5A03A9B3405B71BDDC5A /* PtyAttachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtyAttachTests.swift; sourceTree = "<group>"; };
 		D3B39F7E98289F86C25ADFFC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D6A237E17580E6EDCD8D58B6 /* NexusWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusWidgetBundle.swift; sourceTree = "<group>"; };
@@ -1131,6 +1133,7 @@
 				C65481F32E4EED111024A8DB /* DashboardNavigationCoordinatorTests.swift */,
 				616BCAA97E250532F8F038AB /* FleetPresenceIndicatorTests.swift */,
 				ACE38F012B4C4E7C4B01F742 /* NotificationActivationHandlerTests.swift */,
+				D346EBC9E671BBE25B2A80AE /* NotificationsViewTests.swift */,
 				92883A9BE9E7941CFB310050 /* ProcessTableViewTests.swift */,
 				CF774D7E04ADAD41A6CCBB65 /* ProjectVoicesViewTests.swift */,
 				A06DFD96E27531E259E3A5BF /* SettingsAgentsViewTests.swift */,
@@ -1699,6 +1702,7 @@
 				5F8CEEE702C3A48C0544CF81 /* LaunchAgentInstallerTests.swift in Sources */,
 				CA2C03C28854D67F6D0A4A4E /* NotificationActivationHandlerTests.swift in Sources */,
 				5E228907FF5BE04141154C16 /* NotificationRingBufferTests.swift in Sources */,
+				D827808F1160E4F12701F7F4 /* NotificationsViewTests.swift in Sources */,
 				6DEA5B7D486F9A6F4FF59047 /* ProcessTableViewTests.swift in Sources */,
 				D36F2DC82065BF8BDAD92310 /* ProjectVoicesViewTests.swift in Sources */,
 				9D1D4C4A9622D111E7607C11 /* SSEEventParsingTests.swift in Sources */,
