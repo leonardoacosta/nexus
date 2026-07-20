@@ -14,5 +14,5 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [2.1] Targeted `git add apps/agent/src/services/credential-usage-poller.ts apps/agent/src/services/credential-usage-poller.test.ts` (no `git add -A`/`.`); commit `fix(usage-poller): poll cooldown credentials so 5H/7D does not freeze at session limit`; push through the normal deploy hook and confirm `systemctl --user status nexus-agent` picks up the new build. Paste live post-deploy evidence: a cooldown credential's `usagePolledAt` refreshing on the deployed instance. [beads:nx-v8cgf]
+- [x] [2.1] Targeted `git add apps/agent/src/services/credential-usage-poller.ts apps/agent/src/services/credential-usage-poller.test.ts` (no `git add -A`/`.`); commit `fix(usage-poller): poll cooldown credentials so 5H/7D does not freeze at session limit`; push through the normal deploy hook and confirm `systemctl --user status nexus-agent` picks up the new build. Paste live post-deploy evidence: a cooldown credential's `usagePolledAt` refreshing on the deployed instance. [beads:nx-v8cgf]
   - depends on: 1.1, 1.2
