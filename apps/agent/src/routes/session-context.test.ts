@@ -218,6 +218,20 @@ describe("session-context — getFreshContextEntry accessor (nx-qayeb.1)", () =>
     const staleRes = await handleGetSessionContext(getRequest("boundary"), "boundary");
     expect(staleRes.status).toBe(404);
   });
+
+  it("accepts an over-window usedPercentage (>100) and round-trips it exactly (relax-session-context-pct-schema)", async () => {
+    const patchRes = await handlePatchSessionContext(
+      patchRequest("over-window", { usedPercentage: 175.0, contextWindowSize: 200000 }),
+      "over-window",
+    );
+    expect(patchRes.status).toBe(204);
+
+    const getRes = await handleGetSessionContext(getRequest("over-window"), "over-window");
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as Record<string, unknown>;
+    expect(body.usedPercentage).toBe(175.0);
+    expect(body.contextWindowSize).toBe(200000);
+  });
 });
 
 describe("session-context — GET model field (add-session-context-model-field)", () => {

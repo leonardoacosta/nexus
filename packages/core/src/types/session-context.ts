@@ -13,15 +13,16 @@
 import { z } from "zod";
 
 /**
- * POST /sessions/:id/context body. `usedPercentage` is a finite number in
- * `[0, 100]`; `contextWindowSize` when present is a positive integer. `model`
+ * POST /sessions/:id/context body. `usedPercentage` is a finite number `>= 0`
+ * (may exceed 100 when real usage crosses the context window — the producer no
+ * longer clamps it); `contextWindowSize` when present is a positive integer. `model`
  * (optional, forward-statusline-model) is the raw model payload the caller
  * last saw — stored as-is and mapped to the single-letter family tag on GET
  * via `modelFamilyLetter`, mirroring `applyStatuslineSnapshot`'s in-process
  * 4th param.
  */
 export const sessionContextPatchInput = z.object({
-  usedPercentage: z.number().min(0).max(100),
+  usedPercentage: z.number().min(0),
   contextWindowSize: z.number().int().positive().optional(),
   model: z
     .object({
