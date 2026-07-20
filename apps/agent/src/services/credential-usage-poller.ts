@@ -5,7 +5,20 @@
  * Spec: openspec/changes/credentials-account-resolve-and-usage (task 2.1)
  *
  * On each tick:
- *   1. Query rows where `is_primary = true AND status = 'available'`.
+ *   1. Query rows where `is_primary = true AND (status = 'available' OR
+ *      (status = 'cooldown' AND cooldown_until IS NOT NULL AND cooldown_until
+ *      >= now() - 24h))`. Cooldown rows stay in the poll set so their 5H/7D
+ *      usage keeps updating during a session-limit cooldown (and the hot
+ *      interval can still engage) — but ONLY within 24h of their recorded
+ *      `cooldownUntil`. Without that recency guard, ancient zombie `cooldown`
+ *      rows (dead OAuth tokens, `cooldownUntil` a week+ in the past) get
+ *      swept into the poll set and fail every tick just like a
+ *      `refresh_failed` row would — this tripped the poller's >50%-failure
+ *      global backoff against production (nx regression, 2026-07-20: attempted
+ *      jumped 3→26, 23 failed) and stalled polling for the genuinely active
+ *      `available` credentials too. `refresh_failed` rows are deliberately
+ *      excluded outright — polling dead OAuth rows would fail every tick and
+ *      trip the >50%-failure backoff.
  *   2. Decrypt each row's access token via the pool's `getDecrypted`.
  *   3. Fan out 4-concurrent fetches to
  *      `https://api.anthropic.com/api/oauth/usage` (10 s timeout each).
@@ -27,7 +40,7 @@
 
 import type { Db } from "@nexus/db";
 import { credentials, credentialPolls } from "@nexus/db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, isNotNull, gte } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { runPool } from "../utils/run-pool";
@@ -61,6 +74,13 @@ const POLL_CONCURRENCY = 4;
 
 /** Anthropic usage endpoint URL. */
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+
+/**
+ * How recent a `cooldown` row's `cooldownUntil` must be for the row to stay
+ * in the poll set. Excludes zombie cooldown rows whose cooldown was recorded
+ * long ago and never cleared (dead OAuth tokens) — see `queryPollableRows`.
+ */
+const COOLDOWN_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Decide the delay before the next poller tick. Pure + synchronous — the tick
@@ -311,8 +331,20 @@ interface PrimaryAvailableRow {
   fingerprint: string;
 }
 
-/** Query rows that should be polled this tick. */
-async function queryPollableRows(db: Db): Promise<PrimaryAvailableRow[]> {
+/**
+ * Query rows that should be polled this tick: primary rows in `available`
+ * status, plus primary `cooldown` rows whose `cooldownUntil` is within
+ * `COOLDOWN_POLL_WINDOW_MS` (24h). Cooldown rows are included so a credential
+ * that hit its 5-hour session limit keeps its usage columns fresh (and the
+ * hot interval can still engage) instead of freezing at the last
+ * pre-cooldown value — but the recency bound excludes zombie `cooldown` rows
+ * (dead OAuth tokens whose `cooldownUntil` is long past, or never set) that
+ * would otherwise fail every tick and trip the >50%-failure backoff the same
+ * way an unfiltered `refresh_failed` row would. `refresh_failed` rows are
+ * intentionally excluded outright — see the header comment.
+ */
+export async function queryPollableRows(db: Db): Promise<PrimaryAvailableRow[]> {
+  const cooldownCutoff = new Date(Date.now() - COOLDOWN_POLL_WINDOW_MS);
   const rows = await db
     .select({
       id: credentials.id,
@@ -323,7 +355,14 @@ async function queryPollableRows(db: Db): Promise<PrimaryAvailableRow[]> {
     .where(
       and(
         eq(credentials.isPrimary, true),
-        eq(credentials.status, "available"),
+        or(
+          eq(credentials.status, "available"),
+          and(
+            eq(credentials.status, "cooldown"),
+            isNotNull(credentials.cooldownUntil),
+            gte(credentials.cooldownUntil, cooldownCutoff),
+          ),
+        ),
       ),
     );
   return rows;

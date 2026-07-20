@@ -8,14 +8,24 @@
  * exercised end-to-end in tasks 4.1–4.3 against a homelab agent.
  */
 
-import { describe, expect, it, afterEach } from "bun:test";
+import { describe, expect, it, afterEach, beforeAll, afterAll } from "bun:test";
+import { randomUUID } from "node:crypto";
 import type { Db } from "@nexus/db";
+import { credentials } from "@nexus/db";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import {
   parseUsageBody,
   startCredentialUsagePoller,
   computeNextIntervalMs,
+  queryPollableRows,
 } from "./credential-usage-poller";
 import type { CredentialPool } from "../credentials/pool";
+import { hasLivePg as hasPg } from "../testing/live-pg";
+import {
+  createIsolatedSchema,
+  type IsolatedSchema,
+} from "../testing/isolated-pg-schema";
 
 describe("parseUsageBody", () => {
   it("parses a well-formed Anthropic-shaped response", () => {
@@ -462,6 +472,43 @@ describe("credential-usage-poller: adaptive cadence (adaptive-usage-poll-cadence
     }
   });
 
+  it("selects the hot interval for a cooldown credential at >=80% 5H (poll-cooldown-credentials 1.1c)", async () => {
+    // A credential in `status: 'cooldown'` (session-limit hit) is now polled.
+    // When its parsed 5-hour utilization is >=80, the tick must surface that max
+    // and computeNextIntervalMs must still pick the hot interval — the whole
+    // point of widening the poll set (the hot band was previously starved).
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          five_hour: { utilization: 94, resets_at: null },
+          seven_day: { utilization: 60, resets_at: null },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const svc = startCredentialUsagePoller({
+      db: capturingDb([]),
+      pool: tokenPool(),
+      intervalMs: 1_000_000,
+    });
+    try {
+      const result = await svc.tickOnce();
+      expect(result.succeeded).toBe(1);
+      expect(result.maxFiveHourUtilization).toBe(94);
+      expect(
+        computeNextIntervalMs({
+          maxFiveHourUtilization: result.maxFiveHourUtilization,
+          backoff: result.backedOff,
+          backoffMs: 30 * 60 * 1000,
+          intervalMs: 5 * 60 * 1000,
+          hotIntervalMs: 60 * 1000,
+        }),
+      ).toBe(60 * 1000);
+    } finally {
+      svc.stop();
+    }
+  });
+
   it("excludes zero-limit rows from the max (null → default cadence)", async () => {
     // Legacy used/limit shape with a zero limit: writes a snapshot but carries
     // no real utilization, so it MUST NOT contribute to maxFiveHourUtilization.
@@ -538,3 +585,194 @@ describe("credential-usage-poller: adaptive cadence (adaptive-usage-poll-cadence
     }
   });
 });
+
+// ── [1.1] queryPollableRows status filter (poll-cooldown-credentials) ───────
+//
+// queryPollableRows must widen the poll set from `status = 'available'` to
+// `status IN ('available','cooldown')` while keeping `is_primary = true`, and
+// must still EXCLUDE `refresh_failed` (dead OAuth rows would fail every tick and
+// trip the >50%-failure backoff). We assert on the compiled WHERE clause — no
+// Postgres scratch schema, matching this file's pure-stub style — by capturing
+// the drizzle condition passed to .where() and rendering it via PgDialect. The
+// bound params are the source of truth for which statuses the query admits.
+
+/** db stub that captures the SQL condition handed to .where() and returns []. */
+function whereCapturingDb(captured: { condition?: SQL }): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: (cond: SQL) => {
+          captured.condition = cond;
+          return Promise.resolve([]);
+        },
+      }),
+    }),
+  } as unknown as Db;
+}
+
+async function pollableWhereParams(): Promise<unknown[]> {
+  const captured: { condition?: SQL } = {};
+  await queryPollableRows(whereCapturingDb(captured));
+  expect(captured.condition).toBeDefined();
+  const { params } = new PgDialect().sqlToQuery(captured.condition as SQL);
+  return params;
+}
+
+describe("queryPollableRows status filter (poll-cooldown-credentials 1.1)", () => {
+  it("(a) admits status 'cooldown' primary rows", async () => {
+    const params = await pollableWhereParams();
+    expect(params).toContain("cooldown");
+    // is_primary = true is still part of the filter.
+    expect(params).toContain(true);
+  });
+
+  it("still admits status 'available' rows", async () => {
+    const params = await pollableWhereParams();
+    expect(params).toContain("available");
+  });
+
+  it("(b) excludes status 'refresh_failed' rows", async () => {
+    const params = await pollableWhereParams();
+    expect(params).not.toContain("refresh_failed");
+  });
+});
+
+// ── queryPollableRows cooldown recency guard (poll-cooldown-credentials 1.2
+// regression) ────────────────────────────────────────────────────────────
+//
+// The WHERE-clause-construction checks above prove `cooldown`/`available` are
+// present as bound params, but `whereCapturingDb` never executes a real
+// filter — it always returns `[]`, so it cannot prove which ROWS a given
+// query actually admits or excludes. The recency guard's whole job is
+// row-level filtering (a `cooldown` row IS or ISN'T returned depending on how
+// old its `cooldownUntil` is), so this block proves it against a real
+// Postgres instance instead: production regression (2026-07-20) was ~20-25
+// ancient zombie `status='cooldown'` primary rows (dead OAuth tokens,
+// `cooldownUntil` a week+ in the past) getting swept into the poll set by the
+// unconditional `inArray(["available","cooldown"])` filter — attempted
+// jumped 3→26, 23 failed, tripping the poller's >50%-failure global backoff
+// and stalling polling for the genuinely active `available` credentials too.
+//
+// PG-gated on NEXUS_PG_TESTS=1 + POSTGRES_URL (skips cleanly otherwise), same
+// isolated-schema pattern as retention-credentials.test.ts /
+// pool-core-dedup.test.ts — prod-safe even when POSTGRES_URL points at the
+// live homelab DB, since every write lands in a throwaway schema that's
+// CASCADE-dropped in `afterAll`.
+
+const CREDENTIALS_DDL = `
+CREATE TABLE credentials (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  type text NOT NULL,
+  value_encrypted text,
+  encryption_key_id text DEFAULT 'v1',
+  agent_id text,
+  status text NOT NULL DEFAULT 'available',
+  leased_by text,
+  leased_at timestamp,
+  cooldown_until timestamptz,
+  rate_limit_count integer NOT NULL DEFAULT 0,
+  fingerprint text NOT NULL DEFAULT '',
+  duplicate_group_id text,
+  is_primary boolean NOT NULL DEFAULT false,
+  subscription_type text,
+  rate_limit_tier text,
+  expires_at timestamptz,
+  account_email text,
+  account_name text,
+  account_uuid text,
+  org_name text,
+  org_uuid text,
+  mcp_providers text,
+  usage_5h_used integer,
+  usage_5h_limit integer,
+  usage_5h_reset_at timestamptz,
+  usage_7d_used integer,
+  usage_7d_limit integer,
+  usage_7d_reset_at timestamptz,
+  usage_polled_at timestamptz,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now()
+);
+`;
+
+interface CooldownFixture {
+  id: string;
+  status: "available" | "cooldown" | "refresh_failed";
+  isPrimary: boolean;
+  cooldownUntil: Date | null;
+}
+
+async function seedCooldownFixture(
+  iso: IsolatedSchema,
+  row: CooldownFixture,
+): Promise<void> {
+  await iso.db.insert(credentials).values({
+    id: row.id,
+    name: `acct-${row.id}`,
+    type: "oauth",
+    fingerprint: `fp-${row.id}`,
+    status: row.status,
+    isPrimary: row.isPrimary,
+    cooldownUntil: row.cooldownUntil,
+  });
+}
+
+async function polledIds(iso: IsolatedSchema): Promise<Set<string>> {
+  const rows = await queryPollableRows(iso.db);
+  return new Set(rows.map((r) => r.id));
+}
+
+describe.skipIf(!hasPg)(
+  "queryPollableRows cooldown recency guard (poll-cooldown-credentials 1.2)",
+  () => {
+    let iso: IsolatedSchema;
+
+    beforeAll(async () => {
+      iso = await createIsolatedSchema(CREDENTIALS_DDL, "cred_cooldown");
+    });
+
+    afterAll(async () => {
+      await iso.drop();
+    });
+
+    it("(a) polls a status='cooldown' primary row with a recent cooldownUntil", async () => {
+      const id = randomUUID();
+      await seedCooldownFixture(iso, {
+        id,
+        status: "cooldown",
+        isPrimary: true,
+        cooldownUntil: new Date(Date.now() - 60 * 60 * 1000), // 1h ago
+      });
+
+      const ids = await polledIds(iso);
+      expect(ids.has(id)).toBe(true);
+    });
+
+    it("excludes a status='cooldown' primary row with a stale cooldownUntil (zombie-row regression)", async () => {
+      const id = randomUUID();
+      await seedCooldownFixture(iso, {
+        id,
+        status: "cooldown",
+        isPrimary: true,
+        cooldownUntil: new Date(Date.now() - 8 * 86_400_000), // 8 days ago
+      });
+
+      const ids = await polledIds(iso);
+      expect(ids.has(id)).toBe(false);
+    });
+
+    it("excludes a status='cooldown' primary row with cooldownUntil: null", async () => {
+      const id = randomUUID();
+      await seedCooldownFixture(iso, {
+        id,
+        status: "cooldown",
+        isPrimary: true,
+        cooldownUntil: null,
+      });
+
+      const ids = await polledIds(iso);
+      expect(ids.has(id)).toBe(false);
+    });
+  },
+);
