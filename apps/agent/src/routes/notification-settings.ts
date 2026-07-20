@@ -44,6 +44,11 @@ const ALLOWED_KEYS = new Set([
   "quiet_hours_enabled",
   "quiet_hours_start_hour",
   "quiet_hours_end_hour",
+  // Client-synced Mac Settings toggles (sync-notification-settings-round-trip,
+  // 2026-07-20).
+  "signal_only",
+  "meeting_mode",
+  "suppression_minutes",
 ]);
 const DUCKING_MODES = new Set(["full", "half", "mute"]);
 const FAIL_MODES = new Set(["fail-safe", "fail-open"]);
@@ -68,6 +73,9 @@ interface SettingsResponse {
   quiet_hours_enabled: boolean;
   quiet_hours_start_hour: number;
   quiet_hours_end_hour: number;
+  signal_only: boolean;
+  meeting_mode: boolean;
+  suppression_minutes: number;
   updated_at: string;
 }
 
@@ -86,6 +94,9 @@ interface SettingsRow {
   quietHoursEnabled: boolean;
   quietHoursStartHour: number;
   quietHoursEndHour: number;
+  signalOnly: boolean;
+  meetingMode: boolean;
+  suppressionMinutes: number;
   updatedAt: Date;
 }
 
@@ -112,6 +123,9 @@ function toResponse(row: SettingsRow): SettingsResponse {
     quiet_hours_enabled: row.quietHoursEnabled,
     quiet_hours_start_hour: row.quietHoursStartHour,
     quiet_hours_end_hour: row.quietHoursEndHour,
+    signal_only: row.signalOnly,
+    meeting_mode: row.meetingMode,
+    suppression_minutes: row.suppressionMinutes,
     updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -223,6 +237,9 @@ export async function handlePatchNotificationSettings(
     quietHoursEnabled: boolean;
     quietHoursStartHour: number;
     quietHoursEndHour: number;
+    signalOnly: boolean;
+    meetingMode: boolean;
+    suppressionMinutes: number;
   }> = {};
 
   if ("tts_enabled" in patch) {
@@ -359,6 +376,31 @@ export async function handlePatchNotificationSettings(
     update.quietHoursEndHour = v;
   }
 
+  if ("signal_only" in patch) {
+    if (typeof patch.signal_only !== "boolean") {
+      return jsonResponse({ error: "signal_only must be a boolean" }, 400);
+    }
+    update.signalOnly = patch.signal_only;
+  }
+
+  if ("meeting_mode" in patch) {
+    if (typeof patch.meeting_mode !== "boolean") {
+      return jsonResponse({ error: "meeting_mode must be a boolean" }, 400);
+    }
+    update.meetingMode = patch.meeting_mode;
+  }
+
+  if ("suppression_minutes" in patch) {
+    const v = patch.suppression_minutes;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
+      return jsonResponse(
+        { error: "suppression_minutes must be a non-negative integer" },
+        400,
+      );
+    }
+    update.suppressionMinutes = v;
+  }
+
   // ── No-op short-circuit (analytics-query-and-tts-synthesis) ─────────────
   // SELECT the current row, merge the candidate patch, and if every field
   // matches the existing value, return 200 WITHOUT issuing an UPDATE and
@@ -399,7 +441,13 @@ export async function handlePatchNotificationSettings(
     (update.quietHoursStartHour !== undefined &&
       update.quietHoursStartHour !== current.quietHoursStartHour) ||
     (update.quietHoursEndHour !== undefined &&
-      update.quietHoursEndHour !== current.quietHoursEndHour);
+      update.quietHoursEndHour !== current.quietHoursEndHour) ||
+    (update.signalOnly !== undefined &&
+      update.signalOnly !== current.signalOnly) ||
+    (update.meetingMode !== undefined &&
+      update.meetingMode !== current.meetingMode) ||
+    (update.suppressionMinutes !== undefined &&
+      update.suppressionMinutes !== current.suppressionMinutes);
 
   if (!changed) {
     // No-op: return current row, do NOT UPDATE, do NOT emit.
@@ -426,6 +474,9 @@ export async function handlePatchNotificationSettings(
     ttsEnabled: row.ttsEnabled,
     bannerEnabled: row.bannerEnabled,
     duckingMode: row.duckingMode,
+    signalOnly: row.signalOnly,
+    meetingMode: row.meetingMode,
+    suppressionMinutes: row.suppressionMinutes,
   });
 
   return jsonResponse(toResponse(row));
@@ -566,6 +617,9 @@ export async function handlePutRoutingRules(
     ttsEnabled: settings?.ttsEnabled ?? true,
     bannerEnabled: settings?.bannerEnabled ?? true,
     duckingMode: settings?.duckingMode ?? "full",
+    signalOnly: settings?.signalOnly ?? false,
+    meetingMode: settings?.meetingMode ?? false,
+    suppressionMinutes: settings?.suppressionMinutes ?? 0,
   });
 
   return jsonResponse({ rules: toInsert.map(ruleToWire) });

@@ -68,6 +68,9 @@ interface FakeRow {
   quietHoursEnabled: boolean;
   quietHoursStartHour: number;
   quietHoursEndHour: number;
+  signalOnly: boolean;
+  meetingMode: boolean;
+  suppressionMinutes: number;
   updatedAt: Date;
 }
 
@@ -87,6 +90,9 @@ function defaultRow(): FakeRow {
     quietHoursEnabled: true,
     quietHoursStartHour: 0,
     quietHoursEndHour: 7,
+    signalOnly: false,
+    meetingMode: false,
+    suppressionMinutes: 0,
     updatedAt: new Date("2026-04-26T00:00:00.000Z"),
   };
 }
@@ -267,6 +273,9 @@ describe("PATCH /notifications/settings — partial update semantics", () => {
       quietHoursEnabled: true,
       quietHoursStartHour: 0,
       quietHoursEndHour: 7,
+      signalOnly: false,
+      meetingMode: false,
+      suppressionMinutes: 0,
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
     const { db, rows } = makeFakeDb(initial);
@@ -352,6 +361,9 @@ describe("PATCH /notifications/settings — lifecycle bus emission", () => {
       ttsEnabled: false,
       bannerEnabled: true,
       duckingMode: "mute",
+      signalOnly: false,
+      meetingMode: false,
+      suppressionMinutes: 0,
     });
   });
 
@@ -616,6 +628,118 @@ describe("PATCH /notifications/settings — quiet_hours", () => {
     expect(rows[0]!.quietHoursEnabled).toBe(true);
     expect(rows[0]!.quietHoursStartHour).toBe(22);
     expect(rows[0]!.quietHoursEndHour).toBe(6);
+  });
+});
+
+// ── sync-notification-settings-round-trip: signal_only / meeting_mode /
+// suppression_minutes ───────────────────────────────────────────────────────
+
+describe("PATCH /notifications/settings — client-synced Mac toggles", () => {
+  it("GET surfaces the 3 new fields with their defaults", async () => {
+    const { db } = makeFakeDb();
+    const res = await handleGetNotificationSettings(db, makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.signal_only).toBe(false);
+    expect(body.meeting_mode).toBe(false);
+    expect(body.suppression_minutes).toBe(0);
+  });
+
+  it("round-trips signal_only / meeting_mode / suppression_minutes via PATCH", async () => {
+    const { db, rows } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", {
+        signal_only: true,
+        meeting_mode: true,
+        suppression_minutes: 30,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.signal_only).toBe(true);
+    expect(body.meeting_mode).toBe(true);
+    expect(body.suppression_minutes).toBe(30);
+    expect(rows[0]!.signalOnly).toBe(true);
+    expect(rows[0]!.meetingMode).toBe(true);
+    expect(rows[0]!.suppressionMinutes).toBe(30);
+  });
+
+  it("accepts suppression_minutes = 0 (off)", async () => {
+    const { db } = makeFakeDb({ ...defaultRow(), suppressionMinutes: 5 });
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { suppression_minutes: 0 }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.suppression_minutes).toBe(0);
+  });
+
+  it("rejects negative suppression_minutes with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { suppression_minutes: -1 }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("suppression_minutes");
+  });
+
+  it("rejects non-integer suppression_minutes with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { suppression_minutes: 2.5 }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects non-boolean signal_only with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { signal_only: "yes" }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects non-boolean meeting_mode with 400", async () => {
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", { meeting_mode: 1 }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("SettingsChanged payload includes the new fields on change", async () => {
+    const received: SettingsChangedPayload[] = [];
+    lifecycleBus.removeAllListeners();
+    lifecycleBus.on("SettingsChanged", (envelope) => {
+      received.push(envelope.payload);
+    });
+    const { db } = makeFakeDb();
+    const res = await handlePatchNotificationSettings(
+      db,
+      makeRequest("PATCH", {
+        signal_only: true,
+        meeting_mode: true,
+        suppression_minutes: 15,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      ttsEnabled: true,
+      bannerEnabled: true,
+      duckingMode: "full",
+      signalOnly: true,
+      meetingMode: true,
+      suppressionMinutes: 15,
+    });
+    lifecycleBus.removeAllListeners();
   });
 });
 

@@ -114,12 +114,20 @@ export interface CredentialDecryptFallbackPayload {
  * Payload carries the *post-update* values so subscribers (Mac listener
  * via SSE) can swap their cached toggles in one frame without a follow-up
  * GET. Field naming uses camelCase — DB columns (`tts_enabled`,
- * `banner_enabled`, `ducking_mode`) are converted at the route boundary.
+ * `banner_enabled`, `ducking_mode`, `signal_only`, `meeting_mode`,
+ * `suppression_minutes`) are converted at the route boundary.
+ *
+ * `signalOnly` / `meetingMode` / `suppressionMinutes` added by
+ * sync-notification-settings-round-trip (2026-07-20) so a settings change made
+ * on one machine reaches every peer listener's cached gating state in one frame.
  */
 export interface SettingsChangedPayload {
   ttsEnabled: boolean;
   bannerEnabled: boolean;
   duckingMode: "full" | "half" | "mute";
+  signalOnly: boolean;
+  meetingMode: boolean;
+  suppressionMinutes: number;
 }
 
 /**

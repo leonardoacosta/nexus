@@ -17,17 +17,17 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Extend `ALLOWED_KEYS` in `apps/agent/src/routes/notification-settings.ts` with [beads:nx-pe9dt]
+- [x] [2.1] Extend `ALLOWED_KEYS` in `apps/agent/src/routes/notification-settings.ts` with [beads:nx-pe9dt]
   `signal_only`, `meeting_mode`, `suppression_minutes`; extend `SettingsResponse` type and the
   GET/PATCH handlers to read/write the three new columns
   - depends on: 1.2
-- [ ] [2.2] Validate `suppression_minutes` as a non-negative integer in the PATCH handler, [beads:nx-3yiqh]
+- [x] [2.2] Validate `suppression_minutes` as a non-negative integer in the PATCH handler, [beads:nx-3yiqh]
   rejecting negative values with `400`
   - depends on: 2.1
-- [ ] [2.3] Extend the `SettingsChanged` lifecycle broadcast payload to include `signalOnly`, [beads:nx-fm7ms]
+- [x] [2.3] Extend the `SettingsChanged` lifecycle broadcast payload to include `signalOnly`, [beads:nx-fm7ms]
   `meetingMode`, `suppressionMinutes` alongside the existing fields
   - depends on: 2.1
-- [ ] [2.4] Extend `apps/agent/src/routes/notification-settings.test.ts` covering: new fields [beads:nx-ihgps]
+- [x] [2.4] Extend `apps/agent/src/routes/notification-settings.test.ts` covering: new fields [beads:nx-ihgps]
   round-trip via PATCH, negative `suppression_minutes` rejected, `SettingsChanged` payload
   includes the new fields
   - depends on: 2.2, 2.3
