@@ -52,11 +52,12 @@ three distinct defects, all in the same PATCH/SSE seam `SettingsRoutingView` alr
    toggles without polling"). The documented design in `deploy/README.md` already describes this
    exact round trip; it was never implemented on the listener side.
 
-Leo's design decisions (confirmed 2026-07-20): `signal_only`, `meeting_mode`, and
-`suppression_minutes` are all real synced settings, not local-only preferences — each gets a real
-DB column + migration, completing the intent `NotificationsView`'s existing (broken) PATCH call
-already signals. The listener learns about remote changes via a live `SettingsChanged` SSE
-subscription (matching the documented design), not polling.
+**Design decision (Leo, confirmed 2026-07-20 via `/explore`'s scaffold-offer question):**
+`signal_only`, `meeting_mode`, and `suppression_minutes` are real synced settings, not
+local-only preferences — each gets a real DB column + migration, completing the intent
+`NotificationsView`'s existing (broken) PATCH call already signals. The listener learns about
+remote changes via a live `SettingsChanged` SSE subscription (matching the documented design),
+not polling.
 
 ## Requirements
 
