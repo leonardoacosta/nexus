@@ -40,6 +40,11 @@ final class SettingsTtsViewModel: ObservableObject {
     @Published var statusIsError: Bool = false
 
     private let store: SettingsStore = .shared
+    // Qualify the SHARED client — the nexus-mac target also compiles a legacy
+    // `actor NexusClient` (apps/swift/nexus/nexus/NexusClient.swift) that an
+    // unqualified `NexusClient` would bind to (it lacks these methods). Same
+    // footgun documented in SettingsRoutingView / SourceIndexView.
+    private let client: NexusShared.NexusClient = NexusShared.NexusClient()
 
     init() {
         load()
@@ -68,12 +73,38 @@ final class SettingsTtsViewModel: ObservableObject {
     }
 
     func persistToggles() {
+        // Local optimistic write first, then PATCH the agent — mirrors
+        // SettingsRoutingView.persistSettings() (sync-notification-settings-
+        // round-trip, task 3.1). Peer machines / this listener after an agent
+        // restart only learn about the change via the server round trip.
         let defaults = UserDefaults.standard
         store.ttsEnabled = ttsEnabled
         defaults.set(bannerEnabled, forKey: SettingsTtsKeys.banner)
         defaults.set(signalOnly, forKey: SettingsTtsKeys.signalOnly)
         defaults.set(ducking.rawValue, forKey: SettingsTtsKeys.ducking)
-        flash("TTS settings saved")
+        let body: [String: Any] = [
+            "tts_enabled": ttsEnabled,
+            "banner_enabled": bannerEnabled,
+            "ducking_mode": Self.duckingWire(ducking),
+            "signal_only": signalOnly,
+        ]
+        Task {
+            _ = await client.patchNotificationSettings(body)
+            await MainActor.run { self.flash("TTS settings saved") }
+        }
+    }
+
+    /// Bridge the Mac's ducking vocabulary (duck/mix/pause — the volume-dip
+    /// depth, see `duckingCaption`) to the agent's `ducking_mode` column, which
+    /// only accepts `full`/`half`/`mute` (notification-settings.ts DUCKING_MODES;
+    /// any other value 400s the whole PATCH). mix = no dip = full; duck = ~40%
+    /// dip = half; pause = ~15% near-silence = mute.
+    private static func duckingWire(_ mode: DuckingMode) -> String {
+        switch mode {
+        case .mix:   return "full"
+        case .duck:  return "half"
+        case .pause: return "mute"
+        }
     }
 
     func saveKey() {
