@@ -225,27 +225,40 @@ public final class TTSObserver: ObservableObject {
         // global Keychain voice as the fallback.
         await refreshProjectVoiceCache()
 
-        // Side-channel subscription: refresh the cache when the agent
-        // publishes a `VoiceOverrideChanged` SSE frame. We piggy-back on
-        // the generic `/events/stream` consumer because the dispatch
-        // happens via the same lifecycle bus.
+        // Side-channel subscription: a single `/events/stream` consumer that
+        // dispatches on frame name. We piggy-back on the generic consumer
+        // because these events fan out via the same lifecycle bus:
+        //   - `VoiceOverrideChanged` -> refresh the per-project voice cache.
+        //   - `SettingsChanged` -> apply the agent's post-PATCH gating state
+        //     (ttsEnabled / banner / ducking / signalOnly) so a settings edit
+        //     made on another machine — or on this one after an agent restart
+        //     drops the local optimistic write — is picked up live, without an
+        //     app relaunch (sync-notification-settings-round-trip, task 3.3).
+        //     The agent broadcasts `SettingsChanged` on every successful PATCH
+        //     to `/notifications/settings`
+        //     (apps/agent/src/routes/notification-settings.ts).
         //
         // Reconnect (nx-gsk4h): `consumeEvents` returns when the agent
         // restarts and the SSE pipe drops. Without a loop the side-channel
-        // dies silently — VoiceOverrideChanged frames stop refreshing the
-        // cache until app relaunch. Wrap it in the same backoff loop as the
-        // notification stream below.
-        let voiceTask = Task { [weak self] in
+        // dies silently — frames stop updating local state until app relaunch.
+        // Wrap it in the same backoff loop as the notification stream below.
+        let sideChannelTask = Task { [weak self] in
             guard let self else { return }
-            await self.reconnectLoop(label: "voice") {
+            await self.reconnectLoop(label: "events") {
                 await self.client.consumeEvents { event in
-                    guard event.name == "VoiceOverrideChanged" else { return }
-                    guard event.decodeVoiceOverrideChange() != nil else { return }
-                    await self.refreshProjectVoiceCache()
+                    switch event.name {
+                    case "VoiceOverrideChanged":
+                        guard event.decodeVoiceOverrideChange() != nil else { return }
+                        await self.refreshProjectVoiceCache()
+                    case "SettingsChanged":
+                        await self.applySettingsChange(from: event)
+                    default:
+                        return
+                    }
                 }
             }
         }
-        self.voiceEventTask = voiceTask
+        self.voiceEventTask = sideChannelTask
 
         // Reconnect (nx-gsk4h): previously `consumeNotifications` was called
         // ONCE — on agent restart the SSE `/events` connection drops, the
@@ -441,6 +454,61 @@ public final class TTSObserver: ObservableObject {
     /// (`@testable import` reach.)
     internal var debugProjectVoiceCache: [String: String] {
         projectVoiceCache
+    }
+
+    // MARK: - Remote settings sync (sync-notification-settings-round-trip 3.3)
+
+    /// Apply a remote `SettingsChanged` frame to the local gating state that
+    /// `handle(event:)` / `postBanner` / `resolveDucking` read on every event.
+    /// The agent broadcasts this after every successful PATCH to
+    /// `/notifications/settings` with a camelCase payload
+    /// (`ttsEnabled` / `bannerEnabled` / `duckingMode` / `signalOnly` / …), so
+    /// a settings edit made on another machine — or on this one after an agent
+    /// restart drops the local optimistic write — is reflected live.
+    ///
+    /// Why we write straight to the existing UserDefaults keys rather than a
+    /// new SettingsStore overlay: TTSObserver's gates already read these keys
+    /// directly — `settings.ttsEnabled` (SettingsStore, `nx.tts.enabled`), the
+    /// raw `nx.notifications.bannerEnabled` in `postBanner`, and the raw
+    /// `elevenlabs.ducking` in `resolveDucking`. Writing the server value back
+    /// into the SAME key is the whole update: the next event reads it with no
+    /// extra plumbing, and a parallel typed cache would be read by nobody
+    /// (Reader Gate). `signalOnly` shares `nx.notifications.signalOnly` with the
+    /// Settings panes. Each field is optional in the frame and applied only when
+    /// present, so a partial PATCH broadcast never blanks an unrelated toggle.
+    internal func applySettingsChange(from event: SSEEvent) async {
+        guard let bytes = event.data.data(using: .utf8),
+              let env = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+        else {
+            Self.logger.debug("TTSObserver: SettingsChanged frame unparseable — ignoring")
+            return
+        }
+        // Envelope tolerance: same `payload`-or-flat handling as the other
+        // SSE decoders (SSEDecoder.swift).
+        let payload = (env["payload"] as? [String: Any]) ?? env
+        let defaults = UserDefaults.standard
+
+        if let ttsEnabled = payload["ttsEnabled"] as? Bool {
+            settings.ttsEnabled = ttsEnabled
+        }
+        if let bannerEnabled = payload["bannerEnabled"] as? Bool {
+            defaults.set(bannerEnabled, forKey: "nx.notifications.bannerEnabled")
+        }
+        // Only accept a ducking value the Swift player understands
+        // (duck|mix|pause). An undecodable string is left untouched rather than
+        // clobbering `resolveDucking()`'s local value with something it would
+        // silently coerce back to `.mix`.
+        if let ducking = payload["duckingMode"] as? String,
+           DuckingMode(rawValue: ducking) != nil {
+            defaults.set(ducking, forKey: "elevenlabs.ducking")
+        }
+        if let signalOnly = payload["signalOnly"] as? Bool {
+            defaults.set(signalOnly, forKey: "nx.notifications.signalOnly")
+        }
+
+        Self.logger.info(
+            "TTSObserver: applied SettingsChanged (ttsEnabled=\(self.settings.ttsEnabled, privacy: .public))"
+        )
     }
 
     // MARK: - Per-event handler
