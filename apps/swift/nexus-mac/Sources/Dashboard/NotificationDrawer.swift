@@ -93,6 +93,12 @@ struct NotificationDrawer: View {
                 )
             )
             Spacer()
+            if let status = model.persistStatus {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(status == "Save failed" ? Color.nx.critical : .green)
+                    .accessibilityIdentifier("notification-drawer-persist-status")
+            }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
     }
