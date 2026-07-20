@@ -108,6 +108,14 @@ final class NotificationsViewModel: ObservableObject {
     let audioPlayer: MP3PlayerProtocol? = AudioPlayer.shared
 
     let client = NexusShared.NexusAggregateClient()
+    // Settings writes go through the single-endpoint NexusClient (matching
+    // SettingsRoutingView) so persist() can inspect the PATCH result (`Data?`,
+    // nil on failure) and surface a real error — the aggregate client is
+    // fire-and-forget (returns Void, no failure signal). Qualify
+    // NexusShared.NexusClient: the nexus-mac target also compiles a legacy
+    // `actor NexusClient` an unqualified name would bind to (same footgun
+    // documented in SettingsRoutingView / SourceIndexView).
+    private let settingsClient = NexusShared.NexusClient()
     private var sseTask: Task<Void, Never>?
 
     private enum Keys {
@@ -192,14 +200,26 @@ final class NotificationsViewModel: ObservableObject {
         defaults.set(signalOnly, forKey: Keys.signalOnly)
         defaults.set(suppressionMinutes, forKey: Keys.suppressionMin)
         defaults.set(ducking.rawValue, forKey: Keys.ducking)
-        Task { [meetingMode, signalOnly, suppressionMinutes] in
-            await client.patchNotificationSettings([
-                "meetingMode": meetingMode,
-                "signalOnly": signalOnly,
-                "suppressionMinutes": suppressionMinutes,
-            ])
+        // snake_case keys the agent's ALLOWED_KEYS actually accepts
+        // (meeting_mode / signal_only / suppression_minutes — landed in the API
+        // batch, commit cbafe466). The prior camelCase keys 400'd on every
+        // call, a silent failure the UI masked by unconditionally flashing
+        // "Saved". Inspect the PATCH result and surface a real error on failure,
+        // matching SettingsRoutingView's status-flash pattern.
+        let body: [String: Any] = [
+            "meeting_mode": meetingMode,
+            "signal_only": signalOnly,
+            "suppression_minutes": suppressionMinutes,
+        ]
+        Task { [settingsClient] in
+            let result = await settingsClient.patchNotificationSettings(body)
+            await MainActor.run { self.flash(result == nil ? "Save failed" : "Saved") }
         }
-        persistStatus = "Saved"
+    }
+
+    /// Flash a transient save/error status, mirroring SettingsRoutingView.flash.
+    private func flash(_ msg: String) {
+        persistStatus = msg
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             persistStatus = nil
