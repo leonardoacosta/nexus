@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getAgentBaseUrl } from "~/lib";
 import { theme } from "~/components/theme";
 
+import { KokoroPanel } from "./KokoroPanel";
 import { TelegramPanel } from "./TelegramPanel";
 
 /**
@@ -29,6 +30,7 @@ interface ProviderUi {
 
 const PROVIDER_UI_REGISTRY: Record<string, ProviderUi> = {
   telegram: { displayName: "Telegram", Panel: TelegramPanel },
+  kokoro: { displayName: "Kokoro", Panel: KokoroPanel },
 };
 
 export default async function IntegrationProviderPage({

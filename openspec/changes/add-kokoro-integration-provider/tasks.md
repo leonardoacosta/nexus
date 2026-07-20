@@ -17,7 +17,7 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] [P-2] Add `apps/web/src/app/integrations/[provider]/KokoroPanel.tsx` — plain text fields for `baseUrl` and `defaultVoice` (no `MaskedKeyInput`, no secret), save/test-connection/delete against the existing generic `integration-client.ts`; register it in `PROVIDER_UI_REGISTRY` under `"kokoro"` in `page.tsx`. [owner:ui-engineer] [type:ui]
+- [x] [3.1] [P-2] Add `apps/web/src/app/integrations/[provider]/KokoroPanel.tsx` — plain text fields for `baseUrl` and `defaultVoice` (no `MaskedKeyInput`, no secret), save/test-connection/delete against the existing generic `integration-client.ts`; register it in `PROVIDER_UI_REGISTRY` under `"kokoro"` in `page.tsx`. [owner:ui-engineer] [type:ui]
 
 ## E2E Batch
 
