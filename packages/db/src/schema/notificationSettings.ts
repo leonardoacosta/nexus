@@ -70,6 +70,18 @@ export const notificationSettings = pgTable("notification_settings", {
   quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(true),
   quietHoursStartHour: integer("quiet_hours_start_hour").notNull().default(0),
   quietHoursEndHour: integer("quiet_hours_end_hour").notNull().default(7),
+  /**
+   * Client-synced notification toggles surfaced by the Mac Settings panes
+   * (sync-notification-settings-round-trip, 2026-07-20). `signal_only` gates
+   * delivery to signal-priority notifications; `meeting_mode` suppresses
+   * non-critical delivery while in a meeting; `suppression_minutes` is a
+   * temporary quiet window (0 = off). These are real synced settings (not
+   * local-only preferences) so a change made on one machine is visible to
+   * every peer listener via the `SettingsChanged` SSE broadcast.
+   */
+  signalOnly: boolean("signal_only").notNull().default(false),
+  meetingMode: boolean("meeting_mode").notNull().default(false),
+  suppressionMinutes: integer("suppression_minutes").notNull().default(0),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -10,9 +10,9 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Add `signal_only` (boolean, default false), `meeting_mode` (boolean, default false), [beads:nx-v7kvd]
+- [x] [1.1] Add `signal_only` (boolean, default false), `meeting_mode` (boolean, default false), [beads:nx-v7kvd]
   `suppression_minutes` (integer, default 0) columns to `packages/db/src/schema/notificationSettings.ts`
-- [ ] [1.2] Run `pnpm --filter @nexus/db db:generate` and commit the generated migration SQL [beads:nx-s44qr]
+- [x] [1.2] Run `pnpm --filter @nexus/db db:generate` and commit the generated migration SQL [beads:nx-s44qr]
   - depends on: 1.1
 
 ## API Batch

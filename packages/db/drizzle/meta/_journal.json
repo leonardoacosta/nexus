@@ -414,6 +414,13 @@
       "when": 1784504284553,
       "tag": "0058_known_changeling",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784570585185,
+      "tag": "0059_burly_blink",
+      "breakpoints": true
     }
   ]
 }
