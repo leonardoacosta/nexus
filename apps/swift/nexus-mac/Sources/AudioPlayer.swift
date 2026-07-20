@@ -30,12 +30,13 @@
 
 import AVFoundation
 import AudioToolbox
+import Combine
 import CoreAudio
 import Foundation
 import NexusShared
 import os.log
 
-public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+public final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate, @unchecked Sendable {
     public static let shared = AudioPlayer()
 
     // nx-5bqus: silent-failure diagnostics. The CoreAudio volume helpers below
@@ -59,6 +60,35 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     /// `stop()`. TTSObserver wires this to NowPlayingController.noteClipEnded().
     /// Spec: openspec/changes/airpods-tts-cancel.
     public var onPlaybackFinished: (() -> Void)?
+
+    /// The id of the notification row whose audio is currently playing, or
+    /// `nil` when idle. Published so `NotificationReplayButton` can render its
+    /// play/stop icon and detect a same-row re-tap. The notification-replay UI
+    /// associates a row id via `setCurrentlyPlaying(id:)` right after it kicks
+    /// off playback; it is cleared automatically on `stop()` and on natural
+    /// finish. The TTS pipeline plays anonymous clips and never sets this.
+    /// Spec: openspec/changes/fix-notification-replay-stop-button.
+    @Published public private(set) var currentlyPlayingId: String?
+
+    /// Associate `id` with the in-flight clip (or clear it with `nil`). Public
+    /// because the replay button — not this player — knows which row's bytes it
+    /// just handed to `play(mp3Data:ducking:)`.
+    public func setCurrentlyPlaying(id: String?) {
+        publishCurrentlyPlaying(id)
+    }
+
+    /// Mutate the `@Published` id on the main thread. Playback can be driven
+    /// from a background `Task` (and AVAudioPlayer delegate callbacks fire on
+    /// the thread that started playback), but `@Published` must publish on main.
+    private func publishCurrentlyPlaying(_ id: String?) {
+        if Thread.isMainThread {
+            currentlyPlayingId = id
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.currentlyPlayingId = id
+            }
+        }
+    }
 
     public func play(
         mp3Data: Data,
@@ -108,6 +138,8 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully _: Bool) {
         self.player = nil
         restoreSystemVolume()
+        // Natural finish clears the replay-button tracking id with no stop tap.
+        publishCurrentlyPlaying(nil)
         onFinish?()
         onFinish = nil
         // Natural finish — signal the Now-Playing grace window to start.
@@ -123,6 +155,9 @@ public final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Send
     ///
     /// Spec: openspec/changes/airpods-tts-cancel (mac-tts-listener).
     public func stop() {
+        // A stop tap (or cross-row switch) clears the replay-button tracking id
+        // regardless of whether a clip is still mid-flight.
+        publishCurrentlyPlaying(nil)
         // Always restore a ducked system volume, even if the player is already
         // nil — a cancel landing in the post-finish gap must not leave the
         // user's volume lowered.
