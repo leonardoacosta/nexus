@@ -190,6 +190,8 @@ const LEGACY_DISPATCH_ROUTES: Pick<Route, "method" | "path">[] = [
   { method: "PATCH", path: "/integrations/:provider/credentials" },
   { method: "DELETE", path: "/integrations/:provider/credentials" },
   { method: "POST", path: "/integrations/:provider/credentials/test" },
+  // Generic voice listing (provider-qualified-project-voices)
+  { method: "GET", path: "/integrations/:provider/voices" },
   // Agents (settings)
   { method: "GET", path: "/agent/self" },
   { method: "POST", path: "/agents" },

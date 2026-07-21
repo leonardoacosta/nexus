@@ -17,7 +17,7 @@
  */
 
 import { createLogger, getAgentId } from "@nexus/core/node";
-import { fetchWithTimeout } from "@nexus/core";
+import { fetchWithTimeout, parseQualifiedVoice } from "@nexus/core";
 import type { Db } from "@nexus/db";
 import { projectVoiceOverrides, elevenlabsCredentials } from "@nexus/db";
 import { eq } from "drizzle-orm";
@@ -323,13 +323,31 @@ export async function sendTtsNotification(
     return { success: true };
   }
 
+  // provider-qualified-project-voices: a resolved voice may be qualified
+  // (`kokoro:af_heart`) or bare (implicitly `elevenlabs`, backward compat).
+  // Only `elevenlabs` pre-renders here — any other provider is owned by the
+  // Mac listener's provider chain, so the agent stays headless and degrades
+  // to signal-only.
+  const qualified = parseQualifiedVoice(voiceId);
+  if (qualified.provider !== "elevenlabs") {
+    log.debug(
+      { notificationId: notification.id, provider: qualified.provider },
+      "tts: voice provider is not elevenlabs — emitting signal-only NotificationFired (listener owns synthesis for this provider)",
+    );
+    return { success: true };
+  }
+
   try {
-    const mp3 = await synthesizeViaElevenLabs(notification, voiceId, apiKey);
+    const mp3 = await synthesizeViaElevenLabs(
+      notification,
+      qualified.voice,
+      apiKey,
+    );
     await writeAudio(notification.id, mp3);
     // Base64-encode for SSE transport. Buffer is available in both Bun and
     // Node runtimes via the global.
     const audioBase64 = Buffer.from(mp3).toString("base64");
-    return { success: true, audioBase64, voiceUsed: voiceId };
+    return { success: true, audioBase64, voiceUsed: qualified.voice };
   } catch (err) {
     // Synth HTTP/network error. Degrade to signal-only so the notification
     // still delivers (banner + listener-side synth) — a flaky ElevenLabs

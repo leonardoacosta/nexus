@@ -16,8 +16,10 @@
  *   PATCH  /integrations/:provider/credentials       — partial upsert
  *   DELETE /integrations/:provider/credentials       — drops the row
  *   POST   /integrations/:provider/credentials/test  — probes upstream
+ *   GET    /integrations/:provider/voices            — proxies the
+ *     descriptor's optional `listVoices` (provider-qualified-project-voices)
  *
- * Spec: openspec/changes/add-integration-registry/
+ * Spec: openspec/changes/add-integration-registry/, provider-qualified-project-voices/
  */
 
 import { randomUUID } from "node:crypto";
@@ -286,15 +288,76 @@ export async function handleTestConnection(
   return jsonResponse({ ok, statusCode });
 }
 
+/**
+ * GET /integrations/:provider/voices — generic voice-listing proxy
+ * (provider-qualified-project-voices). Dispatches off the descriptor's
+ * optional `listVoices`; a descriptor without it 404s before any DB access.
+ * Mirrors `handleTestConnection`'s secret-gating: `requiresSecret === false`
+ * (kokoro) skips the decrypt gate, secret-requiring providers keep the
+ * decrypt-then-call shape. Either way, no stored row is 400 — the descriptor
+ * needs its metadata (or secret) to probe anything.
+ */
+export async function handleListProviderVoices(
+  db: Db,
+  _request: Request,
+  provider: string,
+): Promise<Response> {
+  const descriptor = PROVIDER_DESCRIPTORS[provider];
+  if (!descriptor || !descriptor.listVoices) {
+    return jsonResponse({ error: "unknown provider" }, 404);
+  }
+
+  const agentId = getAgentId();
+  const row = await findRow(db, agentId, provider);
+  if (!row) {
+    return jsonResponse({ error: "no credential stored" }, 400);
+  }
+
+  if (descriptor.requiresSecret === false) {
+    const { ok, statusCode, voices } = await descriptor.listVoices(
+      "",
+      row.metadata ?? {},
+    );
+    return jsonResponse({ ok, statusCode, voices });
+  }
+
+  if (!row.valueEncrypted) {
+    return jsonResponse({ error: "no credential stored" }, 400);
+  }
+
+  const key = tryLoadEncryptionKey();
+  if (!key) {
+    return jsonResponse({ error: "encryption key not configured" }, 400);
+  }
+
+  let secret: string;
+  try {
+    secret = decrypt(row.valueEncrypted, key);
+  } catch (err) {
+    logger.error(
+      { err, agentId, provider },
+      "integration: failed to decrypt stored secret",
+    );
+    return jsonResponse({ error: "could not decrypt stored credential" }, 500);
+  }
+
+  const { ok, statusCode, voices } = await descriptor.listVoices(
+    secret,
+    row.metadata ?? {},
+  );
+  return jsonResponse({ ok, statusCode, voices });
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
 /**
  * Match and handle a generic integration-credential route.
  *
  * Parses the `:provider` path segment from
- * `/integrations/:provider/credentials[/test]` and delegates to the handler
- * for the method. Returns a Response when the URL matches, or `null` when it
- * does not (callers fall through). Without a Db no route can run — returns
+ * `/integrations/:provider/credentials[/test]` or
+ * `/integrations/:provider/voices` and delegates to the handler for the
+ * method. Returns a Response when the URL matches, or `null` when it does
+ * not (callers fall through). Without a Db no route can run — returns
  * `null` so the outer dispatcher hits the not-found branch rather than 500-ing.
  */
 export function tryHandleIntegrationCredentialsRoute(
@@ -304,17 +367,12 @@ export function tryHandleIntegrationCredentialsRoute(
 ): Response | Promise<Response> | null {
   if (!db) return null;
 
-  // ["", "integrations", ":provider", "credentials", ...("test")]
+  // ["", "integrations", ":provider", "credentials"|"voices", ...("test")]
   const segments = url.pathname.split("/");
-  if (segments[1] !== "integrations" || segments[3] !== "credentials") {
-    return null;
-  }
+  if (segments[1] !== "integrations") return null;
   const provider = segments[2];
   if (!provider) return null;
-
-  const isTest = segments[4] === "test" && segments.length === 5;
-  const isBase = segments.length === 4;
-  if (!isBase && !isTest) return null;
+  const subpath = segments[3];
 
   const wrap = (
     p: Promise<Response>,
@@ -331,6 +389,21 @@ export function tryHandleIntegrationCredentialsRoute(
         }),
       );
     });
+
+  if (subpath === "voices" && segments.length === 4) {
+    if (request.method !== "GET") return null;
+    return wrap(
+      handleListProviderVoices(db, request, provider),
+      `/integrations/${provider}/voices`,
+      "GET",
+    );
+  }
+
+  if (subpath !== "credentials") return null;
+
+  const isTest = segments[4] === "test" && segments.length === 5;
+  const isBase = segments.length === 4;
+  if (!isBase && !isTest) return null;
 
   const route = `/integrations/${provider}/credentials${isTest ? "/test" : ""}`;
 

@@ -85,13 +85,16 @@ export type {
 } from "./types/elevenlabs";
 export {
   INTEGRATION_PROVIDERS,
+  TTS_VOICE_PROVIDERS,
   integrationMetadataSchemas,
   integrationCredentialsResponse,
   integrationPatchInput,
+  parseQualifiedVoice,
 } from "./types/integrations";
 export type {
   IntegrationCredentialsResponse,
   IntegrationPatchInput,
+  QualifiedVoice,
 } from "./types/integrations";
 export {
   sessionContextPatchInput,

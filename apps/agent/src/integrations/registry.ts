@@ -33,6 +33,13 @@ export interface ProviderTestResult {
   statusCode: number | null;
 }
 
+/** Result of a provider "list voices" probe (`provider-qualified-project-voices`). */
+export interface ProviderListVoicesResult {
+  ok: boolean;
+  statusCode: number | null;
+  voices: unknown[];
+}
+
 /**
  * Describes one integration provider: the registry key, the schema validating
  * its `metadata` JSONB on PATCH, and a connection probe run server-side.
@@ -60,6 +67,17 @@ export interface ProviderDescriptor {
     secret: string,
     metadata: Record<string, unknown>,
   ) => Promise<ProviderTestResult>;
+  /**
+   * Optional — providers that expose a voice catalog implement this so
+   * `GET /integrations/:provider/voices` can proxy it generically. MUST NOT
+   * throw; network/timeout failures resolve to `{ ok: false, statusCode:
+   * null, voices: [] }`. Absent means the provider has no voice listing —
+   * the generic route 404s rather than calling anything.
+   */
+  listVoices?: (
+    secret: string,
+    metadata: Record<string, unknown>,
+  ) => Promise<ProviderListVoicesResult>;
 }
 
 export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
@@ -95,6 +113,29 @@ export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
       } catch {
         // Network failure / timeout — no HTTP exchange occurred.
         return { ok: false, statusCode: null };
+      }
+    },
+    listVoices: async (_secret, metadata) => {
+      const baseUrl = typeof metadata.baseUrl === "string" ? metadata.baseUrl : "";
+      if (!baseUrl) return { ok: false, statusCode: null, voices: [] };
+      try {
+        const res = await fetchWithTimeout(`${baseUrl}/v1/audio/voices`, {
+          method: "GET",
+          timeout: 5_000,
+        });
+        if (!res.ok) return { ok: false, statusCode: res.status, voices: [] };
+        const body: unknown = await res.json();
+        // kokoro-fastapi returns `{ "voices": [...] }`; tolerate a bare array
+        // too so a future/alternate deployment shape doesn't hard-fail here.
+        const voices = Array.isArray(body)
+          ? body
+          : Array.isArray((body as { voices?: unknown[] })?.voices)
+            ? (body as { voices: unknown[] }).voices
+            : [];
+        return { ok: true, statusCode: res.status, voices };
+      } catch {
+        // Network failure / timeout / bad JSON — no usable response.
+        return { ok: false, statusCode: null, voices: [] };
       }
     },
   },

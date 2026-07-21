@@ -17,6 +17,7 @@ import type { Db } from "@nexus/db";
 import { projectVoiceOverrides } from "@nexus/db";
 import { eq } from "drizzle-orm";
 import { createLogger } from "@nexus/core/node";
+import { parseQualifiedVoice, TTS_VOICE_PROVIDERS } from "@nexus/core";
 import { lifecycleBus } from "../services/lifecycle-bus";
 
 const log = createLogger("agent:routes:notifications-voices");
@@ -83,6 +84,20 @@ export async function handlePutVoice(
   if (voice_id.length > VOICE_ID_MAX) {
     return jsonResponse(
       { error: `voice_id exceeds ${VOICE_ID_MAX} characters` },
+      400,
+    );
+  }
+
+  // provider-qualified-project-voices: `provider:voice` prefix must name a
+  // TTS-capable provider. Bare ids (no separator) parse to "elevenlabs" and
+  // always pass — this is backward compat, not a new restriction.
+  const { provider } = parseQualifiedVoice(voice_id);
+  if (!TTS_VOICE_PROVIDERS.has(provider)) {
+    return jsonResponse(
+      {
+        error: `unknown voice provider "${provider}"`,
+        allowedProviders: [...TTS_VOICE_PROVIDERS],
+      },
       400,
     );
   }

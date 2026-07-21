@@ -115,6 +115,7 @@ const DELEGATED: RouteKey[] = [
   key("PATCH", "/integrations/:provider/credentials"),
   key("DELETE", "/integrations/:provider/credentials"),
   key("POST", "/integrations/:provider/credentials/test"),
+  key("GET", "/integrations/:provider/voices"),
   // specs (tryHandleSpecRoute)
   key("GET", "/specs/:project/:name/:file"),
   key("GET", "/specs/:project/:name/sessions"),
