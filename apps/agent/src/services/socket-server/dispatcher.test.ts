@@ -41,6 +41,14 @@ import * as paneTranslationNs from "./pane-translation";
 import * as processHookEventNs from "../process-hook-event";
 import { __testing as dispatcherTesting } from "./dispatcher";
 import { hasLivePg } from "../../testing/live-pg";
+// Restorable spy targets for the reactive rate-limit swap suite below
+// (wire-reactive-rate-limit-swap, task 4.1) — dispatcher.ts imports these
+// named from their respective modules, same live-binding spy pattern as the
+// three imports above.
+import * as swapFlowNs from "../credential-swap-flow";
+import * as sendTextNs from "../../routes/commands-send-text";
+import * as credentialWatcherNs from "../../credentials/credential-watcher";
+import type { CredentialPool } from "../../credentials/pool";
 
 // ─── Module mocks (must register before importing dispatcher) ────────────────
 
@@ -1050,5 +1058,199 @@ describe("socket-server dispatcher: tool_use_end / user_prompt wiring (nx-9qsmb.
     await Promise.resolve();
 
     expect(processSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Reactive rate-limit swap detection (wire-reactive-rate-limit-swap, 4.1) ─
+//
+// Exercises `isRateLimitNotification` + `tryReactiveRateLimitSwap`'s branching
+// through the real dispatcher entry point: phrase match, structured
+// utilization >= 1.0, passthrough when no credential pool is wired, and
+// passthrough when no eligible swap candidate exists (both of the latter fall
+// through to the exhaustion ladder in proactive-swap.ts, which owns that
+// case). `performCredentialSwap` and `sendTextToSession` are spied at their
+// exact import path (dispatcher.ts's own relative import) rather than
+// `mock.module`, per the process-global contamination guard this file
+// already follows elsewhere — the real detection/branching logic in
+// dispatcher.ts runs unmocked; only the swap's side effects and the tmux
+// dispatch are stubbed. `isDebounced`/`armDebounce` are the REAL functions
+// (reset between tests) — their own contract is covered directly by
+// credential-swap-flow.test.ts.
+
+function createFakeCredentialsLookupDb(
+  rows: Array<{ id: string; fingerprint: string }>,
+): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => Promise.resolve(rows),
+        }),
+      }),
+    }),
+  } as unknown as Db;
+}
+
+describe("socket-server dispatcher: reactive rate-limit swap detection", () => {
+  let received: LifecycleEnvelope<"NotificationFired">[];
+  let performSwapSpy: ReturnType<
+    typeof spyOn<typeof swapFlowNs, "performCredentialSwap">
+  >;
+  let sendTextSpy: ReturnType<typeof spyOn<typeof sendTextNs, "sendTextToSession">>;
+  let activeSnapshotSpy: ReturnType<
+    typeof spyOn<typeof credentialWatcherNs, "getActiveCredentialSnapshot">
+  >;
+  const fakePool = {} as unknown as CredentialPool;
+
+  beforeEach(() => {
+    swapFlowNs.__resetDebounceForTests();
+    received = [];
+
+    performSwapSpy = spyOn(
+      swapFlowNs,
+      "performCredentialSwap",
+    ).mockResolvedValue({
+      ok: true,
+      result: {
+        parked: { id: "cred-1", fingerprint: "fp-active", accountName: "A" },
+        activated: { id: "cred-2", fingerprint: "fp-b", accountName: "B" },
+      },
+    } as unknown as Awaited<ReturnType<typeof swapFlowNs.performCredentialSwap>>);
+
+    sendTextSpy = spyOn(sendTextNs, "sendTextToSession").mockResolvedValue({
+      ok: true,
+      tmuxTarget: "%1",
+    });
+
+    activeSnapshotSpy = spyOn(
+      credentialWatcherNs,
+      "getActiveCredentialSnapshot",
+    ).mockReturnValue({
+      fingerprint: "fp-active",
+      resolvedPath: null,
+      observedAt: new Date().toISOString(),
+    });
+  });
+
+  afterEach(() => {
+    performSwapSpy.mockRestore();
+    sendTextSpy.mockRestore();
+    activeSnapshotSpy.mockRestore();
+    swapFlowNs.__resetDebounceForTests();
+  });
+
+  async function buildDispatch(
+    db: Db | undefined,
+    getCredentialPool?: () => CredentialPool | null,
+  ): Promise<(event: SocketEvent) => void> {
+    const { createSocketEventDispatcher } = await import("./dispatcher");
+    const { LifecycleBus } = await import("../lifecycle-bus");
+    const bus = new LifecycleBus();
+    bus.on("NotificationFired", (env) => received.push(env));
+    return createSocketEventDispatcher({
+      sessionManager: createMockSessionManager(),
+      lifecycleBus: bus,
+      db,
+      getCredentialPool,
+    });
+  }
+
+  test("phrase hit ('hit your limit') with an eligible candidate swaps and suppresses the raw notification", async () => {
+    const db = createFakeCredentialsLookupDb([{ id: "cred-2", fingerprint: "fp-b" }]);
+    const dispatch = await buildDispatch(db, () => fakePool);
+
+    dispatch({
+      event: "notification",
+      message: "You hit your limit for this session — try again later",
+      session_id: "sess-phrase",
+      channels: ["tts", "desktop"],
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(performSwapSpy).toHaveBeenCalledTimes(1);
+    expect(performSwapSpy.mock.calls[0]![0]).toMatchObject({
+      targetId: "cred-2",
+      reason: "reactive",
+      sessionId: "sess-phrase",
+    });
+    expect(sendTextSpy).toHaveBeenCalledWith("sess-phrase", "continue");
+    expect(received).toHaveLength(0); // raw notification suppressed
+  });
+
+  test("structured utilization >= 1.0 (no phrase) swaps and suppresses the raw notification", async () => {
+    const db = createFakeCredentialsLookupDb([{ id: "cred-2", fingerprint: "fp-b" }]);
+    const dispatch = await buildDispatch(db, () => fakePool);
+
+    dispatch({
+      event: "notification",
+      message: "usage update",
+      session_id: "sess-util",
+      rate_limit_event: { utilization: 1.0 },
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(performSwapSpy).toHaveBeenCalledTimes(1);
+    expect(performSwapSpy.mock.calls[0]![0]).toMatchObject({
+      targetId: "cred-2",
+      reason: "reactive",
+      sessionId: "sess-util",
+    });
+    expect(received).toHaveLength(0);
+  });
+
+  test("passthrough: no credential pool wired — notification delivers unchanged", async () => {
+    const db = createFakeCredentialsLookupDb([{ id: "cred-2", fingerprint: "fp-b" }]);
+    const dispatch = await buildDispatch(db, undefined);
+
+    dispatch({
+      event: "notification",
+      message: "you hit your limit",
+      session_id: "sess-nopool",
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(performSwapSpy).not.toHaveBeenCalled();
+    expect(received).toHaveLength(1);
+    expect(received[0]!.payload.body).toBe("you hit your limit");
+  });
+
+  test("passthrough: no eligible candidate — notification delivers unchanged, exhaustion ladder owns it", async () => {
+    const db = createFakeCredentialsLookupDb([]); // no primary/available rows
+    const dispatch = await buildDispatch(db, () => fakePool);
+
+    dispatch({
+      event: "notification",
+      message: "you hit your limit",
+      session_id: "sess-nocandidate",
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(performSwapSpy).not.toHaveBeenCalled();
+    expect(sendTextSpy).not.toHaveBeenCalled();
+    expect(received).toHaveLength(1);
+    expect(received[0]!.payload.body).toBe("you hit your limit");
+  });
+
+  test("auto-continue missing-target failure: swap still stands, raw notification stays suppressed (WARN, no crash/fallback)", async () => {
+    const db = createFakeCredentialsLookupDb([{ id: "cred-2", fingerprint: "fp-b" }]);
+    sendTextSpy.mockResolvedValue({
+      ok: false,
+      status: 409,
+      error: "session has no tmuxTarget: sess-missing-target",
+    });
+    const dispatch = await buildDispatch(db, () => fakePool);
+
+    dispatch({
+      event: "notification",
+      message: "you hit your limit",
+      session_id: "sess-missing-target",
+    } as unknown as SocketEvent);
+    await flush();
+
+    expect(performSwapSpy).toHaveBeenCalledTimes(1);
+    expect(sendTextSpy).toHaveBeenCalledWith("sess-missing-target", "continue");
+    // The swap already ran; a failed auto-continue does not fall back to
+    // delivering the raw "you hit your limit" notification.
+    expect(received).toHaveLength(0);
   });
 });

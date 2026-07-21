@@ -16,7 +16,7 @@
  * Spec: openspec/changes/add-integration-registry/
  */
 
-import { describe, expect, it, beforeEach, afterAll, mock } from "bun:test";
+import { describe, expect, it, beforeEach, afterAll, afterEach, mock, spyOn } from "bun:test";
 import type { Db } from "@nexus/db";
 import * as coreNode from "@nexus/core/node";
 
@@ -301,5 +301,129 @@ describe("integration-credentials — DELETE removes the row", () => {
     const body = (await getRes.json()) as Record<string, unknown>;
     expect(body.hasSecret).toBe(false);
     expect(body.metadata).toEqual({});
+  });
+});
+
+// ─── [4.1] kokoro secretless test path (add-kokoro-integration-provider) ───
+//
+// `kokoro` is the first `requiresSecret: false` provider (registry.ts):
+// `handleTestConnection` skips the `value_encrypted`/decrypt gate entirely
+// and invokes `testProbe("", row.metadata ?? {})` when a row exists at all.
+// The probe hits `${baseUrl}/v1/audio/voices` via `fetchWithTimeout`
+// (registry.ts) — `globalThis.fetch` is spied (restorable, not
+// `mock.module`) so the probe never touches the network.
+
+describe("integration-credentials — kokoro secretless test path", () => {
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+
+  beforeEach(() => {
+    setKey(STUB_KEY);
+    fetchSpy = spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("kokoro row with metadata + no secret: probe runs and persists last_test_status_code", async () => {
+    fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
+
+    const { db, rows } = makeFakeDb([
+      {
+        id: "row-kokoro",
+        provider: "kokoro",
+        agentId: "test-agent",
+        valueEncrypted: null,
+        encryptionKeyId: null,
+        metadata: { baseUrl: "http://127.0.0.1:8880" },
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/integrations/kokoro/credentials/test", {
+        method: "POST",
+      }),
+      "kokoro",
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.statusCode).toBe(200);
+    // Persisted regardless of the outcome — the secretless branch always
+    // writes lastTestStatusCode (and lastTestOkAt only when ok).
+    expect(rows[0]!.lastTestStatusCode).toBe(200);
+    expect(rows[0]!.lastTestOkAt).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("kokoro with no row at all: returns 400 'no credential stored', no probe attempted", async () => {
+    const { db } = makeFakeDb([]);
+
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/integrations/kokoro/credentials/test", {
+        method: "POST",
+      }),
+      "kokoro",
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("no credential stored");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("telegram (requiresSecret unset -> true) without a secret: still 400 'no credential stored', unchanged by the kokoro branch", async () => {
+    const { db } = makeFakeDb([
+      {
+        id: "row-telegram",
+        provider: "telegram",
+        agentId: "test-agent",
+        valueEncrypted: null,
+        encryptionKeyId: "v1",
+        metadata: { chatId: "111" },
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const res = await handleTestConnection(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/credentials/test", {
+        method: "POST",
+      }),
+      "telegram",
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("no credential stored");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("PATCH kokoro with a non-URL baseUrl: 400 invalid metadata, no write", async () => {
+    const { db, rows } = makeFakeDb([]);
+
+    const res = await handlePatchCredentials(
+      db,
+      makeRequest("http://127.0.0.1/integrations/kokoro/credentials", {
+        method: "PATCH",
+        body: { metadata: { baseUrl: "not-a-url" } },
+      }),
+      "kokoro",
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("invalid metadata");
+    expect(rows.length).toBe(0);
   });
 });

@@ -21,5 +21,5 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Unit tests for the secretless test path in `apps/agent/src/routes/integration-credentials.test.ts`: kokoro row with metadata + no secret → probe runs and persists `last_test_status_code`; kokoro with no row at all → 400; telegram without secret → still 400 `"no credential stored"`; PATCH kokoro with non-URL `baseUrl` → 400, no write. [owner:tdd-integration] [type:testing]
-- [ ] [4.2] Playwright test for `/integrations/kokoro`: save baseUrl + defaultVoice, run Test Connection (agent route mocked), delete; confirm no secret input renders and `/integrations/nope` still 404s. [owner:e2e-engineer] [type:testing]
+- [x] [4.1] Unit tests for the secretless test path in `apps/agent/src/routes/integration-credentials.test.ts`: kokoro row with metadata + no secret → probe runs and persists `last_test_status_code`; kokoro with no row at all → 400; telegram without secret → still 400 `"no credential stored"`; PATCH kokoro with non-URL `baseUrl` → 400, no write. [owner:tdd-integration] [type:testing]
+- [x] [4.2] Playwright test for `/integrations/kokoro`: save baseUrl + defaultVoice, run Test Connection (agent route mocked), delete; confirm no secret input renders and `/integrations/nope` still 404s. [owner:e2e-engineer] [type:testing]
