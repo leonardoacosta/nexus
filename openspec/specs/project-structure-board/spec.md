@@ -34,6 +34,11 @@ issue type for bugs). Expanding a proposal SHALL reveal its task beads with stat
 expanding a task or orphan SHALL reveal its description from the wire payload without issuing
 an additional request.
 
+Orphan beads whose project is not a registered project (the synthetic `Unregistered` rail
+bucket) SHALL NOT render in the `All` work list; they SHALL render as top-level rows only when
+the `Unregistered` rail row is selected. Orphan beads belonging to registered projects are
+unaffected by this scoping.
+
 #### Scenario: Proposal expands to tasks and descriptions
 
 - **WHEN** the user expands a proposal row with linked task beads
@@ -42,9 +47,16 @@ an additional request.
 
 #### Scenario: Orphans visible in All mode
 
-- **WHEN** `All` is selected and two projects have unlinked open beads
+- **WHEN** `All` is selected and two registered projects have unlinked open beads
 - **THEN** those beads appear as top-level rows tagged with their project code, interleaved
   with proposal rows, never hidden behind a separate tab
+
+#### Scenario: Unregistered orphans hidden from All
+
+- **WHEN** `All` is selected and unlinked beads exist whose project code is not in the
+  registry (phantom UUID codes)
+- **THEN** those beads do not appear in the work list, and selecting the `Unregistered` rail
+  row renders them as top-level rows
 
 ### Requirement: Detail rail
 
@@ -213,4 +225,24 @@ decode this spike needs, so the spike is UI-shape assessment only — no new cli
 - **THEN** it contains a UI-shape mapping of the board's rail selector / proposal rows / orphan
   beads / detail rail onto nexus-ios Scenes navigation primitives
 - **AND** it ends with an explicit go or no-go recommendation, not an open-ended discussion
+
+### Requirement: Visible-list derivation is memoized
+
+The board's visible work list SHALL be derived (filter + sort over the loaded item set)
+exactly once per input change — a load completing, a status-filter toggle, an orphans-only
+toggle, a sort-key change, or a rail selection change — and the derived list SHALL be reused
+by every consumer in the render pass (row list, empty-state check, visible-item statistics,
+prefetch trigger) without re-deriving. Row animation SHALL NOT require whole-array equality
+comparison per row; animation SHALL be keyed at the list level or on scalar row identity.
+
+#### Scenario: Filter toggle derives once
+
+- **WHEN** the user toggles a status filter chip with thousands of items loaded
+- **THEN** the visible list is recomputed once, the row list and its statistics both reflect
+  the same derived list, and the list re-renders without per-consumer re-filtering
+
+#### Scenario: Scrolling does not re-derive
+
+- **WHEN** the user scrolls the work list with no filter, sort, selection, or data change
+- **THEN** no filter+sort derivation of the full item set occurs during scrolling
 

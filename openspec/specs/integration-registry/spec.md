@@ -34,10 +34,14 @@ Then both rows persist independently (the unique index is on the pair, not `agen
 `apps/agent/src/integrations/registry.ts` MUST export a `PROVIDER_DESCRIPTORS` map keyed by
 provider id. Each descriptor MUST supply a `metadataSchema` (Zod, validates the JSONB metadata
 before persist) and a `testProbe(secret, metadata)` async function returning
-`{ ok: boolean, statusCode: number | null }`. Registering a new provider MUST require exactly one
-descriptor entry — no new route file, no new DB table. The initial registry MUST contain a
-`telegram` descriptor: `metadataSchema` requires a non-empty `chatId` string; `testProbe` calls
-`GET https://api.telegram.org/bot<secret>/getMe`.
+`{ ok: boolean, statusCode: number | null }`. A descriptor MAY set `requiresSecret: false` to
+declare a secretless provider (absent means `true`). Registering a new provider MUST require
+exactly one descriptor entry — no new route file, no new DB table. The registry MUST contain a
+`telegram` descriptor (`metadataSchema` requires a non-empty `chatId` string; `testProbe` calls
+`GET https://api.telegram.org/bot<secret>/getMe`) and a `kokoro` descriptor
+(`requiresSecret: false`; `metadataSchema` requires a URL `baseUrl` and accepts an optional
+non-empty `defaultVoice`; `testProbe` calls `GET {baseUrl}/v1/audio/voices` ignoring the secret
+argument).
 
 #### Scenario: Unknown provider is rejected before touching the DB
 Given a request names `provider="not-a-real-provider"`
@@ -49,12 +53,17 @@ Given the Telegram descriptor requires a non-empty `chatId`
 When PATCH `/integrations/telegram/credentials` is called with `metadata: { chatId: "" }`
 Then the agent returns HTTP 400 with a validation error and the row is NOT written
 
+#### Scenario: Kokoro metadata requires a valid baseUrl
+Given the Kokoro descriptor requires `baseUrl` to be a URL
+When PATCH `/integrations/kokoro/credentials` is called with `metadata: { baseUrl: "not-a-url" }`
+Then the agent returns HTTP 400 with a validation error and the row is NOT written
+
 ### Requirement: HTTP endpoints MUST expose generic CRUD + test operations parameterized by provider
 The agent MUST expose, generically dispatched off the registry:
 - `GET /integrations/:provider/credentials` — returns `{ provider, hasSecret: boolean, metadata, lastTestOkAt, lastTestStatusCode, agentId }`. MUST NEVER return the raw secret or `value_encrypted`.
 - `PATCH /integrations/:provider/credentials` — accepts `{ secret?: string, metadata?: object }`. Validates `metadata` against the descriptor's `metadataSchema` before persisting. Encrypts `secret` when supplied. Returns the masked GET shape.
 - `DELETE /integrations/:provider/credentials` — removes the row.
-- `POST /integrations/:provider/credentials/test` — runs the descriptor's `testProbe`, persists `last_test_status_code` / `last_test_ok_at` (2xx only), returns `{ ok, statusCode }`.
+- `POST /integrations/:provider/credentials/test` — runs the descriptor's `testProbe`, persists `last_test_status_code` / `last_test_ok_at` (2xx only), returns `{ ok, statusCode }`. For a descriptor with `requiresSecret: false`, a row with metadata but no stored secret MUST be testable — the probe is invoked with an empty-string secret and the stored metadata. For secret-requiring descriptors, a row without a stored secret MUST return HTTP 400 `{"error":"no credential stored"}` unchanged.
 
 #### Scenario: Encryption key missing
 Given `NEXUS_ENCRYPTION_KEY` is not set in the agent process
@@ -65,6 +74,16 @@ Then the agent returns HTTP 400 with body `{"error":"encryption key not configur
 Given a Telegram credential row exists with a stored secret
 When GET `/integrations/telegram/credentials` is called
 Then the response body contains `hasSecret: true` and no field derived from `value_encrypted` or the decrypted secret
+
+#### Scenario: Secretless provider is testable without a stored secret
+Given a `kokoro` row exists with `metadata.baseUrl` set and no `value_encrypted`
+When POST `/integrations/kokoro/credentials/test` is called
+Then the descriptor's `testProbe` runs with an empty-string secret and the stored metadata, and `last_test_status_code` is persisted
+
+#### Scenario: Secret-requiring provider still rejects a secretless test
+Given a `telegram` row exists with metadata but no stored secret
+When POST `/integrations/telegram/credentials/test` is called
+Then the agent returns HTTP 400 with body `{"error":"no credential stored"}` and no probe runs
 
 ### Requirement: The Telegram notification channel MUST prefer the DB row over env vars, preserving existing fail-open behavior
 On every Telegram dispatch, `sendTelegramNotification` MUST query `integration_credentials` for
@@ -114,4 +133,26 @@ Then the Telegram panel renders with masked-key input, chat id field, and test/s
 Given `PROVIDER_UI_REGISTRY` has no entry for `provider="nope"`
 When a user navigates to `/integrations/nope`
 Then Next.js renders the standard not-found page
+
+### Requirement: The agent MUST expose a generic voice listing endpoint for providers that support it
+The agent MUST expose `GET /integrations/:provider/voices`, generically dispatched off the registry.
+- A `ProviderDescriptor` MAY supply an optional `listVoices(secret, metadata)` async function returning `{ ok: boolean, statusCode: number | null, voices: unknown[] }` that never throws.
+- A descriptor without `listVoices` MUST return HTTP 404; a provider whose listing needs stored metadata but has no row MUST return HTTP 400.
+- The `kokoro` descriptor MUST implement `listVoices` via `GET {baseUrl}/v1/audio/voices` with a 5-second timeout.
+- The bespoke ElevenLabs voice proxy (`elevenlabs-voices.ts`) is out of scope and unchanged.
+
+#### Scenario: Kokoro voices proxy through the generic endpoint
+Given a `kokoro` row exists with a reachable `baseUrl`
+When GET `/integrations/kokoro/voices` is called
+Then the response contains the voice list returned by `{baseUrl}/v1/audio/voices`
+
+#### Scenario: Provider without voice listing returns 404
+Given the `telegram` descriptor has no `listVoices`
+When GET `/integrations/telegram/voices` is called
+Then the response is HTTP 404
+
+#### Scenario: Missing row returns 400
+Given no `kokoro` row exists for the agent
+When GET `/integrations/kokoro/voices` is called
+Then the response is HTTP 400 and no upstream request is made
 

@@ -90,23 +90,26 @@ non-blocking (async with completion handler).
 
 ### Requirement: TTS synthesis falls back to AVSpeechSynthesizer
 
-The TTSObserver SHALL fall back to AVSpeechSynthesizer when ElevenLabs
-synthesis fails. When the primary ElevenLabs synthesis path fails for ANY
-reason (missing Keychain key, HTTP error, network failure, undersized
-response), the TTSObserver MUST fall back to `AVSpeechSynthesizer` so the
-notification is spoken via the native macOS voice.
+The TTSObserver SHALL resolve synthesis through an ordered provider chain — Kokoro (when a
+base URL is configured), then ElevenLabs (when a Keychain key and voice id are present),
+then `AVSpeechSynthesizer`. When any provider attempt fails for ANY reason (missing
+configuration, HTTP error, network failure, undersized response below 1024 bytes), the
+TTSObserver MUST log the per-provider reason and advance to the next provider, terminating
+at `AVSpeechSynthesizer` so the notification is always spoken.
 
 #### Scenario: missing Keychain key falls back to native voice
 
-- **GIVEN** Nexus.app Keychain does NOT contain an ELEVENLABS_API_KEY entry
+- **GIVEN** no Kokoro base URL is configured
+- **AND** Nexus.app Keychain does NOT contain an ELEVENLABS_API_KEY entry
 - **WHEN** a NotificationFired event with channel="tts" arrives
-- **THEN** the observer does NOT attempt ElevenLabs HTTP call
+- **THEN** the observer does NOT attempt any synthesis HTTP call
 - **AND** `AVSpeechSynthesizer.speak` is invoked with the notification body text
 - **AND** Console.app shows `TTSObserver: fallback to AVSpeechSynthesizer (reason: missing-key)`
 
 #### Scenario: ElevenLabs HTTP 401 falls back
 
-- **GIVEN** an invalid ELEVENLABS_API_KEY is configured
+- **GIVEN** no Kokoro base URL is configured
+- **AND** an invalid ELEVENLABS_API_KEY is configured
 - **WHEN** a NotificationFired event arrives and ElevenLabsClient receives HTTP 401
 - **THEN** the observer logs the failure
 - **AND** `AVSpeechSynthesizer.speak` is invoked
@@ -114,10 +117,27 @@ notification is spoken via the native macOS voice.
 
 #### Scenario: network failure falls back
 
-- **GIVEN** the network is unreachable
+- **GIVEN** no Kokoro base URL is configured
+- **AND** the network is unreachable
 - **WHEN** the ElevenLabs HTTP call fails with URLError
 - **THEN** the observer logs the failure with the URLError code
 - **AND** `AVSpeechSynthesizer.speak` is invoked
+
+#### Scenario: Kokoro failure advances to ElevenLabs
+
+- **GIVEN** a Kokoro base URL is configured but the server is unreachable
+- **AND** a valid ELEVENLABS_API_KEY and voice id are configured
+- **WHEN** a NotificationFired event with channel="tts" arrives
+- **THEN** the observer logs the Kokoro failure reason
+- **AND** ElevenLabs synthesis is attempted and its MP3 plays
+
+#### Scenario: full chain exhaustion lands on system speech
+
+- **GIVEN** a Kokoro base URL is configured but the server returns an undersized payload
+- **AND** the ElevenLabs attempt fails with a network error
+- **WHEN** a NotificationFired event with channel="tts" arrives
+- **THEN** the observer logs both per-provider failure reasons
+- **AND** `AVSpeechSynthesizer.speak` is invoked with the notification body text
 
 ### Requirement: Banner posts via UNUserNotificationCenter regardless of synth outcome
 
@@ -207,4 +227,58 @@ Every Settings pane that displays a notification/TTS toggle backed by a `notific
 - **GIVEN** the user just toggled TTS off via `SettingsTtsView` on this machine
 - **WHEN** the resulting `SettingsChanged` event (reflecting the same value) arrives back over SSE
 - **THEN** `TTSObserver`'s gating state remains consistent (no flicker back to the old value)
+
+### Requirement: Kokoro is the preferred synthesis provider when configured
+
+The TTSObserver SHALL attempt Kokoro synthesis before ElevenLabs whenever a Kokoro base URL
+is configured. `KokoroClient` MUST conform to a shared `SpeechProvider` protocol
+(`synthesize(text:voice:) async throws -> Data`, MP3 bytes) and call
+`POST {baseUrl}/v1/audio/speech` with `{ model: "kokoro", input, voice, response_format: "mp3" }`
+and an 8-second timeout, sending no auth header (the server is Tailscale-only). The voice
+argument resolves from the `kokoroVoice` setting, defaulting to `af_heart`. `kokoroBaseUrl`
+and `kokoroVoice` MUST be UserDefaults-backed settings editable from Nexus.app Settings
+without a restart; no Keychain entry is involved.
+
+#### Scenario: Kokoro success short-circuits ElevenLabs
+
+- **GIVEN** a Kokoro base URL is configured and the server is reachable
+- **WHEN** a NotificationFired event with channel="tts" arrives
+- **THEN** the Kokoro response MP3 is handed to the platform MP3 player with ducking
+- **AND** no ElevenLabs HTTP request is made
+
+#### Scenario: Unconfigured Kokoro is skipped without an attempt
+
+- **GIVEN** the Kokoro base URL setting is empty
+- **WHEN** a NotificationFired event with channel="tts" arrives
+- **THEN** no Kokoro HTTP request is made
+- **AND** synthesis proceeds exactly as it does today (ElevenLabs when configured, else system speech)
+
+### Requirement: Provider-qualified project voice overrides SHALL route synthesis to the matching provider
+When the project voice override resolved for a notification is a qualified `provider:voice` string, the TTSObserver SHALL direct synthesis to the matching provider in the chain.
+- `kokoro:`-qualified overrides drive the Kokoro attempt with the parsed voice (taking precedence over the global `kokoroVoice` setting).
+- `elevenlabs:`-qualified and bare overrides drive the ElevenLabs attempt exactly as before.
+- An override with an unknown provider prefix MUST be logged and treated as no override.
+- The fallback chain semantics (failed attempt advances to the next provider, terminating at `AVSpeechSynthesizer`) are unchanged.
+
+#### Scenario: Kokoro-qualified override speaks via Kokoro
+
+- **GIVEN** the project voice override for `nx` is `kokoro:af_heart`
+- **AND** a Kokoro base URL is configured and reachable
+- **WHEN** a channel="tts" notification for project `nx` arrives
+- **THEN** the Kokoro request carries `voice: "af_heart"`
+- **AND** no ElevenLabs HTTP request is made
+
+#### Scenario: Bare override keeps ElevenLabs behavior
+
+- **GIVEN** the project voice override for `cc` is a bare ElevenLabs voice id
+- **AND** an ElevenLabs key is configured
+- **WHEN** a channel="tts" notification for project `cc` arrives
+- **THEN** the ElevenLabs attempt uses that voice id, matching pre-change behavior
+
+#### Scenario: Unknown prefix degrades to no override
+
+- **GIVEN** the project voice override for `xy` is `nope:whatever`
+- **WHEN** a channel="tts" notification for project `xy` arrives
+- **THEN** the observer logs the unknown provider
+- **AND** synthesis proceeds as if no project override existed
 

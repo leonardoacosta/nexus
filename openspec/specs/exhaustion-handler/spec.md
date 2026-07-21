@@ -31,10 +31,11 @@ Then the notification shows the single account's reset time without the "next av
 
 The agent MUST emit a `NotificationFired` lifecycle event on both `tts` and `desktop`
 channels when the active credential's 5-hour remaining headroom is at or below 10%, no
-eligible swap candidate exists (all candidates at or below 10% remaining), and the remaining
-headroom crosses each of 10%, 8%, 4%, 2%, and 0%. Each threshold MUST fire at most once per
-5-hour window (deduplicated by the window's reset instant). The notification message MUST
-name the soonest-resetting account and its reset time.
+eligible swap candidate exists (all candidates at or below 2% effective remaining — 98%
+utilization or beyond on either window), and the remaining headroom crosses each of 10%,
+8%, 4%, 2%, and 0%. Each threshold MUST fire at most once per 5-hour window (deduplicated
+by the window's reset instant). The notification message MUST name the soonest-resetting
+account and its reset time.
 
 #### Scenario: Threshold crossing fires once
 - **GIVEN** no eligible swap candidate exists
@@ -50,9 +51,10 @@ name the soonest-resetting account and its reset time.
 
 #### Scenario: Ladder is suppressed while a swap candidate exists
 - **GIVEN** the active credential has 9% remaining
-- **AND** a candidate with 40% remaining is eligible
+- **AND** a candidate with 40% effective remaining is eligible
 - **WHEN** the tick completes
-- **THEN** the auto-swap runs and no ladder notification is emitted
+- **THEN** no ladder notification is emitted and no swap runs yet — the proactive swap
+  fires when the active credential crosses the 98% line
 
 #### Scenario: Zero-percent notification at full exhaustion
 - **GIVEN** no eligible candidate exists and remaining headroom reaches 0%
