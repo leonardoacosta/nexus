@@ -71,3 +71,14 @@ public actor ElevenLabsClient {
         return data
     }
 }
+
+// MARK: - SpeechProvider conformance
+
+// Adapter onto the shared provider-chain contract (swift-tts-provider-chain,
+// task 1.3). The existing `synthesize(_:)` request path and default model id
+// are untouched — this just maps the chain's (text, voice) shape onto it.
+extension ElevenLabsClient: SpeechProvider {
+    public func synthesize(text: String, voice: String) async throws -> Data {
+        try await synthesize(ElevenLabsSynthRequest(text: text, voiceId: voice))
+    }
+}

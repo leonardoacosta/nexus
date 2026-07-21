@@ -83,7 +83,12 @@ public final class TTSObserver: ObservableObject {
     private let keychain: KeychainStore
     private let audioPlayer: MP3PlayerProtocol?
     private let systemSpeech: SystemSpeechSynthesizer
-    private let elevenLabs: ElevenLabsClient
+    /// Ordered provider chain (swift-tts-provider-chain, task 1.4): Kokoro is
+    /// attempted first (when configured), then ElevenLabs. Typed as `any
+    /// SpeechProvider` (not the concrete client types) so tests can inject
+    /// stubs without touching real network/Keychain state.
+    private let kokoro: any SpeechProvider
+    private let elevenLabs: any SpeechProvider
     private let settings: SettingsStore
     private let notificationCenter: UNUserNotificationCenter
 
@@ -120,7 +125,12 @@ public final class TTSObserver: ObservableObject {
         // context, so the optional-defaulted-nil dance is no longer
         // necessary — non-optional default works directly.
         systemSpeech: SystemSpeechSynthesizer = SystemSpeechSynthesizer(),
-        elevenLabs: ElevenLabsClient = ElevenLabsClient(),
+        // Defaulted to nil (not `KokoroClient()`) because the real default
+        // must read the SAME SettingsStore instance passed to this
+        // initializer — a plain default-parameter expression can't reference
+        // another parameter, so the live instance is built in the body below.
+        kokoro: (any SpeechProvider)? = nil,
+        elevenLabs: any SpeechProvider = ElevenLabsClient(),
         settings: SettingsStore = .shared,
         notificationCenter: UNUserNotificationCenter = .current(),
         nowPlaying: NowPlayingController = NowPlayingController(),
@@ -132,6 +142,7 @@ public final class TTSObserver: ObservableObject {
         self.keychain = keychain
         self.audioPlayer = audioPlayer
         self.systemSpeech = systemSpeech
+        self.kokoro = kokoro ?? KokoroClient(settings: settings)
         self.elevenLabs = elevenLabs
         self.settings = settings
         self.notificationCenter = notificationCenter
@@ -668,6 +679,100 @@ public final class TTSObserver: ObservableObject {
         }
     }
 
+    /// A single provider-chain attempt: a human-readable name for logging, the
+    /// conformer to call, and the resolved voice to pass it. `internal` (not
+    /// `private`) — see `buildAttempts`/`walkProviderChain` below for why.
+    internal struct SynthAttempt {
+        let name: String
+        let provider: any SpeechProvider
+        let voice: String
+    }
+
+    /// Outcome of walking the provider chain: either a provider won (with its
+    /// name + MP3 bytes for logging/playback), or every attempt failed/was
+    /// undersized and the caller must fall back to system speech.
+    internal enum ChainResult: Equatable {
+        case played(providerName: String, data: Data)
+        case exhausted
+    }
+
+    /// Undersized-payload guard shared by every provider attempt (swift-tts-
+    /// provider-chain, task 1.4). A suspiciously small mp3 is almost always
+    /// an error envelope the server returned with a 200 (observed against
+    /// ElevenLabs; the same guard now applies uniformly to Kokoro).
+    private static let minimumPayloadBytes = 1024
+
+    /// Build the ordered provider-chain attempts from configuration —
+    /// Kokoro (when a base URL is configured), then ElevenLabs (when a
+    /// Keychain key + resolved voice are present). Pure and `nonisolated
+    /// static` (no TTSObserver instance state) so NexusSharedTests — which
+    /// cannot construct a full TTSObserver, since its `notificationCenter`
+    /// default touches `UNUserNotificationCenter.current()` and that crashes
+    /// outside a hosted TEST_HOST bundle (see TTSObserverTests.swift header
+    /// in nexus-mac/Tests) — can drive the gating contract directly via
+    /// `@testable import NexusShared`.
+    ///
+    /// (mac-tts-listener spec, "Kokoro is the preferred synthesis provider
+    /// when configured" / "TTS synthesis falls back to AVSpeechSynthesizer"
+    /// — swift-tts-provider-chain.)
+    internal nonisolated static func buildAttempts(
+        kokoro: any SpeechProvider,
+        elevenLabs: any SpeechProvider,
+        kokoroBaseUrl: String?,
+        kokoroVoice: String?,
+        elevenLabsApiKeyPresent: Bool,
+        elevenLabsVoiceId: String?
+    ) -> [SynthAttempt] {
+        var attempts: [SynthAttempt] = []
+
+        if let kokoroBaseUrl, !kokoroBaseUrl.isEmpty {
+            let voice = kokoroVoice.flatMap { $0.isEmpty ? nil : $0 } ?? "af_heart"
+            attempts.append(SynthAttempt(name: "kokoro", provider: kokoro, voice: voice))
+        }
+
+        // ElevenLabs voice id resolution (notifications-overhaul, task 3.3)
+        // is unchanged by the provider chain — resolved by the caller and
+        // passed in via `elevenLabsVoiceId`:
+        //   1. project override — projectVoiceCache[event.project]
+        //   2. Keychain global override (per-user)
+        //   3. SettingsStore persisted preference
+        if elevenLabsApiKeyPresent, let voice = elevenLabsVoiceId, !voice.isEmpty {
+            attempts.append(SynthAttempt(name: "elevenlabs", provider: elevenLabs, voice: voice))
+        }
+
+        return attempts
+    }
+
+    /// Walk `attempts` in order, applying the shared undersized-payload
+    /// guard, and return the first success or `.exhausted`. `nonisolated
+    /// static` for the same testability reason as `buildAttempts` above.
+    internal nonisolated static func walkProviderChain(
+        text: String,
+        attempts: [SynthAttempt]
+    ) async -> ChainResult {
+        for attempt in attempts {
+            logger.info("TTSObserver: synth start (\(attempt.name, privacy: .public))")
+            do {
+                let data = try await attempt.provider.synthesize(text: text, voice: attempt.voice)
+                if data.count < minimumPayloadBytes {
+                    logger.error(
+                        "TTSObserver: \(attempt.name, privacy: .public) returned undersized payload bytes=\(data.count, privacy: .public) — advancing"
+                    )
+                    continue
+                }
+                logger.info(
+                    "TTSObserver: \(attempt.name, privacy: .public) returned \(data.count, privacy: .public) bytes"
+                )
+                return .played(providerName: attempt.name, data: data)
+            } catch {
+                logger.error(
+                    "TTSObserver: \(attempt.name, privacy: .public) failed (\(String(describing: error), privacy: .public)) — advancing"
+                )
+            }
+        }
+        return .exhausted
+    }
+
     private func synthesise(event: NotificationEvent) async {
         let body = event.body
 
@@ -676,49 +781,36 @@ public final class TTSObserver: ObservableObject {
         // a back-to-back notification just resets the grace window. Spec:
         // airpods-tts-cancel.
         nowPlaying.acquire()
-        // Voice id resolution chain (notifications-overhaul, task 3.3):
-        //   1. project override — projectVoiceCache[event.project]
-        //   2. Keychain global override (per-user)
-        //   3. SettingsStore persisted preference
-        // If none yield a non-empty value we still attempt
-        // SystemSpeechSynthesizer below.
+
         let projectVoice: String? = {
             guard let p = event.project, !p.isEmpty else { return nil }
             return projectVoiceCache[p]
         }()
-        let voiceId = projectVoice ?? keychain.voiceId() ?? settings.elevenLabsVoiceId
+        let elevenLabsVoiceId = projectVoice ?? keychain.voiceId() ?? settings.elevenLabsVoiceId
 
-        // Short-circuit when the key is missing — no point hitting the API
-        // just to throw `missingKey`.
-        guard keychain.apiKey() != nil, let voice = voiceId, !voice.isEmpty else {
+        let attempts = Self.buildAttempts(
+            kokoro: kokoro,
+            elevenLabs: elevenLabs,
+            kokoroBaseUrl: settings.kokoroBaseUrl,
+            kokoroVoice: settings.kokoroVoice,
+            elevenLabsApiKeyPresent: keychain.apiKey() != nil,
+            elevenLabsVoiceId: elevenLabsVoiceId
+        )
+
+        guard !attempts.isEmpty else {
             Self.logger.info(
-                "TTSObserver: synth start (system-speech) — elevenlabs creds absent"
+                "TTSObserver: synth start (system-speech) — no providers configured"
             )
             await speakSystem(body: body)
             return
         }
 
-        Self.logger.info("TTSObserver: synth start (elevenlabs)")
-        do {
-            let request = ElevenLabsSynthRequest(text: body, voiceId: voice)
-            let data = try await elevenLabs.synthesize(request)
-            if data.count < 1024 {
-                // Suspiciously small mp3 — almost always an error envelope
-                // ElevenLabs returned with a 200 (rare but observed). Treat
-                // as failure and fall through.
-                Self.logger.error(
-                    "TTSObserver: elevenlabs returned undersized payload bytes=\(data.count, privacy: .public) — falling back"
-                )
-                await speakSystem(body: body)
-                return
-            }
-            Self.logger.info(
-                "TTSObserver: elevenlabs returned \(data.count, privacy: .public) bytes"
-            )
+        switch await Self.walkProviderChain(text: body, attempts: attempts) {
+        case .played(_, let data):
             playMP3(data: data)
-        } catch {
+        case .exhausted:
             Self.logger.error(
-                "TTSObserver: elevenlabs failed (\(String(describing: error), privacy: .public)) — falling back to AVSpeechSynthesizer"
+                "TTSObserver: provider chain exhausted — falling back to AVSpeechSynthesizer"
             )
             await speakSystem(body: body)
         }

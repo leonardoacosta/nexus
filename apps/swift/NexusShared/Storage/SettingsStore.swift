@@ -39,6 +39,25 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.elevenLabsVoiceId) }
     }
 
+    // MARK: - Kokoro provider (swift-tts-provider-chain, task 1.4)
+
+    // No Keychain entry — the Kokoro-FastAPI server is Tailscale-only and
+    // takes no auth header, so both fields are plain UserDefaults settings
+    // editable from Nexus.app Settings with no restart required.
+
+    /// Kokoro-FastAPI base URL (e.g. `http://homelab:8880`). Empty/nil means
+    /// "not configured" — TTSObserver skips the Kokoro attempt entirely.
+    public var kokoroBaseUrl: String? {
+        get { defaults.string(forKey: Keys.kokoroBaseUrl) }
+        set { defaults.set(newValue, forKey: Keys.kokoroBaseUrl) }
+    }
+
+    /// Kokoro voice id. Falls back to `af_heart` when unset/empty.
+    public var kokoroVoice: String? {
+        get { defaults.string(forKey: Keys.kokoroVoice) }
+        set { defaults.set(newValue, forKey: Keys.kokoroVoice) }
+    }
+
     // MARK: - Diagnostics
 
     public var processProbeFallback: Bool {
@@ -257,6 +276,8 @@ public final class SettingsStore: @unchecked Sendable {
         static let ttsEnabled            = "nx.tts.enabled"
         static let ttsProvider           = "nx.tts.provider"
         static let elevenLabsVoiceId     = "nx.tts.elevenlabs.voiceId"
+        static let kokoroBaseUrl         = "nx.tts.kokoro.baseUrl"
+        static let kokoroVoice           = "nx.tts.kokoro.voice"
         static let processProbeFallback  = "nx.menubar.fallback.processProbe"
         static let dashboardEndpoint     = "nexus.dashboard.endpoint"
         static let medsBaseURL           = "nexus.meds.baseURL"

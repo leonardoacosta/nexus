@@ -36,6 +36,8 @@ final class SettingsTtsViewModel: ObservableObject {
     @Published var apiKeyMaskedDisplay: String = "—"
     @Published var pasteApiKey: String = ""
     @Published var voiceId: String = ""
+    @Published var kokoroBaseUrl: String = ""
+    @Published var kokoroVoice: String = ""
     @Published var status: String?
     @Published var statusIsError: Bool = false
 
@@ -63,6 +65,16 @@ final class SettingsTtsViewModel: ObservableObject {
         }
         voiceId = (try? Keychain.get(KeychainAccount.elevenLabsVoiceId)) ?? ""
         apiKeyMaskedDisplay = Self.maskedKey()
+        kokoroBaseUrl = store.kokoroBaseUrl ?? ""
+        kokoroVoice = store.kokoroVoice ?? ""
+    }
+
+    /// Kokoro settings are plain UserDefaults (no Keychain, no server round
+    /// trip) — persist directly on every edit. (swift-tts-provider-chain,
+    /// task 1.4)
+    func persistKokoro() {
+        store.kokoroBaseUrl = kokoroBaseUrl.isEmpty ? nil : kokoroBaseUrl
+        store.kokoroVoice = kokoroVoice.isEmpty ? nil : kokoroVoice
     }
 
     static func maskedKey() -> String {
@@ -173,6 +185,8 @@ struct SettingsTtsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 togglesSection
                 Divider()
+                kokoroSection
+                Divider()
                 keyPanel
                 Divider()
                 voiceIdField
@@ -225,6 +239,25 @@ struct SettingsTtsView: View {
             return "Duck — system output volume dips to ~40% for the clip, then restores."
         case .pause:
             return "Quiet — system output volume dips to ~15% (near-silence) for the clip, then restores."
+        }
+    }
+
+    /// Kokoro is attempted first in the provider chain whenever a base URL
+    /// is configured (swift-tts-provider-chain, task 1.4) — ElevenLabs and
+    /// system speech remain the fallback.
+    private var kokoroSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Kokoro (preferred)").font(.headline)
+            TextField("Base URL (e.g. http://homelab:8880)", text: $model.kokoroBaseUrl)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: model.kokoroBaseUrl) { _, _ in model.persistKokoro() }
+            TextField("Voice (default af_heart)", text: $model.kokoroVoice)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: model.kokoroVoice) { _, _ in model.persistKokoro() }
+            Text("Tailscale-only server — no auth header sent. Set a base URL to try Kokoro before ElevenLabs; clear it to skip Kokoro entirely.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
