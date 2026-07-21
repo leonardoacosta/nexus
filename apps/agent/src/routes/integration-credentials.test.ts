@@ -48,6 +48,7 @@ import {
   handlePatchCredentials,
   handleDeleteCredentials,
   handleTestConnection,
+  handleListProviderVoices,
 } from "./integration-credentials";
 import { decrypt } from "../credentials/encryption";
 
@@ -425,5 +426,100 @@ describe("integration-credentials — kokoro secretless test path", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid metadata");
     expect(rows.length).toBe(0);
+  });
+});
+
+// ─── [4.2] GET /integrations/:provider/voices (provider-qualified-project-voices) ──
+//
+// `handleListProviderVoices` proxies the descriptor's optional `listVoices`.
+// A descriptor with no `listVoices` (telegram) 404s before any DB access —
+// same shape as the unknown-provider guard above, but keyed off the
+// capability rather than registry membership. Kokoro (secretless) skips the
+// decrypt gate; a kokoro provider with no stored row 400s.
+
+describe("integration-credentials — GET /integrations/:provider/voices", () => {
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+
+  beforeEach(() => {
+    setKey(STUB_KEY);
+    fetchSpy = spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("kokoro: proxies the descriptor's listVoices result", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ voices: [{ id: "af_heart" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const { db } = makeFakeDb([
+      {
+        id: "row-kokoro",
+        provider: "kokoro",
+        agentId: "test-agent",
+        valueEncrypted: null,
+        encryptionKeyId: null,
+        metadata: { baseUrl: "http://127.0.0.1:8880" },
+        lastTestOkAt: null,
+        lastTestStatusCode: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const res = await handleListProviderVoices(
+      db,
+      makeRequest("http://127.0.0.1/integrations/kokoro/voices", {
+        method: "GET",
+      }),
+      "kokoro",
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.statusCode).toBe(200);
+    expect(body.voices).toEqual([{ id: "af_heart" }]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("telegram: has no listVoices — 404 before any DB access", async () => {
+    const { db, findFirst } = makeFakeDb([]);
+
+    const res = await handleListProviderVoices(
+      db,
+      makeRequest("http://127.0.0.1/integrations/telegram/voices", {
+        method: "GET",
+      }),
+      "telegram",
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("unknown provider");
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("kokoro with no stored row: 400, no probe attempted", async () => {
+    const { db } = makeFakeDb([]);
+
+    const res = await handleListProviderVoices(
+      db,
+      makeRequest("http://127.0.0.1/integrations/kokoro/voices", {
+        method: "GET",
+      }),
+      "kokoro",
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, string>;
+    expect(body.error).toBe("no credential stored");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

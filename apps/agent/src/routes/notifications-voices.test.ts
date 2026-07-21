@@ -16,6 +16,7 @@ import {
   handleDeleteVoice,
 } from "./notifications-voices";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import { parseQualifiedVoice } from "@nexus/core";
 
 interface VoiceRow {
   project: string;
@@ -224,6 +225,100 @@ describe("handleDeleteVoice", () => {
     const db = makeFakeDb();
     const res = await handleDeleteVoice(db, "../etc/passwd");
     expect(res.status).toBe(400);
+    bus.cleanup();
+  });
+});
+
+// ─── [4.1] parseQualifiedVoice + provider-qualified PUT validation ─────────
+// Spec: openspec/changes/provider-qualified-project-voices/ task 4.1.
+
+describe("parseQualifiedVoice", () => {
+  it("bare id (no colon) parses to the elevenlabs provider — backward compat", () => {
+    expect(parseQualifiedVoice("voice-XYZ")).toEqual({
+      provider: "elevenlabs",
+      voice: "voice-XYZ",
+    });
+  });
+
+  it("qualified id splits on the FIRST colon only", () => {
+    expect(parseQualifiedVoice("kokoro:af_heart")).toEqual({
+      provider: "kokoro",
+      voice: "af_heart",
+    });
+    // A voice id that itself contains a colon downstream is preserved intact.
+    expect(parseQualifiedVoice("kokoro:af_heart:v2")).toEqual({
+      provider: "kokoro",
+      voice: "af_heart:v2",
+    });
+  });
+
+  it("unknown provider prefix still parses structurally (validity is the route's job)", () => {
+    expect(parseQualifiedVoice("nope:xyz")).toEqual({
+      provider: "nope",
+      voice: "xyz",
+    });
+  });
+});
+
+describe("handlePutVoice — provider-qualified validation", () => {
+  let bus: ReturnType<typeof recordBus>;
+  beforeEach(() => {
+    bus = recordBus();
+  });
+
+  it("accepts a kokoro-qualified voice id", async () => {
+    const db = makeFakeDb();
+    const res = await handlePutVoice(
+      db,
+      "nx",
+      new Request("http://x", {
+        method: "PUT",
+        body: JSON.stringify({ voice_id: "kokoro:af_heart" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.voice_id).toBe("kokoro:af_heart");
+    const internal = (db as unknown as { _rows: VoiceRow[] })._rows;
+    expect(internal).toHaveLength(1);
+    expect(internal[0]!.voiceId).toBe("kokoro:af_heart");
+    bus.cleanup();
+  });
+
+  it("accepts a bare ElevenLabs UUID (no provider prefix)", async () => {
+    const db = makeFakeDb();
+    const bareUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const res = await handlePutVoice(
+      db,
+      "nx",
+      new Request("http://x", {
+        method: "PUT",
+        body: JSON.stringify({ voice_id: bareUuid }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.voice_id).toBe(bareUuid);
+    bus.cleanup();
+  });
+
+  it("400s an unknown provider prefix and writes nothing", async () => {
+    const db = makeFakeDb();
+    const res = await handlePutVoice(
+      db,
+      "nx",
+      new Request("http://x", {
+        method: "PUT",
+        body: JSON.stringify({ voice_id: "nope:xyz" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toContain("nope");
+    expect(Array.isArray(body.allowedProviders)).toBe(true);
+    const internal = (db as unknown as { _rows: VoiceRow[] })._rows;
+    expect(internal).toHaveLength(0);
+    expect(bus.events).toEqual([]);
     bus.cleanup();
   });
 });

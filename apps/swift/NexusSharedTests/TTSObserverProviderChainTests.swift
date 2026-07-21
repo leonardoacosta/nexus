@@ -202,4 +202,121 @@ final class TTSObserverProviderChainTests: XCTestCase {
         )
         XCTAssertTrue(attempts.isEmpty)
     }
+
+    // MARK: - Provider-qualified project voice routing (provider-qualified-project-voices, task 3.1/4.3)
+    //
+    // `TTSObserver.synthesise(event:)` cannot be exercised directly here (it
+    // requires a live `TTSObserver` instance, which touches
+    // `UNUserNotificationCenter.current()` and crashes outside a hosted
+    // TEST_HOST bundle — same constraint documented atop this file). These
+    // tests instead replicate the exact override-resolution switch
+    // `synthesise(event:)` runs (parse the project voice via
+    // `parseQualifiedVoice`, route `kokoro:` into `kokoroVoiceOverride`,
+    // `elevenlabs:`/bare into `elevenLabsVoiceId`, anything else falls
+    // through untouched) and feed the result into the real `buildAttempts` +
+    // `walkProviderChain` statics — proving the parsed voice actually reaches
+    // the provider that gets called, not just that parsing itself is correct.
+
+    private static let baselineKokoroVoice = "settings-default-kokoro-voice"
+    private static let baselineElevenLabsVoice = "keychain-default-eleven-voice"
+
+    /// Mirrors the `synthesise(event:)` override switch (TTSObserver.swift,
+    /// lines ~833-845) so each test below can compute the same
+    /// `(kokoroVoiceOverride, elevenLabsVoiceId)` pair the real dispatch path
+    /// would produce from a given project voice string.
+    private func resolveOverride(projectVoice: String) -> (kokoro: String?, elevenLabs: String) {
+        var kokoroVoiceOverride: String?
+        var elevenLabsVoiceId = Self.baselineElevenLabsVoice
+        let qualified = TTSObserver.parseQualifiedVoice(projectVoice)
+        switch qualified.provider {
+        case "kokoro":
+            kokoroVoiceOverride = qualified.voice
+        case "elevenlabs":
+            elevenLabsVoiceId = qualified.voice
+        default:
+            break // unknown prefix — no override, baseline values stand
+        }
+        return (kokoroVoiceOverride, elevenLabsVoiceId)
+    }
+
+    func testKokoroQualifiedOverrideDrivesKokoroAttemptWithParsedVoice() async {
+        let kokoroRecorder = CallRecorder()
+        let kokoro = StubProvider(.success(mp3(bytes: 2000)), recorder: kokoroRecorder)
+        let elevenLabs = StubProvider(.success(mp3(bytes: 2000)))
+
+        let resolved = resolveOverride(projectVoice: "kokoro:af_bella")
+        XCTAssertEqual(resolved.kokoro, "af_bella")
+        XCTAssertEqual(resolved.elevenLabs, Self.baselineElevenLabsVoice, "elevenlabs resolution untouched by a kokoro: override")
+
+        let attempts = TTSObserver.buildAttempts(
+            kokoro: kokoro,
+            elevenLabs: elevenLabs,
+            kokoroBaseUrl: "http://homelab:8880",
+            kokoroVoice: resolved.kokoro ?? Self.baselineKokoroVoice,
+            elevenLabsApiKeyPresent: true,
+            elevenLabsVoiceId: resolved.elevenLabs
+        )
+        XCTAssertEqual(attempts.first(where: { $0.name == "kokoro" })?.voice, "af_bella")
+
+        let result = await TTSObserver.walkProviderChain(text: "hello", attempts: attempts)
+        guard case .played(let providerName, _) = result else {
+            XCTFail("expected kokoro to win, got \(result)")
+            return
+        }
+        XCTAssertEqual(providerName, "kokoro")
+        let kokoroCalls = await kokoroRecorder.calls
+        XCTAssertEqual(kokoroCalls.map(\.voice), ["af_bella"], "kokoro must be invoked with the parsed override voice")
+    }
+
+    func testBareOverrideDrivesElevenLabsAttemptExactlyAsBefore() async {
+        let elevenRecorder = CallRecorder()
+        let elevenLabs = StubProvider(.success(mp3(bytes: 2000)), recorder: elevenRecorder)
+        let kokoro = StubProvider(.success(mp3(bytes: 2000)))
+
+        let resolved = resolveOverride(projectVoice: "voice-BARE-999")
+        XCTAssertNil(resolved.kokoro, "a bare (unqualified) override must not touch the kokoro voice")
+        XCTAssertEqual(resolved.elevenLabs, "voice-BARE-999")
+
+        let attempts = TTSObserver.buildAttempts(
+            kokoro: kokoro,
+            elevenLabs: elevenLabs,
+            kokoroBaseUrl: nil, // isolate: only elevenlabs should be attempted
+            kokoroVoice: resolved.kokoro ?? Self.baselineKokoroVoice,
+            elevenLabsApiKeyPresent: true,
+            elevenLabsVoiceId: resolved.elevenLabs
+        )
+        XCTAssertEqual(attempts.map(\.name), ["elevenlabs"])
+        XCTAssertEqual(attempts.first?.voice, "voice-BARE-999")
+
+        let result = await TTSObserver.walkProviderChain(text: "hello", attempts: attempts)
+        guard case .played(let providerName, _) = result else {
+            XCTFail("expected elevenlabs to win, got \(result)")
+            return
+        }
+        XCTAssertEqual(providerName, "elevenlabs")
+        let elevenCalls = await elevenRecorder.calls
+        XCTAssertEqual(elevenCalls.map(\.voice), ["voice-BARE-999"])
+    }
+
+    func testUnknownPrefixFallsBackToNoOverrideBehavior() {
+        let resolved = resolveOverride(projectVoice: "nope:xyz")
+        // Unknown provider prefix -> no override applied at all: kokoro stays
+        // unset (falls through to its own settings default) and elevenlabs
+        // keeps the pre-override baseline — "xyz" must never surface as a
+        // resolved voice anywhere.
+        XCTAssertNil(resolved.kokoro)
+        XCTAssertEqual(resolved.elevenLabs, Self.baselineElevenLabsVoice)
+
+        let attempts = TTSObserver.buildAttempts(
+            kokoro: StubProvider(.success(mp3(bytes: 2000))),
+            elevenLabs: StubProvider(.success(mp3(bytes: 2000))),
+            kokoroBaseUrl: "http://homelab:8880",
+            kokoroVoice: resolved.kokoro ?? Self.baselineKokoroVoice,
+            elevenLabsApiKeyPresent: true,
+            elevenLabsVoiceId: resolved.elevenLabs
+        )
+        XCTAssertEqual(attempts.first(where: { $0.name == "kokoro" })?.voice, Self.baselineKokoroVoice)
+        XCTAssertEqual(attempts.first(where: { $0.name == "elevenlabs" })?.voice, Self.baselineElevenLabsVoice)
+        XCTAssertFalse(attempts.contains { $0.voice == "xyz" })
+    }
 }

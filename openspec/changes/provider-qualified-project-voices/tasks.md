@@ -22,6 +22,6 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Unit tests (agent): `parseQualifiedVoice` bare/qualified/unknown matrix; PUT `/notifications/voices/:project` accepts `kokoro:af_heart` and bare UUIDs, 400s `nope:xyz` without writing; `tts.ts` emits signal-only (no ElevenLabs request, `audioBase64` absent) for a kokoro-qualified project voice and pre-renders unchanged for bare ids. [owner:tdd-integration] [type:testing]
-- [ ] [4.2] Unit tests (agent): `GET /integrations/kokoro/voices` proxies the descriptor result; `GET /integrations/telegram/voices` → 404; kokoro voices with no stored row → 400. [owner:tdd-integration] [type:testing]
-- [ ] [4.3] Unit tests (`apps/swift/NexusSharedTests`): with stubbed providers, a `kokoro:`-qualified override drives the Kokoro attempt with the parsed voice; a bare override drives the ElevenLabs attempt exactly as before; unknown prefix falls back to no-override behavior. [owner:tdd-integration] [type:testing]
+- [x] [4.1] Unit tests (agent): `parseQualifiedVoice` bare/qualified/unknown matrix; PUT `/notifications/voices/:project` accepts `kokoro:af_heart` and bare UUIDs, 400s `nope:xyz` without writing; `tts.ts` emits signal-only (no ElevenLabs request, `audioBase64` absent) for a kokoro-qualified project voice and pre-renders unchanged for bare ids. [owner:tdd-integration] [type:testing]
+- [x] [4.2] Unit tests (agent): `GET /integrations/kokoro/voices` proxies the descriptor result; `GET /integrations/telegram/voices` → 404; kokoro voices with no stored row → 400. [owner:tdd-integration] [type:testing]
+- [x] [4.3] Unit tests (`apps/swift/NexusSharedTests`): with stubbed providers, a `kokoro:`-qualified override drives the Kokoro attempt with the parsed voice; a bare override drives the ElevenLabs attempt exactly as before; unknown prefix falls back to no-override behavior. [owner:tdd-integration] [type:testing]
