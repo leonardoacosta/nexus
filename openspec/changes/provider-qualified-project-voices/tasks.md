@@ -17,8 +17,8 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] [P-2] In `apps/swift/NexusShared/Observers/TTSObserver.swift`, mirror `parseQualifiedVoice` (small pure helper in NexusShared) and route a qualified project override to the matching provider in the chain: `kokoro:` → the Kokoro attempt uses the parsed voice (overriding `settings.kokoroVoice`); `elevenlabs:` or bare → today's ElevenLabs resolution unchanged; unknown prefix → log + treat as no override. [owner:ui-engineer] [type:ui]
-- [ ] [3.2] [P-3] Typecheck gate: from Linux, run the headless Mac typecheck (`ssh mac` + `swiftc -typecheck` over NexusShared sources per the swift-engineer contract) and paste passing output; zero errors. [owner:ui-engineer] [type:ui]
+- [x] [3.1] [P-2] In `apps/swift/NexusShared/Observers/TTSObserver.swift`, mirror `parseQualifiedVoice` (small pure helper in NexusShared) and route a qualified project override to the matching provider in the chain: `kokoro:` → the Kokoro attempt uses the parsed voice (overriding `settings.kokoroVoice`); `elevenlabs:` or bare → today's ElevenLabs resolution unchanged; unknown prefix → log + treat as no override. [owner:ui-engineer] [type:ui]
+- [x] [3.2] [P-3] Typecheck gate: from Linux, run the headless Mac typecheck (`ssh mac` + `swiftc -typecheck` over NexusShared sources per the swift-engineer contract) and paste passing output; zero errors. [owner:ui-engineer] [type:ui]
 
 ## E2E Batch
 

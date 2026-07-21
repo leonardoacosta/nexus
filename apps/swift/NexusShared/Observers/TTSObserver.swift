@@ -702,6 +702,38 @@ public final class TTSObserver: ObservableObject {
     /// ElevenLabs; the same guard now applies uniformly to Kokoro).
     private static let minimumPayloadBytes = 1024
 
+    /// Result of parsing a project voice-override id via `parseQualifiedVoice`.
+    /// Mirrors `QualifiedVoice` (`packages/core/src/types/integrations.ts`).
+    internal struct QualifiedVoice: Equatable {
+        let provider: String
+        let voice: String
+    }
+
+    /// Providers valid as the prefix of a qualified `provider:voice` project
+    /// voice override. Mirrors `TTS_VOICE_PROVIDERS`
+    /// (`packages/core/src/types/integrations.ts`).
+    internal static let ttsVoiceProviders: Set<String> = ["elevenlabs", "kokoro"]
+
+    /// Parse a project voice-override id into its provider + voice
+    /// components. Splits on the FIRST `:` only, so a voice id may itself
+    /// contain colons downstream without ambiguity. No separator (the
+    /// pre-qualification bare format, e.g. an ElevenLabs UUID) defaults to
+    /// `provider: "elevenlabs"` for backward compat — existing
+    /// `project_voice_overrides` rows need no migration or re-save.
+    ///
+    /// Mirrors `parseQualifiedVoice` (`packages/core/src/types/integrations.ts`
+    /// — API phase, `provider-qualified-project-voices` task 2.1). Pure and
+    /// `nonisolated static` for the same testability reason as
+    /// `buildAttempts` below.
+    internal nonisolated static func parseQualifiedVoice(_ id: String) -> QualifiedVoice {
+        guard let colonIndex = id.firstIndex(of: ":") else {
+            return QualifiedVoice(provider: "elevenlabs", voice: id)
+        }
+        let provider = String(id[id.startIndex..<colonIndex])
+        let voice = String(id[id.index(after: colonIndex)...])
+        return QualifiedVoice(provider: provider, voice: voice)
+    }
+
     /// Build the ordered provider-chain attempts from configuration —
     /// Kokoro (when a base URL is configured), then ElevenLabs (when a
     /// Keychain key + resolved voice are present). Pure and `nonisolated
@@ -786,13 +818,37 @@ public final class TTSObserver: ObservableObject {
             guard let p = event.project, !p.isEmpty else { return nil }
             return projectVoiceCache[p]
         }()
-        let elevenLabsVoiceId = projectVoice ?? keychain.voiceId() ?? settings.elevenLabsVoiceId
+
+        // provider-qualified-project-voices (task 3.1): a project override may
+        // now be a qualified `provider:voice` id. Parse it and route the
+        // parsed voice to the matching provider attempt below — `kokoro:`
+        // overrides the Kokoro attempt's voice (leaving the ElevenLabs
+        // resolution on its pre-override fallback chain); `elevenlabs:` or a
+        // bare id (defaults to `elevenlabs` — see `parseQualifiedVoice`)
+        // resolves exactly as before; an unknown prefix logs and is treated
+        // as no override at all (falls through to the Keychain/Settings
+        // default, same as no project voice being configured).
+        var kokoroVoiceOverride: String?
+        var elevenLabsVoiceId = keychain.voiceId() ?? settings.elevenLabsVoiceId
+        if let projectVoice, !projectVoice.isEmpty {
+            let qualified = Self.parseQualifiedVoice(projectVoice)
+            switch qualified.provider {
+            case "kokoro":
+                kokoroVoiceOverride = qualified.voice
+            case "elevenlabs":
+                elevenLabsVoiceId = qualified.voice
+            default:
+                Self.logger.debug(
+                    "TTSObserver: project voice has unknown provider prefix (\(qualified.provider, privacy: .public)) — ignoring override"
+                )
+            }
+        }
 
         let attempts = Self.buildAttempts(
             kokoro: kokoro,
             elevenLabs: elevenLabs,
             kokoroBaseUrl: settings.kokoroBaseUrl,
-            kokoroVoice: settings.kokoroVoice,
+            kokoroVoice: kokoroVoiceOverride ?? settings.kokoroVoice,
             elevenLabsApiKeyPresent: keychain.apiKey() != nil,
             elevenLabsVoiceId: elevenLabsVoiceId
         )
