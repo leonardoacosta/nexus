@@ -5,7 +5,9 @@
 // session, so they are NOT tested here. Instead the decision logic is factored
 // into the hardware-free `PresenceSensing` enum + `RawSignals` struct, and
 // these tests cover the spec-critical branches:
-//   • meeting AND-gate: camera-alone → NOT inMeeting; camera+meeting-app → inMeeting
+//   • meeting AND-gate: camera-alone → NOT inMeeting; camera+running-meeting-app
+//     → inMeeting (the app need only be running, not frontmost —
+//     meeting-detection-running-app-gate)
 //   • delta emission on lock / idle change
 //   • Focus-DB parse fail-open (malformed JSON → nil, no crash)
 
@@ -17,43 +19,68 @@ final class PresenceObserverTests: XCTestCase {
     // MARK: - Meeting AND-gate (Q2)
 
     func testCameraAloneIsNotMeeting() {
-        // Camera in use but the frontmost app is Photo Booth (NOT a meeting app).
+        // Camera in use but the only running app is Photo Booth (NOT a meeting app).
         let s = RawSignals(
             cameraInUse: true,
-            frontmostBundleId: "com.apple.PhotoBooth"
+            runningBundleIds: ["com.apple.PhotoBooth"]
         )
         XCTAssertFalse(PresenceSensing.isMeeting(s),
                        "camera-alone with a non-meeting app must not be a meeting")
     }
 
-    func testCameraWithNoFrontmostAppIsNotMeeting() {
-        let s = RawSignals(cameraInUse: true, frontmostBundleId: nil)
+    func testCameraWithNoRunningMeetingAppIsNotMeeting() {
+        // Camera in use but no meeting app is running at all.
+        let s = RawSignals(cameraInUse: true, runningBundleIds: [])
         XCTAssertFalse(PresenceSensing.isMeeting(s))
     }
 
-    func testCameraPlusMeetingAppIsMeeting() {
+    func testCameraPlusRunningMeetingAppIsMeeting() {
         let s = RawSignals(
             cameraInUse: true,
-            frontmostBundleId: "us.zoom.xos"
+            runningBundleIds: ["us.zoom.xos"]
         )
         XCTAssertTrue(PresenceSensing.isMeeting(s),
-                      "camera + a frontmost meeting app is a meeting")
+                      "camera + a running meeting app is a meeting")
     }
 
-    func testMicPlusMeetingAppIsMeeting() {
-        // Audio-only call (mic on, no camera) with Teams frontmost still counts.
+    func testMicPlusRunningMeetingAppIsMeeting() {
+        // Audio-only call (mic on, no camera) with Teams running still counts.
         let s = RawSignals(
             micInUse: true,
-            frontmostBundleId: "com.microsoft.teams2"
+            runningBundleIds: ["com.microsoft.teams2"]
         )
         XCTAssertTrue(PresenceSensing.isMeeting(s))
     }
 
-    func testMeetingAppFrontmostButNoCaptureIsNotMeeting() {
-        // Zoom open in the foreground but neither camera nor mic running.
-        let s = RawSignals(frontmostBundleId: "us.zoom.xos")
+    func testMeetingAppRunningNotFrontmostIsStillMeeting() {
+        // Zoom is one of several running apps (Terminal is the frontmost one the
+        // user alt-tabbed to), camera still live → this MUST remain a meeting.
+        // This is the exact workflow meeting-detection-running-app-gate protects.
+        let s = RawSignals(
+            cameraInUse: true,
+            runningBundleIds: ["us.zoom.xos", "com.apple.Terminal", "com.tinyspeck.slackmacgap"]
+        )
+        XCTAssertTrue(PresenceSensing.isMeeting(s),
+                      "a running meeting app need not be frontmost to count as a meeting")
+    }
+
+    func testMeetingAppNotRunningWithCameraIsNotMeeting() {
+        // Camera in use, several non-meeting apps running, but no meeting app
+        // is running at all → not a meeting even with a live capture device.
+        let s = RawSignals(
+            cameraInUse: true,
+            runningBundleIds: ["com.apple.Terminal", "com.apple.dt.Xcode"]
+        )
         XCTAssertFalse(PresenceSensing.isMeeting(s),
-                       "a meeting app frontmost with no capture device is not a live meeting")
+                       "camera in use but no meeting app running is not a meeting")
+    }
+
+    func testMeetingAppRunningButIdleIsNotMeeting() {
+        // Zoom open (running) but neither camera nor mic running — the
+        // camera-alone guarantee, phrased as "meeting app open but idle".
+        let s = RawSignals(runningBundleIds: ["us.zoom.xos"])
+        XCTAssertFalse(PresenceSensing.isMeeting(s),
+                       "a running meeting app with no capture device is not a live meeting")
     }
 
     // MARK: - Active gate
@@ -111,10 +138,31 @@ final class PresenceObserverTests: XCTestCase {
     }
 
     func testMeetingTransitionEmitsInMeeting() {
-        let pre = RawSignals(frontmostBundleId: "us.zoom.xos")
-        let inCall = RawSignals(cameraInUse: true, frontmostBundleId: "us.zoom.xos")
+        // Zoom already running, camera comes on → the delta reports inMeeting: true.
+        let pre = RawSignals(runningBundleIds: ["us.zoom.xos"])
+        let inCall = RawSignals(cameraInUse: true, runningBundleIds: ["us.zoom.xos"])
         let d = PresenceSensing.delta(from: pre, to: inCall, host: "h", isFirst: false)
         XCTAssertEqual(d.inMeeting, true)
+    }
+
+    func testMeetingEndsWhenAppQuitsEmitsInMeetingFalse() {
+        // In a call (camera live, Zoom running) → Zoom quits (leaves the running
+        // set) while the camera is still live → the next delta flips inMeeting false.
+        let inCall = RawSignals(cameraInUse: true, runningBundleIds: ["us.zoom.xos", "com.apple.Terminal"])
+        let appQuit = RawSignals(cameraInUse: true, runningBundleIds: ["com.apple.Terminal"])
+        let d = PresenceSensing.delta(from: inCall, to: appQuit, host: "h", isFirst: false)
+        XCTAssertEqual(d.inMeeting, false,
+                       "quitting the meeting app ends the meeting on the next delta")
+    }
+
+    func testMeetingEndsWhenDevicesGoIdleEmitsInMeetingFalse() {
+        // In a call → both camera and mic stop while Zoom stays running → the
+        // next delta flips inMeeting false.
+        let inCall = RawSignals(cameraInUse: true, micInUse: true, runningBundleIds: ["us.zoom.xos"])
+        let idle = RawSignals(cameraInUse: false, micInUse: false, runningBundleIds: ["us.zoom.xos"])
+        let d = PresenceSensing.delta(from: inCall, to: idle, host: "h", isFirst: false)
+        XCTAssertEqual(d.inMeeting, false,
+                       "camera and mic both going idle ends the meeting on the next delta")
     }
 
     func testFocusModeChangeEmitsMacFocus() {

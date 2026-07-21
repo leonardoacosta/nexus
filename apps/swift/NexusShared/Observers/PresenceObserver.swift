@@ -19,9 +19,11 @@
 //   • Focus / DND        — ~/Library/DoNotDisturb/DB JSON (fail-OPEN on parse error)
 //   • home fingerprint   — gateway MAC via ARP of the default route (permission-free)
 //
-// Meeting AND-gate (decision Q2): inMeeting = (camera OR mic) AND a frontmost
-// meeting app. Camera-alone (Photo Booth, Continuity Camera) must NOT set
-// inMeeting — see `PresenceSensing.isMeeting`.
+// Meeting AND-gate (decision Q2, loosened by meeting-detection-running-app-gate):
+// inMeeting = (camera OR mic) AND a known meeting app is RUNNING (present in
+// NSWorkspace.shared.runningApplications — no longer required to be frontmost).
+// Camera-alone (Photo Booth, Continuity Camera) must NOT set inMeeting — see
+// `PresenceSensing.isMeeting`.
 //
 // Testability
 // ───────────
@@ -115,8 +117,10 @@ public struct RawSignals: Equatable, Sendable {
     public var cameraInUse: Bool
     /// True when any input audio device is running somewhere.
     public var micInUse: Bool
-    /// Bundle id of the frontmost app, or nil when none / unknown.
-    public var frontmostBundleId: String?
+    /// Bundle ids of every currently-running application. A meeting is gated on
+    /// one of these being in `meetingBundleIds` — the meeting app need only be
+    /// open, not frontmost.
+    public var runningBundleIds: Set<String>
     /// Active Focus mode id, or nil when no Focus is active / DB unreadable.
     public var focusMode: String?
     /// Gateway-MAC home fingerprint matched the known-home value.
@@ -128,7 +132,7 @@ public struct RawSignals: Equatable, Sendable {
         onConsole: Bool = true,
         cameraInUse: Bool = false,
         micInUse: Bool = false,
-        frontmostBundleId: String? = nil,
+        runningBundleIds: Set<String> = [],
         focusMode: String? = nil,
         atHome: Bool = false
     ) {
@@ -137,7 +141,7 @@ public struct RawSignals: Equatable, Sendable {
         self.onConsole = onConsole
         self.cameraInUse = cameraInUse
         self.micInUse = micInUse
-        self.frontmostBundleId = frontmostBundleId
+        self.runningBundleIds = runningBundleIds
         self.focusMode = focusMode
         self.atHome = atHome
     }
@@ -148,9 +152,10 @@ public struct RawSignals: Equatable, Sendable {
 /// unit-testable without a live Mac.
 public enum PresenceSensing {
     /// Bundle ids treated as "a meeting is in progress" when the camera or mic
-    /// is in use AND the app is frontmost. Chrome/Edge cover Google Meet (a web
-    /// app has no distinct bundle id, so the browser stands in). Photo Booth /
-    /// Continuity Camera are deliberately ABSENT — camera-alone must not gate.
+    /// is in use AND the app is RUNNING (open, not necessarily frontmost).
+    /// Chrome/Edge cover Google Meet (a web app has no distinct bundle id, so the
+    /// browser stands in). Photo Booth / Continuity Camera are deliberately
+    /// ABSENT — camera-alone must not gate.
     public static let meetingBundleIds: Set<String> = [
         "us.zoom.xos",                       // Zoom
         "com.microsoft.teams",               // Microsoft Teams (classic)
@@ -175,13 +180,14 @@ public enum PresenceSensing {
         s.onConsole && !s.screenLocked && s.idleSeconds < activeIdleThreshold
     }
 
-    /// Meeting AND-gate (Q2): a meeting requires BOTH a live capture device
-    /// (camera OR mic) AND a known meeting app frontmost. Camera-alone (no
-    /// meeting app frontmost) is explicitly NOT a meeting.
+    /// Meeting AND-gate (Q2, loosened by meeting-detection-running-app-gate): a
+    /// meeting requires BOTH a live capture device (camera OR mic) AND a known
+    /// meeting app RUNNING (present in `runningBundleIds` — open, not necessarily
+    /// frontmost). Camera-alone (no meeting app running) is explicitly NOT a
+    /// meeting.
     public static func isMeeting(_ s: RawSignals) -> Bool {
         guard s.cameraInUse || s.micInUse else { return false }
-        guard let bundle = s.frontmostBundleId else { return false }
-        return meetingBundleIds.contains(bundle)
+        return !s.runningBundleIds.isDisjoint(with: meetingBundleIds)
     }
 
     /// Diff two snapshots into the delta to POST. Only fields whose *derived*
@@ -350,7 +356,7 @@ public final class PresenceObserver {
             onConsole: Self.isOnConsole(),
             cameraInUse: Self.isCameraInUse(),
             micInUse: Self.isMicInUse(),
-            frontmostBundleId: Self.frontmostBundleId(),
+            runningBundleIds: Self.runningBundleIds(),
             focusMode: Self.currentFocusMode(),
             atHome: knownHomeGatewayMAC.map { Self.currentGatewayMAC() == $0 } ?? false
         )
@@ -461,12 +467,14 @@ extension PresenceObserver {
         #endif
     }
 
-    /// Bundle id of the frontmost app (NSWorkspace). nil off macOS / when none.
-    static func frontmostBundleId() -> String? {
+    /// Bundle ids of every currently-running application (NSWorkspace). Empty
+    /// off macOS. A meeting app need only be present here (running), not
+    /// frontmost, to gate `isMeeting`.
+    static func runningBundleIds() -> Set<String> {
         #if canImport(AppKit) && os(macOS)
-        return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        return Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         #else
-        return nil
+        return []
         #endif
     }
 
