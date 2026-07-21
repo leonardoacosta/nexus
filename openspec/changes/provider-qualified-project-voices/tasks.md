@@ -6,7 +6,7 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] [P-3] Update the doc comment on `packages/db/src/schema/projectVoiceOverrides.ts` `voiceId`: value is now a qualified `provider:voice` string (bare = `elevenlabs` for backward compat). No migration — column type unchanged. [owner:db-engineer] [type:docs]
+- [x] [1.1] [P-3] Update the doc comment on `packages/db/src/schema/projectVoiceOverrides.ts` `voiceId`: value is now a qualified `provider:voice` string (bare = `elevenlabs` for backward compat). No migration — column type unchanged. [owner:db-engineer] [type:docs]
 
 ## API Batch
 
