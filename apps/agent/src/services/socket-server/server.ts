@@ -6,7 +6,7 @@
  * SocketCommands to the handlers supplied by the caller.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import { createLogger } from "@nexus/core/node";
 import type { Socket } from "bun";
 import type { SocketCommand, SocketResponse } from "../../types/socket-events";
@@ -191,6 +191,12 @@ export async function startSocketServer(
   });
 
   log.info({ path: socketPath }, "socket listener bound");
+
+  // Harden the socket file to 0600 — events are unauthenticated by design
+  // (chmod-agent-socket), so a shared-uid /tmp bind should not be
+  // world-connectable. Applied unconditionally on both the default and
+  // NEXUS_SOCKET-overridden path.
+  chmodSync(socketPath, 0o600);
 
   // Liveness flag — true once `Bun.listen` has returned (above) and accepting
   // new connections; flipped false by `stop()`. Read by
