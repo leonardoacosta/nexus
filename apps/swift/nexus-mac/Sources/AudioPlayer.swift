@@ -61,6 +61,13 @@ public final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// Spec: openspec/changes/airpods-tts-cancel.
     public var onPlaybackFinished: (() -> Void)?
 
+    /// Fired when `stop()` halts a clip that was actually in flight — never on
+    /// an idle stop (the replay button calls `stop()` unconditionally before
+    /// starting a row, and that must not read as a cancellation). TTSObserver
+    /// wires this to cancel its pending-speech queue.
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue.
+    public var onPlaybackStopped: (() -> Void)?
+
     /// The id of the notification row whose audio is currently playing, or
     /// `nil` when idle. Published so `NotificationReplayButton` can render its
     /// play/stop icon and detect a same-row re-tap. The notification-replay UI
@@ -166,6 +173,9 @@ public final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         player.stop()
         self.player = nil
         onFinish = nil
+        // A real in-flight halt — let the TTS pipeline drop its pending queue
+        // rather than wait on a finish signal that stop() never sends.
+        onPlaybackStopped?()
     }
 
     // MARK: - CoreAudio system-output volume (nx-lvyu9)

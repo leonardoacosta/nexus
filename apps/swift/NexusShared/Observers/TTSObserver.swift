@@ -109,6 +109,20 @@ public final class TTSObserver: ObservableObject {
     private var subscriptionTask: Task<Void, Never>?
     private var voiceEventTask: Task<Void, Never>?
 
+    /// Pending `tts` events awaiting their turn to speak, oldest first.
+    /// Policy: queue-and-play-sequentially — every `tts` event eventually
+    /// plays, in arrival order (tasks.md task 1.1, decided by:leo). Before
+    /// this, concurrent `handle()` calls (the aggregate client fans one SSE
+    /// consumer out per agent) each ran their own synth + `play()`, and each
+    /// new clip superseded the in-flight one mid-sentence.
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue.
+    private var pendingSpeech: [NotificationEvent] = []
+
+    /// True from the moment an event starts synthesising until its clip has
+    /// finished (or was stopped). Guards the queue — MainActor isolation makes
+    /// the check-then-set safe without extra locking.
+    private var isSpeaking = false
+
     /// Cached per-project voice id map (notifications-overhaul, task 3.3).
     /// Populated on `start()` via `client.fetchProjectVoices()` and
     /// refreshed when a `VoiceOverrideChanged` SSE frame arrives. Reads
@@ -168,8 +182,23 @@ public final class TTSObserver: ObservableObject {
         // Bridge the MP3 player's natural-finish callback to the grace window
         // so the session resigns ~2s after a clip ends with no further
         // activity. Idle conformers (test spies) leave this no-op.
-        self.audioPlayer?.onPlaybackFinished = { [weak nowPlaying] in
-            Task { @MainActor in nowPlaying?.noteClipEnded() }
+        //
+        // It is also the queue's advance trigger: a clip finishing is what
+        // releases the next pending `tts` event (tts-pipeline-stop-and-queue).
+        self.audioPlayer?.onPlaybackFinished = { [weak self, weak nowPlaying] in
+            Task { @MainActor in
+                nowPlaying?.noteClipEnded()
+                self?.advanceQueue()
+            }
+        }
+
+        // The mirror seam: a stop tap (replay row, AirPods press) halts the
+        // in-flight clip and never fires `onPlaybackFinished`, so without this
+        // the queue would wait forever on a signal that isn't coming. Stopping
+        // ends the burst — pending events are dropped, and crucially no queued
+        // clip starts as a side effect of the tap.
+        self.audioPlayer?.onPlaybackStopped = { [weak self] in
+            Task { @MainActor in self?.cancelQueue() }
         }
 
         // airpods-stt-command: wire the double-press STT gesture.
@@ -578,8 +607,72 @@ public final class TTSObserver: ObservableObject {
             )
             return
         }
-        await synthesise(event: event)
+        await enqueueSpeech(event)
     }
+
+    // MARK: - Playback queue (tts-pipeline-stop-and-queue, task 1.3)
+
+    /// Admit an event to the speech pipeline. When a clip is already speaking
+    /// the event is parked in arrival order and released by `advanceQueue()`;
+    /// otherwise it starts immediately. Returning promptly on the queued path
+    /// matters — `handle()` is awaited by the SSE consumer, so blocking here
+    /// would stall the whole notification stream behind audio playback.
+    private func enqueueSpeech(_ event: NotificationEvent) async {
+        guard !isSpeaking else {
+            pendingSpeech.append(event)
+            Self.logger.info(
+                "TTSObserver: queued tts event id=\(event.id.uuidString, privacy: .public) (depth=\(self.pendingSpeech.count, privacy: .public))"
+            )
+            return
+        }
+        isSpeaking = true
+        await speak(event)
+    }
+
+    /// Synthesise + start playback for one event. When an MP3 clip is now in
+    /// flight the queue advances from the player's finish callback; every other
+    /// outcome (system-speech fallback, no player, malformed data) has already
+    /// completed by the time this returns, so it advances inline.
+    private func speak(_ event: NotificationEvent) async {
+        let clipInFlight = await synthesise(event: event)
+        if !clipInFlight {
+            advanceQueue()
+        }
+    }
+
+    /// Release the next pending event, if any. Idempotent and safe to call for
+    /// a clip the queue never owned (a manual replay finishing also lands here
+    /// — the player's finish seam is shared) since an empty queue just clears
+    /// the speaking flag.
+    private func advanceQueue() {
+        isSpeaking = false
+        guard !pendingSpeech.isEmpty else { return }
+        let next = pendingSpeech.removeFirst()
+        isSpeaking = true
+        Self.logger.info(
+            "TTSObserver: dequeued tts event id=\(next.id.uuidString, privacy: .public) (remaining=\(self.pendingSpeech.count, privacy: .public))"
+        )
+        Task { @MainActor [weak self] in
+            await self?.speak(next)
+        }
+    }
+
+    /// Drop every pending event and clear the speaking flag — the user stopped
+    /// the clip, which ends the burst rather than skipping to the next one.
+    private func cancelQueue() {
+        let dropped = pendingSpeech.count
+        pendingSpeech.removeAll()
+        isSpeaking = false
+        if dropped > 0 {
+            Self.logger.info(
+                "TTSObserver: playback stopped — dropped \(dropped, privacy: .public) queued tts event(s)"
+            )
+        }
+    }
+
+    /// Test seams: synchronously observe the queue state for assertions.
+    internal var debugIsSpeaking: Bool { isSpeaking }
+    internal var debugPendingSpeechCount: Int { pendingSpeech.count }
 
     // MARK: - Body renderer (public for test reach)
 
@@ -805,7 +898,12 @@ public final class TTSObserver: ObservableObject {
         return .exhausted
     }
 
-    private func synthesise(event: NotificationEvent) async {
+    /// Returns `true` when an MP3 clip is now in flight and its completion will
+    /// arrive asynchronously via the player's finish/stop seams; `false` when
+    /// this event is already fully handled (system-speech fallback, no player
+    /// wired, or a playback failure). The queue uses this to decide whether to
+    /// advance now or wait for the callback.
+    private func synthesise(event: NotificationEvent) async -> Bool {
         let body = event.body
 
         // Acquire (or refresh) the Now-Playing session BEFORE playback so an
@@ -858,21 +956,32 @@ public final class TTSObserver: ObservableObject {
                 "TTSObserver: synth start (system-speech) — no providers configured"
             )
             await speakSystem(body: body)
-            return
+            return false
         }
 
         switch await Self.walkProviderChain(text: body, attempts: attempts) {
         case .played(_, let data):
-            playMP3(data: data)
+            return playMP3(data: data, id: event.id.uuidString)
         case .exhausted:
             Self.logger.error(
                 "TTSObserver: provider chain exhausted — falling back to AVSpeechSynthesizer"
             )
             await speakSystem(body: body)
+            return false
         }
     }
 
-    private func playMP3(data: Data) {
+    /// Start a pipeline clip and publish `id` as the player's currently-playing
+    /// identity, so the matching notification row renders `stop.circle` and its
+    /// tap halts this clip. Reuses the SAME `currentlyPlayingId` the manual
+    /// replay path sets rather than adding a parallel property: the row's
+    /// `isPlaying` is already keyed to it generically, and a pipeline clip and a
+    /// manual replay can never be in flight together (one shared player), so
+    /// there is no cross-talk to separate.
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue (tasks 1.2 / 1.4).
+    ///
+    /// Returns `true` when a clip is genuinely in flight — see `synthesise`.
+    private func playMP3(data: Data, id: String) -> Bool {
         guard let player = audioPlayer else {
             // No platform player wired (e.g. running in NexusSharedTests
             // host with no AudioPlayer extension). Fall back to system
@@ -880,16 +989,23 @@ public final class TTSObserver: ObservableObject {
             Self.logger.error(
                 "TTSObserver: audioPlayer not configured — falling back to system speech"
             )
-            return
+            return false
         }
         let ducking = resolveDucking()
         do {
             try player.play(mp3Data: data, ducking: ducking)
-            Self.logger.info("TTSObserver: audioPlayer.play succeeded")
+            // Publish AFTER a successful start (matching NotificationReplayButton's
+            // ordering) so a throwing play never leaves a stale stop icon on a row.
+            player.setCurrentlyPlaying(id: id)
+            Self.logger.info(
+                "TTSObserver: audioPlayer.play succeeded id=\(id, privacy: .public)"
+            )
+            return true
         } catch {
             Self.logger.error(
                 "TTSObserver: audioPlayer.play failed (\(String(describing: error), privacy: .public))"
             )
+            return false
         }
     }
 

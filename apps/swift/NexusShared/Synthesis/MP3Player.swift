@@ -54,6 +54,24 @@ public protocol MP3PlayerProtocol: AnyObject, Sendable {
     /// system-speech `waitForIdle()` path or never starts, which is harmless:
     /// the controller resigns on the next clip's acquire).
     var onPlaybackFinished: (() -> Void)? { get set }
+
+    /// Invoked when an in-flight clip is halted by `stop()` (NOT on natural
+    /// finish). The mirror of `onPlaybackFinished`: TTSObserver wires this to
+    /// cancel its pending-speech queue, so a stop tap ends the burst instead of
+    /// leaving the queue waiting on a finish signal that will never arrive.
+    /// Conformers that never surface a cancel signal leave the default no-op.
+    ///
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue.
+    var onPlaybackStopped: (() -> Void)? { get set }
+
+    /// Associate `id` with the clip currently playing, or clear it with `nil`.
+    /// Drives the notification row's play/stop icon — both the manual-replay
+    /// path and the TTS pipeline publish the id of the notification whose audio
+    /// is speaking, so a live pipeline clip has a working stop control.
+    /// Conformers with no observable playing-id leave the default no-op.
+    ///
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue.
+    func setCurrentlyPlaying(id: String?)
 }
 
 public extension MP3PlayerProtocol {
@@ -63,4 +81,13 @@ public extension MP3PlayerProtocol {
         get { nil }
         set { _ = newValue }
     }
+
+    /// Default no-op — see `onPlaybackFinished` above for the rationale.
+    var onPlaybackStopped: (() -> Void)? {
+        get { nil }
+        set { _ = newValue }
+    }
+
+    /// Default no-op for conformers with no published playing-id.
+    func setCurrentlyPlaying(id _: String?) {}
 }
