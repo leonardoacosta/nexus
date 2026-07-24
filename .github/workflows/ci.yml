@@ -7,7 +7,7 @@ name: CI
 #
 # ── GATES ARE BLOCKING ─────────────────────────────────────────────────────
 # All gates below (typecheck / lint / lint:sql-safety / test) are real,
-# blocking steps and green as of this change. `pnpm lint` is ratcheted to
+# blocking steps and green as of this change. `lint` is ratcheted to
 # `--max-warnings 0` per workspace so a newly introduced warning fails CI
 # instead of accumulating silently. Do NOT add `continue-on-error` — fix the
 # source instead.
@@ -33,15 +33,10 @@ jobs:
       # live-homelab Tailscale round-trips that need a real peer and fail in CI.
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
       - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
+      - name: Guard against a second lockfile
+        run: '! git ls-files | grep -E "pnpm-lock|yarn.lock|package-lock"'
+      - run: bun install --frozen-lockfile
       # `--wait` blocks until the compose pg_isready healthcheck reports healthy.
       - run: docker compose -f docker-compose.test.yml up -d --wait
       # Apply the schema to the fresh compose Postgres BEFORE any PG-backed test
@@ -50,11 +45,11 @@ jobs:
       # job-level POSTGRES_URL (same value the test step reads). Migration-based
       # ONLY (`db:migrate` = `bun ./src/migrate.ts`); NEVER `db:push`.
       - name: Apply DB schema
-        run: pnpm --filter @nexus/db db:migrate
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm lint:sql-safety
-      - run: pnpm test
+        run: bun run --filter=@nexus/db db:migrate
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run lint:sql-safety
+      - run: bun run test
       - if: always()
         run: docker compose -f docker-compose.test.yml down -v
 
