@@ -20,7 +20,7 @@
 # Injection seam (for tests): define a shell function named `tier_a_suite_cmd`
 # BEFORE calling run_tier_a_with_retry. It receives the log path as $1, MUST
 # tee combined stdout+stderr to it, and MUST return the suite's exit status.
-# If undefined, a default that runs `NEXUS_HEAVY_TESTS=1 pnpm test` from
+# If undefined, a default that runs `NEXUS_HEAVY_TESTS=1 bun test` from
 # $REPO_DIR is used (the production path).
 #
 # Configuration via env (all optional, sane defaults):
@@ -58,7 +58,7 @@ if ! declare -f tier_a_suite_cmd >/dev/null 2>&1; then
         # suite's exit status.
         local _log="$1"
         ( cd "${REPO_DIR:?REPO_DIR required for default tier_a_suite_cmd}" \
-            && NEXUS_HEAVY_TESTS=1 pnpm test ) >"$_log" 2>&1
+            && NEXUS_HEAVY_TESTS=1 bun test ) >"$_log" 2>&1
     }
 fi
 
