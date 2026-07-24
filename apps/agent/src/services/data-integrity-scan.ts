@@ -30,9 +30,34 @@ import { createLogger } from "@nexus/core/node";
 import type { Db, NewCronRun } from "@nexus/db";
 import { cronRuns, isNull, projects, sql } from "@nexus/db";
 import { lifecycleBus } from "./lifecycle-bus";
+import type { NotificationFiredPayload } from "./lifecycle-bus";
 import { registerSnapshotSource } from "./state-snapshot";
+import { getNotificationManager } from "../routes/notifications";
 
 const log = createLogger("agent:data-integrity-scan");
+
+/**
+ * Route a data-integrity notification through the shared
+ * `NotificationManager` singleton (`sendServiceNotification`) so the same
+ * meeting-hold/presence/quiet-hours gating HTTP-originated notifications get
+ * applies here too (route-service-notifications-through-manager). Falls back
+ * to the legacy direct `lifecycleBus.emit` when no manager is available yet
+ * or the manager pathway rejects — never drops a notification.
+ */
+function routeServiceNotification(payload: NotificationFiredPayload): void {
+  const manager = getNotificationManager();
+  if (!manager) {
+    lifecycleBus.emit("NotificationFired", payload);
+    return;
+  }
+  manager.sendServiceNotification(payload).catch((err) => {
+    log.warn(
+      { id: payload.id, err: err instanceof Error ? err.message : String(err) },
+      "data-integrity: sendServiceNotification failed — falling back to lifecycle bus",
+    );
+    lifecycleBus.emit("NotificationFired", payload);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -199,7 +224,7 @@ export function emitDataIntegrityNotification(
     `projects: ${findings.length} duplicate-identity group(s) found ` +
     `(${totalRows} row(s) total; e.g. ${sample}). Manual repair: ${MANUAL_REPAIR_COMMAND}.`;
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `data-integrity-${Date.now()}`,
     title: "Data integrity WARNING",
     body,
@@ -207,7 +232,7 @@ export function emitDataIntegrityNotification(
     message: body,
   });
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `data-integrity-tts-${Date.now()}`,
     title: "Data integrity WARNING",
     body,

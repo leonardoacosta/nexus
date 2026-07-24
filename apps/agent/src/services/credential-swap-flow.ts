@@ -36,6 +36,8 @@ import { emitAudit as defaultEmitAudit } from "../routes/credentials/shared";
 import type { CredentialAuditEntry } from "../routes/credentials/shared";
 import { lifecycleBus } from "./lifecycle-bus";
 import type { NotificationFiredPayload } from "./lifecycle-bus";
+import type { NotificationManager } from "../notifications/manager";
+import { getNotificationManager } from "../routes/notifications";
 
 const log = createLogger("agent:services:credential-swap-flow");
 
@@ -54,7 +56,15 @@ export interface PerformCredentialSwapOpts {
 
   // ── Test seams (default to the real singletons in production) ──────────────
   now?: () => Date;
+  /**
+   * Notification sink. Defaults to routing through the shared
+   * `NotificationManager` singleton (`sendServiceNotification`) — see
+   * route-service-notifications-through-manager — which falls back to
+   * `lifecycleBus.emit("NotificationFired", …)` when no manager is available.
+   */
   notify?: (payload: NotificationFiredPayload) => void;
+  /** Override the manager the default `notify` sink resolves — `null` forces the legacy direct-emit path in tests. */
+  manager?: NotificationManager | null;
   audit?: (entry: CredentialAuditEntry) => void;
 }
 
@@ -84,7 +94,22 @@ export async function performCredentialSwap(
   const { db, pool, targetId, reason, sessionId } = opts;
   const now = opts.now ?? (() => new Date());
   const notify =
-    opts.notify ?? ((p: NotificationFiredPayload) => lifecycleBus.emit("NotificationFired", p));
+    opts.notify ??
+    ((p: NotificationFiredPayload) => {
+      const manager =
+        opts.manager !== undefined ? opts.manager : getNotificationManager();
+      if (!manager) {
+        lifecycleBus.emit("NotificationFired", p);
+        return;
+      }
+      manager.sendServiceNotification(p).catch((err) => {
+        log.warn(
+          { id: p.id, err: err instanceof Error ? err.message : String(err) },
+          "credential-swap-flow: sendServiceNotification failed — falling back to lifecycle bus",
+        );
+        lifecycleBus.emit("NotificationFired", p);
+      });
+    });
   const audit = opts.audit ?? defaultEmitAudit;
 
   const result = await pool.manualSwap(targetId);

@@ -44,6 +44,8 @@ import { lifecycleBus } from "./lifecycle-bus";
 import type { NotificationFiredPayload } from "./lifecycle-bus";
 import { registerSnapshotSource } from "./state-snapshot";
 import { performCredentialSwap } from "./credential-swap-flow";
+import type { NotificationManager } from "../notifications/manager";
+import { getNotificationManager } from "../routes/notifications";
 
 const log = createLogger("agent:services:proactive-swap");
 
@@ -79,8 +81,21 @@ export interface EvaluateProactiveSwapOpts {
   now?: () => Date;
   /** Active-credential fingerprint resolver (defaults to the watcher snapshot). */
   activeFingerprint?: () => string | null;
-  /** Notification sink (defaults to `lifecycleBus.emit("NotificationFired", …)`). */
+  /**
+   * Notification sink. Defaults to routing through `manager` below
+   * (`sendServiceNotification`), which falls back to
+   * `lifecycleBus.emit("NotificationFired", …)` when no manager is available.
+   */
   notify?: (payload: NotificationFiredPayload) => void;
+  /**
+   * Notification manager used by the default `notify` sink to route through
+   * the same meeting-hold/presence/quiet-hours gating HTTP-originated
+   * notifications get (route-service-notifications-through-manager).
+   * Defaults to the shared singleton (`getNotificationManager()`) in
+   * production; pass `null` explicitly (or override `notify`) to force the
+   * legacy direct-emit path in tests.
+   */
+  manager?: NotificationManager | null;
   /** Audit sink (defaults to the credential audit logger). */
   audit?: (entry: CredentialAuditEntry) => void;
 }
@@ -258,7 +273,22 @@ export async function evaluateProactiveSwap(
   const { db, pool, swapTracker } = opts;
   const now = opts.now ?? (() => new Date());
   const notify =
-    opts.notify ?? ((p: NotificationFiredPayload) => lifecycleBus.emit("NotificationFired", p));
+    opts.notify ??
+    ((p: NotificationFiredPayload) => {
+      const manager =
+        opts.manager !== undefined ? opts.manager : getNotificationManager();
+      if (!manager) {
+        lifecycleBus.emit("NotificationFired", p);
+        return;
+      }
+      manager.sendServiceNotification(p).catch((err) => {
+        log.warn(
+          { id: p.id, err: err instanceof Error ? err.message : String(err) },
+          "proactive-swap: sendServiceNotification failed — falling back to lifecycle bus",
+        );
+        lifecycleBus.emit("NotificationFired", p);
+      });
+    });
   const audit = opts.audit ?? defaultEmitAudit;
   const activeFingerprint =
     opts.activeFingerprint ?? (() => getActiveCredentialSnapshot().fingerprint);

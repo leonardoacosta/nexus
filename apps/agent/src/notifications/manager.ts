@@ -22,6 +22,7 @@ import {
   decidePresenceRoute,
 } from "./router";
 import { lifecycleBus } from "../services/lifecycle-bus";
+import type { NotificationFiredPayload } from "../services/lifecycle-bus";
 import { writeAudio } from "./audio-store";
 import type { PresenceContext } from "./presence-context";
 import type { HeldQueue } from "./held-queue";
@@ -354,6 +355,44 @@ export class NotificationManager {
     // Deliver now
     await this.deliverNotification(row, extras);
     return row;
+  }
+
+  /**
+   * Send a service-originated notification (no HTTP caller — proactive-swap,
+   * reaper, deploy-staleness, data-integrity-scan, credential-swap-flow)
+   * through the same `send()` pipeline HTTP-originated notifications get, so
+   * meeting-hold/presence/quiet-hours/rate-throttle gating applies uniformly
+   * (route-service-notifications-through-manager, task 1.1).
+   *
+   * Accepts the minimal id/title/body/channel shape the bypass call sites
+   * already build. Defaults absent `NotificationRow` columns to match
+   * today's bypass behavior: no `project` unless the caller supplies one,
+   * `agentId: null`, `priority: "normal"` — project-less rows are never
+   * rate-throttled regardless of priority (`send()`'s existing
+   * `row.project &&` guard above, `manager.ts:235`).
+   */
+  async sendServiceNotification(
+    payload: NotificationFiredPayload,
+  ): Promise<NotificationRow> {
+    return this.send(
+      {
+        id: payload.id,
+        channel: payload.channel,
+        title: payload.title,
+        body: payload.body ?? payload.message ?? "",
+        project: payload.project ?? null,
+        agentId: null,
+        priority: "normal",
+        createdAt: new Date(),
+      },
+      {
+        items: payload.items,
+        logPath: payload.logPath,
+        sessionName: payload.sessionName,
+        sessionId: payload.sessionId,
+        url: payload.url,
+      },
+    );
   }
 
   /** Flush all buffered (queued) notifications — called when meeting ends.

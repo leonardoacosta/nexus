@@ -26,10 +26,35 @@ import type { Db, NewCronRun } from "@nexus/db";
 import { cronRuns } from "@nexus/db";
 import { execText } from "../utils/exec";
 import { lifecycleBus } from "./lifecycle-bus";
+import type { NotificationFiredPayload } from "./lifecycle-bus";
 import { resolveRepoRoot } from "../routes/wave-plans";
 import { registerSnapshotSource } from "./state-snapshot";
+import { getNotificationManager } from "../routes/notifications";
 
 const log = createLogger("agent:deploy-staleness");
+
+/**
+ * Route a deploy-staleness notification through the shared
+ * `NotificationManager` singleton (`sendServiceNotification`) so the same
+ * meeting-hold/presence/quiet-hours gating HTTP-originated notifications get
+ * applies here too (route-service-notifications-through-manager). Falls back
+ * to the legacy direct `lifecycleBus.emit` when no manager is available yet
+ * or the manager pathway rejects — never drops a notification.
+ */
+function routeServiceNotification(payload: NotificationFiredPayload): void {
+  const manager = getNotificationManager();
+  if (!manager) {
+    lifecycleBus.emit("NotificationFired", payload);
+    return;
+  }
+  manager.sendServiceNotification(payload).catch((err) => {
+    log.warn(
+      { id: payload.id, err: err instanceof Error ? err.message : String(err) },
+      "deploy-staleness: sendServiceNotification failed — falling back to lifecycle bus",
+    );
+    lifecycleBus.emit("NotificationFired", payload);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -390,7 +415,7 @@ export function emitDeployStalenessNotification(
 
   const body = `Remote deploy drift — ${items.join("; ")}.`;
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `deploy-staleness-${Date.now()}`,
     title: "Deploy staleness WARNING",
     body,
@@ -399,7 +424,7 @@ export function emitDeployStalenessNotification(
     items,
   });
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `deploy-staleness-tts-${Date.now()}`,
     title: "Deploy staleness WARNING",
     body,

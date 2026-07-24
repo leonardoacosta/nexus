@@ -31,9 +31,35 @@ import { createLogger, safeSpawn } from "@nexus/core/node";
 import type { Db, NewBloatRadar, NewCronRun } from "@nexus/db";
 import { bloatRadar, cronRuns } from "@nexus/db";
 import { lifecycleBus } from "./lifecycle-bus";
+import type { NotificationFiredPayload } from "./lifecycle-bus";
 import { registerSnapshotSource } from "./state-snapshot";
+import { getNotificationManager } from "../routes/notifications";
 
 const log = createLogger("agent:reaper-job");
+
+/**
+ * Route a reaper-originated notification through the shared
+ * `NotificationManager` singleton (`sendServiceNotification`) so the same
+ * meeting-hold/presence/quiet-hours gating HTTP-originated notifications get
+ * applies here too (route-service-notifications-through-manager). Falls back
+ * to the legacy direct `lifecycleBus.emit` when no manager is available yet
+ * (startup window) or the manager pathway rejects — never drops a
+ * notification.
+ */
+function routeServiceNotification(payload: NotificationFiredPayload): void {
+  const manager = getNotificationManager();
+  if (!manager) {
+    lifecycleBus.emit("NotificationFired", payload);
+    return;
+  }
+  manager.sendServiceNotification(payload).catch((err) => {
+    log.warn(
+      { id: payload.id, err: err instanceof Error ? err.message : String(err) },
+      "reaper: sendServiceNotification failed — falling back to lifecycle bus",
+    );
+    lifecycleBus.emit("NotificationFired", payload);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -447,7 +473,7 @@ export function emitReaperNotifications(result: ReaperResult): void {
     (f) => `${f.label}: ${humanBytes(f.sizeBytes)} (path: ${f.path})`,
   );
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `reaper-${Date.now()}`,
     title: "Weekly cleanup",
     body,
@@ -464,7 +490,7 @@ export function emitReaperNotifications(result: ReaperResult): void {
     const bloatSummary = result.bloatFindings
       .map((f) => `${f.label} ${humanBytes(f.sizeBytes)}`)
       .join("; ");
-    lifecycleBus.emit("NotificationFired", {
+    routeServiceNotification({
       id: `reaper-bloat-${Date.now()}`,
       title: "Disk bloat warning",
       body: `Disk bloat warning — ${bloatSummary}. Not auto-cleaned; needs your call.`,
@@ -594,7 +620,7 @@ export function emitStaleHeartbeatNotification(
       ? "Reaper has never succeeded — has the cron service been running?"
       : `Reaper last succeeded ${lastSeen} (>8 days ago) — investigate before the next disk-fill incident.`;
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `reaper-stale-${Date.now()}`,
     title: "Reaper stale-heartbeat WARNING",
     body,
@@ -602,7 +628,7 @@ export function emitStaleHeartbeatNotification(
     message: body,
   });
 
-  lifecycleBus.emit("NotificationFired", {
+  routeServiceNotification({
     id: `reaper-stale-tts-${Date.now()}`,
     title: "Reaper stale-heartbeat WARNING",
     body,
