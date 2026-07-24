@@ -18,4 +18,4 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: push branch, confirm the CI run is green with the ratchet active; paste the run summary. `grep -n 'PRE-EXISTING RED' .github/workflows/ci.yml` returns nothing. [type:testing] [beads:nx-rz3q2]
+- [x] 2.1 Verify: push branch, confirm the CI run is green with the ratchet active; paste the run summary. `grep -n 'PRE-EXISTING RED' .github/workflows/ci.yml` returns nothing. [type:testing] [beads:nx-rz3q2]
