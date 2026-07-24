@@ -1,4 +1,3 @@
-import { drizzle } from "drizzle-orm/postgres-js";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { MigrationMeta } from "drizzle-orm/migrator";
 import postgres from "postgres";

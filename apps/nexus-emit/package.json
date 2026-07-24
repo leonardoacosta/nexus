@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --compile --outfile nexus-emit",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {},

@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { trace, context, ROOT_CONTEXT } from "@opentelemetry/api";
+import { context, ROOT_CONTEXT } from "@opentelemetry/api";
 import type { Context, ContextManager } from "@opentelemetry/api";
 import {
   NodeTracerProvider,

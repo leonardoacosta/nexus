@@ -77,7 +77,6 @@ export class UnsafeArgError extends Error {
 // ---------------------------------------------------------------------------
 
 /** Characters that can introduce shell injection when concatenated blindly. */
-// eslint-disable-next-line no-control-regex
 const SHELL_META = /[;&|$`\n\r]/;
 
 /**

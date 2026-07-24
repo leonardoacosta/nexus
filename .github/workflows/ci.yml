@@ -5,18 +5,12 @@ name: CI
 # depends on any individual contributor's OS or git-hook state. Complements the
 # local pre-push hook (deploy/hooks.d/pre-push/01-deploy); does not replace it.
 #
-# ── PRE-EXISTING RED GATES (read before treating this as blocking) ────────────
-# As of the commit that adds this workflow, several gates are RED at base for
-# pre-existing reasons unrelated to this file:
-#   - `pnpm typecheck`: @nexus/emit (bun-types), apps/agent notifications/*.test.ts,
-#     server-websocket.ts
-#   - `pnpm lint`: @nexus/web `next lint` is broken
-#   - `pnpm lint:sql-safety`: red until plans/006 (green sql-safety guard) merges
-# This workflow runs those commands as REAL, blocking steps on purpose — it does
-# NOT silently make the gate non-blocking. But that means the first runs WILL be
-# red. Maintainer action required: fix the pre-existing failures (or temporarily
-# scope the offending packages out) so this gate becomes truly green-blocking.
-# Do NOT add `continue-on-error` or drop steps to force green — fix the source.
+# ── GATES ARE BLOCKING ─────────────────────────────────────────────────────
+# All gates below (typecheck / lint / lint:sql-safety / test) are real,
+# blocking steps and green as of this change. `pnpm lint` is ratcheted to
+# `--max-warnings 0` per workspace so a newly introduced warning fails CI
+# instead of accumulating silently. Do NOT add `continue-on-error` — fix the
+# source instead.
 
 on:
   push:

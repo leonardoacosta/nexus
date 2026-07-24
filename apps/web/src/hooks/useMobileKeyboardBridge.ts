@@ -29,7 +29,7 @@
  */
 
 /** Map a `beforeinput` edit intent to the VT byte sequence the PTY expects. */
-function inputTypeToBytes(inputType: string, data: string | null): string | null {
+function inputTypeToBytes(inputType: string, _data: string | null): string | null {
   switch (inputType) {
     case "insertLineBreak":
     case "insertParagraph":

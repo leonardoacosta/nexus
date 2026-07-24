@@ -10,7 +10,7 @@
     "dev": "next dev --hostname 0.0.0.0 --port 7402",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 7402",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

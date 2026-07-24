@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile nexus-statusline",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "test": "bun test src/index.test.ts",
     "typecheck": "tsc --noEmit"
   },

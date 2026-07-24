@@ -183,9 +183,6 @@ export function getLocalAgentUrl(): string {
     const tomlPath = join(homedir(), ".config/nexus/agents.toml");
     const content = readFileSync(tomlPath, "utf-8");
     // Find the first [[agents]] block with name matching self_name or "localhost"
-    const selfMatch = content.match(/^self_name\s*=\s*"([^"]+)"/m);
-    const selfName = selfMatch?.[1] ?? "localhost";
-
     // Find port for local agent (first agent block, or matching self_name)
     const portMatch = content.match(/port\s*=\s*(\d+)/);
     const port = portMatch?.[1] ?? "7400";

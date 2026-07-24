@@ -86,7 +86,6 @@ async function listSessionNames(): Promise<string[]> {
 
 beforeAll(() => {
   if (!TMUX_AVAILABLE) {
-    // eslint-disable-next-line no-console
     console.warn("safe-spawn.integration.test.ts: tmux not found on PATH — skipping suite");
   }
 });
