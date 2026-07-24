@@ -25,5 +25,5 @@ synth-latency window to synthesize and start playback with no coordination betwe
 - **AND** a second `tts` event is received before it finishes
 - **WHEN** the second event is handled
 - **THEN** its synthesis and playback are deferred until the first clip's `onPlaybackFinished`
-  fires (or the event is deliberately dropped per the queue-policy decision in tasks.md — exactly
-  one of these two behaviors applies, never an uncoordinated race)
+  fires, then it plays in full (queue-and-play-sequentially — decided in tasks.md task 1.1,
+  by:leo) — never an uncoordinated race with the first clip

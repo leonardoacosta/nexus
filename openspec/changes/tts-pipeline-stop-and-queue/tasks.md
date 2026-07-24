@@ -8,9 +8,10 @@ stack: t3
 
 ## UI Batch
 
-- [ ] 1.1 [user] DECISION: back-to-back `tts` event policy — queue-and-play-sequentially, or drop-and-log the second when one is already in flight? searched: `TTSObserver.handle()`, `AudioPlayer.swift`, `MP3Player.swift` — no existing queue/drop primitive anywhere in the pipeline; this is a genuine new architectural choice, not a documented pattern being missed. [type:config] [beads:nx-3l0c3]
+- [x] 1.1 [user] DECISION: back-to-back `tts` event policy — queue-and-play-sequentially, or drop-and-log the second when one is already in flight? searched: `TTSObserver.handle()`, `AudioPlayer.swift`, `MP3Player.swift` — no existing queue/drop primitive anywhere in the pipeline; this is a genuine new architectural choice, not a documented pattern being missed. [type:config] [beads:nx-3l0c3]
   - Option 1: Queue-and-play-sequentially — every `tts` event eventually plays, in arrival order; simplest mental model, but a burst of N notifications means N clips play back-to-back with no user control to skip ahead other than the new stop button.
   - Option 2: Drop-and-log the second — only the newest pending event survives when one is already in flight; each notification still gets `postBanner()`'s visual/desktop delivery, but a lower-priority in-flight clip can lose its audio to a later one. Matches `MP3Player.swift`'s existing "most-recent notification wins" doc comment.
+  - **Decision (by:leo): Option 1 — Queue-and-play-sequentially.**
 - [ ] 1.2 Give pipeline playback a "currently playing" identity: either pass the event id into `playMP3()` -> `AudioPlayer.play()` and reuse `setCurrentlyPlaying(id:)`, or add a new dedicated published property if reusing the replay-button field creates cross-talk between a live pipeline clip and a manual replay tap. [type:ui] [beads:nx-8jx34]
   - touches: `apps/swift/NexusShared/Observers/TTSObserver.swift`, `apps/swift/nexus-mac/Sources/AudioPlayer.swift`
 - [ ] 1.3 Implement the queue/drop policy chosen in 1.1 in `TTSObserver.handle()`/`synthesise()`. [type:ui] [beads:nx-cc3u3]
