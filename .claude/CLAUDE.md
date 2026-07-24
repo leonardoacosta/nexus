@@ -6,7 +6,7 @@
 
 - **Name**: Nexus
 - **Code**: nx
-- **Type**: pnpm + Bun monorepo (agent + statusline + Swift apps + shared packages)
+- **Type**: Bun monorepo (agent + statusline + Swift apps + shared packages)
 - **Runtime**: Bun for the agent and Node helpers; Swift for the dashboard suite
 - **Deployment**: systemd user unit (Linux), launchd user agent (macOS); Swift dashboard ships as Nexus.app
 - **Secrets**: Tailscale ACLs (no token management needed)
@@ -85,7 +85,7 @@ history.
 | bun | Agent runtime + build (`bun build --compile`) |
 | pino | Structured logging across the agent |
 | postgres + drizzle-orm | Persistence (`packages/db`) — sessions, hooks, notifications, schema drift. Migrated from SQLite on 2026-04-03 (commit b0061761). |
-| drizzle-kit | Schema migrations — `pnpm --filter @nexus/db db:generate` (commit the migration); deploy applies via `db:migrate`. NEVER `db:push`. |
+| drizzle-kit | Schema migrations — `bun run --filter @nexus/db db:generate` (commit the migration); deploy applies via `db:migrate`. NEVER `db:push`. |
 | xcodegen | Generates `apps/swift/nexus.xcodeproj` from `project.yml` |
 | ratatui | (legacy CLI dashboard, retired) |
 
@@ -99,7 +99,7 @@ history.
 | Database | `nexus` — multi-tenant container also hosts `cortex`, `immich`, `nova` |
 | User | `cortex` (shared role; schemas isolated by DB) |
 | Env var | `POSTGRES_URL` — see `deploy/secrets.env.example` for canonical form |
-| Migrations | Migration-based ONLY: edit schema → `pnpm --filter @nexus/db db:generate` → commit the `.sql` migration → the **deploy** applies it via `pnpm --filter @nexus/db db:migrate` against `POSTGRES_URL`. **NEVER `db:push`** (state-based live-diff: skips the migrations journal, can silently drop columns, collides with `db:migrate` replay → "already exists" drift — the nx-vtzmd incident, 2026-06-20). Test against a throwaway/local DB with `db:migrate`, never `db:push` on the shared homelab DB. |
+| Migrations | Migration-based ONLY: edit schema → `bun run --filter @nexus/db db:generate` → commit the `.sql` migration → the **deploy** applies it via `bun run --filter @nexus/db db:migrate` against `POSTGRES_URL`. **NEVER `db:push`** (state-based live-diff: skips the migrations journal, can silently drop columns, collides with `db:migrate` replay → "already exists" drift — the nx-vtzmd incident, 2026-06-20). Test against a throwaway/local DB with `db:migrate`, never `db:push` on the shared homelab DB. |
 | Schema boundary | See `deploy/POSTGRES_SCHEMA_MAP.md` — Nexus writes ONLY to `nexus` DB |
 
 > **Anti-drift rule**: Homelab `~/.env` MUST match `deploy/secrets.env.example` for the `POSTGRES_URL` database segment. The 2026-05-26 outage (`nx-dbame`) was caused by `.env` silently drifting from `/nexus` to `/cortex`. `deploy/install.sh` warns on drift at install time; the agent's startup smoke test refuses to listen on :7400 if the schema is missing.
@@ -108,7 +108,7 @@ history.
 
 | Command | Purpose |
 | ------- | ------- |
-| `pnpm install` | Install workspace deps |
+| `bun install` | Install workspace deps |
 | `bun run --filter @nexus/agent build` | Build agent binary |
 | `bun run --filter @nexus/agent dev` | Run agent locally with hot reload |
 | `cd apps/swift && xcodegen generate` | Regenerate Xcode project |

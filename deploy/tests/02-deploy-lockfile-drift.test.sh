@@ -1,21 +1,15 @@
 #!/usr/bin/env bash
 #
-# Self-test for deploy/hooks.d/post-merge/02-deploy lockfile-drift recovery
-# (bd:nx-zpbqi / task 4.6).
+# Self-test for deploy/hooks.d/post-merge/02-deploy lockfile-drift handling
+# (bd:nx-zpbqi origin / bd:nx-pt24w contract update via converge-package-manager).
 #
-# Proves the frozen-install recovery branch: when `bun install --frozen-lockfile`
-# fails (committed bun.lock has drifted from what bun resolves), the hook must
-#   1. attempt a non-frozen `bun install` to refresh node_modules, and
-#   2. surface an ACTIONABLE, non-silent alert ("UPSTREAM ACTION REQUIRED —
-#      regenerate + commit bun.lock") rather than leaving the agent on stale deps
-#      or failing silently.
-#
-# The hook is driven end-to-end inside an isolated temp git repo with a `bun`
-# stub on PATH that fails the frozen install, succeeds the non-frozen install,
-# then fails `run build` — a deliberate, SAFE stop point that halts the hook at
-# `fail "agent build failed"` BEFORE it reaches `systemctl --user` (which would
-# touch the real host). The recovery branch runs to completion first, so its
-# actionable-alert output is observable.
+# converge-package-manager (nx-4vuh1) removed the non-frozen auto-recovery
+# branch: CI now carries a second-lockfile guard and pnpm is gone, so a
+# frozen-install failure means bun.lock genuinely drifted from what CI
+# validated — that should never reach deploy. The hook must now HARD FAIL
+# immediately on `bun install --frozen-lockfile` failure: no non-frozen
+# retry, no `git checkout -- bun.lock`, no socat alert, and it must never
+# reach the build step or systemctl.
 
 set -euo pipefail
 
@@ -33,7 +27,7 @@ trap cleanup EXIT
 FAKE_HOME="$WORK/home"
 mkdir -p "$FAKE_HOME"
 
-# ── bun stub: frozen install FAILS, non-frozen SUCCEEDS, build FAILS ────────
+# ── bun stub: frozen install FAILS (drift). Anything else should never run. ─
 STUB_BIN="$WORK/bin"
 mkdir -p "$STUB_BIN"
 BUN_LOG="$WORK/bun-calls.log"
@@ -42,15 +36,13 @@ cat > "$STUB_BIN/bun" <<EOF
 echo "bun \$*" >> "$BUN_LOG"
 case "\$*" in
   "install --frozen-lockfile") exit 1 ;;   # simulate lockfile drift
-  "install")                   exit 0 ;;   # non-frozen recovery succeeds
-  "run build")                 exit 1 ;;   # safe stop point (before systemctl)
+  "run build")                 exit 1 ;;   # would-be safe stop point — must not be reached
   *)                           exit 0 ;;
 esac
 EOF
 chmod +x "$STUB_BIN/bun"
 
-# Defensive stub: systemctl must never run against the real host even if the
-# hook somehow reaches it (it should not — build fails first).
+# Defensive stub: systemctl must never run against the real host.
 cat > "$STUB_BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "REFUSED: systemctl invoked in test" >&2
@@ -58,9 +50,16 @@ exit 97
 EOF
 chmod +x "$STUB_BIN/systemctl"
 
-# ── Temp git repo (apps/agent present so the build `cd` succeeds) ───────────
+# ── Temp git repo (apps/agent present so a would-be build `cd` would succeed) ─
+# deploy/lib/*.sh is copied in because the hook sources remote-agents.sh +
+# deploy-retry.sh via `$REPO_DIR/deploy/lib/...` (REPO_DIR = git toplevel of
+# wherever it runs) BEFORE the frozen-install step even runs — without this,
+# sourcing fails first and the drift path under test is never reached. This
+# gap predates converge-package-manager (introduced by 8a5b77f1, 2026-07-16)
+# and is fixed here as part of this test's update, not carried over broken.
 REPO="$WORK/repo"
-mkdir -p "$REPO/apps/agent"
+mkdir -p "$REPO/apps/agent" "$REPO/deploy/lib"
+cp "$HERE/../lib/remote-agents.sh" "$HERE/../lib/deploy-retry.sh" "$REPO/deploy/lib/"
 (
   cd "$REPO"
   git init -q
@@ -85,24 +84,33 @@ echo "── bun calls ───────────────────
 cat "$BUN_LOG" 2>/dev/null || echo "(none)"
 echo "────────────────────────────────────────────────────"
 
-# The frozen install must have been attempted AND the non-frozen recovery too.
+# The frozen install must have been attempted.
 grep -q "install --frozen-lockfile" "$BUN_LOG" || fail "frozen-lockfile install was never attempted"
-grep -qx "bun install" "$BUN_LOG" || fail "non-frozen recovery install was never attempted"
 
-# Actionable, non-silent alert must be surfaced.
-printf '%s' "$OUT" | grep -qi "frozen-lockfile install failed" \
-  || fail "expected the frozen-lockfile-drift warning, got:\n$OUT"
+# No non-frozen recovery retry — that branch is gone.
+grep -qx "bun install" "$BUN_LOG" && fail "non-frozen recovery install ran, but the recovery branch was removed"
+
+# Hook must exit non-zero and hard-fail with an actionable message.
+[[ "$CODE" -ne 0 ]] || fail "hook exited 0 on lockfile drift — expected a hard failure"
+printf '%s' "$OUT" | grep -qi "frozen-lockfile failed" \
+  || fail "expected the hard-fail lockfile-drift message, got:\n$OUT"
+printf '%s' "$OUT" | grep -qi "regenerate locally" \
+  || fail "expected actionable regenerate-locally guidance, got:\n$OUT"
+
+# No silent-recovery language should ever appear again.
 printf '%s' "$OUT" | grep -qi "recovery succeeded" \
-  || fail "expected recovery-succeeded signal, got:\n$OUT"
+  && fail "hook still reports 'recovery succeeded' — recovery branch should be gone"
 printf '%s' "$OUT" | grep -qi "UPSTREAM ACTION REQUIRED" \
-  || fail "expected the actionable 'UPSTREAM ACTION REQUIRED' alert, got:\n$OUT"
+  && fail "hook still emits the old recovery alert — recovery branch should be gone"
 
-# The hook must NOT silently continue to a successful deploy on drift+build-fail.
+# The hook must NOT reach the build step or a successful deploy.
+grep -q "run build" "$BUN_LOG" \
+  && fail "build step ran despite frozen-install failure — hook did not stop early"
 printf '%s' "$OUT" | grep -qi "deploy complete" \
-  && fail "hook reported 'deploy complete' despite a failed build — should have stopped"
+  && fail "hook reported 'deploy complete' despite a failed frozen install"
 
 # And it must never have reached systemctl.
 printf '%s' "$OUT" | grep -q "REFUSED: systemctl" \
-  && fail "hook reached systemctl — build-fail stop point did not hold"
+  && fail "hook reached systemctl — hard-fail stop point did not hold"
 
-echo "PASS: 02-deploy recovers from lockfile drift and surfaces an actionable upstream alert"
+echo "PASS: 02-deploy hard-fails immediately on lockfile drift (no silent recovery)"

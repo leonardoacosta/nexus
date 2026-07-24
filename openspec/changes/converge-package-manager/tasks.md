@@ -18,11 +18,11 @@ stack: t3
   - touches: `.github/workflows/ci.yml`
 - [x] 1.4 Add the second-lockfile CI guard step: `run: '! git ls-files | grep -E "pnpm-lock|yarn.lock|package-lock"'`. [type:config] [beads:nx-1mkct]
   - touches: `.github/workflows/ci.yml`
-- [ ] 1.5 ONLY after 1.3/1.4 are observed green in CI — `deploy/hooks.d/post-merge/02-deploy`: remove the drift-recovery branch (lines 61-76 at base — the non-frozen retry, `git checkout -- bun.lock`, socat alert). Frozen-install failure becomes a hard `fail` with a clear message. [type:api] [beads:nx-4vuh1]
+- [x] 1.5 ONLY after 1.3/1.4 are observed green in CI — `deploy/hooks.d/post-merge/02-deploy`: remove the drift-recovery branch (lines 61-76 at base — the non-frozen retry, `git checkout -- bun.lock`, socat alert). Frozen-install failure becomes a hard `fail` with a clear message. [type:api] [beads:nx-4vuh1]
   - touches: `deploy/hooks.d/post-merge/02-deploy`
-- [ ] 1.6 Update `deploy/tests/02-deploy-lockfile-drift.test.sh` to assert the NEW contract (drift → hard fail, no silent recovery) or retire it with a note if the scenario is no longer constructible. [type:testing] [beads:nx-pt24w]
+- [x] 1.6 Update `deploy/tests/02-deploy-lockfile-drift.test.sh` to assert the NEW contract (drift → hard fail, no silent recovery) or retire it with a note if the scenario is no longer constructible. [type:testing] [beads:nx-pt24w]
   - touches: `deploy/tests/02-deploy-lockfile-drift.test.sh`
-- [ ] 1.7 Docs: README.md Quick Start + `.claude/CLAUDE.md` Build/Run table — `pnpm install` → `bun install`; `pnpm --filter @nexus/db db:generate` → verified bun equivalent (confirm drizzle-kit runs under `bunx` first). Grep for remaining live `pnpm ` references (excluding openspec/archive, plans/, docs/ history) and update. [type:docs] [beads:nx-9ea78]
+- [x] 1.7 Docs: README.md Quick Start + `.claude/CLAUDE.md` Build/Run table — `pnpm install` → `bun install`; `pnpm --filter @nexus/db db:generate` → verified bun equivalent (confirm drizzle-kit runs under `bunx` first). Grep for remaining live `pnpm ` references (excluding openspec/archive, plans/, docs/ history) and update. [type:docs] [beads:nx-9ea78]
   - touches: `README.md`, `.claude/CLAUDE.md`
 
 ## E2E Batch

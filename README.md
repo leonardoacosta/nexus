@@ -32,7 +32,7 @@ from any client.
          Connected via Tailscale MagicDNS
 ```
 
-Monorepo layout — pnpm workspace with Bun runtime + Swift dashboard suite:
+Monorepo layout — bun workspace with Bun runtime + Swift dashboard suite:
 
 | Package / App                    | Purpose                                                                |
 | -------------------------------- | ---------------------------------------------------------------------- |
@@ -63,8 +63,7 @@ diagram and migration history.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.1 (agent runtime + build)
-- `pnpm` (workspace install)
+- [Bun](https://bun.sh) ≥ 1.1 (agent runtime + build + workspace install)
 - `tmux` (for session attach and managed sessions)
 - [Tailscale](https://tailscale.com) (for cross-machine connectivity)
 - macOS only: [XcodeGen](https://github.com/yonaskolb/XcodeGen) + Xcode CLT (for Swift dashboards)
@@ -73,7 +72,7 @@ diagram and migration history.
 
 ```bash
 # Install workspace deps
-pnpm install
+bun install
 
 # Configure agents
 mkdir -p ~/.config/nexus
